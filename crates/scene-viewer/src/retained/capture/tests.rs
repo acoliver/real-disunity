@@ -311,9 +311,15 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
     };
     let scene = super::super::statistics::SceneStatistics {
         terrain_pages: pages,
-        meshes: super::super::statistics::DrawCount {
-            calls: 2,
-            instances: 3,
+        passes: worldrunner_render_scene::draw::PassDrawStatistics {
+            opaque_objects: super::super::statistics::ObjectDraws {
+                meshes: super::super::statistics::DrawCount {
+                    calls: 2,
+                    instances: 3,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
         },
         decals_visible: 1,
         decals_total: 4,

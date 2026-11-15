@@ -1,6 +1,6 @@
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
-use crate::draw::{DrawCount, ViewStats};
+use crate::draw::{DrawCount, ObjectDraws, ObjectRecording, ViewStats};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime, TargetSignature};
 
@@ -57,13 +57,17 @@ fn assert_selection(renderer: &ShadowedScene, visible: usize) {
             drawn_per_lod: vec![visible]
         }
     );
+    let passes = renderer.gpu.statistics().passes;
     assert_eq!(
-        renderer.gpu.statistics().meshes,
+        passes.prepass_objects.meshes,
         DrawCount {
             calls: 2,
             instances: u64::try_from(visible).unwrap()
         }
     );
+    assert_eq!(passes.prepass_objects.impostors, DrawCount::default());
+    assert_eq!(passes.prepass_objects.recording, ObjectRecording::Compacted);
+    assert_eq!(passes.opaque_objects, ObjectDraws::default());
 }
 
 pub(super) fn assert_pass_count(slot: worldrunner_render_post::PassSlot, expected: usize) {
@@ -123,7 +127,10 @@ pub(super) fn refuse_suffix(
     );
     assert_pass_count(PassSlot::DepthNormalPrepass, 1);
     assert_pass_count(PassSlot::Opaque, 0);
-    assert_eq!(renderer.gpu.statistics().meshes, before.meshes);
+    assert_eq!(
+        renderer.gpu.statistics().passes.prepass_objects.meshes,
+        before.passes.prepass_objects.meshes
+    );
     assert_eq!(renderer.gpu.statistics().passes, before.passes);
     assert_eq!(renderer.view_stats(), before_selection);
     assert!(
@@ -145,7 +152,10 @@ fn gpu_same_frame_gbuffer_suffix_refusal_preserves_admission_and_next_color_publ
     let (mut frame, mut renderer) = fitted_frame(&context, &source);
     let (_runtime, mut arena) = admit_empty_programs(&context, &mut renderer);
     refuse_suffix(&context, &mut frame, &mut renderer, 0);
-    assert_eq!(renderer.gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(
+        renderer.gpu.statistics().passes.prepass_objects.meshes,
+        DrawCount::default()
+    );
     assert_eq!(renderer.view_stats(), ViewStats::default());
     arena.retire().unwrap();
     hide_last_caster(&mut renderer);

@@ -115,7 +115,8 @@ impl SceneFeature<'_> {
     fn begin_colour(&self, slot: PassSlot) {
         if slot == PassSlot::Opaque {
             self.opaque_drawn.set(true);
-            self.gpu.reset_pass_statistics();
+            self.gpu
+                .reset_pass_statistics(self.publications.prepass_ran());
         }
     }
 
@@ -139,11 +140,11 @@ impl SceneFeature<'_> {
         }
         if slot == PassSlot::DepthNormalPrepass {
             self.publications.prepass();
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.prepass_pipelines(),
-                &screen.group,
-            ));
+            self.publications.record_prepass(
+                self.gpu,
+                self.gpu
+                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+            );
             return true;
         }
         false

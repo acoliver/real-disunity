@@ -10,8 +10,14 @@ pub(crate) struct SelectionPublication {
     pub(super) selection: Selection,
 }
 
-pub(crate) struct ColorDraw {
+/// A camera or shadow view's selection to publish with the object draws its pass recorded.
+pub(crate) struct DrawnObjects {
     pub selection: SelectionPublication,
+    pub objects: super::ObjectDraws,
+}
+
+pub(crate) struct ColorDraw {
+    pub drawn: DrawnObjects,
     pub terrain: super::DrawCount,
     /// Whether the terrain's pipeline was bound, so that terrain received what the pass binds.
     pub terrain_bound: bool,
@@ -59,10 +65,22 @@ impl DrawPublications {
         draw.sky = sky;
         let shadows = self.effects.get().shadows.installation == super::PassInstallation::Installed;
         draw.shadows = super::ReceiverBindings::new(shadows, draw.terrain_bound && shadows);
-        self.record_color(scene, draw);
+        scene
+            .pass_counters
+            .prepass_objects
+            .record(draw.drawn.objects);
+        self.record_surfaces(scene, draw);
     }
 
     pub fn record_color(&self, scene: &super::SceneGpu, draw: ColorDraw) {
+        scene
+            .pass_counters
+            .opaque_objects
+            .record(draw.drawn.objects);
+        self.record_surfaces(scene, draw);
+    }
+
+    fn record_surfaces(&self, scene: &super::SceneGpu, draw: ColorDraw) {
         self.geometry
             .set(scene.drawing_geometry_statistics(draw.terrain));
         scene.pass_counters.terrain.record(draw.terrain);
@@ -71,7 +89,13 @@ impl DrawPublications {
         effects.shadows.receivers = draw.shadows;
         effects.ssao.receivers = draw.ssao;
         self.effects.set(effects);
-        self.record(draw.selection);
+        self.record(draw.drawn.selection);
+    }
+
+    /// Records the main camera's depth/normal prepass objects.
+    pub fn record_prepass(&self, scene: &super::SceneGpu, drawn: DrawnObjects) {
+        scene.pass_counters.prepass_objects.record(drawn.objects);
+        self.record(drawn.selection);
     }
 
     pub fn record(&self, selection: SelectionPublication) {
@@ -104,6 +128,10 @@ impl DrawPublications {
         let mut effects = self.effects.get();
         effects.ssao.prepass = super::PassExecution::Ran;
         self.effects.set(effects);
+    }
+
+    pub fn prepass_ran(&self) -> bool {
+        self.effects.get().ssao.prepass == super::PassExecution::Ran
     }
 
     pub fn publish(

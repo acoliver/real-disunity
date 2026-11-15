@@ -232,6 +232,8 @@ pub(crate) fn depth_source() -> String {
 #[derive(Debug)]
 pub(super) struct ShadowMap {
     pub depth: DepthMap,
+    /// Keeps the cascade depth array counted under `ResourceClass::ShadowMap` while it lives.
+    _census: worldrunner_render_gpu::census::CensusEntry,
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
     slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
@@ -302,8 +304,13 @@ impl ShadowMap {
                 (uniform, group)
             })
             .collect();
+        let census = context.submission().census().track(
+            worldrunner_render_gpu::census::ResourceClass::ShadowMap,
+            worldrunner_render_gpu::census::texture_bytes(depth.texture()),
+        );
         Ok(Self {
             depth,
+            _census: census,
             uniform: slots[0].0.clone(),
             group: slots[0].1.clone(),
             slots,

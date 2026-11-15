@@ -6,6 +6,7 @@
 //! naga.
 
 use super::Surface;
+use crate::shader::rewrite::ShaderRewrite;
 
 const FOOTPRINT: &str = include_str!("../pages/footprint.wgsl");
 const SAMPLING: &str = include_str!("../pages/sampling.wgsl");
@@ -45,11 +46,15 @@ pub(crate) fn test_sources(base: &str) -> [String; 4] {
 
 pub(crate) fn cached_source(source: &str) -> String {
     // Cached pages already contain surface selection; leave its source grid unbound.
-    let source = source.replace(
+    let source = source.anchored(
+        "terrain::program::source::cached_source",
+        1,
         "let centre_surface = read_surface_at(i32(round(grid.x)), i32(round(grid.y)));",
         "let centre_surface = 0u;",
     );
-    source.replace(
+    source.anchored(
+        "terrain::program::source::cached_source",
+        1,
         "let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);",
         "let blended = cached_surface(world_xy, world_xy_dx, world_xy_dy);",
     ) + SAMPLING
@@ -57,11 +62,14 @@ pub(crate) fn cached_source(source: &str) -> String {
 
 pub(crate) fn layered_source(source: &str) -> String {
     let mut shared = LAYERED.to_owned();
+    // The layered composer declares bindings 0 to 2, 5 to 11, 15 and 16 of set 0.
     for (input, output) in (0..3)
         .map(|i| (i, i + 8))
-        .chain((5..17).map(|i| (i, i + 6)))
+        .chain((5..12).chain(15..17).map(|i| (i, i + 6)))
     {
-        shared = shared.replace(
+        shared = shared.anchored(
+            "terrain::program::source::layered_source",
+            1,
             &format!("@group(0) @binding({input})"),
             &format!("@group(1) @binding({output})"),
         );

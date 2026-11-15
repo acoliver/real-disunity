@@ -1,5 +1,6 @@
 use super::{ScreenPass, group, level, pipeline, pipeline_format, texture};
 use crate::frame::metadata::FrameProduct;
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::{SceneSsao, SceneSsaoFilter, SceneSsaoKernel};
 use worldrunner_render_post::{PassSlot, ResourceRef};
 
@@ -70,7 +71,9 @@ pub(super) fn append(
             let indices = [0, 2, 4, 6].map(|index| index.min(levels.len() - 1));
             let mut source = include_str!("spiral.wgsl").to_owned();
             for (binding, index) in indices.iter().enumerate().skip(1) {
-                source = source.replace(
+                source = source.anchored(
+                    "ssao::kernels::append",
+                    1,
                     &format!("LEVEL{binding}_SCALE"),
                     &(1u32 << index).to_string(),
                 );
@@ -157,8 +160,8 @@ pub(super) fn append_filter(
         let metadata = depth.format() == wgpu::TextureFormat::Rgba16Float;
         let scalable = matches!(filter, SceneSsaoFilter::ScalableBilateral { .. });
         let gather = slot == PassSlot::SsaoBlur && crate::ssao::receiver::gathers(receiver);
-        let (shader, format) = crate::ssao::receiver::filter_target(shader, scalable, gather);
-        let shader = super::super::receiver::filter_depth(shader, metadata);
+        let (shader, format) = crate::ssao::receiver::filter_target(shader, filter, gather);
+        let shader = super::super::receiver::filter_depth(shader, metadata, gather);
         let pipeline = pipeline_format(device, &shader, format);
         let group = group(
             device,

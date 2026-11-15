@@ -1,10 +1,90 @@
-use super::publication::{admit_empty_programs, completed_color, refuse_suffix};
+use super::publication::{admit_empty_programs, assert_pass_count, refuse_suffix};
 use super::velocity::{temporal_fixture, temporal_source};
 use super::*;
 use crate::terrain::deferred_tests::halves;
+use std::{cell::Cell, rc::Rc};
 use worldrunner_render_plan::SceneSsr;
+use worldrunner_render_post::{
+    BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassDeclaration,
+    PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 
 const TOLERANCE_UV: f32 = 1e-3;
+
+#[derive(Clone, Default)]
+struct CallerPreparation {
+    armed: Rc<Cell<bool>>,
+    preparations: Rc<Cell<u32>>,
+}
+
+impl CallerPreparation {
+    fn refusing() -> Self {
+        Self {
+            armed: Rc::new(Cell::new(true)),
+            preparations: Rc::default(),
+        }
+    }
+
+    fn preparations(&self) -> u32 {
+        self.preparations.get()
+    }
+}
+
+struct CallerRegistration(CallerPreparation);
+
+impl FrameFeature for CallerRegistration {
+    fn declare(&self) -> FeatureDeclaration {
+        FeatureDeclaration::new(PassSlot::Opaque)
+    }
+
+    fn plan(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        _: &mut Vec<worldrunner_render_post::AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        let entry = PassEntry::new(PassSlot::Opaque);
+        let opaque = passes
+            .iter()
+            .find(|pass| pass.entry() == entry)
+            .ok_or(FrameError::AttachmentContract(entry))?;
+        let mut declaration = self.declare();
+        let pass = &mut declaration.passes[0];
+        pass.color_format = opaque.color.as_ref().map(|color| color.format);
+        pass.depth_format = opaque.depth.as_ref().map(|depth| depth.format);
+        pass.additional_color_formats = opaque
+            .additional_colors
+            .iter()
+            .map(|color| color.format)
+            .collect();
+        Ok(declaration)
+    }
+
+    fn build(&self, _: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+        Ok(Box::new(self.0.clone()))
+    }
+}
+
+impl PreparedFeature for CallerPreparation {
+    fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        self.preparations.set(self.preparations.get() + 1);
+        if self.armed.replace(false) {
+            return Err(FrameError::FeaturePreparation {
+                feature: "retained caller preparation fixture",
+                reason: "caller refused suffix preparation".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn draw(&self, _: &DrawContext, _: &mut wgpu::RenderPass<'_>) {}
+}
+
+#[derive(Clone, Copy)]
+enum ScheduleRefusal {
+    None,
+    ProgramAdmission,
+    CallerPreparation,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Products {
@@ -121,17 +201,32 @@ fn completed_compacted(
     renderer: &mut ShadowedScene,
     id: u64,
 ) {
-    let _ = completed_color(context, frame, renderer, id);
+    let (color, depth) = attachments(frame);
+    let serial = context.submission().submitted_serial();
+    crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+    let fit = renderer
+        .render_depth_fitted_with(context, &view(), (&color, &depth), id, frame)
+        .unwrap()
+        .unwrap();
+    assert_eq!((fit.source_frame, fit.adopted_frame), (id, id));
+    assert_eq!(
+        context.submission().submitted_serial(),
+        serial + 2,
+        "one prefix and one suffix submitted before product readbacks"
+    );
+    assert_pass_count(PassSlot::DepthNormalPrepass, 1);
+    assert_pass_count(PassSlot::Opaque, 1);
+    assert_pass_count(PassSlot::OpaqueLighting, 1);
+    assert_pass_count(PassSlot::OpaqueGbuffer, 0);
     let objects = renderer.gpu.statistics().passes.prepass_objects;
     assert_eq!(objects.recording, crate::draw::ObjectRecording::Compacted);
     assert!(objects.meshes.instances > 0);
 }
 
-fn schedule(
+fn fitted_temporal_fixture(
     context: &GpuContext,
     source: &RenderScene,
-    retry: bool,
-) -> (Products, Products, Products) {
+) -> (FrameRenderer, ShadowedScene) {
     let (mut frame, mut renderer) = temporal_fixture(context, source);
     renderer
         .set_depth_fitting(
@@ -143,26 +238,115 @@ fn schedule(
         )
         .unwrap();
     frame.set_frame_time(0.125).unwrap();
+    (frame, renderer)
+}
+
+fn register_caller(
+    context: &GpuContext,
+    frame: &mut FrameRenderer,
+    refusal: ScheduleRefusal,
+) -> Option<CallerPreparation> {
+    if !matches!(refusal, ScheduleRefusal::CallerPreparation) {
+        return None;
+    }
+    let caller = CallerPreparation::refusing();
+    frame
+        .register(
+            context.device(),
+            Box::new(CallerRegistration(caller.clone())),
+        )
+        .unwrap();
+    assert_eq!(caller.preparations(), 0);
+    Some(caller)
+}
+
+fn assert_preparations(caller: Option<&CallerPreparation>, expected: u32) {
+    if let Some(caller) = caller {
+        assert_eq!(caller.preparations(), expected);
+    }
+}
+
+fn refuse_caller_suffix(
+    context: &GpuContext,
+    frame: &mut FrameRenderer,
+    renderer: &mut ShadowedScene,
+) {
+    let (color, depth) = attachments(frame);
+    let serial = context.submission().submitted_serial();
+    crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+    let refused = renderer.render_depth_fitted_with(context, &view(), (&color, &depth), 1, frame);
+    assert!(
+        matches!(
+            &refused,
+            Err(ShadowError::Schedule(FrameError::FeaturePreparation { feature, reason }))
+                if *feature == "retained caller preparation fixture"
+                    && reason == "caller refused suffix preparation"
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        context.submission().submitted_serial(),
+        serial + 1,
+        "only the prefix submitted before product readbacks"
+    );
+    assert_pass_count(PassSlot::DepthNormalPrepass, 1);
+    assert_pass_count(PassSlot::Opaque, 0);
+    assert_pass_count(PassSlot::OpaqueLighting, 0);
+    assert_pass_count(PassSlot::OpaqueGbuffer, 0);
+}
+
+fn refused_products(
+    context: &GpuContext,
+    frame: &mut FrameRenderer,
+    renderer: &mut ShadowedScene,
+    refusal: ScheduleRefusal,
+) -> Option<Products> {
+    if matches!(refusal, ScheduleRefusal::None) {
+        return None;
+    }
+    let statistics = renderer.gpu.statistics();
+    let selection = renderer.view_stats();
+    let temporal_index = frame.projection_jitter_index();
+    assert!(frame.has_temporal_history());
+    match refusal {
+        ScheduleRefusal::None => unreachable!(),
+        ScheduleRefusal::ProgramAdmission => {
+            let (_runtime, mut arena) = admit_empty_programs(context, renderer);
+            refuse_suffix(context, frame, renderer, 1);
+            arena.retire().unwrap();
+        }
+        ScheduleRefusal::CallerPreparation => refuse_caller_suffix(context, frame, renderer),
+    }
+    assert_eq!(renderer.gpu.statistics(), statistics);
+    assert_eq!(renderer.view_stats(), selection);
+    assert_eq!(frame.projection_jitter_index(), temporal_index);
+    assert!(frame.has_temporal_history());
+    Some(products(context, frame))
+}
+
+fn schedule(
+    context: &GpuContext,
+    source: &RenderScene,
+    refusal: ScheduleRefusal,
+) -> (Products, Products, Products) {
+    let (mut frame, mut renderer) = fitted_temporal_fixture(context, source);
     completed_compacted(context, &mut frame, &mut renderer, 0);
+    let caller = register_caller(context, &mut frame, refusal);
     // A nonzero sentinel distinguishes retained confidence from an accidental zero write.
     seed_confidence(context, &frame);
     let initial = products(context, &frame);
     assert_confidence(&initial, 0.5);
     move_retained_instance(&mut renderer);
-    let refused_products = if retry {
-        let (_runtime, mut arena) = admit_empty_programs(context, &mut renderer);
-        refuse_suffix(context, &mut frame, &mut renderer, 1);
-        let after_refusal = products(context, &frame);
-        assert_pre_suffix_stable(&initial, &after_refusal);
-        arena.retire().unwrap();
-        Some(after_refusal)
-    } else {
-        None
-    };
+    let refused = refused_products(context, &mut frame, &mut renderer, refusal);
+    if let Some(refused) = &refused {
+        assert_pre_suffix_stable(&initial, refused);
+    }
+    assert_preparations(caller.as_ref(), 1);
     completed_compacted(context, &mut frame, &mut renderer, 1);
+    assert_preparations(caller.as_ref(), 2);
     let fresh = products(context, &frame);
     assert_confidence(&fresh, 0.0);
-    if let Some(refused) = refused_products {
+    if let Some(refused) = refused {
         assert_eq!(
             refused.g3, fresh.g3,
             "retry changed the completed prefix surfaces"
@@ -173,6 +357,7 @@ fn schedule(
         );
     }
     completed_compacted(context, &mut frame, &mut renderer, 2);
+    assert_preparations(caller.as_ref(), 3);
     let settled = products(context, &frame);
     assert_motion_settled(&settled);
     (initial, fresh, settled)
@@ -254,7 +439,7 @@ fn gpu_completed_retained_instance_motion_settles_on_the_next_unchanged_frame() 
         .device()
         .push_error_scope(wgpu::ErrorFilter::Validation);
     let source = ssr_source();
-    let (initial, moved, settled) = schedule(&context, &source, false);
+    let (initial, moved, settled) = schedule(&context, &source, ScheduleRefusal::None);
     assert_instance_motion(&initial, &moved);
     assert_motion_settled(&settled);
     assert!(pollster::block_on(scope.pop()).is_none());
@@ -268,8 +453,30 @@ fn gpu_retained_instance_motion_survives_gbuffer_suffix_refusal_with_taa_and_ssr
         .device()
         .push_error_scope(wgpu::ErrorFilter::Validation);
     let source = ssr_source();
-    let (normal_initial, normal_fresh, normal_settled) = schedule(&context, &source, false);
-    let (retry_initial, retry_fresh, retry_settled) = schedule(&context, &source, true);
+    let (normal_initial, normal_fresh, normal_settled) =
+        schedule(&context, &source, ScheduleRefusal::None);
+    let (retry_initial, retry_fresh, retry_settled) =
+        schedule(&context, &source, ScheduleRefusal::ProgramAdmission);
+    assert_products_equal(&normal_initial, &retry_initial);
+    assert_products_equal(&normal_fresh, &retry_fresh);
+    assert_products_equal(&normal_settled, &retry_settled);
+    assert_instance_motion(&normal_initial, &normal_fresh);
+    assert_instance_motion(&retry_initial, &retry_fresh);
+    assert!(pollster::block_on(scope.pop()).is_none());
+}
+
+#[test]
+fn gpu_retained_instance_motion_survives_caller_preparation_refusal_with_taa_and_ssr() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let source = ssr_source();
+    let (normal_initial, normal_fresh, normal_settled) =
+        schedule(&context, &source, ScheduleRefusal::None);
+    let (retry_initial, retry_fresh, retry_settled) =
+        schedule(&context, &source, ScheduleRefusal::CallerPreparation);
     assert_products_equal(&normal_initial, &retry_initial);
     assert_products_equal(&normal_fresh, &retry_fresh);
     assert_products_equal(&normal_settled, &retry_settled);

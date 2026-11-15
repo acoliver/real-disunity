@@ -72,8 +72,8 @@ pub(super) fn merge(earlier: Option<&Sampled>, read: Sampled) -> Sampled {
 /// `LessEqual`, so nearer is smaller and a fragment at the stored depth or in front of it passes
 /// its depth test. URP's shadow lookups return 1 for a lit receiver, which is a receiver at the
 /// occluder's depth or in front of it, so the same function is the one that makes them read 1.
-/// Were the renderer's depth reversed (clear 0, `ZTest LEqual` as `GreaterEqual`), this would
-/// be `GreaterEqual`.
+/// With the host's reversed depth switch on (clear 0, `ZTest LEqual` as `GreaterEqual`), the
+/// comparison is `GreaterEqual` (see `depth_range::shadow_compare`).
 pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::LessEqual;
 
 /// The state of a comparison sampler: what its name says, else what the texture it is paired with

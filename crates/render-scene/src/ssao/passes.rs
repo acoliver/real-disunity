@@ -123,7 +123,43 @@ struct ScreenPass {
 #[derive(Clone, Debug)]
 pub(crate) struct ScreenPasses {
     stages: Vec<ScreenPass>,
+    /// The ambient occlusion receivers sample: the last filter stage's target when the frame
+    /// computes occlusion, otherwise the constant [`neutral_occlusion`] texture.
     pub filtered: wgpu::Texture,
+    computes_occlusion: bool,
+}
+
+/// A 1x1 texture of 1.0, bound where receivers expect ambient occlusion in frames that compute
+/// none. The neutral kernel (zero intensity) and its normalised box filter write exactly 1.0 at
+/// every pixel, and the receivers clamp their load into the texture, so they read the same value.
+pub(crate) fn neutral_occlusion(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("neutral ambient occlusion"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        texture.as_image_copy(),
+        &1.0f32.to_le_bytes(),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        texture.size(),
+    );
+    texture
 }
 fn level(index: u32) -> ResourceRef {
     FrameProduct::linear_depth(index).resource()
@@ -174,13 +210,22 @@ impl ScreenPasses {
             .collect()
     }
 
+    /// Whether the occlusion kernel and filter run, which also decides the depth hierarchy past
+    /// level 0. Without them the stages are the linear depth alone.
+    pub(crate) const fn computes_occlusion(&self) -> bool {
+        self.computes_occlusion
+    }
+
+    /// The stages for `settings`. With `neutral` (see [`neutral_occlusion`]) no receiver samples
+    /// a computed occlusion, so only level 0 of the depth hierarchy is built, the one input
+    /// shadow depth fitting reduces, and `neutral` stands in for the filtered occlusion.
     pub fn new(
         device: &wgpu::Device,
         size: [u32; 2],
         uniform: &wgpu::Buffer,
-        depth: &wgpu::Texture,
-        normals: &wgpu::Texture,
+        (depth, normals): (&wgpu::Texture, &wgpu::Texture),
         settings: worldrunner_render_plan::SceneSsao,
+        neutral: Option<wgpu::Texture>,
     ) -> Self {
         let mut stages: Vec<ScreenPass> = Vec::new();
         let mut extent = size;
@@ -211,14 +256,25 @@ impl ScreenPasses {
                 target,
                 reads,
             });
-            if extent == [1, 1] {
+            if extent == [1, 1] || neutral.is_some() {
                 break;
             }
             extent = [extent[0].div_ceil(2), extent[1].div_ceil(2)];
             index += 1;
         }
+        if let Some(filtered) = neutral {
+            return Self {
+                stages,
+                filtered,
+                computes_occlusion: false,
+            };
+        }
         let filtered = kernels::append(device, size, uniform, normals, settings, &mut stages);
-        Self { stages, filtered }
+        Self {
+            stages,
+            filtered,
+            computes_occlusion: true,
+        }
     }
     fn stage_resource(stage: &ScreenPass) -> ResourceRef {
         if let PassSlot::OcclusionMetadata(index) = stage.slot
@@ -247,7 +303,11 @@ impl ScreenPasses {
     ) -> Result<FeatureDeclaration, FrameError> {
         let mut declaration = FeatureDeclaration {
             passes: Vec::new(),
-            effects: vec!["SSAO"],
+            effects: if self.computes_occlusion {
+                vec!["SSAO"]
+            } else {
+                vec![]
+            },
         };
         for stage in &self.stages {
             let resource = Self::stage_resource(stage);
@@ -383,13 +443,15 @@ pub(crate) fn geometry_declaration(
             .extend(receiver.layout.formats());
     }
     declaration.passes.push(prepass);
-    declaration
-        .passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::Opaque)
-        .expect("opaque feature")
-        .reads
-        .push(ResourceRef::new("ambient occlusion"));
+    if screen.passes.computes_occlusion() {
+        declaration
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .reads
+            .push(ResourceRef::new("ambient occlusion"));
+    }
 }
 
 impl ScreenFeature<'_> {

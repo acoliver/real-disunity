@@ -109,7 +109,7 @@ impl RendererConfiguration {
             self.allocations_with_history(retained_effect_history)
         }
     }
-    fn prepass_metadata(&self) -> Option<worldrunner_render_plan::SceneSsao> {
+    fn prepass_metadata(&self) -> Option<super::depth_reuse::Prepass> {
         super::depth_reuse::prepass_metadata(
             self.ssao,
             self.ssr.as_ref(),
@@ -198,8 +198,26 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
                 1,
             );
         }
-        occlusion_allocations(settings, set);
-        screen_hierarchy_allocations(settings, set);
+        if settings.prepass_metadata() == Some(super::depth_reuse::Prepass::DepthOnly) {
+            // Depth fitting reduces level 0 alone; receivers bind a constant occlusion texel.
+            set.texture(
+                "depth hierarchy",
+                [w, h, 1],
+                wgpu::TextureFormat::R32Float,
+                [1, 1],
+                1,
+            );
+            set.texture(
+                "neutral ambient occlusion",
+                [1, 1, 1],
+                wgpu::TextureFormat::R32Float,
+                [1, 1],
+                1,
+            );
+        } else {
+            occlusion_allocations(settings, set);
+            screen_hierarchy_allocations(settings, set);
+        }
         set.buffer("screen uniform", 224, 1);
         set.buffer("screen staging", 224, 3);
     }
@@ -674,9 +692,7 @@ fn build(
         exposure_reset: std::rc::Rc::default(),
         temporal: std::rc::Rc::default(),
         ssao: metadata
-            .map(|ssao| {
-                crate::scene_metadata::SceneMetadata::new(device, settings.frame.size, ssao)
-            })
+            .map(|prepass| prepass.metadata(device, context.queue(), settings.frame.size))
             .transpose()?,
         ssr: None,
         ssao_requested: settings.ssao,

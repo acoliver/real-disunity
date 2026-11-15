@@ -1060,3 +1060,49 @@ fingerprint includes only submitted sample windows after view culling. Streaming
 observations remain present with zero drawn leaves when the camera misses terrain. See the
 [host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
 for counting units and identity encoding. Raw and cancelled draws do not publish.
+
+## Visible object contour IDs
+
+`SceneObject::with_contour_id` assigns a byte ID, with zero meaning no contour.
+`SceneEffects::with_contours` supplies a `SceneContours` table with exactly 256
+optional styles and a positive reference extent, defaulting to 1920 by 1080.
+Entry zero must be absent. Every nonzero object ID must name a defined style,
+including hidden live placements. Widths and shifts are integer millionths of
+reference pixels in 0 to 32; linear RGB is in 0 to 16, and alpha and strengths
+are in 0 to 1. Pulse powers are in (0,16] for a nonzero millisecond period;
+period zero is steady and ignores power. These quantities are authored in
+millionths. Fill and blend descriptions are retained CPU state; no contour
+colour composite is applied.
+
+`SceneGpu::set_instance_object` changes membership without changing the 80-byte
+GPU instance layout. `set_contours` replaces the table atomically and rejects
+removing any referenced ID. A sparse index tracks membership on edits, removals
+and slot reuse. Extraction from object templates preserves IDs.
+
+Stock, resident and shadowed composition schedule `PassSlot::ContourIds` after
+Opaque on both opaque paths. The pass writes only selected members, reusing
+their object programs, original instance ranges and skin streams. Its R8Uint
+target is cleared to zero and has the completed scene depth's sample count.
+Depth is loaded read-only, tested Equal and never written; the pass has no
+stencil ownership test, blending or integer alpha-to-coverage. Material alpha,
+fade, LOD, wind, skinning and relief visibility still participate. Fully hidden
+surfaces write no ID. Coplanar selected and unselected surfaces cannot be
+distinguished by depth alone.
+
+A table without live nonzero IDs prepares no contour pipelines and allocates no
+ID target or pass. Clearing the last ID removes the selected frame slot's target
+on successful submission; abandonment preserves its submitted target. Targets
+are isolated by admitted frame slot and replaced when their extent changes.
+`RendererConfiguration::contour_ids` explicitly reserves the three-slot target
+budget and admits the format/sample combination; it defaults to false. The
+unconfigured `FrameRenderer` constructors allocate lazily when membership appears.
+Unsupported format/sample combinations fail instead of reducing MSAA.
+
+`FrameRenderer::contour_target` returns the selected slot's last submitted ID
+texture; `contour_statistics` reports its pass, target and sample counts.
+`encode_contour_capture` records an explicit capture-only extraction into a
+single-sample R8Uint COPY_SRC texture. For sample index s, source pixel (x,y)
+appears at `(s * width + x, y)`. This reads exact unsigned IDs with textureLoad,
+without filtering, averaging or a hardware resolve. The ordinary ID target has
+no COPY_SRC usage. Capture may follow scene encoding in the same transaction or
+read its submitted result in a later transaction.

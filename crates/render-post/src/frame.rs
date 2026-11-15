@@ -17,6 +17,8 @@ pub enum PassSlot {
     /// Opaque. Present only when the scene selects the G-buffer opaque path.
     OpaqueGbuffer,
     Opaque,
+    /// Visible object IDs, tested against completed opaque depth without writing it.
+    ContourIds,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
     TransparentWater,

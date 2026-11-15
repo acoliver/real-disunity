@@ -12,19 +12,46 @@ pub(super) struct ShadowSchedule {
 }
 
 impl ShadowSchedule {
-    pub fn celestial(
+    pub fn prepared(
+        scheduler: &mut crate::compositor::FrameRenderer,
+        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
+        scene: (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        frame: &crate::frame::FrameUniform,
+        attachments: (&AttachmentView, &AttachmentView),
+        map: (&DepthMap, [bool; 4]),
+    ) -> Result<(Self, Option<crate::draw::ContourDraw>), ShadowError> {
+        let pipelines = scene.1;
+        let mut schedule = Self::new(map.0, attachments.0, attachments.1, pipelines, map.1)?;
+        schedule.screen_space(scheduler, pipelines.writes_velocity(), pipelines.depth)?;
+        if pipelines.card_reject() {
+            debug_assert_eq!(pipelines.depth, crate::renderer::depth::DepthMode::Reuse);
+            schedule.card_reject_depth();
+        }
+        let contour = schedule.effects(scheduler, gpu, scene, frame, attachments.0.size())?;
+        Ok((schedule, contour))
+    }
+
+    pub fn effects(
         &mut self,
-        gpu: &crate::draw::SceneGpu,
-        device: &wgpu::Device,
+        scheduler: &mut crate::compositor::FrameRenderer,
+        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
+        scene: (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        frame: &crate::frame::FrameUniform,
         size: [u32; 2],
-    ) {
-        gpu.plan_celestial(
-            device,
+    ) -> Result<Option<crate::draw::ContourDraw>, worldrunner_render_post::FrameError> {
+        scene.0.plan_celestial(
+            gpu.0,
             size,
             &mut self.passes,
             &mut self.views,
             &mut self.declaration,
         );
+        scheduler.plan_contours(
+            gpu,
+            scene,
+            frame,
+            (&mut self.passes, &mut self.views, &mut self.declaration),
+        )
     }
 
     /// Adds the velocity attachment, when the receivers write one, and the screen-space passes.

@@ -111,7 +111,11 @@ pub(super) fn prepare_with(
     uniform: &FrameUniform,
     configuration: RendererConfiguration,
 ) -> Drawn {
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = if configuration.ssao.is_some() {
+        ScenePipelines::with_ssao(context.device(), HDR, 1).unwrap()
+    } else {
+        ScenePipelines::new(context.device(), HDR)
+    };
     let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *uniform);
     let renderer =

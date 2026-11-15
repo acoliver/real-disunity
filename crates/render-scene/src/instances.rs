@@ -2,9 +2,11 @@
 
 pub(crate) mod batch;
 pub(crate) mod fade;
+pub(crate) mod history;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
+mod staged_uploads;
 #[cfg(test)]
 mod tests;
 

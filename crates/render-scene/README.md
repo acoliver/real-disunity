@@ -379,7 +379,7 @@ let (object, _) = gpu.instance(handle)?;
 let mut transform = *object.transform();
 transform.position_millimeters[0] += 100;
 gpu.set_instance_transform(handle, transform)?;
-let writes = gpu.flush_instances(context.device(), context.queue());
+let writes = gpu.flush_instances(context.device(), context.submission());
 // Record the next draw using the existing scene and pipelines.
 # Ok(())
 # }
@@ -387,10 +387,34 @@ let writes = gpu.flush_instances(context.device(), context.queue());
 
 Edits coalesce until `flush_instances`, which reports exactly the contiguous
 instance ranges written. Unchanged packed data is not rewritten, including
-edits reverted within a frame. Visibility and removal only change draw ranges.
-Call flush before recording draws; pending instance bytes cause a panic rather
-than drawing stale data. Buffer growth copies old GPU bytes and uploads only
-changed slots. Meshes, materials, textures and pipelines remain shared.
+edits reverted before their first flush. Repeated encoded flushes in one
+transaction compare against the latest staged placement and skin bytes, so
+reverting an already-staged edit records the restoring upload. Visibility and
+removal only change draw ranges. Call flush before recording draws; pending
+instance bytes cause a panic rather than drawing stale data. Buffer growth
+copies old GPU bytes and uploads only changed slots. Meshes, materials,
+textures and pipelines remain shared.
+
+`SceneGpu::draw` consumes a `render_gpu::submission::RecordingRenderPass` opened
+with `RecordingRenderPass::begin(encoder, descriptor)`. The constructor validates
+the actual encoder before opening its native pass: an unowned encoder returns
+`TransactionError::Missing`, and another encoder inside a recording frame returns
+`TransactionError::ForeignEncoder`. The boundary has no native-pass constructor
+or reusable mutable pass accessor. `SceneGpu::draw_many` records several scenes
+inside that same pass. It validates all scene restrictions, physical instance
+readiness and history write permissions before recording the first scene.
+Capture write refusal returns `WriteError`; preparation requirements still panic.
+
+Raw colour publishes immutable last-colour transform candidates only when that
+pass's owning frame successfully enqueues. Upload-only submissions acknowledge
+physical bytes and retain the candidates for a later raw colour owner. Fresh
+velocity uploads already initialize current and previous transforms, so they
+support raw colour without an extra flush. Pending visible-history work remains
+pending through uploads, cancellation, device loss and encoder replacement.
+Physical readiness checks acknowledged current bytes and the sparse history
+frontier's previous bytes, or writes staged in the same live encoder. Dirty
+current data, cancelled growth and unsettled previous bytes require preparation.
+Raw colour leaves camera/shadow selections and draw statistics unpublished.
 
 Batches sort by pipeline, then mesh and material indices. Placements use stable
 batch slots; removal leaves a hole, and insertion reuses the lowest free slot.
@@ -676,7 +700,7 @@ whether the history is valid. `TemporalView::to_bytes` is a separate 176-byte bl
 uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 336-byte scene block keeps its layout, so with jitter on only its first sixty-four
 bytes change.
 
-Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. While a pass draws them, each instance batch keeps a previous-transform buffer (same layout as the instance buffer, bound as a third vertex buffer at locations 12 to 15 of velocity variants only). Editing a slot copies its last published transform there before the new one is uploaded; a slot untouched for a frame converges to previous equal to current; added or reused slots start equal to current; a cancelled frame changes neither buffer. Billboards and impostors do not yet follow their transform.
+Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. Each instance batch keeps a previous-transform buffer with the instance-buffer layout, bound as a third vertex buffer at locations 12 to 15 of velocity variants only. An edited slot uses its last completed colour transform as previous; added or reused slots start equal to current. After a completed frame, an untouched slot converges to previous equal to current. A submitted metadata prefix may upload current and previous GPU bytes, while its refused colour suffix leaves the CPU history and reset obligations pending for the retry. Cancelling an unsubmitted preparation changes neither GPU buffer. Billboards and impostors do not yet follow their transform.
 
 `PostResolve::Taa` selects the default jitter sequence when none was requested
 (`PostResolve::effective_jitter`); an explicit sequence wins. `set_projection_jitter` returns
@@ -695,8 +719,9 @@ the previous camera and restart the sequence; a frame prepared before a reset ca
 after it. `projection_jitter_index()` reads the next sequence position without advancing it.
 The explicit reset also discards pending native TAA and temporal-reconstruction blocks.
 For retained instance draws, pair the reset with `SceneGpu::reset_velocity_history()`:
-previous transforms then initialize from current placements at the next submission,
-including when a preparation was cancelled. `ShadowedScene::reset_camera_history()`
+previous transforms then initialize from current placements for the next completed colour
+frame. Cancelled preparations and upload-only submissions leave the reset pending.
+`ShadowedScene::reset_camera_history()`
 also discards depth-fitting evidence, contraction filters and retained cascade maps.
 Exposure adaptation has its separate `reset_exposure()` operation.
 

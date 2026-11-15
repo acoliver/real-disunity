@@ -1,4 +1,5 @@
 mod publication;
+mod retained_retry;
 mod velocity;
 
 use super::*;

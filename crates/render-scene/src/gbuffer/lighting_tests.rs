@@ -8,6 +8,9 @@ use worldrunner_render_plan::SceneSsaoReceiver;
 #[path = "front_tests.rs"]
 mod front;
 
+#[path = "lighting/tests/reciprocal_w.rs"]
+mod reciprocal_w;
+
 /// The receiver siblings `ScenePipelines` derives from `source`: the gathering SSAO receiver
 /// when the source loads nearest AO, and for shadowed sources the receiver-payload consumer and
 /// the card-reject consumer of each payload layout.
@@ -215,7 +218,7 @@ fn camera_block_inverts_the_projection_and_the_view_rotation() {
 
 #[test]
 fn camera_reconstruction_preserves_the_stored_depth_ray_near_the_far_plane() {
-    let position = metadata::function_source(LIGHTING_WGSL, "scene_deferred_position");
+    let position = metadata::function_source(LIGHTING_WGSL, "scene_deferred_homogeneous_position");
     assert!(position.contains("fma(inverse[0], vec4<f32>(ndc.x)"));
     assert!(position.contains("fma(inverse[1], vec4<f32>(ndc.y)"));
     assert!(position.contains("fma(inverse[2], vec4<f32>(depth - 1.0), inverse[3])"));

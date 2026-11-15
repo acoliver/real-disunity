@@ -40,6 +40,7 @@ mod pages;
 pub(crate) mod pass_statistics;
 mod programs;
 mod publication;
+mod raw;
 mod retained;
 pub use retained::reflections_enabled;
 mod effect_statistics;
@@ -301,6 +302,7 @@ pub struct SceneGpu {
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
+    instance_history: std::rc::Rc<RefCell<Vec<crate::instances::history::Candidate>>>,
     frame: std::rc::Rc<Cell<Option<FrameUniform>>>,
     drawing_frame: RefCell<
         Option<(
@@ -435,6 +437,7 @@ impl SceneGpu {
                 .counted(authority.census().clone()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
+            instance_history: std::rc::Rc::default(),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
             gather: compaction::Shared::default(),
@@ -469,45 +472,6 @@ impl SceneGpu {
             &frame.previous_frame_bytes(),
         );
         queue.write_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
-    }
-
-    /// Records every draw of the scene into one render pass.
-    /// Raw rendering does not publish selection or statistics; use composition for that.
-    ///
-    /// The frame group is bound once for the whole pass rather than per draw,
-    /// which is sound only because all four object pipelines were built from
-    /// one pipeline layout: pipelines sharing a layout do not invalidate each
-    /// other's bind groups.
-    ///
-    /// Terrain's layout differs, but only from group one onwards: it holds the
-    /// very same frame layout at group zero. Bind groups survive a pipeline
-    /// switch for every slot up to the first the two layouts disagree on, so
-    /// the frame binding made here outlives the switch to the terrain pipeline
-    /// and only group one is invalidated — which both paths set themselves
-    /// anyway. Terrain draws last so that this reasoning is needed in one
-    /// direction only.
-    /// Scenes with celestial meshes require [`crate::compositor::encode_scene`] or
-    /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
-    ///
-    /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws, and when resident
-    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
-    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
-    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
-    /// them for their own pass instead.
-    pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
-        assert!(
-            self.celestial.is_none(),
-            "celestial meshes require compositor::encode_scene or encode_resident"
-        );
-        assert!(
-            !self
-                .sky
-                .as_ref()
-                .is_some_and(crate::sky::Sky::requires_preparation),
-            "physical skies require compositor preparation"
-        );
-        self.draw_color(pass, pipelines, None);
     }
 
     pub(crate) fn draw_prepass(

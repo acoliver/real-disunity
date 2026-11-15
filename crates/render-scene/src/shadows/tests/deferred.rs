@@ -512,20 +512,18 @@ fn assert_producer_lighting(drawn: &Captured, terrain: bool) {
     let written = drawn.g3.as_ref().unwrap();
     let mut shaded = Vec::new();
     for (pixel, texel) in lit.chunks_exact(4).enumerate() {
-        if !covered(pixel, width) {
-            if written[pixel] == 0 {
-                assert!(
-                    texel.iter().all(|value| value.to_bits() == 0),
-                    "terrain {terrain}: pixel {pixel} is unwritten but lit"
-                );
-            }
-        } else {
+        if covered(pixel, width) {
             assert_eq!(
                 texel[3].to_bits(),
                 1.0_f32.to_bits(),
                 "terrain {terrain}: pixel {pixel} coverage"
             );
             shaded.push(texel[0]);
+        } else if written[pixel] == 0 {
+            assert!(
+                texel.iter().all(|value| value.to_bits() == 0),
+                "terrain {terrain}: pixel {pixel} is unwritten but lit"
+            );
         }
     }
     let brightest = shaded.iter().copied().fold(0.0_f32, f32::max);
@@ -550,10 +548,10 @@ fn gpu_shadowed_synthetic_producer_without_prepass_stores_but_lights_nothing() {
         SceneOpaquePath::GBUFFER_OBSERVATION,
     )
     .unwrap();
-    assert!(idle.colour == expected.colour);
+    assert_eq!(idle.colour, expected.colour);
     assert!(idle.lit.unwrap().iter().all(|value| value.to_bits() == 0));
     let drawn = capture_producer(&context, &source, false);
-    assert!(drawn.colour == expected.colour);
+    assert_eq!(drawn.colour, expected.colour);
     assert!(drawn.g3.unwrap().iter().any(|code| *code != 0));
     assert!(drawn.lit.unwrap().iter().all(|value| value.to_bits() == 0));
 }

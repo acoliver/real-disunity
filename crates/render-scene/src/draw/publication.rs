@@ -30,6 +30,7 @@ pub(crate) struct ColorDraw {
 #[derive(Default)]
 pub(crate) struct DrawPublications {
     selections: RefCell<Vec<SelectionPublication>>,
+    color_recorded: Cell<bool>,
     effects: Cell<super::EffectStatistics>,
     geometry: Cell<Option<super::TerrainGeometryStatistics>>,
     /// The G-buffer slot's draw when the frame renders from the G-buffer, published with the
@@ -81,6 +82,7 @@ impl DrawPublications {
     }
 
     fn record_surfaces(&self, scene: &super::SceneGpu, draw: ColorDraw) {
+        self.color_recorded.set(true);
         self.geometry
             .set(scene.drawing_geometry_statistics(draw.terrain));
         scene.pass_counters.terrain.record(draw.terrain);
@@ -139,6 +141,9 @@ impl DrawPublications {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
         scene: &super::SceneGpu,
     ) {
+        if self.color_recorded.replace(false) {
+            scene.publish_instance_history(context);
+        }
         let destination = scene.pass_counters.geometry.clone();
         let geometry = self.geometry.take();
         crate::compositor::publication::stage(context, &destination.clone(), move || {

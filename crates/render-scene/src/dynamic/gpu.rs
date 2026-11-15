@@ -281,6 +281,19 @@ impl DynamicGpu {
         Ok(())
     }
 
+    /// Checks the raw pass restriction before any scene in the pass records draws.
+    pub(crate) fn validate_draw(&self, pipelines: &ScenePipelines) {
+        assert!(
+            self.draws.is_empty()
+                || pipelines
+                    .unlit_signature()
+                    .ok()
+                    .and_then(|signature| self.prepared_for(signature))
+                    .is_some(),
+            "dynamic quads are prepared for the pass they draw into"
+        );
+    }
+
     /// Records the prepared draws for `slot`'s frame uniform into `pass`.
     ///
     /// # Panics

@@ -5,7 +5,7 @@ use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, Scen
 // The existing screen-space velocity tests bound half-float residuals to 0.064 px at 64 px.
 const TOLERANCE_UV: f32 = 1e-3;
 
-fn temporal_source() -> RenderScene {
+pub(super) fn temporal_source() -> RenderScene {
     let base = render_source();
     let mut parts = fixture::effects_parts(600_000);
     parts.anti_alias = SceneAntiAlias::taa(900_000);
@@ -47,7 +47,10 @@ fn temporal_source() -> RenderScene {
     .unwrap()
 }
 
-fn temporal_fixture(context: &GpuContext, source: &RenderScene) -> (FrameRenderer, ShadowedScene) {
+pub(super) fn temporal_fixture(
+    context: &GpuContext,
+    source: &RenderScene,
+) -> (FrameRenderer, ShadowedScene) {
     let viewport = view().viewport();
     let frame = FrameRenderer::hdr(
         context,

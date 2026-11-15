@@ -1,7 +1,9 @@
 //! Queue-wide preparation exclusion and the only command submission boundary.
 pub mod capture;
 mod lease;
+mod pass;
 pub use lease::{FrameLease, FrameOwner, LeaseError};
+pub use pass::RecordingRenderPass;
 use std::{
     cell::{Cell, RefCell},
     hash::{Hash, Hasher},

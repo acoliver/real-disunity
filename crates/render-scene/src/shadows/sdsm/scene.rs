@@ -267,6 +267,7 @@ impl ShadowedScene {
             .prepare_scene_inputs(input.context.device(), &self.gpu);
         let scene_keys = self.gpu.capture_write_keys(input.context.device())?;
         let mut suffix = scene_keys.clone();
+        suffix.push(self.gpu.instance_history_key());
         suffix.push(crate::compositor::publication::key(&self.refresh));
         suffix.extend(self.scheduler.capture_write_keys());
         suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
@@ -285,7 +286,19 @@ impl ShadowedScene {
         for term in input.terms {
             suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
         }
-        let mut prefix = scene_keys;
+        let prefix = self.capture_prefix_keys(scene_keys)?;
+        let metadata = self.capture_metadata_keys(input)?;
+        let scene_depth = self
+            .scheduler
+            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
+        Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
+    }
+
+    fn capture_prefix_keys(
+        &mut self,
+        keys: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
+        let mut prefix = keys;
         if self
             .scheduler
             .gbuffer
@@ -296,11 +309,7 @@ impl ShadowedScene {
             let textures: Vec<_> = velocity.as_ref().into_iter().collect();
             prefix.extend(self.scheduler.capture_texture_keys(&textures)?);
         }
-        let metadata = self.capture_metadata_keys(input)?;
-        let scene_depth = self
-            .scheduler
-            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
-        Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
+        Ok(prefix)
     }
 
     fn capture_metadata_keys(

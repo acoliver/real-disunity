@@ -82,7 +82,7 @@ pub(super) fn trace_source(source: &str, samples: u32) -> String {
 pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> String {
     let source = source.replace("let surface = textureLoad(material, p, 0);", "var surface = textureLoad(material, p, 0);")
         .replace("let normal = textureLoad(normals, p, 0);", "var normal = textureLoad(normals, p, 0);\n    let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    let is_water = water_normal.a != 0.0;\n    if is_water { normal = water_receiver_normal(water_normal); let water_surface = textureLoad(water_material, p, SAMPLE_INDEX); surface = vec4<f32>(water_receiver_f0(water_normal, water_surface), water_surface.a); }")
-        .replace("let uv = pixel.xy / camera.size.xy;", "let uv = select(pixel.xy / camera.size.xy, (vec2<f32>(p) + textureLoad(water_material, p, SAMPLE_INDEX).rg) / camera.size.xy, is_water);")
+        .replace("let uv = (vec2<f32>(p) + 0.5) / camera.size.xy;", "let uv = (vec2<f32>(p) + select(vec2<f32>(0.5), textureLoad(water_material, p, SAMPLE_INDEX).rg, is_water)) / camera.size.xy;")
         .replace("let replacement = camera.size.w != 0.0;", "let replacement = camera.size.w != 0.0 || is_water;")
         .replace("if replacement {", "if replacement && !is_water {")
         .replace("return vec4<f32>(reflection_delta", r"

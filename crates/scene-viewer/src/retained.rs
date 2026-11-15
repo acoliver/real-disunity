@@ -288,12 +288,21 @@ pub struct RetainedHost {
     size: [u32; 2],
     exit: bool,
     occluded: bool,
+    window_on_top: bool,
 }
 
 impl RetainedHost {
     /// Effective startup options, including any selected-adapter frame decision.
     pub fn options(&self) -> &ViewerOptions {
         &self.options
+    }
+
+    /// Keeps the desktop window above ordinary windows for measurement runs.
+    /// Disabled by default.
+    #[must_use]
+    pub fn with_window_on_top(mut self, enabled: bool) -> Self {
+        self.window_on_top = enabled;
+        self
     }
 
     /// Selects shader time independently of CPU edit generations.

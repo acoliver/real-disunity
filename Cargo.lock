@@ -5094,6 +5094,7 @@ dependencies = [
  "worldrunner-render-program",
  "worldrunner-render-scene",
  "worldrunner-render-shadow",
+ "worldrunner-texture",
  "worldrunner-unity-serialized",
  "worldrunner-world-simulation",
 ]

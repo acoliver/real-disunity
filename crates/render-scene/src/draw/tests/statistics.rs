@@ -1,5 +1,8 @@
 use super::*;
-use crate::{draw::DrawCount, offscreen::OffscreenTarget};
+use crate::{
+    draw::{DrawCount, ObjectDraws, ObjectRecording},
+    offscreen::OffscreenTarget,
+};
 
 #[test]
 fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames() {
@@ -24,20 +27,32 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
         frame,
     )
     .unwrap();
-    assert_eq!(gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(
+        gpu.statistics().passes.opaque_objects,
+        ObjectDraws::default()
+    );
     drop(encoder);
-    assert_eq!(gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(
+        gpu.statistics().passes.opaque_objects,
+        ObjectDraws::default()
+    );
     gpu.set_frame(context.queue(), frame);
     target.render(&context, &gpu, &pipelines).unwrap();
     let stats = gpu.statistics();
+    // The resident path gathers no view instances, so each selected range is one draw.
     assert_eq!(
-        stats.meshes,
+        stats.passes.opaque_objects.recording,
+        ObjectRecording::Ranged
+    );
+    assert_eq!(
+        stats.passes.opaque_objects.meshes,
         DrawCount {
             calls: 2,
             instances: 2
         }
     );
-    assert_eq!(stats.impostors, DrawCount::default());
+    assert_eq!(stats.passes.opaque_objects.impostors, DrawCount::default());
+    assert_eq!(stats.passes.prepass_objects, ObjectDraws::default());
     assert_eq!(stats.textures.resident_bytes, 8);
     assert_eq!(
         stats.mesh_buffers.resident_bytes,
@@ -56,7 +71,7 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     gpu.set_frame(context.queue(), frame);
     target.render(&context, &gpu, &pipelines).unwrap();
     assert_eq!(
-        gpu.statistics().meshes,
+        gpu.statistics().passes.opaque_objects.meshes,
         DrawCount {
             calls: 1,
             instances: 3
@@ -103,8 +118,9 @@ fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
         gpu.set_frame(context.queue(), frame);
         let mut target = target(&context);
         target.render(&context, &gpu, &pipelines).unwrap();
-        assert_eq!(gpu.statistics().meshes, meshes);
-        assert_eq!(gpu.statistics().impostors, impostors);
+        let drawn = gpu.statistics().passes.opaque_objects;
+        assert_eq!(drawn.meshes, meshes);
+        assert_eq!(drawn.impostors, impostors);
     }
 }
 

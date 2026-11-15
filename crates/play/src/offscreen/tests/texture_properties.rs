@@ -142,10 +142,11 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     );
 }
 
-/// A cube slot nothing sets and no shader declares, as the URP blit program's `_BlitCubeTexture`
-/// is, reads the grey cube when the host registered it and stays missing when it did not.
+/// A cube or 3D slot nothing sets and no shader declares, as the URP blit program's
+/// `_BlitCubeTexture` is, reads the grey cube or volume when the host registered it and stays
+/// missing when it did not.
 #[test]
-fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered_it() {
+fn the_frame_carries_the_grey_cube_and_volume_only_when_the_host_registered_them() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     blit(&mut world, TextureRef::Render(target), target, None, 0);
@@ -157,9 +158,21 @@ fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered
         UndeclaredTextures {
             d2: Some(DefaultTexture::Grey.id()),
             cube: Some(DefaultTexture::GreyCube.id()),
+            d3: Some(DefaultTexture::Grey3d.id()),
         }
     );
     assert_ne!(DefaultTexture::Grey.id(), DefaultTexture::GreyCube.id());
+    assert_ne!(DefaultTexture::Grey.id(), DefaultTexture::Grey3d.id());
+    available.default_textures.remove(&DefaultTexture::Grey3d);
+    let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(
+        adapted.frame.undeclared_textures,
+        UndeclaredTextures {
+            d2: Some(DefaultTexture::Grey.id()),
+            cube: Some(DefaultTexture::GreyCube.id()),
+            d3: None,
+        }
+    );
     available.default_textures.remove(&DefaultTexture::GreyCube);
     let adapted = adapt(&snapshot, &available, &settings());
     assert_eq!(
@@ -167,6 +180,7 @@ fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered
         UndeclaredTextures {
             d2: Some(DefaultTexture::Grey.id()),
             cube: None,
+            d3: None,
         }
     );
     available.default_textures.clear();

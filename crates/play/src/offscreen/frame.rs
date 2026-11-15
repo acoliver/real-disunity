@@ -373,7 +373,8 @@ impl<'a> Mapper<'a> {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
-            // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot.
+            // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot
+            // and a 3D one for a 3D slot.
             undeclared_textures: UndeclaredTextures {
                 d2: available
                     .default_textures
@@ -383,6 +384,10 @@ impl<'a> Mapper<'a> {
                     .default_textures
                     .contains(&DefaultTexture::GreyCube)
                     .then(|| DefaultTexture::GreyCube.id()),
+                d3: available
+                    .default_textures
+                    .contains(&DefaultTexture::Grey3d)
+                    .then(|| DefaultTexture::Grey3d.id()),
             },
             ..OffscreenFrame::default()
         };

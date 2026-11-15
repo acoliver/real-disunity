@@ -313,6 +313,9 @@ pub struct UndeclaredTextures {
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
+    /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
+    /// a [`SourceDimension::D3`] source.
+    pub d3: Option<TextureId>,
 }
 
 impl UndeclaredTextures {
@@ -321,6 +324,7 @@ impl UndeclaredTextures {
         match view {
             wgpu::TextureViewDimension::D2 => self.d2,
             wgpu::TextureViewDimension::Cube => self.cube,
+            wgpu::TextureViewDimension::D3 => self.d3,
             _ => None,
         }
     }
@@ -355,6 +359,13 @@ pub enum SourceDimension {
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
     /// +Z, -Z, each as a 2D level is.
     Cube,
+    /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
+    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    D2Array(u32),
+    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
+    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
+    /// volume is not an upload.
+    D3,
 }
 
 /// A texture the host uploads once: uncompressed, one mip.

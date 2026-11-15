@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::{
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
-    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant,
+    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
 use worldrunner_render_program::unity::synthetic::{
     PassSpec, SyntheticShader, shader as synthetic_shader,
@@ -68,12 +68,14 @@ impl ShaderSupply for Synthetic {
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
             "cubeslot" => cube_blit("_BlitCubeTexture"),
+            // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
+            "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
-            "default_white" | "default_black" | "default_bump" => {
+            "default_white" | "default_black" | "default_bump" | "default_mystery" => {
                 let mut synthetic = camera_passes();
                 let name = source.file.trim_start_matches("default_");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {

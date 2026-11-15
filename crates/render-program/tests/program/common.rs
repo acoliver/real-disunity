@@ -293,6 +293,11 @@ pub struct Gpu {
 impl Gpu {
     /// A device on the adapter the environment selects: lavapipe in CI, or a hardware GPU.
     pub fn new() -> Self {
+        Self::with_optional(wgpu::Features::empty())
+    }
+
+    /// A device that also asks for `optional` where the adapter has it.
+    pub fn with_optional(optional: wgpu::Features) -> Self {
         let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -301,7 +306,7 @@ impl Gpu {
         // Block compression is optional: the tests that draw from a block-compressed source
         // check that the device has it.
         let requirements = DeviceRequirements {
-            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC | optional,
             ..DeviceRequirements::default()
         };
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))

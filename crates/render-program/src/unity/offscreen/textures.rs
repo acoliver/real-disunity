@@ -12,8 +12,8 @@ use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
-use super::format::{depth_format, render_color_format, source_format};
-use super::frame::{RenderDimension, RenderTextureSpec, SourceTexture};
+use super::format::{depth_format, depth_format_with_stencil, render_color_format, source_format};
+use super::frame::{RenderDimension, RenderTextureSpec, SourceDimension, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
 pub(super) struct TextureInfo {
@@ -77,14 +77,38 @@ impl TextureTable {
         source: &SourceTexture,
     ) -> Result<(), OffscreenError> {
         let format = source_format(source.graphics_format)?;
-        let color =
-            runtime.create_texture_2d("offscreen source", source.size, format, &source.bytes)?;
+        let (color, dimension) = match source.dimension {
+            SourceDimension::D2 => (
+                runtime.create_texture_2d(
+                    "offscreen source",
+                    source.size,
+                    format,
+                    &source.bytes,
+                )?,
+                RenderDimension::D2,
+            ),
+            SourceDimension::Cube => {
+                if source.size[0] != source.size[1] {
+                    return Err(OffscreenError::CubeShape {
+                        id: source.id,
+                        reason: "is square",
+                    });
+                }
+                let color = runtime.create_texture_cube(
+                    "offscreen source cube",
+                    source.size[0],
+                    format,
+                    &source.bytes,
+                )?;
+                (color, RenderDimension::Cube)
+            }
+        };
         let info = TextureInfo {
             color: Some(color),
             depth: None,
             size: source.size,
-            layers: 1,
-            dimension: RenderDimension::D2,
+            layers: dimension.layers(),
+            dimension,
             mips: 1,
             format,
             depth_format: None,
@@ -202,11 +226,10 @@ impl TextureTable {
         runtime: &ProgramRuntime,
         specs: &[RenderTextureSpec],
     ) -> u64 {
-        let limits = runtime.device().limits();
         specs
             .iter()
             .filter(|spec| self.textures.get(&spec.id).and_then(|t| t.spec.as_ref()) != Some(*spec))
-            .map(|spec| render_bytes(spec, &limits))
+            .map(|spec| render_bytes(spec, runtime.device()))
             .sum()
     }
 
@@ -251,7 +274,7 @@ fn create_render_texture(
     }
     check_shape(runtime, spec)?;
     let color_format = render_color_format(spec.graphics_format)?;
-    let depth_format = depth_format(spec.depth_bits)?;
+    let depth_format = render_depth_format(spec, runtime.device().features())?;
     let Some(format) = color_format.or(depth_format) else {
         return Err(OffscreenError::UnsupportedFormat {
             code: spec.graphics_format,
@@ -322,7 +345,7 @@ fn create_render_texture(
         sampler: None,
         spec: Some(spec.clone()),
         counts: None,
-        held_bytes: render_bytes(spec, &runtime.device().limits()),
+        held_bytes: render_bytes(spec, runtime.device()),
     })
 }
 
@@ -365,10 +388,10 @@ fn check_shape(runtime: &ProgramRuntime, spec: &RenderTextureSpec) -> Result<(),
 
 /// The bytes a render texture of `spec` takes: its color levels and its depth buffer. A spec the
 /// state cannot make takes none.
-fn render_bytes(spec: &RenderTextureSpec, limits: &wgpu::Limits) -> u64 {
+fn render_bytes(spec: &RenderTextureSpec, device: &wgpu::Device) -> u64 {
     let (Ok(color), Ok(depth)) = (
         render_color_format(spec.graphics_format),
-        depth_format(spec.depth_bits),
+        render_depth_format(spec, device.features()),
     ) else {
         return 0;
     };
@@ -397,7 +420,21 @@ fn render_bytes(spec: &RenderTextureSpec, limits: &wgpu::Limits) -> u64 {
             1,
         );
     }
-    allocations.validate(limits).unwrap_or(0)
+    allocations.validate(&device.limits()).unwrap_or(0)
+}
+
+/// The format of the depth buffer of a render texture: under a color texture, the camera's own
+/// buffer, which has stencil when Unity's would; without color, the texture itself, which has
+/// depth alone so that it can be sampled and copied.
+fn render_depth_format(
+    spec: &RenderTextureSpec,
+    features: wgpu::Features,
+) -> Result<Option<wgpu::TextureFormat>, OffscreenError> {
+    if render_color_format(spec.graphics_format)?.is_some() {
+        depth_format_with_stencil(spec.depth_bits, features)
+    } else {
+        depth_format(spec.depth_bits)
+    }
 }
 
 /// How many texels `bytes` holds of `format`, and how many have a byte other than zero.

@@ -24,6 +24,9 @@ use crate::module::entry_point_names;
 use crate::unity::module::{ModuleError, StageKind, StageModule, StageProgram};
 use crate::unity::variant::{declared_keywords, select_variant};
 
+/// Unity's `ShaderPropertyType` of a texture property.
+const TEXTURE_PROPERTY: i32 = 4;
+
 /// Which pass of the shader a draw runs. The crate names no tag key and no tag value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PassSelector {
@@ -162,6 +165,17 @@ impl ProgramShader {
             .get(pass)
             .and_then(|pass| tag(pass, key))
             .map(str::to_owned)
+    }
+
+    /// Whether the shader's Properties block declares a texture property called `name`, of any
+    /// dimension and whatever default it names.
+    #[must_use]
+    pub fn declares_texture(&self, name: &str) -> bool {
+        self.shader
+            .parsed
+            .properties
+            .iter()
+            .any(|property| property.kind == TEXTURE_PROPERTY && property.name == name)
     }
 
     /// Variants decoded so far.

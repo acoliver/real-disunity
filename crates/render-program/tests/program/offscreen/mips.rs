@@ -7,7 +7,9 @@ use worldrunner_render_program::layers::PropertyLayer;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::unity::offscreen::PartialMipReads;
-use worldrunner_render_program::unity::offscreen::frame::{Material, OffscreenFrame, Record};
+use worldrunner_render_program::unity::offscreen::frame::{
+    Attachment, Attachments, Clear, Material, OffscreenFrame, Record,
+};
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
 
@@ -103,4 +105,51 @@ fn partial_reads_are_listed_by_the_texture_property_the_levels_and_the_pass_that
             reads: 1,
         }]
     );
+}
+
+/// Clears level `mip` of the camera's target to blue just before the blit, as a pass that builds
+/// a mip chain one level at a time writes each level after the base.
+fn write_level(frame: &mut OffscreenFrame, mip: u32) {
+    let at = frame.records.len() - 1;
+    frame.records.insert(
+        at,
+        Record::Clear {
+            target: Attachments {
+                color: Some(Attachment {
+                    texture: CAMERA_TARGET,
+                    mip,
+                }),
+                depth: None,
+            },
+            clear: Clear {
+                color: Some([0.0, 0.0, 1.0, 1.0]),
+                ..Clear::default()
+            },
+        },
+    );
+}
+
+#[test]
+fn a_mip_chain_written_one_level_at_a_time_is_read_whole() {
+    let mut rig = Rig::new();
+    let mut frame = camera_then_blit(&mut rig, 3);
+    write_level(&mut frame, 1);
+    write_level(&mut frame, 2);
+    assert_eq!(rig.build(&frame).unwrap().partial_mip_reads(), 0);
+    let image = rig.run(&frame, &[(COPY, 0, 0)]).unwrap().remove(0);
+    let expected = halves();
+    for y in 0..8 {
+        assert_eq!(pixel(&image, 8, (1, y)), expected["left"], "left ({y})");
+        assert_eq!(pixel(&image, 8, (6, y)), expected["right"], "right ({y})");
+    }
+}
+
+#[test]
+fn a_mip_chain_read_stops_at_the_first_level_the_frame_never_wrote() {
+    let mut rig = Rig::new();
+    let mut frame = camera_then_blit(&mut rig, 3);
+    write_level(&mut frame, 1);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.partial_mip_reads(), 1);
+    assert_eq!(operations.partial_mip_reads_by_pass()[0].written, 2);
 }

@@ -134,8 +134,19 @@ impl Tracker {
         dimension: wgpu::TextureViewDimension,
         version: u32,
     ) -> Result<CheckedView, ContractError> {
+        self.levels_view(imported, 0..mips, dimension, version)
+    }
+
+    /// A view of some levels of every layer of a texture, all at `version`.
+    pub(super) fn levels_view(
+        &self,
+        imported: Imported,
+        mips: std::ops::Range<u32>,
+        dimension: wgpu::TextureViewDimension,
+        version: u32,
+    ) -> Result<CheckedView, ContractError> {
         let range = TextureRange {
-            mips: 0..mips,
+            mips,
             layers: 0..imported.layers,
             aspect: wgpu::TextureAspect::All,
         };
@@ -159,11 +170,12 @@ impl Tracker {
         self.cells.get(&(key, mip, layer)).copied().unwrap_or(0)
     }
 
-    /// The version a draw samples a texture at and how many levels, from the base, it binds. The
-    /// levels bound are the leading ones whose layers all have the base level's version, since a
-    /// view reads one version. A level written at another point, or never written when the base
-    /// was, is left out: the engine writes the base level of a render texture and generates no
-    /// other.
+    /// The version of each level, from the base, a draw binds of a texture. A level is bound when
+    /// its layers agree and it holds what the frame last wrote to it: the base level's version,
+    /// or a write of its own (a mip chain written one level at a time, as a depth pyramid is).
+    /// The first level never written while the base was is where the binding stops: the engine
+    /// writes the base level of a render texture and generates no other, so that level holds
+    /// nothing the frame made.
     ///
     /// # Errors
     /// Fails with `MixedVersions` when the layers of the base level differ, since no level can be
@@ -172,18 +184,24 @@ impl Tracker {
         &self,
         id: TextureId,
         imported: Imported,
-    ) -> Result<(u32, u32), OffscreenError> {
+    ) -> Result<Vec<u32>, OffscreenError> {
         let level = |mip| {
             let mut versions =
                 (0..imported.layers).map(|layer| self.cell(imported.primary, mip, layer));
             let first = versions.next().unwrap_or(0);
             versions.all(|version| version == first).then_some(first)
         };
-        let version = level(0).ok_or(OffscreenError::MixedVersions { texture: id })?;
-        let mips = (1..imported.mips)
-            .take_while(|&mip| level(mip) == Some(version))
-            .count();
-        Ok((version, u32::try_from(mips).unwrap_or(u32::MAX) + 1))
+        let base = level(0).ok_or(OffscreenError::MixedVersions { texture: id })?;
+        let mut versions = vec![base];
+        for mip in 1..imported.mips {
+            match level(mip) {
+                Some(version) if version == base || (version != 0 && base != 0) => {
+                    versions.push(version);
+                }
+                _ => break,
+            }
+        }
+        Ok(versions)
     }
 
     /// Takes the next version of a cell, and returns the one it had.

@@ -912,15 +912,80 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
-## Native-resolution RCAS
+## Deferred G-buffer observation
+
+`SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
+G-buffer in observation: the renderer allocates four single-sample targets at the
+scene extent and clears them to zero every frame in the `PassSlot::OpaqueGbuffer`
+slot, which runs after Celestial and before Opaque. Nothing reads them except
+captures, so the visible frame and every existing pass are the forward ones.
+`Forward`, the default, allocates nothing. `RendererConfiguration::opaque_path`
+carries the choice (scene-viewer copies it from the scene effects), and
+`FrameRenderer::hdr_antialiased` reads it from `effects`. A multisampled frame is
+refused before allocation with the opaque admission's sample error
+(`opaque admission supports one sample, received N`), and any other experiment
+tuple with `PostError::UnsupportedProfile`.
+
+| Location | Target | Format | Contents |
+|---|---|---|---|
+| 0 | G0 | `Rgb10a2Unorm` | rg: view-space shading normal, spheremap; b, a reserved, 0 |
+| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a reserved, 0 |
+| 2 | G2 | `Rgba8Unorm` | roughness, metal, sqrt(emission), material AO |
+| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags |
+
+To write the targets, a producer registers or borrows a feature whose
+`FeaturePass` names `PassSlot::OpaqueGbuffer`, with `color_format` `Rgb10a2Unorm`
+and `additional_color_formats` `[Rgba8UnormSrgb, Rgba8Unorm, R16Uint]`
+(`gbuffer::GBUFFER_FORMATS`), concatenates `gbuffer::GBUFFER_WGSL` into its
+source, and returns `scene_gbuffer_encode(surface, view_from_scene)` from its
+fragment entry point. The module declares no bindings: each producer passes its
+own camera rotation. The lighting side calls
+`scene_gbuffer_decode(g0, g1, g2, g3, scene_from_view)` on loaded texels.
+`SceneGbufferSurface` holds `shading_normal` (scene space, after decals, unit),
+`geometric_normal` (scene space, unit), `base_colour` (linear), `roughness`,
+`metal` (metal or translucency, chosen by the flags), `emission` (0..1), `ao`
+(material AO; screen AO stays a lighting input) and `flags` (bits 0..1 stored).
+`SceneGbufferTargets` has `@location(0..3)` members `g0`, `g1`, `g2` and `g3`.
+
+Depth: in observation the slot does not own depth, and Opaque or the depth
+prepass keep writing it as before. A producer that declares a `depth_format` in
+the slot gets the scene depth attached read-only when it is complete before
+Opaque (the depth prepass ran and Opaque loads it); it tests against it, `Equal`
+for exact forward winners, and writes nothing. Without a completed depth the
+request fails with `FrameError::AttachmentContract(OpaqueGbuffer)`. Moving the
+scene depth clear and writes into this slot is part of the switch that renders
+from the G-buffer.
+
+Encoding. View space is the camera's right-handed view space (it looks down -z),
+so camera-facing normals have z > 0. G0 stores the Lambert azimuthal equal-area
+(spheremap) projection about +z, `enc = n.xy / sqrt(8 n.z + 8) + 0.5`, computed in
+the equivalent radius form `normalize(n.xy) * sqrt((1 - n.z) / 8) + 0.5` so that
+it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
+decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
+`n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
+shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
+z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1. The
+geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
+within 0.0045 in linear units, roughness, metal and AO within half a code, and
+emission within 1/255 through its square-root transfer. Every target clears to
+zero and a covered pixel never stores G3 = 0: the corner code (0, 0) with no
+flags is written as (127, 127), which decodes to the same normal (0, 0, -1). So
+G3 = 0 means no producer wrote the pixel.
+
+`FeatureTarget::Gbuffer(GbufferTarget::G0..G3)` exposes each target for capture
+readback; `Readback` reads `Rgb10a2Unorm` and `R16Uint` natively. The CPU tests
+check the quantisation through a Rust mirror of the WGSL and validate the module
+with naga; the GPU tests draw a small terrain scene with and without the path,
+and a producer that writes known surfaces through `scene_gbuffer_encode`.
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
 candidate-layout colour attachment byte costs, attachment limits, and material-record
 counts for a prepared scene. Callers invoke it explicitly; it is independent of
 `SceneOpaquePath` and creates no renderer resources. The report uses typed
 material-family classification, enforces the 16-bit material-ID capacity of 65,536
-records, and refuses sample counts other than one with a typed error. Selecting `Forward` remains the default, and every experiment
-tuple is refused until implemented. No rendering behavior changes in this step.
+records, and refuses sample counts other than one with a typed error.
+
+## Native-resolution RCAS
 
 `RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.
 `FrameProfile::HdrNativeRcas` exposes the same setting to hosts. It runs only

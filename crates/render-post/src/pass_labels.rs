@@ -75,6 +75,7 @@ fn geometry_label(slot: PassSlot) -> EncoderLabel {
         PassSlot::SsaoBlurHorizontal => Static("Geometry(SsaoBlurHorizontal)"),
         PassSlot::SsaoBlur => Static("Geometry(SsaoBlur)"),
         PassSlot::Celestial => Static("Geometry(Celestial)"),
+        PassSlot::OpaqueGbuffer => Static("Geometry(OpaqueGbuffer)"),
         PassSlot::Opaque => Static("Geometry(Opaque)"),
         PassSlot::AfterOpaqueSnapshot => Static("Geometry(AfterOpaqueSnapshot)"),
         PassSlot::AfterOpaqueDepth => Static("Geometry(AfterOpaqueDepth)"),

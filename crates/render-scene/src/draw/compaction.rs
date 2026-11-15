@@ -21,11 +21,13 @@ use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
 use super::{DrawCount, FrameUniform, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
+use crate::skinning::SKIN_INSTANCE_BYTES;
 
 mod plan;
 use plan::Plan;
 
 const STRIDE: u64 = INSTANCE_BYTES as u64;
+const SKIN_STRIDE: u64 = SKIN_INSTANCE_BYTES as u64;
 
 /// Everything the gathered bytes depend on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,33 +37,46 @@ pub(super) struct Key {
     content: u64,
     /// Whether the previous-transform records are gathered too.
     previous: bool,
+    /// Whether the scene has skinned batches, whose skin descriptors are gathered too.
+    skin: bool,
 }
 
 #[derive(Clone, Debug)]
 struct Buffers {
     current: Buffer,
     previous: Option<Buffer>,
+    /// One descriptor per record, at the record's index. Records of rigid batches stay unwritten.
+    skin: Option<Buffer>,
+}
+
+/// What a gather needs of its destination buffers.
+#[derive(Clone, Copy)]
+struct Needs {
+    records: u32,
+    previous: bool,
+    skin: bool,
 }
 
 impl Buffers {
-    fn holds(&self, bytes: u64, previous: bool) -> bool {
+    fn holds(&self, needs: Needs) -> bool {
+        let big_enough = |buffer: &Option<Buffer>, bytes: u64| {
+            buffer.as_ref().is_some_and(|buffer| buffer.size() >= bytes)
+        };
+        let bytes = u64::from(needs.records) * STRIDE;
         self.current.size() >= bytes
-            && (!previous
-                || self
-                    .previous
-                    .as_ref()
-                    .is_some_and(|buffer| buffer.size() >= bytes))
+            && (!needs.previous || big_enough(&self.previous, bytes))
+            && (!needs.skin || big_enough(&self.skin, u64::from(needs.records) * SKIN_STRIDE))
     }
 
-    fn allocate(device: &wgpu::Device, bytes: u64, previous: bool) -> Option<Self> {
-        let capacity = bytes.checked_next_power_of_two()?;
+    fn allocate(device: &wgpu::Device, needs: Needs) -> Option<Self> {
+        let capacity = (u64::from(needs.records) * STRIDE).checked_next_power_of_two()?;
         if capacity > device.limits().max_buffer_size {
             return None;
         }
-        let create = |label| {
+        let create = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                size: capacity,
+                size,
                 usage: wgpu::BufferUsages::VERTEX
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
@@ -69,8 +84,17 @@ impl Buffers {
             })
         };
         Some(Self {
-            current: create("view instances"),
-            previous: previous.then(|| create("view previous instances")),
+            current: create("view instances", capacity),
+            previous: needs
+                .previous
+                .then(|| create("view previous instances", capacity)),
+            skin: needs.skin.then(|| {
+                let slots = capacity / STRIDE;
+                create(
+                    "view skin instances",
+                    (slots * SKIN_STRIDE).max(wgpu::COPY_BUFFER_ALIGNMENT),
+                )
+            }),
         })
     }
 }
@@ -149,6 +173,8 @@ impl Compaction {
 struct Source<'a> {
     current: &'a Buffer,
     previous: Option<&'a Buffer>,
+    /// Absent for a rigid batch, whose records have no descriptors.
+    skin: Option<&'a Buffer>,
 }
 
 impl SceneGpu {
@@ -157,6 +183,7 @@ impl SceneGpu {
             selection: self.selection_key(shadow_matrix, frame),
             content: self.instances.content_generation(),
             previous: self.instances.track_previous,
+            skin: self.instances.has_skinned_batches(),
         }
     }
 
@@ -183,11 +210,14 @@ impl SceneGpu {
         let Some(sources) = self.gather_sources(&plan, key.previous) else {
             return;
         };
+        let needs = Needs {
+            records: plan.total,
+            previous: key.previous,
+            skin: key.skin,
+        };
         let buffers = if plan.total == 0 {
             latest.buffers.clone()
-        } else if let Some(buffers) =
-            Self::gather_buffers(context.device(), &latest, plan.total, key.previous)
-        {
+        } else if let Some(buffers) = Self::gather_buffers(context.device(), &latest, needs) {
             Self::stage_gather(context, &plan, &sources, &buffers);
             #[cfg(test)]
             compaction
@@ -227,6 +257,10 @@ impl SceneGpu {
                     } else {
                         None
                     },
+                    skin: match &batch.skin {
+                        Some(stream) => Some(stream.buffer.as_deref()?),
+                        None => None,
+                    },
                 })
             })
             .collect()
@@ -234,16 +268,10 @@ impl SceneGpu {
 
     /// Reuses the latest buffers while they hold `total` records, otherwise allocates new
     /// ones; a grown buffer is never an in-place copy target.
-    fn gather_buffers(
-        device: &wgpu::Device,
-        latest: &Resident,
-        total: u32,
-        previous: bool,
-    ) -> Option<Buffers> {
-        let bytes = u64::from(total) * STRIDE;
-        match latest.buffers.as_ref().filter(|b| b.holds(bytes, previous)) {
+    fn gather_buffers(device: &wgpu::Device, latest: &Resident, needs: Needs) -> Option<Buffers> {
+        match latest.buffers.as_ref().filter(|b| b.holds(needs)) {
             Some(existing) => Some(existing.clone()),
-            None => Buffers::allocate(device, bytes, previous),
+            None => Buffers::allocate(device, needs),
         }
     }
 
@@ -264,6 +292,14 @@ impl SceneGpu {
             );
             if let (Some(previous), Some(target)) = (buffer.previous, &buffers.previous) {
                 context.copy_buffer_region((previous, source), (target, destination), bytes);
+            }
+            if let (Some(skin), Some(target)) = (buffer.skin, &buffers.skin) {
+                let records = u64::from(copy.source.end - copy.source.start);
+                context.copy_buffer_region(
+                    (skin, u64::from(copy.source.start) * SKIN_STRIDE),
+                    (target, u64::from(copy.destination) * SKIN_STRIDE),
+                    records * SKIN_STRIDE,
+                );
             }
         }
     }
@@ -298,7 +334,11 @@ impl SceneGpu {
         else {
             return count;
         };
-        sink.instances(&buffers.current, buffers.previous.as_ref());
+        sink.instances(
+            &buffers.current,
+            buffers.previous.as_ref(),
+            buffers.skin.as_ref(),
+        );
         for group in resident.groups.iter() {
             count.add(self.record_lod_draws(sink, group));
         }

@@ -170,7 +170,7 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
         let index = draw.pipeline;
         #[cfg(test)]
         let index = index ^ self.mask;
-        let (set_pipeline, set_material) = self.state.bind(index, draw.material);
+        let (set_pipeline, set_material) = self.state.bind(index, draw.geometry, draw.material);
         if set_pipeline || set_material {
             let pipeline = self
                 .objects

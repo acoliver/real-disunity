@@ -20,19 +20,27 @@ use crate::upload::MATERIAL_GROUP;
 /// Render state the current selection's draws have already set. wgpu validates and encodes
 /// every state call again, including a pipeline change to the pipeline already bound, so
 /// repeats are skipped. A pipeline change can invalidate the bound material group, so a
-/// material is only reused under the pipeline it was bound with.
+/// material is only reused under the pipeline it was bound with. A pipeline is the pipeline
+/// index together with the vertex layout of the geometry it draws: the same index prepares a
+/// different pipeline for a rigid level and for a skinned one.
 #[derive(Debug, Default)]
 pub(super) struct BoundState {
-    pipeline: Option<usize>,
+    pipeline: Option<(usize, GeometryLayout)>,
     material: Option<usize>,
 }
 
 impl BoundState {
-    /// Records that `pipeline` and `material` are bound and returns which of them must be set.
-    pub(super) fn bind(&mut self, pipeline: usize, material: usize) -> (bool, bool) {
-        let set_pipeline = self.pipeline != Some(pipeline);
+    /// Records that `pipeline` for `geometry` and `material` are bound and returns which of
+    /// them must be set.
+    pub(super) fn bind(
+        &mut self,
+        pipeline: usize,
+        geometry: GeometryLayout,
+        material: usize,
+    ) -> (bool, bool) {
+        let set_pipeline = self.pipeline != Some((pipeline, geometry));
         if set_pipeline {
-            self.pipeline = Some(pipeline);
+            self.pipeline = Some((pipeline, geometry));
             self.material = None;
         }
         let set_material = self.material != Some(material);
@@ -121,7 +129,8 @@ where
             !draw.geometry.is_skinned(),
             "a fixed object route reached skinned geometry"
         );
-        let (set_pipeline, set_material) = self.state.bind(draw.pipeline, draw.material);
+        let (set_pipeline, set_material) =
+            self.state.bind(draw.pipeline, draw.geometry, draw.material);
         if set_pipeline {
             self.pass.set_pipeline(&self.pipelines[draw.pipeline]);
         }
@@ -291,15 +300,24 @@ impl SceneGpu {
 #[cfg(test)]
 mod tests {
     use super::BoundState;
+    use crate::object::layout::GeometryLayout::{Skinned, Static};
 
     #[test]
     fn repeated_state_is_bound_once_and_a_pipeline_change_rebinds_the_material() {
         let mut state = BoundState::default();
-        assert_eq!(state.bind(0, 4), (true, true));
-        assert_eq!(state.bind(0, 4), (false, false));
-        assert_eq!(state.bind(0, 5), (false, true));
-        assert_eq!(state.bind(1, 5), (true, true));
-        assert_eq!(state.bind(1, 5), (false, false));
-        assert_eq!(state.bind(0, 5), (true, true));
+        assert_eq!(state.bind(0, Static, 4), (true, true));
+        assert_eq!(state.bind(0, Static, 4), (false, false));
+        assert_eq!(state.bind(0, Static, 5), (false, true));
+        assert_eq!(state.bind(1, Static, 5), (true, true));
+        assert_eq!(state.bind(1, Static, 5), (false, false));
+        assert_eq!(state.bind(0, Static, 5), (true, true));
+    }
+
+    #[test]
+    fn a_change_of_vertex_layout_rebinds_the_pipeline_and_the_material() {
+        let mut state = BoundState::default();
+        assert_eq!(state.bind(0, Static, 4), (true, true));
+        assert_eq!(state.bind(0, Skinned, 4), (true, true));
+        assert_eq!(state.bind(0, Skinned, 4), (false, false));
     }
 }

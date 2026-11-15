@@ -71,6 +71,7 @@ mod retained;
 mod selection_reuse;
 pub(crate) mod skinning;
 mod skinning_compaction;
+mod skinning_mixed;
 mod source_environment;
 mod ssao;
 mod ssr;

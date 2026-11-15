@@ -71,6 +71,7 @@ impl RetainedHost {
             options,
             exit: false,
             occluded: false,
+            window_on_top: false,
         };
         host.derive_maps();
         Ok(host)

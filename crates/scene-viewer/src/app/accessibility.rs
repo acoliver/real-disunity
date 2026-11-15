@@ -1,21 +1,11 @@
-use super::{ActiveEventLoop, App, Arc, Renderer, ViewerError, Window};
+use super::{ActiveEventLoop, App, Arc, Renderer, ViewerError, window_attributes};
 
 impl App<'_> {
     pub(super) fn create_renderer(
         &mut self,
         event_loop: &ActiveEventLoop,
     ) -> Result<(), ViewerError> {
-        let size = self.content.size();
-        let window = Arc::new(
-            event_loop.create_window(
-                self.content.window_mode().attributes(
-                    Window::default_attributes()
-                        .with_title(self.content.title())
-                        .with_inner_size(self.content.window_size_unit().creation_size(size))
-                        .with_visible(false),
-                ),
-            )?,
-        );
+        let window = Arc::new(event_loop.create_window(window_attributes(&*self.content))?);
         if let Some(accessibility) = self.content.accessibility() {
             accessibility.attach(
                 event_loop,

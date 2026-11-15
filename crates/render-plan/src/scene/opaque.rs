@@ -58,6 +58,16 @@ pub enum SceneOpaquePath {
 }
 
 impl SceneOpaquePath {
+    /// The one admitted experiment: allocate and clear the compact deferred G-buffer
+    /// before Opaque and expose it to captures, while the visible frame stays forward.
+    /// Producers write terrain material values into it; nothing consumes it yet.
+    pub const GBUFFER_OBSERVATION: Self = Self::experiment(
+        SceneOpaqueMode::Observe,
+        SceneOpaqueFamily::Terrain,
+        SceneOpaqueStorage::Compact,
+        SceneOpaqueVisibility::MaterialOwnedDepth,
+    );
+
     /// Constructs an experiment request; `SceneEffects::with_opaque_path` admits supported tuples.
     #[must_use]
     pub const fn experiment(
@@ -78,11 +88,11 @@ impl SceneOpaquePath {
 impl SceneEffects {
     /// Selects the validated opaque rendering contract.
     ///
-    /// The existing forward path is implemented. Unsupported experiment tuples
-    /// fail explicitly until their rendering path is implemented.
+    /// The forward path and [`SceneOpaquePath::GBUFFER_OBSERVATION`] are implemented.
+    /// Every other experiment tuple fails explicitly until its rendering path is implemented.
     pub fn with_opaque_path(mut self, path: SceneOpaquePath) -> Result<Self, SceneValidationError> {
         self.opaque_path = match path {
-            SceneOpaquePath::Forward => SceneOpaquePath::Forward,
+            SceneOpaquePath::Forward | SceneOpaquePath::GBUFFER_OBSERVATION => path,
             SceneOpaquePath::Experiment(_) => {
                 return Err(SceneValidationError::UnsupportedOpaquePath);
             }

@@ -23,6 +23,7 @@ pub(crate) const UNIFORM_BYTES: u64 = 768 + crate::frame::FRAME_UNIFORM_BYTES as
 
 use crate::frame::FrameUniform;
 use crate::renderer::depth::DepthMode;
+use crate::shader::rewrite::ShaderRewrite;
 use geometry::Body;
 use snapshots::Snapshots;
 use worldrunner_render_plan::SceneWaterBody;
@@ -447,7 +448,12 @@ pub(crate) fn water_source(shadows: bool) -> String {
         format!(
             "{}\n{}",
             worldrunner_render_shadow::shadow_wgsl!(),
-            include_str!("shader/shadows.wgsl").replace("@group(2)", "@group(1)")
+            include_str!("shader/shadows.wgsl").anchored(
+                "water::water_source",
+                3,
+                "@group(2)",
+                "@group(1)"
+            )
         )
     } else {
         include_str!("shader/unshadowed.wgsl").to_owned()
@@ -456,7 +462,12 @@ pub(crate) fn water_source(shadows: bool) -> String {
         "{}\n{}\n{}\n{}\n{shadow_source}\n{}",
         worldrunner_render_lighting::lighting_wgsl!(),
         worldrunner_render_post::post_wgsl!(),
-        include_str!("shader/lighting.wgsl").replace("@binding(0)", "@binding(3)"),
+        include_str!("shader/lighting.wgsl").anchored(
+            "water::water_source",
+            1,
+            "@binding(0)",
+            "@binding(3)"
+        ),
         include_str!("shader/camera_rays.wgsl"),
         concat!(
             include_str!("water/ambient_visibility.wgsl"),

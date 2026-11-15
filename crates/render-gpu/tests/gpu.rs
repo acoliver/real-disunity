@@ -53,7 +53,7 @@ fn read_level(
 
 #[test]
 fn real_gpu_preserves_raw_integer_bc_mips_layers_reduction_and_cube_bytes() {
-    let instance = headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("GPU contract requires a real PRIMARY adapter (WGPU_BACKEND may override)");
@@ -230,7 +230,7 @@ fn check_reduction(
 #[test]
 fn texture_store_reuses_content_only_within_its_device_context() {
     use worldrunner_render_gpu::CanonicalTextureStore;
-    let instance = headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

@@ -432,3 +432,42 @@ fn a_material_that_reads_the_terrain_heights_needs_a_rebuild_and_changes_nothing
     );
     assert_eq!(snapshot(&host), before);
 }
+
+#[test]
+fn a_resource_replacement_keeps_the_skeletons_and_poses_objects_name() {
+    let base = crate::renderer::retained_tests::source();
+    let skeleton = worldrunner_render_plan::SceneSkeleton::new(
+        vec![None],
+        vec![worldrunner_render_plan::SceneAffineMatrix::IDENTITY],
+    )
+    .unwrap();
+    let pose = worldrunner_render_plan::SceneSkinPose::rest_pose(1).unwrap();
+    let posed: Vec<SceneObject> = base
+        .geometry()
+        .objects()
+        .iter()
+        .map(|object| object.with_skin_pose(worldrunner_render_plan::SkinPoseHandle::from_raw(0)))
+        .collect();
+    let source = RenderScene::new(SceneParts {
+        resources: base.resources().clone(),
+        geometry: SceneGeometry::new_with_skinning_resources(
+            base.geometry().meshes().to_vec(),
+            posed,
+            vec![skeleton.clone()],
+            vec![pose.clone()],
+        )
+        .unwrap(),
+        terrain: None,
+        effects: base.effects().cloned(),
+    })
+    .unwrap();
+    let mut host =
+        RetainedHost::with_preparation_limit(source.clone(), crate::tests::options(), 4).unwrap();
+    host.apply(RetainedUpdate::Resources {
+        resources: source.resources().clone(),
+        meshes: source.geometry().meshes().to_vec(),
+    })
+    .unwrap();
+    assert_eq!(host.scene().geometry().skeletons(), &[skeleton]);
+    assert_eq!(host.scene().geometry().skin_poses(), &[pose]);
+}

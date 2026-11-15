@@ -1,0 +1,117 @@
+use super::fixture;
+use worldrunner_render_plan::RenderScene;
+use worldrunner_render_scene::{
+    compositor::{FeatureTarget, FrameRenderer, encode_scene},
+    device::GpuContext,
+    draw::{ObjectRecording, SceneGpu},
+    executor::{AttachmentView, ResourceRef, ToneMap},
+    frame::FrameUniform,
+    offscreen::OffscreenTarget,
+    renderer::ScenePipelines,
+    wgpu,
+};
+
+pub(super) struct Scene {
+    pub frame: FrameRenderer,
+    pub gpu: SceneGpu,
+    pipelines: ScenePipelines,
+    uniform: FrameUniform,
+}
+
+impl Scene {
+    pub(super) fn new(context: &GpuContext, source: &RenderScene) -> Self {
+        let view = fixture::view(source);
+        let pipelines = ScenePipelines::with_taa_velocity(
+            context.device(),
+            wgpu::TextureFormat::Rgba16Float,
+            1,
+        )
+        .unwrap();
+        let gpu =
+            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+        let mut frame = FrameRenderer::hdr(
+            context,
+            [view.viewport().width, view.viewport().height],
+            OffscreenTarget::COLOR_FORMAT,
+            1,
+            ToneMap::Reinhard,
+            source.effects(),
+        )
+        .unwrap();
+        frame.set_frame_time(0.125).unwrap();
+        Self {
+            frame,
+            gpu,
+            pipelines,
+            uniform: FrameUniform::new(&view, source.effects()).unwrap(),
+        }
+    }
+
+    pub(super) fn move_retained_instance(&mut self) {
+        let handle = self.gpu.instance_handles().next().unwrap();
+        let mut moved = *self.gpu.instance(handle).unwrap().0.transform();
+        moved.position_millimeters[0] += 250;
+        self.gpu.set_instance_transform(handle, moved).unwrap();
+    }
+
+    pub(super) fn complete(&mut self, context: &GpuContext) {
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            self.frame.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            self.frame.targets().depth().texture(),
+        )
+        .unwrap();
+        let mut encoder = context.submission().begin(context.device()).unwrap();
+        encode_scene(
+            &mut self.frame,
+            context.device(),
+            &mut encoder,
+            (&mut self.gpu, &self.pipelines),
+            (&color, &depth),
+            self.uniform,
+        )
+        .unwrap();
+        encoder.finish().submit().unwrap();
+        let draws = self.gpu.statistics().passes.prepass_objects;
+        assert_eq!(draws.recording, ObjectRecording::Compacted);
+        assert_eq!(draws.meshes.calls, 2);
+        assert_eq!(draws.meshes.instances, 3);
+    }
+
+    pub(super) fn seed_confidence(&self, context: &GpuContext) {
+        let capture = self
+            .frame
+            .feature_capture(FeatureTarget::SsrConfidence)
+            .unwrap();
+        assert_eq!(capture.texture.format(), wgpu::TextureFormat::Rgba16Float);
+        let view = capture.texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: capture.layer,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+        let mut encoder = context.submission().begin(context.device()).unwrap();
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            a: 0.5,
+                            ..wgpu::Color::BLACK
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
+        encoder.finish().submit().unwrap();
+    }
+}

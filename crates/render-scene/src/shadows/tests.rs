@@ -3,6 +3,7 @@ mod cascades;
 mod caster_route;
 mod compaction;
 mod culling;
+mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;

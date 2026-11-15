@@ -14,6 +14,8 @@ pub(crate) struct SceneFeature<'a> {
     /// Admitted player program draws, recorded after the stock opaque draw. Present only
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    /// Set 1 of the deferred lighting pass, present only with the G-buffer observation.
+    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -57,6 +59,12 @@ impl PreparedFeature for SceneFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
+        if context.slot == PassSlot::OpaqueLighting {
+            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+            let pipelines = self.colour_pipelines(pass);
+            self.gpu.draw_deferred_lighting(pass, pipelines, inputs);
+            return;
+        }
         if let Some(screen) = &self.screen {
             if context.slot == PassSlot::OpaqueGbuffer {
                 if let Some((pipelines, group)) = &screen.gbuffer {
@@ -91,6 +99,35 @@ impl PreparedFeature for SceneFeature<'_> {
             programs.record(pass);
         }
     }
+}
+
+impl SceneFeature<'_> {
+    /// The pipelines the colour pass draws with, after binding set 3 as that pass does.
+    fn colour_pipelines(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> &crate::renderer::ScenePipelines {
+        let Some(screen) = &self.screen else {
+            return self.pipelines;
+        };
+        if let Some((pipelines, group)) = &screen.forward {
+            pass.set_bind_group(3, group, &[]);
+            return pipelines;
+        }
+        pass.set_bind_group(3, &screen.ambient, &[]);
+        self.pipelines
+    }
+}
+
+/// The pipelines a stock feature's colour pass draws with: the forward reflection pipelines
+/// when installed, otherwise `pipelines`.
+pub(crate) fn colour_pipelines<'a>(
+    pipelines: &'a crate::renderer::ScenePipelines,
+    screen: Option<&'a crate::scene_metadata::Geometry>,
+) -> &'a crate::renderer::ScenePipelines {
+    screen
+        .and_then(|screen| screen.forward.as_ref())
+        .map_or(pipelines, |(forward, _)| forward)
 }
 
 /// Prepares the terrain and object pipelines of the passes the scene feature draws them in: the
@@ -211,6 +248,13 @@ pub fn encode_scene(
         &mut views,
         &mut declaration,
     );
+    let deferred = renderer.prepare_deferred_lighting(
+        device,
+        (gpu, colour_pipelines(pipelines, screen.as_ref())),
+        (depth_id, depth.texture()),
+        &frame,
+        &mut declaration,
+    )?;
     let mut feature = SceneFeature {
         publications: crate::draw::DrawPublications::default(),
         screen,
@@ -218,6 +262,7 @@ pub fn encode_scene(
         gpu,
         pipelines,
         frame,
+        deferred,
     };
     renderer.encode_frame(
         device,

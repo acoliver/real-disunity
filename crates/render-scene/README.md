@@ -897,8 +897,9 @@ retained settings publication, including removal and consumer changes.
 `SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
 G-buffer in observation: the renderer allocates four single-sample targets at the
 scene extent and clears them to zero every frame in the `PassSlot::OpaqueGbuffer`
-slot, which runs after Celestial and before Opaque. Nothing reads them except
-captures, so the visible frame and every existing pass are the forward ones.
+slot, which runs after Celestial and before Opaque. Nothing reads them except the
+lighting pass below and captures, so the visible frame and every existing pass are
+the forward ones.
 `Forward`, the default, allocates nothing. `RendererConfiguration::opaque_path`
 carries the choice (scene-viewer copies it from the scene effects), and
 `FrameRenderer::hdr_antialiased` reads it from `effects`. A multisampled frame is
@@ -909,9 +910,9 @@ tuple with `PostError::UnsupportedProfile`.
 | Location | Target | Format | Contents |
 |---|---|---|---|
 | 0 | G0 | `Rgb10a2Unorm` | rg: view-space shading normal, spheremap; b, a reserved, 0 |
-| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a reserved, 0 |
-| 2 | G2 | `Rgba8Unorm` | roughness, metal, sqrt(emission), material AO |
-| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags |
+| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a: 8-bit lighting-record index |
+| 2 | G2 | `Rgba8Unorm` | roughness, metal or scattering amount, sqrt(emission), material AO |
+| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags (bit 0 scattering model, bit 1 reserved) |
 
 To write the targets, a producer registers or borrows a feature whose
 `FeaturePass` names `PassSlot::OpaqueGbuffer`, with `color_format` `Rgb10a2Unorm`
@@ -923,9 +924,12 @@ own camera rotation. The lighting side calls
 `scene_gbuffer_decode(g0, g1, g2, g3, scene_from_view)` on loaded texels.
 `SceneGbufferSurface` holds `shading_normal` (scene space, after decals, unit),
 `geometric_normal` (scene space, unit), `base_colour` (linear), `roughness`,
-`metal` (metal or translucency, chosen by the flags), `emission` (0..1), `ao`
-(material AO; screen AO stays a lighting input) and `flags` (bits 0..1 stored).
+`metal` (metal, or with flag bit 0 the per-pixel scattering amount, the surface
+then having no metal), `emission` (0..1), `ao` (material AO; screen AO stays a
+lighting input), `flags` (bits 0..1 stored) and `lighting_record` (0..255).
 `SceneGbufferTargets` has `@location(0..3)` members `g0`, `g1`, `g2` and `g3`.
+Producers pass the rotation of `FrameUniform::view` as `view_from_scene`; the
+lighting pass decodes with its transpose.
 
 Depth: in observation the slot does not own depth, and Opaque or the depth
 prepass keep writing it as before. A producer that declares a `depth_format` in
@@ -970,17 +974,68 @@ untouched. Each fragment entry stores the material its forward entry would light
 before any lighting: terrain stores `terrain_material`, objects `shade_material`,
 and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
 `scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and
-store their per-pixel amount in G2.y with metal 0. For scattering materials whose
+store their per-pixel amount in G2.y with metal 0, and every object entry stores its
+material's lighting record (terrain stores record 0). For scattering materials whose
 mask is not packed, forward lights both the metalness and the amount that
 `scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
 without the depth prepass store nothing.
 
+### Lighting records
+
+A lighting record holds the constant material values that shading reads besides
+the surface's own channels: the back-scattering shape, colour and mode and the
+transmission amount (WGSL `SceneLightingRecord` in `shader/environment.wgsl`:
+`scattering_shape`, `scattering_colour`, `scattering_mode`, `transmission`). The
+renderer builds one table per uploaded material set (`gbuffer::records::LightingRecordTable`,
+extended by appends): equal records share an index and index 0 is the neutral standard
+model, no scattering and no transmission. Every material uniform carries its index in
+`scattering_mode.z`, which producers read with `scene_material_lighting_record_index()`
+and store as `SceneGbufferSurface.lighting_record`; G1.a holds it as `index / 255`.
+Eight bits address 255 records besides record 0. A scene with more refuses the lighting
+pass before any pass records, with `FrameError::FeaturePreparation { feature: "opaque
+G-buffer" }` and the reason `opaque path needs N material records, limit is 255`; indices
+are never truncated. Forward drawing is unaffected by the count.
+
+### Deferred lighting
+
+With the observation the renderer also runs `PassSlot::OpaqueLighting`, one
+full-screen pass after Opaque has completed the scene depth. The stock scene features
+(plain, resident and shadowed) draw it with the same forward pipelines, frame group,
+shadow set and screen-space set as their Opaque draws: the program is the frame's
+forward object source with `gbuffer.wgsl` and `shader/gbuffer_lighting.wgsl` appended,
+so every shadow, SSAO receiver, reflection and receiver-payload variant and every
+specialisation constant is the forward one. Its inputs are set 1, bindings 16 to 22: the
+four targets, the scene depth, the record table and a camera block (inverse
+view-projection and inverse view rotation). Per pixel it reconstructs the position once
+from depth, decodes the surface, and evaluates exactly the forward mesh shading after
+decals: `scene_surface_lighting` (sun with the cascades and the selected disk highlight,
+SH or hemisphere ambient, material and screen AO through the selected occlusion rules,
+environment lookup and BRDF factor), then `scene_record_scattering` and
+`scene_record_transmission` from the record, emission, and height fog and exposure once.
+Forward meshes and impostor cards call the same record functions. Pixels whose G3 is 0
+are written zero; every lighting function still runs there so that the shadow lookups'
+derivatives stay in uniform control flow.
+
+Outputs, in the scene colour format at the scene extent, cleared every frame:
+`LightingTarget::Colour` (exposed radiance, alpha 1 where covered) and, when reflections
+are installed, `Environment` and `Factor`: the replaceable environment contribution and
+replacement factor that Opaque's second and third colour targets carry for SSR. Captures
+read them as `FeatureTarget::DeferredLighting(target)`; nothing else reads them, so the
+visible frame stays forward. In this observation the pass sits after Opaque, so a pixel
+that a forward-only draw won over a producer's surface is lit at the winner's depth; the
+switch that renders from the G-buffer moves the depth clear into the G-buffer slot and the
+lighting before Opaque. Shadow receiver-plane derivatives come from neighbouring pixels in
+the full-screen pass (the receiver payload, when present, is read per pixel instead), so
+they differ from forward at depth and normal discontinuities.
+
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
-candidate-layout colour attachment byte costs, attachment limits, and material-record
+candidate-layout colour attachment byte costs, attachment limits, and lighting-record
 counts for a prepared scene. Callers invoke it explicitly; it is independent of
 `SceneOpaquePath` and creates no renderer resources. The report uses typed
-material-family classification, enforces the 16-bit material-ID capacity of 65,536
-records, and refuses sample counts other than one with a typed error.
+material-family classification, counts the distinct lighting records besides record 0
+over the scene's whole material table, enforces Compact's 255 and Wide's 65,535 records
+with `OpaqueAdmissionError::RecordOverflow`, and refuses sample counts other than one
+with a typed error.
 
 ## Native-resolution RCAS
 

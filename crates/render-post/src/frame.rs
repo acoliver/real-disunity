@@ -17,6 +17,9 @@ pub enum PassSlot {
     /// Opaque. Present only when the scene selects the G-buffer opaque path.
     OpaqueGbuffer,
     Opaque,
+    /// Deferred lighting of the G-buffer: one full-screen pass after Opaque has completed
+    /// the scene depth. Present only when the scene selects the G-buffer opaque path.
+    OpaqueLighting,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
     TransparentWater,

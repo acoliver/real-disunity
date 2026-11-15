@@ -5,11 +5,16 @@ namespace Disunity.Hosting;
 /// <summary>
 /// Holds the rewritten images of a player's game assemblies (<see cref="PlayerCallbackRewriter"/>) on disk, so the
 /// load context reads a real file with the assembly's own file name, which games that copy assemblies by
-/// <c>Assembly.Location</c> need. An image is stored as <c>&lt;directory&gt;/&lt;sha256 of the original, hex&gt;/&lt;file name&gt;</c>,
-/// next to the original's symbol file when it has one, and a stored image is reused for an identical original.
+/// <c>Assembly.Location</c> need. An image is stored as
+/// <c>&lt;directory&gt;/r&lt;revision&gt;/&lt;sha256 of the original, hex&gt;/&lt;file name&gt;</c>, next to the original's symbol
+/// file when it has one, and a stored image is reused for an identical original under the same <see cref="Revision"/>.
 /// </summary>
 internal sealed class CallbackCache(string directory, Action<string>? log)
 {
+    /// <summary>The revision of what the rewrite produces. Images stored under another revision are not reused, so any change
+    /// to the rewrite's output (a new kind of edit, like the job registration access grant of revision 2) must raise it.</summary>
+    internal const int Revision = 2;
+
     /// <summary>
     /// The file to load for the game assembly at <paramref name="path"/>: the cached rewritten image, written now if
     /// the cache lacks it, or <paramref name="path"/> itself when the assembly has nothing to rewrite.
@@ -17,7 +22,7 @@ internal sealed class CallbackCache(string directory, Action<string>? log)
     public string Resolve(string name, string path)
     {
         var original = File.ReadAllBytes(path);
-        var folder = Path.Combine(directory, Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant());
+        var folder = Path.Combine(directory, "r" + Revision, Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant());
         var cached = Path.Combine(folder, Path.GetFileName(path));
         if (File.Exists(cached))
         {

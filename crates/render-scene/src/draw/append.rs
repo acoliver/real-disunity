@@ -547,7 +547,7 @@ impl SceneGpu {
             };
             new_material_groups(device, queue, &inputs, &prepared.materials)
         };
-        let meshes = upload_meshes(device, queue, &prepared.meshes);
+        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
         self.resource_counters
             .append(&prepared.texture_bytes(), &prepared.mesh_bytes());
@@ -591,6 +591,10 @@ impl SceneGpu {
             authority.queue(),
             &replacement.texture.as_prepared(),
         )?;
+        let texture = authority.census().track_texture(
+            worldrunner_render_gpu::census::ResourceClass::Texture,
+            texture,
+        );
         let fresh = texture.create_view(&TextureViewDescriptor::default());
         let groups = {
             let resident = &self.retained.textures;
@@ -667,9 +671,14 @@ impl SceneGpu {
         }
         self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
-        let uploaded = upload_meshes(device, queue, std::slice::from_ref(&replacement.mesh))
-            .pop()
-            .expect("one mesh uploaded");
+        let uploaded = upload_meshes(
+            device,
+            queue,
+            &self.instances.census,
+            std::slice::from_ref(&replacement.mesh),
+        )
+        .pop()
+        .expect("one mesh uploaded");
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.mesh_selection[index] = replacement.selection;

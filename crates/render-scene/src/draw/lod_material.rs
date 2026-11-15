@@ -213,8 +213,8 @@ impl SceneGpu {
     ) -> DrawCount {
         let batch = &self.instances.batches[&range.key];
         sink.instances(
-            batch.buffer.as_ref().expect("flushed instance buffer"),
-            batch.previous.as_ref(),
+            batch.buffer.as_deref().expect("flushed instance buffer"),
+            batch.previous.as_deref(),
         );
         self.record_lod_draws(sink, range)
     }

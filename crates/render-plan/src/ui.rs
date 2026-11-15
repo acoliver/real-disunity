@@ -10,3 +10,4 @@ pub use worldrunner_world_simulation::ui::contribution::{
 pub use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 pub use worldrunner_world_simulation::ui::annotations;
+pub use worldrunner_world_simulation::ui::draw_list;

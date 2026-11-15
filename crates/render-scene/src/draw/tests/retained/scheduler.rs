@@ -71,7 +71,8 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
         .next()
         .unwrap()
         .buffer
-        .clone()
+        .as_deref()
+        .cloned()
         .unwrap();
     let old_bytes = buffer_bytes(&context, &old_buffer, old_buffer.size());
     gpu.set_instance_transform(handle, moved(1234)).unwrap();
@@ -93,7 +94,7 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
         Err(FrameError::UnsupportedEffect("injected"))
     );
     let batch = gpu.instances.batches.values().next().unwrap();
-    assert_eq!(batch.buffer.as_ref().unwrap(), &old_buffer);
+    assert_eq!(batch.buffer.as_deref().unwrap(), &old_buffer);
     assert_eq!(batch.pending_ranges(), [0..1, 2..10]);
     assert_eq!(gpu.frame.get(), None);
     // Submitting the failed encoder proves that even staged uploads were not appended.
@@ -156,7 +157,7 @@ fn published_slots_leave_the_dirty_set() {
     assert_eq!(
         buffer_bytes(
             &context,
-            batch.buffer.as_ref().unwrap(),
+            batch.buffer.as_deref().unwrap(),
             batch.bytes.len() as u64
         ),
         batch.bytes
@@ -238,7 +239,7 @@ fn assert_retry(
     assert_eq!(
         buffer_bytes(
             context,
-            batch.buffer.as_ref().unwrap(),
+            batch.buffer.as_deref().unwrap(),
             batch.bytes.len() as u64
         ),
         batch.bytes

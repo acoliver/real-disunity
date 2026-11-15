@@ -61,6 +61,13 @@ fn setup_pool(size: [u32; 2]) -> (RetainedHost, Renderer) {
     (host, renderer)
 }
 
+/// The pool `setup_pool` derives: the storage of its recipe at the policy's largest extent.
+fn pool_bytes() -> u64 {
+    recipe(2, 1, CaptureJitter::None)
+        .storage_bytes([64, 64])
+        .unwrap()
+}
+
 fn resize(host: &mut RetainedHost, renderer: &mut Renderer, size: [u32; 2]) {
     host.input(RetainedInput::Resized(size));
     renderer.resize(size).unwrap();
@@ -70,13 +77,18 @@ fn resize(host: &mut RetainedHost, renderer: &mut Renderer, size: [u32; 2]) {
 fn capture_pool_grow_rejects_overcommit_before_execution() {
     let (mut host, mut renderer) = setup_pool([32, 32]);
     let temporal = recipe(1, 2, CaptureJitter::None);
+    // The queued request reserves its storage at the largest extent; the second request needs
+    // the same again on top of it, which no longer fits the pool.
+    let reserved = temporal.storage_bytes([64, 64]).unwrap();
+    let temporal_required = 2 * reserved;
+    assert!(reserved <= pool_bytes() && temporal_required > pool_bytes());
     let id = host.request_capture_recipe(0, temporal.clone()).unwrap();
     resize(&mut host, &mut renderer, [64, 64]);
     assert_eq!(
         host.request_capture_recipe(0, temporal),
         Err(CaptureRequestError::RecipeBudget {
-            required: 524_288,
-            limit: 458_752,
+            required: temporal_required,
+            limit: pool_bytes(),
         })
     );
     let products = await_capture(&mut host, &mut renderer, id);
@@ -133,21 +145,21 @@ fn capture_pool_in_flight_shrink_keeps_inventory_through_delivery() {
     renderer.drain().unwrap();
     renderer.collect_retained(&mut host).unwrap();
     resize(&mut host, &mut renderer, [32, 32]);
-    assert_eq!(host.capture_pool_bytes(), 458_752);
-    assert_inventory(&renderer, 458_752, [32, 32]);
+    assert_eq!(host.capture_pool_bytes(), pool_bytes());
+    assert_inventory(&renderer, pool_bytes(), [32, 32]);
     for _ in 0..3 {
         renderer.render_retained(&mut host).unwrap();
         renderer.drain().unwrap();
         renderer.collect_retained(&mut host).unwrap();
         renderer.presentation.scheduler.collect();
-        assert_inventory(&renderer, 458_752, [128, 128]);
+        assert_inventory(&renderer, pool_bytes(), [128, 128]);
     }
     assert!(
         matches!(host.captures.take_event(), Some(RetainedEvent::Capture {
         id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { products, .. }, ..
     }) if actual == id && products.srgb8.as_ref().unwrap().viewport.width == 64)
     );
-    assert_inventory(&renderer, 458_752, [128, 128]);
+    assert_inventory(&renderer, pool_bytes(), [128, 128]);
 }
 
 #[test]

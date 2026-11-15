@@ -13,6 +13,7 @@ If you are new, read the pages in this order:
 Reference pages:
 
 - [Supported UnityEngine API](unity-api.md): every type and member `Disunity.Engine` implements.
+- [Drawing an immediate overlay](immediate-ui.md): shapes, images, nine-slice frames, text measurement and coverage shadows.
 - [Rendering features](rendering.md): what the 2D and 3D renderer can draw and which effects it supports.
 - [Drawing with your own shader programs](render-program-native.md): register a WGSL or SPIR-V program, make a material, set its properties and features by name, and draw it.
 

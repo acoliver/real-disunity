@@ -31,7 +31,7 @@ fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
 #[test]
 fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

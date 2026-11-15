@@ -122,3 +122,44 @@ fn gpu_same_frame_fitted_render_preserves_stored_and_lit_geometry() {
             })
     );
 }
+
+#[test]
+fn gpu_stock_depth_prefix_plan_lists_what_the_fused_producer_completes() {
+    use worldrunner_render_post::{PassEntry, PassSlot};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = render_source();
+    let (mut frame, renderer) = fitted_frame(&context, &source);
+    let prefix = frame
+        .stock_depth_prefix(context.device(), &renderer.gpu)
+        .unwrap();
+    let plan = prefix.plan();
+    let entries: Vec<_> = plan
+        .passes
+        .iter()
+        .map(worldrunner_render_post::PassDeclaration::entry)
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            PassEntry::new(PassSlot::DepthNormalPrepass),
+            PassEntry::new(PassSlot::DepthPyramid(0)),
+        ],
+        "the fused producer is the prepass entry, not a further one"
+    );
+    let prepass = &plan.passes[0];
+    let attached: Vec<_> = prepass
+        .color
+        .iter()
+        .chain(&prepass.additional_colors)
+        .map(|attachment| attachment.resource)
+        .collect();
+    for target in GbufferTarget::ALL {
+        let resource = ResourceRef::new(target.resource_name());
+        assert!(attached.contains(&resource), "{target:?} is attached");
+        assert!(
+            plan.views.iter().any(|view| view.resource() == resource),
+            "{target:?} has a view in the plan"
+        );
+    }
+}

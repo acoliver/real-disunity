@@ -63,6 +63,23 @@ impl Products {
         }
     }
 
+    pub(super) fn assert_completed_unchanged(&self, completed: &Self) {
+        assert_eq!(self.color, completed.color, "completed raw scene colour");
+        assert_eq!(self.output, completed.output, "completed final AA output");
+        assert_eq!(
+            self.confidence, completed.confidence,
+            "completed confidence"
+        );
+    }
+
+    pub(super) fn assert_prefix_matches(&self, retried: &Self) {
+        assert_eq!(self.g3, retried.g3, "refused prefix coverage matches retry");
+        assert_eq!(
+            self.velocity, retried.velocity,
+            "refused prefix motion matches ordinary retry"
+        );
+    }
+
     pub(super) fn assert_confidence(&self, expected: f32) {
         let values = halves(&self.confidence);
         assert!(!values.is_empty());

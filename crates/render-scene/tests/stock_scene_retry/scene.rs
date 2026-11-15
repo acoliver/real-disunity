@@ -15,8 +15,8 @@ pub(super) struct Scene {
     pub frame: FrameRenderer,
     pub gpu: SceneGpu,
     pub output: wgpu::Texture,
-    pipelines: ScenePipelines,
-    uniform: FrameUniform,
+    pub(super) pipelines: ScenePipelines,
+    pub(super) uniform: FrameUniform,
 }
 
 impl Scene {

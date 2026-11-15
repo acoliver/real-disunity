@@ -1,3 +1,5 @@
+#[path = "stock_scene_retry/capture_retry.rs"]
+mod capture_retry;
 #[path = "stock_scene_retry/fixture.rs"]
 mod fixture;
 #[path = "stock_scene_retry/products.rs"]
@@ -94,5 +96,17 @@ fn public_caller_refusal_preserves_completed_products_and_retry_matches_control(
     settled.assert_motion_settled();
     settled.assert_confidence(0.0);
     assert_eq!(settled, Products::read(&context, &control));
+    assert!(pollster::block_on(validation.pop()).is_none());
+}
+
+#[test]
+fn public_stock_depth_prefix_refusal_retries_retained_motion_with_taa_and_ssr() {
+    let _session = SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+    let validation = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let source = fixture::source();
+    capture_retry::assert_retry(&context, &source);
     assert!(pollster::block_on(validation.pop()).is_none());
 }

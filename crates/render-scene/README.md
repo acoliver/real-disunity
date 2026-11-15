@@ -1140,9 +1140,12 @@ reset obligations. Previous-only settling changes physical content before mirror
 gather; CPU history publication changes neither physical content nor sparse current-write counts.
 
 [The public retained-motion fixture](tests/stock_scene_retry.rs) exercises compacted
-instances with TAA and SSR. Its caller-preparation refusal submits nothing, preserves
-completed raw and resolved colour, metadata, statistics and temporal state, and compares
-retry and settling products with an uninterrupted control.
+instances with TAA and SSR. Its caller-preparation refusal submits nothing and preserves
+completed raw and resolved colour, metadata, statistics and temporal state. Its public
+`StockDepthPrefix` case submits exactly one prefix before refusing suffix preparation.
+That refusal preserves completed colour, confidence, statistics and temporal state while
+G3 and velocity contain the moved geometry. A fresh ordinary retry preserves that motion;
+retry and settling products match an uninterrupted control in both cases.
 
 [The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
 covers program-admission and caller-preparation refusal after a physical prefix. It

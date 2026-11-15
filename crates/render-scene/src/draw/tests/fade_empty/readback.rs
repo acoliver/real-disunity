@@ -187,9 +187,11 @@ pub(super) fn capture(
             let materials = gpu.objects.material_groups(device);
             let mut sink = FixedSink::new(&mut pass, pipelines, &materials);
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
+                .total()
         } else {
             let mut sink = PreparedSink::new(&mut pass, &gpu.objects, forward.object_context());
             gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
+                .total()
         }
     };
     let buffers: Vec<_> = colors

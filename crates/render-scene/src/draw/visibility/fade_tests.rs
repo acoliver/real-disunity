@@ -163,7 +163,7 @@ fn a_live_material_slot_or_mesh_handoff_prevents_whole_placement_culling() {
         let mesh = MeshSelection::new(&mesh);
         assert_eq!(
             mesh.fade_empty(
-                &instances,
+                &instances.fades,
                 source.geometry().objects()[0],
                 1,
                 Vec3::new(0.0, -7.0, 0.5)

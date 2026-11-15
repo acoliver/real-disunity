@@ -30,6 +30,8 @@ pub use interaction::{
 pub use interaction::{UiAction, UiControl, UiControlKind, UiKey, UiResponse, UiRouter, UiSlider};
 pub use layout_groups::{UiAlign, UiAxis, UiGridFlow, UiLayoutGroup, UiLayoutRules, UiSize};
 pub use scroll::UiScrollView;
+mod distance;
+mod raster;
 mod renderer;
 mod sdf;
 mod text;

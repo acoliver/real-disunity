@@ -148,20 +148,50 @@ pub(super) fn channel_count(texture: &SceneTexture) -> Result<u32, SceneValidati
     match texture {
         SceneTexture::Sampled { texture, .. } => channel_count(texture),
         SceneTexture::SpecularCube(_) => Err(invalid("terrain cube texture")),
-        SceneTexture::Texels { format, .. } => Ok(match format {
-            super::TexelFormat::R8Unorm => 1,
-            super::TexelFormat::Rg8Unorm => 2,
-            super::TexelFormat::Rgba8Unorm | super::TexelFormat::Bgra8Unorm => 4,
-            super::TexelFormat::Rg16Float | super::TexelFormat::Rgba16Float => {
-                return Err(invalid("terrain layered texture format"));
-            }
-        }),
+        SceneTexture::Texels { format, .. } => texel_channels(*format),
+        SceneTexture::Released(descriptor) => released_channels(descriptor),
         SceneTexture::Encoded {
             encoding: super::TextureEncoding::DdsContainer,
             bytes,
             color_space,
         } => dds_channels(bytes, *color_space),
         SceneTexture::Encoded { .. } => Err(invalid("terrain layered texture format")),
+    }
+}
+
+fn texel_channels(format: super::TexelFormat) -> Result<u32, SceneValidationError> {
+    match format {
+        super::TexelFormat::R8Unorm => Ok(1),
+        super::TexelFormat::Rg8Unorm => Ok(2),
+        super::TexelFormat::Rgba8Unorm | super::TexelFormat::Bgra8Unorm => Ok(4),
+        super::TexelFormat::Rg16Float | super::TexelFormat::Rgba16Float => {
+            Err(invalid("terrain layered texture format"))
+        }
+    }
+}
+
+/// Channel count of a released texture; its descriptor already carries the validated format.
+fn released_channels(
+    descriptor: &super::SceneTextureDescriptor,
+) -> Result<u32, SceneValidationError> {
+    match descriptor {
+        super::SceneTextureDescriptor::Texels(texels) => texel_channels(texels.format),
+        super::SceneTextureDescriptor::Dds(dds) => released_dds_channels(dds),
+        super::SceneTextureDescriptor::SpecularCube(_) => Err(invalid("terrain cube texture")),
+    }
+}
+
+/// Mirrors [`dds_channels`], whose supported code list has no BC7 entry: a source BC7 sRGB
+/// container fails the colour-space check and every other BC7 container the format check.
+fn released_dds_channels(dds: &super::SceneDdsDescriptor) -> Result<u32, SceneValidationError> {
+    match (dds.format, dds.color_space) {
+        (super::SceneDdsFormat::Bc7Rgba, TextureColorSpace::Srgb) => {
+            Err(invalid("terrain DDS color space mismatch"))
+        }
+        (super::SceneDdsFormat::Bc7Rgba, TextureColorSpace::Linear) => {
+            Err(invalid("terrain layered texture format"))
+        }
+        (format, _) => Ok(format.channel_count()),
     }
 }
 

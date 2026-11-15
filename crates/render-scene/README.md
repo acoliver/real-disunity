@@ -730,6 +730,10 @@ bytes change.
 
 Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. Each instance batch keeps a previous-transform buffer with the instance-buffer layout, bound as a third vertex buffer at locations 12 to 15 of velocity variants only. An edited slot uses its last completed colour transform as previous; added or reused slots start equal to current. After a completed frame, an untouched slot converges to previous equal to current. A submitted metadata prefix may upload current and previous GPU bytes, while its refused colour suffix leaves the CPU history and reset obligations pending for the retry. Cancelling an unsubmitted preparation changes neither GPU buffer. Billboards and impostors do not yet follow their transform.
 
+Object-motion passes reject skinned geometry with `ProgramError::UnsupportedState`,
+because it has no previous-pose representation. [The skinning regression](src/draw/tests/skinning.rs)
+checks this refusal before drawing.
+
 `PostResolve::Taa` selects the default jitter sequence when none was requested
 (`PostResolve::effective_jitter`); an explicit sequence wins. `set_projection_jitter` returns
 `Result<(), PostError>` and refuses `None` while a TAA resolve is resident.

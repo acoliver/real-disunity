@@ -1,5 +1,7 @@
 //! Immediate overlay fixtures. No GPU or window is created.
 #![cfg(feature = "ui")]
+#[path = "ui_draw_list/clips.rs"]
+mod clips;
 #[path = "ui_draw_list/edges.rs"]
 mod edges;
 #[path = "ui_draw_list/images.rs"]

@@ -330,6 +330,76 @@ fn replacing_a_mesh_keeps_handles_and_checks_its_material_slots() {
     assert_eq!(scene.geometry().meshes()[0], mesh_with_slot(0));
 }
 
+fn skinned_mesh() -> SceneMesh {
+    let influence = crate::scene::SceneSkinInfluence {
+        joints: [0; 4],
+        weights: [255, 0, 0, 0],
+    };
+    let lod = lod(None)
+        .with_skin_influences(
+            crate::scene::SkeletonHandle::from_raw(0),
+            vec![influence; 3],
+        )
+        .unwrap();
+    SceneMesh::new(vec![lod]).unwrap()
+}
+
+#[test]
+fn an_appended_skinned_mesh_must_name_an_existing_skeleton() {
+    let mut scene = base();
+    let before = scene.clone();
+    let error = scene
+        .append_resources(SceneAppend {
+            textures: Vec::new(),
+            materials: Vec::new(),
+            meshes: vec![skinned_mesh()],
+        })
+        .unwrap_err();
+    let SceneValidationError::AppendedEntry {
+        index: 1, source, ..
+    } = error
+    else {
+        panic!("expected the appended mesh to be named: {error:?}");
+    };
+    assert!(matches!(
+        *source,
+        SceneValidationError::HandleOutOfRange {
+            resource: "skeleton",
+            ..
+        }
+    ));
+    assert_eq!(scene, before);
+}
+
+#[test]
+fn a_replacement_that_gains_a_skeleton_needs_a_pose_on_every_object_drawing_it() {
+    let skeleton = crate::scene::SceneSkeleton::new(
+        vec![None],
+        vec![crate::scene::SceneAffineMatrix::IDENTITY],
+    )
+    .unwrap();
+    let geometry = SceneGeometry::new_with_skinning_resources(
+        vec![mesh()],
+        vec![object(0, 0)],
+        vec![skeleton],
+        Vec::new(),
+    )
+    .unwrap();
+    let mut scene = RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![texture(10)], vec![material_on(0)]).unwrap(),
+        geometry,
+        terrain: None,
+        effects: None,
+    })
+    .unwrap();
+    let before = scene.clone();
+    let error = scene
+        .replace_mesh(MeshHandle::from_raw(0), skinned_mesh())
+        .unwrap_err();
+    assert_eq!(error, SceneValidationError::MissingSkinPose);
+    assert_eq!(scene, before);
+}
+
 fn appended_tables() -> (SceneAppend, RenderScene) {
     let append = SceneAppend {
         textures: vec![texture(30)],

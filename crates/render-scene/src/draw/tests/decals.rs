@@ -370,7 +370,7 @@ fn angle_cutoff_and_both_receiver_masks_reject_without_changing_pixels() {
 #[test]
 fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

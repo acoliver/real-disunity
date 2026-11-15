@@ -15,7 +15,11 @@ fn reference_source(normal: &str) -> String {
     let start = source
         .find("    let strength = bitcast<f32>(terrain.surfaces[0].normal_strength_bits")
         .unwrap();
-    let end = start + source[start..].find("    // Terrain has neither").unwrap();
+    // The normal is chosen just before decals project onto it, inside terrain_material.
+    let end = start
+        + source[start..]
+            .find("    let projected = scene_project_decals(")
+            .unwrap();
     format!("{}{normal}\n{}", &source[..start], &source[end..])
 }
 

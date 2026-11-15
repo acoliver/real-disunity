@@ -525,6 +525,15 @@ fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
         refused(operations.export(ARRAY, 0, 2, misnamed)),
         format!("{misnamed:?} names mip 0 of layer 0, but the export is mip 0 of element 2")
     );
+    let other_mip = ResourceRef {
+        mip: 1,
+        layer: 2,
+        ..ResourceRef::new("other mip")
+    };
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, other_mip)),
+        format!("{other_mip:?} names mip 1 of layer 2, but the export is mip 0 of element 2")
+    );
     assert_eq!(
         refused(operations.export(TextureId(99), 0, 0, ResourceRef::new("unknown"))),
         "texture TextureId(99) is neither registered nor in the frame"

@@ -80,6 +80,7 @@ mod source_environment;
 mod ssao;
 mod ssr;
 mod ssr_acceptance;
+mod stock_plan;
 mod streaming;
 mod taa;
 mod taa_screen_space_tests;

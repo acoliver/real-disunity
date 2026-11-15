@@ -1,5 +1,6 @@
 mod publication;
 mod retained_retry;
+mod stock_plan;
 mod velocity;
 
 use super::*;

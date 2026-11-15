@@ -18,6 +18,8 @@ mod offscreen;
 mod output;
 mod overlay;
 mod overlay_depth;
+#[cfg(test)]
+pub(crate) mod plan_trace;
 mod programs;
 pub(crate) mod publication;
 mod snapshots;
@@ -747,6 +749,8 @@ fn encode_planned(
     operations: &[worldrunner_render_post::OperationsGroup<'_>],
     features: &mut [BorrowedFeature<'_>],
 ) -> Result<(), FrameError> {
+    #[cfg(test)]
+    plan_trace::record(false, plan.0, features, operations);
     chain.encode_geometry(
         device,
         encoder,

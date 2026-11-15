@@ -57,6 +57,21 @@ impl FrameRenderer {
             material,
             frame: *frame,
         };
+        let mut features = [
+            BorrowedFeature {
+                declaration: FeatureDeclaration {
+                    passes: vec![prepass],
+                    effects: vec![],
+                },
+                prepared: &mut geometry,
+            },
+            BorrowedFeature {
+                declaration: screen_declaration,
+                prepared: &mut screen,
+            },
+        ];
+        #[cfg(test)]
+        super::plan_trace::record(true, &passes, &features, &[]);
         self.chain.encode_geometry_prefix(
             device,
             encoder,
@@ -66,19 +81,7 @@ impl FrameRenderer {
                 requested: &[],
                 operations: &[],
             },
-            &mut [
-                BorrowedFeature {
-                    declaration: FeatureDeclaration {
-                        passes: vec![prepass],
-                        effects: vec![],
-                    },
-                    prepared: &mut geometry,
-                },
-                BorrowedFeature {
-                    declaration: screen_declaration,
-                    prepared: &mut screen,
-                },
-            ],
+            &mut features,
         )
     }
 

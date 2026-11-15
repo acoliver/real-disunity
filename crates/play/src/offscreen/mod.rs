@@ -28,6 +28,10 @@
 //! * Matrices are column-major, as the world stores them.
 //! * The view, the projection and the camera position follow the engine layer's camera
 //!   ([`camera`]), mapped to the clip space render-program's conventions tests measured.
+//! * Depth runs as the run's [`DepthRange`] says, reversed (near 1, far 0) for a built player
+//!   unless the run chooses forward. The one value reaches the render-program state, the clip
+//!   space of every camera and the managed side's request; see [`DepthRange`] for the setting,
+//!   its default and the run that is the evidence.
 //! * The built-in values and the evidence for each name are in [`builtins`].
 //! * Texture rows are bottom first, as the engine stores them, which is the orientation of a
 //!   render texture's rows.
@@ -84,14 +88,14 @@ pub use builtins::{
     PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT,
     WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
-pub use camera::{clip_from_gl, clip_from_gl_with, projection, world_to_camera};
+pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
-pub use depth_range::{REVERSED_DEPTH_ENV, reversed_depth};
+pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,

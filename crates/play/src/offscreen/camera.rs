@@ -12,30 +12,24 @@
 use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 
-use super::depth_range::reversed_depth;
+use super::depth_range::DepthRange;
 
 use worldrunner_world_simulation::graphics::CameraView;
 
 /// The matrix that takes OpenGL clip coordinates to the clip space a Unity Vulkan module is
-/// drawn in.
+/// drawn in, with depth running as `depth` says.
 ///
 /// render-program's conventions tests (`tests/program/conventions.rs`) measure that the module's
 /// position output is used unflipped, so positive clip Y lands in the bottom rows of the image,
 /// and that the depth that survives clipping is 0 to w. The OpenGL projection's Y therefore
 /// stays as it is, which puts the lowest part of the scene in row 0, the same orientation as a
-/// texture the player stored (its rows are bottom first). Only depth changes: `z' = (z + w) / 2`
-/// takes -w..w to 0..w. Depth is not reversed unless the experiment switch
-/// ([`reversed_depth`]) is on, in which case `z' = (w - z) / 2` takes -w..w to w..0 (near is
-/// w, far is 0), as render-program's reversed depth tests and clears expect.
+/// texture the player stored (its rows are bottom first). Only depth changes. For
+/// [`DepthRange::Forward`], `z' = (z + w) / 2` takes -w..w to 0..w. For
+/// [`DepthRange::Reversed`], `z' = (w - z) / 2` takes -w..w to w..0, so near is w and far is 0,
+/// which is what render-program's reversed depth clears and tests expect.
 #[must_use]
-pub fn clip_from_gl() -> Mat4 {
-    clip_from_gl_with(reversed_depth())
-}
-
-/// [`clip_from_gl`] for a stated depth direction, `reversed` being near at w and far at 0.
-#[must_use]
-pub fn clip_from_gl_with(reversed: bool) -> Mat4 {
-    let sign = if reversed { -0.5 } else { 0.5 };
+pub fn clip_from_gl(depth: DepthRange) -> Mat4 {
+    let sign = if depth.reversed() { -0.5 } else { 0.5 };
     Mat4::from_cols(
         Vec4::X,
         Vec4::Y,

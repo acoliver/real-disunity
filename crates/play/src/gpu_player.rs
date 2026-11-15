@@ -28,8 +28,8 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
-    Report, Settings, WorkTrace,
+    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
+    Reclaimed, Report, Settings, WorkTrace,
 };
 use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
@@ -476,13 +476,19 @@ impl PlayerGpu {
         self.offscreen.borrow().storage_budget()
     }
 
+    /// Whether the host's render-program state has depth reversed.
+    #[must_use]
+    pub fn reversed_depth(&self) -> bool {
+        self.offscreen.borrow().reversed_depth()
+    }
+
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`.
+    /// `data` and depth running as `depth` says.
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(data: &Path) -> Result<Self, String> {
+    pub fn headless(data: &Path, depth: DepthRange) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -526,7 +532,7 @@ impl PlayerGpu {
             budget.0,
             choice.source
         );
-        let settings = Settings::cameras();
+        let settings = Settings::cameras().with_depth(depth);
         let offscreen = OffscreenHost::new(
             runtime,
             arena,
@@ -781,9 +787,18 @@ mod tests {
     }
 
     #[test]
+    fn the_headless_host_draws_with_the_depth_range_it_is_given() {
+        let directory = tempfile::tempdir().unwrap();
+        for depth in [DepthRange::Forward, DepthRange::Reversed] {
+            let gpu = PlayerGpu::headless(directory.path(), depth).unwrap();
+            assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
+        }
+    }
+
+    #[test]
     fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
         let directory = tempfile::tempdir().unwrap();
-        let gpu = PlayerGpu::headless(directory.path()).unwrap();
+        let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward).unwrap();
         assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
         assert!(
             gpu.report().device.contains("runtime budget"),

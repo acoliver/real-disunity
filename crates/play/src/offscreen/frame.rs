@@ -26,6 +26,7 @@ use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill};
+use super::depth_range::DepthRange;
 use super::ids;
 use super::pixels::{self, Wanted};
 use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
@@ -125,6 +126,10 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// How depth runs in the camera renders: the clip space of every camera's view-projection,
+    /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
+    /// Forward unless the caller says otherwise.
+    pub depth: DepthRange,
 }
 
 impl Settings {
@@ -136,7 +141,15 @@ impl Settings {
         Self {
             light_modes: CAMERA_LIGHT_MODES.map(str::to_owned).to_vec(),
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
+            depth: DepthRange::default(),
         }
+    }
+
+    /// These settings with depth running as `depth` says.
+    #[must_use]
+    pub fn with_depth(mut self, depth: DepthRange) -> Self {
+        self.depth = depth;
+        self
     }
 
     /// The passes a camera draws.
@@ -677,7 +690,7 @@ impl<'a> Mapper<'a> {
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
-        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
+        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]), self.settings.depth);
         add_main_light(&mut values, &self.snapshot.lights);
         add_screen_size(&mut values, size);
         Camera {

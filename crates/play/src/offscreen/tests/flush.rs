@@ -21,6 +21,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
 use super::super::defaults::DefaultTexture;
+use super::super::depth_range::DepthRange;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -91,6 +92,20 @@ fn host_over(directory: &Path, adapter: OffscreenAdapter, gpu: super::gpu::Gpu) 
         adapter,
         ComputeAdapter::new(PlayerKernels::new(directory)),
     )
+}
+
+#[test]
+fn the_host_draws_with_the_depth_range_of_its_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    for depth in [DepthRange::Forward, DepthRange::Reversed] {
+        let settings = Settings::default().with_depth(depth);
+        let host = host_with(directory.path(), settings);
+        assert_eq!(host.reversed_depth(), depth.reversed(), "{depth:?}");
+    }
+    assert!(
+        !host(directory.path()).reversed_depth(),
+        "a plain host stays forward"
+    );
 }
 
 /// A camera that clears to `CLEAR` in red and draws `DRAWN` over the left half of its target.
@@ -488,6 +503,7 @@ fn a_camera_draws_a_shader_without_a_light_mode_only_when_untagged_passes_count_
     let settings = |untagged: Option<&str>| Settings {
         light_modes: vec!["Alpha".to_owned()],
         untagged_light_mode: untagged.map(str::to_owned),
+        ..Settings::default()
     };
     let run = |untagged: Option<&str>| {
         let mut host = host_with(directory.path(), settings(untagged));

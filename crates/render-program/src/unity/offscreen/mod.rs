@@ -119,6 +119,12 @@ impl OffscreenState {
         self.reversed_depth = reversed;
     }
 
+    /// Whether depth is reversed: see [`set_reversed_depth`](Self::set_reversed_depth).
+    #[must_use]
+    pub fn reversed_depth(&self) -> bool {
+        self.reversed_depth
+    }
+
     /// Sets the most bytes one constants buffer may hold, which the device's buffer size also
     /// limits. A frame whose constants are larger is uploaded in several buffers, each draw
     /// binding the buffer and offset that hold its bytes.

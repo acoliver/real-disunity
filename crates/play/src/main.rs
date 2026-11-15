@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
-    play_player_window, prepare, prepare_player, run_player_with,
+    Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
+    ScheduledKey, key_code, play_player_window, prepare, prepare_player, run_player_with,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -20,7 +20,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--gpu-work on|off]
+            [--gpu-work on|off] [--depth reversed|forward]
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -39,6 +39,9 @@ struct Arguments {
     scene: Option<String>,
     /// Whether a headless player run does its offscreen work on a device.
     gpu_work: GpuWork,
+    /// The depth range `--depth` names; without it the environment and then the player's default
+    /// choose (see `DepthRange::choose`).
+    depth: Option<DepthRange>,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -110,6 +113,12 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 _ => return Err(format!("--gpu-work `{value}` is on or off")),
             };
         }
+        "--depth" => {
+            arguments.depth = Some(
+                DepthRange::from_name(value)
+                    .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
+            );
+        }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
@@ -144,10 +153,16 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
+    // The one place the environment is read: the request and the GPU work get this value.
+    let depth = DepthRange::choose(
+        arguments.depth,
+        std::env::var(REVERSED_DEPTH_ENV).ok().as_deref(),
+    )?;
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
         screen,
         plugins: &arguments.plugins,
+        depth,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -367,6 +382,28 @@ mod tests {
             GpuWork::Auto
         );
         assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
+    }
+
+    #[test]
+    fn depth_is_named_by_the_option_or_left_to_the_environment_and_the_player_default() {
+        use worldrunner_play::DepthRange;
+        assert_eq!(
+            parsed(&["--player", "Game_Data"]).expect("parses").depth,
+            None
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "forward"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Forward)
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "reversed"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Reversed)
+        );
+        assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
     }
 
     #[test]

@@ -34,9 +34,11 @@
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
-//!   `render-program`'s conventions tests measured. Whether the player expects a reversed depth
-//!   range is not known, so depth is not reversed unless the experiment switch
-//!   ([`reversed_depth`](super::reversed_depth), `RD_REVERSED_DEPTH=1`) is on.
+//!   `render-program`'s conventions tests measured, with depth running the way the run's
+//!   [`DepthRange`](super::DepthRange) says: forward (near 0, far w), or reversed (near w, far 0),
+//!   which is the player's default (see that type for the evidence). The projection builtins
+//!   `glstate_matrix_projection` and `_ZBufferParams` are not supplied (see "Left missing"), so
+//!   a shader that reads them gets zero whichever range the run uses.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
 //! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the
@@ -115,6 +117,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
+use super::depth_range::DepthRange;
 use crate::scene_light::main_light_index;
 use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
@@ -159,17 +162,22 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     layer
 }
 
-/// The values of a camera that draws into a target `aspect` wide over high.
+/// The values of a camera that draws into a target `aspect` wide over high, with depth running as
+/// `depth` says.
 #[must_use]
-pub fn camera_layer(view: &CameraView, aspect: f32) -> PropertyLayer {
-    view_layer(&world_to_camera(view), &projection(&view.settings, aspect))
+pub fn camera_layer(view: &CameraView, aspect: f32, depth: DepthRange) -> PropertyLayer {
+    view_layer(
+        &world_to_camera(view),
+        &projection(&view.settings, aspect),
+        depth,
+    )
 }
 
 /// The values of a view from the world to the camera `world_to_camera` and the OpenGL projection
-/// `projection`, which a script sets as they are.
+/// `projection`, which a script sets as they are, with depth running as `depth` says.
 #[must_use]
-pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
-    let view_projection = clip_from_gl() * *projection * *world_to_camera;
+pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) -> PropertyLayer {
+    let view_projection = clip_from_gl(depth) * *projection * *world_to_camera;
     let position: Vec4 = world_to_camera.inverse().w_axis;
     let mut layer = PropertyLayer::default();
     layer

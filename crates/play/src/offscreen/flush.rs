@@ -199,8 +199,10 @@ impl OffscreenHost {
         adapter: OffscreenAdapter,
         compute: ComputeAdapter,
     ) -> Self {
+        // The adapter's depth range is the one the clip space of its cameras is built with; the
+        // state clears, tests and compares depth the same way.
         let mut state = OffscreenState::new(&runtime);
-        state.set_reversed_depth(super::reversed_depth());
+        state.set_reversed_depth(adapter.depth().reversed());
         Self {
             runtime,
             arena,
@@ -209,6 +211,12 @@ impl OffscreenHost {
             compute,
             traces: Vec::new(),
         }
+    }
+
+    /// Whether the state this host draws with has depth reversed.
+    #[must_use]
+    pub fn reversed_depth(&self) -> bool {
+        self.state.reversed_depth()
     }
 
     /// The traces of the frames and flushes since the last call, in order, whether they were

@@ -17,6 +17,7 @@ use worldrunner_world_simulation::{
 };
 
 use super::super::bounds::Bounds;
+use super::super::depth_range::DepthRange;
 use super::super::frame::{Adapted, Available, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{available, material, render_texture, shader, snapshot, world};
@@ -144,10 +145,14 @@ fn with_modes(snapshot: &worldrunner_world_simulation::graphics::GraphicsSnapsho
 }
 
 fn run(world: &mut World, edit: impl FnOnce(&mut Available)) -> Adapted {
+    run_with(world, &Settings::default(), edit)
+}
+
+fn run_with(world: &mut World, settings: &Settings, edit: impl FnOnce(&mut Available)) -> Adapted {
     let snapshot = snapshot(world);
     let mut available = with_modes(&snapshot);
     edit(&mut available);
-    adapt(&snapshot, &available, &Settings::default())
+    adapt(&snapshot, &available, settings)
 }
 
 /// The lists the frame draws.
@@ -586,6 +591,29 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         Some(&PropertyValue::Vector([-1.0, -2.0, -3.0, 0.0]))
     );
     assert!(first.target.color.is_some() && first.target.depth.is_some());
+}
+
+#[test]
+fn a_draw_list_takes_the_clip_depth_the_settings_say() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(
+        &mut world,
+        Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+        u32::MAX,
+    );
+    draw(&mut world, drawing(&[FORWARD]));
+    let settings = Settings::default().with_depth(DepthRange::Reversed);
+    let adapted = run_with(&mut world, &settings, |_| {});
+    let values = &lists(&adapted)[0].values.values;
+    // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
+    assert_eq!(
+        values.get("unity_MatrixVP"),
+        Some(&PropertyValue::Matrix([
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, 2.0, -1.0, 1.0
+        ]))
+    );
 }
 
 #[test]

@@ -180,3 +180,42 @@ fn unsupported_samples_and_record_overflow_are_typed() {
         })
     );
 }
+
+#[test]
+fn only_forward_and_the_single_sample_gbuffer_observation_are_admitted() {
+    use worldrunner_render_plan::{
+        SceneOpaqueFamily, SceneOpaqueMode, SceneOpaqueStorage, SceneOpaqueVisibility,
+    };
+    for samples in [1, 2, 4, 8] {
+        assert_eq!(
+            admit_path(SceneOpaquePath::Forward, samples).ok(),
+            Some(false)
+        );
+    }
+    assert_eq!(
+        admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, 1).ok(),
+        Some(true)
+    );
+    for samples in [2, 4, 8] {
+        match admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, samples) {
+            Err(PostError::Frame(FrameError::FeaturePreparation { feature, reason })) => {
+                assert_eq!(feature, "opaque G-buffer");
+                assert_eq!(
+                    reason,
+                    OpaqueAdmissionError::UnsupportedSampleCount { observed: samples }.to_string()
+                );
+            }
+            other => panic!("{samples} samples: {other:?}"),
+        }
+    }
+    let other = SceneOpaquePath::experiment(
+        SceneOpaqueMode::Render,
+        SceneOpaqueFamily::Terrain,
+        SceneOpaqueStorage::Compact,
+        SceneOpaqueVisibility::MaterialOwnedDepth,
+    );
+    assert!(matches!(
+        admit_path(other, 1),
+        Err(PostError::UnsupportedProfile("opaque path experiment"))
+    ));
+}

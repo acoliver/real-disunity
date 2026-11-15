@@ -5,7 +5,8 @@ use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
     executor::{
-        AttachmentView, BorrowedFeature, FrameError, FramePlan, PassEntry, PassSlot, ResourceRef,
+        AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry,
+        PassSlot, ResourceRef,
     },
     wgpu,
 };
@@ -136,7 +137,7 @@ fn assert_prefix_plan(prefix: &StockDepthPrefix) {
             .plan()
             .passes
             .iter()
-            .map(|pass| pass.entry())
+            .map(PassDeclaration::entry)
             .collect::<Vec<_>>(),
         vec![
             PassEntry::new(PassSlot::DepthNormalPrepass),

@@ -528,6 +528,10 @@ impl ShadowedScene {
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+            if let Some((gbuffer, _)) = &screen.gbuffer {
+                gpu.prepare_terrain(gbuffer, frame)?;
+                gpu.prepare_objects(gbuffer, frame)?;
+            }
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
@@ -769,7 +773,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
+            let screen = self.screen.as_ref().expect("declared G-buffer producer");
+            let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
+            self.gpu.draw_gbuffer(pass, pipelines, group);
+        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
             self.publications.record_prepass(

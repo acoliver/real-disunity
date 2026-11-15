@@ -163,7 +163,9 @@ impl SceneGpu {
         {
             counter.record(DrawCount::default());
         }
-        if !context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass) {
+        if !context.completed_in_prefix(worldrunner_render_post::PassEntry::new(
+            worldrunner_render_post::PassSlot::DepthNormalPrepass,
+        )) {
             self.pass_counters
                 .prepass_objects
                 .record(ObjectDraws::default());

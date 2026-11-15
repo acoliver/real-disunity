@@ -183,6 +183,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         bounds: BTreeMap::new(),
         sub_meshes: BTreeMap::new(),
         empty_meshes: BTreeSet::new(),
+        buffers: BTreeMap::new(),
         test_variants: false,
     }
 }

@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{BufferHandle, ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
     SubMesh,
@@ -20,7 +20,8 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
+    ComputeBufferId, OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource,
+    TextureRef,
 };
 
 use super::assets::Assets;
@@ -138,18 +139,19 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
-        self.adapt_probing(snapshot, assets, state, runtime, false)
+        self.adapt_probing(snapshot, assets, state, runtime, (false, &BTreeMap::new()))
     }
 
     /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]).
+    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
+    /// uploaded for the materials that bind them, which the frame's materials name by handle.
     pub fn adapt_probing(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
-        probe: bool,
+        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
     ) -> Adapted {
         self.epoch += 1;
         let mut notes = Report::default();
@@ -195,6 +197,7 @@ impl OffscreenAdapter {
         available.textures = usable(&self.textures);
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
+        available.buffers.clone_from(buffers);
         if !self.blit_mesh {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();

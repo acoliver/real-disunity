@@ -43,6 +43,7 @@ const MESH: u64 = (1 << 41) + 5;
 const OTHER_MESH: u64 = (1 << 41) + 6;
 
 mod block;
+mod buffers;
 mod persistent;
 
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
@@ -113,6 +114,7 @@ fn synthetic(file: &str) -> SyntheticShader {
             layers
         }
         "sampled" => block::sampled_passes(),
+        "instanced" => buffers::instanced_passes(),
         other => panic!("no synthetic shader {other}"),
     }
 }

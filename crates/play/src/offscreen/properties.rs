@@ -8,16 +8,19 @@
 //! elements than it holds refuses it when its constants are packed. A texture slot becomes a
 //! texture input under its name. Its scale and offset reach a shader as the vector `<name>_ST` of
 //! the fallback layer ([`fallback_layer`]), where they sit below anything a property block or the
-//! material sets.
+//! material sets. A structured buffer a material binds to a property name becomes the buffer
+//! input under that name when the host has it on the GPU ([`bind_buffers`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::runtime::BufferHandle;
 use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
-    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
+    ComputeBufferId, PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef,
+    WorldRenderTexture,
 };
 
 use super::assets::sampler_of_world;
@@ -176,6 +179,21 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
 /// The layer of `properties`.
 pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> PropertyLayer {
     layer_with_defaults(properties, textures, &[], None)
+}
+
+/// Binds each of a material's `bindings` (property name, buffer) that `uploaded` holds to its
+/// name in `layer`. A buffer the host does not hold, as one destroyed after it was bound, is left
+/// unbound, so a draw that reads it is left out and counted by the name.
+pub fn bind_buffers(
+    layer: &mut PropertyLayer,
+    bindings: &[(String, ComputeBufferId)],
+    uploaded: &BTreeMap<ComputeBufferId, BufferHandle>,
+) {
+    for (name, id) in bindings {
+        if let Some(handle) = uploaded.get(id) {
+            layer.buffers.insert(name.clone(), *handle);
+        }
+    }
 }
 
 /// The texture a property that no layer sets and the shader does not declare reads: Unity's

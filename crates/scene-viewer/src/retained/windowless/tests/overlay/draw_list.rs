@@ -1,3 +1,5 @@
+mod distance;
+mod panel;
 use super::*;
 use std::collections::BTreeMap;
 use worldrunner_render_plan::ui::{UiDraw, UiDrawKind, UiPresentation};
@@ -19,6 +21,7 @@ fn draw(depth_test: bool) -> UiDraw {
         uv_rect: [0., 0., 1., 1.],
         color: [1.; 4],
         corner_colors: Some(COLORS),
+        distance_field: None,
         texture: Some(7),
         sorting_layer: 0,
         sorting_order: 0,

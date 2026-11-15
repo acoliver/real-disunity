@@ -336,3 +336,5 @@ fn raw_npot_texels_are_split_into_floor_halved_mips() {
     assert_eq!(mips[1].bytes, &bytes[60..68]);
     assert_eq!(mips[2].bytes, &bytes[68..]);
 }
+
+mod release_tests;

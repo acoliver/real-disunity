@@ -92,7 +92,7 @@ range. `next_byte` skips a separator or equals input length. Use
 `LineMetrics::source` or `TextRun::substring` for checked slicing. The latter
 clips and rebases structured spans and rejects partial UTF-8 characters.
 
-`text` accepts a `UiTextPlacement` and `UiTextEffect::{None, Shadow}`.
+`text` accepts a `UiTextPlacement` and `UiTextEffect::{None, Shadow, Outline, Glow}`.
 `UiTextPlacement::new(destination)` uses the destination size for layout. Set
 `layout_size` explicitly to stretch one layout into another rectangle, including
 nonuniform stretching. Rotation follows the image convention. Glyph ink can
@@ -100,7 +100,36 @@ extend outside this box; only the list's clip stack bounds it. The run's overflo
 settings still determine which lines are laid out. Shadow offset is in final
 screen axes after stretching and rotation. All shadow glyphs precede every fill
 glyph. Shadow RGB uses its own colour and global tint; its alpha also inherits
-run/span alpha. Outline and glow are not implemented by this API.
+run/span alpha.
+
+`Outline { color, size }` draws an outward band; `Glow { color, size }` draws a
+smooth falloff outside the edge. Size is a finite nonnegative physical-pixel
+radius. Zero uses ordinary coverage. Both effects reuse the font book's bounded
+4x signed-distance rasterization and the same atlas as their fill. Each glyph is
+one padded quad: the shader combines effect and foreground masks before one
+straight-alpha blend, placing the effect beneath that glyph's fill without an
+offset-sampling pass. Glyphs remain in text order, so a later glyph's halo can
+cover an earlier glyph. Global tint multiplies effect RGB independently of run
+and span RGB; effect alpha inherits run, span and global alpha once.
+
+Distance decoding is positive inside the glyph. For screen distance D, fill is
+`smoothstep(-0.5, 0.5, D)`. Outline subtracts that mask from
+`smoothstep(-size-0.5, -size+0.5, D)`. Glow uses
+`smoothstep(-size, 0, D) * (1-fill)`. The one-pixel antialias transition is in
+screen pixels. R8 quantization and the 4x raster approximate the font contour.
+Geometric UV derivatives set distance scale, including at flat samples and
+medial axes. Rotation and uniform scaling preserve physical radius. Nonuniform
+stretch uses the smaller placement scale: bands can be wider along the stretched
+direction than an exact transformed contour offset. No sampled-distance gradient
+normalization or blur kernel is used.
+
+Padding is `ceil((size+2)/min_scale)+1` atlas pixels and is also the encoded spread.
+Sampling gutters are separate. Padded glyph sides are at most 256 pixels, with
+bounded scratch of at most 30,474,240 payload bytes per glyph. Excessive radius,
+minification, glyph size or scratch demand returns `DistanceFieldLimit`; invalid
+size returns `InvalidTextEffect`. Atlas and frame budgets retain their own named
+errors. Failed effects never downgrade to coverage. Measurement and line metrics
+exclude padding and effects.
 
 Printable ASCII, Latin-1 and LF/CR are supported. Missing glyphs and unsupported
 shaping fail explicitly. There is no font substitution, markup interpretation,
@@ -122,7 +151,7 @@ upload expands R8 coverage to RGBA. Image snapshots are not zero-copy.
 
 `UiDrawLimits` bounds each stack, expanded vertices, submitted text characters
 and unique referenced atlas pixels, further restricted by `UiLimits`. Six
-vertices are charged per quad, including every frame patch and shadow. Failed
+vertices are charged per quad, including every frame patch, shadow and distance glyph. Failed
 operations leave the list unchanged, though a successful intermediate text
 layout may warm the font cache. Combined presentations need a caller-owned
 combined character/atlas budget; append independently enforces the vertex limit.

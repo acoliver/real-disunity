@@ -4,7 +4,7 @@ use glam::{UVec2, Vec2};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GlyphAtlas {
-    /// Shared alpha coverage, row-major, top row first. No color encoding is applied.
+    /// Shared coverage or distance bytes, row-major, top row first. No colour encoding.
     pub alpha: std::sync::Arc<[u8]>,
     pub size: UVec2,
 }
@@ -41,22 +41,8 @@ impl AtlasBuilder {
             return Err(UiError::AtlasLimit);
         }
         let size = extent.as_uvec2();
+        let start = self.reserve(size)?;
         let stride = self.limits.max_atlas_side;
-        if self.cursor.x + size.x > stride {
-            self.cursor.x = 0;
-            self.cursor.y += self.row_height;
-            self.row_height = 0;
-        }
-        let end = self.cursor + size;
-        let height = self.atlas.size.y.max(end.y);
-        let count = u64::from(stride) * u64::from(height);
-        if end.y > stride || count > self.limits.max_atlas_pixels as u64 {
-            return Err(UiError::AtlasLimit);
-        }
-        self.pixels
-            .resize(usize::try_from(count).map_err(|_| UiError::AtlasLimit)?, 0);
-        self.atlas.size = UVec2::new(stride, height);
-        let start = self.cursor;
         let bounds = glyph.px_bounds();
         let outline_size = Vec2::new(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
         let maximum = f32::from(u16::try_from(stride).expect("bounded atlas"));
@@ -75,8 +61,61 @@ impl AtlasBuilder {
                         .expect("coverage in 0..255");
             }
         });
+        Ok((start, size))
+    }
+    fn reserve(&mut self, size: UVec2) -> Result<UVec2, UiError> {
+        if size.max_element() > self.limits.max_atlas_side {
+            return Err(UiError::AtlasLimit);
+        }
+        let stride = self.limits.max_atlas_side;
+        if self.cursor.x + size.x > stride {
+            self.cursor.x = 0;
+            self.cursor.y += self.row_height;
+            self.row_height = 0;
+        }
+        let end = self.cursor + size;
+        let height = self.atlas.size.y.max(end.y);
+        let count = u64::from(stride) * u64::from(height);
+        if end.y > stride || count > self.limits.max_atlas_pixels as u64 {
+            return Err(UiError::AtlasLimit);
+        }
+        self.pixels
+            .resize(usize::try_from(count).map_err(|_| UiError::AtlasLimit)?, 0);
+        self.atlas.size = UVec2::new(stride, height);
+        let start = self.cursor;
         self.cursor.x = end.x;
         self.row_height = self.row_height.max(size.y);
+        Ok(start)
+    }
+    pub fn insert_distance(
+        &mut self,
+        font: &ab_glyph::FontArc,
+        glyph: &OutlinedGlyph,
+        min: Vec2,
+        max: Vec2,
+        padding: u32,
+    ) -> Result<(UVec2, UVec2), UiError> {
+        use ab_glyph::Font;
+        let size = (max - min).as_uvec2();
+        super::raster::check_distance(size, self.limits.max_atlas_pixels)?;
+        let start = self.reserve(size + UVec2::splat(2))? + UVec2::ONE;
+        let mut high = glyph.glyph().clone();
+        high.scale.x *= 4.;
+        high.scale.y *= 4.;
+        high.position.x *= 4.;
+        high.position.y *= 4.;
+        let outline = font.outline_glyph(high).ok_or(UiError::InvalidGlyph)?;
+        let coverage = super::raster::coverage(&outline, size * 4, min * 4.);
+        let bytes = super::raster::distance_bytes(&coverage, size, padding);
+        let stride = usize::try_from(self.limits.max_atlas_side).expect("bounded atlas");
+        for (row, line) in bytes
+            .chunks_exact(usize::try_from(size.x).expect("small raster"))
+            .enumerate()
+        {
+            let offset = (usize::try_from(start.y).expect("atlas row") + row) * stride
+                + usize::try_from(start.x).expect("atlas column");
+            self.pixels[offset..offset + line.len()].copy_from_slice(line);
+        }
         Ok((start, size))
     }
     pub fn finish(mut self) -> GlyphAtlas {

@@ -967,17 +967,25 @@ Run the informational unshadowed Forward versus `GBUFFER_RENDER` probe serially.
 On the shared Linux host, use its resource limiter and software Vulkan adapter:
 
 ```sh
-CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
+CARGO_INCREMENTAL=0 \
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
   heavy --mem 6G -- nice -n 10 env -u RUSTUP_TOOLCHAIN \
-  cargo test --locked -p worldrunner-render-scene --lib \
+  cargo test --locked --release -p worldrunner-render-scene --lib \
   -- --exact shadows::tests::render_path::moving_timing::public_moving_view_timing_probe \
   --ignored --nocapture --test-threads=1
 ```
 
 For hardware measurements, select that machine's adapter instead of lavapipe and
-use its GPU queue. Omit the host-specific `heavy` wrapper where it is unavailable.
-The pinned Rust toolchain applies. Software-adapter timings describe the CPU rasterizer.
+use its GPU queue. Prebuild under `heavy` by inserting `--no-run` before the libtest
+`--` separator, then submit the same optimized test command through `gpujob`.
+Omit the host-specific wrappers where they are unavailable. The pinned Rust
+toolchain applies. Software-adapter timings describe the CPU rasterizer.
+
+Record the Cargo profile with each result. Unoptimized runs check the fixture;
+CPU cost comparisons use `--release`. Both profiles are libtest builds with
+fresh-plan consistency checks, pass observations and optional query instrumentation.
+These checks remain active on a cached plan in release libtest. Results describe
+this instrumented synthetic fixture. Game-frame costs require a game measurement.
 
 The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
 257×241. For view index `i` in `0..150`, the eye is

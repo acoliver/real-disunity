@@ -12,6 +12,7 @@ use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
 mod composition;
+mod gbuffer;
 use composition::check_timing;
 
 use worldrunner_render_gpu::configuration::AllocationBudget;

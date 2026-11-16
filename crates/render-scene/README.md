@@ -219,6 +219,16 @@ A draw admitted with `admit_programs` can sample a render texture that the offsc
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
 
+`offscreen/gbuffer.rs` combines the camera, blit and copy work with an unshadowed
+stock G-buffer scene, without admitted opaque program draws. It checks Render and
+Observation separately: offscreen readbacks, stock scene pixels, ordered frame
+timings, submission serials and submitted object counters. Render uses the fused
+depth/G-buffer producer before lighting and the forward remainder: the card is
+counted once under prepass objects, with no opaque object draw. Observation also
+counts the card under opaque objects. Scene pixels are read as exact linear HDR
+bytes. The existing screen-space restriction on admitted opaque program draws is
+unchanged.
+
 ## Material sampling
 
 Mesh and impostor scalar selectors use direct component indexing with uniform integers,

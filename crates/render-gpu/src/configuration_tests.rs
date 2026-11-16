@@ -300,6 +300,62 @@ fn a_reservation_reports_the_descriptor_bytes_it_holds() {
     ));
 }
 
+#[test]
+fn a_counted_configuration_counts_gpu_generations_until_they_retire() {
+    use crate::census::ResourceClass;
+    let (device, authority) = fresh_context();
+    let census = authority.census().clone();
+    let mut first = bytes(16);
+    first.cpu("host copy", 1000);
+    let mut config = Configuration::new(
+        &authority,
+        1_u32,
+        first,
+        &device.limits(),
+        AllocationBudget(4096),
+    )
+    .unwrap()
+    .counted(ResourceClass::RenderTarget, &device.limits());
+    // The CPU entry counts toward admission but not toward resident GPU memory.
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 16);
+    let flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    config
+        .replace(&device.limits(), bytes(24), || Ok::<_, ()>(2))
+        .unwrap();
+    // The old generation stays counted until the queue passes its last submission.
+    assert_eq!(config.retired_count(), 1);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 40);
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(flight),
+            timeout: None,
+        })
+        .unwrap();
+    config.collect();
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 24);
+    drop(config);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 0);
+}
+
+#[test]
+fn an_uncounted_configuration_leaves_the_census_alone() {
+    let (device, authority) = fresh_context();
+    let config = Configuration::new(
+        &authority,
+        (),
+        bytes(16),
+        &device.limits(),
+        AllocationBudget(64),
+    )
+    .unwrap();
+    assert_eq!(authority.census().snapshot().total(), 0);
+    drop(config);
+}
+
 /// A retired generation's frame is complete on the GPU, but a held poller has not run its
 /// completion bookkeeping (hub issue 4d2b47c55165). Its bytes still count, so the next
 /// replacement fails the budget; collecting settled waits for the bookkeeping and frees them.

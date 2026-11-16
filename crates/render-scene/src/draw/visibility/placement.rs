@@ -1,10 +1,13 @@
-//! Placement bounds for one batch: cached view-independent boxes and a per-view relief term.
+//! Placement bounds for one batch: cached view-independent boxes and a per-view relief term,
+//! and the cached eye-independent inputs of each placement's level.
 
 use glam::Vec3;
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
 use super::{Bounds, MeshSelection};
-use crate::geometry::model_matrix;
+use crate::geometry::{fade_band_meters, millimeters_to_meters, model_matrix};
+use crate::instances::fade::Anchor;
+use crate::instances::slot_bounds::{Shape, SlotFade, SlotMut};
 use crate::instances::{InstanceBatch, Instances};
 
 /// The materials a batch's placements draw with, and their distinct relief scales.
@@ -19,6 +22,8 @@ pub(super) struct BatchShape {
     materials: Vec<usize>,
     /// Distinct relief scales, compared by bit pattern so grouping is exact.
     reliefs: Vec<u32>,
+    /// The level inputs each slot stores, which also depend only on the mesh and materials.
+    levels: Shape,
 }
 
 impl BatchShape {
@@ -33,17 +38,56 @@ impl BatchShape {
             )
             .collect();
         let mut reliefs: Vec<u32> = Vec::new();
+        let mut references = Vec::new();
         for &material in &materials {
             let relief = instances.impostor_extents[material][1].to_bits();
             if !reliefs.contains(&relief) {
                 reliefs.push(relief);
             }
+            // A material that keeps fragments at every distance never measures its reference.
+            let fade = instances.fades[material];
+            if let Some(reference) = fade.reference().filter(|_| fade.can_empty())
+                && !references.contains(&reference)
+            {
+                references.push(reference);
+            }
         }
-        Self { materials, reliefs }
+        Self {
+            materials,
+            reliefs,
+            levels: Shape {
+                levels: mesh.levels(),
+                references,
+            },
+        }
     }
 
     pub fn reliefs(&self) -> &[u32] {
         &self.reliefs
+    }
+
+    /// Stores the level inputs of `object` that do not depend on the eye: its LOD distance
+    /// ceilings with its scale applied, its own fade band and origin in metres, and its
+    /// transformed fade references.
+    pub fn fill_levels(
+        &self,
+        mesh: &MeshSelection,
+        object: &SceneObject,
+        SlotMut {
+            ceilings,
+            fade,
+            anchors,
+        }: SlotMut<'_>,
+    ) {
+        mesh.scaled_ceilings(object.lod_distance_scale_millionths(), ceilings);
+        let transform = object.transform();
+        *fade = SlotFade {
+            band: object.fade().map(fade_band_meters),
+            origin: millimeters_to_meters(transform.position_millimeters).to_array(),
+        };
+        for (anchor, &reference) in anchors.iter_mut().zip(&self.levels.references) {
+            *anchor = Anchor::referenced(transform, reference);
+        }
     }
 
     /// Stores each relief group's view-independent box around `object` in `boxes`. A skinned
@@ -71,7 +115,8 @@ impl BatchShape {
     }
 }
 
-/// Fills the cached boxes of every live placement of `batch` and regroups them.
+/// Fills the cached boxes and level inputs of every live placement of `batch` and regroups
+/// them.
 pub(super) fn refresh(
     mesh: &MeshSelection,
     instances: &Instances,
@@ -80,13 +125,16 @@ pub(super) fn refresh(
 ) {
     let shape = BatchShape::new(mesh, instances, material);
     batch.bounds.borrow_mut().refresh(
-        shape.reliefs(),
+        (shape.reliefs(), &shape.levels),
         batch
             .slots()
             .iter()
             .enumerate()
             .filter_map(|(slot, placement)| placement.as_ref().map(|(object, _)| (slot, object))),
-        |object, boxes| shape.fill(mesh, instances, object, boxes),
+        |object, boxes, slot| {
+            shape.fill(mesh, instances, object, boxes);
+            shape.fill_levels(mesh, object, slot);
+        },
     );
 }
 

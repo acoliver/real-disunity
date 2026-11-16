@@ -136,3 +136,18 @@ fn a_dispatch_reads_earlier_uploads_and_later_copies_read_its_output() {
         .collect();
     assert_eq!(bytes(&device, &queue, &copied), expected);
 }
+
+#[test]
+fn steady_frames_reuse_upload_staging_and_land_every_upload_on_the_gpu() {
+    use crate::upload_staging_tests::{destination, expected, frames, read};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let target = destination(&device, 40 * 64);
+    let created = frames(&device, &authority, &target, (32, 40, 3));
+    assert_eq!(read(&device, &queue, &target), expected(32, 40));
+    assert!(created[31] <= 3, "{created:?}");
+    assert!(
+        created[8..].iter().all(|&count| count == created[31]),
+        "staging chunks created after each frame: {created:?}"
+    );
+}

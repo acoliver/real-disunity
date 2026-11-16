@@ -191,6 +191,25 @@ fn assert_frame_matches_scan(
     frame: &FrameViews,
     terrain: Option<Bounds>,
 ) {
+    let selections = select_frame(instances, meshes, frame, terrain);
+    for (index, (matrix, view, selected)) in selections.iter().enumerate() {
+        assert_eq!(
+            summary(selected),
+            summary(&scan((instances, fades), meshes, *matrix, view)),
+            "view {index} at {:?}",
+            frame.eye_millimeters
+        );
+    }
+}
+
+/// The views of `frame`, each with its matrix and its selection, every view selected
+/// together, in parallel as the renderer does.
+fn select_frame(
+    instances: &Instances,
+    meshes: &[MeshSelection],
+    frame: &FrameViews,
+    terrain: Option<Bounds>,
+) -> Vec<(Mat4, View, Selection)> {
     let views = frame_views(instances, meshes, frame, terrain);
     let mut selections: Vec<(Mat4, Selection)> = views
         .iter()
@@ -216,14 +235,11 @@ fn assert_frame_matches_scan(
             );
         },
     );
-    for (index, ((matrix, view), (_, selected))) in views.iter().zip(&selections).enumerate() {
-        assert_eq!(
-            summary(selected),
-            summary(&scan((instances, fades), meshes, *matrix, view)),
-            "view {index} at {:?}",
-            frame.eye_millimeters
-        );
-    }
+    views
+        .into_iter()
+        .zip(selections)
+        .map(|((matrix, view), (_, selection))| (matrix, view, selection))
+        .collect()
 }
 
 /// Selects the camera with and without the caster filter, sharing the level memo, and
@@ -439,3 +455,5 @@ fn tree_walk_shared_levels_and_caster_fit_equal_the_full_scan() {
     }
     assert!(!added.is_empty());
 }
+
+mod edit_tests;

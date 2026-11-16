@@ -390,7 +390,7 @@ pub fn prepare_stock_scene<'a>(
     attachments: (&AttachmentView, &AttachmentView),
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
-    let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, frame)?;
+    let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, &frame)?;
     finish_stock_scene(renderer, device, draw)
 }
 
@@ -403,7 +403,7 @@ fn prepare_scene_draw<'a, 'b>(
         &crate::renderer::ScenePipelines,
     ),
     attachments: (&'b AttachmentView, &'b AttachmentView),
-    frame: crate::frame::FrameUniform,
+    frame: &crate::frame::FrameUniform,
 ) -> Result<SceneDraw<'a, 'b>, FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_opaque_depth(attachments.1)?;
@@ -421,7 +421,7 @@ fn prepare_scene_draw<'a, 'b>(
     let (programs, offscreen) =
         encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
-    let frame = renderer.prepare_uniform(frame)?;
+    let frame = renderer.prepare_uniform(*frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     gpu.prepare_sky(device, encoder, &frame)?;

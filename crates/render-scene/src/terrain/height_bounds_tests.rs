@@ -32,7 +32,9 @@ fn nodes(terrain: &SceneTerrain) -> Vec<TerrainChunk> {
     let mut result = Vec::new();
     while let Some(node) = pending.pop() {
         result.push(node);
-        if let Some(children) = node.children() {
+        if let Some(children) =
+            node.children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        {
             pending.extend(children);
         }
     }
@@ -45,7 +47,9 @@ fn a_node_away_from_a_spike_has_a_tight_surface_range() {
     heights[0] = 100_000;
     let terrain = terrain(17, 17, heights);
     let cache = TerrainHeightBounds::new(&terrain);
-    let away = root(&terrain).children().unwrap()[3];
+    let away = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap()[3];
     assert_eq!(cache.height_range_millimeters(away), [0, 0]);
     let bounds = cache.chunk_bounds(&terrain, away);
     assert_eq!(bounds[1].z.to_bits(), 0.0_f32.to_bits());
@@ -58,7 +62,9 @@ fn a_high_plateau_still_contains_the_terrain_wide_skirt_bottom() {
     heights[0] = -100_000;
     let terrain = terrain(17, 17, heights);
     let cache = TerrainHeightBounds::new(&terrain);
-    let away = root(&terrain).children().unwrap()[3];
+    let away = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap()[3];
     assert_eq!(cache.height_range_millimeters(away), [50_000; 2]);
     let [low, high] = cache.chunk_bounds(&terrain, away);
     assert_eq!(low.z.to_bits(), (-101.0_f32).to_bits());
@@ -126,7 +132,9 @@ fn ranges_are_exact_and_every_parent_is_the_union_of_its_children() {
                     [low.min(z), high.max(z)]
                 });
             assert_eq!(cache.height_range_millimeters(node), expected, "{node:?}");
-            if let Some(children) = node.children() {
+            if let Some(children) =
+                node.children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+            {
                 let union = children
                     .into_iter()
                     .map(|child| cache.height_range_millimeters(child))
@@ -147,7 +155,8 @@ fn global_leaves(terrain: &SceneTerrain, node: TerrainChunk, matrix: Mat4) -> us
         [128; 2],
         streaming::elevation(terrain),
     ) > 4.0
-        && let Some(children) = node.children()
+        && let Some(children) =
+            node.children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
     {
         children
             .into_iter()
@@ -164,7 +173,9 @@ fn tight_ranges_avoid_splits_caused_by_a_distant_spike() {
     heights[0] = 100_000;
     let terrain = terrain(65, 65, heights);
     let cache = TerrainHeightBounds::new(&terrain);
-    let away = root(&terrain).children().unwrap()[3];
+    let away = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap()[3];
     let [low, high] = cache.chunk_bounds(&terrain, away);
     let target = Vec3::new((low.x + high.x) * 0.5, (low.y + high.y) * 0.5, 0.0);
     let matrix = glam::camera::rh::proj::directx::perspective(1.2, 1.0, 0.1, 1000.0)
@@ -205,7 +216,10 @@ fn tight_ranges_avoid_splits_caused_by_a_distant_spike() {
     );
     let finest: Vec<_> = nodes(&terrain)
         .into_iter()
-        .filter(|node| node.children().is_none())
+        .filter(|node| {
+            node.children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+                .is_none()
+        })
         .collect();
     let casters = streaming::caster_leaves(&terrain, matrix, 128, &finest);
     assert_eq!(

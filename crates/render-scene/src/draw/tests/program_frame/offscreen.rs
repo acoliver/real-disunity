@@ -463,7 +463,10 @@ fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscre
     assert_eq!(image.pixel(30, 20), RED);
     player
         .arena
-        .retire()
+        .retire_settled(
+            fixture.context.device(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
         .expect("the cancelled frame released the arena");
 }
 

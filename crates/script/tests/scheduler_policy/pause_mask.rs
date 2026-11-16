@@ -1,9 +1,23 @@
+use std::sync::Arc;
+
 use super::{game, log, run, two_clocks};
 use worldrunner_script::ScriptError;
 
 #[test]
+fn shared_scripts_can_pause_and_resume_a_clock() {
+    let scripts = Arc::new(game(&two_clocks(), &[]));
+    let reader = Arc::clone(&scripts);
+    assert_eq!(scripts.pause_clock("game", 4).unwrap(), 4);
+    assert_eq!(reader.clock_pause_mask("game").unwrap(), 4);
+    assert!(reader.clock_paused("game").unwrap());
+    assert_eq!(reader.resume_clock("game", 4).unwrap(), 0);
+    assert_eq!(scripts.clock_pause_mask("game").unwrap(), 0);
+    assert!(!scripts.clock_paused("game").unwrap());
+}
+
+#[test]
 fn masks_or_and_clear_all_32_bits_independently_per_clock() {
-    let mut scripts = game(&two_clocks(), &[]);
+    let scripts = game(&two_clocks(), &[]);
     assert_eq!(scripts.clock_pause_mask("game").unwrap(), 0);
     assert_eq!(scripts.clock_pause_mask("real").unwrap(), 0);
     assert_eq!(scripts.pause_clock("game", 4).unwrap(), 4);
@@ -29,7 +43,7 @@ fn masks_or_and_clear_all_32_bits_independently_per_clock() {
 
 #[test]
 fn zero_bits_leave_both_paused_and_unpaused_clocks_unchanged() {
-    let mut scripts = game(&two_clocks(), &[]);
+    let scripts = game(&two_clocks(), &[]);
     for mask in [0, 4, 0x8000_0000] {
         assert_eq!(scripts.pause_clock("game", mask).unwrap(), mask);
         assert_eq!(scripts.pause_clock("game", 0).unwrap(), mask);
@@ -42,7 +56,7 @@ fn zero_bits_leave_both_paused_and_unpaused_clocks_unchanged() {
 
 #[test]
 fn the_boolean_setter_and_mask_operations_share_the_same_state() {
-    let mut scripts = game(&two_clocks(), &[]);
+    let scripts = game(&two_clocks(), &[]);
     scripts.set_clock_paused("game", true).unwrap();
     assert_eq!(scripts.clock_pause_mask("game").unwrap(), 1);
     assert_eq!(scripts.pause_clock("game", 0).unwrap(), 1);
@@ -73,7 +87,7 @@ fn the_boolean_setter_and_mask_operations_share_the_same_state() {
 
 #[test]
 fn mask_queries_and_mutations_reject_unknown_clocks_even_for_zero_bits() {
-    let mut scripts = game(&two_clocks(), &[]);
+    let scripts = game(&two_clocks(), &[]);
     scripts.pause_clock("game", 4).unwrap();
     let expected = scripts.set_clock_paused("missing", true).unwrap_err();
     for error in [
@@ -124,7 +138,7 @@ fn advancing_skips_masked_clocks_and_their_due_threads() {
 
 #[test]
 fn masked_clocks_do_not_overflow_during_an_advance() {
-    let mut scripts = game(&two_clocks(), &[]);
+    let scripts = game(&two_clocks(), &[]);
     scripts.set_clock("game", u64::MAX).unwrap();
     scripts.pause_clock("game", 0x8000_0000).unwrap();
     assert!(scripts.advance_clock("game", u64::MAX).unwrap().is_empty());

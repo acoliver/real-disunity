@@ -67,7 +67,7 @@ impl GameScripts {
     /// # Errors
     ///
     /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
-    pub fn pause_clock(&mut self, name: &str, bits: u32) -> Result<u32, ScriptError> {
+    pub fn pause_clock(&self, name: &str, bits: u32) -> Result<u32, ScriptError> {
         self.with_clock(name, |clock| {
             clock.pause_mask |= bits;
             clock.pause_mask
@@ -80,7 +80,7 @@ impl GameScripts {
     /// # Errors
     ///
     /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
-    pub fn resume_clock(&mut self, name: &str, bits: u32) -> Result<u32, ScriptError> {
+    pub fn resume_clock(&self, name: &str, bits: u32) -> Result<u32, ScriptError> {
         self.with_clock(name, |clock| {
             clock.pause_mask &= !bits;
             clock.pause_mask

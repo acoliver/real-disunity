@@ -1149,6 +1149,11 @@ retry and settling products match an uninterrupted control in both cases. Declar
 scene's resident write keys while encoding a different dirty scene fails capture admission
 with an undeclared resident key before submission; both scenes keep their completed products.
 
+The [public camera-only TAA regression](tests/stock_camera_taa.rs) pairs resident TAA with a
+fused G-buffer depth prefix and plain SSAO pipelines. It checks that the prefix and prepared
+stock suffix declare no scene-velocity colour writes, while camera history and jitter advance
+across two submitted frames.
+
 [The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
 covers program-admission and caller-preparation refusal after a physical prefix. It
 checks one submission on refusal and two on success before reading products, preserves

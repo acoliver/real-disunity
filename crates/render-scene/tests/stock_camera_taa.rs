@@ -1,0 +1,240 @@
+//! Public compatibility regression for camera-only TAA on a stock G-buffer depth prefix.
+#[path = "stock_composition/fixture.rs"]
+mod fixture;
+
+use fixture::{SIZE, view};
+use std::time::Duration;
+use worldrunner_render_plan::{
+    RenderScene, SceneAntiAlias, SceneEffects, SceneEffectsParts, SceneOpaquePath,
+};
+use worldrunner_render_scene::{
+    SceneView,
+    compositor::{FrameRenderer, prepare_stock_scene},
+    device::GpuContext,
+    draw::SceneGpu,
+    executor::{
+        AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
+        color_texture,
+    },
+    frame::FrameUniform,
+    offscreen::OffscreenTarget,
+    renderer::ScenePipelines,
+    test_support::SceneTestSession,
+    wgpu,
+};
+
+struct CameraTaaFrame {
+    context: GpuContext,
+    renderer: FrameRenderer,
+    gpu: SceneGpu,
+    pipelines: ScenePipelines,
+    output: wgpu::Texture,
+    effects: SceneEffects,
+}
+
+impl CameraTaaFrame {
+    fn new(context: GpuContext) -> Self {
+        let source = camera_taa_scene();
+        let effects = source.effects().unwrap().clone();
+        let renderer = FrameRenderer::hdr(
+            &context,
+            SIZE,
+            OffscreenTarget::COLOR_FORMAT,
+            1,
+            ToneMap::Reinhard,
+            Some(&effects),
+        )
+        .unwrap();
+        let pipelines =
+            ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
+                .unwrap();
+        let gpu =
+            SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        let output = color_texture(
+            context.device(),
+            "camera-only TAA output",
+            SIZE,
+            OffscreenTarget::COLOR_FORMAT,
+        );
+        Self {
+            context,
+            renderer,
+            gpu,
+            pipelines,
+            output,
+            effects,
+        }
+    }
+
+    fn encode_frame(&mut self, camera: &SceneView) {
+        let device = self.context.device().clone();
+        let authority = self.context.submission().clone();
+        let uniform = FrameUniform::new(camera, Some(&self.effects)).unwrap();
+        let mut encoder = authority.begin(&device).unwrap();
+        self.encode_prefix(&device, &mut encoder, &uniform);
+        self.encode_suffix(&device, &mut encoder, &uniform);
+        self.renderer
+            .encode_output(
+                &mut encoder,
+                &self
+                    .output
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            )
+            .unwrap();
+        encoder.finish().submit().unwrap();
+    }
+
+    fn encode_prefix(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        uniform: &FrameUniform,
+    ) {
+        let prefix = self.renderer.stock_depth_prefix(device, &self.gpu).unwrap();
+        assert_no_scene_velocity(&prefix.plan());
+        assert_fused_gbuffer_prepass(&prefix.plan());
+        prefix
+            .encode(
+                &mut self.renderer,
+                device,
+                encoder,
+                (&mut self.gpu, &self.pipelines),
+                *uniform,
+                (&empty_plan(), &mut []),
+            )
+            .unwrap();
+    }
+
+    fn encode_suffix(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        uniform: &FrameUniform,
+    ) {
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            self.renderer.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            self.renderer.targets().depth().texture(),
+        )
+        .unwrap();
+        let mut stock = prepare_stock_scene(
+            &mut self.renderer,
+            device,
+            encoder,
+            (&mut self.gpu, &self.pipelines),
+            (&color, &depth),
+            *uniform,
+        )
+        .unwrap();
+        assert_no_scene_velocity(&stock.plan());
+        let plan = stock.plan();
+        let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
+        let (declaration, frame) = (stock.declaration(), stock.frame());
+        self.renderer
+            .encode_frame(
+                device,
+                encoder,
+                (&passes, &views),
+                &mut [BorrowedFeature {
+                    declaration,
+                    prepared: &mut stock,
+                }],
+                (frame, None),
+            )
+            .unwrap();
+    }
+}
+
+fn assert_fused_gbuffer_prepass(plan: &FramePlan<'_>) {
+    let prepass = plan
+        .passes
+        .iter()
+        .find(|pass| pass.entry() == PassEntry::new(PassSlot::DepthNormalPrepass))
+        .expect("stock prefix declares its depth and normal prepass");
+    assert!(
+        prepass.color.is_some() && !prepass.additional_colors.is_empty(),
+        "the fused G-buffer prepass declares its colour outputs"
+    );
+}
+
+fn camera_taa_scene() -> RenderScene {
+    let base = fixture::effects();
+    let effects = SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: *base.sky(),
+        sun: *base.sun(),
+        ambient: *base.ambient(),
+        shadows: base.shadows().clone(),
+        ssao: base.ssao().copied(),
+        camera: *base.camera(),
+        grading: *base.grading(),
+        post: base.post().to_vec(),
+        anti_alias: SceneAntiAlias::taa(900_000),
+    })
+    .unwrap()
+    .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
+    .unwrap();
+    let source = fixture::scene();
+    source
+        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects))
+        .unwrap()
+}
+
+fn assert_no_scene_velocity(plan: &FramePlan<'_>) {
+    let velocity = ResourceRef::new("scene velocity");
+    for pass in plan.passes {
+        assert_ne!(
+            pass.color.as_ref().map(|attachment| &attachment.resource),
+            Some(&velocity)
+        );
+        assert!(
+            pass.additional_colors
+                .iter()
+                .all(|attachment| attachment.resource != velocity),
+            "{} has no scene-velocity colour attachment",
+            pass.entry()
+        );
+    }
+}
+
+fn empty_plan() -> FramePlan<'static> {
+    FramePlan {
+        passes: &[],
+        views: &[],
+        requested: &[],
+    }
+}
+
+#[test]
+fn public_stock_depth_prefix_plain_pipelines_keep_camera_only_taa() {
+    let _session = SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        .expect("camera-only TAA regression requires a real adapter; never skip");
+    let validation = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut frame = CameraTaaFrame::new(context);
+    for camera in [view(0), view(1_500)] {
+        let jitter = frame.renderer.projection_jitter_index();
+        frame.encode_frame(&camera);
+        assert_eq!(frame.renderer.projection_jitter_index(), jitter + 1);
+        assert!(frame.renderer.has_temporal_history());
+    }
+    let draws = frame.gpu.statistics().passes;
+    assert!(draws.prepass_objects.meshes.calls > 0, "{draws:?}");
+    assert_eq!(draws.prepass_objects.meshes.instances, 1, "{draws:?}");
+    assert_eq!(draws.opaque_objects.meshes.calls, 0, "{draws:?}");
+    frame
+        .context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
+    assert!(pollster::block_on(validation.pop()).is_none());
+}

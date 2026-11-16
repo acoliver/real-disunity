@@ -136,7 +136,9 @@ fn equal_error_admission_is_independent_of_resident_permutation() {
     let terrain = constrained_terrain();
     let bounds = TerrainHeightBounds::new(&terrain);
     let root = TerrainChunk::root(&terrain, terrain.streaming_policy().unwrap());
-    let mut current = root.children().unwrap();
+    let mut current = root
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     let matrix = orthographic_matrix();
     let errors: Vec<_> = current
         .iter()

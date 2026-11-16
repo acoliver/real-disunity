@@ -130,3 +130,11 @@ fn when_nothing_fits_the_maximum_is_uploaded_and_reported() {
     assert!(!choice.fits);
     assert_eq!(choice.kept_bytes, chain_bytes(8));
 }
+
+#[test]
+fn a_fixed_cube_counts_every_face_and_block_mip() {
+    let cube = worldrunner_render_plan::SceneSpecularCube::new(4, vec![0; 288].into()).unwrap();
+    let texture = SceneTexture::SpecularCube(cube);
+    assert_eq!(prepared(&texture).droppable_levels(), 0);
+    assert_eq!(prepared(&texture).tier_bytes(0), 288);
+}

@@ -2,6 +2,7 @@
 //! which allocations its attachments are bound to.
 mod cache;
 mod pins;
+mod rebind;
 
 use super::*;
 use crate::compositor::plan_trace::{self, SubmittedPlan, assert_pinned};
@@ -24,9 +25,33 @@ fn reflections() -> SceneSsr {
 }
 
 fn source(request: Option<SceneSsr>) -> RenderScene {
+    scene_with(request, false)
+}
+
+/// A water body below the fixture's quad, so the frame reads snapshots and the water receivers.
+fn water_body() -> worldrunner_render_plan::SceneWaterBody {
+    worldrunner_render_plan::SceneWaterBody {
+        material: worldrunner_render_plan::SceneWaterSettings::STOCK,
+        surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: -100,
+        east_min_millimeters: -4000,
+        north_min_millimeters: -4000,
+        east_extent_millimeters: 8000,
+        north_extent_millimeters: 8000,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+    }
+}
+
+fn scene_with(request: Option<SceneSsr>, water: bool) -> RenderScene {
     let mut effects = SceneEffects::new(effect_parts()).unwrap();
     if let Some(request) = request {
         effects = effects.with_ssr(request).unwrap();
+    }
+    if water {
+        effects = effects.with_water_bodies(vec![water_body()]).unwrap();
     }
     RenderScene::new(SceneParts {
         resources: SceneResources::new(
@@ -93,9 +118,45 @@ struct Rig<'a> {
     size: [u32; 2],
 }
 
+/// The colour and depth a frame is drawn into, which the caller supplies.
+#[derive(Clone)]
+struct Caller {
+    color: wgpu::Texture,
+    depth: wgpu::Texture,
+}
+
+impl Caller {
+    /// Allocations of its own with the descriptors of `other`.
+    fn like(device: &wgpu::Device, other: &Self) -> Self {
+        let allocate = |texture: &wgpu::Texture| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("caller attachment"),
+                size: texture.size(),
+                mip_level_count: texture.mip_level_count(),
+                sample_count: texture.sample_count(),
+                dimension: texture.dimension(),
+                format: texture.format(),
+                usage: texture.usage(),
+                view_formats: &[],
+            })
+        };
+        Self {
+            color: allocate(&other.color),
+            depth: allocate(&other.depth),
+        }
+    }
+}
+
 impl<'a> Rig<'a> {
     fn new(context: &'a GpuContext, request: Option<SceneSsr>) -> Self {
-        let source = source(request);
+        Self::with_source(context, source(request))
+    }
+
+    fn with_water(context: &'a GpuContext, request: Option<SceneSsr>) -> Self {
+        Self::with_source(context, scene_with(request, true))
+    }
+
+    fn with_source(context: &'a GpuContext, source: RenderScene) -> Self {
         let renderer = ConfiguredFrameRenderer::new(
             context,
             configuration(&source, SIZE),
@@ -123,20 +184,26 @@ impl<'a> Rig<'a> {
             .unwrap();
     }
 
+    /// The colour and depth the renderer allocated for itself.
+    fn own_caller(&mut self) -> Caller {
+        let targets = self.renderer.renderer_mut().targets();
+        Caller {
+            color: targets.scene().texture().clone(),
+            depth: targets.depth().texture().clone(),
+        }
+    }
+
     fn draw(&mut self, slot: usize, viewpoint: CameraPose) {
+        let caller = self.own_caller();
+        self.draw_into(slot, viewpoint, &caller);
+    }
+
+    fn draw_into(&mut self, slot: usize, viewpoint: CameraPose, caller: &Caller) {
         let device = self.context.device();
         let renderer = self.renderer.renderer_mut();
         renderer.select_frame_slot(slot);
-        let color = AttachmentView::new(
-            ResourceRef::new("scene color"),
-            renderer.targets().scene().texture(),
-        )
-        .unwrap();
-        let depth = AttachmentView::new(
-            ResourceRef::new("scene depth"),
-            renderer.targets().depth().texture(),
-        )
-        .unwrap();
+        let color = AttachmentView::new(ResourceRef::new("scene color"), &caller.color).unwrap();
+        let depth = AttachmentView::new(ResourceRef::new("scene depth"), &caller.depth).unwrap();
         let view = SceneView::new(
             viewpoint,
             camera(),

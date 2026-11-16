@@ -8,11 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::unity::offscreen::CameraProbe;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
     UndeclaredTextures,
 };
-use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
@@ -33,6 +33,7 @@ use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_
 use super::script::{Script, kind};
 use super::supplied::{SuppliedGlobal, add_supplied};
 
+pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
 pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
@@ -50,71 +51,6 @@ const CAMERA_LIGHT_MODES: [&str; 5] = [
 
 /// The mode a pass with no `LightMode` counts as, the last of [`CAMERA_LIGHT_MODES`].
 const UNTAGGED_LIGHT_MODE: &str = "Always";
-
-/// What a test render clears its scratch target to: values a render is unlikely to write and a
-/// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
-pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
-
-/// The changed test renders, in the order of their numbers in [`ids::probe_variant`]: what each
-/// changes in the state the passes declare, to find what leaves a render with no written texel.
-/// The first three change one part of the state each, the fourth replaces the fragment stage, and
-/// the last two combine them.
-pub const TEST_VARIANTS: [(&str, StateVariant); 6] = [
-    (
-        "cull None",
-        StateVariant {
-            cull_none: true,
-            blend_off: false,
-            depth_always: false,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "blend off",
-        StateVariant {
-            cull_none: false,
-            blend_off: true,
-            depth_always: false,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "depth test Always",
-        StateVariant {
-            cull_none: false,
-            blend_off: false,
-            depth_always: true,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "a fragment stage that writes a constant",
-        StateVariant {
-            cull_none: false,
-            blend_off: false,
-            depth_always: false,
-            constant_fragment: true,
-        },
-    ),
-    (
-        "cull None, blend off and depth test Always",
-        StateVariant {
-            cull_none: true,
-            blend_off: true,
-            depth_always: true,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "cull None, blend off, depth test Always and a constant fragment stage",
-        StateVariant {
-            cull_none: true,
-            blend_off: true,
-            depth_always: true,
-            constant_fragment: true,
-        },
-    ),
-];
 
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);

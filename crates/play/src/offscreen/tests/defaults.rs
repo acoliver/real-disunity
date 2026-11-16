@@ -42,9 +42,9 @@ fn white_is_every_channel_at_one_and_black_has_no_colour_with_full_alpha() {
 #[test]
 fn the_default_textures_have_names_of_their_own_that_no_stored_texture_takes() {
     let ids: Vec<TextureId> = DefaultTexture::ALL.iter().map(|d| d.texture().id).collect();
-    assert_eq!(ids.len(), 4);
+    assert_eq!(ids.len(), 5);
     let distinct: std::collections::BTreeSet<_> = ids.iter().collect();
-    assert_eq!(distinct.len(), 4, "{ids:?}");
+    assert_eq!(distinct.len(), 5, "{ids:?}");
     assert_eq!(ids[0], DefaultTexture::White.id());
     for id in ids {
         assert_eq!(
@@ -69,6 +69,21 @@ fn the_grey_cube_is_one_grey_texel_on_each_of_six_faces_and_no_shader_names_it()
         SourceDimension::D2
     );
     assert_eq!(DefaultTexture::named(DefaultTexture::GreyCube.name()), None);
+}
+
+#[test]
+fn the_grey_volume_is_one_grey_texel_one_slice_deep_and_no_shader_names_it() {
+    let volume = DefaultTexture::Grey3d.texture();
+    assert_eq!(
+        (volume.dimension, volume.size),
+        (SourceDimension::D3, [1, 1])
+    );
+    assert_eq!(volume.bytes, DefaultTexture::Grey.texture().bytes);
+    assert_eq!(
+        volume.graphics_format,
+        DefaultTexture::Grey.texture().graphics_format
+    );
+    assert_eq!(DefaultTexture::named(DefaultTexture::Grey3d.name()), None);
 }
 
 #[test]

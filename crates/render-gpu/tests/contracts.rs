@@ -88,6 +88,29 @@ fn malformed_mips_and_layers_fail_before_gpu_allocation() {
 }
 
 #[test]
+fn a_volume_upload_is_one_slice_deep() {
+    let data = [0; 16];
+    let mip = MipLevel {
+        width: 2,
+        height: 2,
+        bytes_per_row: 8,
+        rows: 2,
+        bytes: &data,
+    };
+    let layer = TextureLayer {
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        width: 2,
+        height: 2,
+        mips: &[mip],
+    };
+    assert!(TextureUpload::new(&[layer], 0, TextureKind::D3).is_ok());
+    assert!(matches!(
+        TextureUpload::new(&[layer, layer], 0, TextureKind::D3),
+        Err(UploadError::LayerMismatch { .. })
+    ));
+}
+
+#[test]
 fn npot_bc_mip_layout_uses_whole_blocks_without_changing_logical_size() {
     let data = [0; 120];
     let levels = packed_mips(wgpu::TextureFormat::Bc1RgbaUnorm, 12, 20, 3, &data);

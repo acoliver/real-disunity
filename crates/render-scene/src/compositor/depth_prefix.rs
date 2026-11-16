@@ -93,10 +93,10 @@ impl StockDepthPrefix {
         }
     }
 
-    /// Encodes the prefix, with `contribution`'s passes, views and features appended to it
-    /// before the whole is validated. The contribution is checked like any other frame input:
-    /// it may not repeat an entry, and a read it declares needs an earlier producer in the
-    /// combined list.
+    /// Encodes the prefix with `contribution`'s passes, views, requested effects, operations
+    /// and features included before the whole is validated. The contribution is checked like
+    /// any other frame input: it may not repeat an entry, and a read it declares needs an earlier
+    /// producer in the combined list.
     ///
     /// Submission and abandonment follow [`FrameRenderer`]: the prefix is complete only in
     /// the frame of `encoder`, and the suffix must encode in that frame.

@@ -76,7 +76,10 @@ pub fn gbuffer_taa_scene() -> RenderScene {
     })
     .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
     .unwrap();
-    scene_with(effects)
+    let source = scene();
+    source
+        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects))
+        .unwrap()
 }
 
 /// One lit quad facing the camera.

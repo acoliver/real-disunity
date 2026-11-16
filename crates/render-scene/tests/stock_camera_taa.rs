@@ -4,9 +4,7 @@ mod fixture;
 
 use fixture::{SIZE, view};
 use std::time::Duration;
-use worldrunner_render_plan::{
-    RenderScene, SceneAntiAlias, SceneEffects, SceneEffectsParts, SceneOpaquePath,
-};
+use worldrunner_render_plan::{RenderScene, SceneEffects};
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FrameRenderer, encode_scene, prepare_stock_scene},
@@ -208,26 +206,7 @@ fn assert_fused_gbuffer_prepass(plan: &FramePlan<'_>) {
 }
 
 fn camera_taa_scene() -> RenderScene {
-    let base = fixture::effects();
-    let effects = SceneEffects::new(SceneEffectsParts {
-        water: None,
-        sky: *base.sky(),
-        sun: *base.sun(),
-        ambient: *base.ambient(),
-        shadows: base.shadows().clone(),
-        ssao: base.ssao().copied(),
-        camera: *base.camera(),
-        grading: *base.grading(),
-        post: base.post().to_vec(),
-        anti_alias: SceneAntiAlias::taa(900_000),
-    })
-    .unwrap()
-    .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
-    .unwrap();
-    let source = fixture::scene();
-    source
-        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects))
-        .unwrap()
+    fixture::gbuffer_taa_scene()
 }
 
 fn assert_no_scene_velocity(plan: &FramePlan<'_>) {

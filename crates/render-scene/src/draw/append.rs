@@ -526,6 +526,7 @@ impl SceneGpu {
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
+        let mut records = self.lighting_records.table().clone();
         let (groups, uniforms, tables) = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
@@ -545,7 +546,7 @@ impl SceneGpu {
                 heights: &self.retained.contact_heights,
                 view: &lookup,
             };
-            new_material_groups(device, queue, &inputs, &prepared.materials)
+            new_material_groups(device, queue, (&inputs, &mut records), &prepared.materials)
         };
         let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
@@ -556,6 +557,7 @@ impl SceneGpu {
             .extend(prepared.materials.iter().map(|m| m.impostor().is_some()));
         self.retained.textures.extend(textures);
         self.retained.material_uniforms.extend(uniforms);
+        self.lighting_records.replace(records);
         self.materials.extend(groups);
         self.objects.extend(tables);
         self.objects.warm(pipelines.object_context());
@@ -695,7 +697,10 @@ impl SceneGpu {
 fn new_material_groups(
     device: &Device,
     queue: &wgpu::Queue,
-    inputs: &GroupInputs<'_>,
+    (inputs, records): (
+        &GroupInputs<'_>,
+        &mut crate::gbuffer::records::LightingRecordTable,
+    ),
     materials: &[worldrunner_render_plan::SceneMaterial],
 ) -> (
     Vec<wgpu::BindGroup>,
@@ -707,13 +712,9 @@ fn new_material_groups(
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
     for material in materials {
-        let uniform = upload_buffer(
-            device,
-            queue,
-            "material",
-            BufferUsages::UNIFORM,
-            &crate::pipeline::MaterialUniform::from_material(material).to_bytes(),
-        );
+        let mut bytes = crate::pipeline::MaterialUniform::from_material(material).to_bytes();
+        records.assign(&mut bytes);
+        let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
         let (group, table) = material_group(device, inputs, material, &uniform, sampler);
         groups.push(group);

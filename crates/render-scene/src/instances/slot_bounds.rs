@@ -1,19 +1,24 @@
-//! Per-slot storage for view-independent placement bounds, grouped for culling, and the
-//! level each placement draws at for the current eye.
+//! Per-slot storage for view-independent placement bounds, grouped for culling, the
+//! eye-independent inputs of each placement's level, and the level it draws at for the
+//! current eye.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use glam::Vec3;
 
+mod inputs;
 mod tree;
+pub(crate) use inputs::{Shape, Slot, SlotFade, SlotMut};
 pub(crate) use tree::{Node, Tree};
 
-/// World-space boxes for the allocated slots of one batch, one box per relief scale.
+/// World-space boxes for the allocated slots of one batch, one box per relief scale, and
+/// each slot's level inputs.
 ///
-/// Visibility selection fills every live slot's boxes before it selects, and every write to
-/// a slot clears them. The batch's relief scales depend only on its mesh and materials, so a
-/// change of scales discards every entry. The tree groups the live slots by position and is
-/// rebuilt after any slot's boxes change or a slot is added or removed.
+/// Visibility selection fills every live slot's boxes and inputs before it selects, and every
+/// write to a slot clears them. The batch's relief scales and input shape depend only on its
+/// mesh and materials, so a change of either discards every entry. The tree groups the live
+/// slots by position and is rebuilt after any slot's boxes change or a slot is added or
+/// removed.
 #[derive(Debug, Default)]
 pub(crate) struct SlotBounds {
     /// Distinct relief scales by bit pattern; each slot stores one box per scale.
@@ -23,6 +28,7 @@ pub(crate) struct SlotBounds {
     tree: Tree,
     /// Whether `tree` no longer covers exactly the live slots and their boxes.
     stale: bool,
+    inputs: inputs::Inputs,
     levels: Levels,
 }
 
@@ -35,21 +41,23 @@ impl SlotBounds {
         self.stale = true;
     }
 
-    /// Fills the boxes of every live slot that has none and regroups the slots when they
-    /// changed. `live` lists the batch's allocated slots in order with their placements;
-    /// `fill` computes one placement's boxes, one per relief scale.
+    /// Fills the boxes and level inputs of every live slot that has none and regroups the
+    /// slots when they changed. `live` lists the batch's allocated slots in order with their
+    /// placements; `fill` computes one placement's boxes, one per relief scale, and its inputs
+    /// laid out by `shape`.
     pub fn refresh<'a, P: 'a>(
         &mut self,
-        reliefs: &[u32],
+        (reliefs, shape): (&[u32], &Shape),
         live: impl Iterator<Item = (usize, &'a P)>,
-        mut fill: impl FnMut(&P, &mut [[Vec3; 2]]),
+        mut fill: impl FnMut(&P, &mut [[Vec3; 2]], SlotMut<'_>),
     ) {
-        if !self.stale && reliefs == self.reliefs {
+        if !self.stale && reliefs == self.reliefs && shape == self.inputs.shape() {
             return;
         }
         let stride = reliefs.len();
-        if reliefs != self.reliefs {
+        if reliefs != self.reliefs || shape != self.inputs.shape() {
             self.reliefs = reliefs.to_vec();
+            self.inputs.reset(shape);
             self.boxes.clear();
             self.valid.clear();
             self.stale = true;
@@ -59,11 +67,13 @@ impl SlotBounds {
             if position >= self.valid.len() {
                 self.valid.resize(position + 1, false);
                 self.boxes.resize((position + 1) * stride, [Vec3::ZERO; 2]);
+                self.inputs.grow(position + 1);
             }
             if !self.valid[position] {
                 fill(
                     placement,
                     &mut self.boxes[position * stride..(position + 1) * stride],
+                    self.inputs.slot_mut(position),
                 );
                 self.valid[position] = true;
                 self.stale = true;
@@ -99,6 +109,12 @@ impl SlotBounds {
     /// Relief scales by bit pattern, in the order of each slot's boxes.
     pub fn reliefs(&self) -> &[u32] {
         &self.reliefs
+    }
+
+    /// The level inputs of a live slot; call after `refresh`.
+    pub fn inputs(&self, position: usize) -> Slot<'_> {
+        debug_assert!(self.valid[position], "refreshed slot inputs");
+        self.inputs.slot(position)
     }
 
     /// The live slots grouped by position; current after `refresh`.

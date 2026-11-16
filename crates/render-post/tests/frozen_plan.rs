@@ -4,6 +4,9 @@ use std::{cell::Cell, cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::{device::DeviceRequirements, test_support::TestGpu};
 use worldrunner_render_post::*;
 
+#[path = "frozen_plan/contour.rs"]
+mod contour;
+
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const SIZE: [u32; 2] = [8, 8];
@@ -451,9 +454,12 @@ enum Step {
     Opaque,
     /// A pass that tests the scene depth through a shared read-only `Load` attachment.
     Reader,
+    /// A contour pass of the given occurrence, which tests the scene depth the same way.
+    Contour(u32),
 }
 
-/// A plan in the order of `steps`, with the entry of its reader and the scene depth it tests.
+/// A plan in the order of `steps`, with the entry of its first reader (a `Reader` or a `Contour`)
+/// and the scene depth it tests.
 struct DepthOrder {
     passes: Vec<PassDeclaration>,
     views: Vec<AttachmentView>,
@@ -509,8 +515,11 @@ fn depth_order(rig: &mut Rig, steps: &[Step], reader_lists_depth: bool) -> Depth
                 declared.depth = Some(other);
                 (this, declared)
             }
-            Step::Reader => {
-                let this = entry(PassSlot::AfterOpaqueDepth);
+            Step::Reader | Step::Contour(_) => {
+                let this = match step {
+                    Step::Contour(occurrence) => PassEntry::nth(PassSlot::ContourIds, *occurrence),
+                    _ => entry(PassSlot::AfterOpaqueDepth),
+                };
                 let view = rig.view(name, wgpu::TextureFormat::R8Uint);
                 let color = clear(view.resource(), wgpu::TextureFormat::R8Uint);
                 views.push(view);
@@ -520,7 +529,7 @@ fn depth_order(rig: &mut Rig, steps: &[Step], reader_lists_depth: bool) -> Depth
                     read_only: true,
                     ..depth.clone()
                 });
-                reader = Some(this);
+                reader = reader.or(Some(this));
                 (this, declared)
             }
         };

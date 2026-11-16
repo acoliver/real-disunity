@@ -385,7 +385,9 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
             }
         }
     } else {
-        source = source.anchored("scene_metadata::receiver::shader::consumer", 2, "var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
+        // shade, shade_material (the G-buffer producers' material entry) and the forward card
+        // entry each start from the original vertex output.
+        source = source.anchored("scene_metadata::receiver::shader::consumer", 3, "var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
     }
     let source = if terrain {
         source

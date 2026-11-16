@@ -13,7 +13,9 @@ struct ReflectionCamera {
     let surface = textureLoad(material, p, 0);
     let normal = textureLoad(normals, p, 0);
     if normal.a == 0.0 || (camera.settings.z > 0.0 && surface.a >= camera.settings.z) || camera.settings.w != 0.0 { discard; }
-    let uv = pixel.xy / camera.size.xy;
+    // Opaque receiver inputs are per pixel. Under per-sample shading Vulkan moves
+    // @builtin(position) to the sample location and Metal keeps the pixel centre.
+    let uv = (vec2<f32>(p) + 0.5) / camera.size.xy;
     let receiver = reflection_receiver(p, sample);
     if receiver.owner == 0u { discard; }
     let reflection = reconstructed_reflection(uv, sample, receiver, surface.a);

@@ -1,3 +1,13 @@
+#[test]
+fn public_stock_prefix_rejects_substituted_backing_before_caller_preparation() {
+    assert_refusal(Change::Backing);
+}
+
+#[test]
+fn public_stock_prefix_rejects_changed_load_before_caller_preparation() {
+    assert_refusal(Change::Load);
+}
+
 use super::{Products, Refusal, Scene, fixture};
 use worldrunner_render_scene::{
     compositor::prepare_stock_scene,
@@ -9,6 +19,12 @@ use worldrunner_render_scene::{
     test_support::SceneTestSession,
     wgpu,
 };
+
+#[derive(Clone, Copy)]
+enum Change {
+    Backing,
+    Load,
+}
 
 struct Substitution {
     pass: PassDeclaration,
@@ -84,8 +100,12 @@ fn encode_suffix(
     )
 }
 
-fn refuse_substitution(context: &GpuContext, scene: &mut Scene) -> (ResourceRef, FrameError) {
-    let substitution = Substitution::new(context, scene);
+fn refuse_substitution(
+    context: &GpuContext,
+    scene: &mut Scene,
+    change: Change,
+) -> (FrameError, FrameError) {
+    let mut substitution = Substitution::new(context, scene);
     let prefix = scene
         .frame
         .stock_depth_prefix(context.device(), &scene.gpu)
@@ -108,13 +128,21 @@ fn refuse_substitution(context: &GpuContext, scene: &mut Scene) -> (ResourceRef,
             ),
         )
         .unwrap();
+    let expected = match change {
+        Change::Backing => FrameError::AttachmentView(substitution.original.resource()),
+        Change::Load => {
+            substitution.replacement = substitution.original.clone();
+            substitution.pass.color.as_mut().unwrap().load =
+                AttachmentLoad::ClearColor(wgpu::Color::BLUE);
+            FrameError::AttachmentContract(substitution.pass.entry())
+        }
+    };
     let error = encode_suffix(context, scene, &mut encoder, &substitution)
-        .expect_err("a completed prefix attachment cannot change backing storage");
-    (substitution.original.resource(), error)
+        .expect_err("a completed prefix attachment must keep its declaration and backing");
+    (expected, error)
 }
 
-#[test]
-fn public_stock_prefix_rejects_substituted_backing_before_caller_preparation() {
+fn assert_refusal(change: Change) {
     let _session = SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let validation = context
@@ -136,8 +164,8 @@ fn public_stock_prefix_rejects_substituted_backing_before_caller_preparation() {
     let history = scene.frame.has_temporal_history();
     refusal.set_refusing(true);
     let submitted = context.submission().submitted_serial();
-    let (resource, error) = refuse_substitution(&context, &mut scene);
-    assert_eq!(error, FrameError::AttachmentView(resource));
+    let (expected, error) = refuse_substitution(&context, &mut scene, change);
+    assert_eq!(error, expected);
     assert_eq!(context.submission().submitted_serial(), submitted);
     assert_eq!(refusal.preparations(), 1);
     assert_eq!(scene.gpu.statistics(), statistics);

@@ -1148,15 +1148,19 @@ G3 and velocity contain the moved geometry. A fresh ordinary retry preserves tha
 retry and settling products match an uninterrupted control in both cases. Declaring one
 scene's resident write keys while encoding a different dirty scene fails capture admission
 with an undeclared resident key before submission; both scenes keep their completed products.
-The [public prefix-attachment regression](tests/stock_scene_retry/prefix_identity.rs) completes
-an additional caller pass in the stock prefix, then substitutes its attachment backing in the
-same-frame suffix. It requires `AttachmentView(resource)` before caller preparation or
-submission, with completed products, draw statistics and temporal history unchanged.
+The [public prefix-attachment regressions](tests/stock_scene_retry/prefix_identity.rs) complete
+an additional caller pass in the stock prefix, then change only its attachment backing or only
+its load contract in the same-frame suffix. They require `AttachmentView(resource)` or
+`AttachmentContract(entry)`, respectively, before caller preparation or submission, with
+completed products, draw statistics and temporal history unchanged.
 
-The [public camera-only TAA regression](tests/stock_camera_taa.rs) pairs resident TAA with a
-fused G-buffer depth prefix and plain SSAO pipelines. It checks that the prefix and prepared
+The [public camera-only TAA regressions](tests/stock_camera_taa.rs) pair resident TAA with a
+fused G-buffer depth prefix and plain SSAO pipelines. They check that the prefix and prepared
 stock suffix declare no scene-velocity colour writes, while camera history and jitter advance
-across two submitted frames.
+across two submitted frames. The retained pipeline-switch case first completes a
+velocity-enabled frame, then switches the same scene and renderer to plain pipelines. It
+requires both plans to omit velocity writes while the velocity allocation stays resident and
+TAA history continues.
 
 [The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
 covers program-admission and caller-preparation refusal after a physical prefix. It

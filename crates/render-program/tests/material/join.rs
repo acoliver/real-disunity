@@ -196,7 +196,10 @@ fn admitted_material_draws_record_into_the_callers_pass_and_hold_the_arena_until
         );
     }
     arena
-        .retire()
+        .retire_settled(
+            &gpu.device,
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
         .expect("the completed frame released the arena");
 }
 

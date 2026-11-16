@@ -142,7 +142,8 @@ struct Fitted {
     terms: Vec<Vec<u8>>,
     passes: Vec<PassSlot>,
     fit: crate::shadows::sdsm::AdoptedFit,
-    occlusion: Option<Vec<u8>>,
+    /// The computed filtered occlusion (`R32Float`) and the prepass normals (`Rgba16Float`).
+    occlusion: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
@@ -242,9 +243,10 @@ fn depth_fitted_frame(context: &GpuContext, computed: bool) -> Fitted {
     let passes = crate::scene_metadata::EXECUTED_PASSES.with_borrow(Clone::clone);
     assert_eq!(frame.forward_depth(&renderer.gpu, &depth), DepthMode::Reuse);
     let occlusion = computed.then(|| {
-        read(
-            context,
-            &frame.ssao.as_ref().expect("metadata").passes.filtered,
+        let screen = frame.ssao.as_ref().expect("metadata");
+        (
+            read(context, &screen.passes.filtered),
+            read(context, &screen.normals),
         )
     });
     Fitted {
@@ -279,13 +281,25 @@ fn gpu_depth_fitting_alone_skips_unread_occlusion_stages_with_identical_results(
     let context = context();
     let skipped = depth_fitted_frame(&context, false);
     let reference = depth_fitted_frame(&context, true);
-    let occlusion = reference.occlusion.as_ref().expect("computed occlusion");
-    assert!(!occlusion.is_empty());
+    // Receivers read the occlusion at their own covered pixel, where the computed neutral
+    // occlusion is exactly 1.0, the value of the constant bound instead. Uncovered texels may sit
+    // one ulp below 1.0 (the filter's division; 72 of them on Metal), which nothing reads.
+    let (occlusion, normals) = reference.occlusion.as_ref().expect("computed occlusion");
+    let (mut covered, mut covered_other, mut largest) = (0usize, 0usize, 0.0f32);
+    for (texel, normal) in occlusion.chunks_exact(4).zip(normals.chunks_exact(8)) {
+        let value = f32::from_le_bytes(texel.try_into().expect("R32Float texel"));
+        let is_covered = normal[6..8] != [0, 0];
+        covered += usize::from(is_covered);
+        if is_covered && value.to_bits() != 1.0f32.to_bits() {
+            covered_other += 1;
+        }
+        largest = largest.max((value - 1.0).abs());
+    }
+    assert!(covered > 0, "the fixture covers pixels");
+    assert_eq!(covered_other, 0, "covered occlusion texels other than 1.0");
     assert!(
-        occlusion
-            .chunks_exact(4)
-            .all(|texel| texel == 1.0f32.to_le_bytes()),
-        "the neutral kernel and filter write exactly 1.0 at every pixel"
+        largest <= f32::EPSILON,
+        "neutral occlusion off by {largest:e}"
     );
     for slot in [
         PassSlot::DepthNormalPrepass,

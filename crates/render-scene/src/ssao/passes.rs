@@ -130,8 +130,9 @@ pub(crate) struct ScreenPasses {
 }
 
 /// A 1x1 texture of 1.0, bound where receivers expect ambient occlusion in frames that compute
-/// none. The neutral kernel (zero intensity) and its normalised box filter write exactly 1.0 at
-/// every pixel, and the receivers clamp their load into the texture, so they read the same value.
+/// none. Receivers clamp their load into the texture, so every one reads 1.0, which is what the
+/// neutral kernel (zero intensity) and its box filter write at every covered pixel. Only
+/// uncovered pixels, which no receiver reads, can come out one ulp below 1.0 from the division.
 pub(crate) fn neutral_occlusion(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("neutral ambient occlusion"),

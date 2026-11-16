@@ -207,7 +207,9 @@ impl HdrPost {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("slot exposure step"),
                     size: 16,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::UNIFORM
+                        | wgpu::BufferUsages::COPY_DST
+                        | step_readback_usage(),
                     mapped_at_creation: false,
                 })
             }),
@@ -265,6 +267,12 @@ impl HdrPost {
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.taa_history.size()
+    }
+    /// The step `slot`'s exposure meter reads, for tests that observe what [`Self::prepare`]
+    /// uploaded.
+    #[cfg(test)]
+    pub(crate) fn exposure_step_buffer(&self, slot: usize) -> &wgpu::Buffer {
+        &self.frame[slot]
     }
     pub fn prepare(
         &self,
@@ -528,6 +536,16 @@ fn exposure_constants(a: AdaptiveExposure) -> [(&'static str, f64); 10] {
         ("SPEED_DOWN", a.speeds[1].into()),
         ("FIXED_EXPOSURE", a.fixed_exposure.unwrap_or(-1.0).into()),
     ]
+}
+
+/// Tests copy the exposure step back to compare it with what `HdrPost::prepare` uploaded;
+/// production never reads it from the CPU side.
+const fn step_readback_usage() -> wgpu::BufferUsages {
+    if cfg!(test) {
+        wgpu::BufferUsages::COPY_SRC
+    } else {
+        wgpu::BufferUsages::empty()
+    }
 }
 
 pub(crate) fn validate_delta(delta: f32) -> Result<(), PostError> {

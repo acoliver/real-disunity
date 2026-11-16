@@ -2,6 +2,8 @@
 mod capture_retry;
 #[path = "stock_scene_retry/fixture.rs"]
 mod fixture;
+#[path = "stock_scene_retry/prefix_identity.rs"]
+mod prefix_identity;
 #[path = "stock_scene_retry/products.rs"]
 mod products;
 #[path = "stock_scene_retry/refusal.rs"]

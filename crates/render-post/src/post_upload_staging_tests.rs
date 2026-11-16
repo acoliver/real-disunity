@@ -10,9 +10,9 @@
 use crate::hdr_post::HdrPost;
 use crate::upload_staging_tests::{destination, noop, pattern, read};
 use crate::{
-    AdaptiveExposure, ExposureMetering, FrameError, HdrPostSettings, PostError, TAA_UNIFORM_BYTES,
-    TEMPORAL_BLOCK_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock, TemporalCamera,
-    ToneMap, ToneMapOutput,
+    AdaptiveExposure, BufferReadback, ExposureMetering, FrameError, HdrPostSettings, PostError,
+    TAA_UNIFORM_BYTES, TEMPORAL_BLOCK_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock,
+    TemporalCamera, ToneMap, ToneMapOutput,
 };
 use worldrunner_render_gpu::submission::{
     PrepareError, PreparedFrame, StagingStatistics, SubmissionAuthority, TransactionError,
@@ -143,12 +143,21 @@ impl Rig {
 
     /// Records the four uploads of one frame in the order the compositor does.
     fn record(&self, values: &Values) -> Result<PreparedFrame, PrepareError<PostError>> {
+        self.record_with(values, |_| {})
+    }
+
+    fn record_with(
+        &self,
+        values: &Values,
+        after_uploads: impl FnOnce(&mut wgpu::CommandEncoder),
+    ) -> Result<PreparedFrame, PrepareError<PostError>> {
         self.authority.prepare(&self.device, |encoder, _| {
             self.post
                 .prepare(encoder, 0, values.delta, values.reset, values.initial)?;
             crate::hdr_taa::upload(&self.device, encoder, &self.taa, values.taa.as_ref())?;
             crate::hdr_taa::upload_temporal(&self.device, encoder, &self.temporal, &values.block)?;
             crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera, values.camera)?;
+            after_uploads(encoder);
             Ok::<_, PostError>(())
         })
     }
@@ -165,14 +174,18 @@ impl Rig {
             .unwrap();
     }
 
-    fn observed(&self) -> [Vec<u8>; 4] {
+    fn destinations(&self) -> [&wgpu::Buffer; 4] {
         [
             self.post.exposure_step_buffer(0),
             &self.taa,
             &self.temporal,
             &self.camera,
         ]
-        .map(|buffer| read(&self.device, &self.queue, buffer))
+    }
+
+    fn observed(&self) -> [Vec<u8>; 4] {
+        self.destinations()
+            .map(|buffer| read(&self.device, &self.queue, buffer))
     }
 }
 
@@ -192,6 +205,51 @@ fn distinct_frames_deliver_their_exact_values_to_every_destination() {
         }
         previous = Some(observed);
     }
+}
+
+#[test]
+fn queued_frames_keep_encoder_ordered_snapshots_of_all_four_post_uploads() {
+    let rig = Rig::new();
+    let mut pending = Vec::new();
+    for frame in 0..FRAMES {
+        let frame_values = values(frame);
+        let mut captures = rig
+            .destinations()
+            .map(|buffer| BufferReadback::new(&rig.device, buffer.size(), buffer.size()).unwrap());
+        let prepared = rig
+            .record_with(&frame_values, |encoder| {
+                for (capture, buffer) in captures.iter_mut().zip(rig.destinations()) {
+                    capture.encode(encoder, buffer).unwrap();
+                }
+            })
+            .unwrap();
+        let submission = prepared.submit().unwrap();
+        pending.push((frame, captures, submission));
+    }
+    assert_eq!(rig.authority.submitted_serial(), u64::from(FRAMES));
+    // Mapping starts after all submissions. Noop executes copies synchronously; this checks
+    // encoder ordering without claiming the frames remain in flight on a real GPU.
+    for (frame, captures, submission) in pending {
+        let observed = captures.map(|mut capture| {
+            capture
+                .read_encoded(&rig.device, Some(submission.clone()))
+                .unwrap()
+        });
+        let records = [
+            "exposure step",
+            "TAA block",
+            "temporal block",
+            "temporal camera",
+        ];
+        for ((actual, expected), record) in
+            observed.iter().zip(expected(&values(frame))).zip(records)
+        {
+            assert_eq!(*actual, expected, "queued frame {frame}, {record}");
+        }
+    }
+    let statistics = rig.authority.upload_staging();
+    assert_eq!(statistics.uploads, 4 * u64::from(FRAMES));
+    assert_eq!(statistics.uploaded_bytes, frame_bytes() * u64::from(FRAMES));
 }
 
 #[test]

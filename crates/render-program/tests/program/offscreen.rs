@@ -12,6 +12,7 @@ mod copy;
 mod defaults;
 mod depth_only;
 mod formats;
+mod keep;
 mod layers;
 mod lifetime;
 mod lists;

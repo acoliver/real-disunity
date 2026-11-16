@@ -71,6 +71,7 @@ fn a_camera_supplies_its_view_and_position() {
     let view = CameraView {
         settings: Camera::default(),
         world_matrix: Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)).to_cols_array(),
+        target_buffers: None,
     };
     let layer = camera_layer(&view, 1.0, DepthRange::Forward);
     // Facing +Z from (1, 2, 3), the point (1.5, 2.5, 5) is 0.5 right, 0.5 up and 2 ahead, and
@@ -94,6 +95,7 @@ fn the_camera_position_follows_a_view_a_script_set() {
             ..Camera::default()
         },
         world_matrix: IDENTITY,
+        target_buffers: None,
     };
     let layer = camera_layer(&view, 1.0, DepthRange::Forward);
     assert_eq!(
@@ -197,6 +199,7 @@ fn an_orthographic_view_sets_the_ortho_flag_and_a_perspective_view_clears_it() {
     let at = |settings: Camera| CameraView {
         settings,
         world_matrix: IDENTITY,
+        target_buffers: None,
     };
     let perspective = Camera {
         projection: Projection::Perspective,
@@ -253,6 +256,7 @@ fn the_projection_params_hold_the_screen_y_sign_and_the_near_plane() {
     let at = |settings: Camera| CameraView {
         settings,
         world_matrix: IDENTITY,
+        target_buffers: None,
     };
     let perspective = Camera {
         projection: Projection::Perspective,
@@ -296,6 +300,7 @@ fn a_projection_without_a_near_plane_leaves_the_projection_params_missing() {
     let view = CameraView {
         settings: flat,
         world_matrix: IDENTITY,
+        target_buffers: None,
     };
     assert!(
         camera_layer(&view, 1.0, DepthRange::Forward)

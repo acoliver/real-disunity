@@ -1,5 +1,5 @@
 //! A shadow-map read: a camera writes depth into a depth-only render texture and a later blit
-//! compares a reference depth with it through a comparison sampler, as URP's shadow lookups do.
+//! compares a reference depth with it through a comparison sampler.
 //!
 //! The renderer's depth is not reversed (0 is near, 1 is far, the camera clears to 1 and a pass's
 //! `ZTest LEqual` is `LessEqual`), so a receiver is lit when its reference depth is at most the

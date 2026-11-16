@@ -70,17 +70,16 @@ pub(super) fn merge(earlier: Option<&Sampled>, read: Sampled) -> Sampled {
 ///
 /// Offscreen depth is not reversed. A camera clears depth to 1 and a pass's `ZTest LEqual` is
 /// `LessEqual`, so nearer is smaller and a fragment at the stored depth or in front of it passes
-/// its depth test. URP's shadow lookups return 1 for a lit receiver, which is a receiver at the
-/// occluder's depth or in front of it, so the same function is the one that makes them read 1.
-/// With the host's reversed depth switch on (clear 0, `ZTest LEqual` as `GreaterEqual`), the
-/// comparison is `GreaterEqual` (see `depth_range::shadow_compare`).
+/// its depth test. The same function makes a comparison read 1 for a receiver at the stored
+/// depth or in front of it. With the host's reversed depth switch on (clear 0, `ZTest LEqual` as
+/// `GreaterEqual`), the comparison is `GreaterEqual` (see `depth_range::shadow_compare`).
 pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::LessEqual;
 
 /// The state of a comparison sampler: what its name says, else what the texture it is paired with
 /// is read with, else linear filtering clamped to the edge.
 ///
-/// A name that Unity gives an inline sampler (`sampler_LinearClampCompare`) carries a filter
-/// (`Point`, `Linear` or `Trilinear`) and a wrap mode (`Clamp`, `Repeat` or `Mirror`), and a
+/// An inline sampler name as the shader modules declare it (`sampler_LinearClampCompare`) carries a
+/// filter (`Point`, `Linear` or `Trilinear`) and a wrap mode (`Clamp`, `Repeat` or `Mirror`), and a
 /// part it leaves out is the texture's. A sampler named after its texture, such as
 /// `sampler_MainLightShadowmapTexture`, says neither and reads as the texture does.
 pub(super) fn comparison_state(name: Option<&str>, paired: Option<&Sampled>) -> SamplerState {

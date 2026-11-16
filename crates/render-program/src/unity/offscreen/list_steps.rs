@@ -8,12 +8,12 @@ use worldrunner_render_post::AttachmentLoad;
 use worldrunner_render_post::contracts::{ColorAttachment, DepthAttachment, RasterId, RasterPass};
 
 use crate::ids::TextureId;
-use crate::packet::TargetSignature;
+use crate::packet::{MAX_COLOR_ATTACHMENTS, TargetSignature};
 
 use super::ListDraws;
 use super::depth_range;
 use super::error::OffscreenError;
-use super::frame::{Attachments, Clear, DrawList, OffscreenFrame};
+use super::frame::{Attachment, Attachments, Clear, DrawList, OffscreenFrame};
 use super::plan::Services;
 use super::steps::{
     CameraDraw, Globals, Look, Step, planned_draw, push_use, raster_id, require_render_texture,
@@ -31,14 +31,20 @@ fn size_at(size: [u32; 2], mip: u32) -> [u32; 2] {
     size.map(|side| (side >> mip).max(1))
 }
 
-/// The attachments a pass can use. A depth buffer under a color texture has one mip, and one of
+/// The attachments a pass can use. Several colors must each have color storage and one size at
+/// their mip, and none may repeat; a depth buffer under a color texture has one mip, and one of
 /// another size than the color cannot go with it, so a pass whose depth does not fit is drawn
 /// without it.
 pub(super) fn usable(
     svc: &Services<'_>,
     target: Attachments,
 ) -> Result<Attachments, OffscreenError> {
-    for attachment in [target.color, target.depth].into_iter().flatten() {
+    if target.colors.len() > MAX_COLOR_ATTACHMENTS {
+        return Err(OffscreenError::ColorTargets {
+            count: target.colors.len(),
+        });
+    }
+    for attachment in target.colors.iter().chain(&target.depth) {
         require_render_texture(svc, attachment.texture)?;
         if attachment.mip >= svc.textures.get(attachment.texture)?.mips {
             return Err(OffscreenError::NoSuchSubresource {
@@ -48,12 +54,13 @@ pub(super) fn usable(
             });
         }
     }
+    check_colors(svc, &target.colors)?;
     let Some(depth) = target.depth else {
         return Ok(target);
     };
     let info = svc.textures.get(depth.texture)?;
     let mut fits = info.color.is_none() || depth.mip == 0;
-    if let (true, Some(color)) = (fits, target.color) {
+    if let (true, Some(color)) = (fits, target.colors.first()) {
         let held = svc.textures.get(color.texture)?;
         fits =
             held.color.is_none() || size_at(info.size, depth.mip) == size_at(held.size, color.mip);
@@ -64,38 +71,72 @@ pub(super) fn usable(
     })
 }
 
+/// Checks that the colors of a pass can be drawn into together: with two or more, each has color
+/// storage and the size the first has at its mip, and none is a mip of a texture another is.
+fn check_colors(svc: &Services<'_>, colors: &[Attachment]) -> Result<(), OffscreenError> {
+    for (index, attachment) in colors.iter().enumerate() {
+        if colors[..index].contains(attachment) {
+            return Err(OffscreenError::ColorTargetRepeated {
+                texture: attachment.texture,
+                mip: attachment.mip,
+            });
+        }
+    }
+    let [first, _, ..] = colors else {
+        return Ok(());
+    };
+    let first_size = size_at(svc.textures.get(first.texture)?.size, first.mip);
+    for attachment in colors {
+        let info = svc.textures.get(attachment.texture)?;
+        if info.color.is_none() {
+            return Err(OffscreenError::ColorTargetWithoutColor(attachment.texture));
+        }
+        let size = size_at(info.size, attachment.mip);
+        if size != first_size {
+            return Err(OffscreenError::ColorTargetsDiffer {
+                first: first.texture,
+                first_size,
+                texture: attachment.texture,
+                size,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// The formats of a pass over `target`.
 pub(super) fn signature(
     svc: &Services<'_>,
-    target: Attachments,
+    target: &Attachments,
 ) -> Result<TargetSignature, OffscreenError> {
-    let color = match target.color {
-        Some(attachment) => {
-            let info = svc.textures.get(attachment.texture)?;
-            info.color.is_some().then_some(info.format)
+    let mut colors = Vec::new();
+    for attachment in &target.colors {
+        let info = svc.textures.get(attachment.texture)?;
+        if info.color.is_some() {
+            colors.push(info.format);
         }
-        None => None,
-    };
+    }
     let depth = match target.depth {
         Some(attachment) => svc.textures.get(attachment.texture)?.depth_format,
         None => None,
     };
-    Ok(match (color, depth) {
-        (Some(color), depth) => TargetSignature::attachments(&[color], depth, 1)?,
-        (None, Some(depth)) => TargetSignature::depth_attachment(depth, 1)?,
-        (None, None) => {
+    Ok(match (colors.as_slice(), depth) {
+        ([], Some(depth)) => TargetSignature::depth_attachment(depth, 1)?,
+        ([], None) => {
             return Err(OffscreenError::Unknown(
                 "a color or depth buffer to draw into".to_owned(),
             ));
         }
+        (colors, depth) => TargetSignature::attachments(colors, depth, 1)?,
     })
 }
 
 /// The texture a list's counts are kept under: its color, or its depth when it has no color.
-fn primary(target: Attachments) -> Option<TextureId> {
+fn primary(target: &Attachments) -> Option<TextureId> {
     target
-        .color
-        .or(target.depth)
+        .colors
+        .first()
+        .or(target.depth.as_ref())
         .map(|attachment| attachment.texture)
 }
 
@@ -104,7 +145,7 @@ fn primary(target: Attachments) -> Option<TextureId> {
 pub(super) fn attachments_pass(
     svc: &mut Services<'_>,
     id: RasterId,
-    target: Attachments,
+    target: &Attachments,
     loads: &Loads,
     draws: &[CameraDraw],
 ) -> Result<RasterPass, OffscreenError> {
@@ -114,11 +155,16 @@ pub(super) fn attachments_pass(
             push_use(&mut uses, usage.clone());
         }
     }
-    let color = color_attachment(svc, target, loads.color)?;
+    // Each color is written on its own, so it takes the next version of its own storage and a
+    // later pass reads it as that write left it.
+    let mut colors = Vec::new();
+    for attachment in &target.colors {
+        colors.extend(color_attachment(svc, *attachment, loads.color)?);
+    }
     let depth = depth_attachment(svc, target, loads.depth)?;
     Ok(RasterPass {
         id,
-        colors: color.into_iter().map(Some).collect(),
+        colors: colors.into_iter().map(Some).collect(),
         depth,
         uses,
         bindings: Vec::new(),
@@ -127,12 +173,9 @@ pub(super) fn attachments_pass(
 
 fn color_attachment(
     svc: &mut Services<'_>,
-    target: Attachments,
+    attachment: Attachment,
     clear: Option<[f64; 4]>,
 ) -> Result<Option<ColorAttachment>, OffscreenError> {
-    let Some(attachment) = target.color else {
-        return Ok(None);
-    };
     let (imported, _) = svc.import(attachment.texture)?;
     let Some(key) = imported.color else {
         return Ok(None);
@@ -159,7 +202,7 @@ fn color_attachment(
 
 fn depth_attachment(
     svc: &mut Services<'_>,
-    target: Attachments,
+    target: &Attachments,
     clear: Option<f32>,
 ) -> Result<Option<DepthAttachment>, OffscreenError> {
     let Some(attachment) = target.depth else {
@@ -199,10 +242,10 @@ pub(super) fn clear_step(
     clear: &Clear,
 ) -> Result<Option<Step>, OffscreenError> {
     let target = usable(svc, target)?;
-    let has_color = match target.color {
-        Some(attachment) => svc.textures.get(attachment.texture)?.color.is_some(),
-        None => false,
-    };
+    let mut has_color = false;
+    for attachment in &target.colors {
+        has_color |= svc.textures.get(attachment.texture)?.color.is_some();
+    }
     let has_depth = match target.depth {
         Some(attachment) => svc.textures.get(attachment.texture)?.depth_format.is_some(),
         None => false,
@@ -217,7 +260,7 @@ pub(super) fn clear_step(
     let pass = attachments_pass(
         svc,
         raster_id("offscreen clear", index),
-        target,
+        &target,
         &loads,
         &[],
     )?;
@@ -236,8 +279,8 @@ pub(super) fn list_step(
     globals: Globals<'_>,
     list: &DrawList,
 ) -> Result<Step, OffscreenError> {
-    let target = usable(svc, list.target)?;
-    let signature = signature(svc, target)?;
+    let target = usable(svc, list.target.clone())?;
+    let signature = signature(svc, &target)?;
     let (unmatched, missing_texture, missing_channel) = (
         svc.counts.unmatched,
         svc.counts.missing_texture,
@@ -267,7 +310,7 @@ pub(super) fn list_step(
         }
     }
     svc.counts.current = super::CameraCauses::default();
-    if let Some(texture) = primary(target) {
+    if let Some(texture) = primary(&target) {
         svc.counts.lists.push(ListDraws {
             target: texture,
             drawn: draws.len(),
@@ -283,7 +326,7 @@ pub(super) fn list_step(
     let pass = attachments_pass(
         svc,
         raster_id("offscreen list", index),
-        target,
+        &target,
         &loads,
         &draws,
     )?;

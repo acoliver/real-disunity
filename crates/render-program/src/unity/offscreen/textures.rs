@@ -44,6 +44,13 @@ impl TextureInfo {
         self.color.into_iter().chain(self.depth)
     }
 
+    /// Whether this is a render texture whose storage is the one `spec` describes.
+    fn holds(&self, spec: &RenderTextureSpec) -> bool {
+        self.spec
+            .as_ref()
+            .is_some_and(|made| made.same_storage(spec))
+    }
+
     /// The storage copies, readbacks and samples use: the color, or the depth when there is none.
     pub(super) fn primary(&self) -> TextureHandle {
         self.color
@@ -53,7 +60,8 @@ impl TextureInfo {
 }
 
 /// The textures by id. A render texture is created when the frame first names it and again when
-/// its spec changes; the replaced storage is released as soon as the runtime is not recording.
+/// the storage its spec describes changes (see [`RenderTextureSpec::same_storage`]); the replaced
+/// storage is released as soon as the runtime is not recording.
 #[derive(Default)]
 pub(super) struct TextureTable {
     textures: HashMap<TextureId, TextureInfo>,
@@ -146,8 +154,9 @@ impl TextureTable {
         self.storage.extend(ids);
     }
 
-    /// Creates every render texture of the frame that is new, whose spec changed or that a kernel
-    /// binds as storage and was made without storage binding.
+    /// Creates every render texture of the frame that is new, whose storage changed or that a
+    /// kernel binds as storage and was made without storage binding. A texture whose spec differs
+    /// only in `generation` keeps its storage and its contents and records the new spec.
     pub(super) fn sync(
         &mut self,
         runtime: &mut ProgramRuntime,
@@ -155,15 +164,27 @@ impl TextureTable {
     ) -> Result<(), OffscreenError> {
         self.release_waiting(runtime);
         for spec in specs {
-            let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
-            let held = self.textures.get(&spec.id);
-            let current = held.and_then(|t| t.spec.as_ref());
-            if current != Some(spec) || held.is_some_and(|t| t.storage != storage) {
+            if let Some(storage) = self.replacement_storage(runtime, spec) {
                 let info = create_render_texture(runtime, spec, storage)?;
                 self.replace(runtime, spec.id, info);
+            } else if let Some(info) = self.textures.get_mut(&spec.id) {
+                info.spec = Some(spec.clone());
             }
         }
         Ok(())
+    }
+
+    fn replacement_storage(
+        &self,
+        runtime: &ProgramRuntime,
+        spec: &RenderTextureSpec,
+    ) -> Option<bool> {
+        let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
+        let reusable = self
+            .textures
+            .get(&spec.id)
+            .is_some_and(|info| info.holds(spec) && info.storage == storage);
+        (!reusable).then_some(storage)
     }
 
     /// Gives back the storage of every render texture that `live` does not name, as one that its
@@ -237,9 +258,10 @@ impl TextureTable {
         Some(row * u64::from(info.size[1]))
     }
 
-    /// The bytes the render textures of `specs` would add: those the table has not made or made
-    /// from another spec. The storage a replaced texture held is given back later and is not
-    /// subtracted.
+    /// The bytes the render textures of `specs` would add: those the table has not made or must
+    /// replace for different storage or storage-binding capability. Storage shape is compared
+    /// with [`RenderTextureSpec::same_storage`]. Replaced storage is given back later and is
+    /// not subtracted.
     pub(super) fn new_render_bytes(
         &self,
         runtime: &ProgramRuntime,
@@ -247,7 +269,7 @@ impl TextureTable {
     ) -> u64 {
         specs
             .iter()
-            .filter(|spec| self.textures.get(&spec.id).and_then(|t| t.spec.as_ref()) != Some(*spec))
+            .filter(|spec| self.replacement_storage(runtime, spec).is_some())
             .map(|spec| render_bytes(spec, runtime.device()))
             .sum()
     }
@@ -443,7 +465,7 @@ fn render_bytes(spec: &RenderTextureSpec, device: &wgpu::Device) -> u64 {
 }
 
 /// The format of the depth buffer of a render texture: under a color texture, the camera's own
-/// buffer, which has stencil when Unity's would; without color, the texture itself, which has
+/// buffer, which has stencil where the depth bits allow it (see `depth_format_with_stencil`); without color, the texture itself, which has
 /// depth alone so that it can be sampled and copied.
 fn render_depth_format(
     spec: &RenderTextureSpec,

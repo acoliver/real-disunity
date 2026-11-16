@@ -319,10 +319,11 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 }
 
 pub use retained::{
-    DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
-    ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
-    TerrainPageStatistics, TerrainStreamingStatistics,
+    CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
+    PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
+    ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics,
 };
 pub use retained::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,

@@ -36,8 +36,9 @@
 //!
 //! Two rows serve slots beyond the declared ones. A shader program can reflect a cube slot that
 //! nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside the 2D
-//! source of the URP blit program (Old World, 180 draws a run), and a 3D slot likewise, such as
-//! `_3DNoiseTexture`. Each reads a default of its own dimension. The player's data does not give
+//! source of the URP blit program (Old World, 180 draws a run, each left out as a missing
+//! texture until this default existed), and a 3D slot likewise, such as `_3DNoiseTexture`. Each
+//! reads a default of its own dimension. The player's data does not give
 //! their colour, so each is assumed to be the 2D grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of
 //! all six faces, or in the one texel. They are the (grey, cube) and (grey, 3D) rows, the same
 //! textures a declared `grey` cube or volume reads.
@@ -316,8 +317,9 @@ fn whole_number(value: f32) -> Option<i32> {
 pub struct ShaderFill {
     /// Every 2D texture property, whether or not the host supplies its default texture.
     pub textures: Vec<String>,
-    /// Every texture property of any dimension. A texture the shader reads but does not declare
-    /// reads Unity's white texture when nothing sets it.
+    /// Every texture property of any dimension. A texture the shader reads but does not list
+    /// here has no default of its own, and this engine gives it the grey default when nothing
+    /// sets it.
     pub declared_textures: Vec<String>,
     /// The default value of each colour, vector, float, range and integer property, in the
     /// order the shader declares them.

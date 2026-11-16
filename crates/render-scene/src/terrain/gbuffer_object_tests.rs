@@ -6,7 +6,7 @@ use glam::{Mat3, Vec3};
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneOpaquePath};
 use worldrunner_render_post::FrameError;
 
-use super::{Frame, covered, gbuffer, prepare_scene, reflections, render, scenes};
+use super::{Frame, covered, gbuffer, prepare_with, reflections, render, scenes};
 use crate::CameraPose;
 use crate::device::GpuContext;
 use crate::gbuffer::reference::{self, Codes, angle_degrees};
@@ -35,7 +35,7 @@ fn observe(scene: &RenderScene) -> Result<([Vec<u8>; 4], Mat3), FrameError> {
     let uniform = scenes::frame_with(POSE, scene.effects().expect("the scene effects"));
     let context = GpuContext::shared_for_test().expect("actual GPU required");
     let configuration = Frame::Reflecting.configuration(SceneOpaquePath::GBUFFER_OBSERVATION);
-    let mut drawn = prepare_scene(&context, &scene, &uniform, configuration);
+    let mut drawn = prepare_with(&context, &scene, &uniform, configuration);
     render(&context, &mut drawn, 1)?;
     let scene_from_view = Mat3::from_mat4(uniform.view).transpose();
     Ok((gbuffer(&context, &drawn.renderer), scene_from_view))
@@ -81,5 +81,45 @@ fn a_frame_without_reused_depth_renders_and_stores_nothing() {
         covered(&targets[3]).count(),
         0,
         "the relief frame stored texels"
+    );
+}
+
+/// Each object stores its material's lighting record and terrain stores record 0: the folded
+/// quad's material transmits light, so its record is the scene's only non-neutral one, index 1,
+/// which G1.a holds as 1 / 255.
+#[test]
+fn objects_store_their_lighting_record_and_terrain_the_neutral_one() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let folded = crate::draw::tests::fold_translucency::folded_scene(500);
+    let mut materials = folded.resources().materials().to_vec();
+    materials[0] = materials[0]
+        .with_translucency(333_337)
+        .expect("the fixture translucency validates");
+    let scene = folded
+        .with_resources(
+            worldrunner_render_plan::SceneResources::new(
+                folded.resources().textures().to_vec(),
+                materials,
+            )
+            .expect("the fixture resources validate"),
+            folded.geometry().clone(),
+            folded.effects().cloned(),
+        )
+        .expect("the translucent fixture validates");
+    let (targets, _) = observe(&scene).expect("the translucent frame renders");
+    let (mut objects, mut ground) = (0, 0);
+    for (pixel, code) in covered(&targets[3]) {
+        let record = targets[1][pixel * 4 + 3];
+        if angle_degrees(reference::g3_normal(code), Vec3::Z) <= 3.0 {
+            objects += 1;
+            assert_eq!(record, 1, "{pixel}: the quad's record");
+        } else {
+            ground += 1;
+            assert_eq!(record, 0, "{pixel}: terrain's record");
+        }
+    }
+    assert!(
+        objects >= 4 && ground >= 4,
+        "{objects} quad and {ground} terrain texels"
     );
 }

@@ -48,6 +48,59 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     return textureSample(albedo, albedo_sampler, in.uv + vec2<f32>(0.5, 0.0)) * material.tint;
 }";
 
+/// `TINT`'s vertex stage and a fragment stage with three colour outputs: the material's `_Tint`
+/// at location 0, its red and green swapped at 1, and its red in the blue channel at 2. A red
+/// tint gives red, green and blue.
+pub const THREE_OUTPUTS: &str = "
+struct Material { tint: vec4<f32> }
+struct Draw { place: vec4<f32> }
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+struct Outputs {
+    @location(0) first: vec4<f32>,
+    @location(1) second: vec4<f32>,
+    @location(2) third: vec4<f32>,
+}
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position.xy * draw.place.xy + draw.place.zw, position.z, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> Outputs {
+    var out: Outputs;
+    out.first = material.tint;
+    out.second = vec4<f32>(material.tint.g, material.tint.r, material.tint.b, material.tint.a);
+    out.third = vec4<f32>(0.0, 0.0, material.tint.r, material.tint.a);
+    return out;
+}";
+
+/// `TINT`'s vertex stage and a fragment stage that reads two textures, `_First` and `_Second`,
+/// at the fragment's own texture coordinate and combines them: red of the first, green of both
+/// added, blue of the second and the product of their alphas, all times the material's `_Tint`.
+pub const COMBINE: &str = "
+struct Material { tint: vec4<f32> }
+struct Draw { place: vec4<f32> }
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+@group(0) @binding(2) var first: texture_2d<f32>;
+@group(0) @binding(3) var first_sampler: sampler;
+@group(0) @binding(4) var second: texture_2d<f32>;
+@group(0) @binding(5) var second_sampler: sampler;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position.xy * draw.place.xy + draw.place.zw, position.z, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    let a = textureSample(first, first_sampler, in.uv);
+    let b = textureSample(second, second_sampler, in.uv);
+    return vec4<f32>(a.r, a.g + b.g, b.b, a.a * b.a) * material.tint;
+}";
+
 /// A camera pass that places its vertices by the draw's object-to-world and view-projection
 /// matrices, and whose fragment stage reads three material vectors and a texture.
 pub const MATRICES: &str = "
@@ -275,6 +328,28 @@ pub fn albedo_parameters() -> VariantParameters {
     parameters
 }
 
+/// `tint_parameters` and the two textures of [`COMBINE`], `_First` and `_Second`, each with its
+/// own sampler.
+pub fn combine_parameters() -> VariantParameters {
+    let mut parameters = tint_parameters();
+    for (name, texture, sampler) in [("_First", 2, 3), ("_Second", 4, 5)] {
+        parameters.bindings.push(binding(
+            name,
+            slot(0, texture, FRAGMENT),
+            ResourceKind::Texture {
+                sampler: Some(slot(0, sampler, FRAGMENT)),
+                dimension: 4,
+            },
+        ));
+        parameters.bindings.push(binding(
+            "",
+            slot(0, sampler, FRAGMENT),
+            ResourceKind::Sampler { state: 0 },
+        ));
+    }
+    parameters
+}
+
 /// The blit pass's constants and its source texture, which the blit binds under `main`.
 pub fn blit_parameters(main: &str) -> VariantParameters {
     VariantParameters {
@@ -431,6 +506,17 @@ pub fn camera_pass_reading(wgsl: &str, channels: &[[i8; 2]]) -> SyntheticShader 
     ))
 }
 
+/// One pass tagged `Alpha` of `wgsl` with the constants and textures of `parameters`.
+fn camera_pass_reading_with(wgsl: &str, parameters: VariantParameters) -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![variant(&[], wgsl, "fs_main", parameters)],
+        }],
+    ))
+}
+
 /// `TINT` with a third vertex input of type `ty` at location 2, which the fragment stage turns
 /// into its result with `combine`, an expression over `material.tint` and `in.extra`. The input
 /// is passed on flat, so a type of integers needs no interpolation.
@@ -460,6 +546,17 @@ struct VOut {{
 }}
 @fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {{ return {combine}; }}"
     )
+}
+
+/// One pass tagged `Alpha` whose fragment stage writes the three colour outputs of
+/// [`THREE_OUTPUTS`].
+pub fn camera_pass_three_outputs() -> SyntheticShader {
+    camera_pass_reading(THREE_OUTPUTS, &POSITION_AND_UV)
+}
+
+/// One pass tagged `Alpha` that combines the textures `_First` and `_Second` as [`COMBINE`] says.
+pub fn camera_pass_combining() -> SyntheticShader {
+    camera_pass_reading_with(COMBINE, combine_parameters())
 }
 
 /// One pass tagged `Alpha` that tints, and one tagged `Gamma` that samples the albedo texture.

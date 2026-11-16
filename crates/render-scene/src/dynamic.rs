@@ -22,6 +22,7 @@
 //! }
 //! ```
 
+pub(crate) mod distance;
 mod gpu;
 mod sampling;
 mod unlit;
@@ -55,6 +56,8 @@ pub struct DynamicQuad {
     /// Overlay-only linear straight-alpha corner multipliers in BL/BR/TR/TL order.
     /// None is white. Triangles use the first three colours; all channels are 0..=1.
     pub corner_colors: Option<[[f32; 4]; 4]>,
+    /// Retained-overlay signed-distance sampling and effect parameters.
+    pub distance_field: Option<worldrunner_render_plan::ui::UiDistanceStyle>,
     /// Index into the dynamic texture table; None uses opaque white.
     pub texture: Option<usize>,
     /// Ascending painter layer.
@@ -81,6 +84,7 @@ impl Default for DynamicQuad {
             uv_rect: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
             corner_colors: None,
+            distance_field: None,
             texture: None,
             sorting_layer: 0,
             sorting_order: 0,

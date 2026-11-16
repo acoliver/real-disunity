@@ -247,7 +247,7 @@ const SUPPORTED_FORMATS: [TextureFormat; 6] = [
 ];
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request())
+    pollster::block_on(GpuContext::request_for_test())
         .expect("GPU acceptance requires a real adapter with BC support")
 }
 

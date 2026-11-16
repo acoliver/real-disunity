@@ -1,4 +1,4 @@
-use super::placement::BatchBounds;
+use super::placement;
 use super::tests::{level, mesh, scene, transform};
 use super::*;
 use worldrunner_render_plan::*;
@@ -16,10 +16,14 @@ fn instances(materials: &[Material]) -> Instances {
     instances.wind_extents.clear();
     instances.curved_wind.clear();
     instances.impostor_extents.clear();
+    // Bounds read no fade, but the batch's level inputs read one per material.
+    let fade = instances.fades[0];
+    instances.fades.clear();
     for material in materials {
         instances.wind_extents.push(material.wind);
         instances.curved_wind.push(material.curved);
         instances.impostor_extents.push(material.impostor);
+        instances.fades.push(fade);
     }
     instances
 }
@@ -66,10 +70,15 @@ fn assert_matches_reference(mesh: &SceneMesh, materials: &[Material]) {
         let handle = instances.add(placed, true).unwrap();
         let (&key, batch) = instances.batches.iter().next().unwrap();
         let (slot, _, _) = batch.placements().next().unwrap();
-        let mut cached = BatchBounds::new(&selection, &instances, key.2, batch);
+        placement::refresh(&selection, &instances, key.2, batch);
+        let cached = batch.bounds.borrow();
         for stretch in [1.37, 0.0, 1.0, 1.37] {
             assert_eq!(
-                bits(cached.placement(slot, &placed, stretch)),
+                bits(placement::placement(
+                    cached.boxes(slot),
+                    cached.reliefs(),
+                    stretch
+                )),
                 bits(selection.placement_bounds(&instances, &placement, 0, stretch)),
                 "stretch {stretch}"
             );

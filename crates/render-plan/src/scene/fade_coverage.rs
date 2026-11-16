@@ -1,4 +1,7 @@
-use super::{SceneTexture, SceneValidationError, TexelFormat, TextureColorSpace, TextureHandle};
+use super::{
+    SceneTexture, SceneTextureDescriptor, SceneValidationError, TexelFormat, TextureColorSpace,
+    TextureHandle,
+};
 
 /// Screen-space coverage for object and impostor distance fades.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,7 +37,7 @@ impl SceneFadeCoverage {
                 limit: textures.len() as u64,
             });
         };
-        if threshold_texels(value).is_none() {
+        if !admits_threshold(value) {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "fade threshold requires square linear single-mip R8 texels",
             });
@@ -48,15 +51,40 @@ pub fn threshold_texels(texture: &SceneTexture) -> Option<(u32, &[u8])> {
     match texture {
         SceneTexture::Sampled { texture, .. } => threshold_texels(texture),
         SceneTexture::Texels {
-            format: TexelFormat::R8Unorm,
-            color_space: TextureColorSpace::Linear,
+            format,
+            color_space,
             width,
             height,
-            mips: 1,
+            mips,
             bytes,
-        } if width == height => Some((*width, bytes)),
+        } if threshold_layout(*format, *color_space, *width, *height, *mips) => {
+            Some((*width, bytes))
+        }
         _ => None,
     }
+}
+
+/// The layout a fade threshold grid must have.
+fn threshold_layout(
+    format: TexelFormat,
+    color_space: TextureColorSpace,
+    width: u32,
+    height: u32,
+    mips: u32,
+) -> bool {
+    format == TexelFormat::R8Unorm
+        && color_space == TextureColorSpace::Linear
+        && width == height
+        && mips == 1
+}
+
+/// Whether the texture can serve as a threshold grid, with its texels held or released.
+fn admits_threshold(texture: &SceneTexture) -> bool {
+    matches!(
+        texture.domain_descriptor(),
+        Some(SceneTextureDescriptor::Texels(grid))
+            if threshold_layout(grid.format, grid.color_space, grid.width, grid.height, grid.mips)
+    )
 }
 
 /// Which side of the shared pixel threshold a distance fade accepts.

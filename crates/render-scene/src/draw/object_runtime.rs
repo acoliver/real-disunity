@@ -16,7 +16,7 @@ use worldrunner_render_program::runtime::{
 };
 
 use super::lod_material::{BoundState, Draw, DrawSink};
-use super::{SceneGpu, SelectionPublication};
+use super::{DrawnObjects, SceneGpu, SelectionPublication};
 use crate::object::layout::{GeometryLayout, vertex_layout};
 use crate::object::prepared::PreparedObjects;
 use crate::object::program::Context;
@@ -252,11 +252,11 @@ impl SceneGpu {
         pass: &mut P,
         frame_group: &wgpu::BindGroup,
         context: &Context,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
     }
 
     /// Records the objects that `cascade` selects into its shadow map, with the caster programs of
@@ -271,8 +271,9 @@ impl SceneGpu {
         let shadow = Some(cascade);
         let view = self.begin_objects(pass, frame_group, shadow);
         let mut sink = PreparedSink::new(pass, &self.objects, context);
-        let count = self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
-        self.end_objects(view, shadow, count)
+        let objects =
+            self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
+        self.end_objects(view, shadow, objects).selection
     }
 
     /// The group the object draws bind at set 0, for tests that record the objects into pass
@@ -305,11 +306,11 @@ impl SceneGpu {
         frame_group: &wgpu::BindGroup,
         context: &Context,
         mask: usize,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context).with_mask(mask);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
     }
 
     /// Prepares the pipelines of the pairs of pipeline key and material that the scene's batches

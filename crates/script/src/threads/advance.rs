@@ -34,6 +34,23 @@ impl GameScripts {
         self.with_clock(name, |clock| clock.now = ms)
     }
 
+    /// Whether the clock called `name` is paused. A paused clock does not move in an
+    /// advance, and its threads do not run. Clocks start unpaused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock,
+    /// as [`Self::set_clock_paused`] does.
+    pub fn clock_paused(&self, name: &str) -> Result<bool, ScriptError> {
+        let scheduler = self.scheduler().lock().expect("scheduler");
+        let index = scheduler
+            .clock_index(name)
+            .ok_or_else(|| ScriptError::Sandbox {
+                message: format!("no clock named {name}"),
+            })?;
+        Ok(scheduler.clocks[index].paused)
+    }
+
     /// A paused clock does not move in an advance, and its threads do not run.
     pub fn set_clock_paused(&self, name: &str, paused: bool) -> Result<(), ScriptError> {
         self.with_clock(name, |clock| clock.paused = paused)

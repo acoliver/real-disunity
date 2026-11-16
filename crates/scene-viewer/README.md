@@ -469,6 +469,10 @@ Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
 Classes map directly from wgpu's device type: `Integrated`, `Discrete`, `Virtual`,
 `Software` (CPU adapters), or `Other`. No classification is inferred from a name.
 The backend reports the selected graphics API independently of hardware class.
+`memory` is the adapter's `AdapterMemory` where the platform publishes it: on Linux,
+DRM drivers with `mem_info_*` files in sysfs (amdgpu) give device-local, host-visible
+and GTT totals. It is `None` elsewhere and for software adapters, so a host that
+chooses settings from it must handle the unknown case.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
 The callback runs once per renderer startup, on the calling thread, before device

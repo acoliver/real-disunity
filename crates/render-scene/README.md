@@ -963,15 +963,17 @@ retained settings publication, including removal and consumer changes.
 
 ## Public moving-view timing probe
 
-Run the informational unshadowed Forward versus `GBUFFER_RENDER` probe serially.
+Run the informational unshadowed Forward versus `GBUFFER_RENDER` comparison
+serially. The external integration target links the normal renderer dependency,
+without the renderer's `cfg(test)` pass tracing or cached-plan consistency checks.
 On the shared Linux host, use its resource limiter and software Vulkan adapter:
 
 ```sh
 CARGO_INCREMENTAL=0 \
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
   heavy --mem 6G -- nice -n 10 env -u RUSTUP_TOOLCHAIN \
-  cargo test --locked --release -p worldrunner-render-scene --lib \
-  -- --exact shadows::tests::render_path::moving_timing::public_moving_view_timing_probe \
+  cargo test --locked --release -p worldrunner-render-scene --test public_moving_view \
+  -- --exact public_moving_view_renderer_timing_probe \
   --ignored --nocapture --test-threads=1
 ```
 
@@ -982,10 +984,17 @@ Omit the host-specific wrappers where they are unavailable. The pinned Rust
 toolchain applies. Software-adapter timings describe the CPU rasterizer.
 
 Record the Cargo profile with each result. Unoptimized runs check the fixture;
-CPU cost comparisons use `--release`. Both profiles are libtest builds with
-fresh-plan consistency checks, pass observations and optional query instrumentation.
-These checks remain active on a cached plan in release libtest. Results describe
-this instrumented synthetic fixture. Game-frame costs require a game measurement.
+CPU cost comparisons use `--release`. Optional timestamp instrumentation remains
+inside the measured encode/submit interval. Results describe this synthetic
+fixture with serialized submissions. Game-frame costs require a game measurement.
+
+The unit-test probe also records private pass observations and checks fresh-plan
+consistency, including on a cached plan in release libtest. Run it with the same
+wrappers, replacing `--test public_moving_view` with `--lib` and the exact test name
+with `shadows::tests::render_path::moving_timing::public_moving_view_timing_probe`.
+Its host timings include those additional checks. The external target validates
+public draw statistics and fixed expected timing identities; it cannot observe
+the private pass trace.
 
 The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
 257×241. For view index `i` in `0..150`, the eye is
@@ -996,24 +1005,26 @@ source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve bo
 calls to public `compositor::encode_scene`, with alternating path order. No shadows,
 SDSM, image readback or speed threshold is involved.
 
-CPU encode/submit ends at submission. Serialized completion ends after waiting
-for that submission. Both include optional query instrumentation. Timestamp
-resolution, evidence checks and printing follow both intervals. Completion is
-wall time, including host work and the wait, without overlapped presentation.
+CPU encode/submit ends when submission returns. Serialized completion ends after
+waiting for that submission. Both include optional query instrumentation.
+Timestamp resolution, draw checks and printing follow both intervals. Completion
+is wall time, including host work and the wait, without overlapped presentation.
 Optional timestamp support is reported separately from coverage, and unsupported
 devices still produce CPU results. Warm-up records are drained. Every sampled
-frame retains submitted draw counters and observed passes, including Render's
-single prepass, single lighting pass and empty opaque object draws.
+frame retains its view/path/frame association and submitted draw counters. Render
+requires one mesh, impostor and terrain draw through its prepass, with empty opaque
+object draws.
 
 GPU per-pass and pass-sum summaries require all 120 frame records, their matching
 view/path IDs, the full expected pass identities and multiplicities, available
-pairs, and zero dropped/unavailable counters. The installed screen schedule and
-fixed fixture output contract determine expected passes independently of timing
-records. Missing records or passes withhold all GPU summaries; a missing entire
-record on a supported device fails explicitly. Genuine zero intervals remain valid.
-Full `PassId` values are printed. Pass sums exclude gaps and untimed work, so they
-are not whole-frame GPU envelopes. The nonignored `moving_timing` tests cover these
-contracts with CPU data and short synthetic GPU runs; the probe is informational.
+pairs, and zero dropped/unavailable counters. The external fixture contract fixes
+the expected prepass, ten depth-pyramid levels, SSAO and blur, opaque pass, tone
+stage and Render's lighting pass independently of received timing records.
+Missing records or invalid passes on a supported device fail explicitly. Genuine
+zero intervals remain valid. Full `PassId` values are printed. Pass sums exclude
+gaps and untimed work, so they are not whole-frame GPU envelopes. Nonignored CPU
+checks and short GPU runs cover the measurement contracts; the full probe is
+informational.
 
 ## Deferred G-buffer
 

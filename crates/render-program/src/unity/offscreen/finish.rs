@@ -151,7 +151,7 @@ impl Finish<'_> {
             stencil.reference = 0;
         }
         let layouts = vertex_layouts(&draw.vertices.inputs);
-        let colors = colors_of(draw.signature, &state)?;
+        let colors = draw_colors(draw.signature, &state, &draw.plan.entry.color_outputs)?;
         let request = PipelineRequest {
             program,
             state: &state,
@@ -160,6 +160,7 @@ impl Finish<'_> {
             colors: &colors,
             topology: draw.topology,
         };
+        request.check_color_outputs()?;
         let key = request.key();
         let checked = self.pipeline_draw(&request, key, draw, bindings)?;
         Ok(match reference {
@@ -240,6 +241,7 @@ impl Finish<'_> {
             colors: &colors,
             topology: wgpu::PrimitiveTopology::TriangleList,
         };
+        request.check_color_outputs()?;
         let modules = self.runtime.program_modules(program)?;
         Ok(with_pipeline_descriptor(
             &request,
@@ -349,4 +351,35 @@ fn colors_of(
         return Ok(Vec::new());
     }
     Ok(state.check_targets(1, signature.samples())?)
+}
+
+/// The colour state of each colour attachment of a draw whose fragment stage writes the colour
+/// locations `outputs`: the pass's state for an attachment the stage writes, and an empty write
+/// mask for one it does not. wgpu builds a pipeline whose written target has no fragment output at
+/// its location and the attachment then gets undefined values, while an empty mask leaves it as it
+/// was, which is what Unity does with a render target a shader has no output for. An output with
+/// no attachment is dropped by wgpu. `PipelineRequest::check_color_outputs` holds the result to
+/// that rule. The state may name stencil, which the pipeline checks against the pass.
+fn draw_colors(
+    signature: TargetSignature,
+    state: &RenderState,
+    outputs: &[u32],
+) -> Result<Vec<ColorState>, OffscreenError> {
+    let Some(written) = colors_of(signature, state)?.first().copied() else {
+        return Ok(Vec::new());
+    };
+    let unwritten = ColorState {
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    };
+    Ok((0..)
+        .zip(signature.colors())
+        .map(|(location, _)| {
+            if outputs.contains(&location) {
+                written
+            } else {
+                unwritten
+            }
+        })
+        .collect())
 }

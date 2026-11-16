@@ -16,10 +16,7 @@ const NEAR: TextureId = TextureId(11);
 
 fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
-    Attachments {
-        color: attachment,
-        depth: attachment,
-    }
+    Attachments::single(attachment, attachment)
 }
 
 fn clear_to(color: [f64; 4]) -> Clear {
@@ -168,13 +165,10 @@ fn a_list_draws_into_the_mip_it_names_and_leaves_the_others() {
         texture: TARGET,
         mip: 1,
     };
-    let target = Attachments {
-        color: Some(level_one),
-        depth: None,
-    };
+    let target = Attachments::single(Some(level_one), None);
     frame.records = vec![
         Record::Clear {
-            target,
+            target: target.clone(),
             clear: clear_to([1.0, 1.0, 0.0, 1.0]),
         },
         list(target, vec![item(1, None)]),
@@ -210,16 +204,16 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
     for id in [RendererId(1), RendererId(2)] {
         frame.renderers.get_mut(&id).unwrap().per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
     }
-    let target = Attachments {
-        color: Some(Attachment {
+    let target = Attachments::single(
+        Some(Attachment {
             texture: TARGET,
             mip: 0,
         }),
-        depth: Some(Attachment {
+        Some(Attachment {
             texture: NEAR,
             mip: 0,
         }),
-    };
+    );
     let depth_clear = Clear {
         color: None,
         depth: Some(1.0),
@@ -228,7 +222,7 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
     // The far red quad is drawn after the near blue one and stays hidden behind it.
     frame.records = vec![
         Record::Clear {
-            target,
+            target: target.clone(),
             clear: depth_clear,
         },
         list(target, vec![item(2, None), item(1, None)]),

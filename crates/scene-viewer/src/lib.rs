@@ -319,9 +319,9 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 }
 
 pub use retained::{
-    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
-    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
-    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
+    PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
+    ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
     TerrainStreamingStatistics,
 };

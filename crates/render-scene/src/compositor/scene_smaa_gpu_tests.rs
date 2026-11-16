@@ -82,7 +82,7 @@ impl<'a> Rig<'a> {
 #[test]
 fn scene_smaa_ultra_schedules_three_timed_stages() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request_with_features(
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
         wgpu::Features::TIMESTAMP_QUERY,
     ))
     .unwrap();

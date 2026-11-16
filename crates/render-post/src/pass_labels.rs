@@ -78,6 +78,7 @@ fn geometry_label(slot: PassSlot) -> EncoderLabel {
         PassSlot::OpaqueGbuffer => Static("Geometry(OpaqueGbuffer)"),
         PassSlot::OpaqueLighting => Static("Geometry(OpaqueLighting)"),
         PassSlot::Opaque => Static("Geometry(Opaque)"),
+        PassSlot::ContourIds => Static("Geometry(ContourIds)"),
         PassSlot::AfterOpaqueSnapshot => Static("Geometry(AfterOpaqueSnapshot)"),
         PassSlot::AfterOpaqueDepth => Static("Geometry(AfterOpaqueDepth)"),
         PassSlot::TransparentWater => Static("Geometry(TransparentWater)"),

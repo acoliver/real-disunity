@@ -303,9 +303,9 @@ impl Renderer {
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        mut capture: Option<&mut live::Capture>,
+        capture: Option<&mut live::Capture>,
         output: &wgpu::TextureView,
-        mut retained: Option<&mut capture::Products>,
+        retained: Option<&mut capture::Products>,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         if (capture.is_some() || retained.is_some())
             && let Resident::Shadowed(scene) = &mut self.resident
@@ -340,25 +340,12 @@ impl Renderer {
                     )?;
                 }
                 self.presentation.present(encoder, output)?;
-                if let Some(capture) = &mut capture {
-                    capture.encode(encoder, self.presentation.targets.color.texture())?;
+                capture::Encoding {
+                    device: self.context.device(),
+                    resident: &self.resident,
+                    presentation: &self.presentation,
                 }
-                if let Some(retained) = &mut retained {
-                    if !fitted {
-                        retained.replay(
-                            self.context.device(),
-                            encoder,
-                            &self.resident,
-                            &self.presentation.scheduler,
-                        );
-                    }
-                    retained.encode(
-                        encoder,
-                        output.texture(),
-                        self.presentation.scheduler.targets().texture(),
-                    )?;
-                }
-                Ok::<_, ViewerError>(())
+                .encode(encoder, output, capture, retained, fitted)
             })
             .map_err(|error| ViewerError::Gpu(error.to_string()))
     }

@@ -293,6 +293,13 @@ impl ShadowedScene {
         Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
     }
 
+    fn start_frame_timing(&mut self, source_frame: u64) -> Result<(), ShadowError> {
+        self.scheduler
+            .begin_timing(source_frame)
+            .map_err(worldrunner_render_post::FrameError::from)?;
+        Ok(())
+    }
+
     fn render_capture(
         &mut self,
         input: &RenderInput<'_>,
@@ -317,9 +324,7 @@ impl ShadowedScene {
                 },
                 fitting.ticket(input.source_frame),
                 |encoder, _, _| {
-                    self.scheduler
-                        .begin_timing(input.source_frame)
-                        .map_err(worldrunner_render_post::FrameError::from)?;
+                    self.start_frame_timing(input.source_frame)?;
                     self.scheduler.encode_depth_prefix(
                         context.device(),
                         encoder,
@@ -342,9 +347,7 @@ impl ShadowedScene {
                     encoder,
                     (fit, state.settings.range),
                 )?;
-                for term in input.terms {
-                    self.encode_term_capture(context.device(), encoder, term);
-                }
+                self.encode_term_captures(context.device(), encoder, input.terms)?;
                 adopted = Some(fit);
                 Ok::<_, ShadowError>(())
             })
@@ -384,9 +387,7 @@ impl ShadowedScene {
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                self.scheduler
-                    .begin_timing(input.source_frame)
-                    .map_err(worldrunner_render_post::FrameError::from)?;
+                self.start_frame_timing(input.source_frame)?;
                 self.scheduler.encode_depth_prefix(
                     context.device(),
                     encoder,
@@ -408,9 +409,7 @@ impl ShadowedScene {
                     encoder,
                     (None, current.map(|fit| (fit.depth, state.settings.range))),
                 )?;
-                for term in input.terms {
-                    self.encode_term_capture(context.device(), encoder, term);
-                }
+                self.encode_term_captures(context.device(), encoder, input.terms)?;
                 Ok::<_, ShadowError>(())
             })
             .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;

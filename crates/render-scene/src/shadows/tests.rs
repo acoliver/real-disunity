@@ -1,6 +1,9 @@
 mod bias;
 mod cascades;
 mod caster_route;
+mod census_capture;
+mod census_capture_errors;
+mod census_tests;
 mod compaction;
 mod culling;
 mod deferred;

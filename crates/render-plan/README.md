@@ -275,7 +275,7 @@ to captures, while the visible frame stays forward. Every other
 `SceneOpaquePath::Experiment` tuple returns
 `SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
 The target layout and the shared WGSL interface are described in the
-[render-scene README](../render-scene/README.md#deferred-g-buffer-observation).
+[render-scene README](../render-scene/README.md#deferred-g-buffer).
 The CPU admission census is a separate explicit query on
 `RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
 

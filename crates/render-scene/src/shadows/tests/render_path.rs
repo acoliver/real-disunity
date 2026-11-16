@@ -6,9 +6,16 @@
 use super::deferred::{Captured, ssao};
 use super::*;
 
+/// The settings every path in this file draws with. The fused Render path admits only the Front
+/// receiver reservation, which needs no normal bias, and Forward must draw with the same settings
+/// to be compared with it. Without a normal bias the shared depth bias of 0.001 left self-shadow
+/// acne on about 6,500 of Forward's stored pixels, which the water test then took for water; from
+/// 0.0015 on, Forward matches the normal-biased reference except along shadow edges, so 0.002
+/// keeps a margin.
 fn front_settings() -> DirectionalShadowSettings {
     DirectionalShadowSettings {
         normal_bias_meters: 0.0,
+        depth_bias: 0.002,
         ..settings()
     }
 }

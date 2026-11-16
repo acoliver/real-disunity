@@ -19,6 +19,8 @@ pub(crate) struct DrawnObjects {
 pub(crate) struct ColorDraw {
     pub drawn: DrawnObjects,
     pub terrain: super::DrawCount,
+    /// Whether the terrain's pipeline was bound, so that terrain received what the pass binds.
+    pub terrain_bound: bool,
     pub sky: super::DrawCount,
     pub shadows: super::ReceiverBindings,
     pub ssao: super::ReceiverBindings,
@@ -30,9 +32,33 @@ pub(crate) struct DrawPublications {
     selections: RefCell<Vec<SelectionPublication>>,
     effects: Cell<super::EffectStatistics>,
     geometry: Cell<Option<super::TerrainGeometryStatistics>>,
+    /// The G-buffer slot's draw when the frame renders from the G-buffer, published with the
+    /// sky count once Opaque has drawn the rest.
+    gbuffer: RefCell<Option<ColorDraw>>,
 }
 
 impl DrawPublications {
+    /// Holds the G-buffer slot's draw of a frame that renders from the G-buffer. Its surfaces
+    /// receive the lighting pass's shadows (`shadows`) and screen AO (`ao`), as the colour
+    /// pass's surfaces receive its own.
+    pub fn record_gbuffer(&self, mut draw: ColorDraw, shadows: bool, ao: bool) {
+        draw.shadows = super::ReceiverBindings::new(shadows, draw.terrain_bound && shadows);
+        draw.ssao = super::ReceiverBindings::new(ao, draw.terrain_bound && ao);
+        *self.gbuffer.borrow_mut() = Some(draw);
+    }
+
+    /// Publishes the held G-buffer draw as the frame's colour draw, with the sky count of
+    /// Opaque's remaining forward draws.
+    pub fn record_remainder(&self, scene: &super::SceneGpu, sky: super::DrawCount) {
+        let mut draw = self
+            .gbuffer
+            .borrow_mut()
+            .take()
+            .expect("the G-buffer slot draws before Opaque");
+        draw.sky = sky;
+        self.record_color(scene, draw);
+    }
+
     pub fn record_color(&self, scene: &super::SceneGpu, draw: ColorDraw) {
         self.geometry
             .set(scene.drawing_geometry_statistics(draw.terrain));

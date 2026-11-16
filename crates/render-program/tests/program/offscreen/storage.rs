@@ -236,3 +236,51 @@ fn storage_promotion_fits_the_exact_color_and_depth_replacement_budget() {
     assert_eq!(rig.state.texture_handle(TARGET), Some(made));
     assert_eq!(rig.runtime.live_bytes(), 160);
 }
+
+#[test]
+fn generation_only_edits_reuse_storage_before_and_after_storage_promotion() {
+    let mut rig = Rig::with_budget(288);
+    let mut frame = frame_of(8);
+    frame.render_textures[0].depth_bits = 32;
+    rig.build(&frame).unwrap();
+    let original = rig.state.texture_handle(TARGET).unwrap();
+    frame.render_textures[0].generation += 1;
+    assert_eq!(
+        rig.state
+            .new_render_texture_bytes(&rig.runtime, &frame.render_textures),
+        0,
+        "generation alone requires no replacement before promotion"
+    );
+    rig.build(&frame).unwrap();
+    assert_eq!(rig.state.texture_handle(TARGET), Some(original));
+    assert_eq!(rig.runtime.live_bytes(), 160);
+
+    rig.state.bind_as_storage([TARGET]);
+    frame.render_textures[0].generation += 1;
+    assert_eq!(
+        rig.state
+            .new_render_texture_bytes(&rig.runtime, &frame.render_textures),
+        128,
+        "promotion replaces both attachments despite a generation edit"
+    );
+    rig.build(&frame).unwrap();
+    let promoted = rig.state.texture_handle(TARGET).unwrap();
+    assert_ne!(promoted, original);
+    assert_eq!(
+        rig.state.texture_storage(TARGET).map(|info| info.1),
+        Some(true)
+    );
+    rig.runtime.collect();
+    assert_eq!(rig.runtime.live_bytes(), 160);
+
+    frame.render_textures[0].generation += 1;
+    assert_eq!(
+        rig.state
+            .new_render_texture_bytes(&rig.runtime, &frame.render_textures),
+        0,
+        "generation alone requires no replacement after promotion"
+    );
+    rig.build(&frame).unwrap();
+    assert_eq!(rig.state.texture_handle(TARGET), Some(promoted));
+    assert_eq!(rig.runtime.live_bytes(), 160);
+}

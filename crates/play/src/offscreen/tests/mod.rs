@@ -15,6 +15,7 @@ mod flush;
 mod frame;
 mod global_arrays;
 mod gpu;
+mod keep;
 mod kernels;
 mod lists;
 mod lists_gpu;

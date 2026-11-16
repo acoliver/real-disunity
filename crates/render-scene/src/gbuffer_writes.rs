@@ -117,21 +117,94 @@ fn card_material(stock: &str) -> String {
     card
 }
 
-/// The (object, terrain) G-buffer sources over the stock sources.
-pub(crate) fn sources() -> (String, String) {
+/// The (object, terrain) G-buffer sources over the stock sources; with `velocity`, entries that
+/// also write the object-motion residual at `@location(4)`.
+pub(crate) fn sources(velocity: bool) -> (String, String) {
+    if velocity {
+        return (
+            object_velocity_source(&object_source(&crate::velocity::vertex_source(
+                crate::shader::ENVIRONMENT_WGSL,
+            ))),
+            terrain_velocity_source(&terrain_source(crate::shader::TERRAIN_WGSL)),
+        );
+    }
     (
         object_source(crate::shader::ENVIRONMENT_WGSL),
         terrain_source(crate::shader::TERRAIN_WGSL),
     )
 }
 
+/// The G-buffer targets followed by the residual, the velocity layout of a frame that renders
+/// from the G-buffer: the producers draw the surfaces Opaque no longer draws, so they write the
+/// residual the forward entries would have. Its name is the velocity marker, which gives the
+/// pipelines the fifth target and the previous-transform vertex buffer.
+const VELOCITY_OUTPUTS: &str = "
+struct SceneVelocityOutput { @location(0) g0: vec4<f32>, @location(1) g1: vec4<f32>, @location(2) g2: vec4<f32>, @location(3) g3: u32, @location(4) velocity: vec2<f32>, }
+struct SceneVelocityReliefOutput { @location(0) g0: vec4<f32>, @location(1) g1: vec4<f32>, @location(2) g2: vec4<f32>, @location(3) g3: u32, @builtin(frag_depth) depth: f32, @location(4) velocity: vec2<f32>, }
+";
+
+/// Replaces `from` by `to`, which must match exactly once.
+fn replace_once(source: &str, from: &str, to: &str) -> String {
+    assert_eq!(
+        source.matches(from).count(),
+        1,
+        "G-buffer velocity anchor {from:?}"
+    );
+    source.replace(from, to)
+}
+
+/// `source`, an object G-buffer source over the velocity vertex stage, with entries that add the
+/// residual of [`crate::velocity`] to the stored targets.
+fn object_velocity_source(source: &str) -> String {
+    let mut source = source.to_owned();
+    for (entry, output) in [
+        ("fs_opaque", "SceneGbufferTargets"),
+        ("fs_masked", "SceneGbufferTargets"),
+        ("fs_relief_opaque", "SceneGbufferReliefTargets"),
+        ("fs_relief_masked", "SceneGbufferReliefTargets"),
+    ] {
+        source = replace_once(
+            &source,
+            &format!(
+                "@fragment\nfn {entry}(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> {output} {{"
+            ),
+            &format!("fn stored_{entry}(input: VertexOutput, front_facing: bool) -> {output} {{"),
+        );
+    }
+    format!(
+        "{source}\n{VELOCITY_OUTPUTS}{}
+@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneVelocityOutput {{ let t = stored_fs_opaque(input, front); return SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, scene_object_velocity(input)); }}
+@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneVelocityOutput {{ let t = stored_fs_masked(input, front); return SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, scene_object_velocity(input)); }}
+@fragment fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneVelocityReliefOutput {{ let t = stored_fs_relief_opaque(input, front); return SceneVelocityReliefOutput(t.g0, t.g1, t.g2, t.g3, t.depth, scene_object_velocity(input)); }}
+@fragment fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneVelocityReliefOutput {{ let t = stored_fs_relief_masked(input, front); return SceneVelocityReliefOutput(t.g0, t.g1, t.g2, t.g3, t.depth, scene_object_velocity(input)); }}
+",
+        crate::velocity::OBJECT_RESIDUAL
+    )
+}
+
+/// `source`, the terrain G-buffer source, writing a zero residual: terrain is static.
+fn terrain_velocity_source(source: &str) -> String {
+    let source = replace_once(
+        source,
+        "@fragment\nfn fs_terrain(input: TerrainVertexOutput) -> SceneGbufferTargets {",
+        "fn stored_terrain(input: TerrainVertexOutput) -> SceneGbufferTargets {",
+    );
+    format!(
+        "{source}\n{VELOCITY_OUTPUTS}
+@fragment fn fs_terrain(input: TerrainVertexOutput) -> SceneVelocityOutput {{ let t = stored_terrain(input); return SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, vec2<f32>(0.0)); }}
+"
+    )
+}
+
 /// The scene's G-buffer pipelines and their screen camera group over `camera`, the screen camera
-/// uniform of the frame's prepass metadata.
+/// uniform of the frame's prepass metadata; with `velocity`, pipelines that also write the
+/// object-motion residual.
 pub(crate) fn pipelines(
     device: &wgpu::Device,
     camera: &wgpu::Buffer,
+    velocity: bool,
 ) -> (ScenePipelines, wgpu::BindGroup) {
-    crate::scene_metadata::pipelines_from_sources(device, camera, &sources())
+    crate::scene_metadata::pipelines_from_sources(device, camera, &sources(velocity))
 }
 
 #[cfg(test)]

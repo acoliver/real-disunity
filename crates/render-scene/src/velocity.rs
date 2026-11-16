@@ -88,7 +88,7 @@ struct SceneVelocityOutput { @location(0) colour: vec4<f32>, @location(1) veloci
 struct SceneVelocityReliefOutput { @location(0) colour: vec4<f32>, @builtin(frag_depth) depth: f32, @location(1) velocity: vec2<f32>, }
 ";
 
-const OBJECT_RESIDUAL: &str = "
+pub(crate) const OBJECT_RESIDUAL: &str = "
 fn scene_object_velocity(input: VertexOutput) -> vec2<f32> {
     let current = previous_frame.view_projection * vec4<f32>(input.world_position, 1.0);
     let before = previous_frame.view_projection * vec4<f32>(input.world_position + input.ao_delta.yzw, 1.0);

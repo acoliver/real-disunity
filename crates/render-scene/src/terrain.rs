@@ -319,6 +319,8 @@ mod capture_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
+pub(crate) mod deferred_tests;
+#[cfg(test)]
 mod family_tests;
 #[cfg(test)]
 mod gbuffer_tests;

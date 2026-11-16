@@ -297,6 +297,9 @@ impl StockSceneFeature<'_> {
     /// Takes the admitted offscreen work retained during preparation, at most once.
     /// Keep it alive and pass its `FrameOperations` reference as the head of
     /// [`FrameRenderer::encode_frame_with`]; it is not included in [`Self::plan`].
+    /// Retaining or taking this work does not encode it. A `None` head still records the
+    /// stock draws without refreshing their offscreen inputs. Forward any returned work
+    /// on the preparation encoder before the stock passes, or abandon the frame.
     #[must_use]
     pub fn take_offscreen_operations(
         &mut self,

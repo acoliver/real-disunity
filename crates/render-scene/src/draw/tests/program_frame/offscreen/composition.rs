@@ -1,5 +1,7 @@
 //! Public stock composition forwards offscreen work to the frame's executor before both draws.
 
+mod omission;
+
 use super::super::rig::{self, BLACK, Fixture, GREEN, Image, RED};
 use super::{BLUE, CYAN, YELLOW, admit_scene_draw, build, check_offscreen_stages, player, timed};
 use crate::compositor::prepare_stock_scene;

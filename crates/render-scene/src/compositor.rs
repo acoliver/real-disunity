@@ -535,6 +535,8 @@ impl FrameRenderer {
     }
     /// Camera-aware composition for stock and external features, including
     /// declaration-requested snapshots. The optional binding supplies shared shadows.
+    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
+    /// take it and forward it through [`Self::encode_frame_with`] instead.
     pub fn encode_frame(
         &mut self,
         device: &wgpu::Device,
@@ -547,6 +549,8 @@ impl FrameRenderer {
     }
     /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
     /// by the executor immediately before the first pass of the ordered frame.
+    /// A `None` head supplies no work; it does not discover operations retained by borrowed
+    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
     ///
     /// # Errors
     /// The validation and preparation errors of [`Self::encode_frame`], or an error returned

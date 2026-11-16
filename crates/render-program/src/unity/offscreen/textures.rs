@@ -154,16 +154,27 @@ impl TextureTable {
     ) -> Result<(), OffscreenError> {
         self.release_waiting(runtime);
         for spec in specs {
-            let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
-            let held = self.textures.get_mut(&spec.id);
-            if let Some(info) = held.filter(|t| t.holds(spec) && t.storage == storage) {
-                info.spec = Some(spec.clone());
-            } else {
+            if let Some(storage) = self.replacement_storage(runtime, spec) {
                 let info = create_render_texture(runtime, spec, storage)?;
                 self.replace(runtime, spec.id, info);
+            } else if let Some(info) = self.textures.get_mut(&spec.id) {
+                info.spec = Some(spec.clone());
             }
         }
         Ok(())
+    }
+
+    fn replacement_storage(
+        &self,
+        runtime: &ProgramRuntime,
+        spec: &RenderTextureSpec,
+    ) -> Option<bool> {
+        let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
+        let reusable = self
+            .textures
+            .get(&spec.id)
+            .is_some_and(|info| info.holds(spec) && info.storage == storage);
+        (!reusable).then_some(storage)
     }
 
     /// Gives back the storage of every render texture that `live` does not name, as one that its
@@ -237,9 +248,10 @@ impl TextureTable {
         Some(row * u64::from(info.size[1]))
     }
 
-    /// The bytes the render textures of `specs` would add: those the table has not made or made
-    /// with other storage (see [`RenderTextureSpec::same_storage`]). The storage a replaced
-    /// texture held is given back later and is not subtracted.
+    /// The bytes the render textures of `specs` would add: those the table has not made or must
+    /// replace for different storage or storage-binding capability. Storage shape is compared
+    /// with [`RenderTextureSpec::same_storage`]. Replaced storage is given back later and is
+    /// not subtracted.
     pub(super) fn new_render_bytes(
         &self,
         runtime: &ProgramRuntime,
@@ -247,7 +259,7 @@ impl TextureTable {
     ) -> u64 {
         specs
             .iter()
-            .filter(|spec| !self.textures.get(&spec.id).is_some_and(|t| t.holds(spec)))
+            .filter(|spec| self.replacement_storage(runtime, spec).is_some())
             .map(|spec| render_bytes(spec, runtime.device()))
             .sum()
     }

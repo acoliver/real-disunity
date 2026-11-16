@@ -164,12 +164,15 @@ fn assert_red_output(frame: &Frame, readback: &wgpu::Buffer) {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |status| {
-            mapped.send(status).unwrap()
+            mapped.send(status).unwrap();
         });
     frame.settle();
     result.recv().unwrap().unwrap();
     let bytes = readback.slice(..).get_mapped_range().unwrap();
-    assert_eq!(red_pixel(&bytes), [1.0, 0.0, 0.0]);
+    assert_eq!(
+        red_pixel(&bytes).map(f32::to_bits),
+        [1.0_f32, 0.0, 0.0].map(f32::to_bits)
+    );
 }
 
 fn retained_operation(device: &wgpu::Device) -> (ClearRetained, AttachmentView) {

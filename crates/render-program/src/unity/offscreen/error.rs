@@ -96,6 +96,14 @@ pub enum OffscreenError {
     BlitNeedsMaterial { reason: String },
     #[error("a blit with a material needs the frame to name a blit mesh")]
     NoBlitMesh,
+    #[error(
+        "shader {shader:?} pass {pass} reads {inputs} vertex inputs, but a procedural draw has no mesh to feed them"
+    )]
+    ProceduralVertexInputs {
+        shader: ShaderId,
+        pass: usize,
+        inputs: usize,
+    },
     #[error("the copy from {from:?} to {to:?} cannot be made: {reason}")]
     CopyMismatch {
         from: TextureId,
@@ -128,6 +136,22 @@ pub enum OffscreenError {
     ConstantsOverBudget { needed: u64, budget: u64 },
     #[error("texture {0:?} cannot be sampled and rendered into in one operation")]
     FeedbackLoop(TextureId),
+    #[error("a pass names {count} color attachments and this renderer draws into one to eight")]
+    ColorTargets { count: usize },
+    #[error(
+        "color attachment {texture:?} is {size:?} at its mip and the first color attachment, \
+         {first:?}, is {first_size:?}, and the colors of a pass have one size"
+    )]
+    ColorTargetsDiffer {
+        first: TextureId,
+        first_size: [u32; 2],
+        texture: TextureId,
+        size: [u32; 2],
+    },
+    #[error("texture {texture:?} mip {mip} is more than one color attachment of one pass")]
+    ColorTargetRepeated { texture: TextureId, mip: u32 },
+    #[error("texture {0:?} has no color storage, so it cannot be one of several color attachments")]
+    ColorTargetWithoutColor(TextureId),
 }
 
 impl OffscreenError {

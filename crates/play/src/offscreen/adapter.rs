@@ -53,6 +53,8 @@ pub struct OffscreenAdapter {
     textures: BTreeMap<u64, Stored>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
+    /// The default textures to register: all of them, unless a test holds some back.
+    wanted_defaults: BTreeSet<DefaultTexture>,
     blit_mesh: bool,
     /// Whether a block-compressed texture goes up as its blocks when the device samples them.
     block_sources: bool,
@@ -97,6 +99,7 @@ impl OffscreenAdapter {
             sub_meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
+            wanted_defaults: DefaultTexture::ALL.into_iter().collect(),
             blit_mesh: false,
             block_sources: true,
             variants_made: false,
@@ -110,6 +113,14 @@ impl OffscreenAdapter {
     #[must_use]
     pub fn with_block_sources(mut self, blocks: bool) -> Self {
         self.block_sources = blocks;
+        self
+    }
+
+    /// Registers only `defaults` of the default textures, to test a host that has not got the
+    /// others.
+    #[cfg(test)]
+    pub(super) fn with_default_textures(mut self, defaults: &[DefaultTexture]) -> Self {
+        self.wanted_defaults = defaults.iter().copied().collect();
         self
     }
 
@@ -267,7 +278,7 @@ impl OffscreenAdapter {
         runtime: &mut ProgramRuntime,
         notes: &mut Report,
     ) {
-        for texture in DefaultTexture::ALL {
+        for texture in self.wanted_defaults.clone() {
             if self.defaults.contains(&texture) {
                 continue;
             }

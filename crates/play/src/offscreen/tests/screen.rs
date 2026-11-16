@@ -70,6 +70,7 @@ fn set_up(world: &mut World, camera: ComponentHandle, target: TargetRef) {
             view: Mat4::IDENTITY.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target,
+            buffers: None,
         },
     );
 }
@@ -81,7 +82,7 @@ fn bound(adapted: &Adapted) -> Vec<Attachments> {
         .records
         .iter()
         .filter_map(|record| match record {
-            Record::Clear { target, .. } => Some(*target),
+            Record::Clear { target, .. } => Some(target.clone()),
             _ => None,
         })
         .collect()
@@ -93,7 +94,7 @@ fn whole(texture: worldrunner_render_program::ids::TextureId) -> Attachment {
 
 fn screen_bound() -> Attachments {
     Attachments {
-        color: Some(whole(ids::screen_color())),
+        colors: vec![whole(ids::screen_color())],
         depth: Some(whole(ids::screen_color())),
     }
 }
@@ -148,12 +149,12 @@ fn the_camera_target_of_a_camera_with_a_texture_is_still_that_texture() {
     record(&mut world, bind(&[TargetRef::CameraTarget], None));
     record(&mut world, clear_all());
     let adapted = run(&mut world, Some(SIZE));
-    let attachment = Some(whole(ids::render_texture(texture)));
+    let attachment = whole(ids::render_texture(texture));
     assert_eq!(
         bound(&adapted),
         [Attachments {
-            color: attachment,
-            depth: attachment
+            colors: vec![attachment],
+            depth: Some(attachment)
         }]
     );
     assert!(
@@ -199,7 +200,7 @@ fn a_depth_only_binding_of_the_camera_target_binds_the_screens_own_depth() {
     assert_eq!(
         bound(&adapted),
         [Attachments {
-            color: None,
+            colors: Vec::new(),
             depth: screen
         }]
     );

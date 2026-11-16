@@ -9,6 +9,35 @@ fn trace(records: usize, error: Option<&str>) -> WorkTrace {
         ..WorkTrace::default()
     }
 }
+fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
+    entries
+        .iter()
+        .map(|(name, count)| ((*name).to_owned(), *count))
+        .collect()
+}
+
+#[test]
+fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
+    let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
+    assert_eq!(
+        top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
+        Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
+    );
+}
+
+#[test]
+fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
+    let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
+    assert_eq!(
+        top_counts_line("t", &counts, 2).as_deref(),
+        Some("t: _A 4, _B 3, and 2 more")
+    );
+}
+
+#[test]
+fn there_is_no_missing_texture_line_without_missing_textures() {
+    assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
+}
 
 fn listing(names: &[&str]) -> Report {
     let mut report = Report::default();

@@ -1,5 +1,5 @@
 //! Submitted pass draws, terrain page readiness and authored resource payload sizes.
-use super::{SceneGpu, visibility::SelectedRange};
+use super::SceneGpu;
 
 /// Instances count each indexed draw, including material slots and LOD complements.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,8 +36,8 @@ pub struct ResourceStatistics {
     pub uploaded_bytes: u64,
 }
 
-/// Mesh and impostor fields cover main-camera geometry only. `passes` covers
-/// the additional owning passes. Decals shade receivers inline and issue no draws.
+/// `passes` holds the draws each owning pass recorded, including the main camera's
+/// object passes. Decals shade receivers inline and issue no draws.
 /// Texture bytes cover the authored texture table; mesh bytes cover vertex,
 /// index and transition buffers, excluding instances and internal resources.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -45,10 +45,8 @@ pub struct SceneStatistics {
     pub passes: super::PassDrawStatistics,
     pub effects: super::EffectStatistics,
     pub terrain_pages: TerrainPageStatistics,
-    /// None before an owning terrain draw, or in a submitted frame without terrain.
+    /// None before an owning composition, or without streaming terrain or a static terrain draw.
     pub terrain_geometry: Option<super::TerrainGeometryStatistics>,
-    pub meshes: DrawCount,
-    pub impostors: DrawCount,
     pub textures: ResourceStatistics,
     pub mesh_buffers: ResourceStatistics,
     /// Selected visible volumes after priority selection and the shader's 32-volume cap.
@@ -123,12 +121,9 @@ impl SceneGpu {
         self.resource_counters.reservation = Some(reservation);
     }
 
-    /// Reads submitted mesh draws and prepared decal counts without polling or allocation.
+    /// Reads submitted pass draws and prepared decal counts without polling or allocation.
     pub fn statistics(&self) -> SceneStatistics {
-        let selection = self.views[super::selection_reuse::CAMERA]
-            .published
-            .borrow();
-        let mut stats = SceneStatistics {
+        SceneStatistics {
             passes: self.pass_counters.snapshot(),
             effects: self.effect_statistics.get(),
             terrain_geometry: self.pass_counters.geometry.get(),
@@ -151,18 +146,7 @@ impl SceneGpu {
                 }),
             decals_visible: self.decal_counts.get()[0],
             decals_total: self.decal_counts.get()[1],
-            ..SceneStatistics::default()
-        };
-        for range in &selection.ranges {
-            self.count_lod(range, range.lod, &mut stats);
-            if self.meshes[range.key.1].lods[range.lod]
-                .transition
-                .is_some()
-            {
-                self.count_lod(range, range.lod - 1, &mut stats);
-            }
         }
-        stats
     }
 
     /// Acknowledges authored resource uploads. Repeated reads never consume draw counts.
@@ -172,28 +156,6 @@ impl SceneGpu {
         self.resource_counters.fresh_textures = 0;
         self.resource_counters.fresh_meshes = 0;
         stats
-    }
-
-    fn count_lod(&self, range: &SelectedRange, level: usize, stats: &mut SceneStatistics) {
-        let (_, mesh, material) = range.key;
-        let instances = u64::from(range.slots.end - range.slots.start);
-        if let Some(slots) = &self.mesh_selection[mesh].material_slots[level] {
-            for slot in slots {
-                self.count_material(slot.material().raw() as usize, instances, stats);
-            }
-        } else {
-            self.count_material(material, instances, stats);
-        }
-    }
-
-    fn count_material(&self, material: usize, instances: u64, stats: &mut SceneStatistics) {
-        let count = if self.resource_counters.impostors[material] {
-            &mut stats.impostors
-        } else {
-            &mut stats.meshes
-        };
-        count.calls += 1;
-        count.instances += instances;
     }
 }
 fn resource(bytes: u64, uploaded: bool, fresh: u64) -> ResourceStatistics {

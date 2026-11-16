@@ -32,7 +32,9 @@ use super::{
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
     pub(super) shader: ShaderId,
-    pub(super) mesh: MeshId,
+    /// The mesh the draw reads, or `None` for a procedural draw, whose shader makes its vertices.
+    pub(super) mesh: Option<MeshId>,
+    pub(super) topology: wgpu::PrimitiveTopology,
     pub(super) plan: DrawPlan,
     pub(super) vertices: VertexPlan,
     pub(super) geometry: DrawGeometry,
@@ -122,12 +124,15 @@ pub(super) fn plan_steps(
             )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
             Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, *target, clear)? {
+                match list_steps::clear_step(svc, index, target.clone(), clear)? {
                     Some(step) => step,
                     None => continue,
                 }
             }
             Record::Draws(list) => list_steps::list_step(svc, frame, index, globals, list)?,
+            Record::Procedural(draw) => {
+                super::procedural::procedural_step(svc, frame, index, globals, draw)?
+            }
         };
         steps.push(step);
     }
@@ -224,8 +229,18 @@ fn pass_report(
     let mut states = std::collections::BTreeMap::<String, usize>::new();
     for draw in draws {
         let state = &draw.plan.state;
+        let stencil = state.stencil.as_ref().map_or_else(String::new, |stencil| {
+            format!(
+                ", stencil reference {} read mask {} write mask {} front {:?} back {:?}",
+                stencil.reference,
+                stencil.ops.read_mask,
+                stencil.ops.write_mask,
+                stencil.ops.front,
+                stencil.ops.back
+            )
+        });
         let words = format!(
-            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}{stencil}",
             state.cull,
             state.depth_compare,
             state.depth_write,
@@ -288,7 +303,8 @@ fn program_probes(
         let Some(facts) = &draw.plan.facts else {
             continue;
         };
-        let Ok(mesh) = svc.meshes.get(draw.mesh) else {
+        // The probe reads a mesh's CPU positions and indices; a procedural draw has none.
+        let Some(Ok(mesh)) = draw.mesh.map(|mesh| svc.meshes.get(mesh)) else {
             continue;
         };
         let positions = MeshPositions {
@@ -414,14 +430,26 @@ pub(super) fn planned_draw(
     if planned.is_err() {
         svc.constants.rollback(constants_mark);
     }
+    counted(svc, &spec, planned)
+}
+
+/// The draw `planned` made, or `None` when it was left out for a cause the report counts: no
+/// pass the selector picks, a texture no layer names or a mesh channel the pass reads. Other
+/// errors fail the frame.
+pub(super) fn counted(
+    svc: &mut Services<'_>,
+    spec: &DrawSpec<'_>,
+    planned: Result<CameraDraw, OffscreenError>,
+) -> Result<Option<CameraDraw>, OffscreenError> {
     match planned {
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
+            svc.counts.note_undeclared(&draw.plan.undeclared);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
-            left_out(svc, spec.shader, look.selector);
+            left_out(svc, spec.shader, &spec.selector);
             Ok(None)
         }
         Err(OffscreenError::MissingTexture { name }) => {
@@ -507,7 +535,7 @@ fn visible_draws(
         .collect())
 }
 
-fn keywords<'a>(material: &'a Material, globals: Globals<'a>) -> Vec<&'a str> {
+pub(super) fn keywords<'a>(material: &'a Material, globals: Globals<'a>) -> Vec<&'a str> {
     material
         .keywords
         .iter()
@@ -552,7 +580,8 @@ pub(super) fn camera_draw(
     };
     Ok(CameraDraw {
         shader: spec.shader,
-        mesh,
+        mesh: Some(mesh),
+        topology: wgpu::PrimitiveTopology::TriangleList,
         plan,
         vertices,
         geometry,
@@ -589,16 +618,7 @@ fn camera_pass(
         color: camera.clear_color,
         depth: camera.clear_depth.then_some(DEPTH_CLEAR),
     };
-    list_steps::attachments_pass(
-        svc,
-        id,
-        Attachments {
-            color: whole,
-            depth: whole,
-        },
-        &loads,
-        draws,
-    )
+    list_steps::attachments_pass(svc, id, &Attachments::single(whole, whole), &loads, draws)
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {
@@ -711,6 +731,7 @@ fn blit_step(
     let plan = svc.plan_program(&spec)?;
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
+    svc.counts.note_undeclared(&plan.undeclared);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

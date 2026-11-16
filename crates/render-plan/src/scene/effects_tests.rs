@@ -1,5 +1,52 @@
 use super::*;
 use crate::scene::direction::SceneDirection;
+use crate::scene::opaque::{
+    SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage, SceneOpaqueVisibility,
+};
+
+#[test]
+fn opaque_path_defaults_to_forward_and_admits_only_the_gbuffer_observation() {
+    let effects = SceneEffects::new(parts()).unwrap();
+    assert_eq!(effects.opaque_path(), SceneOpaquePath::Forward);
+    assert_eq!(
+        effects
+            .clone()
+            .with_opaque_path(SceneOpaquePath::Forward)
+            .unwrap(),
+        effects
+    );
+    assert_eq!(effects.clone(), effects);
+    for mode in [SceneOpaqueMode::Observe, SceneOpaqueMode::Render] {
+        for family in [
+            SceneOpaqueFamily::Terrain,
+            SceneOpaqueFamily::Meshes,
+            SceneOpaqueFamily::AllStock,
+        ] {
+            for storage in [SceneOpaqueStorage::Wide, SceneOpaqueStorage::Compact] {
+                for visibility in [
+                    SceneOpaqueVisibility::MaterialOwnedDepth,
+                    SceneOpaqueVisibility::CoveragePrefix,
+                ] {
+                    let path = SceneOpaquePath::experiment(mode, family, storage, visibility);
+                    let admitted = (mode, family, storage, visibility)
+                        == (
+                            SceneOpaqueMode::Observe,
+                            SceneOpaqueFamily::Terrain,
+                            SceneOpaqueStorage::Compact,
+                            SceneOpaqueVisibility::MaterialOwnedDepth,
+                        );
+                    let selected = effects.clone().with_opaque_path(path);
+                    if admitted {
+                        assert_eq!(path, SceneOpaquePath::GBUFFER_OBSERVATION);
+                        assert_eq!(selected.map(|effects| effects.opaque_path()), Ok(path));
+                    } else {
+                        assert_eq!(selected, Err(SceneValidationError::UnsupportedOpaquePath));
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn shadow_override_preserves_direct_sun_and_can_be_cleared() {

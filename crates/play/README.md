@@ -112,11 +112,13 @@ objects continue to draw; missing text coverage remains an error. The renderer's
 explicit-texture overlay API still rejects unresolved identities.
 Ordinary 2D scene quads and world-space UI remain outside this retained path.
 
-The window opens at a fixed default view and moves to the game's camera on the first frame
-that shows mesh objects and presents a perspective camera; from then on the mouse navigation
-moves it. While frames with objects present no camera, or one the viewer cannot draw (an
-orthographic one, for example), the window keeps its view and tries again on the next such
-frame, and the driver names each reason once on stderr.
+The window opens at a fixed default view, which mouse navigation can move. On the first frame
+that shows mesh objects and presents a perspective camera it shows the game camera, and from
+then on it follows that camera: a frame whose camera pose or lens changed sends it to the
+viewer, and the game moves the view, as in its own player. While frames with objects present
+no camera, or one the viewer cannot draw (an orthographic one, for example), the window keeps
+its view and tries again on the next such frame, and the driver names each reason once on
+stderr.
 
 ### Lighting the retained scene
 
@@ -158,7 +160,8 @@ irradiance limit, the fixed shadow settings, when a frame sends new effects, whi
 policy a camera's `renderShadows` publishes and, through sequences of frames, the pose it is
 published at, from the window's opening pose, and that a camera the viewer refuses is sent
 again. `camera_start` unit tests pin when the window starts at a game camera that appears late or
-after a refused one, and that each reason it waits is reported once.
+after a refused one, that it follows the camera as it moves and sends an unchanged one once,
+and that each reason it waits is reported once.
 `scene_tables::tests::lit` starts the viewer as `play_player_window` does and checks on a GPU
 adapter that a shadow-casting sun draws into the shadow cascades, that no sun, or a sun
 without shadows, draws none, and that a camera with `renderShadows` off stops the started

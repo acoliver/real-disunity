@@ -1,5 +1,5 @@
 use super::residents::insert;
-use crate::terrain::streaming::{TerrainChunk, select_with_retired};
+use crate::terrain::streaming::{TerrainChunk, TerrainHeightBounds, select_with_retired};
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::*;
 
@@ -41,6 +41,7 @@ struct Settled {
 
 fn settle(delay: usize, append_input: bool) -> Settled {
     let terrain = terrain();
+    let bounds = TerrainHeightBounds::new(&terrain);
     let policy = terrain.streaming_policy().unwrap();
     let mut residents = vec![(TerrainChunk::root(&terrain, policy), ())];
     let mut history = vec![residents[0].0];
@@ -54,8 +55,15 @@ fn settle(delay: usize, append_input: bool) -> Settled {
             residents.iter().map(|(key, ())| *key).collect()
         };
         let retained = retired.iter().map(|&(_, count)| count).sum();
-        let selection =
-            select_with_retired(&terrain, &current, matrix(), [128; 2], retained, &|_| true);
+        let selection = select_with_retired(
+            &terrain,
+            &bounds,
+            &current,
+            matrix(),
+            [128; 2],
+            retained,
+            &|_| true,
+        );
         assert!(current.len() + retained + selection.uploads.len() <= 41);
         let removed = current
             .iter()
@@ -75,6 +83,7 @@ fn settle(delay: usize, append_input: bool) -> Settled {
             let chunks: Vec<_> = residents.into_iter().map(|(key, ())| key).collect();
             return Settled {
                 statistics: crate::draw::geometry_statistics::measure(
+                    &chunks,
                     &chunks,
                     selection.observation,
                 ),
@@ -125,16 +134,18 @@ fn orthographic_matrix() -> Mat4 {
 #[test]
 fn equal_error_admission_is_independent_of_resident_permutation() {
     let terrain = constrained_terrain();
+    let bounds = TerrainHeightBounds::new(&terrain);
     let root = TerrainChunk::root(&terrain, terrain.streaming_policy().unwrap());
     let mut current = root.children().unwrap();
     let matrix = orthographic_matrix();
     let errors: Vec<_> = current
         .iter()
-        .map(|node| crate::terrain::streaming::error(&terrain, *node, matrix, [128; 2]))
+        .map(|node| crate::terrain::streaming::error(&terrain, &bounds, *node, matrix, [128; 2]))
         .collect();
     assert_eq!(errors, vec![16.0; 4]);
     for expected_count in [7, 10] {
-        let expected = select_with_retired(&terrain, &current, matrix, [128; 2], 0, &|_| true);
+        let expected =
+            select_with_retired(&terrain, &bounds, &current, matrix, [128; 2], 0, &|_| true);
         assert_eq!(expected.leaves.len(), expected_count);
         assert_eq!(expected.uploads.len(), 4);
         for _ in 0..current.len() {
@@ -145,7 +156,9 @@ fn equal_error_admission_is_independent_of_resident_permutation() {
                     permuted.reverse();
                 }
                 let actual =
-                    select_with_retired(&terrain, &permuted, matrix, [128; 2], 0, &|_| true);
+                    select_with_retired(&terrain, &bounds, &permuted, matrix, [128; 2], 0, &|_| {
+                        true
+                    });
                 assert_eq!(actual.uploads, expected.uploads, "upload admission differs");
                 assert_eq!(actual.leaves, expected.leaves, "ordered leaves differ");
                 assert_eq!(actual.observation, expected.observation);
@@ -157,6 +170,7 @@ fn equal_error_admission_is_independent_of_resident_permutation() {
 
 fn eight_step_schedule(sorted: bool) -> Vec<(Vec<TerrainChunk>, Vec<TerrainChunk>)> {
     let terrain = constrained_terrain();
+    let bounds = TerrainHeightBounds::new(&terrain);
     let mut current = vec![TerrainChunk::root(
         &terrain,
         terrain.streaming_policy().unwrap(),
@@ -165,6 +179,7 @@ fn eight_step_schedule(sorted: bool) -> Vec<(Vec<TerrainChunk>, Vec<TerrainChunk
     for _ in 0..8 {
         let selection = select_with_retired(
             &terrain,
+            &bounds,
             &current,
             orthographic_matrix(),
             [128; 2],

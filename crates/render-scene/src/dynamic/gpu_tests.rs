@@ -142,3 +142,97 @@ fn only_overlay_entries_consume_corner_colour_location() {
         assert_eq!(crate::geometry::VERTEX_STRIDE, 56);
     }
 }
+
+const SIZE: [u32; 2] = [32, 16];
+
+#[test]
+fn no_clip_scissors_to_the_whole_target() {
+    assert_eq!(scissor_rect(None, SIZE), Some([0, 0, 32, 16]));
+    assert_eq!(
+        scissor_rect(Some([0, 0, 32, 16]), SIZE),
+        Some([0, 0, 32, 16])
+    );
+}
+
+#[test]
+fn a_lower_left_clip_becomes_a_rectangle_measured_from_the_top() {
+    // A rectangle on the bottom edge sits at the target's last rows.
+    assert_eq!(
+        scissor_rect(Some([2, 0, 10, 4]), SIZE),
+        Some([2, 12, 10, 4])
+    );
+    assert_eq!(scissor_rect(Some([6, 3, 8, 5]), SIZE), Some([6, 8, 8, 5]));
+}
+
+#[test]
+fn a_clip_past_the_target_is_cut_to_it() {
+    assert_eq!(
+        scissor_rect(Some([8, 4, 100, 100]), SIZE),
+        Some([8, 0, 24, 12])
+    );
+}
+
+#[test]
+fn a_clip_with_nothing_of_the_target_in_it_has_no_rectangle() {
+    for clip in [
+        [40, 0, 8, 8],
+        [32, 4, 4, 4],
+        [0, 16, 4, 4],
+        [4, 4, 0, 4],
+        [4, 4, 4, 0],
+    ] {
+        assert_eq!(scissor_rect(Some(clip), SIZE), None, "{clip:?}");
+    }
+}
+
+#[test]
+fn distance_mode_radius_spread_and_colour_split_adjacent_groups() {
+    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    let plain = DynamicQuad {
+        overlay: true,
+        ..DynamicQuad::default()
+    };
+    let style = UiDistanceStyle {
+        spread_px: 8.,
+        radius_px: 2.,
+        mode: UiDistanceMode::Outline,
+        effect_color: [1.; 4],
+    };
+    let a = DynamicQuad {
+        distance_field: Some(style),
+        ..plain
+    };
+    assert!(!compatible(&plain, &a));
+    assert!(compatible(&a, &a));
+    for style in [
+        UiDistanceStyle {
+            mode: UiDistanceMode::Glow,
+            ..style
+        },
+        UiDistanceStyle {
+            radius_px: 3.,
+            ..style
+        },
+        UiDistanceStyle {
+            spread_px: 9.,
+            ..style
+        },
+        UiDistanceStyle {
+            effect_color: [0.5; 4],
+            ..style
+        },
+    ] {
+        let b = DynamicQuad {
+            distance_field: Some(style),
+            ..a
+        };
+        assert!(!compatible(&a, &b));
+        assert_eq!(
+            [plain, a, b, plain]
+                .chunk_by(compatible)
+                .map(<[DynamicQuad]>::len)
+                .collect::<Vec<_>>(),
+            [1, 1, 1, 1]
+        );
+    }
+}

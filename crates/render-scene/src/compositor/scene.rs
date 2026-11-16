@@ -32,7 +32,7 @@ impl PreparedFeature for SceneFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Absent,
@@ -58,13 +58,19 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
+            if context.slot == PassSlot::OpaqueGbuffer {
+                if let Some((pipelines, group)) = &screen.gbuffer {
+                    self.gpu.draw_gbuffer(pass, pipelines, group);
+                }
+                return;
+            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.prepass_pipelines(),
-                    &screen.group,
-                ));
+                self.publications.record_prepass(
+                    self.gpu,
+                    self.gpu
+                        .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+                );
                 return;
             }
             if let Some((pipelines, group)) = &screen.forward {
@@ -87,22 +93,27 @@ impl PreparedFeature for SceneFeature<'_> {
     }
 }
 
-/// Prepares the terrain pipelines of the passes the scene feature draws terrain in: the
+/// Prepares the terrain and object pipelines of the passes the scene feature draws them in: the
 /// prepass when the frame has screen-space passes, and the colour pass with the forward
-/// pipelines when those are installed. The objects' pipelines are prepared for the colour pass
-/// only: the prepass draws them with the fixed pipelines. Preparing is done before the passes
-/// open, where a refusal is still an error.
+/// pipelines when those are installed. The celestial bodies' pipelines are prepared too. Preparing is done before the passes open, where a
+/// refusal is still an error.
 fn prepare_terrain(
     gpu: &crate::draw::SceneGpu,
     frame: &crate::frame::FrameUniform,
     pipelines: &crate::renderer::ScenePipelines,
     screen: Option<&crate::scene_metadata::Geometry>,
 ) -> Result<(), FrameError> {
+    gpu.prepare_celestial(frame)?;
     let Some(screen) = screen else {
         gpu.prepare_terrain(pipelines, frame)?;
         return gpu.prepare_objects(pipelines, frame);
     };
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
+    gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+    if let Some((gbuffer, _)) = &screen.gbuffer {
+        gpu.prepare_terrain(gbuffer, frame)?;
+        gpu.prepare_objects(gbuffer, frame)?;
+    }
     let colour = screen
         .forward
         .as_ref()
@@ -185,6 +196,7 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if let Some(screen) = &renderer.ssao {
         crate::ssao::passes::geometry_declaration(&mut declaration, screen);
+        crate::gbuffer::declare_producer(&mut declaration, screen, depth_mode);
     }
     let mut views = vec![
         color.with_resource(color_id)?,

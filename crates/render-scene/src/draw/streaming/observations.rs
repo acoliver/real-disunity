@@ -14,6 +14,7 @@ impl Streaming {
         self.residency.observe(current.iter().copied(), false);
         let observation = crate::terrain::streaming::observe(
             self.scene.terrain().expect("terrain"),
+            &self.height_bounds,
             &current,
             frame.selection_view_projection(),
             viewport,
@@ -29,7 +30,11 @@ impl Streaming {
         });
     }
 
-    pub(in crate::draw) fn drawing_statistics(&self) -> TerrainStreamingStatistics {
+    pub(in crate::draw) fn drawing_statistics(
+        &self,
+        matrix: glam::Mat4,
+        submitted: bool,
+    ) -> TerrainStreamingStatistics {
         let drawing = self.drawing.borrow();
         let prepared = drawing
             .as_ref()
@@ -43,7 +48,20 @@ impl Streaming {
         } else {
             &*committed
         };
-        let drawn: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
-        crate::draw::geometry_statistics::measure(&drawn, prepared.observation)
+        let keys: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
+        let drawn: Vec<_> = if submitted {
+            super::culling::visible(
+                self.scene.terrain().expect("terrain"),
+                &self.height_bounds,
+                matrix,
+                residents,
+            )
+            .into_iter()
+            .map(|(key, _)| *key)
+            .collect()
+        } else {
+            Vec::new()
+        };
+        crate::draw::geometry_statistics::measure(&keys, &drawn, prepared.observation)
     }
 }

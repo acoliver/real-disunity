@@ -1,11 +1,11 @@
 //! Records the forward objects through the program runtime.
 //!
-//! The walk over a view's selection is the fixed path's ([`DrawSink`]); only how a draw reaches
-//! the pass differs. A change of pipeline or material binds the prepared pipeline of the pair
-//! (the pipeline and the material's set), and every draw is one [`GeometryDraw`] over the
-//! buffers the walk named. The pass records the commands the fixed path recorded: a buffer is
-//! set when the walk names it, a pipeline when it differs from the one set, and the material's
-//! group when the material changes.
+//! The walk over a view's selection is shared with the test-only fixed sink and key sink
+//! ([`DrawSink`]); only how a draw reaches the pass differs. A change of pipeline or material
+//! binds the prepared pipeline of the pair (the pipeline and the material's set), and every draw
+//! is one [`GeometryDraw`] over the buffers the walk named. The pass records a buffer when the
+//! walk names it, a pipeline when it differs from the one set, and the material's group when the
+//! material changes.
 
 use std::rc::Rc;
 
@@ -16,9 +16,10 @@ use worldrunner_render_program::runtime::{
 };
 
 use super::lod_material::{BoundState, Draw, DrawSink};
-use super::{SceneGpu, SelectionPublication};
+use super::{DrawnObjects, SceneGpu, SelectionPublication};
+use crate::object::layout::{GeometryLayout, vertex_layout};
 use crate::object::prepared::PreparedObjects;
-use crate::object::program::{Context, vertex_layout};
+use crate::object::program::Context;
 
 /// The buffers the walk has named since the last draw, which the next draw must set.
 #[derive(Clone, Copy, Default)]
@@ -26,6 +27,13 @@ struct Named {
     instances: bool,
     vertices: bool,
     indices: bool,
+}
+
+/// The buffers of the instances the walk named: placements, previous placements and skin stream.
+struct Instances {
+    current: Buffer,
+    previous: Option<Buffer>,
+    skin: Option<Buffer>,
 }
 
 /// A pass that leaves out the commands a recording already issued.
@@ -92,10 +100,10 @@ pub(super) struct PreparedSink<'a, P: ?Sized> {
     pass: Elided<'a, P>,
     objects: &'a PreparedObjects,
     context: &'a Context,
-    layout: VertexLayoutSpec,
+    layouts: [VertexLayoutSpec; 2],
     state: BoundState,
     current: Option<Rc<PreparedPipeline>>,
-    instances: Option<(Buffer, Option<Buffer>)>,
+    instances: Option<Instances>,
     vertices: Option<Buffer>,
     indices: Option<Buffer>,
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`, as the capture tests do for
@@ -114,7 +122,12 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
             },
             objects,
             context,
-            layout: vertex_layout(context.previous_transforms()),
+            layouts: [GeometryLayout::Static, GeometryLayout::Skinned].map(|geometry| {
+                vertex_layout(
+                    context.previous_transforms() && !geometry.is_skinned(),
+                    geometry,
+                )
+            }),
             state: BoundState::default(),
             current: None,
             instances: None,
@@ -134,8 +147,12 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
 }
 
 impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
-    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>) {
-        self.instances = Some((current.clone(), previous.cloned()));
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>) {
+        self.instances = Some(Instances {
+            current: current.clone(),
+            previous: previous.cloned(),
+            skin: skin.cloned(),
+        });
         self.pass.named.instances = true;
     }
 
@@ -153,30 +170,42 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
         let index = draw.pipeline;
         #[cfg(test)]
         let index = index ^ self.mask;
-        let (set_pipeline, set_material) = self.state.bind(index, draw.material);
+        let (set_pipeline, set_material) = self.state.bind(index, draw.geometry, draw.material);
         if set_pipeline || set_material {
             let pipeline = self
                 .objects
-                .pipeline(self.context, index, draw.material)
+                .pipeline(self.context, (index, draw.material), draw.geometry)
                 .expect("the object program prepares against the layouts of its context");
             pipeline.bind(&mut self.pass);
             self.current = Some(pipeline);
         }
         let pipeline = self.current.as_ref().expect("a draw binds its pipeline");
-        let (current, previous) = self.instances.as_ref().expect("a draw names its instances");
+        let instances = self.instances.as_ref().expect("a draw names its instances");
         let mut buffers = vec![
             self.vertices.clone().expect("a draw names its vertices"),
-            current.clone(),
+            instances.current.clone(),
         ];
-        if self.context.previous_transforms() {
+        if draw.geometry.is_skinned() {
             buffers.push(
-                previous
+                instances
+                    .skin
+                    .clone()
+                    .expect("a skinned level has a skin stream"),
+            );
+            // A compacted view names its instances once for groups of both layouts, and a
+            // static group before this one never set the skin slot.
+            self.pass.named.instances = true;
+        } else if self.context.previous_transforms() {
+            buffers.push(
+                instances
+                    .previous
                     .clone()
                     .expect("a pass that writes velocity tracks previous transforms"),
             );
         }
+        let layout = &self.layouts[usize::from(draw.geometry.is_skinned())];
         let geometry = GeometryDraw::new(
-            &self.layout,
+            layout,
             &buffers,
             &ImportedGeometry::Indexed(ImportedIndices {
                 buffer: self.indices.clone().expect("a draw names its indices"),
@@ -195,20 +224,77 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
     }
 }
 
+/// Collects the pipeline index of every draw, after a mask, without recording anything.
+#[cfg(test)]
+struct KeySink {
+    mask: usize,
+    keys: std::collections::BTreeSet<usize>,
+}
+
+#[cfg(test)]
+impl DrawSink for KeySink {
+    fn instances(&mut self, _: &Buffer, _: Option<&Buffer>, _: Option<&Buffer>) {}
+
+    fn vertices(&mut self, _: &Buffer) {}
+
+    fn indices(&mut self, _: &Buffer) {}
+
+    fn draw(&mut self, draw: Draw) {
+        self.keys.insert(draw.pipeline ^ self.mask);
+    }
+}
+
 impl SceneGpu {
-    /// Records the scene's objects through the program runtime, as
-    /// [`draw_objects`](Self::draw_objects) records them with the fixed pipelines. The frame
+    /// Records the scene's objects through the program runtime. The frame
     /// group is bound here; the shadow and screen groups are the pass's, bound before this.
     pub(crate) fn draw_objects_prepared<P: PassCommands + ?Sized>(
         &self,
         pass: &mut P,
         frame_group: &wgpu::BindGroup,
         context: &Context,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
+    }
+
+    /// Records the objects that `cascade` selects into its shadow map, with the caster programs of
+    /// `context` and the cascade's light frame `frame_group` lent at set 0.
+    pub(crate) fn draw_casters_prepared<P: PassCommands + ?Sized>(
+        &self,
+        pass: &mut P,
+        frame_group: &wgpu::BindGroup,
+        context: &Context,
+        cascade: (u32, glam::Mat4),
+    ) -> SelectionPublication {
+        let shadow = Some(cascade);
+        let view = self.begin_objects(pass, frame_group, shadow);
+        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let objects =
+            self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
+        self.end_objects(view, shadow, objects).selection
+    }
+
+    /// The group the object draws bind at set 0, for tests that record the objects into pass
+    /// commands of their own.
+    #[cfg(test)]
+    pub(crate) fn drawing_frame_group_for_test(&self) -> wgpu::BindGroup {
+        self.drawing_frame_group()
+    }
+
+    /// The keys, as indices into `PipelineKey::ALL` after `mask`, that the camera view's
+    /// selection draws now. It runs the walk a pass records and keeps each draw's pipeline.
+    #[cfg(test)]
+    pub(crate) fn pipeline_keys_drawn(&self, mask: usize) -> std::collections::BTreeSet<usize> {
+        let frame = self.drawing_uniform();
+        let selection = self.select_objects(None, &frame);
+        let mut sink = KeySink {
+            mask,
+            keys: std::collections::BTreeSet::new(),
+        };
+        self.record_selection(&mut sink, (None, &frame), &selection.ranges);
+        sink.keys
     }
 
     /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the
@@ -220,11 +306,11 @@ impl SceneGpu {
         frame_group: &wgpu::BindGroup,
         context: &Context,
         mask: usize,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context).with_mask(mask);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
     }
 
     /// Prepares the pipelines of the pairs of pipeline key and material that the scene's batches
@@ -241,10 +327,21 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
     ) -> Result<(), worldrunner_render_post::FrameError> {
         let selected = self.selected_pipelines(pipelines, frame);
-        let context = selected.object_context();
-        for (index, material) in self.drawn_pairs() {
+        self.prepare_object_context(selected.object_context())
+    }
+
+    /// Prepares the pipeline of every pair of pipeline key and material the scene's batches draw,
+    /// for the programs of `context`, before a pass that draws with them opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the objects' program, set or pipeline for the context.
+    pub(crate) fn prepare_object_context(
+        &self,
+        context: &Context,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        for (index, material, geometry) in self.drawn_pairs() {
             self.objects
-                .pipeline(context, index, material)
+                .pipeline(context, (index, material), geometry)
                 .map_err(
                     |error| worldrunner_render_post::FrameError::FeaturePreparation {
                         feature: "objects",
@@ -255,23 +352,36 @@ impl SceneGpu {
         Ok(())
     }
 
-    /// The pairs of pipeline index and material the batches that hold instances draw: a mesh
-    /// level with material slots draws the pair of each slot, and one without draws the pair of
-    /// the batch.
-    fn drawn_pairs(&self) -> std::collections::BTreeSet<(usize, usize)> {
+    /// Prepares the objects of a term replay drawn with `pipelines` in the frame being drawn,
+    /// before the replay's pass opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the objects' program, set or pipeline for the context.
+    pub(crate) fn prepare_objects_replay(
+        &self,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.prepare_objects(pipelines, &self.drawing_uniform())
+    }
+
+    /// The pairs of pipeline index and material, with the vertex format of the level that draws
+    /// them, that the batches holding instances draw: a mesh level with material slots draws
+    /// the pair of each slot, and one without draws the pair of the batch.
+    fn drawn_pairs(&self) -> std::collections::BTreeSet<(usize, usize, GeometryLayout)> {
         let mut pairs = std::collections::BTreeSet::new();
         for (&(pipeline, mesh, material), batch) in &self.instances.batches {
             if !batch.has_instances() {
                 continue;
             }
-            for slots in &self.mesh_selection[mesh].material_slots {
+            for (level, slots) in self.mesh_selection[mesh].material_slots.iter().enumerate() {
+                let geometry = self.meshes[mesh].lods[level].layout;
                 match slots {
                     Some(slots) => pairs.extend(slots.iter().map(|slot| {
                         let material = slot.material().raw() as usize;
-                        (self.instances.pipelines[material], material)
+                        (self.instances.pipelines[material], material, geometry)
                     })),
                     None => {
-                        pairs.insert((pipeline, material));
+                        pairs.insert((pipeline, material, geometry));
                     }
                 }
             }

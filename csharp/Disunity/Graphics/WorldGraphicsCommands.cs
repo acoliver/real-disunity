@@ -74,8 +74,9 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordReleaseTemporary(int nameId) => Check(NativeBindings.disunity_offscreen_release_temporary(World, nameId));
 
-    /// <summary>Records the camera's setup: its view and projection, column by column as the world holds them, and its target.</summary>
-    internal static void RecordSetupCamera(ulong camera, Matrix4x4 view, Matrix4x4 projection, CommandTarget target)
+    /// <summary>Records the camera's setup: its view and projection, column by column as the world holds them, and its target,
+    /// with the buffers the camera had when the script made the call, if any.</summary>
+    internal static void RecordSetupCamera(ulong camera, Matrix4x4 view, Matrix4x4 projection, CommandTarget target, CameraBuffers? buffers)
     {
         var matrices = stackalloc float[32];
         for (var column = 0; column < 4; column++)
@@ -85,7 +86,10 @@ internal static unsafe partial class WorldGraphics
                 matrices[16 + column * 4 + row] = projection[row, column];
             }
         var native = target.ToNative();
-        Check(NativeBindings.disunity_offscreen_setup_camera(World, camera, matrices, matrices + 16, &native));
+        var colors = buffers?.Colors ?? [];
+        fixed (ulong* list = colors)
+            Check(NativeBindings.disunity_offscreen_setup_camera(World, camera, matrices, &native,
+                colors.Length == 0 ? null : list, (uint)colors.Length, buffers?.Depth ?? 0));
     }
 
     /// <summary>Records a view and projection change, each matrix column by column as the world holds it.</summary>
@@ -124,6 +128,17 @@ internal static unsafe partial class WorldGraphics
             for (var row = 0; row < 4; row++)
                 columns[column * 4 + row] = matrix[row, column];
         Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+    }
+
+    /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a
+    /// triangle list and 1 a line list.</summary>
+    internal static void RecordDrawProcedural(Matrix4x4 matrix, ulong material, int pass, uint topology, (int Vertices, int Instances) counts)
+    {
+        var columns = stackalloc float[16];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+                columns[column * 4 + row] = matrix[row, column];
+        Check(NativeBindings.disunity_offscreen_draw_procedural(World, columns, material, pass, topology, counts.Vertices, counts.Instances));
     }
 
     private static long _lastHandle;

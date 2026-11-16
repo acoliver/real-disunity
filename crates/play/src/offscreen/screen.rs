@@ -99,13 +99,14 @@ pub(super) fn writes_screen(records: &[Record]) -> bool {
 fn writes_screen_colour(record: &Record) -> bool {
     let screen = ids::screen_color();
     let colour_is_screen =
-        |target: &Attachments| target.color.is_some_and(|colour| colour.texture == screen);
+        |target: &Attachments| target.colors.iter().any(|colour| colour.texture == screen);
     match record {
         Record::CameraRender { target, .. }
         | Record::Blit { target, .. }
         | Record::CopyTexture { target, .. } => *target == screen,
         Record::Clear { target, clear } => clear.color.is_some() && colour_is_screen(target),
         Record::Draws(list) => colour_is_screen(&list.target),
+        Record::Procedural(draw) => colour_is_screen(&draw.target),
         Record::Globals(_) => false,
     }
 }

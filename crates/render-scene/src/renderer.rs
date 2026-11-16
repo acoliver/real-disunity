@@ -44,32 +44,33 @@
 //! Stencil consumption preserves the first primitive at a tied minimum depth.
 
 pub(crate) mod depth;
-#[cfg(test)]
-pub(crate) mod legacy_objects;
-#[cfg(test)]
-pub(crate) mod legacy_terrain;
-mod objects;
 pub(crate) mod overlay;
 mod specular;
 mod terrain_access;
 mod unlit;
-pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
 
+use crate::shader::rewrite::ShaderRewrite;
 use depth::DepthMode;
 use std::borrow::Cow;
 
 use wgpu::{
-    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, FragmentState, FrontFace,
-    MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
-    PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor,
+    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, FrontFace,
     ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, VertexBufferLayout, VertexState, VertexStepMode,
+    TextureFormat, TextureUsages, VertexBufferLayout, VertexStepMode,
+};
+#[cfg(test)]
+use wgpu::{
+    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout, PolygonMode,
+    PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor, VertexState,
 };
 
-use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
+use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE};
+#[cfg(test)]
 use crate::pipeline::PipelineKey;
-use crate::shader::{self, ENVIRONMENT_WGSL, TERRAIN_WGSL};
+#[cfg(test)]
+use crate::shader;
+use crate::shader::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 use crate::upload::{frame_bind_group_layout, material_bind_group_layout};
 use crate::view::Viewport;
 
@@ -88,7 +89,6 @@ pub struct ScenePipelines {
     pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
-    pipelines: ObjectPipelines,
     /// Terrain programs of this context on the program runtime.
     terrain_context: crate::terrain::program::Context,
     /// Object programs of this context on the program runtime, which draw the forward passes.
@@ -259,27 +259,9 @@ impl ScenePipelines {
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
         let (color_format, samples) = target;
-        let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
-        let groups = pipeline_groups(
-            &frame_layout,
-            &material_layout,
-            shadow_layout.object.as_ref(),
-            screen_layout,
-        );
-        let layout = scene_layout(device, "environment", &groups);
-
         let targets = source_targets(source, color_format);
-
-        let pipelines = ObjectPipelines::new(
-            device,
-            &layout,
-            &targets,
-            &module,
-            (samples, &constants, options.1),
-            (source.contains(crate::velocity::MARKER), options.2),
-        );
         let terrain_context = crate::terrain::program::Context::new(
             crate::terrain::program::Description {
                 device: device.clone(),
@@ -308,6 +290,7 @@ impl ScenePipelines {
                 frame: frame_layout.clone(),
                 shadow: shadow_layout.object.clone(),
                 screen: screen_layout.cloned(),
+                entry: crate::object::program::Entry::Forward,
             },
             family,
         );
@@ -329,7 +312,6 @@ impl ScenePipelines {
             card_reject: source.contains("fn scene_receiver_hidden("),
             frame_layout,
             material_layout,
-            pipelines,
             unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
     }
@@ -357,16 +339,6 @@ impl ScenePipelines {
     /// The shader source the dynamic unlit-alpha material's entry points are read from.
     pub(crate) fn unlit_source(&self) -> &str {
         self.specialization.unlit_source()
-    }
-
-    pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
-        &self.pipelines
-    }
-
-    /// Returns the pipeline one material's state requires.
-    #[must_use]
-    pub fn get(&self, key: PipelineKey) -> &RenderPipeline {
-        &self.pipelines[key.index()]
     }
 
     /// Returns the layout frame bind groups must be built against.
@@ -400,18 +372,7 @@ pub(crate) fn vertex_buffers<'a>(
     ]
 }
 
-/// The third vertex buffer of velocity pipelines: each instance's previous-frame transform, laid
-/// out like the instance buffer so one stride and one set of offsets serve both.
-pub(crate) fn previous_instance_buffer(
-    attributes: &[wgpu::VertexAttribute],
-) -> VertexBufferLayout<'_> {
-    VertexBufferLayout {
-        array_stride: INSTANCE_STRIDE,
-        step_mode: VertexStepMode::Instance,
-        attributes,
-    }
-}
-
+#[cfg(test)]
 /// Builds the one pipeline a single material state requires.
 ///
 /// Only `cull_mode` and the fragment entry point vary with the key. Everything
@@ -442,6 +403,7 @@ pub(crate) fn build(
     )
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(super) struct ObjectState {
     key: PipelineKey,
@@ -452,6 +414,7 @@ pub(super) struct ObjectState {
     depth: DepthMode,
 }
 
+#[cfg(test)]
 pub(super) fn build_variant(
     device: &Device,
     layout: &PipelineLayout,
@@ -522,23 +485,6 @@ fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModul
     })
 }
 
-fn pipeline_groups<'a>(
-    frame: &'a BindGroupLayout,
-    material: &'a BindGroupLayout,
-    shadow: Option<&'a BindGroupLayout>,
-    screen: Option<&'a BindGroupLayout>,
-) -> Vec<Option<&'a BindGroupLayout>> {
-    let mut groups = vec![Some(frame), Some(material)];
-    if let Some(shadow) = shadow {
-        groups.push(Some(shadow));
-    }
-    if let Some(screen) = screen {
-        groups.resize(3, None);
-        groups.push(Some(screen));
-    }
-    groups
-}
-
 fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     [Some(ColorTargetState {
         format,
@@ -547,21 +493,15 @@ fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     })]
 }
 
-pub(crate) fn celestial_pipelines(
-    device: &Device,
-    scene: &ScenePipelines,
-    physical: bool,
-    separate: bool,
-    object_exposure: bool,
-) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-    celestial_specialization(
-        device,
-        scene,
-        (physical, separate, object_exposure),
-        ([0; 7], FrontFace::Ccw),
-        worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
-        false,
-    )
+/// The override constants of the celestial programs: the sky lighting values for `options` and
+/// `lighting`, and the mirrored raster for a clockwise frame.
+pub(crate) fn celestial_constants(
+    (options, front_face): ([u32; 7], FrontFace),
+    lighting: worldrunner_render_plan::SceneCelestialLighting,
+) -> Vec<(&'static str, f64)> {
+    let mut constants = crate::sky::lighting::constants(options, lighting);
+    specular::raster_constants(&mut constants, front_face);
+    constants
 }
 pub(crate) fn celestial_source(
     composition: (bool, bool, bool),
@@ -570,14 +510,18 @@ pub(crate) fn celestial_source(
 ) -> String {
     let source = DepthMode::Independent
         .vertex_source(ENVIRONMENT_WGSL)
-        .replace(
+        .anchored(
+            "renderer::celestial_source",
+            1,
             "@location(0) world_position: vec3<f32>,",
             "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
         );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {
-        crate::sky::meshes::VERTEX.replace(
+        crate::sky::meshes::VERTEX.anchored(
+            "renderer::celestial_source",
+            1,
             "instance.model_column_3.xyz+frame.camera_position.xyz",
             "instance.model_column_3.xyz",
         )
@@ -585,70 +529,6 @@ pub(crate) fn celestial_source(
         crate::sky::meshes::VERTEX.to_owned()
     };
     format!("{source}\n{vertex}")
-}
-pub(crate) fn celestial_specialization(
-    device: &Device,
-    scene: &ScenePipelines,
-    composition: (bool, bool, bool),
-    options: ([u32; 7], FrontFace),
-    lighting: worldrunner_render_plan::SceneCelestialLighting,
-    anchored: bool,
-) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-    let mut constants = crate::sky::lighting::constants(options.0, lighting);
-    specular::raster_constants(&mut constants, options.1);
-    let source = celestial_source(composition, lighting, anchored);
-    let module = scene_shader(device, "celestial mesh lighting", &source);
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("celestial meshes"),
-        bind_group_layouts: &[Some(scene.frame_layout()), Some(scene.material_layout())],
-        immediate_size: 0,
-    });
-    let vertices = vertex_attributes();
-    let instances = instance_attributes();
-    let buffers = vertex_buffers(&vertices, &instances);
-    let targets = color_targets(wgpu::TextureFormat::Rgba16Float);
-    PipelineKey::ALL.map(|key| {
-        let mut constants = constants.clone();
-        constants.extend(key.fragment_constants(scene.samples));
-        build_variant(
-            device,
-            &layout,
-            &buffers,
-            FragmentState {
-                module: &module,
-                entry_point: Some(if key.masked {
-                    "fs_celestial_masked"
-                } else {
-                    "fs_celestial_opaque"
-                }),
-                compilation_options: PipelineCompilationOptions {
-                    constants: &constants,
-                    ..Default::default()
-                },
-                targets: &targets,
-            },
-            ObjectState {
-                key,
-                samples: scene.samples,
-                front_face: options.1,
-                depth_write: true,
-                vertex_entry: "vs_celestial",
-                depth: DepthMode::Independent,
-            },
-        )
-    })
-}
-
-fn scene_layout(
-    device: &Device,
-    label: &str,
-    groups: &[Option<&BindGroupLayout>],
-) -> PipelineLayout {
-    device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some(label),
-        bind_group_layouts: groups,
-        immediate_size: 0,
-    })
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
@@ -667,8 +547,20 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
     targets
 }
 
+#[cfg(test)]
+pub(crate) fn base_source_targets_for_test(
+    source: &str,
+    format: TextureFormat,
+) -> Vec<Option<ColorTargetState>> {
+    base_source_targets(source, format)
+}
+
 fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
-    if source.contains(crate::velocity::MARKER) {
+    if source.contains(crate::gbuffer_writes::MARKER) {
+        crate::gbuffer::GBUFFER_FORMATS
+            .map(|format| color_targets(format)[0].clone())
+            .to_vec()
+    } else if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {
             vec![color_targets(format)[0].clone(); 3]

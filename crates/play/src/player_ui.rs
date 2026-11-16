@@ -38,6 +38,7 @@ fn screen_draw(viewport: [u32; 2]) -> UiDraw {
         uv_rect: [0.0, 0.0, 1.0, 1.0],
         color: [1.0; 4],
         corner_colors: None,
+        distance_field: None,
         texture: Some(SCREEN_IMAGE),
         sorting_layer: i32::MIN,
         sorting_order: i32::MIN,

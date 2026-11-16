@@ -2,6 +2,8 @@
 
 pub(crate) mod batch;
 pub(crate) mod fade;
+pub(crate) mod skin;
+pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
 #[cfg(test)]
 mod tests;
@@ -47,6 +49,17 @@ pub enum InstanceError {
     /// The transform violates the scene domain's invariants.
     #[error(transparent)]
     Transform(#[from] SceneValidationError),
+    /// The object draws a skinned mesh and names no skin pose.
+    #[error("instance draws a skinned mesh and has no skin pose")]
+    MissingSkinPose,
+    /// The pose does not have one entry for each joint of a skeleton the mesh is skinned to.
+    #[error("skin pose has {pose_joints} joints, the mesh's skeleton has {skeleton_joints}")]
+    SkinPoseJoints {
+        /// Joints in the pose.
+        pose_joints: u32,
+        /// Joints in the skeleton of the mesh level.
+        skeleton_joints: u32,
+    },
 }
 
 /// One actual queue write, expressed in instance slots rather than bytes.
@@ -78,6 +91,8 @@ pub(crate) struct Instances {
     pub(crate) transmission: Vec<bool>,
     /// Whether velocity pipelines draw, so batches keep previous-frame transforms.
     pub track_previous: bool,
+    /// The skeletons, poses and skinned meshes the placements are checked against.
+    pub(crate) skin: skin::SkinTables,
     // Per-material tables; only `extend_resources` grows them. Cached placement bounds depend on them.
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
@@ -86,6 +101,8 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
+    pub(crate) census: worldrunner_render_gpu::census::MemoryCensus,
 }
 
 impl Instances {
@@ -108,6 +125,7 @@ impl Instances {
                 .iter()
                 .map(|material| PipelineKey::from_material(material).index())
                 .collect(),
+            skin: skin::SkinTables::new(scene),
             track_previous: false,
             transmission: scene
                 .resources()
@@ -132,6 +150,7 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            census: worldrunner_render_gpu::census::MemoryCensus::new(),
         };
         for object in scene.geometry().objects() {
             instances
@@ -144,6 +163,11 @@ impl Instances {
     /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
     pub fn edits(&self) -> u64 {
         self.batches.values().map(InstanceBatch::edits).sum()
+    }
+
+    /// Whether any batch draws a skinned mesh.
+    pub fn has_skinned_batches(&self) -> bool {
+        self.batches.values().any(|batch| batch.skin.is_some())
     }
 
     /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
@@ -199,12 +223,19 @@ impl Instances {
         self
     }
 
+    /// Counts this scene's instance buffers in `census`.
+    pub fn counted(mut self, census: worldrunner_render_gpu::census::MemoryCensus) -> Self {
+        self.census = census;
+        self
+    }
+
     pub fn add(
         &mut self,
         object: SceneObject,
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         object.transform().validate()?;
+        let descriptor = self.skin.check(&object)?;
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let material =
             usize::try_from(object.material().raw()).expect("u32 table index fits usize");
@@ -222,7 +253,17 @@ impl Instances {
                 index: object.material().raw(),
             })?;
         let key = (pipeline, mesh, material);
-        let position = self.batches.entry(key).or_default().add(object, visible);
+        let batch = self.batches.entry(key).or_insert_with(|| {
+            if self.skin.is_skinned(mesh) {
+                InstanceBatch::skinned()
+            } else {
+                InstanceBatch::default()
+            }
+        });
+        let position = batch.add(object, visible);
+        if let Some(descriptor) = descriptor {
+            batch.set_skin(position, descriptor);
+        }
         let slot = self.free.pop_first().unwrap_or_else(|| {
             self.slots.push(Slot {
                 generation: 0,
@@ -314,7 +355,11 @@ impl Instances {
         if old.mesh() != object.mesh() || old.material() != object.material() {
             return Err(InstanceError::ResourcesChanged);
         }
+        let descriptor = self.skin.check(&object)?;
         batch.set_object(position, object);
+        if let Some(descriptor) = descriptor {
+            batch.set_skin(position, descriptor);
+        }
         Ok(())
     }
 

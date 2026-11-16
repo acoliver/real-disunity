@@ -1,6 +1,7 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+pub mod opaque;
 #[cfg(test)]
 mod overlay_tests;
 pub mod terms;
@@ -62,6 +63,8 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
+    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
+    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -110,6 +113,7 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
+            gbuffer: None,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -194,12 +198,26 @@ impl FrameRenderer {
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
+        let metadata = depth_reuse::prepass_metadata(
+            ssao_requested,
+            ssr_requested.as_ref(),
+            effects.is_some_and(|effects| effects.depth_fitting().is_some()),
+        );
+        let gbuffer = opaque::allocate_path(
+            context.device(),
+            effects.map_or_else(
+                Default::default,
+                worldrunner_render_plan::SceneEffects::opaque_path,
+            ),
+            config,
+        )?;
         let mut renderer = Self {
             overlay: overlay::OverlayStage::default(),
             output_format,
             environment_conventions: [None; 2],
             ssao_requested,
             ssr_requested,
+            gbuffer,
             ssr: None,
             water: None,
             water_state: std::rc::Rc::default(),
@@ -218,10 +236,9 @@ impl FrameRenderer {
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             temporal: std::rc::Rc::default(),
-            ssao: effects
-                .and_then(|effects| effects.ssao())
+            ssao: metadata
                 .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, *settings)
+                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
                 })
                 .transpose()?,
             chain: PostChain::with_scene_depth(
@@ -229,14 +246,11 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Hdr(factory),
-                depth_reuse::allocation(
-                    context.device(),
-                    config,
-                    ssao_requested.is_some() || ssr_requested.is_some_and(|ssr| ssr.enabled),
-                ),
+                depth_reuse::allocation(context.device().features(), config, metadata.is_some()),
             )?,
         };
-        renderer.install_reflections(context.device(), size)?;
+        renderer.install_reflections(context.device())?;
+        renderer.install_gbuffer_producer(context.device());
         renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
@@ -249,23 +263,15 @@ impl FrameRenderer {
         Ok(renderer)
     }
 
-    fn install_reflections(
-        &mut self,
-        device: &wgpu::Device,
-        size: [u32; 2],
-    ) -> Result<(), FrameError> {
+    fn install_reflections(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
         if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
             crate::ssr::validate_extent(self.targets().config(), &settings, &device.limits())?;
-            if self.ssao.is_none() {
-                self.ssao = Some(crate::scene_metadata::SceneMetadata::new(
-                    device,
-                    size,
-                    crate::ssr::neutral_ao(),
-                )?);
-            }
             let config = self.targets().config();
             let velocity = self.taa_resident();
-            let screen = self.ssao.as_mut().expect("reflection prepass");
+            let screen = self
+                .ssao
+                .as_mut()
+                .expect("enabled reflections own prepass metadata");
             self.ssr = Some(crate::ssr::Ssr::with_velocity(
                 device, config, settings, screen, velocity,
             )?);
@@ -459,6 +465,14 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
+            self.install_gbuffer_producer(device);
+        }
+        if let Some(gbuffer) = self
+            .gbuffer
+            .as_mut()
+            .filter(|gbuffer| gbuffer.size() != size)
+        {
+            *gbuffer = crate::gbuffer::Gbuffer::new(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)
@@ -639,6 +653,10 @@ impl FrameRenderer {
                 prepared: feature,
             });
         }
+        if let Some(gbuffer) = &self.gbuffer {
+            let declared = combined.iter().map(|feature| &feature.declaration);
+            gbuffer.schedule(&mut passes, &mut views, declared.chain(&retained))?;
+        }
         if let Some(opaque) = passes
             .iter()
             .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
@@ -693,6 +711,11 @@ impl FrameRenderer {
         if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
+            ));
+        }
+        if self.gbuffer.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "the opaque G-buffer requires stock geometry composition",
             ));
         }
         self.chain.encode_geometry(

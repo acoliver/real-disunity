@@ -37,6 +37,11 @@ mod depth_fitting;
 mod depth_footprint;
 pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
+mod opaque;
+pub use opaque::{
+    SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
+    SceneOpaqueVisibility,
+};
 mod environment;
 pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
 mod smaa;
@@ -104,6 +109,11 @@ mod lod_material;
 pub use lod_material::SceneLodMaterialSlot;
 mod lod_policy;
 pub use lod_policy::SceneFoldSampling;
+mod skinning;
+pub use skinning::{
+    SceneAffineMatrix, SceneSkeleton, SceneSkinInfluence, SceneSkinPose, SkeletonHandle,
+    SkinPoseHandle,
+};
 mod fade_coverage;
 mod impostor;
 mod material_features;
@@ -157,8 +167,10 @@ pub use geometry::{
 };
 mod sampler;
 pub use resource::{
-    MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneMaterial, SceneMaterialParts,
-    SceneResources, SceneTexture, TexelFormat, TextureColorSpace, TextureEncoding, TextureHandle,
+    MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneCubeDescriptor, SceneCubeFace,
+    SceneDdsDescriptor, SceneDdsFormat, SceneMaterial, SceneMaterialParts, SceneResources,
+    SceneTexelDescriptor, SceneTexture, SceneTextureDescriptor, TexelFormat, TextureColorSpace,
+    TextureEncoding, TextureHandle,
 };
 pub use sampler::{TextureAnisotropy, TextureFilter, TextureSampler, TextureWrap};
 pub use terrain::{
@@ -228,10 +240,13 @@ impl RenderScene {
             geometry: SceneGeometry {
                 meshes: self.geometry.meshes.clone(),
                 objects: objects.into_boxed_slice(),
+                skeletons: self.geometry.skeletons.clone(),
+                skin_poses: self.geometry.skin_poses.clone(),
             },
             terrain: self.terrain.clone(),
             effects,
         };
+        scene.geometry.validate()?;
         scene.validate_references()?;
         Ok(scene)
     }

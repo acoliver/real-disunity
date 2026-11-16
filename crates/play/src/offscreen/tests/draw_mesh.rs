@@ -27,7 +27,7 @@ use worldrunner_world_simulation::graphics::{
 use super::super::adapter::OffscreenAdapter;
 use super::super::assets::{AssetError, Assets};
 use super::super::compute::ComputeAdapter;
-use super::super::defaults::{ShaderFill, declared};
+use super::super::defaults::{DefaultTexture, ShaderFill, declared};
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::{Settings, Skip};
 use super::super::kernels::PlayerKernels;
@@ -355,16 +355,24 @@ fn host_with_budget(kernels: PlayerKernels, budget: u64) -> OffscreenHost {
 }
 
 fn host_over(gpu: Gpu, kernels: PlayerKernels) -> OffscreenHost {
+    host_around(gpu, kernels, adapter())
+}
+
+fn adapter() -> OffscreenAdapter {
+    OffscreenAdapter::with_supply(
+        Shaders,
+        Settings {
+            light_modes: vec!["Alpha".to_owned()],
+            ..Settings::default()
+        },
+    )
+}
+
+fn host_around(gpu: Gpu, kernels: PlayerKernels, adapter: OffscreenAdapter) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
-        OffscreenAdapter::with_supply(
-            Shaders,
-            Settings {
-                light_modes: vec!["Alpha".to_owned()],
-                ..Settings::default()
-            },
-        ),
+        adapter,
         ComputeAdapter::new(kernels),
     )
 }
@@ -372,6 +380,15 @@ fn host_over(gpu: Gpu, kernels: PlayerKernels) -> OffscreenHost {
 fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(PlayerKernels::new(directory.path()));
+    flush_in(&mut host, world, drawn, meshes)
+}
+
+/// As `flush`, on a host that has registered the white and the black default textures but not the
+/// grey, so a texture no layer names and the shader does not declare has nothing to read.
+fn flush_without_grey(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
+    let directory = tempfile::tempdir().unwrap();
+    let adapter = adapter().with_default_textures(&[DefaultTexture::White, DefaultTexture::Black]);
+    let mut host = host_around(gpu(), PlayerKernels::new(directory.path()), adapter);
     flush_in(&mut host, world, drawn, meshes)
 }
 

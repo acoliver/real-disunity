@@ -1,7 +1,7 @@
 #[test]
 fn device_error_observer_does_not_retain_the_context_queue() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
     let other = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
     assert_ne!(context.device(), other.device());

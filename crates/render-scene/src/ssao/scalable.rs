@@ -1,5 +1,6 @@
 use super::{ScreenPass, group, pipeline, pipeline_format, texture};
 use crate::frame::metadata::FrameProduct;
+use crate::shader::rewrite::ShaderRewrite;
 use std::fmt::Write;
 use worldrunner_render_plan::{SceneSsao, SceneSsaoFilter};
 use worldrunner_render_post::PassSlot;
@@ -25,9 +26,24 @@ pub(super) fn source(levels: usize) -> String {
     }
     selection.push_str("default: { return filtered_depth(footprint0, uv); } } }\n");
     include_str!("scalable.wgsl")
-        .replace("/* DEPTH_BINDINGS */", &bindings)
-        .replace("/* DEPTH_SELECT */", &selection)
-        .replace("MAX_LEVEL", &(levels - 1).to_string())
+        .anchored(
+            "ssao::scalable::source",
+            1,
+            "/* DEPTH_BINDINGS */",
+            &bindings,
+        )
+        .anchored(
+            "ssao::scalable::source",
+            1,
+            "/* DEPTH_SELECT */",
+            &selection,
+        )
+        .anchored(
+            "ssao::scalable::source",
+            1,
+            "MAX_LEVEL",
+            &(levels - 1).to_string(),
+        )
 }
 
 pub(super) fn append(
@@ -107,10 +123,40 @@ pub(super) fn blur_source(filter: SceneSsaoFilter, axis: [i32; 2]) -> String {
         * (1.0 / (super::super::scalar(u64::from(sigma_scale_micro)) / 1_000_000.0));
     let sharpness = super::super::scalar(u64::from(sharpness_micro)) / 1_000_000.0;
     include_str!("scalable_filter.wgsl")
-        .replace("AXIS_X", &axis[0].to_string())
-        .replace("AXIS_Y", &axis[1].to_string())
-        .replace("TAP_RADIUS", &radius.to_string())
-        .replace("TAP_STEP", &step.to_string())
-        .replace("VARIANCE", &format!("{:.12}", 2.0 * sigma * sigma))
-        .replace("DEPTH_COEFFICIENT", &format!("{sharpness:.9}"))
+        .anchored(
+            "ssao::scalable::blur_source",
+            1,
+            "AXIS_X",
+            &axis[0].to_string(),
+        )
+        .anchored(
+            "ssao::scalable::blur_source",
+            1,
+            "AXIS_Y",
+            &axis[1].to_string(),
+        )
+        .anchored(
+            "ssao::scalable::blur_source",
+            2,
+            "TAP_RADIUS",
+            &radius.to_string(),
+        )
+        .anchored(
+            "ssao::scalable::blur_source",
+            1,
+            "TAP_STEP",
+            &step.to_string(),
+        )
+        .anchored(
+            "ssao::scalable::blur_source",
+            1,
+            "VARIANCE",
+            &format!("{:.12}", 2.0 * sigma * sigma),
+        )
+        .anchored(
+            "ssao::scalable::blur_source",
+            1,
+            "DEPTH_COEFFICIENT",
+            &format!("{sharpness:.9}"),
+        )
 }

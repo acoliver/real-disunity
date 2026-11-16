@@ -12,6 +12,7 @@
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
 mod active_pass;
+mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
@@ -26,6 +27,7 @@ pub mod snapshot;
 pub mod snapshot_wire;
 
 pub use active_pass::ActivePass;
+pub use camera_buffers::CameraBuffers;
 pub use commands::{MAX_COLOR_TARGETS, TargetRef};
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
@@ -33,7 +35,7 @@ pub use compute::{
 };
 pub use context::MAX_CULL_PLANES;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
-pub use offscreen::{MAX_OFFSCREEN_WORK, OffscreenWork};
+pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
     ShaderProperties, TextureRef, TextureSlot,
@@ -83,6 +85,8 @@ pub enum GraphicsError {
     InvalidOffscreen,
     #[error("the camera of offscreen work must be a live camera component")]
     NotCamera,
+    #[error("a camera's buffers name one to eight color render textures, none twice")]
+    InvalidCameraBuffers,
     #[error("the compute shader id is stale")]
     StaleComputeShader,
     #[error("the compute buffer id is stale")]
@@ -218,6 +222,9 @@ pub(crate) struct GraphicsState {
     /// The render textures destroyed after a record of the frame named them; the frame's snapshot
     /// keeps their descriptions.
     retired_textures: std::collections::BTreeMap<RenderTextureId, WorldRenderTexture>,
+    /// The target buffers of the cameras whose scripts set them. An entry outlives its camera
+    /// until the next set, and a read answers only for a live camera.
+    camera_buffers: std::collections::BTreeMap<crate::ComponentHandle, CameraBuffers>,
 }
 
 impl GraphicsState {
@@ -245,6 +252,7 @@ impl GraphicsState {
             active_pass: None,
             readbacks: readback::Readbacks::new(),
             retired_textures: std::collections::BTreeMap::new(),
+            camera_buffers: std::collections::BTreeMap::new(),
         }
     }
 }

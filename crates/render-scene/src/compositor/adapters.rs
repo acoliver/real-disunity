@@ -16,8 +16,8 @@ impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         Ok(())
     }
-    fn commit(&mut self, _: &mut PrepareContext<'_>) {
-        self.scene.reset_pass_statistics();
+    fn commit(&mut self, context: &mut PrepareContext<'_>) {
+        self.scene.reset_pass_statistics(context);
     }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context, self.scene);
@@ -67,6 +67,7 @@ pub fn encode_resident(
     }
     scene.prepare_terrain(pipelines, &scene.resident_frame())?;
     scene.prepare_objects(pipelines, &scene.resident_frame())?;
+    scene.prepare_celestial(&scene.resident_frame())?;
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));

@@ -78,7 +78,7 @@ fn supplier_prestart_capture_freezes_selected_scene_statistics_and_shadows() {
         assert!(run.frame().unwrap());
         let source = *run.host().statistics().unwrap();
         assert_eq!(source.generation, 0);
-        assert_eq!(source.scene.meshes.instances, 1);
+        assert_eq!(source.scene.passes.opaque_objects.meshes.instances, 1);
         run.renderer.drain().unwrap();
         run.poll().unwrap();
         let events = events.borrow();
@@ -209,8 +209,8 @@ fn statistics_follow_presented_frames_and_consume_uploads_once() {
     let first = *run.host().statistics().unwrap();
     assert_eq!(first.frame, 0);
     assert_eq!(first.generation, 0);
-    assert_eq!(first.scene.meshes.calls, 1);
-    assert_eq!(first.scene.meshes.instances, 1);
+    assert_eq!(first.scene.passes.opaque_objects.meshes.calls, 1);
+    assert_eq!(first.scene.passes.opaque_objects.meshes.instances, 1);
     assert_eq!(first.scene.textures.resident_bytes, 4);
     assert_eq!(first.scene.textures.uploaded_bytes, 4);
     run.host_mut()
@@ -230,8 +230,8 @@ fn statistics_follow_presented_frames_and_consume_uploads_once() {
 fn assert_removed(second: &crate::RetainedFrameStatistics, first: &crate::RetainedFrameStatistics) {
     assert!(second.frame > first.frame);
     assert_eq!(second.generation, 1);
-    assert_eq!(second.scene.meshes.calls, 0);
-    assert_eq!(second.scene.meshes.instances, 0);
+    assert_eq!(second.scene.passes.opaque_objects.meshes.calls, 0);
+    assert_eq!(second.scene.passes.opaque_objects.meshes.instances, 0);
     assert_eq!(second.scene.textures.resident_bytes, 4);
     assert_eq!(second.scene.textures.uploaded_bytes, 0);
 }
@@ -253,7 +253,16 @@ fn presented_callback_reads_the_matching_frame_snapshot() {
         ) -> Result<(), String> {
             if let RetainedEvent::Presented { frame } = event {
                 assert_eq!(host.statistics().unwrap().frame, *frame);
-                assert_eq!(host.statistics().unwrap().scene.meshes.instances, 1);
+                assert_eq!(
+                    host.statistics()
+                        .unwrap()
+                        .scene
+                        .passes
+                        .opaque_objects
+                        .meshes
+                        .instances,
+                    1
+                );
             }
             Ok(())
         }
@@ -300,8 +309,18 @@ fn empty_scene_records_zero_optional_pass_draws() {
     let mut driver = Driver::default();
     let mut run = host(source).windowless(&mut driver).unwrap();
     run.frame().unwrap();
+    let passes = run.host().statistics().unwrap().scene.passes;
+    for objects in [passes.prepass_objects, passes.opaque_objects] {
+        assert_eq!(objects.meshes, crate::DrawCount::default());
+        assert_eq!(objects.impostors, crate::DrawCount::default());
+    }
+    // The colour pass recorded its empty selection; only the way it recorded it is set.
     assert_eq!(
-        run.host().statistics().unwrap().scene.passes,
+        worldrunner_render_scene::draw::PassDrawStatistics {
+            prepass_objects: crate::ObjectDraws::default(),
+            opaque_objects: crate::ObjectDraws::default(),
+            ..passes
+        },
         worldrunner_render_scene::draw::PassDrawStatistics::default()
     );
     run.shutdown().unwrap();

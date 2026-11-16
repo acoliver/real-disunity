@@ -1,6 +1,5 @@
 pub(crate) mod casters;
-#[cfg(test)]
-pub(crate) mod legacy_access;
+mod culling;
 mod meshes;
 mod observations;
 mod replacement;
@@ -10,7 +9,9 @@ mod residents;
 pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::prepared::ChunkGeometry;
-use crate::terrain::streaming::{TerrainChunk, TerrainSelection, select_with_retired};
+use crate::terrain::streaming::{
+    TerrainChunk, TerrainHeightBounds, TerrainSelection, select_with_retired,
+};
 #[cfg(test)]
 pub(crate) use meshes::await_builds;
 use meshes::{Built, MeshBuilds};
@@ -24,6 +25,7 @@ type Residents = Vec<(TerrainChunk, GpuLod)>;
 #[derive(Debug)]
 pub(super) struct Streaming {
     scene: RenderScene,
+    height_bounds: TerrainHeightBounds,
     plane_chunks: std::collections::BTreeMap<TerrainChunk, u32>,
     identity: Rc<()>,
     pub(super) committed: Rc<RefCell<Residents>>,
@@ -59,6 +61,7 @@ impl Streaming {
         );
         Self {
             plane_chunks: crate::terrain::planes::chunk_indices(terrain),
+            height_bounds: TerrainHeightBounds::new(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(vec![(chunk, root)])),
@@ -190,6 +193,7 @@ impl Streaming {
         let choose = |builds: &MeshBuilds| {
             select_with_retired(
                 terrain,
+                &self.height_bounds,
                 current,
                 frame.selection_view_projection(),
                 viewport,
@@ -308,6 +312,7 @@ impl Streaming {
             chunk.children().is_none()
                 || crate::terrain::streaming::error(
                     terrain,
+                    &self.height_bounds,
                     *chunk,
                     request.matrix,
                     request.viewport,
@@ -345,16 +350,21 @@ impl Streaming {
         });
     }
 
-    /// Records the resident chunks through a prepared pipeline, one prepared geometry each,
-    /// from the chunk nearest `eye` to the farthest. The chunk's record of the shared instance
-    /// buffer is its geometry's instance range.
+    /// Records resident chunks intersecting this view, nearest to farthest. The raster matrix
+    /// includes any projection jitter, so a skirt shifted onto the screen remains submitted.
     pub(super) fn draw_prepared<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
-        (terrain, eye): (&super::GpuTerrain, glam::Vec3),
+        (terrain, frame): (&super::GpuTerrain, &crate::frame::FrameUniform),
     ) -> super::DrawCount {
-        self.record_prepared(pass, pipeline, (terrain, Some(eye)), |_| true)
+        let scene = self.scene.terrain().expect("terrain");
+        self.record_prepared(
+            pass,
+            pipeline,
+            (terrain, Some(frame.camera_position)),
+            culling::keep(scene, &self.height_bounds, frame.view_projection),
+        )
     }
 
     /// Records the resident chunks whose world bounds `keep` accepts, in resident order.
@@ -453,6 +463,7 @@ fn upload_built(context: &mut PrepareContext<'_>, built: &Built) -> Result<GpuLo
             reason: error.to_string(),
         })?;
     Ok(GpuLod {
+        layout: crate::object::layout::GeometryLayout::Static,
         transition: None,
         vertices: buffer(
             context,

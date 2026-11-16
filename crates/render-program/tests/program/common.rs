@@ -275,7 +275,7 @@ pub fn stage_in(
 }
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::unity::runtime::{ProgramRuntime, TargetHandle, TargetImage};
@@ -293,7 +293,12 @@ pub struct Gpu {
 impl Gpu {
     /// A device on the adapter the environment selects: lavapipe in CI, or a hardware GPU.
     pub fn new() -> Self {
-        let instance = headless_instance();
+        Self::with_optional(wgpu::Features::empty())
+    }
+
+    /// A device that also asks for `optional` where the adapter has it.
+    pub fn with_optional(optional: wgpu::Features) -> Self {
+        let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("the program tests need a GPU adapter");
@@ -301,7 +306,7 @@ impl Gpu {
         // Block compression is optional: the tests that draw from a block-compressed source
         // check that the device has it.
         let requirements = DeviceRequirements {
-            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC | optional,
             ..DeviceRequirements::default()
         };
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))

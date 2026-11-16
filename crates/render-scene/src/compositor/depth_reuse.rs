@@ -1,18 +1,31 @@
 //! Stock paired depth. Relief reuse requires the shared single-sample receiver producer.
 use super::FrameRenderer;
 use crate::{draw::SceneGpu, renderer::depth::DepthMode, scene_metadata::Geometry};
+use worldrunner_render_plan::{SceneSsao, SceneSsr};
 use worldrunner_render_post::{AttachmentView, FrameConfig, SceneDepth};
 
+/// The metadata a stock frame owns: the requested SSAO, otherwise neutral occlusion when
+/// enabled reflections or shadow depth fitting draw the depth and normal prepass. The owner
+/// decides scene depth ownership, so Opaque reuses whichever consumer's prepass depth.
+/// None draws no prepass.
+pub(super) fn prepass_metadata(
+    ssao: Option<SceneSsao>,
+    ssr: Option<&SceneSsr>,
+    depth_fitting: bool,
+) -> Option<SceneSsao> {
+    ssao.or_else(|| {
+        (ssr.is_some_and(|ssr| ssr.enabled) || depth_fitting).then(crate::ssr::neutral_ao)
+    })
+}
+
 pub(super) fn allocation(
-    device: &wgpu::Device,
+    features: wgpu::Features,
     config: FrameConfig,
     complete_prepass: bool,
 ) -> SceneDepth {
     if config.samples == 1
         && complete_prepass
-        && device
-            .features()
-            .contains(wgpu::Features::DEPTH32FLOAT_STENCIL8)
+        && features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8)
     {
         SceneDepth::Ownership
     } else {
@@ -111,7 +124,8 @@ impl FrameRenderer {
         self.ssao = self.ssao.as_ref().map(|screen| {
             crate::scene_metadata::SceneMetadata::new(device, config.size, screen.settings).unwrap()
         });
-        self.install_reflections(device, config.size).unwrap();
+        self.install_reflections(device).unwrap();
+        self.install_gbuffer_producer(device);
         if self.water.is_some() {
             self.chain
                 .register(
@@ -176,6 +190,43 @@ mod tests {
         assert_eq!(
             old.validate(&limits).unwrap(),
             shared.validate(&limits).unwrap()
+        );
+    }
+
+    /// Shadow depth fitting draws the prepass even when no screen effect asks for it, so the
+    /// frame must own that prepass and pair its depth with Opaque, as SSAO and SSR frames do.
+    #[test]
+    fn depth_fitting_alone_owns_the_prepass_and_pairs_its_depth_with_opaque() {
+        let features = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        let single = FrameConfig::new([65, 49], wgpu::TextureFormat::Rgba16Float, 1);
+        let disabled = SceneSsr {
+            enabled: false,
+            ..Default::default()
+        };
+        let fitting = prepass_metadata(None, Some(&disabled), true);
+        assert_eq!(fitting, Some(crate::ssr::neutral_ao()));
+        assert_eq!(
+            allocation(features, single, fitting.is_some()),
+            SceneDepth::Ownership
+        );
+        assert_eq!(
+            prepass_metadata(None, None, true),
+            prepass_metadata(None, Some(&SceneSsr::default()), false),
+        );
+        let requested = SceneSsao {
+            sample_count: 16,
+            ..crate::ssr::neutral_ao()
+        };
+        assert_eq!(
+            prepass_metadata(Some(requested), None, true),
+            Some(requested)
+        );
+        assert_eq!(prepass_metadata(None, Some(&disabled), false), None);
+        assert_eq!(allocation(features, single, false), SceneDepth::Independent);
+        let multisampled = FrameConfig::new([65, 49], wgpu::TextureFormat::Rgba16Float, 4);
+        assert_eq!(
+            allocation(features, multisampled, fitting.is_some()),
+            SceneDepth::Independent
         );
     }
 

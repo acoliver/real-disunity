@@ -393,6 +393,7 @@ fn a_camera_that_names_a_missing_screen_unbinds_the_target_so_a_later_clear_is_r
             view: Mat4::IDENTITY.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target: TargetRef::CameraTarget,
+            buffers: None,
         },
     );
     clear_screen(&mut world, [0.0, 0.0, 1.0, 1.0]);

@@ -16,7 +16,8 @@ mod clipboard_tests;
 mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
-    AudioUnavailable, ClipHandle, VoiceHandle,
+    AudioUnavailable, BusConfig, ClipHandle, DuckingDetector, DuckingRule, EnvelopeMode,
+    VoiceHandle,
 };
 mod timers;
 #[cfg(test)]
@@ -34,10 +35,11 @@ pub use timing::{
 };
 mod statistics;
 pub use statistics::{
-    DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
-    ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
-    TerrainPageStatistics, TerrainStreamingStatistics,
+    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
+    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
+    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;
@@ -287,12 +289,21 @@ pub struct RetainedHost {
     size: [u32; 2],
     exit: bool,
     occluded: bool,
+    window_on_top: bool,
 }
 
 impl RetainedHost {
     /// Effective startup options, including any selected-adapter frame decision.
     pub fn options(&self) -> &ViewerOptions {
         &self.options
+    }
+
+    /// Keeps the desktop window above ordinary windows for measurement runs.
+    /// Disabled by default.
+    #[must_use]
+    pub fn with_window_on_top(mut self, enabled: bool) -> Self {
+        self.window_on_top = enabled;
+        self
     }
 
     /// Selects shader time independently of CPU edit generations.

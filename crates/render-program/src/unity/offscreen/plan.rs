@@ -52,6 +52,8 @@ pub(super) struct ProgramEntry {
     comparison_names: HashMap<(u32, u32), String>,
     /// The vertex inputs the vertex stage declares, by location.
     inputs: DeclaredInputs,
+    /// The color locations the fragment stage writes.
+    pub(super) color_outputs: Vec<u32>,
 }
 
 impl ProgramEntry {
@@ -414,6 +416,7 @@ impl Services<'_> {
         } else {
             stage(&variant.fragment)?
         };
+        let color_outputs = fragment.color_outputs();
         let program = self
             .runtime
             .graphics_program(&stage(&variant.vertex)?, &fragment)?;
@@ -432,6 +435,7 @@ impl Services<'_> {
             samplers,
             comparison_names,
             inputs: declared_inputs(&variant.vertex),
+            color_outputs,
         })
     }
 

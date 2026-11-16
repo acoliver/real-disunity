@@ -2,7 +2,9 @@
 fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
     let terrain = terrain(5);
     let bounds = TerrainHeightBounds::new(&terrain);
-    let children = root(&terrain).children().unwrap();
+    let children = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     let matrix = ortho(90.0, [32.0, 32.0, 100.0]);
     let plan = select(&terrain, &bounds, &children, matrix, [128; 2]);
     let stats =
@@ -21,7 +23,9 @@ fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
 fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let terrain = terrain(5);
     let bounds = TerrainHeightBounds::new(&terrain);
-    let children = root(&terrain).children().unwrap();
+    let children = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
     let blocked = select_with_retired(&terrain, &bounds, &children, matrix, [128; 2], 1, &|_| true);
     let before = crate::draw::geometry_statistics::measure(
@@ -114,7 +118,9 @@ fn geometry_observations_respect_terminal_and_offscreen_leaves() {
 #[test]
 fn camera_order_draws_the_nearest_chunk_first_and_keeps_order_on_equal_distance() {
     let terrain = terrain(5);
-    let mut chunks = root(&terrain).children().unwrap();
+    let mut chunks = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     chunks.sort();
     let bounds: Vec<_> = chunks.iter().map(|c| chunk_bounds(&terrain, *c)).collect();
     // Above the far corner of the last child: that child is nearest, the first is farthest.
@@ -179,7 +185,7 @@ fn ortho(width: f32, eye: [f32; 3]) -> Mat4 {
 }
 fn reference(node: TerrainChunk, pixels_per_meter: f64, leaves: &mut Vec<TerrainChunk>) {
     if f64::from(node.stride) * pixels_per_meter > 12.0
-        && let Some(children) = node.children()
+        && let Some(children) = node.children(8)
     {
         for child in children {
             reference(child, pixels_per_meter, leaves);
@@ -296,7 +302,7 @@ fn positions(mesh: &TerrainMesh) -> Vec<Vec3> {
         })
         .collect()
 }
-fn hit(mesh: &TerrainMesh, origin: Vec3, direction: Vec3) -> bool {
+pub(super) fn hit(mesh: &TerrainMesh, origin: Vec3, direction: Vec3) -> bool {
     let vertices = positions(mesh);
     mesh.indices.chunks_exact(12).any(|indices| {
         let points: [Vec3; 3] = std::array::from_fn(|i| {
@@ -322,10 +328,12 @@ fn hit(mesh: &TerrainMesh, origin: Vec3, direction: Vec3) -> bool {
 #[test]
 fn ray_oracle_hits_skirts_across_mixed_lod_border() {
     let terrain = terrain(64);
-    let siblings = root(&terrain).children().unwrap();
+    let siblings = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     let coarse = chunks::build(&terrain, siblings[0]).unwrap();
     let fine: Vec<_> = siblings[1]
-        .children()
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
         .unwrap()
         .into_iter()
         .map(|n| chunks::build(&terrain, n).unwrap())
@@ -469,7 +477,9 @@ fn built_children_are_admitted_as_before() {
 fn unbuilt_merge_keeps_the_children_until_the_parent_is_built() {
     let terrain = terrain(5);
     let bounds = TerrainHeightBounds::new(&terrain);
-    let children = root(&terrain).children().unwrap();
+    let children = root(&terrain)
+        .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+        .unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
     let waiting = select_with_retired(&terrain, &bounds, &children, matrix, [128; 2], 0, &|_| {
         false
@@ -558,7 +568,7 @@ fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
 fn nodes(node: TerrainChunk, depth: u32, out: &mut Vec<TerrainChunk>) {
     out.push(node);
     if depth > 0
-        && let Some(children) = node.children()
+        && let Some(children) = node.children(8)
     {
         for child in children {
             nodes(child, depth - 1, out);

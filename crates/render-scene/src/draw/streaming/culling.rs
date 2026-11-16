@@ -139,7 +139,7 @@ mod tests {
         let terrain = terrain();
         let bounds = TerrainHeightBounds::new(&terrain);
         let residents: Vec<_> = root(&terrain)
-            .children()
+            .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
             .unwrap()
             .into_iter()
             .map(|key| (key, ()))
@@ -175,7 +175,9 @@ mod tests {
     fn geometry_statistics_separate_resident_coverage_from_submitted_leaves() {
         let terrain = terrain();
         let bounds = TerrainHeightBounds::new(&terrain);
-        let keys = root(&terrain).children().unwrap();
+        let keys = root(&terrain)
+            .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+            .unwrap();
         let residents: Vec<_> = keys.iter().map(|key| (*key, ())).collect();
         let matrix = Mat4::from_scale(Vec3::new(0.01, 0.01, 0.1));
         let observation =
@@ -218,7 +220,9 @@ mod tests {
         .unwrap()
         .with_streaming_policy(source.streaming_policy());
         let bounds = TerrainHeightBounds::new(&terrain);
-        let away = root(&terrain).children().unwrap()[3];
+        let away = root(&terrain)
+            .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+            .unwrap()[3];
         let matrix = Mat4::from_translation(Vec3::Z * -0.05)
             * Mat4::from_scale(Vec3::new(0.001, 0.001, 0.01));
         let [min, max] = crate::terrain::streaming::chunk_bounds(&terrain, away);

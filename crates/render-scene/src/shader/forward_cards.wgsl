@@ -105,21 +105,14 @@ fn scene_card_finish_shading(input: VertexOutput, surface: SceneShadingSurface, 
     );
 
     var colour = lighting.color;
-    if material.scattering_mode.y != 0.0 && frame.grading.y == 0.0 {
-        let toward_sun = rd_toward_light(frame.sun_direction.xyz, false);
-        let ray = normalize(input.world_position - scene_ray_origin(input.world_position));
-        let visibility = direct_sunlight_visibility(raw);
-        let intensity = scene_backlight_strength(ray, toward_sun, normal,
-            material.scattering_shape, vec3<f32>(material.scattering_colour.x, masked_amount, visibility));
-        colour += scene_scattering_tint(albedo_sample.rgb, material.scattering_colour,
-            material.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;
+    let record = scene_material_lighting_record();
+    if scene_material_scatters() {
+        colour += scene_record_scattering(input.world_position, normal, albedo_sample.rgb, record,
+            masked_amount, direct_sunlight_visibility(raw));
     }
-    let translucency = bitcast<f32>(material.geometry_flags.y);
-    if translucency != 0.0 && frame.grading.y == 0.0 {
-        let light = rd_toward_light(frame.sun_direction.xyz, false);
-        colour += albedo_sample.rgb * frame.sun_irradiance.rgb
-            * scene_transmission(translucency, -dot(normal, light)) / PI
-            * direct_sunlight_visibility(scene_card_shadow_visibility(input.world_position, back_shadow));
+    if scene_material_transmits() {
+        colour += scene_record_transmission(normal, albedo_sample.rgb, record,
+            direct_sunlight_visibility(scene_card_shadow_visibility(input.world_position, back_shadow)));
     }
 
     if (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u || scene_packed_atlas(input) {

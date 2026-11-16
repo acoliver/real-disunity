@@ -105,6 +105,26 @@ fn target(kind: u32, name_id: i32, render: u64) -> DisunityTargetRef {
     }
 }
 
+/// Calls the setup with the view and projection side by side as the ABI takes them; a missing one
+/// passes no matrices.
+unsafe fn setup(
+    world: u64,
+    camera: u64,
+    view: Option<&[f32; 16]>,
+    projection: Option<&[f32; 16]>,
+    target: *const DisunityTargetRef,
+) -> DisunityResult {
+    let joined: Option<Vec<f32>> = view
+        .zip(projection)
+        .map(|(view, projection)| view.iter().chain(projection).copied().collect());
+    let matrices = joined
+        .as_ref()
+        .map_or(std::ptr::null(), |both| both.as_ptr());
+    unsafe {
+        disunity_offscreen_setup_camera(world, camera, matrices, target, std::ptr::null(), 0, 0)
+    }
+}
+
 #[test]
 fn a_camera_setup_is_forwarded_with_its_matrices_and_target() {
     let world = new_world();
@@ -113,22 +133,22 @@ fn a_camera_setup_is_forwarded_with_its_matrices_and_target() {
     let projection: [f32; 16] = std::array::from_fn(|i| 0.25 * i as f32);
     unsafe {
         assert_eq!(
-            disunity_offscreen_setup_camera(
+            setup(
                 world,
                 camera,
-                view.as_ptr(),
-                projection.as_ptr(),
+                Some(&view),
+                Some(&projection),
                 &target(1, -9, 0)
             )
             .code,
             0
         );
         assert_eq!(
-            disunity_offscreen_setup_camera(
+            setup(
                 world,
                 camera,
-                view.as_ptr(),
-                projection.as_ptr(),
+                Some(&view),
+                Some(&projection),
                 &target(2, 0, 0)
             )
             .code,
@@ -169,57 +189,13 @@ fn a_camera_setup_with_bad_arguments_is_refused_and_records_nothing() {
     nan[3] = f32::NAN;
     let none = target(3, 0, 0);
     unsafe {
-        rejected(
-            disunity_offscreen_setup_camera(world, camera, std::ptr::null(), good.as_ptr(), &none)
-                .code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(world, camera, good.as_ptr(), std::ptr::null(), &none)
-                .code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(
-                world,
-                camera,
-                good.as_ptr(),
-                good.as_ptr(),
-                std::ptr::null(),
-            )
-            .code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(
-                world,
-                camera + 999,
-                good.as_ptr(),
-                good.as_ptr(),
-                &none,
-            )
-            .code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(world, camera, nan.as_ptr(), good.as_ptr(), &none).code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(
-                world,
-                camera,
-                good.as_ptr(),
-                good.as_ptr(),
-                &target(9, 0, 0),
-            )
-            .code,
-        );
-        rejected(
-            disunity_offscreen_setup_camera(
-                world,
-                camera,
-                good.as_ptr(),
-                good.as_ptr(),
-                &target(0, 0, 77),
-            )
-            .code,
-        );
+        rejected(setup(world, camera, None, Some(&good), &none).code);
+        rejected(setup(world, camera, Some(&good), None, &none).code);
+        rejected(setup(world, camera, Some(&good), Some(&good), std::ptr::null()).code);
+        rejected(setup(world, camera + 999, Some(&good), Some(&good), &none).code);
+        rejected(setup(world, camera, Some(&nan), Some(&good), &none).code);
+        rejected(setup(world, camera, Some(&good), Some(&good), &target(9, 0, 0)).code);
+        rejected(setup(world, camera, Some(&good), Some(&good), &target(0, 0, 77)).code);
     }
     assert_eq!(take(world).len(), 0);
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };

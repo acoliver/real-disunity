@@ -1,17 +1,21 @@
 //! Per-material fade selection data, using the stock vertex and fragment rules.
 use glam::Vec3;
 use worldrunner_render_plan::{
-    SceneFadeBand, SceneFadeCoverage, SceneFadeDirection, SceneFadeQuantization,
-    SceneFadeReference, SceneMaterial, SceneObject, SceneTexture, threshold_texels,
+    SceneFadeCoverage, SceneFadeDirection, SceneFadeQuantization, SceneFadeReference,
+    SceneMaterial, SceneTexture, threshold_texels,
 };
 
-use crate::geometry::{fade_band_meters, millimeter_to_meter, model_matrix};
+use crate::geometry::fade_band_meters;
+mod anchor;
 mod span;
+pub(crate) use anchor::Anchor;
+use anchor::Estimate;
 use span::Span;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Fade {
-    band: Option<SceneFadeBand>,
+    /// The impostor's fade band in metres, as `fade_band_meters` converts it.
+    band: Option<[f32; 2]>,
     reference: Option<SceneFadeReference>,
     direction: SceneFadeDirection,
     quantization: SceneFadeQuantization,
@@ -35,7 +39,8 @@ impl Fade {
         Self {
             band: material
                 .impostor()
-                .and_then(worldrunner_render_plan::SceneImpostor::fade),
+                .and_then(worldrunner_render_plan::SceneImpostor::fade)
+                .map(fade_band_meters),
             reference: material.fade_reference(),
             direction: material.fade_direction(),
             quantization: material.fade_quantization(),
@@ -44,35 +49,76 @@ impl Fade {
         }
     }
 
-    pub fn empty(self, object: SceneObject, eye: Vec3) -> bool {
-        let Some(band) = object.fade().or(self.band) else {
-            return false;
-        };
-        if !eye.is_finite() {
-            return false;
+    /// Whether some distance can fade out every fragment. Inclusive coverage keeps zero
+    /// opacity on a grid holding a zero texel, and complement threshold coverage keeps the
+    /// shared boundary, so those keep fragments at every distance.
+    pub fn can_empty(self) -> bool {
+        let hashed = matches!(self.coverage, SceneFadeCoverage::Hashed);
+        match self.direction {
+            SceneFadeDirection::Inclusive => hashed || self.threshold_above_zero,
+            SceneFadeDirection::Keep => true,
+            SceneFadeDirection::Complement => hashed,
         }
-        self.empty_at(self.distance(object, eye), fade_band_meters(band))
     }
 
-    fn empty_at(self, distance: Span, mut band: [f32; 2]) -> bool {
+    /// The authored point this material measures its fade distance from, if any.
+    pub fn reference(self) -> Option<SceneFadeReference> {
+        self.reference
+    }
+
+    /// Whether no fragment of a placement survives this material's fade. `band` is the
+    /// placement's own fade band in metres, which replaces the material's; `distances`
+    /// measures the placement's distances from the eye and keeps them for its other materials.
+    pub fn empty(self, band: Option<[f32; 2]>, distances: &mut Distances<'_>) -> bool {
+        if !self.can_empty() {
+            return false;
+        }
+        let Some(band) = band.or(self.band) else {
+            return false;
+        };
+        if !distances.eye.is_finite() {
+            return false;
+        }
+        let measured = distances.measure(self.reference);
+        // Away from the band's edges the estimate settles the coverage the interval
+        // arithmetic below would compute; near them the intervals decide.
+        if let Some(opacity) = measured
+            .estimate
+            .and_then(|estimate| estimate.coverage(self.directed(band)))
+        {
+            return self.covered(opacity);
+        }
+        self.empty_at(measured.span(), band)
+    }
+
+    fn empty_at(self, distance: Span, band: [f32; 2]) -> bool {
         if !distance.lo.is_finite() || !distance.hi.is_finite() {
             return false;
         }
-        if self.direction == SceneFadeDirection::Complement {
-            band = if band[0] < 0.0 {
-                [
-                    if band[0].to_bits() == (-2.0_f32).to_bits() {
-                        -1.0
-                    } else {
-                        -2.0
-                    },
-                    band[1],
-                ]
-            } else {
-                [band[0], -band[1]]
-            };
+        self.covered(distance_coverage(distance, self.directed(band)))
+    }
+
+    /// The band the coverage rules read: complement fades swap its sides.
+    fn directed(self, band: [f32; 2]) -> [f32; 2] {
+        if self.direction != SceneFadeDirection::Complement {
+            return band;
         }
-        let mut opacity = distance_coverage(distance, band);
+        if band[0] < 0.0 {
+            [
+                if band[0].to_bits() == (-2.0_f32).to_bits() {
+                    -1.0
+                } else {
+                    -2.0
+                },
+                band[1],
+            ]
+        } else {
+            [band[0], -band[1]]
+        }
+    }
+
+    /// Whether the fragment rules keep no fragment at `opacity`.
+    fn covered(self, mut opacity: Span) -> bool {
         if self.quantization == SceneFadeQuantization::Byte {
             opacity = opacity.byte();
         }
@@ -93,30 +139,114 @@ impl Fade {
             }
         }
     }
+}
 
-    fn distance(self, object: SceneObject, eye: Vec3) -> Span {
-        let model = model_matrix(object.transform());
-        let mut reference = model.w_axis.truncate().to_array().map(Span::point);
-        let mut eye = eye.to_array().map(Span::point);
-        if let Some(authored) = self.reference {
-            let local = authored
-                .offset_millimeters()
-                .map(|v| Span::point(millimeter_to_meter(i64::from(v))));
-            let linear = [model.x_axis, model.y_axis, model.z_axis].map(|v| v.to_array());
-            for axis in 0..3 {
-                reference[axis] = Span::sum4([
-                    reference[axis],
-                    Span::point(linear[0][axis]).mul(local[0]),
-                    Span::point(linear[1][axis]).mul(local[1]),
-                    Span::point(linear[2][axis]).mul(local[2]),
-                ]);
-            }
-            if let Some(clamp) = authored.eye_vertical_clamp_millimeters() {
-                eye[2] = eye[2]
-                    .maximum(reference[2].add(Span::point(millimeter_to_meter(i64::from(clamp)))));
-            }
+#[cfg(test)]
+impl Fade {
+    /// `empty` for one placement measured on its own.
+    pub fn empty_alone(self, object: worldrunner_render_plan::SceneObject, eye: Vec3) -> bool {
+        let references: Vec<_> = self.reference.into_iter().collect();
+        let anchors: Vec<_> = references
+            .iter()
+            .map(|&reference| Anchor::referenced(object.transform(), reference))
+            .collect();
+        let origin =
+            crate::geometry::millimeters_to_meters(object.transform().position_millimeters);
+        let mut distances = Distances::new(eye, origin.to_array(), &references, &anchors);
+        self.empty(object.fade().map(fade_band_meters), &mut distances)
+    }
+
+    fn distance(self, object: worldrunner_render_plan::SceneObject, eye: Vec3) -> Span {
+        self.reference
+            .map_or_else(
+                || {
+                    let origin = crate::geometry::millimeters_to_meters(
+                        object.transform().position_millimeters,
+                    );
+                    Anchor::origin(origin.to_array())
+                },
+                |reference| Anchor::referenced(object.transform(), reference),
+            )
+            .span(eye)
+    }
+}
+
+/// One placement's distances from one eye, per fade reference, so the materials it draws
+/// with measure each distance once. The eye-independent anchors come from the placement's
+/// slot: its origin and one anchor per reference in `references`.
+#[derive(Debug)]
+pub(crate) struct Distances<'a> {
+    eye: Vec3,
+    origin: [f32; 3],
+    references: &'a [SceneFadeReference],
+    anchors: &'a [Anchor],
+    measured_origin: Option<Measured>,
+    measured_reference: Option<(SceneFadeReference, Measured)>,
+}
+
+impl<'a> Distances<'a> {
+    pub fn new(
+        eye: Vec3,
+        origin: [f32; 3],
+        references: &'a [SceneFadeReference],
+        anchors: &'a [Anchor],
+    ) -> Self {
+        Self {
+            eye,
+            origin,
+            references,
+            anchors,
+            measured_origin: None,
+            measured_reference: None,
         }
-        Span::length(std::array::from_fn(|axis| eye[axis].sub(reference[axis])))
+    }
+
+    fn measure(&mut self, reference: Option<SceneFadeReference>) -> &mut Measured {
+        let eye = self.eye;
+        let Some(reference) = reference else {
+            let origin = self.origin;
+            return self
+                .measured_origin
+                .get_or_insert_with(|| Measured::new(Anchor::origin(origin), eye));
+        };
+        if self
+            .measured_reference
+            .as_ref()
+            .is_none_or(|(stored, _)| *stored != reference)
+        {
+            let index = self
+                .references
+                .iter()
+                .position(|&stored| stored == reference)
+                .expect("the slot holds an anchor for every reference its materials fade from");
+            self.measured_reference = Some((reference, Measured::new(self.anchors[index], eye)));
+        }
+        &mut self.measured_reference.as_mut().expect("measured above").1
+    }
+}
+
+/// The distance from one anchor: its estimate, and its interval once a band edge needs it.
+#[derive(Debug)]
+struct Measured {
+    anchor: Anchor,
+    eye: Vec3,
+    estimate: Option<Estimate>,
+    span: Option<Span>,
+}
+
+impl Measured {
+    fn new(anchor: Anchor, eye: Vec3) -> Self {
+        Self {
+            anchor,
+            eye,
+            estimate: anchor.estimate(eye),
+            span: None,
+        }
+    }
+
+    fn span(&mut self) -> Span {
+        let (anchor, eye) = (self.anchor, self.eye);
+        *self.span.get_or_insert_with(|| anchor.span(eye))
     }
 }
 
@@ -158,7 +288,13 @@ fn distance_coverage(distance: Span, [start, end]: [f32; 2]) -> Span {
 }
 
 #[cfg(test)]
+pub(crate) mod reference;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod distance_tests;
+
+#[cfg(test)]
+mod estimate_tests;

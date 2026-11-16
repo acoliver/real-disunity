@@ -206,8 +206,10 @@ pub enum FrameError {
     SsrSettings(&'static str),
     #[error("invalid or unsupported water setting: {0}")]
     WaterSettings(&'static str),
-    #[error("transparent features require unsupported cross-feature sorting")]
-    TransparentOrdering,
+    /// Two transparent features draw in the same entry. Transparent entries run in the order the
+    /// frame lists them, but the executor does not sort packets across features inside one entry.
+    #[error("{0} has more than one transparent feature; list each in its own entry")]
+    TransparentOrdering(PassEntry),
     #[error("scene exposure differs from the compiled fixed-exposure profile")]
     FixedExposureMismatch,
     #[error("invalid or unsupported SSAO setting: {0}")]
@@ -348,23 +350,24 @@ pub(crate) fn validate_frame_inputs(
     }
     Ok(())
 }
+/// Each transparent entry may hold one transparent feature. Entries run in the order the frame
+/// lists them, so water and alpha in separate entries compose in that order; several features in
+/// one entry would need their packets sorted against each other, which the executor does not do.
 fn validate_transparency(features: &[FeatureDeclaration]) -> Result<(), FrameError> {
-    // Water replaces radiance from an opaque snapshot. Combining transparent
-    // writers requires packet sorting, which this executor does not yet provide.
-    let water_count = features
+    let mut seen = std::collections::BTreeSet::new();
+    features
         .iter()
         .flat_map(|feature| &feature.passes)
-        .filter(|pass| pass.slot == PassSlot::TransparentWater)
-        .count();
-    if water_count > 1
-        || features
-            .iter()
-            .flat_map(|feature| &feature.passes)
-            .any(|pass| pass.slot == PassSlot::TransparentAlpha)
-    {
-        return Err(FrameError::TransparentOrdering);
-    }
-    Ok(())
+        .filter(|pass| {
+            matches!(
+                pass.slot,
+                PassSlot::TransparentWater | PassSlot::TransparentAlpha
+            )
+        })
+        .find(|pass| !seen.insert(pass.entry()))
+        .map_or(Ok(()), |pass| {
+            Err(FrameError::TransparentOrdering(pass.entry()))
+        })
 }
 /// Structural sample-count check, for callers that cannot ask the adapter.
 ///

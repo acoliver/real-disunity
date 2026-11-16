@@ -151,21 +151,32 @@ pub struct Attachment {
     pub mip: u32,
 }
 
-/// What a pass draws into: the color storage of one texture and the depth storage of the same or
-/// another. A texture with no color has none to offer, and a depth buffer under a color texture
-/// has one mip, so a pass whose depth does not fit the color is drawn without it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What a pass draws into: the color storage of one to eight textures, in the order of the
+/// fragment stage's outputs, and the depth storage of one texture, which may be a texture none
+/// of the colors is of. A texture with no color has none to offer, and a depth buffer under a
+/// color texture has one mip, so a pass whose depth does not fit the colors is drawn without it. Every color must have
+/// the size of the first at its mip, and no two colors are the same mip of one texture.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Attachments {
-    pub color: Option<Attachment>,
+    pub colors: Vec<Attachment>,
     pub depth: Option<Attachment>,
 }
 
 impl Attachments {
-    /// The textures the attachments are of: the color's, then the depth's.
-    pub fn textures(&self) -> impl Iterator<Item = TextureId> {
-        self.color
-            .into_iter()
-            .chain(self.depth)
+    /// A pass over at most one color, which a camera or a script names with one texture.
+    #[must_use]
+    pub fn single(color: Option<Attachment>, depth: Option<Attachment>) -> Self {
+        Self {
+            colors: color.into_iter().collect(),
+            depth,
+        }
+    }
+
+    /// The textures the attachments are of: the colors', then the depth's.
+    pub fn textures(&self) -> impl Iterator<Item = TextureId> + '_ {
+        self.colors
+            .iter()
+            .chain(&self.depth)
             .map(|attachment| attachment.texture)
     }
 }

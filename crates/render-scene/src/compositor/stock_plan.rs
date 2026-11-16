@@ -12,11 +12,11 @@
 //! the operations group. It is a function of the settings the renderer was built from, the
 //! extents and formats of what it allocated and what the caller authored, so it is cached under
 //! those ([`shape`]) and rebuilt only when they change. The **binding table** is the checked
-//! views those attachments select this frame. It is a function of the frame slot and of the
-//! allocations behind the renderer, so each schedule keeps the tables it has met and selects one
-//! by the allocations it is bound to. A moving camera, a rotating frame slot or a renderer
-//! replaced by an identical configuration therefore reuses the schedule and only changes the
-//! binding table.
+//! views those attachments select this frame. It is a function of the frame slot, the
+//! allocations behind the renderer and the caller views' retained-content permissions. Each
+//! schedule keeps the tables it has met and selects one by those inputs. A moving camera, a
+//! rotating frame slot or a renderer replaced by an identical configuration therefore reuses
+//! the schedule and only changes the binding table.
 //!
 //! Frames that have features the host registered are planned every time: a registered feature's
 //! plan is host code that may depend on anything, so nothing decides it but running it.

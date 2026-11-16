@@ -743,7 +743,8 @@ impl AttachmentView {
         self.retained = true;
         self
     }
-    pub(crate) fn retained(&self) -> bool {
+    /// Whether this view declares initialized contents from an earlier ordered submission.
+    pub fn retained(&self) -> bool {
         self.retained
     }
 

@@ -1219,6 +1219,8 @@ A frame with screen-space metadata can also split off its depth and normal prepa
 
 `FrameRenderer::capture_texture_keys` and `capture_effect_keys` give the write keys a capture needs when the prefix is submitted alone and the suffix prepared afterwards. A role stays a label: a read of an earlier resource must be declared and is checked like any other.
 
+Caller attachment bindings include the current view's retained-content permission. Changing that permission on the same texture resolves the bindings again. A `Load` without an earlier producer requires `AttachmentView::with_retained_contents()` on the current frame's view; a previously cached retained view cannot authorize it. Refusal occurs before feature preparation or submission. The two permission transitions are covered in `src/compositor/frozen_tests/retained_permission.rs`.
+
 The public composition regressions in `tests/stock_composition.rs` and its `stock_composition` children cover sampled stock depth and lit colour, prefix completion and retry behavior, and retained operations. The operation test checks one callback across prefix and suffix recording, no submission before the caller submits once, and exact red RGB through a readback copied in that encoder. The retry tests retain their distinct-backing and same-backing load-contract refusal controls; `stock_camera_taa.rs` keeps the warm velocity-to-plain regression.
 
 ## Native-resolution RCAS

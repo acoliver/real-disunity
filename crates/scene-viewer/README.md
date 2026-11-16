@@ -32,8 +32,9 @@ there is no ABI record or revision change. See the
 `pause_mask`, `pause(bits, ExistingVoices::{Continue, Suspend})` and `resume(bits)`
 forward to the same mixer under its existing lock. These controls and their
 `AudioCommand::{PauseMask, Pause, Resume}` forms work before startup and reject
-`Closed`; no second reason mask lives in the service. Device cleanup, null-device
-setup and output-rate changes preserve held reasons while cancelling voices.
+`Closed`; no second reason mask lives in the service. Device cleanup and null-device
+setup cancel voices while preserving held reasons. Accepted output-rate changes
+also preserve reasons but require empty voice and completion slots.
 The read-only query returns `Result<u32, AudioServiceError>`; its typed command
 returns `AudioReply::PauseMask`.
 

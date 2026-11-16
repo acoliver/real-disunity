@@ -263,8 +263,10 @@ fn gpu_dropped_prepared_reduction_cannot_start_mapping() {
 #[test]
 fn gpu_device_loss_stops_capture_before_fit() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let source = source(&context, [3.0; 4], true);
     let reducer = reducer(&context, &source);
     let prefix = reducer

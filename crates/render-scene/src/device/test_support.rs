@@ -3,6 +3,30 @@ use crate::test_support::SceneTestSession;
 use worldrunner_render_gpu::{submission::SubmissionAuthority, test_support::TestGpu};
 
 impl GpuContext {
+    /// [`GpuContext::request`] on render-gpu's test instance, for a test that needs a device of
+    /// its own. Production [`headless_instance`](worldrunner_render_gpu::device::headless_instance)
+    /// keeps `InstanceFlags::DEBUG` in debug builds, so its Vulkan devices load
+    /// `VK_EXT_debug_utils`, and parallel test devices crashed inside the loader naming objects
+    /// through it (hub issue 12ae16c68a94). The test instance loads no debug utils.
+    ///
+    /// # Errors
+    /// As [`GpuContext::request`].
+    pub async fn request_for_test() -> Result<Self, DeviceError> {
+        Self::request_with_features_for_test(REQUIRED_FEATURES).await
+    }
+
+    /// [`GpuContext::request_with_features`] on render-gpu's test instance; see
+    /// [`GpuContext::request_for_test`].
+    ///
+    /// # Errors
+    /// As [`GpuContext::request_with_features`].
+    pub async fn request_with_features_for_test(
+        required_features: wgpu::Features,
+    ) -> Result<Self, DeviceError> {
+        let instance = worldrunner_render_gpu::test_support::test_instance();
+        Self::from_instance_with_features(&instance, required_features).await
+    }
+
     /// Negotiates the production device request against this context's adapter.
     pub fn requested_features_for_test(&self, required: wgpu::Features) -> wgpu::Features {
         worldrunner_render_gpu::device::negotiate(

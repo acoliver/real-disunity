@@ -12,6 +12,7 @@ use super::SceneValidationError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerrainStreamingPolicy {
     chunk_intervals: u32,
+    minimum_leaf_texels: u32,
     maximum_resident_chunks: u32,
     uploads_per_frame: u32,
     split_error_millipixels: u32,
@@ -38,10 +39,26 @@ impl TerrainStreamingPolicy {
         }
         Ok(Self {
             chunk_intervals,
+            minimum_leaf_texels: chunk_intervals,
             maximum_resident_chunks,
             uploads_per_frame,
             split_error_millipixels,
         })
+    }
+    /// Sets the finest leaf span independently of the mesh cell cap. The default
+    /// equals `chunk_intervals`; smaller leaves keep one cell per source texel.
+    /// Rectangular grids and partial edge windows can have shorter axes.
+    pub fn with_minimum_leaf_texels(mut self, minimum: u32) -> Result<Self, SceneValidationError> {
+        if !minimum.is_power_of_two() || minimum > self.chunk_intervals {
+            return Err(SceneValidationError::UnsupportedInput {
+                part: "terrain minimum leaf texels must be a power of two at most the cell cap",
+            });
+        }
+        self.minimum_leaf_texels = minimum;
+        Ok(self)
+    }
+    pub const fn minimum_leaf_texels(self) -> u32 {
+        self.minimum_leaf_texels
     }
     pub const fn chunk_intervals(self) -> u32 {
         self.chunk_intervals
@@ -73,5 +90,19 @@ mod tests {
             assert!(TerrainStreamingPolicy::new(args.0, args.1, args.2, args.3).is_err());
         }
         assert!(TerrainStreamingPolicy::new(16, 64, 8, 2000).is_ok());
+    }
+
+    #[test]
+    fn minimum_leaf_span_is_validated_independently_of_the_cell_cap() {
+        let policy = TerrainStreamingPolicy::new(64, 1024, 8, 4000).unwrap();
+        assert_eq!(policy.minimum_leaf_texels(), 64);
+        for minimum in [0, 3, 128] {
+            assert!(policy.with_minimum_leaf_texels(minimum).is_err());
+        }
+        for minimum in [1, 16, 32, 64] {
+            let small = policy.with_minimum_leaf_texels(minimum).unwrap();
+            assert_eq!(small.minimum_leaf_texels(), minimum);
+            assert_eq!(small.chunk_intervals(), 64);
+        }
     }
 }

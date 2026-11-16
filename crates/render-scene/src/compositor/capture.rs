@@ -31,6 +31,11 @@ pub enum FeatureTarget {
     /// Available only with `SceneOpaquePath::GBUFFER_OBSERVATION`; it holds what the
     /// `OpaqueGbuffer` slot wrote in the last encoded frame, zero where nothing drew.
     Gbuffer(crate::gbuffer::GbufferTarget),
+    /// One output of the deferred lighting pass at the scene extent, in the scene colour
+    /// format: lit colour, and with reflections the environment contribution and factor.
+    /// Available only with `SceneOpaquePath::GBUFFER_OBSERVATION`; zero where no producer
+    /// wrote the G-buffer.
+    DeferredLighting(crate::gbuffer::lighting::LightingTarget),
 }
 
 /// Logical capture rectangle and sample-lane layout in an existing allocation.
@@ -82,6 +87,10 @@ impl FrameRenderer {
             FeatureTarget::Gbuffer(target) => {
                 self.gbuffer.as_ref().map(|gbuffer| gbuffer.texture(target))
             }
+            FeatureTarget::DeferredLighting(target) => self
+                .gbuffer
+                .as_ref()
+                .and_then(|gbuffer| gbuffer.lighting_texture(target)),
         }
     }
 

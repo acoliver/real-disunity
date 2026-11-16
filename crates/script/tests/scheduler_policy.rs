@@ -1,5 +1,8 @@
 //! The scheduler policy of a game's original engine (#147): each setting against the default.
 
+#[path = "scheduler_policy/pause_mask.rs"]
+mod pause_mask;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

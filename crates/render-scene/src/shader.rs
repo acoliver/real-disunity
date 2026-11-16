@@ -186,3 +186,6 @@ mod shadow_uniformity_tests;
 
 #[cfg(test)]
 mod skinning_tests;
+
+#[cfg(test)]
+mod contour_tests;

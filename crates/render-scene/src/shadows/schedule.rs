@@ -9,9 +9,40 @@ pub(super) struct ShadowSchedule {
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
     pub declaration: FeatureDeclaration,
+    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 
 impl ShadowSchedule {
+    pub fn prepared(
+        scheduler: &mut crate::compositor::FrameRenderer,
+        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
+        scene: (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        frame: &crate::frame::FrameUniform,
+        attachments: (&AttachmentView, &AttachmentView),
+        map: (&DepthMap, [bool; 4]),
+    ) -> Result<(Self, Option<crate::draw::ContourDraw>), ShadowError> {
+        let pipelines = scene.1;
+        let mut schedule = Self::new(map.0, attachments.0, attachments.1, pipelines, map.1)?;
+        schedule.deferred = schedule.complete(
+            scheduler,
+            scene,
+            (gpu.0, attachments.0.size()),
+            (pipelines.depth, pipelines.card_reject()),
+            (attachments.1.texture(), frame),
+        )?;
+        let contour = scheduler.plan_contours(
+            gpu,
+            scene,
+            frame,
+            (
+                &mut schedule.passes,
+                &mut schedule.views,
+                &mut schedule.declaration,
+            ),
+        )?;
+        Ok((schedule, contour))
+    }
+
     pub fn celestial(
         &mut self,
         gpu: &crate::draw::SceneGpu,
@@ -206,6 +237,7 @@ impl ShadowSchedule {
             passes,
             views,
             declaration,
+            deferred: None,
         })
     }
 }

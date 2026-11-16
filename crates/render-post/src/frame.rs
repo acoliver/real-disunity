@@ -22,6 +22,8 @@ pub enum PassSlot {
     /// scene colour and Opaque draws only the surfaces without a G-buffer producer.
     OpaqueLighting,
     Opaque,
+    /// Visible object IDs, tested against completed opaque depth without writing it.
+    ContourIds,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
     TransparentWater,

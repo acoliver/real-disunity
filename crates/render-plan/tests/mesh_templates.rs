@@ -36,6 +36,7 @@ fn layer(index: u32) -> SceneObject {
     .with_fade(SceneFadeBand::new(1_000 * (index + 1), 2_000 * (index + 1)).unwrap())
     .with_tint(SceneTint::new([250_000, 500_000 + index, 750_000]).unwrap())
     .with_casts_shadow(index == 0)
+    .with_contour_id(255)
 }
 
 impl MeshResolver for Layered {
@@ -105,6 +106,7 @@ fn template_fields_survive_and_only_the_transform_changes() {
     assert_eq!(scene.fade(), template.fade());
     assert_eq!(scene.tint(), template.tint());
     assert!(scene.casts_shadow());
+    assert_eq!(scene.contour_id(), 255);
     assert_eq!(
         (scene.mesh(), scene.material()),
         (template.mesh(), template.material())

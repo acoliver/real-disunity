@@ -59,6 +59,7 @@ impl FrameRenderer {
             frame: *frame,
             screen: Some(source.geometry_for_depth(depth_mode)),
             programs: None,
+            contour: None,
             deferred: None,
             renders: false,
         };
@@ -136,6 +137,7 @@ impl FrameRenderer {
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
             super::publication::key(&self.temporal),
+            super::publication::key(&self.contours.published),
         ]
     }
 }

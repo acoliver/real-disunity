@@ -1,23 +1,35 @@
 use super::{IDLE_TRANSACTIONS, MINIMUM_CHUNK_BYTES, MapState, Pool, Reservation};
 
-/// A pool over numbered fake buffers; `created` lists the sizes asked for.
+/// A pool over numbered fake buffers; `created` lists the sizes asked for and `limit` is the
+/// device's `max_buffer_size`.
 struct Fixture {
     pool: Pool<u32>,
     created: Vec<u64>,
+    limit: u64,
 }
 impl Fixture {
     fn new() -> Self {
+        Self::limited(wgpu::Limits::default().max_buffer_size)
+    }
+    fn limited(limit: u64) -> Self {
         Self {
             pool: Pool::default(),
             created: Vec::new(),
+            limit,
         }
     }
     fn reserve(&mut self, transaction: u64, len: u64) -> Reservation<u32> {
         let created = &mut self.created;
-        self.pool.reserve(transaction, len, |size| {
-            created.push(size);
-            u32::try_from(created.len()).unwrap()
-        })
+        let limit = self.limit;
+        self.pool.reserve(
+            transaction,
+            len,
+            || limit,
+            |size| {
+                created.push(size);
+                u32::try_from(created.len()).unwrap()
+            },
+        )
     }
     fn submit(&mut self, transaction: u64) -> Vec<MapState> {
         self.pool
@@ -183,4 +195,58 @@ fn empty_uploads_fail_fast() {
 #[should_panic(expected = "recording transaction")]
 fn staging_outside_a_transaction_fails_fast() {
     Fixture::new().reserve(0, 4);
+}
+
+#[test]
+fn a_chunk_is_never_larger_than_the_device_allows() {
+    // Below the minimum chunk: even the smallest upload gets a chunk of the whole limit.
+    let mut fixture = Fixture::limited(128 * 1024);
+    assert_eq!(fixture.reserve(1, 4), at(1, 0));
+    assert_eq!(fixture.created, [128 * 1024]);
+    // Between two powers of two, and not a multiple of the copy alignment.
+    for limit in [196_612, 196_614] {
+        let mut fixture = Fixture::limited(limit);
+        fixture.reserve(1, 4);
+        assert_eq!(fixture.created, [196_612]);
+    }
+}
+
+#[test]
+fn growth_stops_at_the_device_limit_and_an_upload_of_the_whole_limit_fits() {
+    let limit = 196_612;
+    let mut fixture = Fixture::limited(limit);
+    let mut len = 4;
+    while len < limit {
+        fixture.reserve(1, len);
+        len *= 2;
+    }
+    fixture.reserve(1, limit);
+    // 4 to 65,536 bytes share the first chunk; 131,072 and 196,612 each need another.
+    assert_eq!(fixture.created, [limit, limit, limit]);
+    for state in fixture.submit(1) {
+        state.complete(true);
+    }
+    assert_eq!(fixture.reserve(2, limit), at(1, 0));
+    assert_eq!(fixture.created.len(), 3);
+}
+
+#[test]
+fn the_device_limit_is_read_only_when_a_chunk_is_created() {
+    let mut fixture = Fixture::new();
+    fixture.reserve(1, 16);
+    let created = fixture.pool.reserve(
+        1,
+        16,
+        || panic!("a chunk with room needs no limit"),
+        |_| unreachable!("the recording chunk has room"),
+    );
+    assert_eq!(created, at(1, 16));
+}
+
+#[test]
+#[should_panic(
+    expected = "a staged upload of 196616 bytes exceeds the device's max_buffer_size of 196612 bytes"
+)]
+fn an_upload_larger_than_the_device_allows_fails_fast() {
+    Fixture::limited(196_612).reserve(1, 196_616);
 }

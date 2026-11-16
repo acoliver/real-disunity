@@ -220,6 +220,15 @@ fn public_stock_composition_forwards_admitted_offscreen_work() {
 
     check_offscreen_stages(readbacks, &device);
     check_pixels(&fixture.read(&output));
+    assert_eq!(
+        authority.submitted_serial(),
+        before + 1,
+        "offscreen work, the scene and their readbacks use the composed submission"
+    );
     check_timing(&fixture, &ids, &[STOCK, CALLER]);
-    assert_eq!(authority.submitted_serial(), before + 1);
+    assert_eq!(
+        authority.submitted_serial(),
+        before + 2,
+        "collecting completed-frame timestamps adds exactly one resolve submission"
+    );
 }

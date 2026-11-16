@@ -346,6 +346,26 @@ fn transaction_error(error: TransactionError) -> Result<(), PostError> {
 }
 
 #[test]
+fn a_factory_without_effects_needs_no_frame_and_still_validates_delta() {
+    let (device, _queue, authority) = noop();
+    let factory =
+        ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap();
+    assert!(!factory.has_effect_history());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    for (upload, result) in uploads(&factory, &mut encoder) {
+        assert_eq!(result, Ok(()), "{upload}");
+    }
+    for delta in [-1.0, 10.1, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            factory.prepare_effects(&mut encoder, 0, delta, false),
+            Err(PostError::FrameDelta),
+            "delta {delta}"
+        );
+    }
+    assert_eq!(authority.upload_staging(), StagingStatistics::default());
+}
+
+#[test]
 fn every_upload_outside_a_prepared_frame_reports_the_missing_transaction() {
     let (device, _queue, authority) = crate::upload_staging_tests::noop();
     let factory = factory(&device);

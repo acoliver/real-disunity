@@ -508,7 +508,10 @@ submission and replaced before each `Presented` callback. A snapshot identifies
 its renderer submission frame and published accepted scene generation. Frame IDs
 share the capture/timing sequence; capture-only subframes can leave gaps between
 ordinary snapshots. `presentation_budget_bytes` reports the
-effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
+effective presentation admission budget, including the admitted replacement peak.
+`resident_bytes` is the device's GPU memory census at submission, by resource class
+(textures, meshes, instances, shadow maps and the rest); classes the engine does not count
+yet read zero. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 

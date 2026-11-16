@@ -600,6 +600,9 @@ pub fn capture_scene_shadowed(
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
+    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
+    /// before Opaque, which draws only the rest.
+    renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     contour: Option<crate::draw::ContourDraw>,
@@ -616,6 +619,8 @@ struct ShadowFeature<'a> {
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
+    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
+    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     fn prepare(
@@ -670,7 +675,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
             let screen = self.screen.as_ref().expect("declared G-buffer producer");
             let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-            self.gpu.draw_gbuffer(pass, pipelines, group);
+            let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+            if self.renders {
+                self.publications
+                    .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
+            }
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
@@ -711,6 +720,19 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 );
             }
             pass.set_bind_group(2, &self.shadow_groups.object, &[]);
+            if context.slot == worldrunner_render_post::PassSlot::OpaqueLighting {
+                let inputs = self.deferred.as_ref().expect("declared lighting pass");
+                self.gpu
+                    .draw_deferred_lighting(pass, self.pipelines, inputs);
+                return;
+            }
+            if self.renders {
+                self.publications.record_remainder(
+                    self.gpu,
+                    self.gpu.draw_forward_remainder(pass, self.pipelines),
+                );
+                return;
+            }
             self.publications.record_color(
                 self.gpu,
                 self.gpu

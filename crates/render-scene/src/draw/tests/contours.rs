@@ -314,6 +314,38 @@ fn gpu_contour_quad_cutout_and_occlusion_exact_masks_on_both_paths() {
 }
 
 #[test]
+fn gpu_contour_gbuffer_render_matches_forward_ids() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded, Shape::Hidden] {
+        let forward = source(255, shape, true, false);
+        let effects = forward
+            .effects()
+            .unwrap()
+            .clone()
+            .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
+            .unwrap();
+        let deferred = forward
+            .with_objects_and_effects(forward.geometry().objects().to_vec(), Some(effects))
+            .unwrap();
+        let expected = Rig::new(&context, &forward, 1).draw(&context).mask.unwrap();
+        let mut rig = Rig::new(&context, &deferred, 1);
+        let actual = rig.draw(&context).mask.unwrap();
+        assert_eq!(actual, expected);
+        assert!(actual.contains(&0));
+        assert_eq!(actual.contains(&255), !matches!(shape, Shape::Hidden));
+        assert_eq!(
+            rig.renderer.contour_statistics(),
+            crate::ContourStatistics {
+                passes: 1,
+                targets: 1,
+                samples: 1
+            }
+        );
+    }
+}
+
+#[test]
 fn gpu_contour_unused_and_active_to_empty_are_byte_identical_and_absent() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

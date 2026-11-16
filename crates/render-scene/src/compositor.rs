@@ -10,6 +10,7 @@ pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
+mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
@@ -216,6 +217,7 @@ impl FrameRenderer {
                 worldrunner_render_plan::SceneEffects::opaque_path,
             ),
             config,
+            ssr_requested.is_some_and(|ssr| ssr.enabled),
         )?;
         let mut renderer = Self {
             contours: crate::contours::Targets::default(),
@@ -482,7 +484,7 @@ impl FrameRenderer {
             .as_mut()
             .filter(|gbuffer| gbuffer.size() != size)
         {
-            *gbuffer = crate::gbuffer::Gbuffer::new(device, size);
+            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)

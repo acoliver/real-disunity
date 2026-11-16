@@ -9,6 +9,7 @@ pub(super) struct ShadowSchedule {
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
     pub declaration: FeatureDeclaration,
+    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 
 impl ShadowSchedule {
@@ -22,36 +23,39 @@ impl ShadowSchedule {
     ) -> Result<(Self, Option<crate::draw::ContourDraw>), ShadowError> {
         let pipelines = scene.1;
         let mut schedule = Self::new(map.0, attachments.0, attachments.1, pipelines, map.1)?;
-        schedule.screen_space(scheduler, pipelines.writes_velocity(), pipelines.depth)?;
-        if pipelines.card_reject() {
-            debug_assert_eq!(pipelines.depth, crate::renderer::depth::DepthMode::Reuse);
-            schedule.card_reject_depth();
-        }
-        let contour = schedule.effects(scheduler, gpu, scene, frame, attachments.0.size())?;
+        schedule.deferred = schedule.complete(
+            scheduler,
+            scene,
+            (gpu.0, attachments.0.size()),
+            (pipelines.depth, pipelines.card_reject()),
+            (attachments.1.texture(), frame),
+        )?;
+        let contour = scheduler.plan_contours(
+            gpu,
+            scene,
+            frame,
+            (
+                &mut schedule.passes,
+                &mut schedule.views,
+                &mut schedule.declaration,
+            ),
+        )?;
         Ok((schedule, contour))
     }
 
-    pub fn effects(
+    pub fn celestial(
         &mut self,
-        scheduler: &mut crate::compositor::FrameRenderer,
-        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
-        scene: (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-        frame: &crate::frame::FrameUniform,
+        gpu: &crate::draw::SceneGpu,
+        device: &wgpu::Device,
         size: [u32; 2],
-    ) -> Result<Option<crate::draw::ContourDraw>, worldrunner_render_post::FrameError> {
-        scene.0.plan_celestial(
-            gpu.0,
+    ) {
+        gpu.plan_celestial(
+            device,
             size,
             &mut self.passes,
             &mut self.views,
             &mut self.declaration,
         );
-        scheduler.plan_contours(
-            gpu,
-            scene,
-            frame,
-            (&mut self.passes, &mut self.views, &mut self.declaration),
-        )
     }
 
     /// Adds the velocity attachment, when the receivers write one, and the screen-space passes.
@@ -120,6 +124,47 @@ impl ShadowSchedule {
             .map(|attachment| attachment.format)
             .collect();
         Ok(())
+    }
+
+    /// Adds the screen-space passes, the relief cards' read of the Opaque depth when they
+    /// reject against it, the celestial pass and, with the G-buffer observation, the deferred
+    /// lighting pass, whose inputs for `frame` it returns.
+    pub fn complete(
+        &mut self,
+        scheduler: &crate::compositor::FrameRenderer,
+        (gpu, selected): (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        (device, size): (&wgpu::Device, [u32; 2]),
+        (depth_mode, card_reject): (crate::renderer::depth::DepthMode, bool),
+        (depth, frame): (&wgpu::Texture, &crate::frame::FrameUniform),
+    ) -> Result<Option<crate::gbuffer::lighting::LightingInputs>, worldrunner_render_post::FrameError>
+    {
+        self.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
+        if card_reject {
+            debug_assert_eq!(depth_mode, crate::renderer::depth::DepthMode::Reuse);
+            self.card_reject_depth();
+        }
+        self.celestial(gpu, device, size);
+        scheduler.prepare_deferred_lighting(
+            device,
+            (gpu, selected),
+            (
+                self.scene_depth(),
+                depth,
+                depth_mode == crate::renderer::depth::DepthMode::Reuse,
+            ),
+            frame,
+            &mut self.declaration,
+        )
+    }
+
+    /// The scene depth as the Opaque pass declares it.
+    pub fn scene_depth(&self) -> ResourceRef {
+        self.passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref())
+            .expect("opaque depth")
+            .resource
     }
 
     /// Attaches the Opaque depth read-only and declares the pass's sampled read of it, for
@@ -192,6 +237,7 @@ impl ShadowSchedule {
             passes,
             views,
             declaration,
+            deferred: None,
         })
     }
 }

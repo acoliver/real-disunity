@@ -261,9 +261,29 @@ fn total<'a>(
     sets: impl IntoIterator<Item = &'a AllocationSet>,
     limits: &wgpu::Limits,
 ) -> Result<u64, &'static str> {
+    total_where(sets, limits, |_| true)
+}
+/// [`total`] of the entries that live on the GPU, without CPU-side storage.
+fn gpu_total<'a>(
+    sets: impl IntoIterator<Item = &'a AllocationSet>,
+    limits: &wgpu::Limits,
+) -> Result<u64, &'static str> {
+    total_where(sets, limits, |entry| {
+        !matches!(entry.storage, Storage::Cpu(_))
+    })
+}
+fn total_where<'a>(
+    sets: impl IntoIterator<Item = &'a AllocationSet>,
+    limits: &wgpu::Limits,
+    keep: impl Fn(&Allocation) -> bool,
+) -> Result<u64, &'static str> {
     let mut shared: Vec<&Allocation> = Vec::new();
     let mut bytes = 0;
-    for entry in sets.into_iter().flat_map(|set| &set.0) {
+    for entry in sets
+        .into_iter()
+        .flat_map(|set| &set.0)
+        .filter(|entry| keep(entry))
+    {
         let size = allocation_bytes(entry, limits)?;
         if entry.shared {
             if let Some(previous) = shared.iter().find(|previous| previous.name == entry.name) {
@@ -277,6 +297,11 @@ fn total<'a>(
         bytes = add(bytes, size)?;
     }
     Ok(bytes)
+}
+/// The census entry of a counted configuration and the limits its sizes are taken under.
+struct Counted {
+    limits: wgpu::Limits,
+    entry: crate::census::CensusEntry,
 }
 struct Generation<T> {
     value: T,
@@ -294,6 +319,7 @@ pub struct Configuration<T> {
     policy: AllocationBudgetPolicy,
     authority: SubmissionAuthority,
     reservations: Vec<std::sync::Weak<AllocationSet>>,
+    census: Option<Counted>,
 }
 impl<T> Configuration<T> {
     pub fn new(
@@ -325,7 +351,33 @@ impl<T> Configuration<T> {
             budget,
             policy,
             authority: authority.clone(),
+            census: None,
         })
+    }
+    /// Counts the GPU bytes of the current and retired generations' admitted allocation sets
+    /// in the authority's census under `class`, until each generation retires. Reservations
+    /// are not counted: what they reserve is counted where it is created.
+    #[must_use]
+    pub fn counted(mut self, class: crate::census::ResourceClass, limits: &wgpu::Limits) -> Self {
+        self.census = Some(Counted {
+            limits: limits.clone(),
+            entry: self.authority.census().track(class, 0),
+        });
+        self.recount();
+        self
+    }
+    fn recount(&mut self) {
+        let Some(counted) = &self.census else {
+            return;
+        };
+        let sets = std::iter::once(&self.allocations)
+            .chain(self.retired.iter().map(|old| &old.allocations));
+        // Admission already validated every set, so a size error cannot occur here.
+        let bytes = gpu_total(sets, &counted.limits).unwrap_or(0);
+        let entry = self.authority.census().track(counted.entry.class(), bytes);
+        if let Some(counted) = &mut self.census {
+            counted.entry = entry;
+        }
     }
     pub fn uses_authority(&self, authority: &SubmissionAuthority) -> bool {
         self.authority.same_authority(authority)
@@ -356,6 +408,7 @@ impl<T> Configuration<T> {
             let _ = &old.value;
             old.last_submission > complete
         });
+        self.recount();
     }
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         let reservations: Vec<_> = self

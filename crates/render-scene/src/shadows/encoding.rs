@@ -37,6 +37,7 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
         Self::prepare_terrain_passes(
             (&self.gpu, &self.terrain_caster, object_casters),
@@ -64,19 +65,12 @@ impl ShadowedScene {
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
-        let shadow_groups = scheduler.shadow_groups(
+        let shadow_groups = map.receiver_groups(
+            scheduler,
             context.device(),
-            (
-                &map.group,
-                crate::scene_metadata::receiver::ShadowInputs {
-                    uniform: &map.uniform,
-                    depth: map.depth.receiver_view(),
-                    sampler: &map.sampler,
-                },
-            ),
             selected.card_reject().then_some(depth),
         );
-        let (schedule, contour) = schedule::ShadowSchedule::prepared(
+        let (mut schedule, contour) = schedule::ShadowSchedule::prepared(
             scheduler,
             (context.device(), encoder),
             (&self.gpu, &selected),
@@ -86,6 +80,11 @@ impl ShadowedScene {
         )?;
         let mut feature = ShadowFeature {
             contour,
+            deferred: schedule.deferred.take(),
+            renders: scheduler
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders),
             publications: crate::draw::DrawPublications::default(),
             screen,
             gpu: &mut self.gpu,

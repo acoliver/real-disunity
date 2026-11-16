@@ -87,6 +87,7 @@ fn build(
             device,
             settings.opaque_path,
             settings.frame,
+            settings.ssr.is_some_and(|ssr| ssr.enabled),
         )?,
     };
     renderer.install_reflections(device)?;

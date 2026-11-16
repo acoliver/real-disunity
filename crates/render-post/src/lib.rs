@@ -90,6 +90,7 @@ mod cmaa2;
 mod cmaa2_gpu;
 #[cfg(test)]
 mod cmaa2_tests;
+mod frame_upload;
 mod fxaa;
 mod hdr_taa;
 #[cfg(test)]

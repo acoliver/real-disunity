@@ -1,7 +1,6 @@
 //! Retained HDR effects. GPU state belongs to admitted frame slots, not queue writes.
 use crate::scene_color::{self, Read};
 use crate::{FrameTargets, PostError, Stage, StageSet};
-use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AdaptiveExposure {
@@ -230,6 +229,10 @@ impl HdrPost {
         self.taa_history.settle(accepted);
     }
     /// Uploads the TAA block of `slot`; `None` uploads zeros, which reads as no history.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare_taa(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -242,7 +245,8 @@ impl HdrPost {
     ///
     /// # Errors
     ///
-    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    /// [`PostError::UnsupportedProfile`] for an invalid block, [`PostError::Frame`] when `encoder`
+    /// is not the one of a prepared frame.
     pub fn prepare_temporal(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -256,6 +260,10 @@ impl HdrPost {
         self.taa_history.parity().select(odd);
     }
     /// Uploads the camera term of the temporal stage of `slot`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare_temporal_camera(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -274,6 +282,12 @@ impl HdrPost {
     pub(crate) fn exposure_step_buffer(&self, slot: usize) -> &wgpu::Buffer {
         &self.frame[slot]
     }
+    /// Uploads the exposure step of `slot`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::FrameDelta`] for an invalid effective delta, before anything is staged;
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -292,15 +306,7 @@ impl HdrPost {
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect();
-        let staging = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("immutable exposure step"),
-                contents: &bytes,
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
-        encoder.copy_buffer_to_buffer(&staging, 0, &self.frame[slot], 0, 16);
-        Ok(())
+        crate::frame_upload::stage_copy(&self.device, encoder, &self.frame[slot], &bytes)
     }
     pub fn build(
         &self,

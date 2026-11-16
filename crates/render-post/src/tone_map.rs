@@ -129,6 +129,14 @@ impl ToneMapOutput {
     }
     /// Validate the effective delta (finite, 0..=10 seconds) before any upload.
     /// A fixed capture delta overrides host timing, including invalid host values.
+    /// The upload is staged in the frame `encoder` records, so call this inside a
+    /// `SubmissionAuthority` frame; without effects nothing is uploaded and no frame is needed.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::FrameDelta`] for an invalid delta; [`PostError::Frame`] with
+    /// `TransactionError::Missing` outside a frame or `ForeignEncoder` for another encoder.
+    /// Nothing is staged then.
     pub fn prepare_effects(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -145,6 +153,10 @@ impl ToneMapOutput {
     }
     /// Uploads the TAA block of `slot`; `None` uploads zeros, so the resolve ignores history.
     /// Without effects there is nothing to upload to.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] as for [`Self::prepare_effects`].
     pub fn prepare_taa(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -159,7 +171,8 @@ impl ToneMapOutput {
     ///
     /// # Errors
     ///
-    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    /// [`PostError::UnsupportedProfile`] for an invalid block, before anything is staged;
+    /// [`PostError::Frame`] as for [`Self::prepare_effects`].
     pub fn prepare_temporal(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -182,6 +195,10 @@ impl ToneMapOutput {
     }
     /// Uploads the camera term of the temporal stage of `slot`. Without effects there is nothing
     /// to upload to. A slot that never receives one applies the object residual alone.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] as for [`Self::prepare_effects`].
     pub fn prepare_temporal_camera(
         &self,
         encoder: &mut wgpu::CommandEncoder,

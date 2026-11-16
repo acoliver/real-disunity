@@ -39,3 +39,42 @@ fn windowless_statistics_report_resident_bytes_by_class() {
     );
     run.shutdown().unwrap();
 }
+
+#[test]
+fn windowless_steady_frames_reuse_upload_staging() {
+    let mut driver = Driver::default();
+    let host = host(crate::renderer::retained_tests::source());
+    let mut run = host.windowless(&mut driver).unwrap();
+    let mut staging = Vec::new();
+    // A frame is skipped while every flight slot is busy; polling lets earlier frames retire.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
+    while staging.len() < 24 {
+        assert!(std::time::Instant::now() < deadline, "{staging:?}");
+        if run.frame().unwrap() {
+            staging.push(run.host().statistics().unwrap().upload_staging);
+        } else {
+            run.poll().unwrap();
+        }
+    }
+    // Every frame uploads at least its frame uniforms through the staging.
+    assert!(
+        staging
+            .windows(2)
+            .all(|pair| pair[1].uploads > pair[0].uploads),
+        "{staging:?}"
+    );
+    // Admission bounds the frames in flight, so the pool settles and stops creating chunks.
+    assert!(
+        staging[8..]
+            .iter()
+            .all(|stats| stats.chunks_created == staging[8].chunks_created),
+        "{staging:?}"
+    );
+    let resident = run.host().statistics().unwrap().resident_bytes;
+    assert_eq!(
+        resident.get(crate::ResourceClass::Staging),
+        staging[23].bytes,
+        "{resident}"
+    );
+    run.shutdown().unwrap();
+}

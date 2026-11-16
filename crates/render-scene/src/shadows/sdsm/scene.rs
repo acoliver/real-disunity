@@ -250,6 +250,11 @@ impl ShadowedScene {
         suffix.push(crate::compositor::publication::key(&self.refresh));
         suffix.extend(self.scheduler.capture_write_keys());
         suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
+        suffix.extend(self.scheduler.capture_contour_keys(
+            input.context.device(),
+            &self.gpu,
+            input.attachments.1,
+        )?);
         let celestial = self
             .gpu
             .capture_celestial_textures(input.context.device(), input.attachments.0.size());

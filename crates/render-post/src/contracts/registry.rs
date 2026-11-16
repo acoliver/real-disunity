@@ -214,6 +214,7 @@ impl ResourceRegistry {
         let layers = range.layers.end - range.layers.start;
         let width = entry.texture.width();
         let height = entry.texture.height();
+        let volume = entry.texture.dimension() == wgpu::TextureDimension::D3;
         let valid = match dimension {
             wgpu::TextureViewDimension::D2 => layers == 1,
             wgpu::TextureViewDimension::D2Array => true,
@@ -223,9 +224,14 @@ impl ResourceRegistry {
             wgpu::TextureViewDimension::CubeArray => {
                 layers.is_multiple_of(6) && width == height && entry.texture.sample_count() == 1
             }
-            _ => false,
+            // A volume is tracked as one cell, so only one slice deep has a view.
+            wgpu::TextureViewDimension::D3 => {
+                layers == 1 && entry.texture.depth_or_array_layers() == 1
+            }
+            wgpu::TextureViewDimension::D1 => false,
         };
         if !valid
+            || volume != (dimension == wgpu::TextureViewDimension::D3)
             || (entry.texture.sample_count() > 1
                 && (dimension != wgpu::TextureViewDimension::D2 || range.mips.len() != 1))
         {
@@ -271,8 +277,10 @@ fn validate_range(entry: &Allocation, range: &TextureRange) -> Result<(), Contra
         wgpu::TextureAspect::StencilOnly => format.has_stencil_aspect(),
         _ => false,
     };
-    if texture.dimension() != wgpu::TextureDimension::D2
-        || !aspect_valid
+    if !matches!(
+        texture.dimension(),
+        wgpu::TextureDimension::D2 | wgpu::TextureDimension::D3
+    ) || !aspect_valid
         || range.mips.start >= range.mips.end
         || range.mips.end > texture.mip_level_count()
         || range.layers.start >= range.layers.end

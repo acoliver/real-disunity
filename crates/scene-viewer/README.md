@@ -515,7 +515,9 @@ ordinary snapshots. `presentation_budget_bytes` reports the
 effective presentation admission budget, including the admitted replacement peak.
 `resident_bytes` is the device's GPU memory census at submission, by resource class
 (textures, meshes, instances, shadow maps and the rest); classes the engine does not count
-yet read zero. Polling, capture-only work and queued
+yet read zero. `upload_staging` counts the device's reusable upload staging since startup:
+chunks created and held, uploads and uploaded bytes. Steady frames reuse chunks, so
+`chunks_created` stops growing once the frames in flight have settled. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 

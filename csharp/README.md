@@ -43,7 +43,9 @@ After an intentional ABI change:
    152-byte `DisunityUiDraw`. Distance draws require textured affine text quads.
    The record also carries optional BL/BR/TR/TL linear RGBA corner multipliers in
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
-   and all channels must be finite and in 0..=1. Native and managed hosts reject
+   and all channels must be finite and in 0..=1. Revision 12 adds the camera target
+   buffers calls (`disunity_camera_target_buffers_write` and `_read`) and the buffer
+   arguments of `disunity_offscreen_setup_camera`. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

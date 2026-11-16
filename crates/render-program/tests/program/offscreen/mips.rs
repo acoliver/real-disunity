@@ -114,13 +114,13 @@ fn write_level(frame: &mut OffscreenFrame, mip: u32) {
     frame.records.insert(
         at,
         Record::Clear {
-            target: Attachments {
-                color: Some(Attachment {
+            target: Attachments::single(
+                Some(Attachment {
                     texture: CAMERA_TARGET,
                     mip,
                 }),
-                depth: None,
-            },
+                None,
+            ),
             clear: Clear {
                 color: Some([0.0, 0.0, 1.0, 1.0]),
                 ..Clear::default()

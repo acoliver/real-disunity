@@ -48,7 +48,7 @@ internal static unsafe class CommandWireReader
             7 => $"Keyword {input.Text()}={input.Bool()}",
             8 => $"Allocate {input.I32()} {input.Texture()}",
             9 => $"Release {input.I32()}",
-            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()}",
+            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()} buffers={input.Optional(input.Buffers)}",
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
@@ -101,6 +101,13 @@ internal static unsafe class CommandWireReader
         }
 
         public string Optional(Func<string> read) => U8() == 0 ? "-" : read();
+
+        /// <summary>A camera's target buffers: the color render textures in order, then the depth render texture or <c>-</c>.</summary>
+        public string Buffers()
+        {
+            var colors = List(U64);
+            return $"[{string.Join(",", colors)}]/{Optional(() => U64().ToString())}";
+        }
 
         public string Target() => U8() switch
         {

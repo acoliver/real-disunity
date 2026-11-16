@@ -30,6 +30,7 @@ impl World {
                 view,
                 projection,
                 target,
+                buffers,
             } => {
                 self.check_camera(*camera)?;
                 if view
@@ -38,6 +39,17 @@ impl World {
                     .any(|value| !value.is_finite())
                 {
                     return Err(GraphicsError::NotFinite.into());
+                }
+                if let Some(buffers) = buffers {
+                    // The buffers are the camera's own target, which only the camera target names.
+                    if *target != TargetRef::CameraTarget {
+                        return Err(GraphicsError::InvalidCameraBuffers.into());
+                    }
+                    return buffers
+                        .colors()
+                        .iter()
+                        .chain(&buffers.depth())
+                        .try_for_each(|id| self.render_texture(*id).map(drop));
                 }
                 match target {
                     TargetRef::Render(id) => self.render_texture(*id).map(drop),

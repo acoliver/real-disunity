@@ -225,7 +225,7 @@ pub(super) fn products(device: &wgpu::Device, config: FrameConfig) -> [wgpu::Tex
         })
     })
 }
-pub(super) fn resources() -> [ResourceRef; 2] {
+pub(crate) fn resources() -> [ResourceRef; 2] {
     [
         crate::frame::metadata::FrameProduct::forward_specular(1).resource(),
         crate::frame::metadata::FrameProduct::reflection_factor(1).resource(),

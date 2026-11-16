@@ -9,7 +9,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::{
     SceneView,
-    compositor::{FrameRenderer, prepare_stock_scene},
+    compositor::{FrameRenderer, encode_scene, prepare_stock_scene},
     device::GpuContext,
     draw::SceneGpu,
     executor::{
@@ -82,6 +82,47 @@ impl CameraTaaFrame {
             )
             .unwrap();
         encoder.finish().submit().unwrap();
+    }
+
+    fn complete_velocity_frame(&mut self, camera: &SceneView) {
+        let device = self.context.device().clone();
+        let authority = self.context.submission().clone();
+        let uniform = FrameUniform::new(camera, Some(&self.effects)).unwrap();
+        let mut encoder = authority.begin(&device).unwrap();
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            self.renderer.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            self.renderer.targets().depth().texture(),
+        )
+        .unwrap();
+        encode_scene(
+            &mut self.renderer,
+            &device,
+            &mut encoder,
+            (&mut self.gpu, &self.pipelines),
+            (&color, &depth),
+            uniform,
+        )
+        .unwrap();
+        self.renderer
+            .encode_output(
+                &mut encoder,
+                &self
+                    .output
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            )
+            .unwrap();
+        encoder.finish().submit().unwrap();
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(30)),
+            })
+            .unwrap();
     }
 
     fn encode_prefix(
@@ -231,6 +272,45 @@ fn public_stock_depth_prefix_plain_pipelines_keep_camera_only_taa() {
     frame
         .context
         .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(30)),
+        })
+        .unwrap();
+    assert!(pollster::block_on(validation.pop()).is_none());
+}
+
+#[test]
+fn public_stock_depth_prefix_drops_completed_velocity_for_plain_pipelines() {
+    let _session = SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        .expect("velocity transition regression requires a real adapter; never skip");
+    let device = context.device().clone();
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut frame = CameraTaaFrame::new(context);
+    frame.pipelines =
+        ScenePipelines::with_ssao_taa_velocity(&device, wgpu::TextureFormat::Rgba16Float, 1)
+            .unwrap();
+    assert!(frame.pipelines.writes_velocity());
+    frame.complete_velocity_frame(&view(0));
+    assert_eq!(frame.renderer.projection_jitter_index(), 1);
+    assert!(frame.renderer.has_temporal_history());
+    let velocity = frame.renderer.targets().velocity_texture().unwrap().clone();
+    frame.pipelines =
+        ScenePipelines::with_ssao(&device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    assert!(!frame.pipelines.writes_velocity());
+    for camera in [view(1_500), view(0)] {
+        let jitter = frame.renderer.projection_jitter_index();
+        frame.encode_frame(&camera);
+        assert_eq!(frame.renderer.projection_jitter_index(), jitter + 1);
+        assert!(frame.renderer.has_temporal_history());
+        assert_eq!(frame.renderer.targets().velocity_texture(), Some(&velocity));
+    }
+    let draws = frame.gpu.statistics().passes;
+    assert!(draws.prepass_objects.meshes.calls > 0, "{draws:?}");
+    assert_eq!(draws.prepass_objects.meshes.instances, 1, "{draws:?}");
+    assert_eq!(draws.opaque_objects.meshes.calls, 0, "{draws:?}");
+    device
         .poll(wgpu::PollType::Wait {
             submission_index: None,
             timeout: Some(Duration::from_secs(30)),

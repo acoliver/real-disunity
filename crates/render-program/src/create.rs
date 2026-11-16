@@ -172,7 +172,24 @@ impl ProgramRuntime {
         self.create_source_texture(label, TextureKind::Cube, [edge, edge], format, bytes)
     }
 
-    /// The upload of a 2D texture (one layer) or a cube (six), `size` being one face.
+    /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. The texture is sampled through a
+    /// 3D view. A deeper volume has no upload.
+    ///
+    /// # Errors
+    /// Fails as for a 2D texture, and when the device's 3D extent limit is below the slice.
+    pub fn create_texture_3d(
+        &mut self,
+        label: &str,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::D3, size, format, bytes)
+    }
+
+    /// The upload of a 2D texture (one layer), a one-slice 3D texture or a cube (six layers),
+    /// `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,

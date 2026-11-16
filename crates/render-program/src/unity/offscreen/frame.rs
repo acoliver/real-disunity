@@ -76,7 +76,9 @@ impl RenderDimension {
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
-/// creates the texture again when anything but the id changes.
+/// creates the texture again, empty, when a field that shapes its storage changes (see
+/// [`same_storage`](Self::same_storage)). A rise of `generation` alone, which is what a sampler
+/// edit makes, keeps the texture and its contents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
@@ -98,6 +100,20 @@ impl RenderTextureSpec {
     #[must_use]
     pub const fn layers(&self) -> u32 {
         self.dimension.layers()
+    }
+
+    /// Whether a texture made from `self` can serve `other`: every field but `generation` is
+    /// the same, so the storage has the same shape, format and size and keeps what it holds.
+    /// `generation` is how the host says the texture was edited, and a sampler edit changes no
+    /// storage. The one rule that decides when storage is made again, for the state's creation
+    /// of the texture and for its count of the bytes a frame would add.
+    #[must_use]
+    pub fn same_storage(&self, other: &Self) -> bool {
+        let without_generation = |spec: &Self| Self {
+            generation: 0,
+            ..spec.clone()
+        };
+        without_generation(self) == without_generation(other)
     }
 }
 
@@ -323,6 +339,9 @@ pub struct UndeclaredTextures {
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
+    /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
+    /// a [`SourceDimension::D3`] source.
+    pub d3: Option<TextureId>,
 }
 
 impl UndeclaredTextures {
@@ -331,6 +350,7 @@ impl UndeclaredTextures {
         match view {
             wgpu::TextureViewDimension::D2 => self.d2,
             wgpu::TextureViewDimension::Cube => self.cube,
+            wgpu::TextureViewDimension::D3 => self.d3,
             _ => None,
         }
     }
@@ -365,6 +385,10 @@ pub enum SourceDimension {
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
     /// +Z, -Z, each as a 2D level is.
     Cube,
+    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
+    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
+    /// volume is not an upload.
+    D3,
 }
 
 /// A texture the host uploads once: uncompressed, one mip.

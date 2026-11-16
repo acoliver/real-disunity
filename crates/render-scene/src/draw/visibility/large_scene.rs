@@ -2,7 +2,9 @@
 //!
 //! Placements spread over a 2.4 km square, mostly in clusters like woods, with several
 //! meshes whose levels draw through material slots, impostor cards with fade bands and
-//! per-placement terminal fades. Views follow a walking camera with four shadow cascades.
+//! per-placement terminal fades. Like a game's prefabs, mesh materials fade through byte
+//! threshold grids and card materials measure from authored references with an eye clamp.
+//! Views follow a walking camera with four shadow cascades.
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::*;
 
@@ -63,8 +65,11 @@ const YAWS: [(i64, i64); 8] = [
     (707_107, -707_107),
     (382_683, -923_880),
 ];
-/// Plain, fading-in, terminal and complement materials; see `materials`.
+/// Threshold, fading-in, terminal, complement and referenced materials; see `materials`.
 const MATERIALS: u32 = 8;
+const THRESHOLDS: [u8; 16] = [
+    1, 136, 34, 170, 204, 68, 238, 102, 51, 187, 17, 153, 254, 119, 221, 85,
+];
 
 fn vertex(position: [i64; 3]) -> SceneVertex {
     SceneVertex {
@@ -141,19 +146,59 @@ fn atlas(band: SceneFadeBand) -> SceneImpostor {
         .with_fade(band)
 }
 
-fn materials(base: &SceneMaterial) -> Vec<SceneMaterial> {
+/// An R8 threshold grid; the material tables below append two after the base textures.
+fn grid(bytes: [u8; 16]) -> SceneTexture {
+    SceneTexture::Texels {
+        format: TexelFormat::R8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 4,
+        height: 4,
+        mips: 1,
+        bytes: bytes.to_vec().into(),
+    }
+}
+
+fn threshold(texture: u32) -> SceneFadeCoverage {
+    SceneFadeCoverage::Threshold {
+        texture: TextureHandle::from_raw(texture),
+        jitter_pixels: [0; 2],
+    }
+}
+
+fn reference(offset: [i32; 3], clamp: Option<u32>) -> SceneFadeReference {
+    let reference = SceneFadeReference::new(offset);
+    clamp.map_or(reference, |clamp| {
+        reference.with_eye_vertical_clamp(clamp).unwrap()
+    })
+}
+
+/// Materials over `textures` base textures followed by a grid without and one with a zero.
+fn materials(base: &SceneMaterial, textures: u32) -> Vec<SceneMaterial> {
     let base = *base;
+    let above_zero = threshold(textures);
+    let with_zero = threshold(textures + 1);
+    let byte = SceneFadeQuantization::Byte;
     vec![
-        base,
-        base,
+        base.with_fade_coverage(above_zero)
+            .with_fade_quantization(byte),
+        base.with_fade_coverage(with_zero)
+            .with_fade_quantization(byte),
         base.with_impostor(atlas(band(30, 20, false))),
-        base.with_impostor(atlas(band(120, 30, true))),
+        base.with_impostor(atlas(band(120, 30, true)))
+            .with_fade_coverage(above_zero)
+            .with_fade_direction(SceneFadeDirection::Complement)
+            .with_fade_reference(reference([0, 0, 4000], Some(10))),
         base.with_impostor(atlas(band(250, 50, true)))
-            .with_fade_direction(SceneFadeDirection::Keep),
+            .with_fade_direction(SceneFadeDirection::Keep)
+            .with_fade_reference(reference([0, 0, 3000], Some(10))),
         base.with_impostor(atlas(band(80, 40, false)))
-            .with_fade_direction(SceneFadeDirection::Complement),
-        base.with_impostor(atlas(band(400, 100, true))),
-        base.with_impostor(atlas(band(60, 0, true))),
+            .with_fade_direction(SceneFadeDirection::Complement)
+            .with_fade_reference(reference([500, -200, 1500], None)),
+        base.with_impostor(atlas(band(400, 100, true)))
+            .with_fade_reference(reference([-300, 700, 2500], Some(0))),
+        base.with_impostor(atlas(band(60, 0, true)))
+            .with_fade_coverage(above_zero)
+            .with_fade_quantization(byte),
     ]
 }
 
@@ -186,7 +231,7 @@ fn placement(rng: &mut Rng, clusters: &[[i64; 2]], meshes: u32) -> SceneObject {
         MaterialHandle::from_raw(material),
     )
     .with_casts_shadow(rng.chance(85));
-    if rng.chance(40) {
+    if rng.chance(75) {
         let start = 40 + rng.below(360);
         object = object.with_fade(band(start, 5 + rng.below(40), rng.chance(80)));
     }
@@ -198,24 +243,88 @@ fn placement(rng: &mut Rng, clusters: &[[i64; 2]], meshes: u32) -> SceneObject {
     object
 }
 
-/// A world of `placements` objects drawn with `meshes` meshes and eight materials.
+/// A skinned mesh of two box levels bound to joint 0, the last mesh of the world.
+fn skinned_mesh() -> SceneMesh {
+    let influence = SceneSkinInfluence {
+        joints: [0; 4],
+        weights: [255, 0, 0, 0],
+    };
+    let levels = [0, 1].map(|index| {
+        level(index, [1_500, 1_000, 1_800])
+            .with_skin_influences(SkeletonHandle::from_raw(0), vec![influence; 2])
+            .unwrap()
+    });
+    SceneMesh::with_distances(levels.to_vec(), vec![35_000, 150_000]).unwrap()
+}
+
+/// Rest, carried two metres east, and turned a quarter about +z.
+fn skin_poses() -> Vec<SceneSkinPose> {
+    let moved = SceneAffineMatrix {
+        translation_millimeters: [2_000, 0, 0],
+        ..SceneAffineMatrix::IDENTITY
+    };
+    let turned = SceneAffineMatrix {
+        linear_micro: [[0, -1_000_000, 0], [1_000_000, 0, 0], [0, 0, 1_000_000]],
+        translation_millimeters: [0; 3],
+    };
+    [SceneAffineMatrix::IDENTITY, moved, turned]
+        .map(|matrix| SceneSkinPose::new(vec![matrix], vec![matrix]).unwrap())
+        .to_vec()
+}
+
+/// A skinned placement where `like` stands, with its own material, pose and fade.
+fn skinned(rng: &mut Rng, like: SceneObject, mesh: u32) -> SceneObject {
+    let object = SceneObject::new(
+        *like.transform(),
+        MeshHandle::from_raw(mesh),
+        MaterialHandle::from_raw(rng.below(MATERIALS)),
+    )
+    .with_casts_shadow(like.casts_shadow())
+    .with_skin_pose(SkinPoseHandle::from_raw(rng.below(3)));
+    if rng.chance(75) {
+        object.with_fade(band(20 + rng.below(200), 5 + rng.below(30), true))
+    } else {
+        object
+    }
+}
+
+/// A world of `placements` objects drawn with `meshes` meshes and eight materials, plus one
+/// skinned placement per hundred on a skinned mesh after them, like animals in the woods.
 pub(super) fn world(placements: usize, meshes: u32, seed: u64) -> RenderScene {
     let base = scene();
     let mut rng = Rng::new(seed);
     let clusters: Vec<[i64; 2]> = (0..400)
         .map(|_| [(); 2].map(|()| rng.millimeters(-HALF_EXTENT_MILLIMETERS, 2_400_000)))
         .collect();
-    let mesh_table: Vec<SceneMesh> = (0..meshes).map(|index| mesh(index, &mut rng)).collect();
-    let objects = (0..placements)
+    let mut mesh_table: Vec<SceneMesh> = (0..meshes).map(|index| mesh(index, &mut rng)).collect();
+    mesh_table.push(skinned_mesh());
+    let mut objects: Vec<SceneObject> = (0..placements)
         .map(|_| placement(&mut rng, &clusters, meshes))
         .collect();
+    for _ in 0..placements / 100 {
+        let like = placement(&mut rng, &clusters, meshes);
+        objects.push(skinned(&mut rng, like, meshes));
+    }
+    let skeleton = SceneSkeleton::new(vec![None], vec![SceneAffineMatrix::IDENTITY]).unwrap();
+    let mut textures = base.resources().textures().to_vec();
+    let first_grid = u32::try_from(textures.len()).unwrap();
+    textures.push(grid(THRESHOLDS));
+    let mut with_zero = THRESHOLDS;
+    with_zero[5] = 0;
+    textures.push(grid(with_zero));
     RenderScene::new(SceneParts {
         resources: SceneResources::new(
-            base.resources().textures().to_vec(),
-            materials(&base.resources().materials()[0]),
+            textures,
+            materials(&base.resources().materials()[0], first_grid),
         )
         .unwrap(),
-        geometry: SceneGeometry::new(mesh_table, objects).unwrap(),
+        geometry: SceneGeometry::new_with_skinning_resources(
+            mesh_table,
+            objects,
+            vec![skeleton],
+            skin_poses(),
+        )
+        .unwrap(),
         terrain: None,
         effects: None,
     })

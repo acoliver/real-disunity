@@ -159,6 +159,25 @@ fn reads_snapshot() -> FeatureDeclaration {
     feature
 }
 
+fn caller_views(device: &wgpu::Device, format: wgpu::TextureFormat) -> [AttachmentView; 2] {
+    let color_texture = caller_texture(
+        device,
+        format,
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
+    );
+    let depth_texture = caller_texture(
+        device,
+        wgpu::TextureFormat::Depth32Float,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    [
+        AttachmentView::new(ResourceRef::new("scene color"), &color_texture).unwrap(),
+        AttachmentView::new(ResourceRef::new("scene depth"), &depth_texture).unwrap(),
+    ]
+}
+
 #[test]
 fn gpu_caller_snapshot_reader_without_screen_space_effects_hits_from_the_second_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -178,22 +197,7 @@ fn gpu_caller_snapshot_reader_without_screen_space_effects_hits_from_the_second_
         "nothing the renderer was configured with allocates the banks"
     );
     let format = renderer.targets().config().format;
-    let color_texture = caller_texture(
-        device,
-        format,
-        wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_SRC,
-    );
-    let depth_texture = caller_texture(
-        device,
-        wgpu::TextureFormat::Depth32Float,
-        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-    );
-    let views = [
-        AttachmentView::new(ResourceRef::new("scene color"), &color_texture).unwrap(),
-        AttachmentView::new(ResourceRef::new("scene depth"), &depth_texture).unwrap(),
-    ];
+    let views = caller_views(device, format);
     let passes = passes(&views[0], &views[1]);
     let view = SceneView::new(
         viewpoint(0),
@@ -256,11 +260,11 @@ fn gpu_caller_snapshot_reader_without_screen_space_effects_hits_from_the_second_
             .expect("the first frame allocated the banks")[0]
             .color
             .clone();
-        let sampled = bound.borrow().clone().expect("the caller prepared");
-        assert_eq!(sampled, bank, "frame {frame_number} samples the bank");
+        let texture = bound.borrow().clone().expect("the caller prepared");
+        assert_eq!(texture, bank, "frame {frame_number} samples the bank");
         assert_eq!(
             readback
-                .read(device, context.submission(), &sampled)
+                .read(device, context.submission(), &texture)
                 .unwrap(),
             texels(bits),
             "frame {frame_number} samples the colour it wrote this frame"

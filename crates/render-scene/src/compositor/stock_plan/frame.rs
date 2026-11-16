@@ -180,6 +180,17 @@ pub(crate) fn plan_frame<'s>(
         let mut cache = cache.borrow_mut();
         let (schedule, views) = if cacheable {
             let cache = &mut *cache;
+            // Deriving allocates the snapshot banks when the schedule first reads them. The
+            // table is resolved against them, so it is stored for the allocations the next
+            // frame is bound to rather than the ones this frame was probed with.
+            let probe = Probe {
+                identity: identity(
+                    environment,
+                    authored,
+                    (&shape::owned(environment), snapshots.as_ref()),
+                ),
+                key: probe.key,
+            };
             cache
                 .frames
                 .store(&mut cache.counters, probe, (schedule, views))
@@ -207,7 +218,6 @@ pub(super) fn probe(
     snapshots: Option<&[Snapshots; 3]>,
 ) -> Probe {
     let owned = shape::owned(environment);
-    let bank = shape::snapshot_bank(environment, snapshots);
     Probe {
         key: Key {
             shape: Shape::new(environment, &owned),
@@ -220,8 +230,20 @@ pub(super) fn probe(
                 .collect(),
             shadow: environment.shadow,
         },
-        identity: Identity::new(environment, authored, (&owned, &bank)),
+        identity: identity(environment, authored, (&owned, snapshots)),
     }
+}
+
+/// The allocations a binding table is resolved against, which include the frame slot's snapshot
+/// bank once the renderer has allocated it.
+fn identity(
+    environment: &Environment<'_>,
+    authored: &Authored<'_>,
+    allocations: (&shape::Owned<'_>, Option<&[Snapshots; 3]>),
+) -> Identity {
+    let (owned, snapshots) = allocations;
+    let bank = shape::snapshot_bank(environment, snapshots);
+    Identity::new(environment, authored, (owned, &bank))
 }
 
 /// Plans the frame from the caller's passes in the order the contributors add theirs, then

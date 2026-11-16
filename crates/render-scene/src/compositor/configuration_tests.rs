@@ -521,6 +521,23 @@ fn ssr_intensity(renderer: &FrameRenderer) -> u32 {
 }
 
 #[test]
+fn contour_id_reservation_is_opt_in_and_counts_three_multisampled_slots() {
+    let limits = wgpu::Limits::default();
+    for samples in [1, 4] {
+        let mut settings =
+            RendererConfiguration::legacy([32, 24], wgpu::TextureFormat::Rgba8UnormSrgb);
+        settings.frame.samples = samples;
+        assert!(!settings.contour_ids);
+        let disabled = settings.allocations().validate(&limits).unwrap();
+        settings.contour_ids = true;
+        let enabled = settings.allocations().validate(&limits).unwrap();
+        assert_eq!(enabled - disabled, 32 * 24 * u64::from(samples) * 3);
+        settings.contour_ids = false;
+        assert_eq!(settings.allocations().validate(&limits).unwrap(), disabled);
+    }
+}
+
+#[test]
 fn frame_targets_count_as_render_targets_through_a_resize_until_the_renderer_drops() {
     use worldrunner_render_gpu::census::ResourceClass;
     let _session = crate::test_support::SceneTestSession::acquire();

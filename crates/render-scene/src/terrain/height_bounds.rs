@@ -57,7 +57,8 @@ fn build(
     nodes: &mut Vec<(TerrainChunk, [i32; 2])>,
 ) -> [i32; 2] {
     let mut range = [i32::MAX, i32::MIN];
-    if let Some(children) = node.children() {
+    if let Some(children) = node.children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+    {
         for child in children {
             range = union(range, build(terrain, child, nodes));
         }

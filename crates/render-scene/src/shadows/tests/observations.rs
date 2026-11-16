@@ -188,6 +188,7 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         true,
     ));
     let mut feature = crate::compositor::SceneFeature {
+        contour: None,
         publications: crate::draw::DrawPublications::default(),
         frame: FrameUniform::new(&view(), Some(&resident.effects)).unwrap(),
         gpu: &mut resident.gpu,

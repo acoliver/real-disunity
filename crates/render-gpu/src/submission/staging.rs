@@ -12,7 +12,8 @@ use std::sync::{
     atomic::{AtomicU8, Ordering},
 };
 
-/// The smallest chunk. Larger uploads get a chunk of the next power of two.
+/// The smallest chunk. Larger uploads get a chunk of the next power of two. Either is cut to the
+/// largest buffer the device may create.
 pub(super) const MINIMUM_CHUNK_BYTES: u64 = 256 * 1024;
 /// Free chunks unused for this many transactions are released.
 pub(super) const IDLE_TRANSACTIONS: u64 = 1024;
@@ -100,10 +101,13 @@ pub(super) struct Reservation<B> {
 impl<B: Clone> Pool<B> {
     /// Reserves `len` bytes for `transaction`, creating a chunk of `create(size)` bytes only when
     /// no recording or free chunk has room. `len` must be a nonzero multiple of four.
+    /// `limit` returns the device's `max_buffer_size`; it is read only when a chunk is created,
+    /// and every chunk is at most that large, so `len` must not exceed it.
     pub(super) fn reserve(
         &mut self,
         transaction: u64,
         len: u64,
+        limit: impl FnOnce() -> u64,
         create: impl FnOnce(u64) -> B,
     ) -> Reservation<B> {
         assert!(
@@ -117,7 +121,7 @@ impl<B: Clone> Pool<B> {
         let index = self
             .recording_with_room(transaction, len)
             .or_else(|| self.smallest_free(len))
-            .unwrap_or_else(|| self.create(len, create));
+            .unwrap_or_else(|| self.create(len, limit(), create));
         let chunk = &mut self.chunks[index];
         let offset = match &mut chunk.state {
             State::Recording { used, .. } => used.next_multiple_of(ALIGNMENT),
@@ -202,8 +206,17 @@ impl<B: Clone> Pool<B> {
             .map(|(index, _)| index)
     }
 
-    fn create(&mut self, len: u64, create: impl FnOnce(u64) -> B) -> usize {
-        let size = len.next_power_of_two().max(MINIMUM_CHUNK_BYTES);
+    fn create(&mut self, len: u64, limit: u64, create: impl FnOnce(u64) -> B) -> usize {
+        // A buffer mapped at creation must be a multiple of the copy alignment long.
+        let largest = limit - limit % wgpu::COPY_BUFFER_ALIGNMENT;
+        assert!(
+            len <= largest,
+            "a staged upload of {len} bytes exceeds the device's max_buffer_size of {limit} bytes"
+        );
+        let size = len
+            .max(MINIMUM_CHUNK_BYTES)
+            .next_power_of_two()
+            .min(largest);
         self.chunks.push(Chunk {
             buffer: create(size),
             size,
@@ -233,18 +246,23 @@ impl Staging {
         bytes: &[u8],
     ) -> (wgpu::Buffer, u64) {
         let len = bytes.len() as u64;
-        let reservation = self.0.lock().unwrap().reserve(transaction, len, |size| {
-            Arc::new(census.create_buffer(
-                device,
-                crate::census::ResourceClass::Staging,
-                &wgpu::BufferDescriptor {
-                    label: Some("frame upload staging"),
-                    size,
-                    usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
-                    mapped_at_creation: true,
-                },
-            ))
-        });
+        let reservation = self.0.lock().unwrap().reserve(
+            transaction,
+            len,
+            || device.limits().max_buffer_size,
+            |size| {
+                Arc::new(census.create_buffer(
+                    device,
+                    crate::census::ResourceClass::Staging,
+                    &wgpu::BufferDescriptor {
+                        label: Some("frame upload staging"),
+                        size,
+                        usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+                        mapped_at_creation: true,
+                    },
+                ))
+            },
+        );
         let buffer: &wgpu::Buffer = &reservation.buffer;
         buffer
             .get_mapped_range_mut(reservation.offset..reservation.offset + len)

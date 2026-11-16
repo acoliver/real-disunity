@@ -336,7 +336,7 @@ impl PassTimer {
             };
             let authority = match &slot.transaction {
                 Some(owner) if owner.status() != TransactionStatus::Submitted => continue,
-                Some(owner) => owner.authority().cloned(),
+                Some(owner) => Some(owner.authority().clone()),
                 None => None,
             };
             let gate = sampled.gate.get_or_insert_with(|| {

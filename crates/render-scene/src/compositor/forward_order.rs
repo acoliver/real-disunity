@@ -20,7 +20,7 @@ use worldrunner_render_post::{PassDeclaration, PassSlot};
 /// 7. the opaque G-buffer (present only when the scene selects the G-buffer opaque path)
 /// 8. opaque lighting of the G-buffer (present with the G-buffer)
 /// 9. opaque
-/// 10. the opaque colour and depth snapshots
+/// 10. visible contour IDs, then the opaque colour and depth snapshots
 /// 11. water, then the water mask
 /// 12. transparent alpha (rejected by validation today)
 /// 13. the post-water depth
@@ -40,7 +40,8 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::OpaqueGbuffer => (8, 0),
         PassSlot::OpaqueLighting => (9, 0),
         PassSlot::Opaque => (10, 0),
-        PassSlot::AfterOpaqueSnapshot => (11, 0),
+        PassSlot::ContourIds => (11, 0),
+        PassSlot::AfterOpaqueSnapshot => (11, 1),
         PassSlot::AfterOpaqueDepth => (12, 0),
         PassSlot::TransparentWater => (13, 0),
         PassSlot::TransparentWaterMask => (14, 0),
@@ -78,6 +79,7 @@ mod tests {
             PassSlot::OpaqueGbuffer,
             PassSlot::OpaqueLighting,
             PassSlot::Opaque,
+            PassSlot::ContourIds,
             PassSlot::AfterOpaqueSnapshot,
             PassSlot::AfterOpaqueDepth,
             PassSlot::TransparentWater,
@@ -119,6 +121,7 @@ mod tests {
             OpaqueGbuffer,
             OpaqueLighting,
             Opaque,
+            ContourIds,
             AfterOpaqueSnapshot,
             AfterOpaqueDepth,
             TransparentWater,
@@ -192,6 +195,32 @@ mod tests {
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 0),
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 1),
                 worldrunner_render_post::PassEntry::new(PassSlot::TransparentWater),
+            ]
+        );
+    }
+
+    #[test]
+    fn contours_follow_all_opaque_occurrences_before_the_snapshot() {
+        use worldrunner_render_post::PassEntry;
+        let mut passes = vec![
+            PassDeclaration::new(PassSlot::AfterOpaqueSnapshot),
+            PassDeclaration::nth(PassSlot::Opaque, 7),
+            PassDeclaration::nth(PassSlot::ContourIds, 1),
+            PassDeclaration::new(PassSlot::Opaque),
+            PassDeclaration::new(PassSlot::ContourIds),
+        ];
+        forward_order(&mut passes);
+        assert_eq!(
+            passes
+                .iter()
+                .map(PassDeclaration::entry)
+                .collect::<Vec<_>>(),
+            [
+                PassEntry::new(PassSlot::Opaque),
+                PassEntry::nth(PassSlot::Opaque, 7),
+                PassEntry::new(PassSlot::ContourIds),
+                PassEntry::nth(PassSlot::ContourIds, 1),
+                PassEntry::new(PassSlot::AfterOpaqueSnapshot),
             ]
         );
     }

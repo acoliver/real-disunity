@@ -289,6 +289,7 @@ impl FrameRenderer {
             frame: *frame,
             screen: Some(screen),
             programs: None,
+            contour: None,
             deferred: None,
             renders: prefix.renders,
             opaque_drawn: std::cell::Cell::new(false),
@@ -346,6 +347,7 @@ impl FrameRenderer {
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
             super::publication::key(&self.temporal),
+            super::publication::key(&self.contours.published),
         ]
     }
 }

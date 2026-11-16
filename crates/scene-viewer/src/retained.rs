@@ -38,7 +38,7 @@ pub use statistics::{
     CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
     PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
     ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
-    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
     TerrainStreamingStatistics,
 };
 mod decals;

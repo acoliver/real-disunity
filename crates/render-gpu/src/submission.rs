@@ -2,8 +2,10 @@
 pub mod capture;
 mod lease;
 mod pass;
+mod staging;
 pub use lease::{FrameLease, FrameOwner, LeaseError};
 pub use pass::RecordingRenderPass;
+pub use staging::StagingStatistics;
 use std::{
     cell::{Cell, RefCell},
     hash::{Hash, Hasher},
@@ -67,6 +69,8 @@ pub struct Publications {
     scope: Option<Rc<capture::WriteScope>>,
     leases: Rc<RefCell<Vec<lease::LeaseUse>>>,
     authority: Option<SubmissionAuthority>,
+    /// Identifies the recording frame's staging; zero outside a recording.
+    transaction: u64,
 }
 impl std::fmt::Debug for Publications {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -149,6 +153,26 @@ impl Publications {
     pub fn authority(&self) -> Option<&SubmissionAuthority> {
         self.authority.as_ref()
     }
+    /// Copies `bytes` into the authority's reusable upload staging and returns the buffer and
+    /// offset a copy recorded in this transaction's encoder reads them from. The staging stays
+    /// reserved until the transaction is submitted and the GPU has finished with it, or until it
+    /// is cancelled. `bytes` must be a nonzero multiple of four bytes long.
+    ///
+    /// # Panics
+    ///
+    /// Outside a recording transaction, or after it was submitted or cancelled.
+    pub fn stage_upload(&self, device: &wgpu::Device, bytes: &[u8]) -> (wgpu::Buffer, u64) {
+        assert_eq!(
+            self.status(),
+            TransactionStatus::Preparing,
+            "uploads are staged only while their frame records"
+        );
+        let authority = self.authority.as_ref().expect("recording authority");
+        authority
+            .0
+            .staging
+            .stage(device, &authority.0.census, self.transaction, bytes)
+    }
     /// Submitted capture slots may be reused only after the lease's final ticket retires.
     pub fn capture_retired(&self) -> bool {
         self.scope.as_ref().is_some_and(|scope| scope.retired())
@@ -198,6 +222,8 @@ struct Inner {
     /// its `in_flight` count and dropped its leases.
     unsettled: Mutex<std::collections::BTreeSet<u64>>,
     census: crate::census::MemoryCensus,
+    staging: staging::Staging,
+    transactions: AtomicU64,
 }
 
 /// Owns a queue and shares preparation and submission exclusion through clones.
@@ -214,12 +240,18 @@ impl SubmissionAuthority {
             completed: AtomicU64::new(0),
             unsettled: Mutex::default(),
             census: crate::census::MemoryCensus::new(),
+            staging: staging::Staging::default(),
+            transactions: AtomicU64::new(0),
         }))
     }
     /// The resident-byte tally for resources created on this queue's device. Clones of the
     /// authority share it.
     pub fn census(&self) -> &crate::census::MemoryCensus {
         &self.0.census
+    }
+    /// Counters of the reusable upload staging behind [`Publications::stage_upload`].
+    pub fn upload_staging(&self) -> StagingStatistics {
+        self.0.staging.statistics()
     }
     pub fn same_authority(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
@@ -309,6 +341,7 @@ impl SubmissionAuthority {
         reserved: bool,
     ) -> RecordingFrame {
         publications.authority = Some(self.clone());
+        publications.transaction = self.0.transactions.fetch_add(1, Ordering::AcqRel) + 1;
         let frame = PreparedFrame {
             authority: self.clone(),
             commands: None,
@@ -354,13 +387,14 @@ impl SubmissionAuthority {
         if state.preparing || state.configuring {
             return Err(SubmitError::Busy);
         }
-        self.enqueue(&mut state, commands, Vec::new())
+        self.enqueue(&mut state, commands, Vec::new(), 0)
     }
     fn enqueue(
         &self,
         _state: &mut State,
         commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
         leases: Vec<lease::LeaseUse>,
+        transaction: u64,
     ) -> Result<wgpu::SubmissionIndex, SubmitError> {
         for usage in &leases {
             usage.check()?;
@@ -369,7 +403,10 @@ impl SubmissionAuthority {
             return Err(SubmitError::DeviceLost(lost.clone()));
         }
         let queue = &self.0.queue;
+        // Staged uploads must be unmapped for the queue, and are mapped again only after it.
+        let staged = self.0.staging.unmap(transaction);
         let submission = queue.submit(commands);
+        staging::Staging::remap(staged);
         self.0.in_flight.fetch_add(1, Ordering::Release);
         let serial = self.0.submitted.fetch_add(1, Ordering::AcqRel) + 1;
         for usage in &leases {
@@ -432,6 +469,7 @@ impl PreparedFrame {
             &mut state,
             self.commands.take(),
             self.publications.leases.take(),
+            self.publications.transaction,
         )?;
         drop(state);
         Ok(submission)
@@ -448,6 +486,14 @@ impl Drop for PreparedFrame {
         }
         self.publications.edits.borrow_mut().clear();
         self.publications.leases.borrow_mut().clear();
+        // A submitted frame's publications were taken by commit, so this returns only the
+        // still-mapped staging of a frame that never reached the queue.
+        if self.publications.transaction != 0 {
+            self.authority
+                .0
+                .staging
+                .cancel(self.publications.transaction);
+        }
         if self.reserved {
             self.authority
                 .0

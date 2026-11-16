@@ -106,6 +106,11 @@ fn construct_renderer(
 ) -> Result<FrameRenderer, PostError> {
     let device = request.context.device();
     let mut renderer = FrameRenderer {
+        contours: crate::contours::Targets::default(),
+        contour_format: request
+            .context
+            .adapter()
+            .get_texture_format_features(crate::contours::FORMAT),
         overlay: overlay::OverlayStage::default(),
         output_format: request.output_format,
         environment_conventions: [None; 2],

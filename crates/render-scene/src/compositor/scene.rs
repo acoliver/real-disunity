@@ -17,6 +17,7 @@ pub(crate) struct SceneFeature<'a> {
     /// Admitted player program draws, recorded after the stock opaque draw. Present only
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    pub contour: Option<crate::draw::ContourDraw>,
     /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
     pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
     /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
@@ -63,6 +64,11 @@ impl PreparedFeature for SceneFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == PassSlot::ContourIds {
+            self.gpu
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == PassSlot::Celestial {
             self.gpu.draw_celestial(pass);
             return;
@@ -394,7 +400,7 @@ pub fn prepare_stock_scene<'a>(
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
     let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, &frame)?;
-    finish_stock_scene(renderer, device, draw)
+    finish_stock_scene(renderer, (device, encoder), draw)
 }
 
 fn prepare_scene_draw<'a, 'b>(
@@ -447,58 +453,64 @@ fn prepare_scene_draw<'a, 'b>(
 
 fn finish_stock_scene<'a>(
     renderer: &mut FrameRenderer,
-    device: &wgpu::Device,
-    draw: SceneDraw<'a, '_>,
+    context: (&wgpu::Device, &wgpu::CommandEncoder),
+    mut draw: SceneDraw<'a, '_>,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
-    let plan = declare_scene_passes(renderer, device, &draw)?;
-    let SceneDraw {
-        gpu,
-        pipelines,
-        frame,
-        screen,
-        programs,
-        offscreen,
-        depth_mode,
-        ..
-    } = draw;
-    let super::stock_plan::Base {
-        depth_id,
-        depth_texture,
-        mut declaration,
-        passes,
-        views,
-    } = plan;
+    let (device, encoder) = context;
+    let mut plan = declare_scene_passes(renderer, device, &draw)?;
+    let contour = renderer.plan_contours(
+        (device, encoder),
+        (draw.gpu, &draw.pipelines),
+        &draw.frame,
+        (&mut plan.passes, &mut plan.views, &mut plan.declaration),
+    )?;
     let deferred = renderer.prepare_deferred_lighting(
         device,
-        (gpu, colour_pipelines(&pipelines, screen.as_ref())),
         (
-            depth_id,
-            &depth_texture,
-            depth_mode == crate::renderer::depth::DepthMode::Reuse,
+            draw.gpu,
+            colour_pipelines(&draw.pipelines, draw.screen.as_ref()),
         ),
-        &frame,
-        &mut declaration,
+        (
+            plan.depth_id,
+            &plan.depth_texture,
+            draw.depth_mode == crate::renderer::depth::DepthMode::Reuse,
+        ),
+        &draw.frame,
+        &mut plan.declaration,
     )?;
+    let offscreen = draw.offscreen.take();
     Ok(StockSceneFeature {
-        feature: SceneFeature {
+        feature: draw.into_feature(renderer, contour, deferred),
+        declaration: plan.declaration,
+        passes: plan.passes,
+        views: plan.views,
+        offscreen,
+    })
+}
+
+impl<'a> SceneDraw<'a, '_> {
+    fn into_feature(
+        self,
+        renderer: &FrameRenderer,
+        contour: Option<crate::draw::ContourDraw>,
+        deferred: Option<crate::gbuffer::lighting::LightingInputs>,
+    ) -> SceneFeature<'a> {
+        SceneFeature {
             publications: renderer.draw_publications(),
-            screen,
-            programs,
-            gpu,
-            pipelines: Cow::Owned(pipelines),
-            frame,
+            screen: self.screen,
+            programs: self.programs,
+            contour,
+            gpu: self.gpu,
+            pipelines: Cow::Owned(self.pipelines),
+            frame: self.frame,
             deferred,
             renders: renderer
                 .gbuffer
                 .as_ref()
                 .is_some_and(crate::gbuffer::Gbuffer::renders),
             opaque_drawn: std::cell::Cell::new(false),
-        },
-        declaration,
-        passes,
-        views,
-        offscreen,
-    })
+        }
+    }
 }
 
 /// Encodes a resident unshadowed scene through the feature boundary.

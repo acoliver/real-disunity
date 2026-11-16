@@ -1,6 +1,7 @@
 //! Complete stock configuration replacement, including effect bindings and history.
 mod build;
 mod encoding;
+use build::allocate;
 mod snapshots;
 use super::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
@@ -34,6 +35,8 @@ pub struct RendererConfiguration {
     /// The opaque rendering contract. `GBUFFER_OBSERVATION` adds the four G-buffer targets
     /// and requires a single-sample frame.
     pub opaque_path: worldrunner_render_plan::SceneOpaquePath,
+    /// Reserve slot-local visible-object ID targets. Storage is allocated only for live IDs.
+    pub contour_ids: bool,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
@@ -59,6 +62,7 @@ impl RendererConfiguration {
             water: Vec::new(),
             ui_depth: false,
             opaque_path: worldrunner_render_plan::SceneOpaquePath::Forward,
+            contour_ids: false,
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
@@ -70,6 +74,15 @@ impl RendererConfiguration {
             self.frame, self.post,
         ));
         screen_allocations(self, &mut set);
+        if self.contour_ids {
+            set.texture(
+                "contour IDs",
+                [self.frame.size[0], self.frame.size[1], 1],
+                crate::contours::FORMAT,
+                [1, self.frame.samples],
+                3,
+            );
+        }
         snapshots::allocations(self, &mut set);
         if let Ok(Some(usage)) = super::opaque::admit_path(self.opaque_path, self.frame.samples) {
             crate::gbuffer::allocations(
@@ -142,6 +155,14 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
         self.validate_opaque(&context.device().limits())?;
+        if self.contour_ids {
+            crate::contours::validate_format(
+                context
+                    .adapter()
+                    .get_texture_format_features(crate::contours::FORMAT),
+                self.frame.samples,
+            )?;
+        }
         if self.hdr.is_none()
             && (self.post.enabled()
                 || self.ssao.is_some()
@@ -620,18 +641,6 @@ fn history(renderer: &FrameRenderer) -> Option<ToneMapOutput> {
         FrameOutput::Copy(_) => None,
     }
 }
-fn allocate(
-    context: &GpuContext,
-    settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
-) -> Result<FrameRenderer, PostError> {
-    let device = context.device();
-    let scope = worldrunner_render_gpu::configuration::AllocationScope::new(device);
-    let result = build(context, settings, history, timing);
-    scope.finish()?;
-    result
-}
 /// Selects the jitter the settings imply: the default sequence under native TAA, the sequence
 /// derived from both extents under reduced temporal reconstruction, none otherwise.
 fn install_jitter(
@@ -640,15 +649,6 @@ fn install_jitter(
 ) -> Result<(), PostError> {
     renderer.set_projection_jitter(crate::post::jitter(&settings.post, settings.frame, None)?)
 }
-fn build(
-    context: &GpuContext,
-    settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
-) -> Result<FrameRenderer, PostError> {
-    build::build(context, settings, history, timing)
-}
-
 #[cfg(test)]
 #[path = "configuration_tests.rs"]
 mod tests;

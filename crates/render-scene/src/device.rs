@@ -144,6 +144,28 @@ impl GpuContext {
         required_features: Features,
         timing: worldrunner_render_post::TimingMode,
     ) -> Result<Self, DeviceError> {
+        Self::from_adapter_shared(
+            adapter,
+            required_features,
+            timing,
+            &worldrunner_render_gpu::device::DeviceRequirements::default(),
+        )
+        .await
+    }
+
+    /// As [`Self::from_adapter_with_timing`], for a device another user shares, such as a
+    /// player's offscreen work: the device also meets `caller`'s requirements, each limit at the
+    /// more demanding of the scene's value and the caller's, and every feature either asks for.
+    ///
+    /// # Errors
+    /// As [`Self::from_adapter_with_timing`], and when the adapter cannot meet the caller's
+    /// required features or limits.
+    pub async fn from_adapter_shared(
+        adapter: Adapter,
+        required_features: Features,
+        timing: worldrunner_render_post::TimingMode,
+        caller: &worldrunner_render_gpu::device::DeviceRequirements,
+    ) -> Result<Self, DeviceError> {
         let required_features = required_features
             | if timing == worldrunner_render_post::TimingMode::Required {
                 timing.features()
@@ -161,7 +183,7 @@ impl GpuContext {
 
         let (device, queue, _) = worldrunner_render_gpu::device::request_device(
             &adapter,
-            &requirements(&adapter, required_features, timing),
+            &requirements(&adapter, required_features, timing).union(caller),
         )
         .await
         .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;

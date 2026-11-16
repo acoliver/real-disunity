@@ -234,6 +234,50 @@ fn gpu_optional_timestamp_device_enables_only_available_capability() {
     );
 }
 
+#[test]
+fn a_device_shared_with_another_user_meets_its_requirements_and_the_scenes() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let available = adapter.limits();
+    // A caller that needs larger buffers than the default, and prefers more storage images.
+    let buffer = (wgpu::Limits::default().max_buffer_size * 2).min(available.max_buffer_size);
+    let caller = DeviceRequirements {
+        required_limits: wgpu::Limits {
+            max_buffer_size: buffer,
+            ..wgpu::Limits::default()
+        },
+        optional_features: Features::FLOAT32_FILTERABLE,
+        ..DeviceRequirements::default()
+    };
+    let filterable = adapter.features().contains(Features::FLOAT32_FILTERABLE);
+    let context = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ))
+    .unwrap();
+    let limits = context.device().limits();
+    assert_eq!(limits.max_buffer_size, buffer, "the caller's limit");
+    assert_eq!(
+        limits.max_texture_array_layers, available.max_texture_array_layers,
+        "the scene's limit"
+    );
+    assert_eq!(
+        context
+            .device()
+            .features()
+            .contains(Features::FLOAT32_FILTERABLE),
+        filterable,
+        "the caller's optional feature where offered"
+    );
+}
+
 use super::{GpuContext, REQUIRED_FEATURES};
 use wgpu::{Features, TextureFormat, TextureUsages};
 

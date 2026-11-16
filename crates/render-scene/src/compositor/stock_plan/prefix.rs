@@ -53,7 +53,7 @@ impl FrameRenderer {
             binding,
         } = cache.prefixes.lookup(&probe)
         {
-            #[cfg(test)]
+            #[cfg(any(test, debug_assertions))]
             {
                 let (fresh, fresh_views) = self.derive_prefix(source).expect("a cached prefix");
                 assert_eq!(

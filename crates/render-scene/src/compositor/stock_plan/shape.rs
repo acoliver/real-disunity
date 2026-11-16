@@ -234,7 +234,7 @@ impl Identity {
 }
 
 /// The views of a binding table as the allocations they select, for comparing two tables.
-#[cfg(test)]
+#[cfg(any(test, debug_assertions))]
 pub(super) fn identities(views: &[AttachmentView]) -> Vec<ViewIdentity> {
     views.iter().map(ViewIdentity::new).collect()
 }

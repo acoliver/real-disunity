@@ -108,7 +108,7 @@ fn refuse_substitution(
     let mut substitution = Substitution::new(context, scene);
     let prefix = scene
         .frame
-        .stock_depth_prefix(context.device(), &scene.gpu)
+        .stock_depth_prefix(context.device(), (&mut scene.gpu, &scene.pipelines))
         .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     prefix

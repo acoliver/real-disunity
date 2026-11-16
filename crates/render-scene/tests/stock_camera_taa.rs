@@ -131,7 +131,10 @@ impl CameraTaaFrame {
         encoder: &mut wgpu::CommandEncoder,
         uniform: &FrameUniform,
     ) {
-        let prefix = self.renderer.stock_depth_prefix(device, &self.gpu).unwrap();
+        let prefix = self
+            .renderer
+            .stock_depth_prefix(device, (&mut self.gpu, &self.pipelines))
+            .unwrap();
         assert_no_scene_velocity(&prefix.plan());
         assert_fused_gbuffer_prepass(&prefix.plan());
         prefix

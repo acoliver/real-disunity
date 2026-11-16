@@ -15,11 +15,19 @@ use worldrunner_render_post::{
 /// with a G-buffer path that renders from it fuses the G-buffer producer into the prepass: the
 /// same entry then also attaches the G-buffer targets and any velocity target, and the plan lists
 /// their views. A caller feature that reads one of these declares that resource in a later entry
-/// and finds the view through `PrepareContext::resource`. The suffix frame must list the same
-/// passes and attachments for the entries to count as completed; one that does not is refused.
+/// and finds the view through `PrepareContext::resource`.
 ///
-/// The prefix keeps no borrow of the renderer or the scene. It describes the metadata and the
-/// G-buffer path the renderer held when it was made and is for one frame.
+/// The suffix frame decides which prefix entries count as completed. Each prefix entry the
+/// suffix also lists counts as completed when it has the same colour, extra colour and depth
+/// attachments and every one binds the same texture; otherwise the frame is refused with
+/// `FrameError::AttachmentContract` or `FrameError::AttachmentView` naming it. A prefix entry
+/// the suffix does not list is skipped, not refused, so a suffix that reads only the depth need
+/// not repeat the metadata entries.
+///
+/// The prefix keeps no borrow of the renderer or the scene. It holds the metadata, the G-buffer
+/// path, the target views and the velocity choice the renderer had when it was made, and is for
+/// one frame: after a change of effects, targets or size, make a new one with
+/// [`FrameRenderer::stock_depth_prefix`].
 #[derive(Debug)]
 pub struct StockDepthPrefix {
     source: crate::scene_metadata::SceneMetadata,
@@ -131,10 +139,11 @@ impl FrameRenderer {
         crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
     }
 
-    /// The stock depth prefix of the frame `gpu` is drawn in. It prepares the renderer's inputs
-    /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, then
-    /// plans the prefix from the screen-space metadata and the G-buffer path the renderer holds
-    /// and from whether the scene draws relief.
+    /// The stock depth prefix of the frame `scene` is drawn in. It prepares the renderer's inputs
+    /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, takes
+    /// the same decision on whether the colour draws write velocity, then plans the prefix from
+    /// the screen-space metadata and the G-buffer path the renderer holds and from whether the
+    /// scene draws relief. `pipelines` are the ones the suffix draws with.
     ///
     /// # Errors
     /// `FrameError::UnsupportedEffect("stock depth prefix needs screen-space metadata")` when the
@@ -142,14 +151,16 @@ impl FrameRenderer {
     pub fn stock_depth_prefix(
         &mut self,
         device: &wgpu::Device,
-        gpu: &crate::draw::SceneGpu,
+        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
     ) -> Result<StockDepthPrefix, FrameError> {
+        let (gpu, pipelines) = scene;
         if self.ssao.is_none() {
             return Err(FrameError::UnsupportedEffect(
                 "stock depth prefix needs screen-space metadata",
             ));
         }
         self.prepare_scene_inputs(device, gpu);
+        self.adopt_scene_velocity(device, gpu, pipelines);
         let source = self.ssao.as_ref().expect("metadata checked").clone();
         StockDepthPrefix::new(self, source, gpu.has_relief())
     }

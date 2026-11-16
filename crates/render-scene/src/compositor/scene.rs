@@ -423,9 +423,7 @@ pub fn prepare_stock_scene<'a>(
     let depth_mode = renderer.forward_depth(gpu, attachments.1);
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
-    let writes_velocity = renderer.draws_velocity(pipelines);
-    renderer.match_producer_velocity(device, writes_velocity);
-    gpu.track_previous_transforms(writes_velocity);
+    let writes_velocity = renderer.adopt_scene_velocity(device, gpu, pipelines);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;

@@ -94,7 +94,10 @@ fn assert_matches(context: &GpuContext, scene: &Scene, control: &Scene) -> Produ
 fn capture_refusal(context: &GpuContext, scene: &mut Scene, refusal: &Refusal) {
     let device = context.device().clone();
     let authority = context.submission().clone();
-    let prefix = scene.frame.stock_depth_prefix(&device, &scene.gpu).unwrap();
+    let prefix = scene
+        .frame
+        .stock_depth_prefix(&device, (&mut scene.gpu, &scene.pipelines))
+        .unwrap();
     assert_prefix_plan(&prefix);
     let writes = capture_writes(scene, &device, &prefix);
     let uniform = scene.uniform;
@@ -263,7 +266,10 @@ fn public_stock_prefix_rejects_foreign_residents_before_submission() {
 fn assert_foreign_residents(context: &GpuContext, a: &mut Scene, b: &mut Scene) {
     let device = context.device();
     let authority = context.submission();
-    let prefix = a.frame.stock_depth_prefix(device, &a.gpu).unwrap();
+    let prefix = a
+        .frame
+        .stock_depth_prefix(device, (&mut a.gpu, &a.pipelines))
+        .unwrap();
     assert_prefix_plan(&prefix);
     let a_keys = a.gpu.capture_write_keys(device).unwrap();
     let b_keys = b.gpu.capture_write_keys(device).unwrap();

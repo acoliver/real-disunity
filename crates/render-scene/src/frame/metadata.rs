@@ -5,7 +5,7 @@ use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef};
 /// The meaning of stored values, independently of their texture representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetadataMeaning {
-    /// Forward device depth in [0,1], cleared to one.
+    /// Forward device depth in `[0,1]`, cleared to one.
     DeviceDepth,
     /// View-space unit normal in RGB; alpha zero denotes uncovered pixels.
     ViewNormalCoverage,

@@ -172,7 +172,7 @@ impl OffscreenState {
     }
 
     /// The bytes the render textures of `specs` would add to the runtime's storage: those the
-    /// state has not made, or made from another spec. A host that must make room asks before it
+    /// state has not made, or made with other storage. A host that must make room asks before it
     /// builds the frame.
     #[must_use]
     pub fn new_render_texture_bytes(

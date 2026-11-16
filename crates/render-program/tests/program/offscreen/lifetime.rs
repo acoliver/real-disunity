@@ -31,12 +31,13 @@ fn a_render_texture_keeps_its_contents_between_frames_while_its_spec_is_the_same
 }
 
 #[test]
-fn a_new_generation_creates_the_texture_again_and_releases_the_old_one() {
+fn a_new_storage_creates_the_texture_again_and_releases_the_old_one() {
     let mut rig = Rig::new();
     let mut frame = fixture(&mut rig, 1 << 1);
     settle(&mut rig, &frame);
     let live = rig.runtime.live_bytes();
     frame.records.clear();
+    frame.render_textures[0].depth_bits = 16;
     frame.render_textures[0].generation = 1;
     let image = settle(&mut rig, &frame);
     assert!(
@@ -47,7 +48,9 @@ fn a_new_generation_creates_the_texture_again_and_releases_the_old_one() {
     settle(&mut rig, &frame);
     assert_eq!(
         rig.runtime.live_bytes(),
-        live,
+        // The color is made again and the old one is gone; the new texture adds a 16-bit depth
+        // buffer of 2 bytes a texel.
+        live + 8 * 8 * 2,
         "the replaced texture is no longer counted"
     );
 }

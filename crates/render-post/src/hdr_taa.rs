@@ -161,13 +161,14 @@ pub(crate) fn upload_camera(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
     camera: TemporalCamera,
-) {
+) -> Result<(), crate::PostError> {
     let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("immutable temporal camera"),
         contents: &camera.to_bytes(),
         usage: wgpu::BufferUsages::COPY_SRC,
     });
     encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, camera_size());
+    Ok(())
 }
 
 /// Schedules the TAA stages at the end of `set` and returns the resolved color: "taa resolve",
@@ -296,13 +297,14 @@ pub(crate) fn upload(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
     block: Option<&[u8; TAA_UNIFORM_BYTES]>,
-) {
+) -> Result<(), crate::PostError> {
     let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("immutable TAA block"),
         contents: block.unwrap_or(&[0; TAA_UNIFORM_BYTES]),
         usage: wgpu::BufferUsages::COPY_SRC,
     });
     encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, block_size());
+    Ok(())
 }
 
 fn block_size() -> wgpu::BufferAddress {

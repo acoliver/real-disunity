@@ -150,10 +150,10 @@ impl ToneMapOutput {
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
-    ) {
-        if let Some(post) = &self.post {
-            post.prepare_taa(encoder, slot, block);
-        }
+    ) -> Result<(), PostError> {
+        self.post
+            .as_ref()
+            .map_or(Ok(()), |post| post.prepare_taa(encoder, slot, block))
     }
     /// Uploads the temporal block of `slot`. Without effects there is nothing to upload to.
     ///
@@ -187,10 +187,10 @@ impl ToneMapOutput {
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         camera: crate::TemporalCamera,
-    ) {
-        if let Some(post) = &self.post {
-            post.prepare_temporal_camera(encoder, slot, camera);
-        }
+    ) -> Result<(), PostError> {
+        self.post.as_ref().map_or(Ok(()), |post| {
+            post.prepare_temporal_camera(encoder, slot, camera)
+        })
     }
     #[cfg(test)]
     pub(crate) fn taa_history_size(&self) -> Option<[u32; 2]> {

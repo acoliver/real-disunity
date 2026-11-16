@@ -116,17 +116,17 @@ pub(super) fn step(
     reset: bool,
 ) -> wgpu::Texture {
     let out = output(device, chain.targets().config().size);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    paint(device, &mut encoder, chain.targets().resolved(), body);
-    chain
-        .factory()
-        .prepare_effects(&mut encoder, slot, 0.031, reset)
-        .unwrap();
-    chain.encode(
-        &mut encoder,
-        &out.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(device, queue, |encoder| {
+        paint(device, encoder, chain.targets().resolved(), body);
+        chain
+            .factory()
+            .prepare_effects(encoder, slot, 0.031, reset)?;
+        chain.encode(
+            encoder,
+            &out.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, PostError>(())
+    });
     device.poll(wgpu::PollType::Poll).unwrap();
     out
 }

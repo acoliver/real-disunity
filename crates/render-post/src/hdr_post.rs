@@ -235,8 +235,8 @@ impl HdrPost {
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
-    ) {
-        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block)
     }
     /// Uploads the temporal block of `slot`.
     ///
@@ -261,8 +261,8 @@ impl HdrPost {
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         camera: crate::TemporalCamera,
-    ) {
-        crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera[slot], camera);
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera[slot], camera)
     }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {

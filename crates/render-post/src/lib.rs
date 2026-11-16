@@ -226,9 +226,9 @@ mod frame;
 #[cfg(test)]
 mod frame_tests;
 #[cfg(test)]
-mod prepare_context_tests;
-#[cfg(test)]
 mod post_upload_staging_tests;
+#[cfg(test)]
+mod prepare_context_tests;
 #[cfg(test)]
 mod upload_staging_limit_tests;
 #[cfg(test)]
@@ -460,6 +460,29 @@ mod tone_map_gpu_tests;
 #[cfg(test)]
 fn test_authority(queue: &wgpu::Queue) -> worldrunner_render_gpu::submission::SubmissionAuthority {
     worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+}
+
+/// Records one frame with `record` inside a transaction of a fresh authority on `queue`, which
+/// the post uploads require, and leaves it unsubmitted.
+#[cfg(test)]
+fn record_frame<E: std::fmt::Debug>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> Result<(), E>,
+) -> worldrunner_render_gpu::submission::PreparedFrame {
+    test_authority(queue)
+        .prepare(device, |encoder, _| record(encoder))
+        .unwrap()
+}
+
+/// [`record_frame`], then submits the frame.
+#[cfg(test)]
+fn submit_frame<E: std::fmt::Debug>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> Result<(), E>,
+) -> wgpu::SubmissionIndex {
+    record_frame(device, queue, record).submit().unwrap()
 }
 
 #[cfg(test)]

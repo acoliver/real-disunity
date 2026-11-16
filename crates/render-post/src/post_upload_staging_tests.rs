@@ -10,11 +10,12 @@
 use crate::hdr_post::HdrPost;
 use crate::upload_staging_tests::{destination, noop, pattern, read};
 use crate::{
-    AdaptiveExposure, ExposureMetering, HdrPostSettings, PostError, TAA_UNIFORM_BYTES,
+    AdaptiveExposure, ExposureMetering, FrameError, HdrPostSettings, PostError, TAA_UNIFORM_BYTES,
     TEMPORAL_BLOCK_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock, TemporalCamera,
+    ToneMap, ToneMapOutput,
 };
 use worldrunner_render_gpu::submission::{
-    PrepareError, PreparedFrame, StagingStatistics, SubmissionAuthority,
+    PrepareError, PreparedFrame, StagingStatistics, SubmissionAuthority, TransactionError,
 };
 
 /// The frame that uploads no TAA block, which must land as zeros.
@@ -145,9 +146,9 @@ impl Rig {
         self.authority.prepare(&self.device, |encoder, _| {
             self.post
                 .prepare(encoder, 0, values.delta, values.reset, values.initial)?;
-            crate::hdr_taa::upload(&self.device, encoder, &self.taa, values.taa.as_ref());
+            crate::hdr_taa::upload(&self.device, encoder, &self.taa, values.taa.as_ref())?;
             crate::hdr_taa::upload_temporal(&self.device, encoder, &self.temporal, &values.block)?;
-            crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera, values.camera);
+            crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera, values.camera)?;
             Ok::<_, PostError>(())
         })
     }
@@ -304,4 +305,127 @@ fn an_invalid_temporal_block_fails_the_frame_and_stages_nothing() {
         );
         assert_eq!(rig.authority.upload_staging(), StagingStatistics::default());
     }
+}
+
+/// The factory a host holds, with effects so that every upload has a slot to land in.
+fn factory(device: &wgpu::Device) -> ToneMapOutput {
+    ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
+        .unwrap()
+        .with_effects(device, adaptive_settings())
+        .unwrap()
+}
+
+/// The four uploads of one frame through the factory's public methods, recorded into `encoder`.
+fn uploads(
+    factory: &ToneMapOutput,
+    encoder: &mut wgpu::CommandEncoder,
+) -> [(&'static str, Result<(), PostError>); 4] {
+    let frame = values(0);
+    [
+        (
+            "exposure step",
+            factory.prepare_effects(encoder, 0, frame.delta, frame.reset),
+        ),
+        (
+            "TAA block",
+            factory.prepare_taa(encoder, 0, frame.taa.as_ref()),
+        ),
+        (
+            "temporal block",
+            factory.prepare_temporal(encoder, 0, &frame.block),
+        ),
+        (
+            "temporal camera",
+            factory.prepare_temporal_camera(encoder, 0, frame.camera),
+        ),
+    ]
+}
+
+fn transaction_error(error: TransactionError) -> Result<(), PostError> {
+    Err(PostError::Frame(FrameError::Transaction(error)))
+}
+
+#[test]
+fn every_upload_outside_a_prepared_frame_reports_the_missing_transaction() {
+    let (device, _queue, authority) = crate::upload_staging_tests::noop();
+    let factory = factory(&device);
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    for (upload, result) in uploads(&factory, &mut encoder) {
+        assert_eq!(
+            result,
+            transaction_error(TransactionError::Missing),
+            "{upload}"
+        );
+    }
+    assert_eq!(authority.upload_staging(), StagingStatistics::default());
+}
+
+#[test]
+fn every_upload_recorded_into_a_foreign_encoder_reports_it_and_stages_nothing() {
+    let (device, _queue, authority) = crate::upload_staging_tests::noop();
+    let factory = factory(&device);
+    let mut results = Vec::new();
+    let prepared = authority
+        .prepare(&device, |_, _| {
+            let mut foreign =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            results.extend(uploads(&factory, &mut foreign));
+            Ok::<_, PostError>(())
+        })
+        .unwrap();
+    assert_eq!(results.len(), 4);
+    for (upload, result) in results {
+        assert_eq!(
+            result,
+            transaction_error(TransactionError::ForeignEncoder),
+            "{upload}"
+        );
+    }
+    prepared.cancel();
+    assert_eq!(authority.upload_staging(), StagingStatistics::default());
+}
+
+#[test]
+fn a_failing_temporal_block_after_a_staged_camera_cancels_the_frame_cleanly() {
+    let rig = Rig::new();
+    let landed = values(0);
+    rig.submit_and_wait(rig.record(&landed).unwrap());
+    let doomed = values(1);
+    let invalid = TemporalBlock {
+        phase_count: 0,
+        ..doomed.block
+    };
+    // The order of the compositor: the camera is staged, then the block fails its validation.
+    let result = rig.authority.prepare(&rig.device, |encoder, _| {
+        crate::hdr_taa::upload_camera(&rig.device, encoder, &rig.camera, doomed.camera)?;
+        crate::hdr_taa::upload_temporal(&rig.device, encoder, &rig.temporal, &invalid)
+    });
+    assert!(
+        matches!(
+            result,
+            Err(PrepareError::Preparation(PostError::UnsupportedProfile(_)))
+        ),
+        "the invalid block must fail the frame"
+    );
+    let statistics = rig.authority.upload_staging();
+    assert_eq!(
+        (statistics.uploads, statistics.uploaded_bytes),
+        (
+            4 + 1,
+            frame_bytes() + u64::try_from(TEMPORAL_CAMERA_BYTES).unwrap()
+        ),
+        "the failed frame staged only its camera: {statistics:?}"
+    );
+    assert_eq!(
+        rig.observed(),
+        expected(&landed),
+        "nothing of it was copied"
+    );
+    // Its staging went back at once, the authority is free, and the next frame's destinations
+    // carry its own values, none of the cancelled ones.
+    let next = values(3);
+    rig.submit_and_wait(rig.record(&next).unwrap());
+    assert_eq!(rig.observed(), expected(&next));
+    let statistics = rig.authority.upload_staging();
+    assert_eq!((statistics.chunks_created, statistics.chunks), (1, 1));
 }

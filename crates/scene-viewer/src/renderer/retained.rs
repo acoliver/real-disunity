@@ -128,6 +128,11 @@ impl Renderer {
         self.context.submission().census().snapshot()
     }
 
+    /// Counters of the device's reusable upload staging.
+    pub(crate) fn upload_staging(&self) -> worldrunner_render_gpu::submission::StagingStatistics {
+        self.context.submission().upload_staging()
+    }
+
     /// The frame's statistics, consuming its uploads and those of residents it replaced.
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
         let carried = std::mem::take(&mut self.streaming.carried);

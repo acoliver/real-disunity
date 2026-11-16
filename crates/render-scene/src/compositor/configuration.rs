@@ -502,7 +502,11 @@ impl ConfiguredFrameRenderer {
             ConfigurationError::ForeignDevice => ConfigurationError::ForeignDevice,
             ConfigurationError::Submission(error) => ConfigurationError::Submission(error),
             ConfigurationError::Allocation(never) => match never {},
-        })?;
+        })?
+        .counted(
+            worldrunner_render_gpu::census::ResourceClass::RenderTarget,
+            &context.device().limits(),
+        );
         Ok(Self {
             state,
             settings,

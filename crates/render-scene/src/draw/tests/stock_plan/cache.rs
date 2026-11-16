@@ -4,7 +4,7 @@ use super::*;
 use crate::compositor::StockPlanStatistics;
 
 impl Rig<'_> {
-    fn statistics(&mut self) -> StockPlanStatistics {
+    pub(super) fn statistics(&mut self) -> StockPlanStatistics {
         self.renderer.renderer_mut().stock_plan_statistics()
     }
 }

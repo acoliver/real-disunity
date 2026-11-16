@@ -144,6 +144,8 @@ struct Fitted {
     fit: crate::shadows::sdsm::AdoptedFit,
     /// The computed filtered occlusion (`R32Float`) and the prepass normals (`Rgba16Float`).
     occlusion: Option<(Vec<u8>, Vec<u8>)>,
+    /// The visible contour IDs (`R8Uint`), when an object carries one.
+    contours: Option<Vec<u8>>,
 }
 
 fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
@@ -161,12 +163,62 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
     .unwrap()
 }
 
+/// Reads a single-sample `R8Uint` image, one byte per texel, row by row.
+fn read_ids(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
+    assert_eq!(
+        (texture.format(), texture.sample_count()),
+        (wgpu::TextureFormat::R8Uint, 1)
+    );
+    let row = texture.width() as usize;
+    let stride = row.div_ceil(256) * 256;
+    let buffer = context.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("contour ID readback"),
+        size: (stride * texture.height() as usize) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(u32::try_from(stride).unwrap()),
+                rows_per_image: Some(texture.height()),
+            },
+        },
+        texture.size(),
+    );
+    context.queue().submit([encoder.finish()]);
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |result| {
+        result.expect("the readback buffer maps");
+    });
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .expect("the queue drains");
+    let bytes = slice
+        .get_mapped_range()
+        .expect("mapped after the queue drained")
+        .chunks_exact(stride)
+        .flat_map(|line| line[..row].iter().copied())
+        .collect();
+    buffer.unmap();
+    bytes
+}
+
 /// Renders the depth-fitting-only frame. `computed` gives it the metadata such frames had
 /// before: neutral occlusion computed by the kernel and filter over the whole depth hierarchy.
-fn depth_fitted_frame(context: &GpuContext, computed: bool) -> Fitted {
+fn depth_fitted_frame(context: &GpuContext, source: &RenderScene, computed: bool) -> Fitted {
     use crate::compositor::FeatureTarget;
     use crate::compositor::terms::{CaptureTerm, TermCapture};
-    let source = fitting_source();
     let size = [view().viewport().width, view().viewport().height];
     let mut frame = FrameRenderer::hdr(
         context,
@@ -201,7 +253,7 @@ fn depth_fitted_frame(context: &GpuContext, computed: bool) -> Fitted {
     }
     let mut renderer = ShadowedScene::with_target(
         context,
-        &source,
+        source,
         settings(),
         wgpu::TextureFormat::Rgba16Float,
         1,
@@ -248,7 +300,13 @@ fn depth_fitted_frame(context: &GpuContext, computed: bool) -> Fitted {
             read(context, &screen.normals),
         )
     });
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let contours = frame
+        .encode_contour_capture(context.device(), &mut encoder)
+        .unwrap();
+    encoder.finish().submit().unwrap();
     Fitted {
+        contours: contours.map(|ids| read_ids(context, &ids)),
         color: read(context, color.texture()),
         terms: terms
             .iter()
@@ -278,8 +336,10 @@ fn occlusion_stage(slot: PassSlot) -> bool {
 fn gpu_depth_fitting_alone_skips_unread_occlusion_stages_with_identical_results() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let skipped = depth_fitted_frame(&context, false);
-    let reference = depth_fitted_frame(&context, true);
+    let source = fitting_source();
+    let skipped = depth_fitted_frame(&context, &source, false);
+    let reference = depth_fitted_frame(&context, &source, true);
+    assert!(skipped.contours.is_none() && reference.contours.is_none());
     // Receivers read the occlusion at their own covered pixel, where the computed neutral
     // occlusion is exactly 1.0, the value of the constant bound instead. Uncovered texels may sit
     // one ulp below 1.0 (the filter's division; 72 of them on Metal), which nothing reads.
@@ -571,4 +631,49 @@ fn gpu_depth_fitting_alone_computes_the_occlusion_a_caller_feature_reads() {
         assert_eq!(ran(&frame, slot), 1, "{slot:?}");
     }
     assert_eq!(ran(&frame, PassSlot::DepthPyramid(1)), 0);
+}
+
+/// The depth-fitting-only fixture with its first caster carrying contour ID 7.
+fn contoured_fitting_source() -> RenderScene {
+    let base = fitting_source();
+    let mut styles = vec![None; 256];
+    styles[7] = Some(SceneContourStyle::default());
+    let effects = base
+        .effects()
+        .unwrap()
+        .clone()
+        .with_contours(SceneContours::new([1920, 1080], styles).unwrap())
+        .unwrap();
+    let mut objects = base.geometry().objects().to_vec();
+    objects[1] = objects[1].with_contour_id(7);
+    RenderScene::new(SceneParts {
+        resources: base.resources().clone(),
+        geometry: SceneGeometry::new(base.geometry().meshes().to_vec(), objects).unwrap(),
+        terrain: None,
+        effects: Some(effects),
+    })
+    .unwrap()
+}
+
+/// The contour ID pass reads Opaque's completed depth, which the depth-fitting-only frame shares
+/// with its prepass, and declares no read of a skipped stage. Its IDs must equal those of the
+/// frame that still computed the whole hierarchy and the occlusion.
+#[test]
+fn gpu_depth_fitting_alone_draws_contour_ids_against_the_shared_prepass_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = contoured_fitting_source();
+    let skipped = depth_fitted_frame(&context, &source, false);
+    let reference = depth_fitted_frame(&context, &source, true);
+    assert!(!skipped.passes.iter().copied().any(occlusion_stage));
+    assert!(reference.passes.contains(&PassSlot::Ssao));
+    let ids = skipped.contours.as_ref().expect("contour IDs drawn");
+    assert!(ids.contains(&7), "the caster is visible");
+    assert!(ids.contains(&0), "the caster does not cover the frame");
+    assert!(ids.iter().all(|&id| id == 0 || id == 7));
+    assert!(
+        reference.contours.as_ref() == Some(ids),
+        "contour IDs differ"
+    );
+    assert!(skipped.color == reference.color, "scene colour differs");
 }

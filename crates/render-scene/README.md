@@ -51,11 +51,33 @@ ordered residents. Equal-depth boundary overlap therefore has stable ownership
 when the resident leaf set is identical, independently of upload retirement timing.
 Ordering does not change chunk geometry, streaming budgets or draw counts for
 an identical leaf set. Selection ranks candidates by descending projected error,
-then quadtree level from the root (descending stride), then the chunk's derived
-coordinate key. Exact-error ties therefore have explicit admission priority under
-constrained budgets, independent of resident storage and upload-completion history.
-Selected leaves are returned in derived-key order. Relative to history-based tie
-admission, only exact-error ties can change which geometry becomes resident.
+then descending sampling stride, then the chunk's derived coordinate key. When
+smaller leaves are enabled, equal-error stride-one candidates use descending
+longest-axis texel span before the coordinate key to distinguish refinement levels.
+Exact-error ties therefore have explicit admission priority under constrained
+budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order.
+
+`TerrainStreamingPolicy::chunk_intervals` caps cells per mesh axis. Its
+`minimum_leaf_texels` independently limits quadtree refinement and defaults to
+that cap. `with_minimum_leaf_texels` accepts a positive power of two no larger
+than the cap. On square power-of-two grids, a leaf of N texels has
+`min(chunk_intervals, N)` cells per side. With the default minimum, the selector's
+cell-axis step is the sampling stride, including below-cap roots and partial
+terminal windows. When smaller leaves are enabled, below-cap sampling stride stays
+one while the nominal cell-axis step is `N / chunk_intervals` in floating point.
+This keeps that LOD metric continuous instead of quantizing it to a source texel.
+It approximates projected footprint, not height residuals or the actual finest
+mesh spacing. Eye-plane intersections still request finest
+detail through infinite error; ordinary in-front minimum leaves have finite
+error. A split is refused if halving a stride-one window's longest axis would
+cross the minimum; rectangular or partial windows can have shorter other axes.
+Camera selection, bounds, readiness, triangle-plane descriptors and shadow
+selection share that split rule. Chunk keys keep inclusive coordinates and a
+positive sampling stride, so differently sized stride-one leaves remain distinct.
+Atomic replacement and upload/resident budgets count chunks regardless of size.
+Double-sided skirts on every mesh edge reach the terrain-wide minimum minus one
+metre and cover cracks at unequal strides without neighbour-dependent stitching.
 
 Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
 and streaming policy. Terminal ranges scan all inclusive source samples; parents
@@ -1214,3 +1236,57 @@ fingerprint includes only submitted sample windows after view culling. Streaming
 observations remain present with zero drawn leaves when the camera misses terrain. See the
 [host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
 for counting units and identity encoding. Raw and cancelled draws do not publish.
+
+## Visible object contour IDs
+
+`SceneObject::with_contour_id` assigns a byte ID, with zero meaning no contour.
+`SceneEffects::with_contours` supplies a `SceneContours` table with exactly 256
+optional styles and a positive reference extent, defaulting to 1920 by 1080.
+Entry zero must be absent. Every nonzero object ID must name a defined style,
+including hidden live placements. Widths and shifts are integer millionths of
+reference pixels in 0 to 32; linear RGB is in 0 to 16, and alpha and strengths
+are in 0 to 1. Pulse powers are in (0,16] for a nonzero millisecond period;
+period zero is steady and ignores power. These quantities are authored in
+millionths. Fill and blend descriptions are retained CPU state; no contour
+colour composite is applied.
+
+`SceneGpu::set_instance_object` changes membership without changing the 80-byte
+GPU instance layout. `set_contours` replaces the table atomically and rejects
+removing any referenced ID. A sparse index tracks membership on edits, removals
+and slot reuse. Extraction from object templates preserves IDs.
+
+Stock, resident and shadowed composition schedule `PassSlot::ContourIds` once
+after Opaque. On Forward, Opaque draws the scene's opaque surfaces. With
+`GBUFFER_RENDER`, Opaque follows `OpaqueGbuffer` and `OpaqueLighting` and draws
+the remaining forward-only surfaces, so the ID pass sees the completed scene
+depth on either path. The observation path uses the same ordering. The pass
+writes only selected members, reusing their object programs, original instance
+ranges and skin streams. Its R8Uint target is cleared to zero and has the
+completed scene depth's sample count.
+Depth is loaded read-only, tested Equal and never written; the pass has no
+stencil ownership test, blending or integer alpha-to-coverage. Material alpha,
+fade, LOD, wind, skinning and relief visibility still participate. Fully hidden
+surfaces write no ID. Coplanar selected and unselected surfaces cannot be
+distinguished by depth alone.
+
+A table without live nonzero IDs prepares no contour pipelines and allocates no
+ID target or pass. Clearing the last ID removes the selected frame slot's target
+on successful submission; abandonment preserves its submitted target. Targets
+are isolated by admitted frame slot and replaced when their extent changes.
+Same-frame shadow depth-fitting captures provision the active slot's target before
+building the capture write contract and declare its physical allocation in the
+suffix. Suffix scheduling reuses that allocation without publishing it early.
+`RendererConfiguration::contour_ids` explicitly reserves the three-slot target
+budget and admits the format/sample combination; it defaults to false. The
+unconfigured `FrameRenderer` constructors allocate lazily when membership appears.
+Unsupported format/sample combinations fail instead of reducing MSAA.
+
+`FrameRenderer::contour_target` returns the selected slot's last submitted ID
+texture; `contour_statistics` describes that published target's pass, target and
+sample counts. These are snapshot values, not execution or allocation counters.
+`encode_contour_capture` records an explicit capture-only extraction into a
+single-sample R8Uint COPY_SRC texture. For sample index s, source pixel (x,y)
+appears at `(s * width + x, y)`. This reads exact unsigned IDs with textureLoad,
+without filtering, averaging or a hardware resolve. The ordinary ID target has
+no COPY_SRC usage. Capture may follow scene encoding in the same transaction or
+read its submitted result in a later transaction.

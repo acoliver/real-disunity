@@ -14,6 +14,7 @@ pub(crate) struct SceneFeature<'a> {
     /// Admitted player program draws, recorded after the stock opaque draw. Present only
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    pub contour: Option<crate::draw::ContourDraw>,
     /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
     pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
     /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
@@ -56,6 +57,11 @@ impl PreparedFeature for SceneFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == PassSlot::ContourIds {
+            self.gpu
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == PassSlot::Celestial {
             self.gpu.draw_celestial(pass);
             return;
@@ -270,6 +276,12 @@ pub fn encode_scene(
         &mut views,
         &mut declaration,
     );
+    let contour = renderer.plan_contours(
+        (device, encoder),
+        (gpu, pipelines),
+        &frame,
+        (&mut passes, &mut views, &mut declaration),
+    )?;
     let deferred = renderer.prepare_deferred_lighting(
         device,
         (gpu, colour_pipelines(pipelines, screen.as_ref())),
@@ -282,6 +294,7 @@ pub fn encode_scene(
         &mut declaration,
     )?;
     let mut feature = SceneFeature {
+        contour,
         publications: crate::draw::DrawPublications::default(),
         screen,
         programs,

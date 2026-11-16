@@ -519,3 +519,34 @@ fn authored_reflection_composition_changes_override_retained_service_selection()
 fn ssr_intensity(renderer: &FrameRenderer) -> u32 {
     renderer.ssr.as_ref().unwrap().environment_intensity_micro
 }
+
+#[test]
+fn frame_targets_count_as_render_targets_through_a_resize_until_the_renderer_drops() {
+    use worldrunner_render_gpu::census::ResourceClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    // Each test context has its own authority, so only this renderer counts here.
+    let context = GpuContext::shared_for_test().unwrap();
+    let census = context.submission().census().clone();
+    let limits = context.device().limits();
+    let mut settings = RendererConfiguration::legacy([64, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(64 << 20))
+            .unwrap();
+    let small = census.snapshot().get(ResourceClass::RenderTarget);
+    assert!(small > 0);
+    // Admission counts CPU-side entries too; the census counts GPU bytes only.
+    assert!(small <= renderer.resident_bytes(&limits).unwrap());
+    settings.frame.size = [128, 64];
+    renderer.reconfigure(&context, settings).unwrap();
+    context
+        .device()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    renderer.collect();
+    let large = census.snapshot().get(ResourceClass::RenderTarget);
+    assert!(large > small, "{large} after a 4x resize, {small} before");
+    drop(renderer);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 0);
+}

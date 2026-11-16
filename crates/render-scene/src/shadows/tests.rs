@@ -3,6 +3,7 @@ mod cascades;
 mod caster_route;
 mod compaction;
 mod culling;
+mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -542,6 +543,7 @@ fn render_target(
 }
 
 mod refresh;
+mod render_path;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

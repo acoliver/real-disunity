@@ -460,3 +460,6 @@ fn fitted_capture(
         .unwrap();
     super::deferred::captured(context, &frame)
 }
+
+#[path = "render_path/moving_timing.rs"]
+mod moving_timing;

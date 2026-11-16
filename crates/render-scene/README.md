@@ -961,6 +961,52 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
+## Public moving-view timing probe
+
+Run the informational unshadowed Forward versus `GBUFFER_RENDER` probe serially.
+On the shared Linux host, use its resource limiter and software Vulkan adapter:
+
+```sh
+CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
+  heavy --mem 6G -- nice -n 10 env -u RUSTUP_TOOLCHAIN \
+  cargo test --locked -p worldrunner-render-scene --lib \
+  -- --exact shadows::tests::render_path::moving_timing::public_moving_view_timing_probe \
+  --ignored --nocapture --test-threads=1
+```
+
+For hardware measurements, select that machine's adapter instead of lavapipe and
+use its GPU queue. Omit the host-specific `heavy` wrapper where it is unavailable.
+The pinned Rust toolchain applies. Software-adapter timings describe the CPU rasterizer.
+
+The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
+257×241. For view index `i` in `0..150`, the eye is
+`[-400 + 800*i/149, -4000, 6500]` integer millimetres and the target is `[0,0,0]`.
+The first 30 views warm up; the remaining 120 are sampled. Each path keeps a
+separate scene upload, frame renderer and output resident. A shared immutable
+source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve both
+calls to public `compositor::encode_scene`, with alternating path order. No shadows,
+SDSM, image readback or speed threshold is involved.
+
+CPU encode/submit ends at submission. Serialized completion ends after waiting
+for that submission. Both include optional query instrumentation. Timestamp
+resolution, evidence checks and printing follow both intervals. Completion is
+wall time, including host work and the wait, without overlapped presentation.
+Optional timestamp support is reported separately from coverage, and unsupported
+devices still produce CPU results. Warm-up records are drained. Every sampled
+frame retains submitted draw counters and observed passes, including Render's
+single prepass, single lighting pass and empty opaque object draws.
+
+GPU per-pass and pass-sum summaries require all 120 frame records, their matching
+view/path IDs, the full expected pass identities and multiplicities, available
+pairs, and zero dropped/unavailable counters. The installed screen schedule and
+fixed fixture output contract determine expected passes independently of timing
+records. Missing records or passes withhold all GPU summaries; a missing entire
+record on a supported device fails explicitly. Genuine zero intervals remain valid.
+Full `PassId` values are printed. Pass sums exclude gaps and untimed work, so they
+are not whole-frame GPU envelopes. The nonignored `moving_timing` tests cover these
+contracts with CPU data and short synthetic GPU runs; the probe is informational.
+
 ## Deferred G-buffer
 
 `SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred

@@ -15,7 +15,7 @@ struct Samples {
 #[ignore = "explicit informational cascade refresh GPU timing probe"]
 fn cascade_refresh_gpu_timing_comparison() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context = match pollster::block_on(GpuContext::request_with_features(
+    let context = match pollster::block_on(GpuContext::request_with_features_for_test(
         wgpu::Features::TIMESTAMP_QUERY,
     )) {
         Ok(context) => context,

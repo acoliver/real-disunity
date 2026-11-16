@@ -1,4 +1,5 @@
 //! CPU time of the per-frame object selection for a walking camera and four cascades.
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
 use super::large_scene::{FrameViews, slice_hull, walk, world};
@@ -13,6 +14,8 @@ struct Times {
     prepare: Duration,
     views: [Duration; 5],
     drawn: [usize; 5],
+    /// Hash of every view's ranges and levels, so builds can be compared for equal output.
+    selected: u64,
 }
 
 /// The camera and the four caster-fitted cascades, unselected.
@@ -78,6 +81,16 @@ fn time_frame(
     times.drawn = selections
         .each_ref()
         .map(|(_, selection)| selection.stats.drawn_per_lod.iter().sum());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (matrix, selection) in &selections {
+        matrix.to_cols_array().map(f32::to_bits).hash(&mut hasher);
+        for range in &selection.ranges {
+            (range.key, range.lod, range.slots.clone()).hash(&mut hasher);
+        }
+        selection.stats.drawn_per_lod.hash(&mut hasher);
+        selection.stats.culled.hash(&mut hasher);
+    }
+    times.selected = hasher.finish();
     times
 }
 
@@ -100,9 +113,11 @@ fn moving_camera_selection_cost() {
     let per_frame = |time: Duration| time.as_secs_f64() * 1000.0 / f64::from(FRAMES);
     for parallel in [false, true] {
         let mut total = Times::default();
+        let mut selected = std::collections::hash_map::DefaultHasher::new();
         // Frame zero fills the cached bounds and trees, as the first frame after loading does.
         for frame in 0..=FRAMES {
             let times = time_frame(&instances, &meshes, &walk(frame), parallel);
+            times.selected.hash(&mut selected);
             if frame == 0 {
                 continue;
             }
@@ -132,5 +147,6 @@ fn moving_camera_selection_cost() {
             "drawn per frame: {:?}",
             total.drawn.map(|count| count / usize::from(FRAMES))
         );
+        println!("selection hash {:016x}", selected.finish());
     }
 }

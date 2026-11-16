@@ -439,3 +439,183 @@ fn a_refusal_neither_builds_nor_prepares_a_registered_feature() {
     );
     assert_eq!((built.get(), prepared.get()), (0, 0));
 }
+
+/// What one entry of a plan that tests the opaque depth does with it.
+#[derive(Clone, Copy)]
+enum Step {
+    /// A depth prepass that writes the scene depth.
+    Prepass,
+    /// A depth prepass that writes some other depth.
+    OtherPrepass,
+    /// The next Opaque entry, writing the scene depth.
+    Opaque,
+    /// A pass that tests the scene depth through a shared read-only `Load` attachment.
+    Reader,
+}
+
+/// A plan in the order of `steps`, with the entry of its reader and the scene depth it tests.
+struct DepthOrder {
+    passes: Vec<PassDeclaration>,
+    views: Vec<AttachmentView>,
+    declaration: FeatureDeclaration,
+    entries: Vec<PassEntry>,
+    reader: PassEntry,
+    depth: ResourceRef,
+}
+
+/// Every writer after the first loads the scene depth and every pass has its own colour target,
+/// so frame validation has nothing to say about the order. The reader's target is `R8Uint`.
+fn depth_order(rig: &mut Rig, steps: &[Step], reader_lists_depth: bool) -> DepthOrder {
+    const COLOURS: [&str; 6] = ["t0", "t1", "t2", "t3", "t4", "t5"];
+    let (depth, depth_view) = rig.depth("scene depth");
+    let mut views = vec![depth_view];
+    let (mut passes, mut entries, mut reads) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut written, mut opaques, mut reader) = (false, 0, None);
+    for (step, name) in steps.iter().zip(COLOURS) {
+        let mut load_after_first = |depth: &AttachmentDeclaration| {
+            let load = if written {
+                AttachmentLoad::Load
+            } else {
+                AttachmentLoad::ClearDepth(1.0)
+            };
+            written = true;
+            AttachmentDeclaration {
+                load,
+                ..depth.clone()
+            }
+        };
+        let (this, declared) = match step {
+            Step::Prepass | Step::Opaque => {
+                let slot = if matches!(step, Step::Prepass) {
+                    PassSlot::DepthNormalPrepass
+                } else {
+                    PassSlot::Opaque
+                };
+                let occurrence = if slot == PassSlot::Opaque { opaques } else { 0 };
+                opaques += u32::from(slot == PassSlot::Opaque);
+                let this = PassEntry::nth(slot, occurrence);
+                let (color, view) = rig.colour(name);
+                views.push(view);
+                let mut declared = pass(this, &color);
+                declared.depth = Some(load_after_first(&depth));
+                (this, declared)
+            }
+            Step::OtherPrepass => {
+                let this = entry(PassSlot::DepthNormalPrepass);
+                let (other, other_view) = rig.depth("other depth");
+                let (color, view) = rig.colour(name);
+                views.extend([other_view, view]);
+                let mut declared = pass(this, &color);
+                declared.depth = Some(other);
+                (this, declared)
+            }
+            Step::Reader => {
+                let this = entry(PassSlot::AfterOpaqueDepth);
+                let view = rig.view(name, wgpu::TextureFormat::R8Uint);
+                let color = clear(view.resource(), wgpu::TextureFormat::R8Uint);
+                views.push(view);
+                let mut declared = pass(this, &color);
+                declared.depth = Some(AttachmentDeclaration {
+                    load: AttachmentLoad::Load,
+                    read_only: true,
+                    ..depth.clone()
+                });
+                reader = Some(this);
+                (this, declared)
+            }
+        };
+        let lists = matches!(step, Step::Reader) && reader_lists_depth;
+        reads.push((
+            this,
+            if lists {
+                vec![depth.resource]
+            } else {
+                Vec::new()
+            },
+        ));
+        entries.push(this);
+        passes.push(declared);
+    }
+    let listed: Vec<_> = reads
+        .iter()
+        .map(|(entry, reads)| (*entry, reads.as_slice()))
+        .collect();
+    DepthOrder {
+        declaration: drawing(&listed),
+        passes,
+        views,
+        entries,
+        reader: reader.expect("a plan with a reader"),
+        depth: depth.resource,
+    }
+}
+
+fn encode_order(steps: &[Step], reader_lists_depth: bool) -> (DepthOrder, Outcome) {
+    let mut rig = Rig::new();
+    let order = depth_order(&mut rig, steps, reader_lists_depth);
+    let declaration = order.declaration.clone();
+    let outcome = rig.encode(&order.passes, &order.views, declaration);
+    (order, outcome)
+}
+
+fn assert_depth_test_refused(steps: &[Step], reader_lists_depth: bool) {
+    let (order, outcome) = encode_order(steps, reader_lists_depth);
+    refused(
+        &outcome,
+        FrameError::IncompleteDepth {
+            pass: order.reader,
+            resource: order.depth,
+        },
+    );
+}
+
+#[test]
+fn a_read_only_depth_test_between_two_opaque_writers_is_refused_before_any_feature_prepares() {
+    assert_depth_test_refused(&[Step::Opaque, Step::Reader, Step::Opaque], false);
+}
+
+#[test]
+fn a_read_only_depth_test_that_also_lists_the_depth_in_its_reads_is_refused_the_same() {
+    assert_depth_test_refused(&[Step::Opaque, Step::Reader, Step::Opaque], true);
+}
+
+#[test]
+fn a_read_only_depth_test_between_three_opaque_writers_is_refused() {
+    assert_depth_test_refused(
+        &[Step::Opaque, Step::Opaque, Step::Reader, Step::Opaque],
+        false,
+    );
+}
+
+#[test]
+fn a_prepass_of_another_depth_does_not_complete_the_depth_a_read_only_test_uses() {
+    use Step::*;
+    assert_depth_test_refused(&[OtherPrepass, Opaque, Reader, Opaque], false);
+}
+
+#[test]
+fn a_prepass_of_another_depth_does_not_complete_the_depth_a_listed_read_uses() {
+    use Step::*;
+    assert_depth_test_refused(&[OtherPrepass, Opaque, Reader, Opaque], true);
+}
+
+#[test]
+fn a_read_only_depth_test_after_a_prepass_or_after_the_last_opaque_writer_is_admitted() {
+    use Step::*;
+    let cases: [&[Step]; 6] = [
+        &[Opaque, Opaque, Reader],
+        &[Opaque, Reader],
+        &[Prepass, Reader, Opaque, Opaque],
+        &[Prepass, Opaque, Reader, Opaque],
+        &[OtherPrepass, Opaque, Opaque, Reader],
+        &[Opaque, Opaque, Reader, OtherPrepass],
+    ];
+    for steps in cases {
+        for lists in [false, true] {
+            let (order, outcome) = encode_order(steps, lists);
+            outcome.result.unwrap();
+            assert_eq!(outcome.prepared, 1);
+            assert_eq!(outcome.draws, order.entries);
+        }
+    }
+}

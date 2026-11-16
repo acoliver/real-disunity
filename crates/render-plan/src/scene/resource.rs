@@ -662,6 +662,8 @@ pub struct SceneResources {
     /// `logical_total(&textures)`, so the aggregate query and the overflow check on
     /// append and replacement never walk the table.
     logical_bytes: u64,
+    /// Textures the scene declares level-reducible (`RenderScene::with_reducible_textures`).
+    pub(super) reducible_textures: std::sync::Arc<[TextureHandle]>,
 }
 
 impl SceneResources {

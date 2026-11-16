@@ -9,6 +9,7 @@
 mod material_channels;
 pub use material_channels::{SceneMaterialChannels, TextureChannel};
 mod decal;
+mod reducible;
 pub use decal::{
     SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
     SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
@@ -360,6 +361,7 @@ impl RenderScene {
 
     fn validate_references(&self) -> Result<(), SceneValidationError> {
         self.validate_decals()?;
+        self.validate_reducible()?;
         if let Some(effects) = &self.effects {
             effects.validate()?;
             if let Some(environment) = effects.environment() {
@@ -458,7 +460,7 @@ mod tests {
     use crate::scene::geometry::{SceneRotation, SceneVertex};
     use crate::scene::resource::{TexelFormat, TextureColorSpace, TextureEncoding};
 
-    fn texture() -> crate::scene::resource::SceneTexture {
+    pub(super) fn texture() -> crate::scene::resource::SceneTexture {
         crate::scene::resource::SceneTexture::Encoded {
             encoding: TextureEncoding::OpaqueExact,
             color_space: TextureColorSpace::Linear,
@@ -466,7 +468,7 @@ mod tests {
         }
     }
 
-    fn effects() -> SceneEffects {
+    pub(super) fn effects() -> SceneEffects {
         SceneEffects::new(SceneEffectsParts {
             water: None,
             sky: SceneSky::ProceduralHemisphere {
@@ -532,7 +534,7 @@ mod tests {
         .expect("synthetic mesh validates")
     }
 
-    fn scene_with(
+    pub(super) fn scene_with(
         objects: Vec<SceneObject>,
         terrain: Option<crate::scene::terrain::SceneTerrain>,
     ) -> Result<RenderScene, SceneValidationError> {
@@ -558,7 +560,7 @@ mod tests {
         })
     }
 
-    fn object(mesh: u32, material: u32) -> SceneObject {
+    pub(super) fn object(mesh: u32, material: u32) -> SceneObject {
         SceneObject::new(
             SceneTransform {
                 position_millimeters: [0, 0, 0],
@@ -570,7 +572,7 @@ mod tests {
         )
     }
 
-    fn terrain(materials: Vec<MaterialHandle>) -> crate::scene::terrain::SceneTerrain {
+    pub(super) fn terrain(materials: Vec<MaterialHandle>) -> crate::scene::terrain::SceneTerrain {
         let surfaces = materials
             .into_iter()
             .map(|material| SceneTerrainSurface::new(material, SceneTerrainAppearance::NEUTRAL))
@@ -685,7 +687,7 @@ mod tests {
         ));
     }
 
-    fn dome_sky_effects() -> SceneEffects {
+    pub(super) fn dome_sky_effects() -> SceneEffects {
         let base = effects();
         SceneEffects::new(SceneEffectsParts {
             water: None,

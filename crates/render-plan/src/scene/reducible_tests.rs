@@ -164,3 +164,30 @@ fn a_water_normal_map_is_refused_by_name() {
     );
     assert!(scene.with_reducible_textures(vec![handle(1)]).is_ok());
 }
+
+#[test]
+fn impostor_maps_cannot_lose_their_frame_grid() {
+    use crate::{SceneImpostor, SceneImpostorLayout};
+    let atlas =
+        SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [16, 16], 0, false).unwrap();
+    let image = SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Srgb,
+        width: 64,
+        height: 64,
+        mips: 1,
+        bytes: vec![255; 64 * 64 * 4].into(),
+    };
+    let scene = RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![image], vec![material(0).with_impostor(atlas)])
+            .unwrap(),
+        geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
+        terrain: None,
+        effects: None,
+    })
+    .unwrap();
+    assert_eq!(
+        refusal(&scene, 0),
+        "a reducible texture is an impostor atlas"
+    );
+}

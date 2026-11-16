@@ -161,6 +161,23 @@ impl PreparedScene {
         &self.scene
     }
 
+    /// Backing bytes of prepared scene textures selected by `include`, before upload.
+    #[must_use]
+    pub fn texture_bytes_where(
+        &self,
+        include: impl Fn(worldrunner_render_plan::TextureHandle) -> bool,
+    ) -> u64 {
+        self.textures
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                u32::try_from(*index)
+                    .is_ok_and(|raw| include(worldrunner_render_plan::TextureHandle::from_raw(raw)))
+            })
+            .map(|(_, texture)| texture.as_prepared().tier_bytes(0))
+            .sum()
+    }
+
     /// Chooses one texture tier for the textures `eligible` accepts and drops that many top
     /// levels from each before upload (GitHub #376 step 3). `other_resident` is the memory
     /// already counted outside these textures. Without a policy or a device-local size this

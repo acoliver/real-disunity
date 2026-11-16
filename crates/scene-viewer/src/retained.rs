@@ -39,7 +39,7 @@ pub use statistics::{
     PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
     ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 mod decals;
 pub use decals::DecalUpdate;

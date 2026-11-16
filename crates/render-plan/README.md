@@ -180,8 +180,9 @@ the table, and refuses by name a declared handle that the scene also binds throu
 a consumer reading level 0 or the authored size: the environment cube and BRDF
 table, the sky dome, celestial discs, water normal, flow and wind maps, material
 wind fields, fade threshold textures, impostor relief and border maps, terrain
-palette maps, layer sources and colorization. UI overlay textures are a separate
-dynamic table and never use scene handles.
+palette maps, layer sources and colorization. Impostor material atlas maps also
+stay authored so dropping levels cannot invalidate their frame grid. UI overlay
+textures are a separate dynamic table and never use scene handles.
 
 ## Material anisotropy
 

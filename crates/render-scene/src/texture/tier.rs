@@ -74,6 +74,9 @@ impl PreparedTexture<'_> {
     /// census's own arithmetic, so a choice and the census agree.
     #[must_use]
     pub fn tier_bytes(&self, levels: u8) -> u64 {
+        if self.cube.is_some() {
+            return self.payload_bytes();
+        }
         let tier = self.clone().without_top_levels(levels);
         let mip_level_count = u32::try_from(tier.mips.len()).unwrap_or(u32::MAX);
         worldrunner_render_gpu::census::texture_backing_bytes(&wgpu::TextureDescriptor {

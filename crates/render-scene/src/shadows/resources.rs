@@ -239,6 +239,28 @@ pub(super) struct ShadowMap {
 }
 
 impl ShadowMap {
+    /// Set 2 of the receivers that sample this map, with the Opaque depth when relief cards
+    /// reject against it.
+    pub fn receiver_groups(
+        &self,
+        scheduler: &crate::compositor::FrameRenderer,
+        device: &wgpu::Device,
+        card_depth: Option<&worldrunner_render_post::AttachmentView>,
+    ) -> crate::scene_metadata::receiver::SetTwo {
+        scheduler.shadow_groups(
+            device,
+            (
+                &self.group,
+                crate::scene_metadata::receiver::ShadowInputs {
+                    uniform: &self.uniform,
+                    depth: self.depth.receiver_view(),
+                    sampler: &self.sampler,
+                },
+            ),
+            card_depth,
+        )
+    }
+
     pub fn select_frame_slot(&mut self, slot: usize) {
         self.uniform = self.slots[slot].0.clone();
         self.group = self.slots[slot].1.clone();

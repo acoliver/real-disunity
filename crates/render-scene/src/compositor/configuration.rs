@@ -71,8 +71,13 @@ impl RendererConfiguration {
         ));
         screen_allocations(self, &mut set);
         snapshots::allocations(self, &mut set);
-        if super::opaque::admit_path(self.opaque_path, self.frame.samples).unwrap_or(false) {
-            crate::gbuffer::allocations(self.frame.size, &mut set);
+        if let Ok(Some(usage)) = super::opaque::admit_path(self.opaque_path, self.frame.samples) {
+            crate::gbuffer::allocations(
+                self.frame,
+                self.ssr.is_some_and(|ssr| ssr.enabled),
+                usage,
+                &mut set,
+            );
         }
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
@@ -486,7 +491,11 @@ impl ConfiguredFrameRenderer {
             ConfigurationError::ForeignDevice => ConfigurationError::ForeignDevice,
             ConfigurationError::Submission(error) => ConfigurationError::Submission(error),
             ConfigurationError::Allocation(never) => match never {},
-        })?;
+        })?
+        .counted(
+            worldrunner_render_gpu::census::ResourceClass::RenderTarget,
+            &context.device().limits(),
+        );
         Ok(Self {
             state,
             settings,
@@ -681,7 +690,12 @@ fn build(
         ssr: None,
         ssao_requested: settings.ssao,
         ssr_requested: settings.ssr,
-        gbuffer: super::opaque::allocate_path(device, settings.opaque_path, settings.frame)?,
+        gbuffer: super::opaque::allocate_path(
+            device,
+            settings.opaque_path,
+            settings.frame,
+            settings.ssr.is_some_and(|ssr| ssr.enabled),
+        )?,
     };
     renderer.install_reflections(device)?;
     renderer.install_gbuffer_producer(device);

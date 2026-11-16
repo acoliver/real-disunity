@@ -16,6 +16,11 @@ pub enum PassSlot {
     /// The deferred G-buffer: four material targets that opaque producers write before
     /// Opaque. Present only when the scene selects the G-buffer opaque path.
     OpaqueGbuffer,
+    /// Deferred lighting of the G-buffer: one full-screen pass after the G-buffer and before
+    /// Opaque, reading the scene depth the depth prepass completed. Present only when the scene
+    /// selects a G-buffer opaque path; when it renders from the G-buffer, this pass writes the
+    /// scene colour and Opaque draws only the surfaces without a G-buffer producer.
+    OpaqueLighting,
     Opaque,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
@@ -508,19 +513,29 @@ impl<'a> PrepareContext<'a> {
             workgroups,
         });
     }
+    /// Stages `bytes` for `destination` at `offset`, copied in staging order like
+    /// [`Self::copy_buffer_region`]. The bytes are written into the frame authority's reusable
+    /// staging now; a cancelled frame never copies them. `bytes` must be a multiple of
+    /// `wgpu::COPY_BUFFER_ALIGNMENT` long and fit `destination`, which must allow `COPY_DST`.
+    /// An empty upload copies nothing and stages nothing.
     pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
-        use wgpu::util::DeviceExt;
-        let staging = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("frame upload"),
-                contents: bytes,
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
+        let size = bytes.len() as u64;
+        assert!(
+            destination.usage().contains(wgpu::BufferUsages::COPY_DST)
+                && offset.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+                && offset
+                    .checked_add(size)
+                    .is_some_and(|end| end <= destination.size()),
+            "upload of {size} bytes at {offset} does not fit {destination:?}"
+        );
+        if bytes.is_empty() {
+            return;
+        }
+        let source = self.publications.stage_upload(self.device, bytes);
         self.staged.push(Staged::Copy {
-            source: (staging, 0),
+            source,
             destination: (destination.clone(), offset),
-            bytes: bytes.len() as u64,
+            bytes: size,
         });
     }
     /// Publishes staged copies and dispatches only after all fallible preparations succeed.

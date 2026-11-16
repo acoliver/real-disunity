@@ -1,15 +1,17 @@
 use super::*;
+use crate::instances::test_owner::Owner;
 
 fn record(value: u8) -> Vec<u8> {
     vec![value; STRIDE]
 }
 
 fn prepare(history: &mut History, bytes: &[u8]) -> Candidate {
-    history.prepare(bytes, &BTreeSet::new(), &Publications::default())
+    history.prepare(bytes, &BTreeSet::new(), &Owner::new())
 }
 
 #[test]
 fn upload_acknowledgement_does_not_advance_last_visible_transform() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
@@ -30,6 +32,7 @@ fn upload_acknowledgement_does_not_advance_last_visible_transform() {
 
 #[test]
 fn reset_survives_refusal_and_removed_candidates_cannot_publish_into_reused_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
@@ -51,6 +54,7 @@ fn reset_survives_refusal_and_removed_candidates_cannot_publish_into_reused_slot
 
 #[test]
 fn history_frontier_remains_sparse_and_candidates_are_immutable() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     let mut bytes = vec![1; 1000 * STRIDE];
     for slot in 0..1000 {
@@ -71,6 +75,7 @@ fn history_frontier_remains_sparse_and_candidates_are_immutable() {
 
 #[test]
 fn repeated_visible_publication_cannot_reintroduce_a_settled_obligation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
@@ -84,11 +89,12 @@ fn repeated_visible_publication_cannot_reintroduce_a_settled_obligation() {
 
 #[test]
 fn same_frame_reuses_previous_operands_and_enlists_unrelated_new_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
     history.edit(0);
-    let owner = Publications::default();
+    let owner = Owner::new();
     let mut bytes = record(2);
     let prefix = history.prepare(&bytes, &BTreeSet::new(), &owner);
     assert_eq!(
@@ -113,6 +119,7 @@ fn same_frame_reuses_previous_operands_and_enlists_unrelated_new_slots() {
 
 #[test]
 fn reverted_edits_keep_visible_candidates_without_unnecessary_previous_writes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
@@ -130,6 +137,7 @@ fn reverted_edits_keep_visible_candidates_without_unnecessary_previous_writes() 
 
 #[test]
 fn publication_keeps_the_drawn_snapshot_and_preserves_a_newer_edit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     prepare(&mut history, &record(1)).publish();
@@ -145,6 +153,7 @@ fn publication_keeps_the_drawn_snapshot_and_preserves_a_newer_edit() {
 
 #[test]
 fn publication_consumes_its_fresh_marker_but_preserves_a_newer_reset() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     let first = prepare(&mut history, &record(1));
@@ -163,6 +172,7 @@ fn publication_consumes_its_fresh_marker_but_preserves_a_newer_reset() {
 
 #[test]
 fn physical_acknowledgement_admits_fresh_bytes_without_consuming_visible_debt() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     let fresh = prepare(&mut history, &record(1));
@@ -189,6 +199,7 @@ fn physical_acknowledgement_admits_fresh_bytes_without_consuming_visible_debt() 
 
 #[test]
 fn physical_readiness_rejects_new_revisions_resets_and_reused_generations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut history = History::default();
     history.add(0);
     let first = prepare(&mut history, &record(1));

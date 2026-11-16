@@ -1,12 +1,11 @@
 use super::*;
+use crate::instances::test_owner::Owner;
 use worldrunner_render_plan::{MaterialHandle, MeshHandle, SceneRotation};
 
 fn candidate(batch: &mut InstanceBatch) -> super::super::history::Candidate {
-    batch.history.prepare(
-        &batch.bytes,
-        &batch.dirty,
-        &worldrunner_render_gpu::submission::Publications::default(),
-    )
+    batch
+        .history
+        .prepare(&batch.bytes, &batch.dirty, &Owner::new())
 }
 
 fn previous_uploads(batch: &mut InstanceBatch) -> Vec<(u64, Vec<u8>)> {
@@ -43,6 +42,7 @@ fn batch() -> InstanceBatch {
 
 #[test]
 fn velocity_reset_cpu_makes_all_previous_transforms_current_until_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
     let before = previous_uploads(&mut batch);
     assert_ne!(before[0].1, batch.bytes[..STRIDE]);
@@ -57,6 +57,7 @@ fn velocity_reset_cpu_makes_all_previous_transforms_current_until_submission() {
 
 #[test]
 fn velocity_reset_cpu_ignores_removed_slots_and_keeps_current_uploads_sparse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
     batch.remove(1);
     let writes = batch.pending_ranges();
@@ -74,6 +75,7 @@ fn velocity_reset_cpu_ignores_removed_slots_and_keeps_current_uploads_sparse() {
 
 #[test]
 fn physical_acknowledgement_keeps_history_pending_without_current_edits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
     let before = previous_uploads(&mut batch);
     batch.commit(&batch.pending_ranges());
@@ -108,26 +110,28 @@ fn stage_current(batch: &mut InstanceBatch, owner: &Publications) {
 
 #[test]
 fn repeated_flush_cpu_restores_current_and_preserves_other_staged_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
     let a = batch.get(1).0;
     let b = batch.get(0).0;
     batch.set_object(1, b);
-    let owner = Publications::default();
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![0..2]);
+    let owner = Owner::new();
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![0..2]);
     stage_current(&mut batch, &owner);
     batch.set_object(0, a);
     batch.prune_published(&owner);
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![0..1]);
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![0..1]);
     stage_current(&mut batch, &owner);
     batch.prune_published(&owner);
-    assert!(batch.pending_ranges_for(Some(&owner)).is_empty());
+    assert!(batch.pending_ranges_for(Some(&*owner)).is_empty());
     batch.set_object(0, b);
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![0..1]);
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![0..1]);
     assert_eq!(batch.pending_ranges(), vec![0..2]);
 }
 
 #[test]
 fn repeated_flush_cpu_restores_skin_without_transform_edits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
     batch.skin = Some(SkinStream::default());
     for slot in 0..2 {
@@ -135,33 +139,34 @@ fn repeated_flush_cpu_restores_skin_without_transform_edits() {
     }
     batch.commit(&batch.pending_ranges());
     let current = batch.bytes.clone();
-    let owner = Publications::default();
+    let owner = Owner::new();
     batch.set_skin(0, [4, 4, 2, 0]);
     stage_current(&mut batch, &owner);
     batch.set_skin(0, [0, 0, 2, 0]);
     batch.prune_published(&owner);
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![0..1]);
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![0..1]);
     stage_current(&mut batch, &owner);
     batch.prune_published(&owner);
-    assert!(batch.pending_ranges_for(Some(&owner)).is_empty());
+    assert!(batch.pending_ranges_for(Some(&*owner)).is_empty());
     batch.set_skin(1, [8, 8, 2, 0]);
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![1..2]);
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![1..2]);
     assert_eq!(batch.bytes, current);
 }
 
 #[test]
 fn repeated_flush_cpu_keeps_unsubmitted_edits_pending_outside_the_owner() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();
-    let owner = Publications::default();
+    let owner = Owner::new();
     stage_current(&mut batch, &owner);
     batch.prune_published(&owner);
-    assert!(batch.pending_ranges_for(Some(&owner)).is_empty());
+    assert!(batch.pending_ranges_for(Some(&*owner)).is_empty());
     assert_eq!(batch.pending_ranges(), vec![0..1]);
-    let other = Publications::default();
+    let other = Owner::new();
     batch.prune_published(&other);
-    assert_eq!(batch.pending_ranges_for(Some(&other)), vec![0..1]);
+    assert_eq!(batch.pending_ranges_for(Some(&*other)), vec![0..1]);
     stage_current(&mut batch, &other);
-    assert!(batch.pending_ranges_for(Some(&other)).is_empty());
-    assert_eq!(batch.pending_ranges_for(Some(&owner)), vec![0..1]);
+    assert!(batch.pending_ranges_for(Some(&*other)).is_empty());
+    assert_eq!(batch.pending_ranges_for(Some(&*owner)), vec![0..1]);
     assert_eq!(batch.pending_ranges(), vec![0..1]);
 }

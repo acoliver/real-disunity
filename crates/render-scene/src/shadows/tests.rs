@@ -3,6 +3,7 @@ mod cascades;
 mod caster_route;
 mod compaction;
 mod culling;
+mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -28,6 +29,7 @@ mod terrain;
 mod terrain_receiver_images;
 mod timing_probe;
 mod toggle;
+mod upload_staging;
 mod validation;
 mod water_identity;
 mod water_pcf5;
@@ -542,6 +544,7 @@ fn render_target(
 }
 
 mod refresh;
+mod render_path;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

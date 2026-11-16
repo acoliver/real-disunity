@@ -65,6 +65,71 @@ struct SceneShadingSurface {
     properties: vec3<f32>,
 }
 
+// The constant material values that shading reads besides the surface's own channels: the
+// lighting record. A forward draw reads its material's record; the deferred lighting pass
+// reads the same values from the frame's record table, at the index the G-buffer stores.
+struct SceneLightingRecord {
+    // Back-scattering distortion, falloff, sun scale and ambient scale.
+    scattering_shape: vec4<f32>,
+    // Back-scattering scale, luminance, saturation and base temperature in kelvin.
+    scattering_colour: vec4<f32>,
+    // x: warming in kelvin; y: nonzero enables back-scattering; z and w are not read.
+    scattering_mode: vec4<f32>,
+    // x: transmission amount; y, z and w are zero.
+    transmission: vec4<f32>,
+}
+
+fn scene_material_lighting_record() -> SceneLightingRecord {
+    return SceneLightingRecord(material.scattering_shape, material.scattering_colour,
+        material.scattering_mode, vec4<f32>(bitcast<f32>(material.geometry_flags.y), 0.0, 0.0, 0.0));
+}
+
+// The material's index in the frame's lighting-record table, which G-buffer producers store
+// as SceneGbufferSurface.lighting_record. The renderer writes it into scattering_mode.z.
+fn scene_material_lighting_record_index() -> u32 {
+    return u32(material.scattering_mode.z);
+}
+
+// Whether a record's back-scattering term applies. Forward draws test their material through
+// the argument-free accessors below, which the shadow uniformity check reads as uniform.
+fn scene_record_scatters(record: SceneLightingRecord) -> bool {
+    return (record.scattering_mode.y != 0.0) & (frame.grading.y == 0.0);
+}
+
+fn scene_material_scatters() -> bool {
+    return (material.scattering_mode.y != 0.0) & (frame.grading.y == 0.0);
+}
+
+// Sun light scattered through a thin surface toward the viewer. `visibility` is the sun
+// visibility of the lit side.
+fn scene_record_scattering(position: vec3<f32>, normal: vec3<f32>, albedo: vec3<f32>,
+    record: SceneLightingRecord, masked_amount: f32, visibility: f32) -> vec3<f32> {
+    let toward_sun = rd_toward_light(frame.sun_direction.xyz, false);
+    let ray = normalize(position - scene_ray_origin(position));
+    let intensity = scene_backlight_strength(ray, toward_sun, normal,
+        record.scattering_shape, vec3<f32>(record.scattering_colour.x, masked_amount, visibility));
+    return scene_scattering_tint(albedo, record.scattering_colour,
+        record.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;
+}
+
+fn scene_record_transmits(record: SceneLightingRecord) -> bool {
+    return (record.transmission.x != 0.0) & (frame.grading.y == 0.0);
+}
+
+fn scene_material_transmits() -> bool {
+    return (bitcast<f32>(material.geometry_flags.y) != 0.0) & (frame.grading.y == 0.0);
+}
+
+// Sun light transmitted through the surface from behind. `visibility` is the sun
+// visibility of the far side.
+fn scene_record_transmission(normal: vec3<f32>, albedo: vec3<f32>, record: SceneLightingRecord,
+    visibility: f32) -> vec3<f32> {
+    let light = rd_toward_light(frame.sun_direction.xyz, false);
+    return albedo * frame.sun_irradiance.rgb
+        * scene_transmission(record.transmission.x, -dot(normal, light)) / PI
+        * visibility;
+}
+
 // An object fragment's material after projected decals: the values the forward path lights and
 // the G-buffer stores, evaluated once by either. surface.properties holds roughness, metalness
 // and AO; masked_amount is the per-pixel scattering amount.
@@ -139,21 +204,14 @@ fn scene_finish_shading(input: VertexOutput, material_surface: SceneObjectMateri
     );
 
     var colour = lighting.color;
-    if material.scattering_mode.y != 0.0 && frame.grading.y == 0.0 {
-        let toward_sun = rd_toward_light(frame.sun_direction.xyz, false);
-        let ray = normalize(input.world_position - scene_ray_origin(input.world_position));
-        let visibility = sunlight_visibility(input.world_position, normal);
-        let intensity = scene_backlight_strength(ray, toward_sun, normal,
-            material.scattering_shape, vec3<f32>(material.scattering_colour.x, masked_amount, visibility));
-        colour += scene_scattering_tint(albedo_sample.rgb, material.scattering_colour,
-            material.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;
+    let record = scene_material_lighting_record();
+    if scene_material_scatters() {
+        colour += scene_record_scattering(input.world_position, normal, albedo_sample.rgb, record,
+            masked_amount, sunlight_visibility(input.world_position, normal));
     }
-    let translucency = bitcast<f32>(material.geometry_flags.y);
-    if translucency != 0.0 && frame.grading.y == 0.0 {
-        let light = rd_toward_light(frame.sun_direction.xyz, false);
-        colour += albedo_sample.rgb * frame.sun_irradiance.rgb
-            * scene_transmission(translucency, -dot(normal, light)) / PI
-            * sunlight_visibility(input.world_position, -normal);
+    if scene_material_transmits() {
+        colour += scene_record_transmission(normal, albedo_sample.rgb, record,
+            sunlight_visibility(input.world_position, -normal));
     }
 
     if (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u || scene_packed_atlas(input) {

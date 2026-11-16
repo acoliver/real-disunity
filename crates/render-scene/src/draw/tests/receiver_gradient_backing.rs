@@ -71,7 +71,7 @@ fn submit_payload(context: &GpuContext, textures: &[Texture; 2]) -> wgpu::Submis
 #[test]
 fn gpu_receiver_backing_stays_within_one_reservation_while_submissions_are_outstanding() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let device = context.device();
     let source = sloped(true);
     let pipelines =
@@ -159,7 +159,7 @@ fn gpu_receiver_backing_stays_within_one_reservation_while_submissions_are_outst
 #[test]
 fn gpu_receiver_front_reservation_retains_only_one_layer_across_bias_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let device = context.device();
     let pipelines = ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1).unwrap();
     let gpu = SceneGpu::upload(device, context.submission(), &sloped(false), &pipelines).unwrap();

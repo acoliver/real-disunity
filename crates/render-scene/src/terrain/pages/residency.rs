@@ -36,7 +36,8 @@ pub enum PageCacheError {
 }
 
 pub(super) struct Storage {
-    pub texture: wgpu::Texture,
+    /// The page array, counted under `ResourceClass::TerrainPage` while it lives.
+    pub texture: worldrunner_render_gpu::census::Tracked<wgpu::Texture>,
     pub state: Rc<RefCell<PageState>>,
     pub owner: FrameOwner<()>,
 }

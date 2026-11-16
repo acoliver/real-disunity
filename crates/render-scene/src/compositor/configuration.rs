@@ -530,6 +530,10 @@ impl ConfiguredFrameRenderer {
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         self.state.resident_bytes(limits)
     }
+    /// What the stock frame plan cache did, across the renderers this configuration replaced.
+    pub fn stock_plan_statistics(&self) -> crate::compositor::StockPlanStatistics {
+        self.state.current().stock_plan_statistics()
+    }
     pub fn generation(&self) -> u64 {
         self.state.generation()
     }
@@ -566,6 +570,7 @@ impl ConfiguredFrameRenderer {
                 "custom registrations require a custom replacement builder",
             ));
         }
+        let plan_cache = previous.plan_cache.clone();
         let post_time = previous.post_time.clone();
         let reset = previous.exposure_reset.clone();
         let temporal = previous.temporal.clone();
@@ -582,6 +587,7 @@ impl ConfiguredFrameRenderer {
                 retain_water_inputs(&mut next, water.as_ref());
                 retain_reflection_inputs(context.device(), &mut next, reflection.as_ref());
                 next.retain_environment_conventions(environment_conventions);
+                next.plan_cache = plan_cache;
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.temporal = temporal;

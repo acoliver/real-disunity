@@ -212,15 +212,17 @@ fn encode_suffix(
     let plan = stock.plan();
     let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
     let (declaration, frame) = (stock.declaration(), stock.frame());
-    scene.frame.encode_frame(
+    let offscreen = stock.take_offscreen_operations();
+    scene.frame.encode_frame_with(
         device,
         encoder,
         (&passes, &views),
+        offscreen.as_ref().map(|work| work as _),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut stock,
         }],
-        (frame, None),
+        &(frame, None),
     )
 }
 
@@ -229,6 +231,7 @@ fn empty_plan() -> FramePlan<'static> {
         passes: &[],
         views: &[],
         requested: &[],
+        operations: &[],
     }
 }
 

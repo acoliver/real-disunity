@@ -53,7 +53,6 @@ pub(crate) fn object_casters(
 ) -> crate::object::program::Context {
     resources::object_caster(pipelines, settings, sampling)
 }
-mod schedule;
 mod settings;
 mod terrain_caster;
 #[cfg(test)]

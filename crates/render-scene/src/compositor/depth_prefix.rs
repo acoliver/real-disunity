@@ -1,9 +1,18 @@
-use super::{FrameRenderer, reborrow_features};
+use super::FrameRenderer;
 use std::borrow::Cow;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FeaturePass, FrameError, FramePlan,
-    PassDeclaration, PassSlot,
+    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan,
 };
+
+fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
+    features
+        .iter_mut()
+        .map(|feature| BorrowedFeature {
+            declaration: feature.declaration.clone(),
+            prepared: &mut *feature.prepared,
+        })
+        .collect()
+}
 
 /// The depth and normal prepass and the first depth level of a frame with screen-space
 /// metadata, ready to encode ahead of the rest of the frame.
@@ -32,10 +41,8 @@ use worldrunner_render_post::{
 pub struct StockDepthPrefix {
     source: crate::scene_metadata::SceneMetadata,
     material: Option<wgpu::Texture>,
-    passes: Vec<PassDeclaration>,
+    schedule: super::stock_plan::LogicalPrefix,
     views: Vec<AttachmentView>,
-    prepass: FeaturePass,
-    screen: FeatureDeclaration,
     depth_mode: crate::renderer::depth::DepthMode,
     renders: bool,
 }
@@ -45,9 +52,17 @@ impl StockDepthPrefix {
         source: crate::scene_metadata::SceneMetadata,
         relief: bool,
     ) -> Result<Self, FrameError> {
-        let mut passes = Vec::new();
-        let mut views = Vec::new();
-        let (prepass, screen) = renderer.prefix_declarations(&source, &mut passes, &mut views)?;
+        let plan = renderer.derive_prefix(&source)?;
+        Ok(Self::from_plan(renderer, source, relief, plan))
+    }
+
+    fn from_plan(
+        renderer: &FrameRenderer,
+        source: crate::scene_metadata::SceneMetadata,
+        relief: bool,
+        plan: (super::stock_plan::LogicalPrefix, Vec<AttachmentView>),
+    ) -> Self {
+        let (schedule, views) = plan;
         let depth_mode = prefix_depth(relief, &source);
         let material = renderer
             .ssr
@@ -57,25 +72,24 @@ impl StockDepthPrefix {
             .gbuffer
             .as_ref()
             .is_some_and(crate::gbuffer::Gbuffer::renders);
-        Ok(Self {
+        Self {
             source,
             material,
-            passes,
+            schedule,
             views,
-            prepass,
-            screen,
             depth_mode,
             renders,
-        })
+        }
     }
 
     /// The prefix passes and the views they attach. Clone them to build the suffix plan.
     #[must_use]
     pub fn plan(&self) -> FramePlan<'_> {
         FramePlan {
-            passes: &self.passes,
+            passes: &self.schedule.passes,
             views: &self.views,
             requested: &[],
+            operations: &[],
         }
     }
 
@@ -173,7 +187,13 @@ impl FrameRenderer {
         frame: &crate::frame::FrameUniform,
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
-        let prefix = StockDepthPrefix::new(self, source.clone(), scene.0.has_relief())?;
+        let plan = self.plan_prefix(source, frame)?;
+        let prefix = StockDepthPrefix::from_plan(
+            self,
+            source.clone(),
+            scene.0.has_relief(),
+            ((*plan.schedule).clone(), (*plan.views).clone()),
+        );
         self.encode_prefix(device, encoder, scene, frame, (&prefix, None))
     }
 
@@ -193,14 +213,16 @@ impl FrameRenderer {
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
-        let mut passes = prefix.passes.clone();
+        let mut passes = prefix.schedule.passes.clone();
         let mut views = prefix.views.clone();
         let mut requested = Vec::new();
+        let mut operations = Vec::new();
         let mut extra = None;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);
             views.extend_from_slice(plan.views);
             requested.extend_from_slice(plan.requested);
+            operations.extend_from_slice(plan.operations);
             extra = Some(features);
         }
         let mut geometry = self.prefix_geometry(gpu, pipelines, frame, prefix)?;
@@ -212,29 +234,43 @@ impl FrameRenderer {
         let mut features = vec![
             BorrowedFeature {
                 declaration: FeatureDeclaration {
-                    passes: vec![prefix.prepass.clone()],
+                    passes: vec![prefix.schedule.prepass.clone()],
                     effects: vec![],
                 },
                 prepared: &mut geometry,
             },
             BorrowedFeature {
-                declaration: prefix.screen.clone(),
+                declaration: prefix.schedule.screen.clone(),
                 prepared: &mut screen,
             },
         ];
         if let Some(extra) = extra {
             features.extend(reborrow_features(extra));
         }
-        self.chain.encode_geometry_prefix(
+        self.encode_prefix_plan(
             device,
             encoder,
             &FramePlan {
                 passes: &passes,
                 views: &views,
                 requested: &requested,
+                operations: &operations,
             },
             &mut features,
         )
+    }
+
+    fn encode_prefix_plan(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &FramePlan<'_>,
+        features: &mut [BorrowedFeature<'_>],
+    ) -> Result<(), FrameError> {
+        #[cfg(test)]
+        super::plan_trace::record(true, plan.passes, features, plan.operations);
+        self.chain
+            .encode_geometry_prefix(device, encoder, plan, features)
     }
 
     fn prefix_geometry<'a>(
@@ -257,41 +293,6 @@ impl FrameRenderer {
             renders: prefix.renders,
             opaque_drawn: std::cell::Cell::new(false),
         })
-    }
-
-    /// Declares the prefix passes of `source` into `passes` and `views`. With a G-buffer path
-    /// that renders, the producer is fused into the prepass: the prepass declaration then
-    /// attaches the G-buffer targets and the feature's pass is the producer's.
-    fn prefix_declarations(
-        &self,
-        source: &crate::scene_metadata::SceneMetadata,
-        passes: &mut Vec<PassDeclaration>,
-        views: &mut Vec<AttachmentView>,
-    ) -> Result<(FeaturePass, FeatureDeclaration), FrameError> {
-        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
-        crate::ssao::passes::prepass(source, material, passes, views)?;
-        let screen = source.passes.schedule_metadata(passes, views)?;
-        if let Some(gbuffer) = self.gbuffer.as_ref().filter(|gbuffer| gbuffer.renders()) {
-            let (producer, _) = source.geometry.gbuffer.as_ref().expect("early producer");
-            let velocity = self.velocity_attachment(producer.writes_velocity())?;
-            gbuffer.fuse_prepass(passes, views, velocity.as_ref())?;
-            return Ok((
-                crate::gbuffer::producer_pass(producer, source.depth.format()),
-                screen,
-            ));
-        }
-        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
-        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(source.depth.format());
-        prepass.additional_color_formats = passes
-            .iter()
-            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("prepass declaration")
-            .additional_colors
-            .iter()
-            .map(|attachment| attachment.format)
-            .collect();
-        Ok((prepass, screen))
     }
 
     /// The writes of the screen-space and snapshot targets a frame's suffix produces, for a

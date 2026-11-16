@@ -254,15 +254,17 @@ fn validate_effects(
 /// let (declaration, uniform) = (stock.declaration(), stock.frame());
 /// passes.push(caller_pass);
 /// views.push(caller_view);
-/// renderer.encode_frame(
+/// let offscreen = stock.take_offscreen_operations();
+/// renderer.encode_frame_with(
 ///     device,
 ///     encoder,
 ///     (&passes, &views),
+///     offscreen.as_ref().map(|work| work as &dyn FrameOperations),
 ///     &mut [
 ///         BorrowedFeature { declaration, prepared: &mut stock },
 ///         BorrowedFeature { declaration: caller_declaration, prepared: &mut caller },
 ///     ],
-///     (uniform, None),
+///     &(uniform, None),
 /// )?;
 /// ```
 pub struct StockSceneFeature<'a> {
@@ -270,6 +272,7 @@ pub struct StockSceneFeature<'a> {
     declaration: FeatureDeclaration,
     passes: Vec<PassDeclaration>,
     views: Vec<AttachmentView>,
+    offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
 }
 impl StockSceneFeature<'_> {
     /// The passes the stock scene draws in, with the formats of its attachments.
@@ -287,11 +290,22 @@ impl StockSceneFeature<'_> {
             passes: &self.passes,
             views: &self.views,
             requested: &[],
+            operations: &[],
         }
     }
 
+    /// Takes the admitted offscreen work retained during preparation, at most once.
+    /// Keep it alive and pass its `FrameOperations` reference as the head of
+    /// [`FrameRenderer::encode_frame_with`]; it is not included in [`Self::plan`].
+    #[must_use]
+    pub fn take_offscreen_operations(
+        &mut self,
+    ) -> Option<worldrunner_render_program::offscreen::AdmittedOffscreen> {
+        self.offscreen.take()
+    }
+
     /// The frame uniform the renderer prepared, with exposure and jitter applied. Pass this to
-    /// `encode_frame`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
+    /// `encode_frame_with`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
     #[must_use]
     pub fn frame(&self) -> crate::frame::FrameUniform {
         self.feature.frame
@@ -321,83 +335,47 @@ impl PreparedFeature for StockSceneFeature<'_> {
 
 struct SceneDraw<'a, 'b> {
     gpu: &'a mut crate::draw::SceneGpu,
-    pipelines: &'b crate::renderer::ScenePipelines,
+    pipelines: crate::renderer::ScenePipelines,
     color: &'b AttachmentView,
     depth: &'b AttachmentView,
     frame: crate::frame::FrameUniform,
     screen: Option<crate::scene_metadata::Geometry>,
     velocity: Option<AttachmentView>,
     programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
     depth_mode: crate::renderer::depth::DepthMode,
 }
 
-struct ScenePassPlan<'b> {
-    depth_id: worldrunner_render_post::ResourceRef,
-    depth_texture: &'b wgpu::Texture,
-    declaration: FeatureDeclaration,
-    passes: Vec<PassDeclaration>,
-    views: Vec<AttachmentView>,
-}
-
-fn declare_scene_passes<'b>(
-    renderer: &mut FrameRenderer,
+fn declare_scene_passes(
+    renderer: &FrameRenderer,
     device: &wgpu::Device,
-    scene: &mut SceneDraw<'_, 'b>,
-) -> Result<ScenePassPlan<'b>, FrameError> {
-    let SceneDraw {
-        gpu,
-        pipelines,
-        color,
-        depth,
-        velocity,
-        depth_mode,
-        ..
-    } = scene;
-    let color_id = attachment_resource("scene color", color);
-    let depth_id = renderer.scene_depth_resource(depth);
-    let mut opaque = PassDeclaration::new(PassSlot::Opaque);
-    opaque.color = Some(renderer.color_attachment(color_id, color));
-    opaque.depth = Some(attachment(depth_id, depth, true));
-    if *depth_mode == crate::renderer::depth::DepthMode::Reuse {
-        opaque.depth.as_mut().expect("scene depth").load =
-            worldrunner_render_post::AttachmentLoad::Load;
-    }
-    let mut declaration = SceneFeature::declaration(pipelines);
-    if let Some(screen) = &renderer.ssao {
-        crate::ssao::passes::geometry_declaration(&mut declaration, screen);
-        crate::gbuffer::declare_producer(&mut declaration, screen, *depth_mode);
-    }
-    let mut views = vec![
-        color.with_resource(color_id)?,
-        depth.with_resource(depth_id)?,
-    ];
-    declare_velocity(&mut opaque, &mut views, velocity.as_ref())?;
-    let mut passes = vec![opaque];
-    gpu.plan_celestial(
+    scene: &SceneDraw<'_, '_>,
+) -> Result<super::stock_plan::Base, FrameError> {
+    super::unshadowed(
+        renderer,
         device,
-        color.size(),
-        &mut passes,
-        &mut views,
-        &mut declaration,
-    );
-    Ok(ScenePassPlan {
-        depth_id,
-        depth_texture: depth.texture(),
-        declaration,
-        passes,
-        views,
-    })
+        &super::SceneInputs {
+            gpu: &*scene.gpu,
+            pipelines: &scene.pipelines,
+            color: scene.color,
+            depth: scene.depth,
+            velocity: scene.velocity.as_ref(),
+            depth_mode: scene.depth_mode,
+        },
+    )
 }
 
 /// Prepares a resident unshadowed scene as a feature that callers compose with their own.
-/// Everything [`encode_scene`] does before encoding happens here, in the same order: depth and
-/// effect validation, the player's offscreen work, dynamic and terrain preparation, the stock
-/// plan and the deferred lighting inputs. Checked attachments retain their selected mip, array
-/// layer and view format.
+/// Performs depth and effect validation, retains the player's admitted offscreen work, stages
+/// dynamic and terrain uploads, and prepares the stock plan and deferred lighting inputs.
+/// Checked attachments retain their selected mip, array layer and view format.
 ///
-/// The submission and abandonment rules of [`FrameRenderer`] apply, and the scene's dynamic
-/// uploads are staged into `encoder` now, so the feature must be encoded in that
-/// encoder's frame or the frame dropped.
+/// Take the returned feature's offscreen operations and forward them to
+/// [`FrameRenderer::encode_frame_with`]. Preparation retains that work without encoding it;
+/// the frame executor runs it ahead of the stock passes.
+///
+/// The submission and abandonment rules of [`FrameRenderer`] apply. Dynamic uploads are staged
+/// into `encoder` now, so the feature must be encoded in that encoder's frame or the frame dropped.
 ///
 /// # Errors
 /// As [`encode_scene`].
@@ -412,6 +390,21 @@ pub fn prepare_stock_scene<'a>(
     attachments: (&AttachmentView, &AttachmentView),
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
+    let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, frame)?;
+    finish_stock_scene(renderer, device, draw)
+}
+
+fn prepare_scene_draw<'a, 'b>(
+    renderer: &mut FrameRenderer,
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    scene: (
+        &'a mut crate::draw::SceneGpu,
+        &crate::renderer::ScenePipelines,
+    ),
+    attachments: (&'b AttachmentView, &'b AttachmentView),
+    frame: crate::frame::FrameUniform,
+) -> Result<SceneDraw<'a, 'b>, FrameError> {
     let (gpu, pipelines) = scene;
     renderer.validate_opaque_depth(attachments.1)?;
     renderer.validate_taa_depth(attachments.1)?;
@@ -425,7 +418,8 @@ pub fn prepare_stock_scene<'a>(
     let pipelines = &selected;
     let writes_velocity = renderer.adopt_scene_velocity(device, gpu, pipelines);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let (programs, offscreen) =
+        encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
@@ -434,28 +428,37 @@ pub fn prepare_stock_scene<'a>(
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
     let screen = renderer.geometry_for_depth(depth_mode);
     prepare_terrain(gpu, &frame, pipelines, screen.as_ref())?;
-    let mut draw = SceneDraw {
+    Ok(SceneDraw {
         gpu,
-        pipelines,
+        pipelines: selected,
         color,
         depth,
         frame,
         screen,
         velocity,
         programs,
+        offscreen,
         depth_mode,
-    };
-    let plan = declare_scene_passes(renderer, device, &mut draw)?;
+    })
+}
+
+fn finish_stock_scene<'a>(
+    renderer: &mut FrameRenderer,
+    device: &wgpu::Device,
+    draw: SceneDraw<'a, '_>,
+) -> Result<StockSceneFeature<'a>, FrameError> {
+    let plan = declare_scene_passes(renderer, device, &draw)?;
     let SceneDraw {
         gpu,
         pipelines,
         frame,
         screen,
         programs,
+        offscreen,
         depth_mode,
         ..
     } = draw;
-    let ScenePassPlan {
+    let super::stock_plan::Base {
         depth_id,
         depth_texture,
         mut declaration,
@@ -464,10 +467,10 @@ pub fn prepare_stock_scene<'a>(
     } = plan;
     let deferred = renderer.prepare_deferred_lighting(
         device,
-        (gpu, colour_pipelines(pipelines, screen.as_ref())),
+        (gpu, colour_pipelines(&pipelines, screen.as_ref())),
         (
             depth_id,
-            depth_texture,
+            &depth_texture,
             depth_mode == crate::renderer::depth::DepthMode::Reuse,
         ),
         &frame,
@@ -479,7 +482,7 @@ pub fn prepare_stock_scene<'a>(
             screen,
             programs,
             gpu,
-            pipelines: Cow::Owned(selected),
+            pipelines: Cow::Owned(pipelines),
             frame,
             deferred,
             renders: renderer
@@ -491,6 +494,7 @@ pub fn prepare_stock_scene<'a>(
         declaration,
         passes,
         views,
+        offscreen,
     })
 }
 
@@ -499,7 +503,8 @@ pub fn prepare_stock_scene<'a>(
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
 ///
 /// This is [`prepare_stock_scene`] encoded alone: callers that add passes or features of their
-/// own prepare the stock scene themselves and call [`FrameRenderer::encode_frame`].
+/// own prepare the stock scene themselves and forward its offscreen operations to
+/// [`FrameRenderer::encode_frame_with`].
 pub fn encode_scene(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -512,14 +517,18 @@ pub fn encode_scene(
     let plan = stock.plan();
     let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
     let (declaration, frame) = (stock.declaration(), stock.frame());
-    renderer.encode_frame(
+    let offscreen = stock.take_offscreen_operations();
+    renderer.encode_frame_with(
         device,
         encoder,
         (&passes, &views),
+        offscreen
+            .as_ref()
+            .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut stock,
         }],
-        (frame, None),
+        &(frame, None),
     )
 }

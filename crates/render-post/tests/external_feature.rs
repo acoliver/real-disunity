@@ -154,7 +154,8 @@ fn encode_geometry(
             &FramePlan {
                 passes: &[declaration.clone()],
                 views: &views,
-                requested: &[]
+                requested: &[],
+                operations: &[],
             },
             &mut []
         ),
@@ -174,6 +175,7 @@ fn encode_geometry(
                 passes: &[declaration],
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [BorrowedFeature {
                 declaration: FeatureDeclaration::new(PassSlot::Opaque),
@@ -217,7 +219,8 @@ fn assert_view_contracts(
             &FramePlan {
                 passes: &[pass.clone()],
                 views: &views,
-                requested: &[]
+                requested: &[],
+                operations: &[],
             },
             &mut []
         ),
@@ -230,7 +233,8 @@ fn assert_view_contracts(
             &FramePlan {
                 passes: &[pass],
                 views: &views[..1],
-                requested: &["SSAO"]
+                requested: &["SSAO"],
+                operations: &[],
             },
             &mut []
         ),

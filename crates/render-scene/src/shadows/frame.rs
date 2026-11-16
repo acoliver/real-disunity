@@ -1,7 +1,7 @@
 use super::{
     AttachmentView, BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext,
     SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene,
-    cascades, light_frame, refresh, resources, schedule, sdsm, terrain_caster,
+    cascades, light_frame, refresh, resources, sdsm, terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -33,7 +33,7 @@ struct ShadowWork {
 struct ShadowScheduleWork<'a> {
     shadow: ShadowWork,
     groups: crate::scene_metadata::receiver::SetTwo,
-    schedule: schedule::ShadowSchedule,
+    schedule: crate::compositor::ShadowSchedule,
     deferred: Option<crate::gbuffer::lighting::LightingInputs>,
     map: &'a ShadowMap,
 }
@@ -234,8 +234,13 @@ impl ShadowWork {
         let ((color, depth), (gpu, scene)) = (attachments, scene);
         let card_depth = scene.selected.card_reject().then_some(depth);
         let groups = map.receiver_groups(scheduler, context.device(), card_depth);
-        let mut schedule =
-            schedule::ShadowSchedule::new(&map.depth, color, depth, &scene.selected, self.refresh)?;
+        let mut schedule = crate::compositor::ShadowSchedule::new(
+            &map.depth,
+            color,
+            depth,
+            &scene.selected,
+            self.refresh,
+        )?;
         let deferred = schedule.complete(
             scheduler,
             (gpu, &scene.selected),

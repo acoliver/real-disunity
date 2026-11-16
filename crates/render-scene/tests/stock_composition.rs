@@ -6,6 +6,8 @@
 mod callers;
 #[path = "stock_composition/fixture.rs"]
 mod fixture;
+#[path = "stock_composition/prefix_operations.rs"]
+mod prefix_operations;
 
 use callers::{CALLER_FORMAT, Probe, SAMPLER_ENTRY, Sampler, Seen};
 use fixture::{SIZE, gbuffer_taa_scene, scene, view};
@@ -231,10 +233,12 @@ impl Frame {
         passes.push(pass);
         views.push(view);
         let (declaration, frame) = (stock.declaration(), stock.frame());
-        self.renderer.encode_frame(
+        let offscreen = stock.take_offscreen_operations();
+        self.renderer.encode_frame_with(
             device,
             encoder,
             (&passes, &views),
+            offscreen.as_ref().map(|work| work as _),
             &mut [
                 BorrowedFeature {
                     declaration,
@@ -245,7 +249,7 @@ impl Frame {
                     prepared: sampler,
                 },
             ],
-            (frame, None),
+            &(frame, None),
         )
     }
 
@@ -386,6 +390,7 @@ fn empty_plan() -> FramePlan<'static> {
         passes: &[],
         views: &[],
         requested: &[],
+        operations: &[],
     }
 }
 
@@ -586,6 +591,7 @@ impl Contribution {
             passes: std::slice::from_ref(&self.pass),
             views: std::slice::from_ref(&self.view),
             requested: &[],
+            operations: &[],
         }
     }
 }
@@ -683,10 +689,12 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
             passes.push(contribution.pass.clone());
             views.push(contribution.view.clone());
             let (declaration, stock_frame) = (stock.declaration(), stock.frame());
-            frame.renderer.encode_frame(
+            let offscreen = stock.take_offscreen_operations();
+            frame.renderer.encode_frame_with(
                 &device,
                 encoder,
                 (&passes, &views),
+                offscreen.as_ref().map(|work| work as _),
                 &mut [
                     BorrowedFeature {
                         declaration,
@@ -697,7 +705,7 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
                         prepared: &mut probe,
                     },
                 ],
-                (stock_frame, None),
+                &(stock_frame, None),
             )
         })
         .map_err(unwrap_preparation)

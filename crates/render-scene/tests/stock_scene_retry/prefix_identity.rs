@@ -88,15 +88,17 @@ fn encode_suffix(
     passes.push(substitution.pass.clone());
     views.push(substitution.replacement.clone());
     let (declaration, frame) = (stock.declaration(), stock.frame());
-    scene.frame.encode_frame(
+    let offscreen = stock.take_offscreen_operations();
+    scene.frame.encode_frame_with(
         context.device(),
         encoder,
         (&passes, &views),
+        offscreen.as_ref().map(|work| work as _),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut stock,
         }],
-        (frame, None),
+        &(frame, None),
     )
 }
 
@@ -123,6 +125,7 @@ fn refuse_substitution(
                     passes: std::slice::from_ref(&substitution.pass),
                     views: std::slice::from_ref(&substitution.original),
                     requested: &[],
+                    operations: &[],
                 },
                 &mut [],
             ),

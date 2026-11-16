@@ -178,16 +178,18 @@ impl CameraTaaFrame {
         let plan = stock.plan();
         let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
         let (declaration, frame) = (stock.declaration(), stock.frame());
+        let offscreen = stock.take_offscreen_operations();
         self.renderer
-            .encode_frame(
+            .encode_frame_with(
                 device,
                 encoder,
                 (&passes, &views),
+                offscreen.as_ref().map(|work| work as _),
                 &mut [BorrowedFeature {
                     declaration,
                     prepared: &mut stock,
                 }],
-                (frame, None),
+                &(frame, None),
             )
             .unwrap();
     }
@@ -250,6 +252,7 @@ fn empty_plan() -> FramePlan<'static> {
         passes: &[],
         views: &[],
         requested: &[],
+        operations: &[],
     }
 }
 

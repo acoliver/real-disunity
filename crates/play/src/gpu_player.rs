@@ -491,8 +491,51 @@ impl PlayerGpu {
         let requirements = device_requirements(choice.bytes, &adapter.limits());
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
             .map_err(|error| format!("no device: {error}"))?;
-        let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(choice.bytes);
+        let info = adapter.get_info();
+        Self::build(
+            device,
+            SubmissionAuthority::new(queue),
+            AllocationBudget(choice.bytes),
+            data,
+            &format!("adapter {} ({:?})", info.name, info.backend),
+            choice.source,
+        )
+    }
+
+    /// The host on a device and submission authority the caller already has, such as the
+    /// viewer's, so the player's offscreen work and the caller's frames share one device and one
+    /// submission order. The runtime may hold `budget` bytes of storage. The device keeps the
+    /// limits and features it was made with: the arena fits its limits, and work it cannot run is
+    /// left out by name, as on an adapter that lacks a feature.
+    ///
+    /// # Errors
+    /// Fails with the reason when the program runtime cannot reserve its arena on the device.
+    pub fn on(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+    ) -> Result<Self, String> {
+        Self::build(
+            device,
+            authority,
+            budget,
+            data,
+            "the caller's device",
+            "caller",
+        )
+    }
+
+    /// The runtime, its arena and the host on `device`, with the report naming the device as
+    /// `origin` and the budget as coming from `source`.
+    fn build(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+        origin: &str,
+        source: &str,
+    ) -> Result<Self, String> {
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
@@ -512,19 +555,15 @@ impl PlayerGpu {
         let arena = runtime
             .open_arena(reservation)
             .map_err(|error| format!("no arena: {error}"))?;
-        let info = adapter.get_info();
         let device_line = format!(
-            "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
-             {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
-             runtime budget {} ({})",
-            info.name,
-            info.backend,
+            "{origin}, buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size {}, \
+             max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, runtime \
+             budget {} ({source})",
             limits.max_buffer_size,
             limits.max_uniform_buffer_binding_size,
             limits.max_storage_buffer_binding_size,
             limits.min_uniform_buffer_offset_alignment,
             budget.0,
-            choice.source
         );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
@@ -789,5 +828,39 @@ mod tests {
             gpu.report().device.contains("runtime budget"),
             "the report says where the budget came from"
         );
+    }
+
+    #[test]
+    fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
+        let shared =
+            worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
+                .unwrap();
+        let authority = SubmissionAuthority::new(shared.queue.clone());
+        let directory = tempfile::tempdir().unwrap();
+        let budget = AllocationBudget(storage_budget::DEFAULT_BYTES);
+        let gpu = PlayerGpu::on(
+            shared.device.clone(),
+            authority.clone(),
+            budget,
+            directory.path(),
+        )
+        .unwrap();
+        assert!(gpu.authority.same_authority(&authority));
+        assert!(
+            gpu.offscreen
+                .borrow()
+                .authority()
+                .same_authority(&authority),
+            "the program runtime records and submits through the caller's authority"
+        );
+        assert!(
+            !gpu.offscreen
+                .borrow()
+                .authority()
+                .same_authority(&SubmissionAuthority::new(shared.queue.clone())),
+            "a second authority on the same queue is a different one"
+        );
+        assert_eq!(gpu.storage_budget(), budget.0);
+        assert!(gpu.report().device.contains("runtime budget"));
     }
 }

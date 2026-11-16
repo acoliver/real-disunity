@@ -169,6 +169,20 @@ map headers return `InvalidMaterialTextureFormat`. Scene closure also checks any
 packed-impostor material used on a fixed mesh against its mesh-channel selectors.
 Unsupported encoded container types remain the renderer's texture-admission errors.
 
+## Reducible textures
+
+`RenderScene::with_reducible_textures` declares the textures whose top mip levels
+the renderer may drop at upload to fit adapter memory (GitHub #376). None is
+reducible by default, so a texture keeps its authored chain until its producer
+opts in. `SceneResources::reducible_textures` returns the declaration, which
+survives placement edits and `with_textures`. Validation refuses a handle outside
+the table, and refuses by name a declared handle that the scene also binds through
+a consumer reading level 0 or the authored size: the environment cube and BRDF
+table, the sky dome, celestial discs, water normal, flow and wind maps, material
+wind fields, fade threshold textures, impostor relief and border maps, terrain
+palette maps, layer sources and colorization. UI overlay textures are a separate
+dynamic table and never use scene handles.
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies

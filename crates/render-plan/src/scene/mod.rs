@@ -11,6 +11,7 @@ mod contour_tests;
 mod material_channels;
 pub use material_channels::{SceneMaterialChannels, TextureChannel};
 mod decal;
+mod reducible;
 pub use decal::{
     SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
     SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
@@ -364,6 +365,7 @@ impl RenderScene {
 
     fn validate_references(&self) -> Result<(), SceneValidationError> {
         self.validate_decals()?;
+        self.validate_reducible()?;
         if let Some(effects) = &self.effects {
             effects.validate()?;
             if let Some(environment) = effects.environment() {

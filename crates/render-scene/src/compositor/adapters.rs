@@ -11,6 +11,7 @@ struct Resident<'a> {
     publications: crate::draw::DrawPublications,
     scene: &'a SceneGpu,
     pipelines: &'a ScenePipelines,
+    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
@@ -25,6 +26,12 @@ impl PreparedFeature for Resident<'_> {
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
         if context.slot == PassSlot::Celestial {
             self.scene.draw_celestial(pass);
+            return;
+        }
+        if context.slot == PassSlot::OpaqueLighting {
+            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+            self.scene
+                .draw_deferred_lighting(pass, self.pipelines, inputs);
             return;
         }
         self.publications.record_color(
@@ -81,10 +88,18 @@ pub fn encode_resident(
         &mut views,
         &mut declaration,
     );
+    let deferred = renderer.prepare_deferred_lighting(
+        device,
+        (scene, pipelines),
+        (depth.resource(), depth.texture(), false),
+        &scene.resident_frame(),
+        &mut declaration,
+    )?;
     let mut feature = Resident {
         scene,
         pipelines,
         publications: crate::draw::DrawPublications::default(),
+        deferred,
     };
     renderer.encode_frame(
         device,

@@ -121,6 +121,17 @@ impl MemoryCensus {
         Tracked::new(buffer, entry)
     }
 
+    /// Counts an already created texture's backing bytes under `class`, for textures another
+    /// helper creates (uploads, filtered copies).
+    pub fn track_texture(
+        &self,
+        class: ResourceClass,
+        texture: wgpu::Texture,
+    ) -> Tracked<wgpu::Texture> {
+        let entry = self.track(class, texture_bytes(&texture));
+        Tracked::new(texture, entry)
+    }
+
     /// Creates a texture and counts its backing bytes under `class`.
     pub fn create_texture(
         &self,
@@ -150,6 +161,21 @@ pub fn texture_backing_bytes(descriptor: &wgpu::TextureDescriptor<'_>) -> u64 {
         })
         .sum();
     blocks * u64::from(block) * u64::from(descriptor.sample_count)
+}
+
+/// [`texture_backing_bytes`] of a created texture, from its own size, levels, samples and
+/// format.
+pub fn texture_bytes(texture: &wgpu::Texture) -> u64 {
+    texture_backing_bytes(&wgpu::TextureDescriptor {
+        label: None,
+        size: texture.size(),
+        mip_level_count: texture.mip_level_count(),
+        sample_count: texture.sample_count(),
+        dimension: texture.dimension(),
+        format: texture.format(),
+        usage: texture.usage(),
+        view_formats: &[],
+    })
 }
 
 /// Bytes per class at one moment.
@@ -376,6 +402,32 @@ mod tests {
         assert_eq!(snapshot.get(ResourceClass::RenderTarget), 16 * 16 * 4);
         assert_eq!(target.entry().bytes(), 1024);
         drop((vertices, uniform, target));
+        assert_eq!(census.snapshot(), CensusSnapshot::default());
+    }
+
+    /// A texture created elsewhere counts the same bytes its descriptor would, mips included.
+    #[test]
+    fn a_tracked_texture_counts_what_its_descriptor_would() {
+        let gpu =
+            crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
+                .unwrap();
+        let census = MemoryCensus::new();
+        let descriptor = descriptor(
+            [32, 8, 3],
+            wgpu::TextureFormat::Rgba16Float,
+            4,
+            wgpu::TextureDimension::D2,
+        );
+        let texture = gpu.device.create_texture(&descriptor);
+        assert_eq!(texture_bytes(&texture), texture_backing_bytes(&descriptor));
+        let tracked = census.track_texture(ResourceClass::Texture, texture);
+        // Mips 32x8, 16x4, 8x2 and 4x1, three layers, 8 bytes a texel.
+        assert_eq!(tracked.entry().bytes(), (256 + 64 + 16 + 4) * 3 * 8);
+        assert_eq!(
+            census.snapshot().get(ResourceClass::Texture),
+            tracked.entry().bytes()
+        );
+        drop(tracked);
         assert_eq!(census.snapshot(), CensusSnapshot::default());
     }
 }

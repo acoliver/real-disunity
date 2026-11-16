@@ -223,6 +223,63 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     return textureSample(cube_tex, cube_sampler, vec3<f32>(0.0, 0.0, 1.0));
 }";
 
+/// A blit pass that returns the texel of a 3D texture at its centre, whatever the source: the
+/// shape of an Old World program that reflects a 3D noise texture beside its 2D source.
+pub const VOLUME_BLIT: &str = "
+@group(0) @binding(0) var volume_tex: texture_3d<f32>;
+@group(0) @binding(1) var volume_sampler: sampler;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position.xy, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_volume(in: VOut) -> @location(0) vec4<f32> {
+    return textureSample(volume_tex, volume_sampler, vec3<f32>(0.5, 0.5, 0.5));
+}";
+
+/// A blit pass that reads the depth of its source through a comparison sampler, as a URP shadow
+/// map read does: the result is 1 where `reference` is at most the stored depth and 0 elsewhere.
+#[must_use]
+pub fn shadow_blit_wgsl(reference: f32) -> String {
+    format!(
+        "
+@group(0) @binding(0) var shadow_tex: texture_depth_2d;
+@group(0) @binding(1) var shadow_compare: sampler_comparison;
+struct VOut {{ @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }}
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {{
+    var out: VOut;
+    out.position = vec4<f32>(position.xy, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}}
+@fragment fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {{
+    let lit = textureSampleCompare(shadow_tex, shadow_compare, in.uv, {reference:?});
+    return vec4<f32>(lit, lit, lit, 1.0);
+}}"
+    )
+}
+
+/// The depth texture of [`shadow_blit_wgsl`] under the property `name`, with its comparison
+/// sampler.
+pub fn shadow_blit_parameters(name: &str) -> VariantParameters {
+    VariantParameters {
+        constant_buffers: Vec::new(),
+        bindings: vec![
+            binding(
+                name,
+                slot(0, 0, FRAGMENT),
+                ResourceKind::Texture {
+                    sampler: Some(slot(0, 1, FRAGMENT)),
+                    dimension: 4,
+                },
+            ),
+            binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
+        ],
+    }
+}
+
 /// Position (source channel 0) feeds input 0 and the first texture coordinate (source channel
 /// 4) feeds input 1.
 pub const POSITION_AND_UV: [[i8; 2]; 2] = [[0, 0], [4, 1]];
@@ -352,6 +409,24 @@ pub fn cube_blit_parameters(name: &str) -> VariantParameters {
                 ResourceKind::Texture {
                     sampler: Some(slot(0, 1, FRAGMENT)),
                     dimension: 8,
+                },
+            ),
+            binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
+        ],
+    }
+}
+
+/// The 3D texture of [`VOLUME_BLIT`] under the property `name`, with its sampler.
+pub fn volume_blit_parameters(name: &str) -> VariantParameters {
+    VariantParameters {
+        constant_buffers: Vec::new(),
+        bindings: vec![
+            binding(
+                name,
+                slot(0, 0, FRAGMENT),
+                ResourceKind::Texture {
+                    sampler: Some(slot(0, 1, FRAGMENT)),
+                    dimension: 6,
                 },
             ),
             binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
@@ -540,6 +615,38 @@ pub fn cube_blit(name: &str) -> SyntheticShader {
                 CUBE_BLIT,
                 "fs_cube",
                 cube_blit_parameters(name),
+            )],
+        }],
+    ))
+}
+
+/// One blit pass that reads the 3D texture property `name` and returns what it holds.
+pub fn volume_blit(name: &str) -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(
+                &[],
+                VOLUME_BLIT,
+                "fs_volume",
+                volume_blit_parameters(name),
+            )],
+        }],
+    ))
+}
+
+/// One blit pass that compares `reference` with the depth of the texture property `name`.
+pub fn shadow_blit(name: &str, reference: f32) -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(
+                &[],
+                &shadow_blit_wgsl(reference),
+                "fs_shadow",
+                shadow_blit_parameters(name),
             )],
         }],
     ))

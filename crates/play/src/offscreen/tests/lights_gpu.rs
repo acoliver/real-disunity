@@ -194,6 +194,7 @@ pub(super) fn two_lists(
             view: Mat4::IDENTITY.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target: TargetRef::Render(drawn),
+            buffers: None,
         },
         OffscreenWork::Cull {
             id: 5,

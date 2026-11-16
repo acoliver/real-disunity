@@ -68,6 +68,17 @@ impl SceneOpaquePath {
         SceneOpaqueVisibility::MaterialOwnedDepth,
     );
 
+    /// Render the opaque frame from the compact deferred G-buffer: terrain, meshes and
+    /// impostor cards store their materials before Opaque, one full-screen pass lights them
+    /// into the scene colour, and Opaque draws only what has no G-buffer producer (sky,
+    /// celestial bodies, dynamic and player draws) before water and transparency.
+    pub const GBUFFER_RENDER: Self = Self::experiment(
+        SceneOpaqueMode::Render,
+        SceneOpaqueFamily::AllStock,
+        SceneOpaqueStorage::Compact,
+        SceneOpaqueVisibility::MaterialOwnedDepth,
+    );
+
     /// Constructs an experiment request; `SceneEffects::with_opaque_path` admits supported tuples.
     #[must_use]
     pub const fn experiment(
@@ -88,11 +99,14 @@ impl SceneOpaquePath {
 impl SceneEffects {
     /// Selects the validated opaque rendering contract.
     ///
-    /// The forward path and [`SceneOpaquePath::GBUFFER_OBSERVATION`] are implemented.
+    /// The forward path, [`SceneOpaquePath::GBUFFER_OBSERVATION`] and
+    /// [`SceneOpaquePath::GBUFFER_RENDER`] are implemented.
     /// Every other experiment tuple fails explicitly until its rendering path is implemented.
     pub fn with_opaque_path(mut self, path: SceneOpaquePath) -> Result<Self, SceneValidationError> {
         self.opaque_path = match path {
-            SceneOpaquePath::Forward | SceneOpaquePath::GBUFFER_OBSERVATION => path,
+            SceneOpaquePath::Forward
+            | SceneOpaquePath::GBUFFER_OBSERVATION
+            | SceneOpaquePath::GBUFFER_RENDER => path,
             SceneOpaquePath::Experiment(_) => {
                 return Err(SceneValidationError::UnsupportedOpaquePath);
             }

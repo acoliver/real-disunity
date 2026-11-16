@@ -595,6 +595,7 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
         Self::prepare_terrain_passes(
             (&self.gpu, &self.terrain_caster, object_casters),
@@ -623,28 +624,22 @@ impl ShadowedScene {
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         let card_depth = selected.card_reject().then_some(depth);
-        let shadow_groups = scheduler.shadow_groups(
-            context.device(),
-            (
-                &map.group,
-                crate::scene_metadata::receiver::ShadowInputs {
-                    uniform: &map.uniform,
-                    depth: map.depth.receiver_view(),
-                    sampler: &map.sampler,
-                },
-            ),
-            card_depth,
-        );
+        let shadow_groups = map.receiver_groups(scheduler, context.device(), card_depth);
         let mut schedule =
             schedule::ShadowSchedule::new(&map.depth, color, depth, &selected, refresh)?;
-        schedule.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
-        if card_depth.is_some() {
-            debug_assert_eq!(depth_mode, crate::renderer::depth::DepthMode::Reuse);
-            schedule.card_reject_depth();
-        }
-        schedule.celestial(&self.gpu, context.device(), color.size());
+        let deferred = schedule.complete(
+            scheduler,
+            (&self.gpu, &selected),
+            (context.device(), color.size()),
+            (depth_mode, card_depth.is_some()),
+            (depth.texture(), &frame),
+        )?;
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
+            renders: scheduler
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders),
             screen,
             gpu: &mut self.gpu,
             pipelines: &selected,
@@ -658,6 +653,7 @@ impl ShadowedScene {
             shadow_uniform: &map.uniform,
             settings: self.settings,
             sampling: self.effects.shadows().sampling(),
+            deferred,
         };
         scheduler.encode_frame(
             context.device(),
@@ -712,6 +708,9 @@ pub fn capture_scene_shadowed(
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
+    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
+    /// before Opaque, which draws only the rest.
+    renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
@@ -727,6 +726,8 @@ struct ShadowFeature<'a> {
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
+    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
+    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     fn prepare(
@@ -776,7 +777,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
             let screen = self.screen.as_ref().expect("declared G-buffer producer");
             let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-            self.gpu.draw_gbuffer(pass, pipelines, group);
+            let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+            if self.renders {
+                self.publications
+                    .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
+            }
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
@@ -817,6 +822,19 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 );
             }
             pass.set_bind_group(2, &self.shadow_groups.object, &[]);
+            if context.slot == worldrunner_render_post::PassSlot::OpaqueLighting {
+                let inputs = self.deferred.as_ref().expect("declared lighting pass");
+                self.gpu
+                    .draw_deferred_lighting(pass, self.pipelines, inputs);
+                return;
+            }
+            if self.renders {
+                self.publications.record_remainder(
+                    self.gpu,
+                    self.gpu.draw_forward_remainder(pass, self.pipelines),
+                );
+                return;
+            }
             self.publications.record_color(
                 self.gpu,
                 self.gpu

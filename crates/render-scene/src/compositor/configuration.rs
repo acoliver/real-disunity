@@ -198,15 +198,9 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
                 1,
             );
         }
+        // Depth-only frames keep every stage for features that declare reads of them, and
+        // add the constant occlusion texel their receivers bind.
         if settings.prepass_metadata() == Some(super::depth_reuse::Prepass::DepthOnly) {
-            // Depth fitting reduces level 0 alone; receivers bind a constant occlusion texel.
-            set.texture(
-                "depth hierarchy",
-                [w, h, 1],
-                wgpu::TextureFormat::R32Float,
-                [1, 1],
-                1,
-            );
             set.texture(
                 "neutral ambient occlusion",
                 [1, 1, 1],
@@ -214,10 +208,9 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
                 [1, 1],
                 1,
             );
-        } else {
-            occlusion_allocations(settings, set);
-            screen_hierarchy_allocations(settings, set);
         }
+        occlusion_allocations(settings, set);
+        screen_hierarchy_allocations(settings, set);
         set.buffer("screen uniform", 224, 1);
         set.buffer("screen staging", 224, 3);
     }

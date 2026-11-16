@@ -179,7 +179,6 @@ fn depth_fitted_frame(context: &GpuContext, computed: bool) -> Fitted {
     .unwrap();
     let screen = frame.ssao.as_ref().expect("depth fitting owns the prepass");
     assert!(!screen.passes.computes_occlusion());
-    assert_eq!(screen.passes.depth_levels().len(), 1);
     assert_eq!(
         [
             screen.passes.filtered.width(),
@@ -394,4 +393,182 @@ fn gpu_depth_fitting_with_ssao_or_reflections_still_computes_occlusion() {
                 .is_some()
         );
     }
+}
+
+/// A caller feature that declares `reads` in `ScreenSpaceAfterTransparent`, records the extent
+/// of each read during preparation and writes nothing to its own output.
+struct DeclaredReader {
+    reads: Vec<ResourceRef>,
+    extents: std::rc::Rc<std::cell::RefCell<Vec<[u32; 2]>>>,
+}
+impl worldrunner_render_post::PreparedFeature for DeclaredReader {
+    fn prepare(
+        &mut self,
+        context: &mut worldrunner_render_post::PrepareContext<'_>,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        for &resource in &self.reads {
+            let extent = context.resource(resource)?.size();
+            self.extents.borrow_mut().push(extent);
+        }
+        Ok(())
+    }
+    fn draw(&self, _: &worldrunner_render_post::DrawContext, _: &mut wgpu::RenderPass<'_>) {}
+}
+
+/// What one depth-fitting-only `encode_frame` with a declared caller reader produced.
+struct DeclaredFrame {
+    result: Result<(), worldrunner_render_post::FrameError>,
+    extents: Vec<[u32; 2]>,
+    passes: Vec<PassSlot>,
+}
+
+/// Encodes an 8x8 depth-fitting-only HDR frame through the public `encode_frame` with a
+/// cleared Opaque pass and a caller feature that reads `reads` into an output of its own.
+fn encode_with_declared_reader(context: &GpuContext, reads: &[ResourceRef]) -> DeclaredFrame {
+    use worldrunner_render_post::{
+        BorrowedFeature, FeatureDeclaration, FeaturePass, PassDeclaration,
+    };
+    let source = fitting_source();
+    let size = [8, 8];
+    let mut frame = FrameRenderer::hdr(
+        context,
+        size,
+        OffscreenTarget::COLOR_FORMAT,
+        1,
+        ToneMap::Reinhard,
+        source.effects(),
+    )
+    .unwrap();
+    let screen = frame.ssao.as_ref().expect("depth fitting owns the prepass");
+    assert!(!screen.passes.computes_occlusion());
+    let color = AttachmentView::new(
+        ResourceRef::new("scene color"),
+        frame.targets().scene().texture(),
+    )
+    .unwrap();
+    let target =
+        crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::R32Float);
+    let output = AttachmentView::new(ResourceRef::new("declared reader output"), &target).unwrap();
+    let mut opaque = PassDeclaration::new(PassSlot::Opaque);
+    opaque.color = Some(crate::compositor::attachment(
+        color.resource(),
+        &color,
+        false,
+    ));
+    let mut after = PassDeclaration::new(PassSlot::ScreenSpaceAfterTransparent);
+    after.color = Some(crate::compositor::attachment(
+        output.resource(),
+        &output,
+        false,
+    ));
+    let mut pass = FeaturePass::new(PassSlot::ScreenSpaceAfterTransparent);
+    pass.color_format = Some(wgpu::TextureFormat::R32Float);
+    pass.reads = reads.to_vec();
+    let extents = std::rc::Rc::default();
+    let mut reader = DeclaredReader {
+        reads: reads.to_vec(),
+        extents: std::rc::Rc::clone(&extents),
+    };
+    crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    let result = frame.encode_frame(
+        context.device(),
+        &mut encoder,
+        (&[opaque, after], &[color, output]),
+        &mut [BorrowedFeature {
+            declaration: FeatureDeclaration {
+                passes: vec![pass],
+                effects: vec![],
+            },
+            prepared: &mut reader,
+        }],
+        (
+            crate::frame::FrameUniform::new(&view(), None).unwrap(),
+            None,
+        ),
+    );
+    drop(encoder);
+    let passes = crate::scene_metadata::EXECUTED_PASSES.with_borrow(Clone::clone);
+    let extents = extents.borrow().clone();
+    DeclaredFrame {
+        result,
+        extents,
+        passes,
+    }
+}
+
+fn ran(frame: &DeclaredFrame, slot: PassSlot) -> usize {
+    frame.passes.iter().filter(|&&pass| pass == slot).count()
+}
+
+/// A caller feature may read a coarser level of the linear depth hierarchy in a frame that
+/// draws the prepass only for depth fitting: the frame builds levels 0 to that level, and still
+/// none past it and no occlusion.
+#[test]
+fn gpu_depth_fitting_alone_builds_the_depth_levels_a_caller_feature_reads() {
+    use crate::frame::metadata::FrameProduct;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let frame = encode_with_declared_reader(&context, &[FrameProduct::linear_depth(1).resource()]);
+    assert_eq!(frame.result, Ok(()));
+    assert_eq!(frame.extents, vec![[4, 4]]);
+    assert_eq!(ran(&frame, PassSlot::DepthPyramid(0)), 1);
+    assert_eq!(ran(&frame, PassSlot::DepthPyramid(1)), 1);
+    assert!(
+        !frame
+            .passes
+            .iter()
+            .any(|&slot| occlusion_stage(slot) && slot != PassSlot::DepthPyramid(1)),
+        "stages no one reads: {:?}",
+        frame.passes
+    );
+}
+
+/// Controls: a caller reading level 0 alone, or no caller reader, leaves the frame at level 0
+/// with no occlusion stage; a level the hierarchy does not have fails by name.
+#[test]
+fn gpu_depth_fitting_alone_skips_depth_levels_and_occlusion_no_feature_reads() {
+    use crate::frame::metadata::FrameProduct;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    for reads in [vec![FrameProduct::linear_depth(0).resource()], vec![]] {
+        let frame = encode_with_declared_reader(&context, &reads);
+        assert_eq!(frame.result, Ok(()));
+        assert_eq!(frame.extents, vec![[8, 8]; reads.len()]);
+        assert_eq!(ran(&frame, PassSlot::DepthPyramid(0)), 1);
+        assert!(
+            !frame.passes.iter().copied().any(occlusion_stage),
+            "stages no one reads: {:?}",
+            frame.passes
+        );
+    }
+    // 8x8 has levels 0 to 3 (8, 4, 2 and 1 texels).
+    let missing = FrameProduct::linear_depth(4).resource();
+    let frame = encode_with_declared_reader(&context, &[missing]);
+    assert_eq!(
+        frame.result,
+        Err(worldrunner_render_post::FrameError::MissingProducer(
+            missing
+        ))
+    );
+    assert!(frame.extents.is_empty());
+}
+
+/// A caller feature may read the filtered ambient occlusion by its declared resource. The frame
+/// then runs the neutral kernel and filter for it, while its receivers keep the constant.
+#[test]
+fn gpu_depth_fitting_alone_computes_the_occlusion_a_caller_feature_reads() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let frame = encode_with_declared_reader(&context, &[ResourceRef::new("ambient occlusion")]);
+    assert_eq!(frame.result, Ok(()));
+    assert_eq!(frame.extents, vec![[8, 8]]);
+    for slot in [
+        PassSlot::DepthPyramid(0),
+        PassSlot::Ssao,
+        PassSlot::SsaoBlur,
+    ] {
+        assert_eq!(ran(&frame, slot), 1, "{slot:?}");
+    }
+    assert_eq!(ran(&frame, PassSlot::DepthPyramid(1)), 0);
 }

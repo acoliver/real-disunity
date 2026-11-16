@@ -60,8 +60,9 @@ impl SceneMetadata {
     }
 
     /// Metadata for a frame whose prepass only shadow depth fitting reads: the prepass and its
-    /// linear depth run, no occlusion is computed, and receivers bind the constant neutral
-    /// occlusion, which equals what the neutral kernel would have written.
+    /// linear depth run, receivers bind the constant neutral occlusion, which equals what the
+    /// neutral kernel would have written, and the further depth levels and the neutral kernel
+    /// run only for a feature that declares a read of them.
     pub fn depth_only(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

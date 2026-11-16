@@ -613,6 +613,7 @@ impl FrameRenderer {
         };
         self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
         let mut combined = reborrow_features(features);
+        let screen_index = combined.len();
         let mut screen = ScreenFeature::installed(self.ssao.as_ref(), self.ssr.as_ref(), &frame);
         if let Some(screen) = &mut screen {
             let declaration = screen.schedule(&mut passes, &mut views)?;
@@ -650,6 +651,11 @@ impl FrameRenderer {
                 declaration: declaration.clone(),
                 prepared: feature,
             });
+        }
+        if let Some(ssao) = &self.ssao {
+            let plan = (&mut passes, &mut views);
+            let owner = (combined.as_mut_slice(), screen_index);
+            crate::ssao::passes::schedule_declared_reads(ssao, plan, owner, &retained)?;
         }
         if let Some(gbuffer) = &self.gbuffer {
             let declared = combined.iter().map(|feature| &feature.declaration);

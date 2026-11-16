@@ -15,7 +15,8 @@ pub(super) enum Prepass {
     /// enabled reflections read it as application occlusion (neutral settings without SSAO).
     Occlusion(SceneSsao),
     /// Only shadow depth fitting reads the prepass. The frame runs the prepass and level 0 of
-    /// the depth hierarchy and computes no occlusion; receivers bind the constant neutral one.
+    /// the depth hierarchy, receivers bind the constant neutral occlusion, and further stages
+    /// run only when another feature of the frame declares a read of them.
     DepthOnly,
 }
 

@@ -127,11 +127,33 @@ impl MeshSelection {
         }
     }
 
-    pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
-        self.ceilings_squared
+    /// Levels of detail of the mesh.
+    pub(super) fn levels(&self) -> usize {
+        self.ceilings_squared.len()
+    }
+
+    /// Fills `ceilings` with each level's squared distance ceiling for a placement whose LOD
+    /// distances scale by `scale_millionths`.
+    pub(super) fn scaled_ceilings(&self, scale_millionths: Option<u32>, ceilings: &mut [u128]) {
+        for (scaled, &ceiling) in ceilings.iter_mut().zip(&self.ceilings_squared) {
+            *scaled = scaled_ceiling(ceiling, scale_millionths);
+        }
+    }
+
+    /// The level a placement draws at from a squared distance, given its `scaled_ceilings`:
+    /// the first whose ceiling the distance does not exceed, else the last.
+    pub(super) fn level(distance_squared: u128, ceilings: &[u128]) -> usize {
+        ceilings
             .iter()
-            .position(|&ceiling| within_ceiling(distance_squared, ceiling, scale_millionths))
-            .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
+            .position(|&ceiling| distance_squared <= ceiling)
+            .unwrap_or_else(|| ceilings.len().saturating_sub(1))
+    }
+
+    #[cfg(test)]
+    pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
+        let mut ceilings = vec![0; self.levels()];
+        self.scaled_ceilings(scale_millionths, &mut ceilings);
+        Self::level(distance_squared, &ceilings)
     }
 
     /// The distance from the mesh origin to the farthest point of its bounding box, in metres.
@@ -236,6 +258,25 @@ impl MeshSelection {
     }
 }
 
+/// The largest squared distance within `ceiling` once LOD distances scale by `scale`
+/// millionths: `distance / scale^2 <= ceiling / 10^12` holds exactly for the squared distances
+/// up to it, so a placement compares one integer per level instead of dividing.
+fn scaled_ceiling(ceiling: u128, scale: Option<u32>) -> u128 {
+    const UNIT_SQUARED: u128 = 1_000_000_000_000;
+    let Some(scale) = scale else {
+        return ceiling;
+    };
+    let scale_squared = u128::from(scale) * u128::from(scale);
+    // floor(ceiling * scale^2 / 10^12), split so the remainder product stays below 10^28. A
+    // ceiling beyond u128 admits every squared distance.
+    (ceiling / UNIT_SQUARED)
+        .checked_mul(scale_squared)
+        .and_then(|whole| whole.checked_add(ceiling % UNIT_SQUARED * scale_squared / UNIT_SQUARED))
+        .unwrap_or(u128::MAX)
+}
+
+/// The scaled ceiling test before `scaled_ceiling`, kept as its reference.
+#[cfg(test)]
 fn within_ceiling(distance: u128, ceiling: u128, scale: Option<u32>) -> bool {
     const UNIT_SQUARED: u128 = 1_000_000_000_000;
     let Some(scale) = scale else {

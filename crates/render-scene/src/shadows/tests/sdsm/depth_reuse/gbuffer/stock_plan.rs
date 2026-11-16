@@ -4,6 +4,7 @@
 //! builder must reproduce them exactly: the entries, their order, the attachments each names
 //! with how it loads them, the effects the planned features declare and where operations are
 //! positioned. A change to any of them is a change to the frame, not to the builder.
+mod declared_depth;
 mod pins;
 
 use super::*;

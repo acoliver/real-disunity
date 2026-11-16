@@ -37,7 +37,7 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         block: Option<&ShaderProperties>,
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {

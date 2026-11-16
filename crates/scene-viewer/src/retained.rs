@@ -35,9 +35,9 @@ pub use timing::{
 };
 mod statistics;
 pub use statistics::{
-    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
-    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
-    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
+    PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
+    ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
     TerrainStreamingStatistics,
 };

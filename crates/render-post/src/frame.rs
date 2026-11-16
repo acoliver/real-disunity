@@ -508,19 +508,29 @@ impl<'a> PrepareContext<'a> {
             workgroups,
         });
     }
+    /// Stages `bytes` for `destination` at `offset`, copied in staging order like
+    /// [`Self::copy_buffer_region`]. The bytes are written into the frame authority's reusable
+    /// staging now; a cancelled frame never copies them. `bytes` must be a multiple of
+    /// `wgpu::COPY_BUFFER_ALIGNMENT` long and fit `destination`, which must allow `COPY_DST`.
+    /// An empty upload copies nothing and stages nothing.
     pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
-        use wgpu::util::DeviceExt;
-        let staging = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("frame upload"),
-                contents: bytes,
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
+        let size = bytes.len() as u64;
+        assert!(
+            destination.usage().contains(wgpu::BufferUsages::COPY_DST)
+                && offset.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+                && offset
+                    .checked_add(size)
+                    .is_some_and(|end| end <= destination.size()),
+            "upload of {size} bytes at {offset} does not fit {destination:?}"
+        );
+        if bytes.is_empty() {
+            return;
+        }
+        let source = self.publications.stage_upload(self.device, bytes);
         self.staged.push(Staged::Copy {
-            source: (staging, 0),
+            source,
             destination: (destination.clone(), offset),
-            bytes: bytes.len() as u64,
+            bytes: size,
         });
     }
     /// Publishes staged copies and dispatches only after all fallible preparations succeed.

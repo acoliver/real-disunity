@@ -1,8 +1,8 @@
 //! Camera component settings: projection size, clip planes, clear mode and draw order.
 use crate::{DisunityResult, callbacks::mutate, physics::component};
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle,
-    graphics::RenderTextureId,
+    ComponentDesc, ComponentHandle, WorldError,
+    graphics::{CameraBuffers, MAX_COLOR_TARGETS, RenderTextureId},
     presentation::{Camera, CameraClear, CameraFlags, Projection},
 };
 
@@ -11,7 +11,9 @@ use worldrunner_world_simulation::{
 /// for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
 /// bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
 /// use Unity's flag values, and `target_texture` is the id of a world render texture (0 for the
-/// screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. Custom matrices have their own calls. Boolean settings are 0 or 1.
+/// screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. A nonzero
+/// `target_texture` replaces the camera's target buffers (`disunity_camera_target_buffers_write`); a
+/// zero one leaves them as they are. Custom matrices have their own calls. Boolean settings are 0 or 1.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCamera {
@@ -189,6 +191,9 @@ pub unsafe extern "C" fn disunity_camera_write(
         let (id, current) = camera(s, handle)?;
         s.native
             .set_component(id, ComponentDesc::Camera(value.to_native(current)?))?;
+        if value.target_texture != 0 {
+            s.native.set_camera_buffers(id, None)?;
+        }
         Ok(())
     })
 }
@@ -259,6 +264,79 @@ pub unsafe extern "C" fn disunity_camera_matrix_write(
         *matrix_slot(&mut value, kind)? = values;
         value.validate()?;
         s.native.set_component(id, ComponentDesc::Camera(value))?;
+        Ok(())
+    })
+}
+
+/// Reads the buffers the camera draws into when its script set them with `SetTargetBuffers`.
+/// `colors` is writable for 8 ids; `color_count` is 0, with `colors` and `depth` untouched, when the
+/// camera has no target buffers. `depth` is 0 when the buffers have no depth texture.
+/// # Safety
+/// `colors` is writable for 8 ids, `color_count` and `depth` for one value each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_camera_target_buffers_read(
+    world: u64,
+    handle: u64,
+    colors: *mut u64,
+    color_count: *mut u32,
+    depth: *mut u64,
+) -> DisunityResult {
+    if colors.is_null() || color_count.is_null() || depth.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (id, _) = camera(s, handle)?;
+        let Some(buffers) = s.native.camera_buffers(id) else {
+            unsafe { *color_count = 0 };
+            return Ok(());
+        };
+        for (index, id) in buffers.colors().iter().enumerate() {
+            unsafe { *colors.add(index) = id.to_bits() };
+        }
+        unsafe {
+            *color_count = buffers.colors().len() as u32;
+            *depth = buffers.depth().map_or(0, RenderTextureId::to_bits);
+        }
+        Ok(())
+    })
+}
+
+/// Sets the render textures the camera draws into: the color buffers of the `color_count` textures
+/// at `colors` (1 to 8, none twice) in output order, and the depth buffer of the texture `depth`
+/// (0 for none). Every id must name a live render texture. The camera's target texture is cleared,
+/// as Unity's `SetTargetBuffers` replaces `targetTexture`. A `color_count` of 0 removes the buffers
+/// and leaves the target texture as it is. Nothing changes when a value is refused.
+/// # Safety
+/// `colors` is readable for `color_count` ids, or null when the count is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_camera_target_buffers_write(
+    world: u64,
+    handle: u64,
+    colors: *const u64,
+    color_count: u32,
+    depth: u64,
+) -> DisunityResult {
+    let count = color_count as usize;
+    if count > MAX_COLOR_TARGETS || (count > 0 && colors.is_null()) || (count == 0 && depth != 0) {
+        return DisunityResult::invalid_argument();
+    }
+    let ids: Vec<RenderTextureId> = if count == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(colors, count) }
+            .iter()
+            .map(|bits| RenderTextureId::from_bits(*bits))
+            .collect()
+    };
+    let depth = (depth != 0).then(|| RenderTextureId::from_bits(depth));
+    mutate(world, |s| {
+        let (id, _) = camera(s, handle)?;
+        let buffers = if ids.is_empty() {
+            None
+        } else {
+            Some(CameraBuffers::new(&ids, depth).map_err(WorldError::from)?)
+        };
+        s.native.set_camera_buffers(id, buffers)?;
         Ok(())
     })
 }

@@ -220,9 +220,12 @@ mod tests {
         let mut bounds = SlotBounds::default();
         let mut next = boxes.iter();
         bounds.refresh(
-            &[0.0_f32.to_bits()],
+            (
+                &[0.0_f32.to_bits()],
+                &crate::instances::slot_bounds::Shape::default(),
+            ),
             (0..boxes.len()).map(|slot| (slot, &transform)),
-            |_, stored| stored[0] = *next.next().unwrap(),
+            |_, stored, _| stored[0] = *next.next().unwrap(),
         );
         (vec![Some((object, true)); boxes.len()], bounds)
     }

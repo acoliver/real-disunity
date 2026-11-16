@@ -87,6 +87,7 @@ pub use scene::{
     TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
     TextureWrap,
 };
+pub use scene::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
 pub use scene::{
     SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
     SceneTextureDescriptor,

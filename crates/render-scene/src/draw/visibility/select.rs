@@ -193,13 +193,21 @@ impl Placements<'_> {
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
         batch.bounds.levels().get_or_compute(slot, || {
             let (object, _) = batch.placements[slot].expect("live instance");
-            let mesh = &self.meshes[batch.key.1];
+            let inputs = batch.bounds.inputs(slot);
             let distance = distance_squared(
                 object.transform().position_millimeters,
                 self.eye_millimeters,
             );
-            let lod = mesh.lod(distance, object.lod_distance_scale_millionths());
-            if !self.fade_cull_disabled && mesh.fade_empty(self.fades, object, lod, self.fade_eye) {
+            let lod = MeshSelection::level(distance, inputs.ceilings);
+            if !self.fade_cull_disabled
+                && self.meshes[batch.key.1].fade_empty(
+                    self.fades,
+                    object.material(),
+                    &inputs,
+                    lod,
+                    self.fade_eye,
+                )
+            {
                 Level::Faded
             } else {
                 Level::Drawn(lod)

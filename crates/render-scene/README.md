@@ -51,11 +51,33 @@ ordered residents. Equal-depth boundary overlap therefore has stable ownership
 when the resident leaf set is identical, independently of upload retirement timing.
 Ordering does not change chunk geometry, streaming budgets or draw counts for
 an identical leaf set. Selection ranks candidates by descending projected error,
-then quadtree level from the root (descending stride), then the chunk's derived
-coordinate key. Exact-error ties therefore have explicit admission priority under
-constrained budgets, independent of resident storage and upload-completion history.
-Selected leaves are returned in derived-key order. Relative to history-based tie
-admission, only exact-error ties can change which geometry becomes resident.
+then descending sampling stride, then the chunk's derived coordinate key. When
+smaller leaves are enabled, equal-error stride-one candidates use descending
+longest-axis texel span before the coordinate key to distinguish refinement levels.
+Exact-error ties therefore have explicit admission priority under constrained
+budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order.
+
+`TerrainStreamingPolicy::chunk_intervals` caps cells per mesh axis. Its
+`minimum_leaf_texels` independently limits quadtree refinement and defaults to
+that cap. `with_minimum_leaf_texels` accepts a positive power of two no larger
+than the cap. On square power-of-two grids, a leaf of N texels has
+`min(chunk_intervals, N)` cells per side. With the default minimum, the selector's
+cell-axis step is the sampling stride, including below-cap roots and partial
+terminal windows. When smaller leaves are enabled, below-cap sampling stride stays
+one while the nominal cell-axis step is `N / chunk_intervals` in floating point.
+This keeps that LOD metric continuous instead of quantizing it to a source texel.
+It approximates projected footprint, not height residuals or the actual finest
+mesh spacing. Eye-plane intersections still request finest
+detail through infinite error; ordinary in-front minimum leaves have finite
+error. A split is refused if halving a stride-one window's longest axis would
+cross the minimum; rectangular or partial windows can have shorter other axes.
+Camera selection, bounds, readiness, triangle-plane descriptors and shadow
+selection share that split rule. Chunk keys keep inclusive coordinates and a
+positive sampling stride, so differently sized stride-one leaves remain distinct.
+Atomic replacement and upload/resident budgets count chunks regardless of size.
+Double-sided skirts on every mesh edge reach the terrain-wide minimum minus one
+metre and cover cracks at unequal strides without neighbour-dependent stitching.
 
 Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
 and streaming policy. Terminal ranges scan all inclusive source samples; parents
@@ -730,6 +752,10 @@ bytes change.
 
 Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. Each instance batch keeps a previous-transform buffer with the instance-buffer layout, bound as a third vertex buffer at locations 12 to 15 of velocity variants only. An edited slot uses its last completed colour transform as previous; added or reused slots start equal to current. After a completed frame, an untouched slot converges to previous equal to current. A submitted metadata prefix may upload current and previous GPU bytes, while its refused colour suffix leaves the CPU history and reset obligations pending for the retry. Cancelling an unsubmitted preparation changes neither GPU buffer. Billboards and impostors do not yet follow their transform.
 
+Object-motion passes reject skinned geometry with `ProgramError::UnsupportedState`,
+because it has no previous-pose representation. [The skinning regression](src/draw/tests/skinning.rs)
+checks this refusal before drawing.
+
 `PostResolve::Taa` selects the default jitter sequence when none was requested
 (`PostResolve::effective_jitter`); an explicit sequence wins. `set_projection_jitter` returns
 `Result<(), PostError>` and refuses `None` while a TAA resolve is resident.
@@ -957,6 +983,71 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
+## Public moving-view timing probe
+
+Run the informational unshadowed Forward versus `GBUFFER_RENDER` comparison
+serially. The external integration target links the normal renderer dependency,
+without the renderer's `cfg(test)` pass tracing or cached-plan consistency checks.
+On the shared Linux host, use its resource limiter and software Vulkan adapter:
+
+```sh
+CARGO_INCREMENTAL=0 \
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
+  heavy --mem 6G -- nice -n 10 env -u RUSTUP_TOOLCHAIN \
+  cargo test --locked --release -p worldrunner-render-scene --test public_moving_view \
+  -- --exact public_moving_view_renderer_timing_probe \
+  --ignored --nocapture --test-threads=1
+```
+
+For hardware measurements, select that machine's adapter instead of lavapipe and
+use its GPU queue. Prebuild under `heavy` by inserting `--no-run` before the libtest
+`--` separator, then submit the same optimized test command through `gpujob`.
+Omit the host-specific wrappers where they are unavailable. The pinned Rust
+toolchain applies. Software-adapter timings describe the CPU rasterizer.
+
+Record the Cargo profile with each result. Unoptimized runs check the fixture;
+CPU cost comparisons use `--release`. Optional timestamp instrumentation remains
+inside the measured encode/submit interval. Results describe this synthetic
+fixture with serialized submissions. Game-frame costs require a game measurement.
+
+The unit-test probe also records private pass observations and checks fresh-plan
+consistency, including on a cached plan in release libtest. Run it with the same
+wrappers, replacing `--test public_moving_view` with `--lib` and the exact test name
+with `shadows::tests::render_path::moving_timing::public_moving_view_timing_probe`.
+Its host timings include those additional checks. The external target validates
+public draw statistics and fixed expected timing identities; it cannot observe
+the private pass trace.
+
+The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
+257×241. For view index `i` in `0..150`, the eye is
+`[-400 + 800*i/149, -4000, 6500]` integer millimetres and the target is `[0,0,0]`.
+The first 30 views warm up; the remaining 120 are sampled. Each path keeps a
+separate scene upload, frame renderer and output resident. A shared immutable
+source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve both
+calls to public `compositor::encode_scene`, with alternating path order. No shadows,
+SDSM, image readback or speed threshold is involved.
+
+CPU encode/submit ends when submission returns. Serialized completion ends after
+waiting for that submission. Both include optional query instrumentation.
+Timestamp resolution, draw checks and printing follow both intervals. Completion
+is wall time, including host work and the wait, without overlapped presentation.
+Optional timestamp support is reported separately from coverage, and unsupported
+devices still produce CPU results. Warm-up records are drained. Every sampled
+frame retains its view/path/frame association and submitted draw counters. Render
+requires one mesh, impostor and terrain draw through its prepass, with empty opaque
+object draws.
+
+GPU per-pass and pass-sum summaries require all 120 frame records, their matching
+view/path IDs, the full expected pass identities and multiplicities, available
+pairs, and zero dropped/unavailable counters. The external fixture contract fixes
+the expected prepass, ten depth-pyramid levels, SSAO and blur, opaque pass, tone
+stage and Render's lighting pass independently of received timing records.
+Missing records or invalid passes on a supported device fail explicitly. Genuine
+zero intervals remain valid. Full `PassId` values are printed. Pass sums exclude
+gaps and untimed work, so they are not whole-frame GPU envelopes. Nonignored CPU
+checks and short GPU runs cover the measurement contracts; the full probe is
+informational.
+
 ## Deferred G-buffer
 
 `SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
@@ -1135,6 +1226,40 @@ write key after final colour succeeds. A refused suffix retains their previous b
 reset obligations. Previous-only settling changes physical content before mirror refresh and
 gather; CPU history publication changes neither physical content nor sparse current-write counts.
 
+[The public retained-motion fixture](tests/stock_scene_retry.rs) exercises compacted
+instances with TAA and SSR. Its caller-preparation refusal submits nothing and preserves
+completed raw and resolved colour, metadata, statistics and temporal state. Its public
+`StockDepthPrefix` case submits exactly one prefix before refusing suffix preparation.
+That refusal preserves completed colour, confidence, statistics and temporal state while
+G3 and velocity contain the moved geometry. A fresh ordinary retry preserves that motion;
+retry and settling products match an uninterrupted control in both cases. Declaring one
+scene's resident write keys while encoding a different dirty scene fails capture admission
+with an undeclared resident key before submission; both scenes keep their completed products.
+The [public prefix-attachment regressions](tests/stock_scene_retry/prefix_identity.rs) complete
+an additional caller pass in the stock prefix, then change only its attachment backing or only
+its load contract in the same-frame suffix. They require `AttachmentView(resource)` or
+`AttachmentContract(entry)`, respectively, before caller preparation or submission, with
+completed products, draw statistics and temporal history unchanged.
+
+The [public camera-only TAA regressions](tests/stock_camera_taa.rs) pair resident TAA with a
+fused G-buffer depth prefix and plain SSAO pipelines. They check that the prefix and prepared
+stock suffix declare no scene-velocity colour writes, while camera history and jitter advance
+across two submitted frames. The retained pipeline-switch case first completes a
+velocity-enabled frame, then switches the same scene and renderer to plain pipelines. It
+requires both plans to omit velocity writes while the velocity allocation stays resident and
+TAA history continues.
+
+[The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
+covers program-admission and caller-preparation refusal after a physical prefix. It
+checks one submission on refusal and two on success before reading products, preserves
+completed statistics and temporal state, and compares retry and settling with a control.
+
+[The mixed rigid/skinned fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/skinned_retry.rs)
+checks a resident pose-descriptor switch and root movement across a submitted prefix
+and refused colour suffix. Its non-velocity path compares colour and G3 with an
+uninterrupted control and an unchanged completion, with separately visible changes
+for rigid and weighted geometry.
+
 The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
 `Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
 aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.
@@ -1172,6 +1297,20 @@ material-family classification, counts the distinct lighting records besides rec
 over the scene's whole material table, enforces Compact's 255 and Wide's 65,535 records
 with `OpaqueAdmissionError::RecordOverflow`, and refuses sample counts other than one
 with a typed error.
+
+## Composing with the stock scene
+
+A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
+
+Retaining or taking admitted offscreen work does not execute it. `encode_frame` supplies no head, and a `None` head in `encode_frame_with` records the stock draws without refreshing their offscreen inputs. Forward any returned work on the preparation encoder before the stock passes, or abandon the frame. The omission characterizations in `src/draw/tests/program_frame/offscreen/composition/omission.rs` cover both leaving work in the feature and taking it without forwarding; the parent test keeps the forwarded pixel, pass-order and single-submission control.
+
+A frame with screen-space metadata can also split off its depth and normal prepass. `FrameRenderer::stock_depth_prefix` takes the scene and the pipelines the suffix draws with, as `prepare_stock_scene` does, and returns a `StockDepthPrefix`; it refuses a renderer that has no metadata. It decides whether the colour draws write velocity before it plans, so a renderer that renders from the G-buffer under TAA lists the velocity target on its first frame as on any later one. `plan()` lists exactly the entries the prefix completes, `PassEntry::new(PassSlot::DepthNormalPrepass)` and `PassEntry::new(PassSlot::DepthPyramid(0))`, with their views. On a renderer that renders from the G-buffer the producer is fused into the prepass: the entries are the same and the prepass entry attaches the G-buffer targets and any velocity target, whose views the plan then lists. `encode` runs the prefix and appends the caller's own passes, views and features to it before the whole list is validated. A caller feature in a later entry reads the original device depth by declaring the prepass depth attachment of that plan, and reads the lit colour by declaring `scene color`; `PrepareContext::resource` gives it the views and `PrepareContext::completed_in_prefix` tells it which entries the prefix completed. `FeatureTarget::Depth` holds linear metres and is a different resource from the device depth.
+
+`FrameRenderer::capture_texture_keys` and `capture_effect_keys` give the write keys a capture needs when the prefix is submitted alone and the suffix prepared afterwards. A role stays a label: a read of an earlier resource must be declared and is checked like any other.
+
+Caller attachment bindings include the current view's retained-content permission. Changing that permission on the same texture resolves the bindings again. A `Load` without an earlier producer requires `AttachmentView::with_retained_contents()` on the current frame's view; a previously cached retained view cannot authorize it. Refusal occurs before feature preparation or submission. The two permission transitions are covered in `src/compositor/frozen_tests/retained_permission.rs`.
+
+The public composition regressions in `tests/stock_composition.rs` and its `stock_composition` children cover sampled stock depth and lit colour, prefix completion and retry behavior, and retained operations. The operation test checks one callback across prefix and suffix recording, no submission before the caller submits once, and exact red RGB through a readback copied in that encoder. The retry tests retain their distinct-backing and same-backing load-contract refusal controls; `stock_camera_taa.rs` keeps the warm velocity-to-plain regression.
 
 ## Native-resolution RCAS
 
@@ -1268,3 +1407,60 @@ fingerprint includes only submitted sample windows after view culling. Streaming
 observations remain present with zero drawn leaves when the camera misses terrain. See the
 [host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
 for counting units and identity encoding. Raw and cancelled draws do not publish.
+
+## Visible object contour IDs
+
+`SceneObject::with_contour_id` assigns a byte ID, with zero meaning no contour.
+`SceneEffects::with_contours` supplies a `SceneContours` table with exactly 256
+optional styles and a positive reference extent, defaulting to 1920 by 1080.
+Entry zero must be absent. Every nonzero object ID must name a defined style,
+including hidden live placements. Widths and shifts are integer millionths of
+reference pixels in 0 to 32; linear RGB is in 0 to 16, and alpha and strengths
+are in 0 to 1. Pulse powers are in (0,16] for a nonzero millisecond period;
+period zero is steady and ignores power. These quantities are authored in
+millionths. Fill and blend descriptions are retained CPU state; no contour
+colour composite is applied.
+
+`SceneGpu::set_instance_object` changes membership without changing the 80-byte
+GPU instance layout. `set_contours` replaces the table atomically and rejects
+removing any referenced ID. A sparse index tracks membership on edits, removals
+and slot reuse. Extraction from object templates preserves IDs.
+
+Stock, resident and shadowed composition schedule `PassSlot::ContourIds` once
+after every Opaque occurrence and before `AfterOpaqueSnapshot`. On Forward,
+Opaque draws the scene's opaque surfaces. With `GBUFFER_RENDER`, Opaque follows
+`OpaqueGbuffer` and `OpaqueLighting` and draws the remaining forward-only
+surfaces, so the ID pass sees the completed scene depth on either path. The
+observation path uses the same ordering. Frozen composition refuses a contour
+entry before any later Opaque entry with `FrameError::StockOrder`, preserving
+both occurrence identities in the error. The pass
+writes only selected members, reusing their object programs, original instance
+ranges and skin streams. Its R8Uint target is cleared to zero and has the
+completed scene depth's sample count.
+Depth is loaded read-only, tested Equal and never written; the pass has no
+stencil ownership test, blending or integer alpha-to-coverage. Material alpha,
+fade, LOD, wind, skinning and relief visibility still participate. Fully hidden
+surfaces write no ID. Coplanar selected and unselected surfaces cannot be
+distinguished by depth alone.
+
+A table without live nonzero IDs prepares no contour pipelines and allocates no
+ID target or pass. Clearing the last ID removes the selected frame slot's target
+on successful submission; abandonment preserves its submitted target. Targets
+are isolated by admitted frame slot and replaced when their extent changes.
+Same-frame shadow depth-fitting captures provision the active slot's target before
+building the capture write contract and declare its physical allocation in the
+suffix. Suffix scheduling reuses that allocation without publishing it early.
+`RendererConfiguration::contour_ids` explicitly reserves the three-slot target
+budget and admits the format/sample combination; it defaults to false. The
+unconfigured `FrameRenderer` constructors allocate lazily when membership appears.
+Unsupported format/sample combinations fail instead of reducing MSAA.
+
+`FrameRenderer::contour_target` returns the selected slot's last submitted ID
+texture; `contour_statistics` describes that published target's pass, target and
+sample counts. These are snapshot values, not execution or allocation counters.
+`encode_contour_capture` records an explicit capture-only extraction into a
+single-sample R8Uint COPY_SRC texture. For sample index s, source pixel (x,y)
+appears at `(s * width + x, y)`. This reads exact unsigned IDs with textureLoad,
+without filtering, averaging or a hardware resolve. The ordinary ID target has
+no COPY_SRC usage. Capture may follow scene encoding in the same transaction or
+read its submitted result in a later transaction.

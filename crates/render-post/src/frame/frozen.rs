@@ -36,11 +36,13 @@ pub(crate) fn validate_stock_order(
 /// The lighting pass lights what the G-buffer pass stored. Opaque loads what the lighting pass
 /// wrote, the colour and the reflection products it takes over, and draws over them. The
 /// reflection trace and the screen-space resolve read those products, so the lighting pass and
-/// Opaque must have finished them.
+/// Opaque must have finished them. Contours attach depth read-only; resource validation alone
+/// cannot establish that every Opaque entry has finished writing it.
 const fn must_follow(slot: PassSlot, earlier: PassSlot) -> bool {
     match slot {
         PassSlot::OpaqueLighting => matches!(earlier, PassSlot::OpaqueGbuffer),
         PassSlot::Opaque => matches!(earlier, PassSlot::OpaqueLighting),
+        PassSlot::ContourIds => matches!(earlier, PassSlot::Opaque),
         PassSlot::ReflectionTrace | PassSlot::ScreenSpaceAfterTransparent => {
             matches!(earlier, PassSlot::OpaqueLighting | PassSlot::Opaque)
         }

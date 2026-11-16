@@ -231,6 +231,26 @@ impl super::FrameRenderer {
             ));
         }
     }
+
+    /// Settles whether the frame's colour draws write the object-motion residual, from the
+    /// pipelines they draw with, and makes the renderer and the scene agree with it: the G-buffer
+    /// producer is rebuilt to match and the scene keeps previous-frame transforms while velocity
+    /// is drawn. Returns the decision.
+    ///
+    /// The stock prefix plans the producer's attachments and the stock scene draws with it, so
+    /// both take this decision, the prefix before it plans. Selecting a depth mode keeps whether
+    /// pipelines write velocity, so the base `pipelines` and the ones a frame selects agree.
+    pub(crate) fn adopt_scene_velocity(
+        &mut self,
+        device: &wgpu::Device,
+        gpu: &mut crate::draw::SceneGpu,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> bool {
+        let writes_velocity = self.draws_velocity(pipelines);
+        self.match_producer_velocity(device, writes_velocity);
+        gpu.track_previous_transforms(writes_velocity);
+        writes_velocity
+    }
 }
 
 /// How `path` uses the G-buffer, if at all, refusing paths this renderer cannot draw.

@@ -227,6 +227,10 @@ mod frame;
 mod frame_tests;
 #[cfg(test)]
 mod prepare_context_tests;
+#[cfg(test)]
+mod upload_staging_limit_tests;
+#[cfg(test)]
+mod upload_staging_tests;
 pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,

@@ -1,6 +1,7 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+mod contours;
 pub mod opaque;
 #[cfg(test)]
 mod overlay_tests;
@@ -49,6 +50,8 @@ use worldrunner_render_post::{
 /// Encoding requires the authority-owned encoder. Cancellation discards publication.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
+    contours: crate::contours::Targets,
+    contour_format: wgpu::TextureFormatFeatures,
     overlay: overlay::OverlayStage,
     output_format: wgpu::TextureFormat,
     environment_conventions: [Option<worldrunner_render_plan::SceneSpecularConvention>; 2],
@@ -124,6 +127,8 @@ impl FrameRenderer {
         output_format: wgpu::TextureFormat,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
+            contours: crate::contours::Targets::default(),
+            contour_format: crate::contours::FORMAT.guaranteed_format_features(device.features()),
             overlay: overlay::OverlayStage::default(),
             output_format,
             environment_conventions: [None; 2],
@@ -535,6 +540,8 @@ impl FrameRenderer {
     }
     /// Camera-aware composition for stock and external features, including
     /// declaration-requested snapshots. The optional binding supplies shared shadows.
+    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
+    /// take it and forward it through [`Self::encode_frame_with`] instead.
     pub fn encode_frame(
         &mut self,
         device: &wgpu::Device,
@@ -547,7 +554,13 @@ impl FrameRenderer {
     }
     /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
     /// by the executor immediately before the first pass of the ordered frame.
-    pub(crate) fn encode_frame_with(
+    /// A `None` head supplies no work; it does not discover operations retained by borrowed
+    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
+    ///
+    /// # Errors
+    /// The validation and preparation errors of [`Self::encode_frame`], or an error returned
+    /// while recording `head`. Abandon the frame on failure.
+    pub fn encode_frame_with(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -705,8 +718,9 @@ pub(crate) fn attachment(
     }
 }
 
-pub use scene::encode_scene;
+pub use depth_prefix::StockDepthPrefix;
 pub(crate) use scene::{SceneFeature, declare_velocity};
+pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
 mod scene;
 
 #[cfg(test)]

@@ -16,6 +16,10 @@
 //! source of the URP blit program (Old World, 180 draws a run). Unity binds its default cube
 //! there. The player's data does not give that cube's colour, so it is assumed to be the 2D
 //! grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of all six faces.
+//!
+//! The other is the grey 3D texture, for the same case with a 3D slot: Old World's
+//! `_3DNoiseTexture`, which a shader program reflects, nothing sets and no shader declares. It is
+//! assumed to be that grey as well, in its one texel.
 
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, SourceTexture};
@@ -51,10 +55,19 @@ pub enum DefaultTexture {
     /// The cube a slot reads that nothing sets and no shader declares: assumed to be the grey of
     /// the 2D default on every face. No shader names it.
     GreyCube,
+    /// The 3D texture a slot reads that nothing sets and no shader declares: assumed to be the
+    /// grey of the 2D default in its one texel. No shader names it.
+    Grey3d,
 }
 
 impl DefaultTexture {
-    pub const ALL: [Self; 4] = [Self::White, Self::Black, Self::Grey, Self::GreyCube];
+    pub const ALL: [Self; 5] = [
+        Self::White,
+        Self::Black,
+        Self::Grey,
+        Self::GreyCube,
+        Self::Grey3d,
+    ];
 
     /// The default a shader names, or `None` for a name this host does not supply.
     #[must_use]
@@ -74,7 +87,7 @@ impl DefaultTexture {
             Self::White => "white",
             Self::Black => "black",
             Self::Grey => "gray",
-            Self::GreyCube => "",
+            Self::GreyCube | Self::Grey3d => "",
         }
     }
 
@@ -86,9 +99,10 @@ impl DefaultTexture {
             Self::Black => (SourceDimension::D2, [0, 0, 0, 255]),
             Self::Grey => (SourceDimension::D2, [128, 128, 128, 255]),
             Self::GreyCube => (SourceDimension::Cube, [128, 128, 128, 255]),
+            Self::Grey3d => (SourceDimension::D3, [128, 128, 128, 255]),
         };
         let faces = match dimension {
-            SourceDimension::D2 => 1,
+            SourceDimension::D2 | SourceDimension::D3 => 1,
             SourceDimension::Cube => 6,
         };
         SourceTexture {
@@ -107,6 +121,7 @@ impl DefaultTexture {
             Self::Black => 1,
             Self::Grey => 2,
             Self::GreyCube => 3,
+            Self::Grey3d => 4,
         }
     }
 

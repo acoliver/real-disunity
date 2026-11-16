@@ -7,6 +7,9 @@ mod view_formats;
 #[path = "contracts_read_only_depth.rs"]
 mod read_only_depth;
 
+#[path = "contracts_volumes.rs"]
+mod volumes;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();

@@ -39,6 +39,7 @@ mod append;
 mod append_skinning;
 mod compaction;
 mod compaction_gather;
+mod contours;
 mod curved_wind;
 mod decal_mip_bias;
 pub(crate) mod decals;

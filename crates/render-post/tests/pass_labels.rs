@@ -12,6 +12,7 @@ fn geometry_encoder_labels_match_timing_identities() {
         OpaqueGbuffer,
         Opaque,
         OpaqueLighting,
+        ContourIds,
         AfterOpaqueSnapshot,
         AfterOpaqueDepth,
         TransparentWater,
@@ -89,6 +90,15 @@ fn a_repeated_role_is_named_by_its_occurrence() {
             let id = PassId::Geometry(PassEntry::nth(slot, occurrence));
             assert_eq!(id.encoder_label().as_ref(), id.to_string());
         }
+    }
+}
+
+#[test]
+fn contour_encoder_labels_preserve_occurrence_identity() {
+    for (occurrence, expected) in [(0, "Geometry(ContourIds)"), (1, "Geometry(ContourIds#1)")] {
+        let id = PassId::Geometry(PassEntry::nth(PassSlot::ContourIds, occurrence));
+        assert_eq!(id.encoder_label().as_ref(), expected);
+        assert_eq!(id.to_string(), expected);
     }
 }
 

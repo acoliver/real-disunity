@@ -11,10 +11,12 @@ use std::collections::BTreeMap;
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
+mod composition;
+use composition::check_timing;
+
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_post::contracts::RasterId;
 use worldrunner_render_post::{
-    FrameOperations, OperationsOutput, PassEntry, PassId, PassSlot, ResourceRef, TimingMode,
+    FrameOperations, OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingMode,
 };
 use worldrunner_render_program::ids::{
     CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId,
@@ -63,7 +65,7 @@ struct Player {
 fn timed() -> Fixture {
     let mut settings = settings();
     settings.timing = TimingMode::Required;
-    let context = pollster::block_on(GpuContext::request_with_features(
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
         crate::device::REQUIRED_FEATURES | wgpu::Features::TIMESTAMP_QUERY,
     ))
     .expect("a device with timestamp queries");
@@ -343,39 +345,6 @@ fn check_offscreen_stages(readbacks: Readbacks, device: &wgpu::Device) {
     );
 }
 
-/// The passes are in the frame's timing, in call order and before the stock opaque pass.
-fn check_timing(fixture: &Fixture, ids: &[RasterId]) {
-    let names: Vec<_> = ids.iter().map(|id| id.stage.name).collect();
-    assert_eq!(
-        names,
-        [
-            "offscreen constants",
-            "offscreen camera",
-            "offscreen blit",
-            "offscreen copy",
-            "offscreen readback",
-            "offscreen readback",
-            "offscreen readback",
-            "offscreen readback",
-        ]
-    );
-    fixture
-        .context
-        .device()
-        .poll(wgpu::PollType::wait_indefinitely())
-        .unwrap();
-    let timings = crate::test_support::take_timings(fixture.context.device(), 1, || {
-        fixture.renderer.take_timings()
-    });
-    let [timing] = timings.as_slice() else {
-        panic!("one timing record, got {}", timings.len());
-    };
-    let listed: Vec<_> = timing.passes.iter().map(|pass| pass.pass_id).collect();
-    let expected: Vec<_> = ids.iter().map(|id| PassId::Operation(*id)).collect();
-    assert_eq!(listed[..expected.len()], expected[..]);
-    assert!(listed[expected.len()..].contains(&PassId::Geometry(PassEntry::new(PassSlot::Opaque))));
-}
-
 #[test]
 fn a_camera_a_blit_a_copy_and_a_scene_draw_run_in_the_frames_one_submission() {
     assert!(NEAR_DEPTH < engine_depth());
@@ -418,7 +387,7 @@ fn a_camera_a_blit_a_copy_and_a_scene_draw_run_in_the_frames_one_submission() {
     assert_eq!(image.pixel(55, 32), YELLOW);
     assert_eq!(image.pixel(30, 20), RED, "the stock scene drew");
     assert_eq!(image.pixel(3, 3), [0, 0, 0, 255]);
-    check_timing(&fixture, &ids);
+    check_timing(&fixture, &ids, &[PassEntry::new(PassSlot::Opaque)]);
 }
 
 #[test]

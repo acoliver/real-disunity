@@ -10,6 +10,7 @@ use crate::{draw::SceneGpu, renderer::ScenePipelines};
 struct Resident<'a> {
     publications: crate::draw::DrawPublications,
     scene: &'a SceneGpu,
+    contour: Option<crate::draw::ContourDraw>,
     pipelines: &'a ScenePipelines,
     deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
@@ -26,6 +27,11 @@ impl PreparedFeature for Resident<'_> {
         self.publications.publish(context, self.scene);
     }
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+        if context.slot == PassSlot::ContourIds {
+            self.scene
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == PassSlot::Celestial {
             self.scene.draw_celestial(pass);
             return;
@@ -90,6 +96,12 @@ pub fn encode_resident(
         &mut views,
         &mut declaration,
     );
+    let contour = renderer.plan_contours(
+        (device, encoder),
+        (scene, pipelines),
+        &scene.resident_frame(),
+        (&mut passes, &mut views, &mut declaration),
+    )?;
     let deferred = renderer.prepare_deferred_lighting(
         device,
         (scene, pipelines),
@@ -98,6 +110,7 @@ pub fn encode_resident(
         &mut declaration,
     )?;
     let mut feature = Resident {
+        contour,
         scene,
         pipelines,
         publications: crate::draw::DrawPublications::default(),

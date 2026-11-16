@@ -1,3 +1,6 @@
+#[path = "frame/frozen_tests.rs"]
+mod frozen_contour_tests;
+
 #[test]
 fn multiple_color_outputs_validate_shapes_hazards_and_producers() {
     let mut pass = PassDeclaration::new(PassSlot::Opaque);

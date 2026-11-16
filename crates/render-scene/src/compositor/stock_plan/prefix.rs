@@ -74,7 +74,7 @@ impl FrameRenderer {
         Ok(PrefixPlan { schedule, views })
     }
 
-    fn derive_prefix(
+    pub(in crate::compositor) fn derive_prefix(
         &self,
         source: &SceneMetadata,
     ) -> Result<(LogicalPrefix, Vec<AttachmentView>), FrameError> {

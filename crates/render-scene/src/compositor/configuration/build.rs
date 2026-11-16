@@ -1,9 +1,22 @@
+//! Allocation of a complete stock renderer generation.
 use super::{RendererConfiguration, install_jitter};
 use crate::compositor::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
 use worldrunner_render_post::{PostChain, PostError, Resources, ToneMapOutput};
 
-pub(super) fn build(
+pub(super) fn allocate(
+    context: &GpuContext,
+    settings: &RendererConfiguration,
+    history: Option<&ToneMapOutput>,
+    timing: Option<worldrunner_render_post::TimingState>,
+) -> Result<FrameRenderer, PostError> {
+    let scope = worldrunner_render_gpu::configuration::AllocationScope::new(context.device());
+    let result = build(context, settings, history, timing);
+    scope.finish()?;
+    result
+}
+
+fn build(
     context: &GpuContext,
     settings: &RendererConfiguration,
     history: Option<&ToneMapOutput>,
@@ -45,21 +58,15 @@ fn new_renderer(
     let device = context.device();
     let metadata = settings.prepass_metadata();
     Ok(FrameRenderer {
+        contours: crate::contours::Targets::reserved(settings.contour_ids),
+        contour_format: context
+            .adapter()
+            .get_texture_format_features(crate::contours::FORMAT),
         overlay: super::super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
         producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
-        chain: PostChain::with_scene_depth(
-            device,
-            settings.frame,
-            Resources::default(),
-            factory,
-            super::super::depth_reuse::allocation(
-                device.features(),
-                settings.frame,
-                metadata.is_some(),
-            ),
-        )?,
+        chain: scene_chain(context, settings, factory)?,
         environment_conventions: [None; 2],
         water: None,
         water_state: std::rc::Rc::default(),
@@ -93,6 +100,25 @@ fn new_renderer(
             settings.ssr.is_some_and(|ssr| ssr.enabled),
         )?,
     })
+}
+
+fn scene_chain(
+    context: &GpuContext,
+    settings: &RendererConfiguration,
+    factory: FrameOutput,
+) -> Result<PostChain<FrameOutput>, PostError> {
+    let device = context.device();
+    PostChain::with_scene_depth(
+        device,
+        settings.frame,
+        Resources::default(),
+        factory,
+        super::super::depth_reuse::allocation(
+            device.features(),
+            settings.frame,
+            settings.prepass_metadata().is_some(),
+        ),
+    )
 }
 
 fn finish_renderer(

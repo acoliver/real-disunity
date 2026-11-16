@@ -30,6 +30,7 @@ mod terrain;
 mod terrain_receiver_images;
 mod timing_probe;
 mod toggle;
+mod upload_staging;
 mod validation;
 mod water_identity;
 mod water_pcf5;

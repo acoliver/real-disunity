@@ -211,8 +211,10 @@ fn required_gpu_capture_draws_geometry_and_preserves_upload_errors() {
 #[test]
 fn required_gpu_device_loss_is_returned_not_panicked() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let mut target = OffscreenTarget::new(context.device(), viewport(3, 2)).unwrap();
     context.device().destroy();
     let error = target.read_rgba8(&context).unwrap_err();

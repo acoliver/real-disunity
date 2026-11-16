@@ -186,12 +186,13 @@ impl Shape {
     }
 }
 
-/// A view the caller supplied, as the textures it selects.
+/// A caller view's selected texture and permission to load its existing contents.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct ViewIdentity {
     resource: ResourceRef,
     texture: wgpu::Texture,
     format: wgpu::TextureFormat,
+    retained: bool,
 }
 
 impl ViewIdentity {
@@ -200,6 +201,7 @@ impl ViewIdentity {
             resource: view.resource(),
             texture: view.texture().clone(),
             format: view.format(),
+            retained: view.retained(),
         }
     }
 }

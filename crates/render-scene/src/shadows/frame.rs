@@ -35,6 +35,7 @@ struct ShadowScheduleWork<'a> {
     groups: crate::scene_metadata::receiver::SetTwo,
     schedule: crate::compositor::ShadowSchedule,
     deferred: Option<crate::gbuffer::lighting::LightingInputs>,
+    contour: Option<crate::draw::ContourDraw>,
     map: &'a ShadowMap,
 }
 
@@ -80,7 +81,7 @@ impl ShadowedScene {
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         let work = shadow.complete_shadow_schedule(
-            context,
+            (context, encoder),
             attachments,
             scheduler,
             (&*resources.gpu, &scene),
@@ -185,6 +186,7 @@ impl ShadowFrameResources<'_> {
             groups,
             schedule,
             deferred,
+            contour,
             map,
         } = work;
         let mut feature = ShadowFeature {
@@ -194,6 +196,7 @@ impl ShadowFrameResources<'_> {
                 .as_ref()
                 .is_some_and(crate::gbuffer::Gbuffer::renders),
             screen: scene.screen,
+            contour,
             gpu: self.gpu,
             pipelines: &scene.selected,
             object_caster: self.object_caster,
@@ -225,12 +228,13 @@ impl ShadowFrameResources<'_> {
 impl ShadowWork {
     fn complete_shadow_schedule<'a>(
         self,
-        context: &GpuContext,
+        context: (&GpuContext, &wgpu::CommandEncoder),
         attachments: (&AttachmentView, &AttachmentView),
-        scheduler: &crate::compositor::FrameRenderer,
+        scheduler: &mut crate::compositor::FrameRenderer,
         scene: (&SceneGpu, &SceneFrame),
         map: &'a ShadowMap,
     ) -> Result<ShadowScheduleWork<'a>, ShadowError> {
+        let (context, encoder) = context;
         let ((color, depth), (gpu, scene)) = (attachments, scene);
         let card_depth = scene.selected.card_reject().then_some(depth);
         let groups = map.receiver_groups(scheduler, context.device(), card_depth);
@@ -248,11 +252,22 @@ impl ShadowWork {
             (scene.depth_mode, card_depth.is_some()),
             (depth.texture(), &scene.frame),
         )?;
+        let contour = scheduler.plan_contours(
+            (context.device(), encoder),
+            (gpu, &scene.selected),
+            &scene.frame,
+            (
+                &mut schedule.passes,
+                &mut schedule.views,
+                &mut schedule.declaration,
+            ),
+        )?;
         Ok(ShadowScheduleWork {
             shadow: self,
             groups,
             schedule,
             deferred,
+            contour,
             map,
         })
     }
@@ -262,6 +277,7 @@ struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
     renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
+    contour: Option<crate::draw::ContourDraw>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
     object_caster: &'a crate::object::program::Context,
@@ -322,6 +338,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == worldrunner_render_post::PassSlot::ContourIds {
+            self.gpu
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == worldrunner_render_post::PassSlot::Celestial {
             self.gpu.draw_celestial(pass);
             return;

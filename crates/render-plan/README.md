@@ -169,6 +169,21 @@ map headers return `InvalidMaterialTextureFormat`. Scene closure also checks any
 packed-impostor material used on a fixed mesh against its mesh-channel selectors.
 Unsupported encoded container types remain the renderer's texture-admission errors.
 
+## Reducible textures
+
+`RenderScene::with_reducible_textures` declares the textures whose top mip levels
+the renderer may drop at upload to fit adapter memory (GitHub #376). None is
+reducible by default, so a texture keeps its authored chain until its producer
+opts in. `SceneResources::reducible_textures` returns the declaration, which
+survives placement edits and `with_textures`. Validation refuses a handle outside
+the table, and refuses by name a declared handle that the scene also binds through
+a consumer reading level 0 or the authored size: the environment cube and BRDF
+table, the sky dome, celestial discs, water normal, flow and wind maps, material
+wind fields, fade threshold textures, impostor relief and border maps, terrain
+palette maps, layer sources and colorization. Impostor material atlas maps also
+stay authored so dropping levels cannot invalidate their frame grid. UI overlay
+textures are a separate dynamic table and never use scene handles.
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies
@@ -260,7 +275,7 @@ to captures, while the visible frame stays forward. Every other
 `SceneOpaquePath::Experiment` tuple returns
 `SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
 The target layout and the shared WGSL interface are described in the
-[render-scene README](../render-scene/README.md#deferred-g-buffer-observation).
+[render-scene README](../render-scene/README.md#deferred-g-buffer).
 The CPU admission census is a separate explicit query on
 `RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
 

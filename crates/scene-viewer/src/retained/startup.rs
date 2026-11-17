@@ -72,6 +72,8 @@ impl RetainedHost {
             exit: false,
             occluded: false,
             window_on_top: false,
+            #[cfg(test)]
+            texture_tier_memory_override: None,
         };
         host.derive_maps();
         Ok(host)

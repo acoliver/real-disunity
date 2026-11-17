@@ -152,6 +152,7 @@ pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
         gpu_timing: false,
         present_mode: PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
+        texture_tiers: None,
         adapter_callback: None,
         cadence: PresentationCadence::default(),
         render_clock: RenderClock::default(),

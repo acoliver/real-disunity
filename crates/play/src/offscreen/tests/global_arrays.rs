@@ -20,7 +20,7 @@ use worldrunner_unity_serialized::shader_parameters::{
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
     ComputeBufferId, ComputeShaderId, MaterialId, OffscreenWork, PropertyValue, RenderTextureId,
-    TextureRef,
+    TargetRef, TextureRef,
 };
 
 use super::flush::host;
@@ -158,7 +158,7 @@ fn blit_and_read(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target: drawn,
+            target: TargetRef::Render(drawn),
             material: Some(material),
             pass,
         })

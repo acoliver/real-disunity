@@ -424,7 +424,7 @@ fn textures(
         let id = match texture {
             TextureRef::Render(id) => Some(ids::render_texture(*id)),
             TextureRef::Asset(identity) => ids::stored_texture(*identity),
-            TextureRef::None | TextureRef::Global(_) => None,
+            TextureRef::None | TextureRef::Global(_) | TextureRef::Temporary(_) => None,
         };
         texture_source(texture).clone_into(&mut entry.source);
         entry.texture = id;
@@ -499,7 +499,10 @@ fn images(
         texture_source(texture).clone_into(&mut entry.source);
         let id = match texture {
             TextureRef::Render(id) => Some(ids::render_texture(*id)),
-            TextureRef::Asset(_) | TextureRef::Global(_) | TextureRef::None => None,
+            TextureRef::Asset(_)
+            | TextureRef::Global(_)
+            | TextureRef::Temporary(_)
+            | TextureRef::None => None,
         };
         entry.texture = id;
         let Some(id) = id else {
@@ -563,6 +566,7 @@ fn texture_source(texture: &TextureRef) -> &'static str {
         TextureRef::Render(_) => "render",
         TextureRef::Asset(_) => "asset",
         TextureRef::Global(_) => "global",
+        TextureRef::Temporary(_) => "temporary",
         TextureRef::None => "none",
     }
 }

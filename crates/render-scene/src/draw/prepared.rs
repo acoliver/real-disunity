@@ -46,7 +46,7 @@ impl PreparedScene {
     /// Prepares textures, mesh levels, transitions and terrain for the shared upload path.
     ///
     /// # Errors
-    /// Returns the same CPU preparation failures as [`SceneGpu::upload`].
+    /// Returns the same CPU preparation failures as [`SceneGpu::upload`](super::SceneGpu::upload).
     pub fn new(scene: &RenderScene) -> Result<Self, DrawError> {
         descriptors::validate(scene)?;
         let palette = crate::skinning::ScenePalette::new(scene.geometry().skin_poses()).map_err(

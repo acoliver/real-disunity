@@ -22,10 +22,15 @@ internal static unsafe class CommandWireReader
 
     private static string Flat(DisunityOffscreenWork r) => r.kind switch
     {
-        1 => $"Blit source={r.source_kind}:{r.source} target={r.target} material={r.material} pass={r.pass}",
-        2 => $"Copy source={r.source_kind}:{r.source}[{r.source_element},{r.source_mip}] target={r.target}[{r.target_element},{r.target_mip}]",
+        1 => $"Blit source={r.source_kind}:{r.source} target={WorkTarget(r)} material={r.material} pass={r.pass}",
+        2 => $"Copy source={r.source_kind}:{r.source}[{r.source_element},{r.source_mip}] target={WorkTarget(r)}[{r.target_element},{r.target_mip}]",
         var other => $"Flat{other}",
     };
+
+    /// <summary>A blit or copy target: a render texture by its world id, or <c>temp:</c> and the property name id of a temporary.</summary>
+    private static string WorkTarget(DisunityOffscreenWork r) => r.target_kind == 1
+        ? $"temp:{unchecked((int)(uint)r.target)}"
+        : r.target.ToString(CultureInfo.InvariantCulture);
 
     private static byte[] Detail(ulong world, uint token)
     {
@@ -160,7 +165,7 @@ internal static unsafe class CommandWireReader
         private string Slot()
         {
             var kind = U8();
-            var texture = kind switch { 0 => $"asset:{U64()}", 1 => $"render:{U64()}", 2 => $"global:{Text()}", _ => "none" };
+            var texture = kind switch { 0 => $"asset:{U64()}", 1 => $"render:{U64()}", 2 => $"global:{Text()}", 4 => $"temporary:{I32()}", _ => "none" };
             return $"{texture} scale={Floats(2)} offset={Floats(2)}";
         }
 

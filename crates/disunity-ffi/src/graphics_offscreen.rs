@@ -9,17 +9,25 @@ use crate::{
     physics::{component, identity},
     store::Session,
 };
-use worldrunner_world_simulation::graphics::{MaterialId, OffscreenWork, RenderTextureId};
+use worldrunner_world_simulation::graphics::{
+    MaterialId, OffscreenWork, RenderTextureId, TargetRef,
+};
 
 const WORK_CAMERA_RENDER: u32 = 0;
 const WORK_BLIT: u32 = 1;
 const WORK_COPY_TEXTURE: u32 = 2;
 const WORK_DISPATCH: u32 = 3;
 
+const TARGET_RENDER: u32 = 0;
+const TARGET_TEMPORARY: u32 = 1;
+
 /// One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
 /// component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
 /// compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
-/// does (0 none, 1 asset, 2 render texture); a blit draws with `material` (0 for none) and
+/// does (0 none, 1 asset, 2 render texture, 4 temporary render texture), and write the target
+/// that `target_kind` names: 0 for the render texture `target`, 1 for the temporary render
+/// texture whose property name id is the low 32 bits of `target`. A camera render ignores
+/// `target_kind`. A blit draws with `material` (0 for none) and
 /// `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
 /// `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
 /// groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
@@ -34,6 +42,7 @@ pub struct DisunityOffscreenWork {
     pub kind: u32,
     pub camera: u64,
     pub target: u64,
+    pub target_kind: u32,
     pub source_kind: u32,
     pub source: u64,
     pub material: u64,
@@ -60,7 +69,7 @@ impl DisunityOffscreenWork {
             }),
             WORK_BLIT => Ok(OffscreenWork::Blit {
                 source: texture_ref(self.source_kind, self.source)?,
-                target,
+                target: self.work_target()?,
                 material: (self.material != 0).then(|| MaterialId::from_bits(self.material)),
                 pass: self.pass,
             }),
@@ -68,7 +77,7 @@ impl DisunityOffscreenWork {
                 source: texture_ref(self.source_kind, self.source)?,
                 source_element: self.source_element,
                 source_mip: self.source_mip,
-                target,
+                target: self.work_target()?,
                 target_element: self.target_element,
                 target_mip: self.target_mip,
             }),
@@ -76,6 +85,20 @@ impl DisunityOffscreenWork {
                 Err("a compute dispatch is recorded by disunity_compute_dispatch".into())
             }
             _ => Err("offscreen work is a camera render (0), a blit (1) or a copy (2); commands have their own calls".into()),
+        }
+    }
+
+    /// The target of a blit or a copy.
+    fn work_target(self) -> Result<TargetRef, AbiError> {
+        match self.target_kind {
+            TARGET_RENDER => Ok(TargetRef::Render(RenderTextureId::from_bits(self.target))),
+            TARGET_TEMPORARY => u32::try_from(self.target)
+                .map(|bits| TargetRef::Temporary(bits.cast_signed()))
+                .map_err(|_| "a temporary render texture's name id is a 32-bit int".into()),
+            _ => Err(
+                "a blit or copy target is a render texture (0) or a temporary render texture (1)"
+                    .into(),
+            ),
         }
     }
 
@@ -123,9 +146,11 @@ impl DisunityOffscreenWork {
                 pass,
             } => {
                 let (source_kind, source) = texture_parts(source);
+                let (target_kind, target) = target_parts(*target);
                 Self {
                     kind: WORK_BLIT,
-                    target: target.to_bits(),
+                    target,
+                    target_kind,
                     source_kind,
                     source,
                     material: material.map_or(0, MaterialId::to_bits),
@@ -142,9 +167,11 @@ impl DisunityOffscreenWork {
                 target_mip,
             } => {
                 let (source_kind, source) = texture_parts(source);
+                let (target_kind, target) = target_parts(*target);
                 Self {
                     kind: WORK_COPY_TEXTURE,
-                    target: target.to_bits(),
+                    target,
+                    target_kind,
                     source_kind,
                     source,
                     source_element: *source_element,
@@ -229,4 +256,14 @@ pub unsafe extern "C" fn disunity_offscreen_take(
         }
         Ok(())
     })
+}
+
+/// The kind and bits a blit or copy target is written as. The world only records a render
+/// texture or a temporary one there.
+fn target_parts(target: TargetRef) -> (u32, u64) {
+    match target {
+        TargetRef::Temporary(name_id) => (TARGET_TEMPORARY, u64::from(name_id.cast_unsigned())),
+        TargetRef::Render(id) => (TARGET_RENDER, id.to_bits()),
+        TargetRef::CameraTarget | TargetRef::None => (TARGET_RENDER, 0),
+    }
 }

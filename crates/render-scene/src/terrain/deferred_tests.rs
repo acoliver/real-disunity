@@ -7,16 +7,16 @@
 use glam::{Mat3, Vec3};
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::{
-    RenderScene, SceneAlphaMode, SceneMaterial, SceneMaterialParts, SceneOpaquePath, SceneParts,
-    SceneResources, SceneTranslucency, SceneTranslucencyParts, TextureHandle,
+    RenderScene, SceneAlphaMode, SceneEffects, SceneMaterial, SceneMaterialParts, SceneOpaquePath,
+    SceneParts, SceneResources, SceneTranslucency, SceneTranslucencyParts, TextureHandle,
 };
 use worldrunner_render_post::{
-    BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassSlot,
-    PrepareContext, PreparedFeature,
+    BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError, FrameFeature, PassSlot,
+    PrepareContext, PreparedFeature, ToneMap,
 };
 
-use super::gbuffer_tests::{Drawn, Frame, prepare_scene, read, render};
-use crate::compositor::FeatureTarget;
+use super::gbuffer_tests::{Drawn, Frame, prepare_scene, prepare_with, read, render};
+use crate::compositor::{FeatureTarget, RendererConfiguration};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{SIZE, context};
 use crate::gbuffer::lighting::LightingTarget;
@@ -83,9 +83,51 @@ fn lit_scene(frame: Frame) -> RenderScene {
         resources: SceneResources::new(base.resources().textures().to_vec(), materials).unwrap(),
         geometry: base.geometry().clone(),
         terrain: base.terrain().cloned(),
-        effects: base.effects().cloned(),
+        effects: if matches!(frame, Frame::Flat) {
+            Some(nonreflecting_effects())
+        } else {
+            base.effects().cloned()
+        },
     })
     .unwrap()
+}
+
+/// The flat fixture completes metadata depth through AO without reflection products.
+fn nonreflecting_effects() -> SceneEffects {
+    use worldrunner_render_plan::{
+        SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
+    };
+    let mut parts = crate::draw::tests::effect_parts();
+    parts.ssao = Some(SceneSsao {
+        receiver: SceneSsaoReceiver::Nearest,
+        depth_footprint: SceneSsaoDepthFootprint::default(),
+        kernel: SceneSsaoKernel::Hemisphere,
+        filter: SceneSsaoFilter::DepthAwareBox,
+        radius_millimeters: 2000,
+        intensity_micro: 1_000_000,
+        sample_count: 32,
+        bias_millimeters: 10,
+        horizon_angle_millidegrees: 90_000,
+    });
+    SceneEffects::new(parts).unwrap()
+}
+
+fn prepare_lighting(
+    context: &GpuContext,
+    frame: Frame,
+    path: SceneOpaquePath,
+    scene: &RenderScene,
+) -> Drawn {
+    if !matches!(frame, Frame::Flat) {
+        return prepare_scene(context, frame, path, scene);
+    }
+    let mut settings =
+        RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssao = scene.effects().unwrap().ssao().copied();
+    settings.opaque_path = path;
+    prepare_with(context, scene, &frame.uniform(scene), settings)
 }
 
 /// One block: its surface and the scene material whose record and flags it is lit with.
@@ -205,29 +247,9 @@ struct ProducerDraw {
     group: wgpu::BindGroup,
 }
 
-impl FrameFeature for Producer {
-    fn declare(&self) -> FeatureDeclaration {
-        let mut declaration = FeatureDeclaration::new(PassSlot::OpaqueGbuffer);
-        declaration.passes[0].color_format = Some(GBUFFER_FORMATS[0]);
-        declaration.passes[0].additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
-        declaration.passes[0].depth_format = self.depth;
-        declaration
-    }
-
-    fn build(&self, context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
-        let device = context.device;
-        let mut bytes: Vec<u8> = [self.view.x_axis, self.view.y_axis, self.view.z_axis]
-            .into_iter()
-            .flat_map(|column| column.extend(0.0).to_array())
-            .flat_map(f32::to_le_bytes)
-            .collect();
-        bytes.extend(block_values(self.blocks.iter().copied()));
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("deferred producer blocks"),
-            contents: &bytes,
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-        let source = format!(
+impl Producer {
+    fn source(&self) -> String {
+        format!(
             "{GBUFFER_WGSL}
 @group(0) @binding(0) var<storage, read> blocks: array<vec4<f32>>;
 @vertex
@@ -253,18 +275,48 @@ fn fs_blocks(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
 }}
 ",
             covered = self.covered,
-        );
+        )
+    }
+}
+
+fn producer_targets() -> [Option<wgpu::ColorTargetState>; 4] {
+    GBUFFER_FORMATS.map(|format| {
+        Some(wgpu::ColorTargetState {
+            format,
+            blend: None,
+            write_mask: wgpu::ColorWrites::ALL,
+        })
+    })
+}
+
+impl FrameFeature for Producer {
+    fn declare(&self) -> FeatureDeclaration {
+        let mut declaration = FeatureDeclaration::new(PassSlot::OpaqueGbuffer);
+        declaration.passes[0].color_format = Some(GBUFFER_FORMATS[0]);
+        declaration.passes[0].additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
+        declaration.passes[0].depth_format = self.depth;
+        declaration
+    }
+
+    fn build(&self, context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+        let device = context.device;
+        let mut bytes: Vec<u8> = [self.view.x_axis, self.view.y_axis, self.view.z_axis]
+            .into_iter()
+            .flat_map(|column| column.extend(0.0).to_array())
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        bytes.extend(block_values(self.blocks.iter().copied()));
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("deferred producer blocks"),
+            contents: &bytes,
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let source = self.source();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("deferred producer"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let targets = GBUFFER_FORMATS.map(|format| {
-            Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })
-        });
+        let targets = producer_targets();
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("deferred producer"),
             layout: None,
@@ -395,59 +447,78 @@ fn lit_where_stored(label: &str, output: &[f32], g3: &[u16], colour: bool) -> us
 fn deferred_lighting_keeps_the_forward_frame_and_lights_only_written_pixels() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for frame in [Frame::Plain, Frame::Reflecting] {
+    for frame in [Frame::Plain, Frame::Flat, Frame::Reflecting] {
         let scene = lit_scene(frame);
-        let mut forward = prepare_scene(&context, frame, SceneOpaquePath::Forward, &scene);
+        let mut forward = prepare_lighting(&context, frame, SceneOpaquePath::Forward, &scene);
         let expected = render(&context, &mut forward, 3).unwrap();
         assert!(lighting(&context, &forward, LightingTarget::Colour).is_none());
-        let reflections = matches!(frame, Frame::Reflecting);
         for probe in [false, true] {
-            let label = format!("{frame:?}, probe {probe}");
-            let mut drawn = prepare_scene(
-                &context,
-                frame,
-                SceneOpaquePath::GBUFFER_OBSERVATION,
-                &scene,
+            check_observed(&context, frame, &scene, &expected, probe);
+        }
+    }
+}
+
+fn check_observed(
+    context: &GpuContext,
+    frame: Frame,
+    scene: &RenderScene,
+    expected: &[u8],
+    probe: bool,
+) {
+    let label = format!("{frame:?}, probe {probe}");
+    let mut drawn = prepare_lighting(context, frame, SceneOpaquePath::GBUFFER_OBSERVATION, scene);
+    if probe {
+        let table = drawn.gpu.lighting_record_table().records().to_vec();
+        let blocks = blocks(&table, scene.resources().materials());
+        produce(context, &mut drawn, frame, &blocks, COLUMNS / 2);
+    }
+    let colour = render(context, &mut drawn, 3).unwrap();
+    assert!(colour == expected, "{label}: the observed frame differs");
+    let g3 = stored(context, &drawn);
+    if !frame.prepassed() && probe {
+        assert!(
+            g3.iter().any(|code| *code != 0),
+            "{label}: the probe stored nothing"
+        );
+    }
+    check_observed_lighting(context, &drawn, frame, &g3, &label);
+}
+
+fn check_observed_lighting(
+    context: &GpuContext,
+    drawn: &Drawn,
+    frame: Frame,
+    g3: &[u16],
+    label: &str,
+) {
+    let reflections = matches!(frame, Frame::Reflecting);
+    for target in [
+        LightingTarget::Colour,
+        LightingTarget::Environment,
+        LightingTarget::Factor,
+    ] {
+        let output = lighting(context, drawn, target);
+        if target != LightingTarget::Colour && !reflections {
+            assert!(output.is_none(), "{label}: {target:?} without reflections");
+            continue;
+        }
+        let output = output.unwrap_or_else(|| panic!("{label}: {target:?} is missing"));
+        if !frame.prepassed() {
+            // Lighting runs before Opaque on completed prepass depth, even with probe storage.
+            assert!(
+                output.iter().all(|value| value.to_bits() == 0),
+                "{label}: {target:?} lit without the prepass"
             );
-            if probe {
-                let table = drawn.gpu.lighting_record_table().records().to_vec();
-                let blocks = blocks(&table, scene.resources().materials());
-                produce(&context, &mut drawn, frame, &blocks, COLUMNS / 2);
-            }
-            let colour = render(&context, &mut drawn, 3).unwrap();
-            assert!(colour == expected, "{label}: the observed frame differs");
-            let g3 = stored(&context, &drawn);
-            for target in [
-                LightingTarget::Colour,
-                LightingTarget::Environment,
-                LightingTarget::Factor,
-            ] {
-                let output = lighting(&context, &drawn, target);
-                if target != LightingTarget::Colour && !reflections {
-                    assert!(output.is_none(), "{label}: {target:?} without reflections");
-                    continue;
-                }
-                let output = output.unwrap_or_else(|| panic!("{label}: {target:?} is missing"));
-                if !frame.prepassed() {
-                    // The lighting pass runs before Opaque on the prepass depth, so without
-                    // the prepass it lights nothing, even where the probe stored surfaces.
-                    assert!(
-                        output.iter().all(|value| value.to_bits() == 0),
-                        "{label}: {target:?} lit without the prepass"
-                    );
-                    continue;
-                }
-                let lit = lit_where_stored(
-                    &format!("{label}, {target:?}"),
-                    &output,
-                    &g3,
-                    target == LightingTarget::Colour,
-                );
-                if target == LightingTarget::Colour {
-                    // The scene's own producers store the terrain; the probe adds its blocks.
-                    assert!(lit > g3.len() / 4, "{label}: {lit} lit pixels");
-                }
-            }
+            continue;
+        }
+        let lit = lit_where_stored(
+            &format!("{label}, {target:?}"),
+            &output,
+            g3,
+            target == LightingTarget::Colour,
+        );
+        if target == LightingTarget::Colour {
+            assert!(lit > g3.len() / 4, "{label}: {lit} lit pixels");
         }
     }
 }
@@ -496,88 +567,92 @@ mod reference_pass;
 fn deferred_lighting_matches_the_forward_shading_of_the_same_surfaces() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    // Only a frame with the depth prepass lights; the reflecting frame has one.
-    {
-        let frame = Frame::Reflecting;
-        let scene = lit_scene(frame);
-        let mut drawn = prepare_scene(
-            &context,
-            frame,
-            SceneOpaquePath::GBUFFER_OBSERVATION,
-            &scene,
-        );
-        let materials = scene.resources().materials();
-        let table = drawn.gpu.lighting_record_table().records().to_vec();
-        let blocks = blocks(&table, materials);
-        produce(&context, &mut drawn, frame, &blocks, COLUMNS);
-        render(&context, &mut drawn, 1).unwrap();
-        let deferred = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
-        // The values the G-buffer stores, decoded by the CPU mirror of the encoding.
-        let view = Mat3::from_mat4(drawn.frame.view);
-        let stored: Vec<Block> = blocks
-            .iter()
-            .map(|block| Block {
-                surface: reference::decode(
-                    &reference::encode(&block.surface, view),
-                    view.transpose(),
-                ),
-                ..*block
-            })
-            .collect();
-        let pass = reference_pass::ReferencePass::new(&context, &mut drawn, frame, materials);
-        let exact = pass.shade(&context, &drawn, &blocks);
-        let decoded = pass.shade(&context, &drawn, &stored);
-        let neutral: Vec<Block> = blocks
-            .iter()
-            .map(|block| Block {
-                material: 0,
-                ..*block
-            })
-            .collect();
-        let unrecorded = pass.shade(&context, &drawn, &neutral);
-        // The largest error relative to the reference, counting values below the absolute
-        // floor as that floor: an error passes when it is within `relative` of the reference
-        // or within `ABSOLUTE`.
-        let worst = |reference: &[f32], relative: f32| {
-            deferred
-                .chunks_exact(4)
-                .zip(reference.chunks_exact(4))
-                .flat_map(|(got, want)| got[..3].iter().zip(&want[..3]))
-                .map(|(got, want)| (got - want).abs() / want.abs().max(ABSOLUTE / relative))
-                .fold(0.0_f32, f32::max)
-        };
-        let stored_error = worst(&decoded, STORED_RELATIVE);
-        let exact_error = worst(&exact, EXACT_RELATIVE);
-        // The leaf records change the forward result, so a lighting pass that ignored them
-        // could not meet the stored-value bound.
-        let record_effect = exact
+    let frame = Frame::Reflecting;
+    let scene = lit_scene(frame);
+    let mut drawn = prepare_lighting(
+        &context,
+        frame,
+        SceneOpaquePath::GBUFFER_OBSERVATION,
+        &scene,
+    );
+    let materials = scene.resources().materials();
+    let table = drawn.gpu.lighting_record_table().records().to_vec();
+    let blocks = blocks(&table, materials);
+    produce(&context, &mut drawn, frame, &blocks, COLUMNS);
+    render(&context, &mut drawn, 1).unwrap();
+    let deferred = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
+    // The values the G-buffer stores, decoded by the CPU mirror of the encoding.
+    let view = Mat3::from_mat4(drawn.frame.view);
+    let stored: Vec<Block> = blocks
+        .iter()
+        .map(|block| Block {
+            surface: reference::decode(&reference::encode(&block.surface, view), view.transpose()),
+            ..*block
+        })
+        .collect();
+    let pass = reference_pass::ReferencePass::new(&context, &mut drawn, frame, materials);
+    let exact = pass.shade(&context, &drawn, &blocks);
+    let decoded = pass.shade(&context, &drawn, &stored);
+    let neutral: Vec<Block> = blocks
+        .iter()
+        .map(|block| Block {
+            material: 0,
+            ..*block
+        })
+        .collect();
+    let unrecorded = pass.shade(&context, &drawn, &neutral);
+    assert_reference_lighting(frame, &deferred, &exact, &decoded, &unrecorded);
+}
+
+fn assert_reference_lighting(
+    frame: Frame,
+    deferred: &[f32],
+    exact: &[f32],
+    decoded: &[f32],
+    unrecorded: &[f32],
+) {
+    // The largest error relative to the reference, counting values below the absolute
+    // floor as that floor: an error passes when it is within `relative` of the reference
+    // or within `ABSOLUTE`.
+    let worst = |reference: &[f32], relative: f32| {
+        deferred
             .chunks_exact(4)
-            .zip(unrecorded.chunks_exact(4))
-            .map(|(leaf, plain)| (leaf[0] - plain[0]).abs() / plain[0].abs().max(1e-3))
-            .fold(0.0_f32, f32::max);
-        let distinct: std::collections::BTreeSet<_> = exact
-            .chunks_exact(4)
-            .map(|texel| {
-                texel[..3]
-                    .iter()
-                    .map(|value| value.to_bits())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        eprintln!(
-            "{frame:?}: stored-value error {stored_error:.5}, exact-surface error {exact_error:.5}, \
-             record effect {record_effect:.3}, {} distinct reference colours",
-            distinct.len()
-        );
-        assert!(
-            distinct.len() >= 16,
-            "{frame:?}: the reference lit too few surfaces"
-        );
-        assert!(
-            record_effect > 0.05,
-            "{frame:?}: the leaf records changed nothing"
-        );
-        assert!(stored_error <= STORED_RELATIVE, "{frame:?}: {stored_error}");
-        assert!(exact_error <= EXACT_RELATIVE, "{frame:?}: {exact_error}");
-    }
+            .zip(reference.chunks_exact(4))
+            .flat_map(|(got, want)| got[..3].iter().zip(&want[..3]))
+            .map(|(got, want)| (got - want).abs() / want.abs().max(ABSOLUTE / relative))
+            .fold(0.0_f32, f32::max)
+    };
+    let stored_error = worst(decoded, STORED_RELATIVE);
+    let exact_error = worst(exact, EXACT_RELATIVE);
+    // The leaf records change the forward result, so a lighting pass that ignored them
+    // could not meet the stored-value bound.
+    let record_effect = exact
+        .chunks_exact(4)
+        .zip(unrecorded.chunks_exact(4))
+        .map(|(leaf, plain)| (leaf[0] - plain[0]).abs() / plain[0].abs().max(1e-3))
+        .fold(0.0_f32, f32::max);
+    let distinct: std::collections::BTreeSet<_> = exact
+        .chunks_exact(4)
+        .map(|texel| {
+            texel[..3]
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    eprintln!(
+        "{frame:?}: stored-value error {stored_error:.5}, exact-surface error {exact_error:.5}, \
+         record effect {record_effect:.3}, {} distinct reference colours",
+        distinct.len()
+    );
+    assert!(
+        distinct.len() >= 16,
+        "{frame:?}: the reference lit too few surfaces"
+    );
+    assert!(
+        record_effect > 0.05,
+        "{frame:?}: the leaf records changed nothing"
+    );
+    assert!(stored_error <= STORED_RELATIVE, "{frame:?}: {stored_error}");
+    assert!(exact_error <= EXACT_RELATIVE, "{frame:?}: {exact_error}");
 }

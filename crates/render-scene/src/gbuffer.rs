@@ -1,23 +1,25 @@
 //! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION` and
 //! `SceneOpaquePath::GBUFFER_RENDER`.
 //!
-//! The renderer owns four single-sample targets at the scene extent and clears them in
-//! the [`PassSlot::OpaqueGbuffer`] slot, which runs before Opaque, every frame. Producers
-//! draw into that slot through the ordinary feature boundary; the shared encoding lives in
-//! [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote, after the G-buffer and
-//! before Opaque, with the lighting records of [`records`].
+//! The renderer owns four single-sample targets at the scene extent. Observation clears them
+//! in [`PassSlot::OpaqueGbuffer`] before Opaque; Render fuses their clear and production into
+//! [`PassSlot::DepthNormalPrepass`]. Producers use the ordinary feature boundary and the shared
+//! encoding in [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote before Opaque,
+//! with the lighting records of [`records`].
 //!
 //! In observation the lighting pass writes diagnostic targets and nothing reads them except
 //! captures, so the visible frame and every other pass are unchanged. When the frame renders
 //! from the G-buffer ([`GbufferUse::Render`]), the lighting pass takes over Opaque's colour
 //! targets and their clears, so it writes the scene colour and the reflection products SSR
 //! reads, and Opaque loads them and draws only the surfaces without a producer. With
-//! velocity, the producers write the object-motion residual and the G-buffer slot clears the
-//! velocity target in Opaque's place.
+//! velocity, the early producers write the object-motion residual and clear the velocity target
+//! in Opaque's place.
+mod early;
+pub(crate) use early::producer_pass;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 /// The shared WGSL encode and decode module. It declares no bindings; producers and the
@@ -171,6 +173,11 @@ impl Gbuffer {
         views: &mut Vec<AttachmentView>,
         features: impl IntoIterator<Item = &'a FeatureDeclaration>,
     ) -> Result<(), FrameError> {
+        if self.renders() {
+            let velocity = early::move_early_velocity(passes, views)?;
+            self.fuse_prepass(passes, views, velocity.as_ref())?;
+            return lighting::schedule_render(passes);
+        }
         let mut pass = PassDeclaration::new(PassSlot::OpaqueGbuffer);
         for target in GbufferTarget::ALL {
             let view = AttachmentView::new(
@@ -194,52 +201,9 @@ impl Gbuffer {
             views.push(view);
         }
         passes.push(pass);
-        let features: Vec<_> = features.into_iter().collect();
-        if self.renders() {
-            lighting::schedule_render(passes)?;
-            move_velocity(passes, features.iter().copied())?;
-        } else {
-            self.lighting.schedule(passes, views)?;
-        }
+        self.lighting.schedule(passes, views)?;
         attach_producer_depth(passes, features)
     }
-}
-
-/// When the producers write the object-motion residual, the G-buffer slot clears and writes
-/// the velocity target that Opaque declared, and Opaque loads it for its remaining draws.
-fn move_velocity<'a>(
-    passes: &mut [PassDeclaration],
-    features: impl IntoIterator<Item = &'a FeatureDeclaration>,
-) -> Result<(), FrameError> {
-    let writes = features
-        .into_iter()
-        .flat_map(|feature| &feature.passes)
-        .filter(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .any(|pass| {
-            pass.additional_color_formats
-                .contains(&worldrunner_render_post::VELOCITY_FORMAT)
-        });
-    if !writes {
-        return Ok(());
-    }
-    let opaque = passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
-    let velocity = opaque
-        .additional_colors
-        .iter_mut()
-        .find(|attachment| attachment.resource.name == "scene velocity")
-        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
-    let cleared = velocity.clone();
-    velocity.load = AttachmentLoad::Load;
-    passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
-        .additional_colors
-        .push(cleared);
-    Ok(())
 }
 
 /// Whether Opaque loads the completed prepass depth that the producer tests.
@@ -247,31 +211,30 @@ pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::Dept
     matches!(depth, crate::renderer::depth::DepthMode::Reuse)
 }
 
-/// Declares the scene's G-buffer producer pass when Opaque reuses the completed prepass depth
-/// and the prepass metadata carries G-buffer pipelines: the four targets in location order,
-/// and the finished scene depth to test against, which [`attach_producer_depth`] gives the
-/// slot read-only. Under any other depth mode nothing is declared; rendering from the
-/// G-buffer is then refused by the lighting pass's preparation.
+/// Declares the producer carried by the metadata. Observation tests completed `Reuse` depth
+/// read-only in `OpaqueGbuffer`; Render writes depth and its fused outputs in the early prepass.
+/// Replacing a declaration for the same entry keeps a single geometry walk.
 pub(crate) fn declare_producer(
     declaration: &mut FeatureDeclaration,
     screen: &crate::scene_metadata::SceneMetadata,
     depth: crate::renderer::depth::DepthMode,
 ) {
-    if !producer_depth_available(depth) {
-        return;
-    }
     let Some((pipelines, _)) = &screen.geometry.gbuffer else {
         return;
     };
-    let mut pass = worldrunner_render_post::FeaturePass::new(PassSlot::OpaqueGbuffer);
-    pass.color_format = Some(GBUFFER_FORMATS[0]);
-    pass.additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
-    if pipelines.writes_velocity() {
-        pass.additional_color_formats
-            .push(worldrunner_render_post::VELOCITY_FORMAT);
+    let pass = producer_pass(pipelines, screen.depth.format());
+    if pass.slot == PassSlot::OpaqueGbuffer && !producer_depth_available(depth) {
+        return;
     }
-    pass.depth_format = Some(screen.depth.format());
-    declaration.passes.push(pass);
+    if let Some(existing) = declaration
+        .passes
+        .iter_mut()
+        .find(|existing| existing.entry() == pass.entry())
+    {
+        *existing = pass;
+    } else {
+        declaration.passes.push(pass);
+    }
 }
 
 /// Gives the slot the scene depth when a producer declares a depth format there.
@@ -280,8 +243,8 @@ pub(crate) fn declare_producer(
 /// Opaque (the depth prepass ran, so Opaque loads it), the slot attaches that same depth
 /// read-only: producers test against it (`Equal`, like forward reuse) and write none, so
 /// depth ownership and the visible frame are unchanged. Without a completed depth the
-/// request is refused with [`FrameError::AttachmentContract`]. Making this slot clear and
-/// write the scene depth is the switch that admits rendering from the G-buffer.
+/// request is refused with [`FrameError::AttachmentContract`]. Render owns depth in the fused
+/// early prepass and does not schedule this observation slot.
 pub(crate) fn attach_producer_depth<'a>(
     passes: &mut [PassDeclaration],
     features: impl IntoIterator<Item = &'a FeatureDeclaration>,
@@ -299,11 +262,15 @@ pub(crate) fn attach_producer_depth<'a>(
         .and_then(|pass| pass.depth.as_ref())
         .filter(|depth| depth.load == AttachmentLoad::Load)
         .cloned()
-        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?;
     passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
+        .ok_or(FrameError::MissingPass(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?
         .depth = Some(AttachmentDeclaration {
         read_only: true,
         ..depth

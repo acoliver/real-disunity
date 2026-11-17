@@ -1,5 +1,5 @@
 use super::*;
-use crate::{GpuTiming, GpuTimingUnavailable, PassId, PassSlot, StageId};
+use crate::{GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, StageId};
 
 fn assert_usable_durations(frame: &crate::FrameTiming) {
     assert!(frame.passes.iter().all(|pass| {
@@ -58,7 +58,7 @@ fn shadow_metadata_ao_forward_ssr_water_resolve_and_post_have_query_pairs() {
         let passes: Vec<_> = frame
             .passes
             .iter()
-            .filter(|p| p.pass_id == PassId::Geometry(slot))
+            .filter(|p| p.pass_id == PassId::Geometry(PassEntry::new(slot)))
             .collect();
         assert_eq!(passes.len(), 1, "one timestamp pair for {slot:?}");
         assert!(passes[0].duration_ns.is_some());
@@ -190,7 +190,7 @@ fn requested_timing_reports_capability_or_completed_frame_without_more_rendering
         frame
             .passes
             .iter()
-            .any(|pass| pass.pass_id == PassId::Geometry(PassSlot::Opaque))
+            .any(|pass| pass.pass_id == PassId::Geometry(PassEntry::new(PassSlot::Opaque)))
     );
     assert!(
         frame

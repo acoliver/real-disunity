@@ -250,8 +250,9 @@ The ring retains at most three unread frames, each with at most 1024 pass pairs.
 
 Native recovery tests exercise resize, lost/outdated transitions and zero-size resume. Linux/X11 execution belongs to the lavapipe jobs described in [quality gates](../quality-gates.md#continuous-integration). Timestamp-query tests support both available and unavailable adapters, since software drivers and some Windows devices lack the capability.
 
-With a TAA resolve, `encode_frame` also keeps the 80-byte `TaaUniform` built from the frame's
-`TemporalView`, and `encode_output` uploads it for the frame slot before the post stages run. The
+With a TAA resolve, `encode_frame` also keeps the 96-byte `TaaUniform` built from the frame's
+`TemporalView`, and `encode_output` uploads it for the frame slot before the post stages run, through the
+frame's upload staging like the exposure step, the temporal block and the camera term. The
 order of the post stages is then: `taa resolve`, `taa history`, `taa depth history`, exposure metering, bloom, tone
 mapping, then any other resolve (none, since TAA excludes FXAA, SMAA and CMAA2), CAS and upscale.
 The scene must be drawn into `FrameTargets::depth()`; `encode_scene` refuses another depth.

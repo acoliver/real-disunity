@@ -139,33 +139,32 @@ fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
             });
         assert_eq!(samples.len(), 1);
         let passes: Vec<_> = samples[0].passes.iter().map(|pass| pass.pass_id).collect();
+        let slots: Vec<_> = passes
+            .iter()
+            .filter_map(|id| match id {
+                crate::PassId::Geometry(entry) => Some(entry.slot()),
+                _ => None,
+            })
+            .collect();
         for slot in [
             crate::PassSlot::DepthNormalPrepass,
             crate::PassSlot::DepthPyramid(0),
             crate::PassSlot::Opaque,
         ] {
             assert_eq!(
-                passes
-                    .iter()
-                    .filter(|&&id| id == crate::PassId::Geometry(slot))
-                    .count(),
+                slots.iter().filter(|&&timed| timed == slot).count(),
                 1,
                 "{slot:?} in frame {frame_id}"
             );
         }
         assert!(
-            !passes.iter().any(|id| matches!(
-                id,
-                crate::PassId::Geometry(
-                    crate::PassSlot::Ssao
-                        | crate::PassSlot::SsaoBlur
-                        | crate::PassSlot::SsaoBlurHorizontal
-                        | crate::PassSlot::OcclusionMetadata(_)
-                )
-            ) || matches!(
-                id,
-                crate::PassId::Geometry(crate::PassSlot::DepthPyramid(level)) if *level > 0
-            )),
+            !slots.iter().any(|slot| matches!(
+                slot,
+                crate::PassSlot::Ssao
+                    | crate::PassSlot::SsaoBlur
+                    | crate::PassSlot::SsaoBlurHorizontal
+                    | crate::PassSlot::OcclusionMetadata(_)
+            ) || matches!(slot, crate::PassSlot::DepthPyramid(level) if *level > 0)),
             "frame {frame_id} timed an occlusion stage: {passes:?}"
         );
     }

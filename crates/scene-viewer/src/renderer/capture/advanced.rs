@@ -190,7 +190,7 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, None, &output, Some(&mut image))?;
+        let prepared = self.encode_frame(view, (None, None), &output, Some(&mut image))?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
         self.submitted_camera_history(host);
         let temporal_history_reset = self.temporal_history_reset();
@@ -230,7 +230,7 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, None, &output, None)?;
+        let prepared = self.encode_frame(view, (None, None), &output, None)?;
         self.execution.submit_capture(ready, prepared)?;
         self.streaming.captures.advance_frame();
         Ok(true)

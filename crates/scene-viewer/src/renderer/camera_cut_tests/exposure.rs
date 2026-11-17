@@ -83,7 +83,9 @@ fn frame(renderer: &mut Renderer, host: &mut RetainedHost, time: Duration, cut: 
     }
     let texture = ready.frame.texture.clone();
     let output = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let prepared = renderer.encode_frame(&view, None, &output, None).unwrap();
+    let prepared = renderer
+        .encode_frame(&view, (None, None), &output, None)
+        .unwrap();
     renderer
         .execution
         .submit_prepared(ready, prepared, &renderer.context)

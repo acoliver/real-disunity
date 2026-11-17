@@ -170,6 +170,8 @@ pub enum ViewerError {
     Adapter(#[from] wgpu::RequestAdapterError),
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
+    #[error("the player's offscreen work could not join the frame: {0}")]
+    Offscreen(String),
     #[error("the shared GPU adapter {adapter} cannot present to the window's surface")]
     SharedSurface { adapter: String },
     #[error("surface does not support requested present mode {0:?}")]

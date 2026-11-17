@@ -1,0 +1,104 @@
+//! A player's offscreen work handed to the retained host runs in the next frame the viewer
+//! renders, on the viewer's device and in that frame's submission.
+use super::*;
+use crate::RetainedHost;
+use std::collections::BTreeMap;
+use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
+use worldrunner_render_program::ids::{CameraId, TextureId};
+use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::unity::offscreen::OffscreenState;
+use worldrunner_render_program::unity::offscreen::frame::{
+    Camera, OffscreenFrame, Record, RenderDimension, RenderTextureSpec,
+};
+use worldrunner_render_program::unity::runtime::ProgramRuntime;
+use worldrunner_render_program::unity::shader::PassSelector;
+
+const TARGET: TextureId = TextureId(10);
+const ARENA: u64 = 1 << 20;
+const YELLOW: [u8; 4] = [255, 255, 0, 255];
+
+/// One camera that sees nothing and clears an 8 by 8 render texture to yellow.
+fn clear() -> OffscreenFrame {
+    OffscreenFrame {
+        render_textures: vec![RenderTextureSpec {
+            id: TARGET,
+            size: [8, 8],
+            dimension: RenderDimension::D2,
+            graphics_format: 8,
+            depth_bits: 0,
+            mips: 1,
+            srgb: false,
+            generation: 0,
+        }],
+        cameras: BTreeMap::from([(
+            CameraId(1),
+            Camera {
+                culling_mask: 0,
+                clear_color: Some([1.0, 1.0, 0.0, 1.0]),
+                clear_depth: true,
+                pass: PassSelector::Index(0),
+                values: PropertyLayer::default(),
+                front_face: wgpu::FrontFace::Cw,
+            },
+        )]),
+        records: vec![Record::CameraRender {
+            camera: CameraId(1),
+            target: TARGET,
+        }],
+        ..OffscreenFrame::default()
+    }
+}
+
+fn render_frame(host: &mut RetainedHost, renderer: &mut Renderer) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
+    while !renderer.render_retained(host).unwrap() {
+        renderer.poll().unwrap();
+        assert!(std::time::Instant::now() < deadline, "frame timed out");
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
+    let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let limits = device.limits();
+    // The player's runtime on the viewer's device and authority, as PlayerGpu::on makes it.
+    let mut runtime =
+        ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(ARENA));
+    let mut configuration = Configuration::new(
+        &authority,
+        (),
+        AllocationSet::default(),
+        &limits,
+        AllocationBudget(ARENA * 4),
+    )
+    .unwrap();
+    let reservation = configuration
+        .reserve::<()>(
+            &limits,
+            ProgramRuntime::arena_allocations_within(ARENA, &limits),
+        )
+        .unwrap();
+    let arena = runtime.open_arena(reservation).unwrap();
+    let mut state = OffscreenState::new(&runtime);
+    let mut operations = state.build(&mut runtime, &arena, &clear()).unwrap();
+    let image = operations.read_back(TARGET, 0, 0).unwrap();
+
+    let before = authority.submitted_serial();
+    host.admit_offscreen(operations);
+    render_frame(&mut host, &mut renderer);
+    renderer.drain().unwrap();
+    assert!(
+        authority.submitted_serial() > before,
+        "the frame went through the viewer's authority"
+    );
+    let bytes = image.bytes(&device);
+    assert_eq!(bytes.len(), 8 * 8 * 4);
+    assert!(
+        bytes.chunks_exact(4).all(|texel| texel == YELLOW),
+        "the camera cleared the render texture in the viewer's frame"
+    );
+}

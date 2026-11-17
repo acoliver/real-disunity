@@ -269,7 +269,8 @@ impl Renderer {
             None
         };
         let image = retained_capture.as_mut().map(|(_, image)| image);
-        let prepared = self.encode_frame(view, capture, &output, image)?;
+        let offscreen = host.as_deref_mut().and_then(|host| host.offscreen.take());
+        let prepared = self.encode_frame(view, (capture, offscreen), &output, image)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
@@ -325,10 +326,14 @@ impl Renderer {
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        mut capture: Option<&mut live::Capture>,
+        work: (
+            Option<&mut live::Capture>,
+            Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
+        ),
         output: &wgpu::TextureView,
         mut retained: Option<&mut capture::Products>,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
+        let (mut capture, mut offscreen) = work;
         if (capture.is_some() || retained.is_some())
             && let Resident::Shadowed(scene) = &mut self.resident
         {
@@ -345,9 +350,21 @@ impl Renderer {
                 retained.as_deref().map_or(&[], capture::Products::terms),
             ),
         )?;
+        if fitted && offscreen.is_some() {
+            // The fitted frame was submitted already, before this frame's recording began.
+            return Err(ViewerError::UnsupportedScene(
+                "player offscreen work with same-frame depth fitting",
+            ));
+        }
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
+                if let Some(operations) = offscreen.take() {
+                    let admitted = operations
+                        .admit(encoder)
+                        .map_err(|error| ViewerError::Offscreen(error.to_string()))?;
+                    self.resident.scene_mut().admit_offscreen(admitted);
+                }
                 if !fitted {
                     self.presentation
                         .scheduler

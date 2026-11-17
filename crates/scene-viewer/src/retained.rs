@@ -276,6 +276,8 @@ pub struct RetainedHost {
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
     pub(crate) capture_pool: u64,
+    /// The player's offscreen work for the next frame the viewer renders.
+    pub(crate) offscreen: Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -559,6 +561,18 @@ impl RetainedHost {
             crate::activity::ActivityGuard::begin,
             crate::app::run_retained,
         )
+    }
+
+    /// Hands the player's offscreen work for the next frame the viewer renders. That frame admits
+    /// it on its own recording and runs it before its first pass, in the same submission, so its
+    /// render textures are written before the scene samples them. A later call replaces work no
+    /// frame took. The operations must come from a runtime on the device the window draws on,
+    /// such as one [`crate::ViewerStart::device`] made.
+    pub fn admit_offscreen(
+        &mut self,
+        operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    ) {
+        self.offscreen = Some(operations);
     }
 
     /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,

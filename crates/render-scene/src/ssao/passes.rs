@@ -363,13 +363,20 @@ impl ScreenPasses {
     }
 }
 
-/// Adds screen stages that other frame features declare reads of after every feature has planned.
-pub(crate) fn schedule_declared_reads(
+/// Adds to `screen`, the declaration of the frame's screen feature, the stages that the
+/// declarations in `others` read: the caller's, reflections', the snapshots' and the retained
+/// features'. Call it once every other feature of the frame has planned.
+pub(crate) fn schedule_declared_reads<'a>(
     ssao: &crate::scene_metadata::SceneMetadata,
     plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
     screen: &mut FeatureDeclaration,
-    reads: impl IntoIterator<Item = ResourceRef>,
+    others: impl IntoIterator<Item = &'a FeatureDeclaration>,
 ) -> Result<(), FrameError> {
+    let reads: Vec<_> = others
+        .into_iter()
+        .flat_map(|declaration| &declaration.passes)
+        .flat_map(|pass| pass.reads.iter().copied())
+        .collect();
     let (passes, views) = plan;
     ssao.passes.schedule_reads(passes, views, screen, reads)
 }

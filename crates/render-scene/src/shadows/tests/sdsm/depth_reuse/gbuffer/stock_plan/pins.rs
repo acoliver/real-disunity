@@ -148,6 +148,9 @@ pub(super) const SCREEN_INTERACTIVE: &[Pin] = &[
     },
 ];
 
+// The frames below fit shadow depth with no SSAO or reflections. Nothing samples computed
+// occlusion in them, so each runs the prepass and level 0 of the depth hierarchy only and
+// leaves out the occlusion kernel, its filter and the coarser levels.
 pub(super) const FORWARD_UNFITTED: &[Pin] = &[Pin {
     prefix: false,
     passes: &[

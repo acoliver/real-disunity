@@ -71,6 +71,7 @@ pub struct GpuContext {
     adapter: Adapter,
     device: Device,
     submission: worldrunner_render_gpu::submission::SubmissionAuthority,
+    unavailable_optional_limits: Vec<String>,
 }
 
 impl GpuContext {
@@ -172,8 +173,10 @@ impl GpuContext {
             } else {
                 Features::empty()
             };
-        let available = adapter.features();
-        let missing = required_features.difference(available);
+        let requirements = requirements(&adapter, required_features, timing).union(caller);
+        let missing = requirements
+            .required_features
+            .difference(adapter.features());
         if !missing.is_empty() {
             return Err(DeviceError::MissingFeatures {
                 adapter: adapter.get_info().name,
@@ -181,12 +184,10 @@ impl GpuContext {
             });
         }
 
-        let (device, queue, _) = worldrunner_render_gpu::device::request_device(
-            &adapter,
-            &requirements(&adapter, required_features, timing).union(caller),
-        )
-        .await
-        .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
+        let (device, queue, negotiated) =
+            worldrunner_render_gpu::device::request_device(&adapter, &requirements)
+                .await
+                .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
 
         let submission =
             worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
@@ -198,7 +199,16 @@ impl GpuContext {
             adapter,
             device,
             submission,
+            unavailable_optional_limits: negotiated.unavailable_optional_limits,
         })
+    }
+
+    /// Why a preferred limit profile was not granted, one line per limit the adapter could not
+    /// meet; empty when it was granted or none was asked for. The device then has the required
+    /// limits, and work that needs the preferred ones is left out by name.
+    #[must_use]
+    pub fn unavailable_optional_limits(&self) -> &[String] {
+        &self.unavailable_optional_limits
     }
 
     /// Returns the device, for creating resources and pipelines.

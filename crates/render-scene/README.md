@@ -231,10 +231,10 @@ unchanged.
 
 `offscreen/gbuffer/queued.rs` submits two mixed frames on one offscreen state and
 submission authority before mapping any readback. Distinct synthetic tints and
-clear colors pin each frame's camera, blit and array-copy bytes while the stock
-HDR card stays unchanged. Each frame records its own readback copies. These cases
-check queued offscreen snapshots in both G-buffer paths; they do not assert
-distinct scene or G-buffer contents between frames.
+clear colors pin each frame's camera, blit and array-copy bytes. The stock card
+moves one meter along X between submissions through the ordinary instance update,
+so known HDR pixels differ between frames too. Each encoder records its own
+readback copies while both frames reuse the scene and G-buffer targets.
 
 ## Material sampling
 

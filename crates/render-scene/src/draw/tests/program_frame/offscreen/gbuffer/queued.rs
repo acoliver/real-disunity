@@ -2,8 +2,10 @@
 //!
 //! Both frames are recorded, encoded and submitted before anything polls the device, maps a
 //! readback or takes a timing. Each frame then reads back its own camera, blit and array element,
-//! and its own copy of the HDR scene. The stock scene is the same in both frames, so the scene
-//! checks show the card after each frame and say nothing about separate scene or G-buffer targets.
+//! and its own copy of the HDR scene. The stock card is moved by a CPU edit between the two
+//! submissions, so the two scene copies hold different card placements and each is checked against
+//! its own expected samples. This shows that the second frame does not overwrite the first frame's
+//! scene copy. It says nothing about separate G-buffer targets or about GPU speed.
 
 use super::super::super::rig::{BLACK, Fixture, GREEN, RED};
 use super::super::{
@@ -12,7 +14,7 @@ use super::super::{
 };
 use super::{assert_scene_counts, fixture, hdr_pixel};
 use crate::test_support::SceneTestSession;
-use worldrunner_render_plan::SceneOpaquePath;
+use worldrunner_render_plan::{SceneOpaquePath, SceneTransform};
 use worldrunner_render_post::contracts::RasterId;
 
 const MAGENTA: [u8; 4] = [255, 0, 255, 255];
@@ -34,6 +36,29 @@ const SECOND_CAMERA: [((usize, usize), [u8; 4]); 8] = [
 /// Linear half float bytes of the red card and of the black clear, both opaque.
 const SCENE_RED: [u8; 8] = [0, 60, 0, 0, 0, 0, 0, 60];
 const SCENE_BLACK: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 60];
+
+type SceneSamples = [((usize, usize), [u8; 8]); 4];
+
+/// Scene samples (x, y) of the first frame. The card spans x -1000 to 1000 millimeters, seen from
+/// (0, -3000, 1000) with a 60 degree field of view in 64 by 64 pixels.
+const FIRST_SCENE: SceneSamples = [
+    ((30, 20), SCENE_RED),
+    ((44, 20), SCENE_RED),
+    ((54, 20), SCENE_BLACK),
+    ((3, 3), SCENE_BLACK),
+];
+
+/// Scene samples of the second frame, with the card moved to x 0 to 2000 millimeters: the sample
+/// at column 30 is now clear and the one at column 54 is covered.
+const SECOND_SCENE: SceneSamples = [
+    ((30, 20), SCENE_BLACK),
+    ((44, 20), SCENE_RED),
+    ((54, 20), SCENE_RED),
+    ((3, 3), SCENE_BLACK),
+];
+
+/// Where the second frame places the card, in millimeters.
+const MOVED_CARD: [i64; 3] = [1000, 0, 0];
 
 #[test]
 fn queued_offscreen_frames_keep_their_results_with_fused_gbuffer_lighting() {
@@ -156,11 +181,26 @@ fn check_second_stages(readbacks: Readbacks, device: &wgpu::Device) {
     );
 }
 
-/// The HDR scene copy of one frame: the stock red card and the black around it.
-fn check_scene(fixture: &Fixture, scene: &wgpu::Buffer) {
+/// The HDR scene copy of one frame against the expected samples of that frame.
+fn check_scene(fixture: &Fixture, scene: &wgpu::Buffer, expected: &SceneSamples) {
     let image = fixture.read(scene);
-    assert_eq!(hdr_pixel(image.bytes(), 30, 20), SCENE_RED);
-    assert_eq!(hdr_pixel(image.bytes(), 3, 3), SCENE_BLACK);
+    for &((x, y), color) in expected {
+        assert_eq!(
+            hdr_pixel(image.bytes(), x, y),
+            color,
+            "scene sample at ({x}, {y})"
+        );
+    }
+}
+
+/// Edits the stock card's CPU placement. The next encode stages the change for the GPU.
+fn move_card(fixture: &mut Fixture) {
+    let card = fixture.gpu.instance_handles().next().unwrap();
+    let transform = SceneTransform {
+        position_millimeters: MOVED_CARD,
+        ..*fixture.gpu.instance(card).unwrap().0.transform()
+    };
+    fixture.gpu.set_instance_transform(card, transform).unwrap();
 }
 
 fn assert_queued_frames(path: SceneOpaquePath) {
@@ -172,6 +212,7 @@ fn assert_queued_frames(path: SceneOpaquePath) {
     let before = authority.submitted_serial();
 
     let first = submit_frame(&mut fixture, &mut player, &frame(), 11, path);
+    move_card(&mut fixture);
     let second = submit_frame(&mut fixture, &mut player, &second_frame(), 12, path);
     assert_eq!(
         authority.submitted_serial(),
@@ -182,8 +223,8 @@ fn assert_queued_frames(path: SceneOpaquePath) {
 
     check_offscreen_stages(first.readbacks, &device);
     check_second_stages(second.readbacks, &device);
-    check_scene(&fixture, &first.scene);
-    check_scene(&fixture, &second.scene);
+    check_scene(&fixture, &first.scene, &FIRST_SCENE);
+    check_scene(&fixture, &second.scene, &SECOND_SCENE);
     assert_eq!(fixture.renderer.dropped_timing_frames(), 0);
     assert_eq!(
         authority.submitted_serial(),

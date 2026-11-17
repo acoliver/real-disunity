@@ -114,6 +114,7 @@ impl Config {
             adapter_callback: None,
             cadence: worldrunner_scene_viewer::PresentationCadence::default(),
             ssr: None,
+            texture_tiers: None,
             render_clock: worldrunner_scene_viewer::RenderClock::default(),
         }
     }

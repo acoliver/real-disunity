@@ -228,12 +228,28 @@ Lit objects, foliage and impostors draw through `render-program` in the forward 
 
 ## Player offscreen operations
 
-`SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from `worldrunner-render-program` into the next frame encoded with this scene: camera renders into render textures, `Graphics.Blit` material passes and texture copies, already checked by the render-post executor's contract as `TypedOperation`s. `compositor::encode_scene` takes them after it has checked the admitted draws and before it declares the stock passes, so they are the first commands the frame records in the same encoder and so the same submission. They are encoded through the frame's pass timer, so with timing configured each one is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of the stock opaque pass. No second scheduler was added: the scene's only change is where it calls `AdmittedOffscreen::encode`.
+`SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from
+`worldrunner-render-program` into the next frame encoded with this scene:
+camera renders into render textures, `Graphics.Blit` material passes and texture
+copies, already checked by the render-post executor's contract as
+`TypedOperation`s. `FrameEncoding::encode_scene` and `FrameEncoding::encode_shadowed`
+take this work before validating the scene's admitted draws. On an accepted
+frame, the same executor records the offscreen operations before the stock passes,
+on the frame's encoder and in its submission. With timing configured, each
+operation is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of
+the stock opaque pass.
 
 A draw admitted with `admit_programs` can sample a render texture that the offscreen operations write, in the stock opaque pass. The host names that read when it builds the offscreen frame (`OffscreenFrame::later_reads`), and the executor checks it as a sampled read of the version the frame leaves, so a read before any write or of a range a later operation overwrites fails at admission by name, before anything is recorded.
 
-- The resident path (`encode_resident`) and the shadowed path refuse a scene that holds admitted offscreen operations by name, as they do for admitted draws.
-- The offscreen operations are taken whether or not the frame is accepted, so a refused frame leaves none for the next. An arena that retired or belongs to another submission authority fails the frame by name.
+- The resident path (`encode_resident`) refuses admitted offscreen operations by name.
+  Shadowed frame encoding accepts those operations but still refuses admitted program draws.
+- Plain and shadowed frame encoding take the offscreen operations whether or not
+  the frame is accepted, so a refused encoding attempt leaves none for the next.
+  An arena that retired or belongs to another submission authority fails the frame by name.
+- The viewer rejects offscreen work whenever shadow depth fitting is configured,
+  including interactive `QuantizedPerBound` fitting. It checks before taking the
+  host's pending operations or submitting; see the
+  [shared-device contract](../scene-viewer/README.md#a-device-another-user-shares).
 - A cancelled frame submits nothing; the render textures keep what they held and the arena can retire.
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).

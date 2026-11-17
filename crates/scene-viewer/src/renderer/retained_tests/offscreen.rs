@@ -125,7 +125,7 @@ fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
 fn offscreen_work_refuses_depth_fitted_frame_before_submission() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let options = crate::ViewerOptions {
-        shadows: Some(super::super::shadow_settings()),
+        shadows: Some(super::shadow_settings()),
         ..crate::tests::options()
     };
     let mut host = RetainedHost::new(crate::renderer::sdsm_tests::fitted_scene(), options).unwrap();

@@ -40,13 +40,19 @@ struct Instances {
 ///
 /// A prepared pipeline binds its pipeline and groups and a geometry sets all of its buffers, so
 /// each draw of a run would repeat what the one before it set. This sets a buffer only when the
-/// walk has named a buffer for its slot since the last draw, and a pipeline only when it is not
-/// the one already set. Pairs of one key and different materials share a render pipeline, so a
-/// material change records the material's group alone.
+/// walk has named a buffer for its slot since the last draw and it is not the buffer the slot
+/// already holds, and a pipeline only when it is not the one already set. Ranges of one mesh
+/// level under different materials name the same vertex and index buffers, so only the first
+/// binds them. Pairs of one key and different materials share a render pipeline, so a material
+/// change records the material's group alone. The cache lives as long as the sink, which owns
+/// every command between its draws.
 struct Elided<'a, P: ?Sized> {
     pass: &'a mut P,
     pipeline: Option<RenderPipeline>,
     named: Named,
+    /// The buffer each vertex slot holds, by slot.
+    vertex_slots: Vec<Option<Buffer>>,
+    index: Option<(Buffer, wgpu::IndexFormat)>,
 }
 
 impl<P: PassCommands + ?Sized> PassCommands for Elided<'_, P> {
@@ -67,14 +73,31 @@ impl<P: PassCommands + ?Sized> PassCommands for Elided<'_, P> {
         } else {
             self.named.instances
         };
-        if named {
+        if !named {
+            return;
+        }
+        let index = slot as usize;
+        if self.vertex_slots.len() <= index {
+            self.vertex_slots.resize(index + 1, None);
+        }
+        let held = &mut self.vertex_slots[index];
+        if held.as_ref() != Some(buffer) {
             self.pass.set_vertex_buffer(slot, buffer);
+            *held = Some(buffer.clone());
         }
     }
 
     fn set_index_buffer(&mut self, buffer: &Buffer, format: wgpu::IndexFormat) {
-        if self.named.indices {
+        if !self.named.indices {
+            return;
+        }
+        let held = self
+            .index
+            .as_ref()
+            .is_some_and(|(held, held_format)| held == buffer && *held_format == format);
+        if !held {
             self.pass.set_index_buffer(buffer, format);
+            self.index = Some((buffer.clone(), format));
         }
     }
 
@@ -119,6 +142,8 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
                 pass,
                 pipeline: None,
                 named: Named::default(),
+                vertex_slots: Vec::new(),
+                index: None,
             },
             objects,
             context,

@@ -1,3 +1,4 @@
+mod generation_boundaries;
 pub(crate) mod offscreen;
 mod opaque_admission;
 mod resource_budget;

@@ -8,6 +8,12 @@
 //! engine overlay; ordinary 2D scene quads remain outside this retained path.
 
 #[cfg(test)]
+#[path = "retained_gpu_tests.rs"]
+mod gpu_tests;
+#[cfg(test)]
+#[path = "retained_screen_tests.rs"]
+mod screen_tests;
+#[cfg(test)]
 #[path = "retained_ui_tests.rs"]
 pub(crate) mod ui_tests;
 
@@ -31,8 +37,10 @@ use crate::{
     PlayError, PreparedPlayer,
     camera_start::CameraStart,
     driver::{Capture, FIRST_COVERAGE_TEXTURE},
+    gpu_player::PlayerGpu,
     keys::key_code,
     navigation::Navigation,
+    player::{GpuWork, player_gpu},
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
@@ -65,15 +73,42 @@ pub struct PlayerWindow {
     /// The updates whose presented frame is kept as a [`Capture`].
     pub capture_frames: BTreeSet<u64>,
     pub keys: Vec<ScheduledKey>,
+    /// Whether the window does the player's offscreen GPU work.
+    pub gpu_work: GpuWork,
 }
 
 /// Boots the player, shows its scene in a window until the window closes or `max_frames`
-/// frames are presented, and returns the captured frames.
+/// frames are presented, and returns the captured frames. The window does the player's offscreen
+/// work as a headless run does ([`GpuWork`]): a script's synchronous GPU flush, such as a
+/// `Texture2D.ReadPixels` after a `Graphics.Blit`, is answered, and each update runs the frame's
+/// offscreen work.
 pub fn play_player_window(
     prepared: &PreparedPlayer,
     window: PlayerWindow,
 ) -> Result<Vec<Capture>, PlayError> {
+    let gpu = player_gpu(window.gpu_work, &prepared.data);
+    let (viewer, mut driver) = start_window(prepared, window, gpu)?;
+    let ran = viewer.run(&mut driver);
+    driver.report_gpu();
+    ran.map_err(|error| PlayError::Invalid(error.to_string()))?;
+    Ok(std::mem::take(&mut driver.captures))
+}
+
+/// Boots the host, loads the scene and makes the viewer and the driver that plays it. `gpu`
+/// answers the scene's GPU flushes from the first one, so it is installed before the scene loads.
+fn start_window(
+    prepared: &PreparedPlayer,
+    window: PlayerWindow,
+    gpu: Option<PlayerGpu>,
+) -> Result<(RetainedHost, PlayerRetainedDriver), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
+    // Installed before the scene loads: a script may read a render texture back while it does.
+    // The screen is the window's size from the start, so a script that draws into it while the
+    // scene loads draws into a screen of that size.
+    if let Some(gpu) = &gpu {
+        gpu.install(&mut host)?;
+        gpu.set_screen(Some(window.size));
+    }
     host.run_slice(&prepared.request)?;
     let mut options = viewer_options(&window);
     // The first frame's lights decide whether the viewer starts with shadows, which it cannot
@@ -86,11 +121,8 @@ pub fn play_player_window(
         .map_err(|error| scene_error("the initial scene", &error))?;
     let viewer = RetainedHost::new(scene, options)
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
-    let mut driver = PlayerRetainedDriver::new(host, window, lighting)?;
-    viewer
-        .run(&mut driver)
-        .map_err(|error| PlayError::Invalid(error.to_string()))?;
-    Ok(std::mem::take(&mut driver.captures))
+    let driver = PlayerRetainedDriver::new(host, window, lighting, gpu)?;
+    Ok((viewer, driver))
 }
 
 fn scene_error(what: &str, error: &SceneValidationError) -> PlayError {
@@ -150,6 +182,9 @@ impl FrameContent for Content<'_> {
 
 struct PlayerRetainedDriver {
     host: DisunityHost,
+    /// The device the window's offscreen work runs on, when it has one. Declared after `host`
+    /// so the host is dropped first.
+    gpu: Option<PlayerGpu>,
     window: PlayerWindow,
     tables: SceneTables,
     meshes: PlayerMeshes,
@@ -165,6 +200,8 @@ struct PlayerRetainedDriver {
     publication: CameraPublication,
     simulated: Duration,
     size: [u32; 2],
+    /// The number of the frame whose screen image the sprite textures hold, if any.
+    screen_shown: Option<u64>,
     presented: u64,
     reported: BTreeSet<u64>,
     /// Requested captures not delivered yet, by request id, with the update they belong to.
@@ -177,6 +214,7 @@ impl PlayerRetainedDriver {
         host: DisunityHost,
         window: PlayerWindow,
         lighting: SceneLighting,
+        gpu: Option<PlayerGpu>,
     ) -> Result<Self, PlayError> {
         // The opening view can be orbited until the game presents a camera, which then owns it.
         let mut navigation = Navigation::default();
@@ -185,6 +223,7 @@ impl PlayerRetainedDriver {
             .map_err(PlayError::Invalid)?;
         Ok(Self {
             host,
+            gpu,
             tables: SceneTables::new().map_err(|error| scene_error("the tables", &error))?,
             meshes: PlayerMeshes::default(),
             player_textures: PlayerTextures::default(),
@@ -197,12 +236,20 @@ impl PlayerRetainedDriver {
             publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
+            screen_shown: None,
             presented: 0,
             reported: BTreeSet::new(),
             pending: BTreeMap::new(),
             captures: Vec::new(),
             window,
         })
+    }
+
+    /// Prints the GPU report of the run, as a headless run does when it ends.
+    fn report_gpu(&self) {
+        if let Some(gpu) = &self.gpu {
+            gpu.report().print();
+        }
     }
 
     fn push_key(&mut self, code: u16, pressed: bool) -> Result<(), PlayError> {
@@ -233,12 +280,18 @@ impl PlayerRetainedDriver {
         self.host.advance(nanos, 1_000_000_000)?;
         self.simulated += dt;
         self.size = viewer.size().map(|side| side.max(1));
+        if let Some(gpu) = &self.gpu {
+            gpu.set_screen(Some(self.size));
+        }
         let presentation = self
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
         let ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
+        // After the meshes are refreshed, as in a headless run, and before the frame's textures
+        // and UI go to the viewer, so texels a readback filled this frame show this frame.
+        self.show_screen()?;
         let changes = Changes {
             meshes: self.meshes.take_changed(),
             textures: self.player_textures.take_changed(),
@@ -266,6 +319,23 @@ impl PlayerRetainedDriver {
         self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
         self.capture(viewer, tick.frame)
+    }
+
+    /// Runs the frame's offscreen work, and puts the game's own frame (the screen image) into the
+    /// sprite textures when the work drew a newer one.
+    fn show_screen(&mut self) -> Result<(), PlayError> {
+        let Some(gpu) = &self.gpu else {
+            return Ok(());
+        };
+        gpu.frame(&mut self.host)?;
+        if let Some(image) = gpu.screen()
+            && self.screen_shown != Some(image.frame)
+        {
+            self.screen_shown = Some(image.frame);
+            self.player_textures
+                .set_screen_image(&image, &mut self.sprites);
+        }
+        Ok(())
     }
 
     /// Sends the viewer new scene effects when the frame's lighting changed.

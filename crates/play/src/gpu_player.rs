@@ -29,7 +29,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use crate::PlayError;
 use crate::offscreen::{
     ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
-    Report, Settings, WorkTrace,
+    Report, ScreenImage, Settings, WorkTrace,
 };
 use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
@@ -119,6 +119,10 @@ pub struct GpuWorkReport {
     /// Pixel reads of render textures answered, and left unanswered by the reason.
     pub pixel_reads: usize,
     pub pixel_reads_refused: BTreeMap<String, usize>,
+    /// Images of the screen read back after work drew into it, and the readbacks refused by the
+    /// reason.
+    pub screen_reads: usize,
+    pub screen_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
     /// The most bytes the runtime held at any moment, not only after a flush.
@@ -288,6 +292,25 @@ impl GpuWorkReport {
         }
     }
 
+    /// The line of the report about the screen's readbacks.
+    fn screen_line(&self) -> String {
+        let refused: usize = self.screen_reads_refused.values().sum();
+        let reasons: Vec<String> = self
+            .screen_reads_refused
+            .iter()
+            .map(|(reason, count)| format!("{reason}: {count}"))
+            .collect();
+        let detail = if reasons.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", reasons.join("; "))
+        };
+        format!(
+            "[gpu] screen images read back {}, refused {refused}{detail}",
+            self.screen_reads
+        )
+    }
+
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
         eprintln!("[gpu] {}", self.device);
@@ -360,6 +383,7 @@ impl GpuWorkReport {
         for (reason, count) in &self.pixel_reads_refused {
             eprintln!("[gpu] pixel reads refused: {reason}: {count}");
         }
+        eprintln!("{}", self.screen_line());
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
@@ -467,6 +491,8 @@ pub struct PlayerGpu {
     report: Rc<RefCell<GpuWorkReport>>,
     authority: SubmissionAuthority,
     device: wgpu::Device,
+    /// The newest image of the screen read back, if work has drawn into it.
+    screen: RefCell<Option<ScreenImage>>,
 }
 
 impl PlayerGpu {
@@ -491,8 +517,51 @@ impl PlayerGpu {
         let requirements = device_requirements(choice.bytes, &adapter.limits());
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
             .map_err(|error| format!("no device: {error}"))?;
-        let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(choice.bytes);
+        let info = adapter.get_info();
+        Self::build(
+            device,
+            SubmissionAuthority::new(queue),
+            AllocationBudget(choice.bytes),
+            data,
+            &format!("adapter {} ({:?})", info.name, info.backend),
+            choice.source,
+        )
+    }
+
+    /// The host on a device and submission authority the caller already has, such as the
+    /// viewer's, so the player's offscreen work and the caller's frames share one device and one
+    /// submission order. The runtime may hold `budget` bytes of storage. The device keeps the
+    /// limits and features it was made with: the arena fits its limits, and work it cannot run is
+    /// left out by name, as on an adapter that lacks a feature.
+    ///
+    /// # Errors
+    /// Fails with the reason when the program runtime cannot reserve its arena on the device.
+    pub fn on(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+    ) -> Result<Self, String> {
+        Self::build(
+            device,
+            authority,
+            budget,
+            data,
+            "the caller's device",
+            "caller",
+        )
+    }
+
+    /// The runtime, its arena and the host on `device`, with the report naming the device as
+    /// `origin` and the budget as coming from `source`.
+    fn build(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+        origin: &str,
+        source: &str,
+    ) -> Result<Self, String> {
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
@@ -512,19 +581,15 @@ impl PlayerGpu {
         let arena = runtime
             .open_arena(reservation)
             .map_err(|error| format!("no arena: {error}"))?;
-        let info = adapter.get_info();
         let device_line = format!(
-            "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
-             {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
-             runtime budget {} ({})",
-            info.name,
-            info.backend,
+            "{origin}, buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size {}, \
+             max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, runtime \
+             budget {} ({source})",
             limits.max_buffer_size,
             limits.max_uniform_buffer_binding_size,
             limits.max_storage_buffer_binding_size,
             limits.min_uniform_buffer_offset_alignment,
             budget.0,
-            choice.source
         );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
@@ -541,7 +606,42 @@ impl PlayerGpu {
             })),
             authority,
             device,
+            screen: RefCell::new(None),
         })
+    }
+
+    /// Sets the size of the screen a `CameraTarget` with no camera texture draws into, or takes
+    /// the screen away with `None`. The next frame whose work names it makes it at that size,
+    /// empty, so a window calls this when it is resized.
+    pub fn set_screen(&self, size: Option<[u32; 2]>) {
+        self.offscreen.borrow_mut().set_screen(size);
+        if size.is_none() {
+            *self.screen.borrow_mut() = None;
+        }
+    }
+
+    /// The newest image of the screen: what it held after the last frame (or the flush before
+    /// it) whose work drew into it, `None` before any did. Its `frame` says which frame that was,
+    /// counting from zero, so a caller shows an image once by remembering the number.
+    #[must_use]
+    pub fn screen(&self) -> Option<std::cell::Ref<'_, ScreenImage>> {
+        std::cell::Ref::filter_map(self.screen.borrow(), Option::as_ref).ok()
+    }
+
+    /// Reads the screen back when work drew into it since the last read, and keeps the image.
+    /// A readback the host refuses is counted by its reason, and tried again by the next frame.
+    fn read_screen(&self, report: &mut GpuWorkReport) {
+        let mut host = self.offscreen.borrow_mut();
+        if !host.screen_written() {
+            return;
+        }
+        match host.read_screen(report.frames) {
+            Ok(image) => {
+                report.screen_reads += 1;
+                *self.screen.borrow_mut() = Some(image);
+            }
+            Err(reason) => *report.screen_reads_refused.entry(reason).or_default() += 1,
+        }
     }
 
     /// Registers the flush handler with `host`, for the world it runs now and later ones.
@@ -589,7 +689,10 @@ impl PlayerGpu {
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
         let snapshot = host.graphics_snapshot()?;
         if snapshot.work.is_empty() {
-            self.report.borrow_mut().frames += 1;
+            let mut report = self.report.borrow_mut();
+            // A flush earlier in the update may have drawn into the screen.
+            self.read_screen(&mut report);
+            report.frames += 1;
             return Ok(());
         }
         let started = Instant::now();
@@ -617,6 +720,7 @@ impl PlayerGpu {
             }
         }
         report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
+        self.read_screen(&mut report);
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(())
@@ -638,6 +742,7 @@ impl PlayerGpu {
             .encode(None, &mut frame)
             .map_err(|error| error.to_string())?;
         let submission = frame.finish().submit().map_err(|error| error.to_string())?;
+        self.offscreen.borrow_mut().frame_submitted();
         self.device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(submission),
@@ -655,139 +760,5 @@ impl PlayerGpu {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn trace(records: usize, error: Option<&str>) -> WorkTrace {
-        WorkTrace {
-            records,
-            error: error.map(str::to_owned),
-            ..WorkTrace::default()
-        }
-    }
-
-    fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-        entries
-            .iter()
-            .map(|(name, count)| ((*name).to_owned(), *count))
-            .collect()
-    }
-
-    #[test]
-    fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
-        let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
-        assert_eq!(
-            top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
-            Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
-        );
-    }
-
-    #[test]
-    fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
-        let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
-        assert_eq!(
-            top_counts_line("t", &counts, 2).as_deref(),
-            Some("t: _A 4, _B 3, and 2 more")
-        );
-    }
-
-    #[test]
-    fn there_is_no_missing_texture_line_without_missing_textures() {
-        assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
-    }
-
-    fn listing(names: &[&str]) -> Report {
-        let mut report = Report::default();
-        for name in names {
-            report.global_textures.insert((*name).to_owned(), 1);
-        }
-        report
-    }
-
-    #[test]
-    fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs_to() {
-        let mut report = GpuWorkReport::default();
-        report.add(&listing(&["_Height: render"]), "flush");
-        report.add(&Report::default(), "flush");
-        report.frames = 3;
-        report.add(&listing(&["_Height: render", "_Last: none"]), "flush");
-        report.add(&listing(&["_Last: render"]), "frame");
-        let found: Vec<_> = report
-            .global_listings
-            .iter()
-            .map(GlobalListing::line)
-            .collect();
-        assert_eq!(
-            found,
-            [
-                "globals at a flush of frame 0: _Height: render",
-                "globals at a flush of frame 3: _Height: render, _Last: none",
-                "globals at a frame of frame 3: _Last: render",
-            ]
-        );
-    }
-
-    #[test]
-    fn work_the_gpu_refused_whole_is_counted_with_its_records_and_the_rest_is_not() {
-        let mut report = GpuWorkReport::default();
-        report.keep_traces(vec![
-            trace(2513, Some("over its budget")),
-            trace(27, None),
-            trace(30, Some("a shader")),
-        ]);
-        assert_eq!((report.refused_works, report.refused_records), (2, 2543));
-        assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
-    }
-
-    /// The limits an adapter that offers `storage_images` storage images in a stage and buffers
-    /// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
-    fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
-        let available = wgpu::Limits {
-            max_buffer_size: adapter_buffer,
-            max_storage_textures_per_shader_stage: storage_images,
-            ..wgpu::Limits::default()
-        };
-        worldrunner_render_gpu::device::negotiate(
-            wgpu::Features::empty(),
-            &available,
-            &device_requirements(budget, &available),
-        )
-        .unwrap()
-        .limits
-    }
-
-    #[test]
-    fn the_headless_device_asks_for_the_storage_images_the_old_world_kernels_bind_when_offered() {
-        let budget = storage_budget::DEFAULT_BYTES;
-        // Two Old World compute variants bind five storage images in their one stage, one more
-        // than the default limit of four.
-        let offered = negotiated(16, budget * 2, budget);
-        assert!(offered.max_storage_textures_per_shader_stage >= 5);
-        assert_eq!(offered.max_buffer_size, budget);
-        assert_eq!(
-            negotiated(4, budget * 2, budget).max_storage_textures_per_shader_stage,
-            4,
-            "an adapter at the default limit still gets a device"
-        );
-    }
-
-    #[test]
-    fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
-        // The budget is a total, not a buffer: the device takes the adapter's largest buffer.
-        let default = wgpu::Limits::default().max_buffer_size;
-        let limits = negotiated(16, default, 4 * default);
-        assert_eq!(limits.max_buffer_size, default);
-        assert!(limits.max_storage_textures_per_shader_stage >= 5);
-    }
-
-    #[test]
-    fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
-        let directory = tempfile::tempdir().unwrap();
-        let gpu = PlayerGpu::headless(directory.path()).unwrap();
-        assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
-        assert!(
-            gpu.report().device.contains("runtime budget"),
-            "the report says where the budget came from"
-        );
-    }
-}
+#[path = "gpu_player_tests.rs"]
+mod tests;

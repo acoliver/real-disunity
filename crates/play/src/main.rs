@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
-    play_player_window, prepare, prepare_player, run_player_with,
+    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
+    key_code, play_player_window, prepare, prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -20,7 +20,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--gpu-work on|off]
+            [--screen FRAME:FILE.png]... [--gpu-work on|off]
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -31,13 +31,15 @@ struct Arguments {
     fixed_dt: Option<Duration>,
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
+    /// The frames of a headless player run whose screen image is written, and the files.
+    screens: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
     plugins: Vec<PathBuf>,
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
-    /// Whether a headless player run does its offscreen work on a device.
+    /// Whether a player run, headless or in a window, does its offscreen work on a device.
     gpu_work: GpuWork,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
@@ -98,6 +100,14 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .captures
                 .push((number(frame, "--capture frame")?, file.into()));
         }
+        "--screen" => {
+            let (frame, file) = value
+                .split_once(':')
+                .ok_or_else(|| format!("--screen `{value}` is not FRAME:FILE"))?;
+            arguments
+                .screens
+                .push((number(frame, "--screen frame")?, file.into()));
+        }
         "--font" => arguments.font = Some(value.into()),
         "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
@@ -135,29 +145,36 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 /// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
 /// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
 /// Each `--arg` is one argument of the player's command line, after its executable path.
+/// With `--screen` the run is headless, at `--size` (else the window's default), and writes
+/// the screen the player's offscreen work drew into after each frame named.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
-    let windowed =
-        arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
-    // The window opens at `--size`, else at the size the live loop defaults to.
-    let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
+    let screens = !arguments.screens.is_empty();
+    let windowed = !screens
+        && (arguments.size.is_some()
+            || !arguments.keys.is_empty()
+            || !arguments.captures.is_empty());
+    // The window opens at `--size`, else at the size the live loop defaults to; a headless run
+    // that writes the screen has the same size, which the player reads as its own screen.
+    let size = arguments.size.unwrap_or(WINDOW_SIZE);
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
-        screen,
+        screen: (windowed || screens).then_some(size),
         plugins: &arguments.plugins,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {
             title: format!("Disunity: {}", data.display()),
-            size: arguments.size.unwrap_or(WINDOW_SIZE),
+            size,
             fixed_dt: arguments.fixed_dt,
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
             keys: scheduled_keys(&arguments.keys),
+            gpu_work: arguments.gpu_work,
         };
         let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);
@@ -165,11 +182,16 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    run_player_with(
+    let output = screens.then(|| ScreenOutput {
+        size,
+        files: arguments.screens.clone(),
+    });
+    run_player_screens(
         &prepared,
         arguments.frames.unwrap_or(1),
         dt,
         arguments.gpu_work,
+        output.as_ref(),
     )
     .map_err(|error| error.to_string())
 }
@@ -221,6 +243,25 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
     Ok(())
 }
 
+/// A screen image comes from a headless player run with the offscreen work on a device.
+fn check_screens(arguments: &Arguments) -> Result<(), String> {
+    if arguments.screens.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--screen applies only to --player".into());
+    }
+    if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
+        return Err(
+            "--screen writes from a headless run, which takes no --key or --capture".into(),
+        );
+    }
+    if arguments.gpu_work == GpuWork::Off {
+        return Err("--screen needs --gpu-work on".into());
+    }
+    Ok(())
+}
+
 /// Native plugin directories apply to a player's imports; an original game has none.
 fn check_plugins(arguments: &Arguments) -> Result<(), String> {
     if arguments.player.is_none() && !arguments.plugins.is_empty() {
@@ -231,6 +272,7 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
 
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
+    check_screens(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -401,6 +443,54 @@ mod tests {
         let player = parsed(&["--player", "Game_Data", "--plugins", "/a"]).expect("parses");
         assert!(super::check_plugins(&player).is_ok());
         assert!(super::check_plugins(&parsed(&["snake"]).expect("parses")).is_ok());
+    }
+
+    #[test]
+    fn repeated_screen_options_keep_their_frames_and_files_in_order() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--screen",
+            "3:a.png",
+            "--screen",
+            "10:dir/b.png",
+        ])
+        .expect("parses");
+        assert_eq!(
+            arguments.screens,
+            [
+                (3, std::path::PathBuf::from("a.png")),
+                (10, std::path::PathBuf::from("dir/b.png"))
+            ]
+        );
+        assert!(parsed(&["--player", "Game_Data", "--screen", "a.png"]).is_err());
+        assert!(parsed(&["--player", "Game_Data", "--screen", "x:a.png"]).is_err());
+    }
+
+    fn checked(args: &[&str]) -> Result<(), String> {
+        super::check_screens(&parsed(args).expect("parses"))
+    }
+
+    #[test]
+    fn a_screen_belongs_to_a_headless_player_run_with_gpu_work_on() {
+        let screen = ["--player", "Game_Data", "--screen", "0:a.png"];
+        assert!(checked(&screen).is_ok());
+        assert!(checked(&[&screen[..], &["--size", "64x32", "--frames", "2"]].concat()).is_ok());
+        assert!(
+            checked(&["snake", "--screen", "0:a.png"]).is_err(),
+            "not a game's"
+        );
+        for window in [
+            ["--capture", "0:w.png"],
+            ["--key", "0:w:down"],
+            ["--gpu-work", "off"],
+        ] {
+            assert!(
+                checked(&[&screen[..], &window[..]].concat()).is_err(),
+                "{window:?}"
+            );
+        }
+        assert!(checked(&["--player", "Game_Data", "--capture", "0:w.png"]).is_ok());
     }
 
     #[test]

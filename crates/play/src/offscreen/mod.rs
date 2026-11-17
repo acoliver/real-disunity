@@ -65,8 +65,10 @@ mod probe;
 mod procedural_draw;
 mod properties;
 mod report;
+mod screen;
 mod script;
 mod shaders;
+mod sink;
 mod trace;
 
 #[cfg(test)]
@@ -90,7 +92,7 @@ pub use compute::{
     SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
-pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
+pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
     Skip, TEST_CLEAR, adapt, adapt_probing,
@@ -100,6 +102,8 @@ pub use pixels::{
     PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
     REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
 };
+pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use sink::BufferSink;
 pub use trace::{Phases, WorkTrace};

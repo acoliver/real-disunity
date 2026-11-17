@@ -488,6 +488,7 @@ fn a_camera_draws_a_shader_without_a_light_mode_only_when_untagged_passes_count_
     let settings = |untagged: Option<&str>| Settings {
         light_modes: vec!["Alpha".to_owned()],
         untagged_light_mode: untagged.map(str::to_owned),
+        screen: None,
     };
     let run = |untagged: Option<&str>| {
         let mut host = host_with(directory.path(), settings(untagged));

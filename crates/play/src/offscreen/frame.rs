@@ -125,6 +125,9 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
+    /// names it, or `None` for a host with no screen, where such a record is left out.
+    pub screen: Option<[u32; 2]>,
 }
 
 impl Settings {
@@ -136,6 +139,7 @@ impl Settings {
         Self {
             light_modes: CAMERA_LIGHT_MODES.map(str::to_owned).to_vec(),
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
+            screen: None,
         }
     }
 
@@ -404,7 +408,11 @@ impl<'a> Mapper<'a> {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
         }
-        let script = Script::new(frame.globals.clone(), &frame.global_keywords);
+        let script = Script::new(
+            frame.globals.clone(),
+            &frame.global_keywords,
+            settings.screen,
+        );
         Self {
             snapshot,
             available,
@@ -909,9 +917,9 @@ impl<'a> Mapper<'a> {
             .records
             .iter()
             .flat_map(textures_of)
-            .filter(|id| ids::is_temporary(*id))
+            .filter(|id| ids::is_temporary(*id) || ids::is_screen(*id))
             .collect();
-        for spec in self.temporary_specs(&temporaries) {
+        for spec in self.held_specs(&temporaries) {
             self.note_format(spec.graphics_format);
             self.frame.render_textures.push(spec);
         }

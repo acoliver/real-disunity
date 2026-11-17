@@ -151,6 +151,25 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Texture upload tiers
+
+`PreparedScene::apply_texture_tier` accepts a `TextureTierPolicy`, known adapter
+memory, bytes already resident, and an eligibility predicate over scene texture
+handles. Call it before upload. The caller must exclude textures whose consumers
+require their authored dimensions or explicit mip levels.
+
+The selector drops one global number of top mip levels from eligible textures,
+choosing the fewest levels that fit the policy's memory fraction. Reduction keeps
+a base of at least 4x4. Cubes and single-level textures keep their authored chains.
+The remaining authored bytes upload directly, without resampling. Missing policy
+or unknown adapter memory leaves the chains unchanged. If the maximum reduction
+still exceeds the budget, that maximum is used and `TierChoice::fits` is false.
+
+`TierChoice` reports dropped levels and eligible authored/kept bytes;
+`saved_bytes()` is their difference. Byte estimates use the census arithmetic,
+including all cube faces and block-compressed mip levels. Allocations absent from
+`other_resident` and driver overhead remain outside this estimate.
+
 ## Player program draws
 
 `SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
@@ -663,6 +682,10 @@ loops or varying control flow. A relief-depth dependency guard compares shared
 reconstruction inputs and return paths. These source guards do not establish
 cross-pipeline fragment arithmetic invariance on every backend. GPU attachment
 differentials check forward colour, metadata, depth, velocity and receiver payloads.
+Their streamed-terrain control compares, under each forward depth policy, a consumer
+that interpolates position derivatives with the stored selected-plane displacements.
+Whether interpolated derivatives change with the depth policy is left to the
+implementation (Metal: yes, RADV: no), so no test asserts it.
 The blend fraction is in millionths; zero disables blending. Active receiver layout
 changes take effect at the next encode without replacing resident scene handles.
 Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.

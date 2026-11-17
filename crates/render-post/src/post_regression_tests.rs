@@ -18,17 +18,16 @@ fn gpu_fixed_delta_overrides_invalid_host_timing_before_validation() {
     let expected = step(&device, &queue, &c, 0, body, true);
     let expected = pixels(&device, &queue, &expected);
     for delta in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 10.01] {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         let out = output(&device, [8, 8]);
-        paint(&device, &mut encoder, c.targets().resolved(), body);
-        c.factory()
-            .prepare_effects(&mut encoder, 0, delta, true)
-            .unwrap();
-        c.encode(
-            &mut encoder,
-            &out.create_view(&wgpu::TextureViewDescriptor::default()),
-        );
-        queue.submit([encoder.finish()]);
+        crate::submit_frame(&device, &queue, |encoder| {
+            paint(&device, encoder, c.targets().resolved(), body);
+            c.factory().prepare_effects(encoder, 0, delta, true)?;
+            c.encode(
+                encoder,
+                &out.create_view(&wgpu::TextureViewDescriptor::default()),
+            );
+            Ok::<_, PostError>(())
+        });
         device.poll(wgpu::PollType::Poll).unwrap();
         assert_eq!(pixels(&device, &queue, &out), expected);
     }
@@ -161,7 +160,6 @@ fn ordered_sequence(
         if batch * slots.len() == 12 {
             c.resize(device, [9, 7]).unwrap();
         }
-        let mut commands = Vec::new();
         let mut captures = Vec::new();
         for index in 0..slots.len() {
             let frame = batch * slots.len() + index;
@@ -178,17 +176,13 @@ fn ordered_sequence(
             let speed = f64::from(a.speeds[usize::from(target < previous)]);
             previous += (target - previous)
                 * (1.0 - (-speed * f64::from(fixed_delta.unwrap_or(delta))).exp());
-            let (command, capture, out) =
-                capture_step(device, &mut c, slot, radiance, delta, reset);
-            commands.push(command);
-            captures.push((capture, previous, out));
+            let (submission, capture, out) =
+                capture_step((device, queue), &mut c, slot, (radiance, delta, reset));
+            captures.push((submission, capture, previous, out));
         }
-        let submission = queue.submit(commands);
         device.poll(wgpu::PollType::Poll).unwrap();
-        for (mut capture, expected, out) in captures {
-            let raw = capture
-                .read_encoded(device, Some(submission.clone()))
-                .unwrap();
+        for (submission, mut capture, expected, out) in captures {
+            let raw = capture.read_encoded(device, Some(submission)).unwrap();
             let actual = f32::from_le_bytes(raw[..4].try_into().unwrap());
             assert!(
                 (f64::from(actual) - expected).abs() < 0.000_01,
@@ -275,34 +269,33 @@ fn gpu_invalid_effective_delta_is_typed_and_appends_no_upload() {
     let mut control = chain(&device, &settings, [8, 8]);
     for delta in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 10.01] {
         let before = buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap());
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        c.factory()
-            .prepare_effects(&mut encoder, 0, 0.125, false)
-            .unwrap();
-        assert_eq!(
-            c.factory().prepare_effects(&mut encoder, 0, delta, true),
-            Err(PostError::FrameDelta)
-        );
-        assert_eq!(
-            before,
-            buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap())
-        );
         let out = output(&device, [8, 8]);
-        paint(
-            &device,
-            &mut encoder,
-            c.targets().resolved(),
-            "return vec4<f32>(0.1875,0.1875,0.1875,1.0);",
-        );
-        c.encode(
-            &mut encoder,
-            &out.create_view(&wgpu::TextureViewDescriptor::default()),
-        );
-        queue.submit([encoder.finish()]);
+        crate::submit_frame(&device, &queue, |encoder| {
+            c.factory().prepare_effects(encoder, 0, 0.125, false)?;
+            assert_eq!(
+                c.factory().prepare_effects(encoder, 0, delta, true),
+                Err(PostError::FrameDelta)
+            );
+            assert_eq!(
+                before,
+                buffer(&device, &queue, c.factory().exposure_buffer(0).unwrap())
+            );
+            paint(
+                &device,
+                encoder,
+                c.targets().resolved(),
+                "return vec4<f32>(0.1875,0.1875,0.1875,1.0);",
+            );
+            c.encode(
+                encoder,
+                &out.create_view(&wgpu::TextureViewDescriptor::default()),
+            );
+            Ok::<_, PostError>(())
+        });
         device.poll(wgpu::PollType::Poll).unwrap();
         let actual_pixels = pixels(&device, &queue, &out);
-        let (command, _, expected) = capture_step(&device, &mut control, 0, 0.1875, 0.125, false);
-        queue.submit([command]);
+        let (_, _, expected) =
+            capture_step((&device, &queue), &mut control, 0, (0.1875, 0.125, false));
         device.poll(wgpu::PollType::Poll).unwrap();
         assert_eq!(actual_pixels, pixels(&device, &queue, &expected));
         assert_eq!(
@@ -316,35 +309,33 @@ fn gpu_invalid_effective_delta_is_typed_and_appends_no_upload() {
     }
 }
 
+/// Records and submits one frame on `slot`; the copy of the slot's exposure result is read with
+/// the returned capture once the submission has finished.
 fn capture_step(
-    device: &wgpu::Device,
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
     c: &mut PostChain<crate::ToneMapOutput>,
     slot: usize,
-    radiance: f32,
-    delta: f32,
-    reset: bool,
-) -> (wgpu::CommandBuffer, BufferReadback, wgpu::Texture) {
+    (radiance, delta, reset): (f32, f32, bool),
+) -> (wgpu::SubmissionIndex, BufferReadback, wgpu::Texture) {
     c.select_frame_slot(slot);
     let out = output(device, c.targets().config().size);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    paint(
-        device,
-        &mut encoder,
-        c.targets().resolved(),
-        &format!("return vec4<f32>({radiance},{radiance},{radiance},1.0);"),
-    );
-    c.factory()
-        .prepare_effects(&mut encoder, slot, delta, reset)
-        .unwrap();
-    c.encode(
-        &mut encoder,
-        &out.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
     let mut capture = BufferReadback::new(device, 16, 16).unwrap();
-    capture
-        .encode(&mut encoder, c.factory().exposure_buffer(slot).unwrap())
-        .unwrap();
-    (encoder.finish(), capture, out)
+    let submission = crate::submit_frame(device, queue, |encoder| {
+        paint(
+            device,
+            encoder,
+            c.targets().resolved(),
+            &format!("return vec4<f32>({radiance},{radiance},{radiance},1.0);"),
+        );
+        c.factory().prepare_effects(encoder, slot, delta, reset)?;
+        c.encode(
+            encoder,
+            &out.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        capture.encode(encoder, c.factory().exposure_buffer(slot).unwrap())?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    });
+    (submission, capture, out)
 }
 
 #[test]
@@ -362,8 +353,8 @@ fn gpu_delta_interval_includes_zero_and_ten() {
         [8, 8],
     );
     for delta in [0.0, 10.0] {
-        let (command, mut capture, _) = capture_step(&device, &mut c, 0, 0.1875, delta, false);
-        let submission = queue.submit([command]);
+        let (submission, mut capture, _) =
+            capture_step((&device, &queue), &mut c, 0, (0.1875, delta, false));
         let raw = capture.read_encoded(&device, Some(submission)).unwrap();
         assert!(f32::from_le_bytes(raw[..4].try_into().unwrap()).is_finite());
     }

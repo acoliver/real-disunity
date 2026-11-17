@@ -7,6 +7,9 @@ internal static class GradientTests
     {
         ANewGradientIsWhite();
         BlendInterpolatesColorAndAlphaSeparately();
+        BlendHonorsDeclaredColorSpace();
+        LinearBlendPreservesKeysAndAlpha();
+        ColorSpacePreservesFixedAndPerceptualModes();
         FixedHoldsTheNextKey();
         PerceptualBlendInterpolatesInOklab();
         KeysAreSortedClampedAndLimited();
@@ -46,6 +49,59 @@ internal static class GradientTests
         Expect.That(Near(apart.Evaluate(0.5f), new Color(0.5f, 0.5f, 0.5f, 0.2f)), "colors and alphas use their own key times");
         Expect.That(Near(apart.Evaluate(0.75f), new Color(0.916667f, 0.916667f, 0.916667f, 0.5f)), "midway through the alpha span");
         Expect.That(Near(apart.Evaluate(1f), new Color(1f, 1f, 1f, 0.8f)), "after the last color key");
+    }
+
+    private static void BlendHonorsDeclaredColorSpace()
+    {
+        var gradient = new Gradient
+        {
+            colorKeys = [new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.white, 1f)],
+            colorSpace = ColorSpace.Gamma,
+        };
+        Expect.Near(0.5f, gradient.Evaluate(0.5f).r, "gamma blends encoded channels");
+        gradient.colorSpace = ColorSpace.Linear;
+        var middle = gradient.Evaluate(0.5f);
+        Expect.That(Near(new Color(0.735357f, 0.735357f, 0.735357f, 1f), middle),
+            $"linear light midpoint is returned as sRGB: {middle}");
+        gradient.colorSpace = ColorSpace.Gamma;
+        Expect.Near(0.5f, gradient.Evaluate(0.5f).r, "switching color space does not mutate keys");
+    }
+
+    private static void LinearBlendPreservesKeysAndAlpha()
+    {
+        var left = new Color(0.01f, 0.2f, 0.9f, 0.1f);
+        var right = new Color(0.03f, 0.8f, 0.1f, 0.9f);
+        var gradient = new Gradient { colorSpace = ColorSpace.Linear };
+        gradient.SetKeys(
+            [new GradientColorKey(left, 0.25f), new GradientColorKey(right, 0.75f)],
+            [new GradientAlphaKey(0.2f, 0f), new GradientAlphaKey(0.8f, 1f)]);
+        var quarter = gradient.Evaluate(0.375f);
+        Expect.That(Near(new Color(0.015f, 0.456284f, 0.793617f, 0.425f), quarter),
+            $"RGB uses linear light and alpha uses its own unconverted key span: {quarter}");
+        foreach (var time in new[] { -1f, 0f, 0.25f })
+            Expect.Equal(Opaque(left), Opaque(gradient.Evaluate(time)), "the first RGB key is unchanged");
+        foreach (var time in new[] { 0.75f, 1f, 2f })
+            Expect.Equal(Opaque(right), Opaque(gradient.Evaluate(time)), "the last RGB key is unchanged");
+        Expect.Equal(left, gradient.colorKeys[0].color, "evaluation leaves stored keys untouched");
+        gradient.SetColorKeys(ReadOnlySpan<GradientColorKey>.Empty);
+        Expect.That(Near(new Color(1f, 1f, 1f, 0.5f), gradient.Evaluate(0.5f)), "empty RGB keys remain white");
+        gradient.SetAlphaKeys(ReadOnlySpan<GradientAlphaKey>.Empty);
+        Expect.Equal(Color.white, gradient.Evaluate(0.5f), "empty alpha keys remain opaque");
+    }
+
+    private static void ColorSpacePreservesFixedAndPerceptualModes()
+    {
+        foreach (var mode in new[] { GradientMode.Fixed, GradientMode.PerceptualBlend })
+        {
+            var gradient = Ramp(mode);
+            foreach (var time in new[] { -1f, 0f, 0.25f, 0.5f, 1f, 2f })
+            {
+                gradient.colorSpace = ColorSpace.Gamma;
+                var gamma = gradient.Evaluate(time);
+                gradient.colorSpace = ColorSpace.Linear;
+                Expect.Equal(gamma, gradient.Evaluate(time), $"{mode} keeps its sampling policy at {time}");
+            }
+        }
     }
 
     private static void FixedHoldsTheNextKey()

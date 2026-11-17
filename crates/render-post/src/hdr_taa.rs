@@ -5,8 +5,6 @@
 //! buffer; native TAA also gives each slot an output texture.
 use std::{cell::RefCell, rc::Rc};
 
-use wgpu::util::DeviceExt;
-
 use crate::{
     StageSet, TAA_UNIFORM_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock, TemporalCamera,
     history_key::HistoryKey, history_parity::HistoryParity, scene_color::SceneColor, taa_gpu,
@@ -150,24 +148,28 @@ pub(crate) fn camera_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
+fn block_size() -> wgpu::BufferAddress {
+    wgpu::BufferAddress::try_from(TAA_UNIFORM_BYTES).expect("the block size fits a buffer address")
+}
+
 fn camera_size() -> wgpu::BufferAddress {
     wgpu::BufferAddress::try_from(TEMPORAL_CAMERA_BYTES)
         .expect("the block size fits a buffer address")
 }
 
-/// Copies `camera` into a slot's camera buffer through an immutable staging buffer.
+/// Copies `camera` into a slot's camera buffer through the recording frame's upload staging.
+///
+/// # Errors
+///
+/// [`crate::PostError::Frame`] when `encoder` is not the one of a prepared frame; see
+/// [`crate::frame_upload::stage_copy`].
 pub(crate) fn upload_camera(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
     camera: TemporalCamera,
-) {
-    let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("immutable temporal camera"),
-        contents: &camera.to_bytes(),
-        usage: wgpu::BufferUsages::COPY_SRC,
-    });
-    encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, camera_size());
+) -> Result<(), crate::PostError> {
+    crate::frame_upload::stage_copy(device, encoder, destination, &camera.to_bytes())
 }
 
 /// Schedules the TAA stages at the end of `set` and returns the resolved color: "taa resolve",
@@ -290,23 +292,21 @@ fn append_native(
     SceneColor::single(output_view)
 }
 
-/// Copies `block` (zeros for `None`) into `destination` through an immutable staging buffer.
+/// Copies `block` (zeros for `None`) into `destination` through the recording frame's upload
+/// staging.
+///
+/// # Errors
+///
+/// [`crate::PostError::Frame`] when `encoder` is not the one of a prepared frame; see
+/// [`crate::frame_upload::stage_copy`].
 pub(crate) fn upload(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
     block: Option<&[u8; TAA_UNIFORM_BYTES]>,
-) {
-    let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("immutable TAA block"),
-        contents: block.unwrap_or(&[0; TAA_UNIFORM_BYTES]),
-        usage: wgpu::BufferUsages::COPY_SRC,
-    });
-    encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, block_size());
-}
-
-fn block_size() -> wgpu::BufferAddress {
-    wgpu::BufferAddress::try_from(TAA_UNIFORM_BYTES).expect("the block size fits a buffer address")
+) -> Result<(), crate::PostError> {
+    let bytes = block.unwrap_or(&[0; TAA_UNIFORM_BYTES]);
+    crate::frame_upload::stage_copy(device, encoder, destination, bytes)
 }
 
 /// Copies `block` into the head of `destination`, a slot's uniform buffer. A temporal block is
@@ -315,20 +315,14 @@ fn block_size() -> wgpu::BufferAddress {
 /// # Errors
 ///
 /// [`crate::PostError::UnsupportedProfile`] for a block that fails [`TemporalBlock::validate`];
-/// nothing is recorded then.
+/// nothing is staged or recorded then. [`crate::PostError::Frame`] when `encoder` is not the one
+/// of a prepared frame; see [`crate::frame_upload::stage_copy`].
 pub(crate) fn upload_temporal(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Buffer,
     block: &TemporalBlock,
 ) -> Result<(), crate::PostError> {
-    let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("immutable temporal block"),
-        contents: &block.to_bytes()?,
-        usage: wgpu::BufferUsages::COPY_SRC,
-    });
-    let size = wgpu::BufferAddress::try_from(crate::TEMPORAL_BLOCK_BYTES)
-        .expect("the block size fits a buffer address");
-    encoder.copy_buffer_to_buffer(&staging, 0, destination, 0, size);
-    Ok(())
+    let bytes = block.to_bytes()?;
+    crate::frame_upload::stage_copy(device, encoder, destination, &bytes)
 }

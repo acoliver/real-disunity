@@ -122,6 +122,102 @@ fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
 }
 
 #[test]
+fn queued_fitting_disable_recovers_pending_offscreen_packet_without_readmission() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let fitted = crate::renderer::sdsm_tests::fitted_scene();
+    let mut host = RetainedHost::new(
+        fitted.clone(),
+        crate::ViewerOptions {
+            shadows: Some(super::shadow_settings()),
+            ..crate::tests::options()
+        },
+    )
+    .unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    assert!(renderer.resident.depth_fitting_enabled());
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let (operations, image, _runtime) = clearing_operations(&device, &authority);
+    host.admit_offscreen(operations);
+    assert!(matches!(
+        renderer.render_retained(&mut host),
+        Err(crate::ViewerError::UnsupportedScene(
+            "player offscreen work with same-frame depth fitting"
+        ))
+    ));
+    assert!(host.offscreen.is_some());
+
+    host.apply(crate::RetainedUpdate::Settings(Box::new(
+        crate::renderer::retained_tests::source()
+            .effects()
+            .unwrap()
+            .clone(),
+    )))
+    .unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    assert!(renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+    assert_eq!(host.ready_generation(), 1);
+    assert!(
+        is_cleared(&image.bytes(&device)),
+        "the original packet rendered after queued fitting was disabled"
+    );
+}
+
+#[test]
+fn accumulated_capture_rejects_offscreen_after_queued_fitting_publication() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut host = RetainedHost::new(
+        crate::renderer::retained_tests::source(),
+        crate::ViewerOptions {
+            size: [64, 64],
+            shadows: Some(super::shadow_settings()),
+            ..crate::tests::options()
+        },
+    )
+    .unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    assert!(!renderer.resident.depth_fitting_enabled());
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let (operations, _image, _runtime) = clearing_operations(&device, &authority);
+    host.admit_offscreen(operations);
+    host.apply(crate::RetainedUpdate::Settings(Box::new(
+        crate::renderer::sdsm_tests::fitted_scene()
+            .effects()
+            .unwrap()
+            .clone(),
+    )))
+    .unwrap();
+    let generation = host.accepted_generation();
+    host.request_capture_recipe(
+        generation,
+        crate::RetainedCaptureRecipe::new(
+            1,
+            2,
+            crate::CaptureJitter::Halton23,
+            false,
+            vec![crate::CaptureOutput::Srgb8],
+            4 * 1024 * 1024,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let before = authority.submitted_serial();
+
+    assert!(matches!(
+        renderer.render_retained(&mut host),
+        Err(crate::ViewerError::UnsupportedScene(
+            "player offscreen work with same-frame depth fitting"
+        ))
+    ));
+    assert_eq!(host.ready_generation(), generation);
+    assert!(renderer.resident.depth_fitting_enabled());
+    assert_eq!(authority.submitted_serial(), before);
+    assert!(host.offscreen.is_some());
+}
+
+#[test]
 fn offscreen_work_refuses_depth_fitted_frame_before_submission() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let options = crate::ViewerOptions {

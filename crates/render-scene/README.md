@@ -663,6 +663,10 @@ loops or varying control flow. A relief-depth dependency guard compares shared
 reconstruction inputs and return paths. These source guards do not establish
 cross-pipeline fragment arithmetic invariance on every backend. GPU attachment
 differentials check forward colour, metadata, depth, velocity and receiver payloads.
+Their streamed-terrain control compares, under each forward depth policy, a consumer
+that interpolates position derivatives with the stored selected-plane displacements.
+Whether interpolated derivatives change with the depth policy is left to the
+implementation (Metal: yes, RADV: no), so no test asserts it.
 The blend fraction is in millionths; zero disables blending. Active receiver layout
 changes take effect at the next encode without replacing resident scene handles.
 Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.

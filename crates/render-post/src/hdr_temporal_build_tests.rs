@@ -233,11 +233,12 @@ fn a_temporal_block_reaches_the_slot_uniform_buffer() {
         history_valid: true,
     };
     let buffer = readable_block_buffer(&device);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    crate::hdr_taa::upload_temporal(&device, &mut encoder, &buffer, &block).unwrap();
     let mut capture = BufferReadback::new(&device, buffer.size(), 4096).unwrap();
-    capture.encode(&mut encoder, &buffer).unwrap();
-    let submission = queue.submit([encoder.finish()]);
+    let submission = crate::submit_frame(&device, &queue, |encoder| {
+        crate::hdr_taa::upload_temporal(&device, encoder, &buffer, &block)?;
+        capture.encode(encoder, &buffer)?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    });
     let bytes = capture.read_encoded(&device, Some(submission)).unwrap();
     assert_eq!(
         bytes[..crate::TEMPORAL_BLOCK_BYTES],
@@ -319,8 +320,6 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
         crate::PostChain::new(&device, config, crate::Resources::default(), factory).unwrap();
     // A constant field at the render extent; the output must be the same field at O.
     let out = crate::color_texture(&device, "out", output, wgpu::TextureFormat::Rgba8UnormSrgb);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    constant_scene(&mut encoder, chain.targets().resolved());
     let block = TemporalBlock {
         render,
         output,
@@ -330,15 +329,16 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
         history_valid: false,
     };
     let factory = chain.factory();
-    factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
-    factory
-        .prepare_effects(&mut encoder, 0, 0.031, true)
-        .unwrap();
-    chain.encode(
-        &mut encoder,
-        &out.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(&device, &queue, |encoder| {
+        constant_scene(encoder, chain.targets().resolved());
+        factory.prepare_temporal(encoder, 0, &block)?;
+        factory.prepare_effects(encoder, 0, 0.031, true)?;
+        chain.encode(
+            encoder,
+            &out.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, crate::PostError>(())
+    });
     let bytes = crate::Readback::new(
         &device,
         FrameConfig::new(output, out.format(), 1),

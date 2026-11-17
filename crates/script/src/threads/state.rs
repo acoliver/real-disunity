@@ -95,7 +95,7 @@ pub(crate) struct ThreadRecord {
 pub(crate) struct ClockState {
     pub name: String,
     pub now: u64,
-    pub paused: bool,
+    pub pause_mask: u32,
     queue: BTreeMap<Key, Waiting>,
 }
 
@@ -148,7 +148,7 @@ impl Scheduler {
         let clocks = policy.clocks.iter().map(|name| ClockState {
             name: name.clone(),
             now: 0,
-            paused: false,
+            pause_mask: 0,
             queue: BTreeMap::new(),
         });
         Self {
@@ -671,7 +671,7 @@ impl Scheduler {
                 if only.is_some_and(|selected| selected != index) {
                     return Some(None);
                 }
-                if !clock.paused {
+                if clock.pause_mask == 0 {
                     clock.now.checked_add(ms)?;
                 }
                 Some(Some(clock.now))
@@ -694,7 +694,7 @@ impl Scheduler {
                 continue;
             };
             let at = wake.saturating_sub(from).max(elapsed);
-            if clock.paused || at > ms || best.is_some_and(|(other, _)| other <= at) {
+            if clock.pause_mask != 0 || at > ms || best.is_some_and(|(other, _)| other <= at) {
                 continue;
             }
             best = Some((at, index));
@@ -710,7 +710,7 @@ impl Scheduler {
     pub(crate) fn set_elapsed(&mut self, start: &[Option<u64>], elapsed: u64) {
         for (clock, &from) in self.clocks.iter_mut().zip(start) {
             if let Some(from) = from
-                && !clock.paused
+                && clock.pause_mask == 0
             {
                 clock.now = clock.now.max(from.saturating_add(elapsed));
             }

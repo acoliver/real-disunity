@@ -364,6 +364,12 @@ CheckLayout(worldTime, 40, ("unscaled_delta", typeof(double), 0), ("unscaled_tim
     ("time_scale", typeof(double), 24), ("maximum_delta", typeof(double), 32));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
 Console.WriteLine($"PASS: all {checkedImports.Count} native import signatures and generated ABI layout expectations");
+if (args is ["screen-identity"])
+{
+    DisunityHost.ConfigurePlayer(PlayerEnvironment.Default);
+    ScreenTests.Run();
+    return;
+}
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 DisunityHost.ConfigureNativeLibrary(args[0]);
 MathTests.Run();
@@ -421,6 +427,7 @@ KeyCodeTests.Run();
 DeferredDestroyTests.Run();
 ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();
+PlayerApiReportTests.Run();
 NativeCallbackTests.Run();
 PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();

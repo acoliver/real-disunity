@@ -170,6 +170,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
                     ShaderInfo {
                         passes,
                         light_modes: Vec::new(),
+                        has_untagged: false,
                         queue: 2000,
                         texture_defaults: Vec::new(),
                         fill: ShaderFill::default(),

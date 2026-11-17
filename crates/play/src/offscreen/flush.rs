@@ -198,6 +198,12 @@ impl OffscreenHost {
         self.runtime.live_bytes()
     }
 
+    /// The authority the runtime records and submits through.
+    #[cfg(test)]
+    pub(crate) fn authority(&self) -> &worldrunner_render_gpu::submission::SubmissionAuthority {
+        self.runtime.authority()
+    }
+
     #[must_use]
     pub fn new(
         runtime: ProgramRuntime,

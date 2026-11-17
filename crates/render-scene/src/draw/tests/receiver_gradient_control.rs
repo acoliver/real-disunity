@@ -72,31 +72,50 @@ pub(super) fn control(context: &GpuContext) -> usize {
         );
     }
     assert_plane_consistency(context, &source, pose, &stored);
-    let reuse = frame_at_pose(
-        context,
-        &source,
-        Some(ReceiverReference::HardwareProbeReuse),
-        0.0,
-        pose,
-    );
+    interpolation_control(context, &source, pose, &stored)
+}
+
+/// The equalities above compare displacements reconstructed on the selected terrain plane. A
+/// consumer that interpolated `dpdx`/`dpdy` of its position instead takes quad differences
+/// whose lanes, rounding and coarse or fine choice belong to the implementation, as does whether
+/// they vary with the depth policy: they do on Metal and do not on RADV. So the control compares
+/// each policy's interpolating consumer with the stored reconstruction, under an unchanged
+/// producer, and requires the probe to see the difference.
+fn interpolation_control(
+    context: &GpuContext,
+    source: &RenderScene,
+    pose: CameraPose,
+    stored: &[Vec<u8>],
+) -> usize {
+    let payload = stored.len() - ReceiverLayout::Front.formats().len();
     [
         ReceiverReference::HardwareProbeShared,
+        ReceiverReference::HardwareProbeReuse,
         ReceiverReference::HardwareProbeIndependent,
     ]
     .into_iter()
     .map(|reference| {
-        let local = frame_at_pose(context, &source, Some(reference), 0.0, pose);
-        assert_eq!(local.len(), reuse.len());
-        let differences: Vec<_> = local
+        let interpolated = frame_at_pose(context, source, Some(reference), 0.0, pose);
+        assert_eq!(interpolated.len(), stored.len());
+        assert!(
+            interpolated[payload..] == stored[payload..],
+            "the producer must not change in the interpolation control: {reference:?}"
+        );
+        let differences: Vec<_> = interpolated
             .iter()
-            .zip(&reuse)
+            .zip(stored)
             .map(|(a, b)| {
                 assert_eq!(a.len(), b.len());
                 a.iter().zip(b).filter(|(x, y)| x != y).count()
             })
             .collect();
-        println!("STREAMED_PROBE_CONTROL {reference:?} attachment_bytes={differences:?}");
-        differences.iter().sum::<usize>()
+        println!("STREAMED_INTERPOLATION_CONTROL {reference:?} attachment_bytes={differences:?}");
+        let total = differences.iter().sum::<usize>();
+        assert!(
+            total > 0,
+            "interpolated position derivatives must differ from the selected-plane displacements: {reference:?}"
+        );
+        total
     })
     .sum()
 }
@@ -114,7 +133,7 @@ fn gpu_streamed_receiver_payload_survives_prior_terrain_frames() {
         prior.capture(&context, &source, Some(reference), receiver_pose());
     }
     drop(prior);
-    assert!(control(&context) > 0);
+    control(&context);
 }
 
 fn assert_plane_consistency(

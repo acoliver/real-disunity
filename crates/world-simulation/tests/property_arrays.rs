@@ -4,8 +4,8 @@
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, GraphicsError, GraphicsSnapshot, MAX_PROPERTIES_PER_KIND,
     MAX_PROPERTY_ARRAY_ELEMENTS, MaterialEdit, OffscreenWork, PropertyValue, RenderTextureId,
-    ShaderProperties, ShaderSource, WorldComputeShader, WorldRenderTexture, WorldSampler,
-    WorldShader,
+    ShaderProperties, ShaderSource, TargetRef, WorldComputeShader, WorldRenderTexture,
+    WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::{World, WorldError, WorldSettings};
 
@@ -331,7 +331,7 @@ fn recorded_array_work_validates_keeps_order_and_leaves_the_initial_globals_alon
     world
         .record_offscreen(OffscreenWork::Blit {
             source: worldrunner_world_simulation::graphics::TextureRef::None,
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: -1,
         })

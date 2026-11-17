@@ -6,8 +6,8 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
 };
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, GraphicsSnapshot, MaterialEdit, MaterialId, OffscreenWork,
-    PropertyValue, RenderTextureId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader,
-    WorldSampler,
+    PropertyValue, RenderTextureId, ShaderSource, TargetRef, TextureRef, TextureSlot,
+    WorldComputeShader, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
 use worldrunner_world_simulation::{MeshRenderer, World};
@@ -161,13 +161,13 @@ fn record_work(
         OffscreenWork::CameraRender { camera, target },
         OffscreenWork::Blit {
             source: TextureRef::Asset((1 << 40) + 9),
-            target,
+            target: TargetRef::Render(target),
             material: Some(blit),
             pass: -1,
         },
         OffscreenWork::Blit {
             source: TextureRef::None,
-            target: other,
+            target: TargetRef::Render(other),
             material: None,
             pass: 2,
         },
@@ -175,7 +175,7 @@ fn record_work(
             source: TextureRef::Render(other),
             source_element: 0,
             source_mip: 0,
-            target,
+            target: TargetRef::Render(target),
             target_element: 0,
             target_mip: 0,
         },

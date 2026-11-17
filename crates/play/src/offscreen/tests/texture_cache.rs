@@ -110,7 +110,7 @@ fn blitting(textures: &[u64]) -> GraphicsSnapshot {
         world
             .record_offscreen(OffscreenWork::Blit {
                 source: TextureRef::Asset(identity),
-                target: drawn,
+                target: TargetRef::Render(drawn),
                 material: None,
                 pass: 0,
             })
@@ -289,7 +289,7 @@ fn clear_blit_and_read(world: &mut World, drawn: RenderTextureId) -> u64 {
         },
         OffscreenWork::Blit {
             source: TextureRef::Asset(A),
-            target: drawn,
+            target: TargetRef::Render(drawn),
             material: None,
             pass: 0,
         },

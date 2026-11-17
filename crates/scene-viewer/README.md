@@ -449,6 +449,10 @@ Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
 Classes map directly from wgpu's device type: `Integrated`, `Discrete`, `Virtual`,
 `Software` (CPU adapters), or `Other`. No classification is inferred from a name.
 The backend reports the selected graphics API independently of hardware class.
+`memory` is the adapter's `AdapterMemory` where the platform publishes it: on Linux,
+DRM drivers with `mem_info_*` files in sysfs (amdgpu) give device-local, host-visible
+and GTT totals. It is `None` elsewhere and for software adapters, so a host that
+chooses settings from it must handle the unknown case.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
 The callback runs once per renderer startup, on the calling thread, before device
@@ -508,13 +512,21 @@ submission and replaced before each `Presented` callback. A snapshot identifies
 its renderer submission frame and published accepted scene generation. Frame IDs
 share the capture/timing sequence; capture-only subframes can leave gaps between
 ordinary snapshots. `presentation_budget_bytes` reports the
-effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
+effective presentation admission budget, including the admitted replacement peak.
+`resident_bytes` is the device's GPU memory census at submission, by resource class
+(textures, meshes, instances, shadow maps and the rest); classes the engine does not count
+yet read zero. `upload_staging` counts the device's reusable upload staging since startup:
+chunks created and held, uploads and uploaded bytes. Steady frames reuse chunks, so
+`chunks_created` stops growing once the frames in flight have settled. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 
-`scene.meshes` and `scene.impostors` count main-camera indexed draws and their
-submitted instance counts. Material slots and transition complements each count
-as a draw; hidden and culled placements do not. Decals shade receivers inline,
+`scene.passes.opaque_objects` and `scene.passes.prepass_objects` count the
+indexed object draws the main camera's colour pass and depth/normal prepass
+recorded, split into `meshes` and `impostors`, with their instance counts and
+whether the pass drew gathered (`Compacted`) or per-range (`Ranged`) instances.
+Material slots and transition complements each count as a draw; hidden and
+culled placements do not. Decals shade receivers inline,
 without separate draw calls. `decals_visible` is the selected volume count after
 frustum culling, priority selection and the 32-volume shader limit;
 `decals_total` includes all authored volumes in that submitted frame.
@@ -587,7 +599,7 @@ hash collision limitation; they do not identify terrain content or a camera.
 
 Both completed capture outcomes retain their source `frame` and an `observation`
 with its accepted `generation` and full `scene: SceneStatistics`, including pass
-draws, meshes, impostors, decals, resource bytes, terrain pages and installed
+draws (including camera object draws), decals, resource bytes, terrain pages and installed
 effects and terrain geometry. Page and geometry readiness remain distinct fields
 in `observation.scene`.
 The snapshot is frozen at source submission, before resource-upload statistics

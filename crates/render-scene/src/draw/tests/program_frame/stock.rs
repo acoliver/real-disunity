@@ -42,7 +42,7 @@ fn a_cancelled_program_frame_leaves_the_target_and_the_published_counters_unchan
     let mut fixture = fixture();
     let authority = fixture.context.submission().clone();
     let baseline = submitted(&mut fixture, true);
-    let published = fixture.gpu.statistics().meshes;
+    let published = fixture.gpu.statistics().passes.opaque_objects.meshes;
     assert_eq!(
         published,
         DrawCount {
@@ -68,7 +68,10 @@ fn a_cancelled_program_frame_leaves_the_target_and_the_published_counters_unchan
         serial,
         "cancelling submits nothing"
     );
-    assert_eq!(fixture.gpu.statistics().meshes, published);
+    assert_eq!(
+        fixture.gpu.statistics().passes.opaque_objects.meshes,
+        published
+    );
     let mut inspect = authority.begin(fixture.context.device()).unwrap();
     let readback = fixture.copy_output(&mut inspect);
     inspect.finish().submit().unwrap();
@@ -78,5 +81,8 @@ fn a_cancelled_program_frame_leaves_the_target_and_the_published_counters_unchan
     let drawn = submitted(&mut fixture, true);
     assert_eq!(drawn.pixel(30, 20), BLACK, "the card is hidden");
     assert_eq!(drawn.pixel(54, 32), GREEN, "the patches still draw");
-    assert_eq!(fixture.gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(
+        fixture.gpu.statistics().passes.opaque_objects.meshes,
+        DrawCount::default()
+    );
 }

@@ -339,8 +339,8 @@ fn cost(harness: &mut Harness<'_>, (warm, measured): (usize, usize)) -> Envelope
 
 fn open_context() -> GpuContext {
     let wanted = REQUIRED_FEATURES | wgpu::Features::TIMESTAMP_QUERY;
-    pollster::block_on(GpuContext::request_with_features(wanted))
-        .or_else(|_| pollster::block_on(GpuContext::request()))
+    pollster::block_on(GpuContext::request_with_features_for_test(wanted))
+        .or_else(|_| pollster::block_on(GpuContext::request_for_test()))
         .unwrap()
 }
 

@@ -31,6 +31,7 @@ fn supplied_initial_extent_is_not_delivered_again_but_later_resize_is() {
         name: "synthetic".into(),
         class: crate::AdapterClass::Integrated,
         backend: wgpu::Backend::Metal,
+        memory: None,
     };
     host.resolve_initial_content(crate::InitialContext {
         adapter: &identity,

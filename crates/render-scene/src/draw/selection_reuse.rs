@@ -106,27 +106,66 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Selection {
-        let matrix = Self::view_matrix(shadow_matrix, frame);
-        let key = self.selection_key(shadow_matrix, frame);
-        let view = &self.views[view_index(shadow_matrix)];
-        let mut built = view.built.borrow_mut();
-        if let Some((_, selection)) = built.as_ref().filter(|(built, _)| *built == key) {
-            return selection.clone();
+        self.select_views(&[shadow_matrix], frame);
+        self.views[view_index(shadow_matrix)]
+            .built
+            .borrow()
+            .as_ref()
+            .map(|(_, selection)| selection.clone())
+            .expect("a selected view")
+    }
+
+    /// Builds the selection of every view in `views` whose inputs changed since it was last
+    /// built, one view per thread. The views read the same placements and fill a shared memo
+    /// of each placement's level for the frame's eye, and each writes only its own selection,
+    /// so their results do not depend on one another or on the order they run in.
+    pub(super) fn select_views(&self, views: &[Option<(u32, glam::Mat4)>], frame: &FrameUniform) {
+        let mut jobs: Vec<(usize, Key, glam::Mat4, Selection)> = Vec::new();
+        for &shadow_matrix in views {
+            let index = view_index(shadow_matrix);
+            let key = self.selection_key(shadow_matrix, frame);
+            let view = &self.views[index];
+            if jobs.iter().any(|(queued, ..)| *queued == index)
+                || view
+                    .built
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(built, _)| *built == key)
+            {
+                continue;
+            }
+            let mut selection = view.published.borrow().clone();
+            selection.casters_only = key.casters_only;
+            selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
+            jobs.push((
+                index,
+                key,
+                Self::view_matrix(shadow_matrix, frame),
+                selection,
+            ));
         }
-        #[cfg(test)]
-        view.rebuilds.set(view.rebuilds.get() + 1);
-        let mut selection = view.published.borrow().clone();
-        selection.casters_only = key.casters_only;
-        selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
-        selection.rebuild_with_eye(
+        if jobs.is_empty() {
+            return;
+        }
+        super::visibility::with_placements(
             &self.instances,
             &self.mesh_selection,
-            matrix,
-            key.eye,
-            frame.camera_position,
+            (frame.camera_position_millimeters, frame.camera_position),
+            |placements| {
+                placements.select_each(
+                    &mut jobs
+                        .iter_mut()
+                        .map(|(_, _, matrix, selection)| (*matrix, selection))
+                        .collect::<Vec<_>>(),
+                );
+            },
         );
-        *built = Some((key, selection.clone()));
-        selection
+        for (index, key, _, selection) in jobs {
+            let view = &self.views[index];
+            #[cfg(test)]
+            view.rebuilds.set(view.rebuilds.get() + 1);
+            *view.built.borrow_mut() = Some((key, selection));
+        }
     }
 
     /// Extends the receiver's depth range over the casters, reusing the fit for an unchanged

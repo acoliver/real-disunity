@@ -4,7 +4,7 @@ use worldrunner_render_plan::{
     SceneTerrainContact, SceneTint, SceneTranslucency, SceneTranslucencyParts,
 };
 
-pub(super) fn folded_scene(height: i64) -> RenderScene {
+pub(crate) fn folded_scene(height: i64) -> RenderScene {
     folded_placement(height, 0, None)
 }
 fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>) -> RenderScene {
@@ -274,8 +274,14 @@ fn rendered_backlight_has_parallel_orthographic_and_diverging_perspective_rays()
     let scene = backlight_scene();
     let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
     let [source, ..] = geometry_sources();
-    let source = source.replace("colour += scene_scattering_tint(albedo_sample.rgb, material.scattering_colour,\n            material.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;",
-        "colour = vec3<f32>(0.1 + intensity * 0.4);");
+    let scattered = "return scene_scattering_tint(albedo, record.scattering_colour,\n        record.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;";
+    assert!(source.contains(scattered), "the shared scattering term");
+    let source = source
+        .replace(scattered, "return vec3<f32>(0.1 + intensity * 0.4);")
+        .replace(
+            "colour += scene_record_scattering(",
+            "colour = scene_record_scattering(",
+        );
     let camera = CameraPose {
         eye_millimeters: [0, -100, 2000],
         target_millimeters: [0, 0, 0],

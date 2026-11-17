@@ -19,7 +19,7 @@ const BOTH: u32 = (1 << 1) | (1 << 2);
 
 /// A depth-only 8x8 target of `bits` depth bits. With `BOTH` layers the left half is drawn at
 /// depth 0.5 and the right half at depth 0.25.
-fn depth_frame(rig: &mut Rig, mask: u32, bits: u8) -> OffscreenFrame {
+pub fn depth_frame(rig: &mut Rig, mask: u32, bits: u8) -> OffscreenFrame {
     let mut frame = fixture(rig, mask);
     frame.render_textures[0].graphics_format = NO_COLOR;
     frame.render_textures[0].depth_bits = bits;

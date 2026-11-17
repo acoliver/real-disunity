@@ -434,3 +434,28 @@ fn assert_observations(gpu: &SceneGpu, source: &RenderScene) {
         )
     );
 }
+
+/// The frame no longer sorts by the `PassSlot` enum, so the order a real frame executes in
+/// is checked against the order it had when it did.
+#[test]
+fn gpu_ssao_frame_executes_metadata_passes_then_opaque_in_the_forward_order() {
+    use worldrunner_render_post::PassSlot;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = source(1_000_000, true, 255);
+    crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+    capture(&context, &source, 1);
+    let executed = crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(std::mem::take);
+    let mut previously_sorted = executed.clone();
+    previously_sorted.sort();
+    assert_eq!(executed, previously_sorted);
+    assert_eq!(executed.first(), Some(&PassSlot::DepthNormalPrepass));
+    assert_eq!(executed.last(), Some(&PassSlot::Opaque));
+    assert_eq!(
+        executed
+            .iter()
+            .filter(|&&pass| pass == PassSlot::Ssao)
+            .count(),
+        1
+    );
+}

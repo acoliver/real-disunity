@@ -13,7 +13,13 @@ fn shadowed(context: &GpuContext, source: &RenderScene) -> ShadowedScene {
             depth_half_extent_meters: 4.0,
             resolution: 64,
             depth_bias: 0.001,
-            normal_bias_meters: 0.01,
+            normal_bias_meters: if source.effects().unwrap().opaque_path()
+                == SceneOpaquePath::GBUFFER_RENDER
+            {
+                0.0
+            } else {
+                0.01
+            },
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
         TextureFormat::Rgba16Float,
@@ -40,39 +46,60 @@ fn shadowed(context: &GpuContext, source: &RenderScene) -> ShadowedScene {
     scene
 }
 
-#[test]
-fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let source = source(255, Shape::Quad, false, false);
-    let mut frame = Rig::new(&context, &source, 1).renderer;
-    let mut scene = shadowed(&context, &source);
-    let view = SceneView::new(
-        pose(),
-        camera(),
-        Viewport {
-            width: SIZE[0],
-            height: SIZE[1],
-        },
-    )
-    .unwrap();
-    let color = AttachmentView::new(
-        ResourceRef::new("scene color"),
-        frame.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = AttachmentView::new(
-        ResourceRef::new("scene depth"),
-        frame.targets().depth().texture(),
-    )
-    .unwrap();
-    let handle = scene.scene_mut().instance_handles().next().unwrap();
-    let object = scene.scene_mut().instance(handle).unwrap().0;
-    let mut retained = None;
-    for (index, (slot, active)) in [(1, true), (1, true), (2, false), (0, true), (0, false)]
-        .into_iter()
-        .enumerate()
-    {
+struct CaptureRig {
+    frame: FrameRenderer,
+    scene: ShadowedScene,
+    view: SceneView,
+    color: AttachmentView,
+    depth: AttachmentView,
+    retained: Option<Texture>,
+}
+
+impl CaptureRig {
+    fn new(context: &GpuContext, path: SceneOpaquePath) -> Self {
+        let source = source_with_path(255, path);
+        let frame = Rig::new(context, &source, 1).renderer;
+        let scene = shadowed(context, &source);
+        let view = SceneView::new(
+            pose(),
+            camera(),
+            Viewport {
+                width: SIZE[0],
+                height: SIZE[1],
+            },
+        )
+        .unwrap();
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            frame.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            frame.targets().depth().texture(),
+        )
+        .unwrap();
+        Self {
+            frame,
+            scene,
+            view,
+            color,
+            depth,
+            retained: None,
+        }
+    }
+
+    fn check(&mut self, context: &GpuContext, index: usize, slot: usize, active: bool) {
+        let Self {
+            frame,
+            scene,
+            view,
+            color,
+            depth,
+            retained,
+        } = self;
+        let handle = scene.scene_mut().instance_handles().next().unwrap();
+        let object = scene.scene_mut().instance(handle).unwrap().0;
         frame.select_frame_slot(slot);
         scene.scene_mut().select_frame_slot(slot);
         scene
@@ -81,7 +108,7 @@ fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
             .unwrap();
         let source_frame = u64::try_from(index).unwrap();
         let fit = scene
-            .render_depth_fitted_with(&context, &view, (&color, &depth), source_frame, &mut frame)
+            .render_depth_fitted_with(context, view, (color, depth), source_frame, frame)
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -91,10 +118,10 @@ fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
         let target = frame.contour_target();
         assert_eq!(target.is_some(), active);
         if index == 0 {
-            retained = target.clone();
+            *retained = target.clone();
         }
         if index == 1 {
-            assert_eq!(target, retained);
+            assert_eq!(target, *retained);
         }
         let mut encoder = context.submission().begin(context.device()).unwrap();
         let capture = frame
@@ -103,14 +130,29 @@ fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
         assert_eq!(capture.is_some(), active);
         encoder.finish().submit().unwrap();
         if let Some(capture) = capture {
-            let ids = read(&context, &capture);
+            let ids = read(context, &capture);
             assert!(ids.contains(&255));
             assert!(ids.contains(&0));
             assert!(ids.iter().all(|&id| id == 0 || id == 255));
         }
         if slot != 1 {
             frame.select_frame_slot(1);
-            assert_eq!(frame.contour_target(), retained);
+            assert_eq!(frame.contour_target(), *retained);
+        }
+    }
+}
+
+#[test]
+fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    for path in [SceneOpaquePath::Forward, SceneOpaquePath::GBUFFER_RENDER] {
+        let mut rig = CaptureRig::new(&context, path);
+        for (index, (slot, active)) in [(1, true), (1, true), (2, false), (0, true), (0, false)]
+            .into_iter()
+            .enumerate()
+        {
+            rig.check(&context, index, slot, active);
         }
     }
 }

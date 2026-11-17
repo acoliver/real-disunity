@@ -1,7 +1,7 @@
 use super::*;
 use worldrunner_render_scene::{
     compositor::{FrameRenderer, encode_resident},
-    executor::{PassId, PassSlot, TimingMode},
+    executor::{PassEntry, PassId, PassSlot, TimingMode},
 };
 
 #[test]
@@ -56,7 +56,7 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
                 .iter()
                 .map(|pass| pass.pass_id)
                 .collect::<Vec<_>>(),
-            vec![PassId::Geometry(PassSlot::Opaque)]
+            vec![PassId::Geometry(PassEntry::new(PassSlot::Opaque))]
         );
     }
 }

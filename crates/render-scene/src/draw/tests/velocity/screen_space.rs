@@ -107,8 +107,11 @@ fn shadowed_velocity_with(
     (scene, effects): (RenderScene, SceneEffects),
     frames: &[(f32, CameraPose)],
 ) -> Vec<[f32; 2]> {
-    let mut shadowed =
-        ShadowedScene::with_taa_velocity(context, &scene, shadow_settings(), HDR, 1).unwrap();
+    let mut settings = shadow_settings();
+    if effects.opaque_path() == worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER {
+        settings.normal_bias_meters = 0.0;
+    }
+    let mut shadowed = ShadowedScene::with_taa_velocity(context, &scene, settings, HDR, 1).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();

@@ -102,12 +102,7 @@ impl Moving {
             .set_instance_transform(self.handle, at(millimetres))
             .unwrap();
         if forced {
-            // Two flushes publish the edit and then converge previous to current.
-            for _ in 0..2 {
-                self.gpu
-                    .flush_instances(device, self.context.submission())
-                    .unwrap();
-            }
+            self.gpu.reset_velocity_history();
         }
         self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer

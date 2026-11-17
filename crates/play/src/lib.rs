@@ -15,6 +15,7 @@ mod bc7_tests;
 mod block_texture;
 mod camera_start;
 mod driver;
+mod gpu_device;
 #[cfg(test)]
 mod gpu_flush_tests;
 mod gpu_player;
@@ -37,7 +38,8 @@ mod textures_tests;
 mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
-pub use gpu_player::{GpuWorkReport, PlayerGpu, compute_census};
+pub use gpu_device::compute_census;
+pub use gpu_player::{GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
 pub use player::{
     GpuWork, PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player,

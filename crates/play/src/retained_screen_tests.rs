@@ -12,9 +12,13 @@ use super::ui_tests::{booted_fixture_host, fixture_config, fixture_turn};
 use super::*;
 use std::{path::PathBuf, time::Instant};
 
+use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_scene_viewer::SharedGpu;
+
 use crate::PreparedPlayer;
+use crate::gpu_device::headless::HeadlessViewer;
 use crate::offscreen::ScreenImage;
-use crate::player::player_gpu;
+use crate::player::window_gpu;
 use crate::player_textures::SCREEN_IMAGE;
 use crate::scene_light::SceneLighting;
 
@@ -35,19 +39,41 @@ fn window(gpu_work: GpuWork, capture_frames: &[u64]) -> PlayerWindow {
     }
 }
 
-/// Runs `frames` updates of `driver` in the windowless viewer and waits for its captures.
-fn run_frames(viewer: RetainedHost, driver: &mut PlayerRetainedDriver, frames: u64) {
-    let mut run = viewer.windowless(driver).unwrap();
+/// Runs `frames` updates of `driver` in the windowless viewer, on `shared`'s device when the
+/// player works on one, and waits for its captures. Returns how many submissions each update's
+/// frame made through the authority of that device.
+fn run_frames(
+    viewer: RetainedHost,
+    driver: &mut PlayerRetainedDriver,
+    frames: u64,
+    shared: Option<(SharedGpu, SubmissionAuthority)>,
+) -> Vec<u64> {
+    let (gpu, authority) = shared.unzip();
+    let mut run = match gpu {
+        Some(gpu) => viewer.windowless_on(driver, gpu),
+        None => viewer.windowless(driver),
+    }
+    .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
+    let mut submissions = Vec::new();
     for _ in 0..frames {
+        let before = authority
+            .as_ref()
+            .map(SubmissionAuthority::submitted_serial);
         run.frame().unwrap();
         run.poll().unwrap();
+        submissions.extend(
+            before
+                .zip(authority.as_ref())
+                .map(|(before, authority)| authority.submitted_serial() - before),
+        );
     }
     while run.poll().unwrap() {
         assert!(Instant::now() < deadline, "capture timed out");
         std::thread::yield_now();
     }
     run.shutdown().unwrap();
+    submissions
 }
 
 fn capture_of(driver: &PlayerRetainedDriver, frame: u64) -> &Capture {
@@ -59,8 +85,8 @@ fn capture_of(driver: &PlayerRetainedDriver, frame: u64) -> &Capture {
 }
 
 /// Plays the screen fixture in a window for four updates, capturing the last, with the GPU work
-/// the window asks for. Returns the driver after the run.
-fn play_screen_fixture(gpu_work: GpuWork) -> PlayerRetainedDriver {
+/// the window asks for. Returns the driver after the run and the submissions each update made.
+fn play_screen_fixture(gpu_work: GpuWork) -> (PlayerRetainedDriver, Vec<u64>) {
     let data = tempfile::tempdir().unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let prepared = PreparedPlayer {
@@ -68,21 +94,28 @@ fn play_screen_fixture(gpu_work: GpuWork) -> PlayerRetainedDriver {
         request: root.join("csharp/PortableFixture/screen.fixture"),
         data: data.path().to_owned(),
     };
-    let gpu = player_gpu(gpu_work, &prepared.data);
+    let mut source = HeadlessViewer::new([SIZE, SIZE]);
+    let gpu = window_gpu(gpu_work, &prepared.data, &mut source);
     assert_eq!(
         gpu.is_some(),
         gpu_work == GpuWork::Auto,
         "the test needs a GPU adapter"
     );
+    let shared = gpu.is_some().then(|| (source.authority(), source.gpu));
     let (viewer, mut driver) = start_window(&prepared, window(gpu_work, &[3]), gpu).unwrap();
-    run_frames(viewer, &mut driver, 4);
-    driver
+    let submissions = run_frames(
+        viewer,
+        &mut driver,
+        4,
+        shared.map(|(authority, gpu)| (gpu, authority)),
+    );
+    (driver, submissions)
 }
 
 #[test]
 fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
     let _turn = fixture_turn();
-    let driver = play_screen_fixture(GpuWork::Auto);
+    let (driver, submissions) = play_screen_fixture(GpuWork::Auto);
 
     let capture = capture_of(&driver, 3);
     for (x, y) in [(0, 0), (31, 31), (63, 63), (5, 58), (60, 3)] {
@@ -103,12 +136,16 @@ fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
     let report = gpu.report();
     assert_eq!(report.screen_reads, 1);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(
+        submissions[0], submissions[2],
+        "the update that carries the script's clears is one submission, as an update with no work is"
+    );
 }
 
 #[test]
 fn without_gpu_work_the_window_has_no_image_of_the_screen() {
     let _turn = fixture_turn();
-    let driver = play_screen_fixture(GpuWork::Off);
+    let (driver, _) = play_screen_fixture(GpuWork::Off);
 
     assert!(!driver.sprites.textures.contains_key(&SCREEN_IMAGE));
     assert_eq!(driver.screen_shown, None);
@@ -147,7 +184,7 @@ fn the_screen_image_shows_the_right_way_up_and_the_games_ui_stays_over_it() {
     let scene = SceneTables::initial_scene(None).unwrap();
     let viewer = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
 
-    run_frames(viewer, &mut driver, 4);
+    run_frames(viewer, &mut driver, 4, None);
 
     let capture = capture_of(&driver, 2);
     assert_eq!(

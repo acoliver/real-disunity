@@ -1,6 +1,13 @@
 use super::*;
 
+use crate::gpu_device::DeviceSource;
+use crate::gpu_device::device_requirements;
+use crate::gpu_device::headless::HeadlessViewer;
+use crate::player::{GpuWork, window_gpu};
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
+use crate::storage_budget;
+use worldrunner_render_gpu::device::DeviceRequirements;
+use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 
 fn trace(records: usize, error: Option<&str>) -> WorkTrace {
     WorkTrace {
@@ -267,4 +274,145 @@ fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
     );
     assert_eq!(gpu.storage_budget(), budget.0);
     assert!(gpu.report().device.contains("runtime budget"));
+}
+
+/// A viewer with no window and a player on the device it made, with nothing to play yet.
+fn window_player(size: [u32; 2]) -> (HeadlessViewer, PlayerGpu, tempfile::TempDir) {
+    let data = tempfile::tempdir().unwrap();
+    let mut viewer = HeadlessViewer::new(size);
+    let gpu = PlayerGpu::shared(&mut viewer, data.path()).unwrap();
+    gpu.set_screen(Some(size));
+    (viewer, gpu, data)
+}
+
+/// Boots the screen fixture on `gpu`, as `play_screen_fixture` does, and advances its first update.
+fn started_screen_fixture(gpu: &PlayerGpu) -> DisunityHost {
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    host
+}
+
+/// What the viewer does with the operations of a frame: admits them on its own recording and
+/// submits that, without waiting.
+fn submit_like_the_viewer(gpu: &PlayerGpu, operations: OffscreenOperations) {
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    let admitted = operations.admit(&frame).unwrap();
+    admitted.encode(None, &mut frame).unwrap();
+    frame.finish().submit().unwrap();
+}
+
+#[test]
+fn the_window_and_the_headless_player_ask_for_the_same_device() {
+    let (_viewer, shared, data) = window_player([8, 4]);
+    let headless = PlayerGpu::headless(data.path()).unwrap();
+    let (window, alone) = (shared.device.limits(), headless.device.limits());
+    assert_eq!(
+        window.max_storage_textures_per_shader_stage,
+        alone.max_storage_textures_per_shader_stage
+    );
+    assert_eq!(window.max_buffer_size, alone.max_buffer_size);
+    assert!(
+        shared
+            .device
+            .features()
+            .contains(headless.device.features()),
+        "block compression and filterable floats are on the shared device where offered"
+    );
+    assert_eq!(shared.storage_budget(), headless.storage_budget());
+}
+
+/// A source that has no adapter, and counts what it is asked.
+#[derive(Default)]
+struct NoAdapter {
+    asked: usize,
+}
+
+impl DeviceSource for NoAdapter {
+    fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
+        self.asked += 1;
+        Err("no adapter".into())
+    }
+
+    fn device(
+        &mut self,
+        _: &DeviceRequirements,
+    ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
+        self.asked += 1;
+        Err("no device".into())
+    }
+}
+
+#[test]
+fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    let mut source = NoAdapter::default();
+    assert!(window_gpu(GpuWork::Off, data.path(), &mut source).is_none());
+    assert_eq!(source.asked, 0, "no adapter and no device was asked for");
+}
+
+#[test]
+fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
+    let data = tempfile::tempdir().unwrap();
+    let mut source = NoAdapter::default();
+    assert!(window_gpu(GpuWork::Auto, data.path(), &mut source).is_none());
+    assert!(source.asked > 0);
+}
+
+#[test]
+fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
+    let _turn = fixture_turn();
+    let (mut viewer, gpu, _data) = window_player([8, 4]);
+    let authority = viewer.authority();
+    let mut host = started_screen_fixture(&gpu);
+
+    let before = authority.submitted_serial();
+    let operations = gpu.frame_for_viewer(&mut host).unwrap();
+
+    assert!(
+        operations.is_some(),
+        "the script's clears are the frame's work"
+    );
+    assert_eq!(
+        authority.submitted_serial(),
+        before,
+        "the viewer's frame submits it, not the player"
+    );
+    assert!(
+        gpu.screen().is_none(),
+        "nothing has drawn into the screen yet"
+    );
+    assert!(!gpu.offscreen.borrow().screen_written());
+    let report = gpu.report();
+    assert_eq!((report.frames, report.frames_with_work), (1, 1));
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn the_screen_a_handed_frame_drew_is_read_in_the_frame_after_the_viewer_submitted_it() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    submit_like_the_viewer(&gpu, operations);
+
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    let next = gpu.frame_for_viewer(&mut host).unwrap();
+
+    assert!(next.is_none(), "the script draws nothing more");
+    let image = gpu.screen().expect("the clear was read back");
+    assert_eq!((image.width, image.height, image.frame), (8, 4, 0));
+    assert!(
+        image
+            .rgba
+            .chunks_exact(4)
+            .all(|texel| texel == [255, 255, 0, 255]),
+        "the screen is yellow all over"
+    );
+    let report = gpu.report();
+    assert_eq!(report.screen_reads, 1);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
 }

@@ -288,6 +288,24 @@ pub(crate) fn player_gpu(work: GpuWork, data: &Path) -> Option<PlayerGpu> {
     }
 }
 
+/// The device and offscreen host a window does its GPU work on, on the device `source` makes for
+/// the viewer, or `None` for [`GpuWork::Off`] and when the device cannot be had, which is
+/// reported on standard error. Shaders are loaded from the player's `data` directory.
+pub(crate) fn window_gpu(
+    work: GpuWork,
+    data: &Path,
+    source: &mut dyn crate::gpu_device::DeviceSource,
+) -> Option<PlayerGpu> {
+    match work {
+        GpuWork::Off => None,
+        GpuWork::Auto => PlayerGpu::shared(source, data)
+            .inspect_err(|reason| {
+                eprintln!("[gpu] {reason}; the offscreen work does not run");
+            })
+            .ok(),
+    }
+}
+
 /// What a headless run writes of the screen the player's offscreen work draws into: the screen's
 /// size, and a file for the image the screen holds after each listed frame's GPU work.
 #[derive(Clone, Debug)]

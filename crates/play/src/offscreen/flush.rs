@@ -398,6 +398,15 @@ impl OffscreenHost {
         }
     }
 
+    /// Frees the storage released meanwhile that the GPU has finished with, without waiting for
+    /// anything. A window's frames are submitted by the viewer, so the host cannot wait for them;
+    /// the runtime frees only what a completed submission was the last to use.
+    pub fn collect_completed(&mut self) {
+        // A poll that fails leaves the completed count where it was, which frees less.
+        let _ = self.runtime.device().poll(wgpu::PollType::Poll);
+        self.runtime.collect();
+    }
+
     fn run(
         &mut self,
         snapshot: &GraphicsSnapshot,

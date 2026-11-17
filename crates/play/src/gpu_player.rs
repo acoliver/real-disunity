@@ -6,7 +6,10 @@
 //!
 //! * Each frame, [`PlayerGpu::frame`] takes the world's graphics snapshot. A frame with no
 //!   offscreen work changes nothing: the host does not touch the device. Otherwise the records
-//!   are adapted, built and run in one submission.
+//!   are adapted, built and run in one submission, which the player waits for. A window does not
+//!   wait: it makes the player on the viewer's device (`PlayerGpu::shared`) and hands each
+//!   frame's built operations to the viewer (`PlayerGpu::frame_for_viewer`), which runs them in
+//!   its own frame's submission.
 //! * When a script reads a compute buffer back, the managed engine calls the flush handler
 //!   [`PlayerGpu::install`] registers. It runs the work recorded so far, dispatches included,
 //!   waits for the submission, and writes the changed buffers back before the read returns. It
@@ -14,7 +17,7 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::rc::Rc;
@@ -22,16 +25,18 @@ use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 
+mod frame;
+
 use crate::PlayError;
+use crate::gpu_device::{DeviceSource, player_device};
 use crate::offscreen::{
     ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
     Report, ScreenImage, Settings, WorkTrace,
 };
-use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -415,76 +420,6 @@ impl GpuWorkReport {
     }
 }
 
-/// The storage budget for `adapter`: see [`storage_budget`].
-fn storage_choice(adapter: &wgpu::Adapter) -> Choice {
-    let env = std::env::var(STORAGE_BUDGET_ENV).ok();
-    storage_budget::choose(
-        env.as_deref(),
-        adapter.get_info().device_type,
-        host_available_bytes(),
-    )
-}
-
-/// The device the headless player asks for: the default limits and block compression where
-/// offered, with buffers as large as the storage budget allows (the adapter's own limit when that
-/// is less, since the budget does not need one buffer to hold it). It prefers eight storage images in a stage where the adapter has them, because two of the Old
-/// World's compute variants bind five and the default limit is four; an adapter that does not has
-/// the default limit and leaves those two variants out by name.
-fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
-    let default = wgpu::Limits::default();
-    let required = wgpu::Limits {
-        max_buffer_size: budget
-            .max(default.max_buffer_size)
-            .min(available.max_buffer_size),
-        ..default
-    };
-    DeviceRequirements {
-        // The player stores some textures block-compressed; a device without the feature leaves
-        // them out by name. Unity filters its 32-bit float render textures; without
-        // FLOAT32_FILTERABLE they are read at the nearest texel instead.
-        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
-            | wgpu::Features::FLOAT32_FILTERABLE,
-        optional_limits: Some(wgpu::Limits {
-            max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
-            ..required.clone()
-        }),
-        required_limits: required,
-        ..DeviceRequirements::default()
-    }
-}
-
-/// The storage images a stage may bind that the device is asked for.
-const PREFERRED_STORAGE_IMAGES: u32 = 8;
-
-/// Builds every compute kernel variant of the player in `data` as a compute program on the
-/// device the headless player asks for, and counts what the device cannot hold by cause.
-///
-/// # Errors
-/// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
-pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .map_err(|error| format!("no adapter: {error}"))?;
-    let budget = storage_choice(&adapter).bytes;
-    let requirements = device_requirements(budget, &adapter.limits());
-    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
-        .map_err(|error| format!("no device: {error}"))?;
-    let name = format!(
-        "{}, {} storage images in a stage",
-        adapter.get_info().name,
-        device.limits().max_storage_textures_per_shader_stage
-    );
-    let runtime = ProgramRuntime::new(
-        device,
-        SubmissionAuthority::new(queue),
-        AllocationBudget(budget),
-    );
-    crate::offscreen::compute_census(data, &runtime)
-        .map(|census| (name, census))
-        .map_err(|error| error.to_string())
-}
-
 /// A device and the player's offscreen host on it.
 pub struct PlayerGpu {
     offscreen: Rc<RefCell<OffscreenHost>>,
@@ -493,6 +428,8 @@ pub struct PlayerGpu {
     device: wgpu::Device,
     /// The newest image of the screen read back, if work has drawn into it.
     screen: RefCell<Option<ScreenImage>>,
+    /// The frame whose operations went to the viewer and have not been taken as submitted yet.
+    handed: Cell<Option<u64>>,
 }
 
 impl PlayerGpu {
@@ -513,18 +450,43 @@ impl PlayerGpu {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        let choice = storage_choice(&adapter);
-        let requirements = device_requirements(choice.bytes, &adapter.limits());
-        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+        let wanted = player_device(&adapter);
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, &wanted.requirements))
             .map_err(|error| format!("no device: {error}"))?;
         let info = adapter.get_info();
         Self::build(
             device,
             SubmissionAuthority::new(queue),
-            AllocationBudget(choice.bytes),
+            AllocationBudget(wanted.choice.bytes),
             data,
             &format!("adapter {} ({:?})", info.name, info.backend),
-            choice.source,
+            wanted.choice.source,
+        )
+    }
+
+    /// The host on the one device `source` makes for a window: the adapter's requirements and
+    /// budget come from the same function the headless player uses, and the device meets the
+    /// viewer's own needs as well. The window's frames and this player's work then share the
+    /// device and its submission order.
+    ///
+    /// # Errors
+    /// Fails with the reason when `source` has no adapter or cannot make the device, or the
+    /// program runtime cannot reserve its arena on it.
+    pub(crate) fn shared(source: &mut dyn DeviceSource, data: &Path) -> Result<Self, String> {
+        let adapter = source.adapter()?;
+        let wanted = player_device(&adapter);
+        let (device, authority) = source.device(&wanted.requirements)?;
+        let info = adapter.get_info();
+        Self::build(
+            device,
+            authority,
+            AllocationBudget(wanted.choice.bytes),
+            data,
+            &format!(
+                "adapter {} ({:?}), shared with the viewer",
+                info.name, info.backend
+            ),
+            wanted.choice.source,
         )
     }
 
@@ -607,6 +569,7 @@ impl PlayerGpu {
             authority,
             device,
             screen: RefCell::new(None),
+            handed: Cell::new(None),
         })
     }
 
@@ -630,12 +593,13 @@ impl PlayerGpu {
 
     /// Reads the screen back when work drew into it since the last read, and keeps the image.
     /// A readback the host refuses is counted by its reason, and tried again by the next frame.
-    fn read_screen(&self, report: &mut GpuWorkReport) {
+    /// The image is numbered `frame`, the frame whose work drew it.
+    fn read_screen(&self, report: &mut GpuWorkReport, frame: u64) {
         let mut host = self.offscreen.borrow_mut();
         if !host.screen_written() {
             return;
         }
-        match host.read_screen(report.frames) {
+        match host.read_screen(frame) {
             Ok(image) => {
                 report.screen_reads += 1;
                 *self.screen.borrow_mut() = Some(image);
@@ -677,78 +641,6 @@ impl PlayerGpu {
                 .count();
             outcome.apply(flush)
         }))?;
-        Ok(())
-    }
-
-    /// Takes the frame's snapshot and runs its offscreen work. A frame with none returns at once
-    /// and leaves the device alone.
-    ///
-    /// # Errors
-    /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
-    /// report, not an error: the player goes on without it.
-    pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
-        let snapshot = host.graphics_snapshot()?;
-        if snapshot.work.is_empty() {
-            let mut report = self.report.borrow_mut();
-            // A flush earlier in the update may have drawn into the screen.
-            self.read_screen(&mut report);
-            report.frames += 1;
-            return Ok(());
-        }
-        let started = Instant::now();
-        let mut report = self.report.borrow_mut();
-        report.frames_with_work += 1;
-        let built = self.offscreen.borrow_mut().frame(&snapshot, &*host);
-        report.keep_traces(self.offscreen.borrow_mut().take_traces());
-        match built {
-            Ok((operations, frame_report)) => {
-                report.add(&frame_report, "frame");
-                if let Some(operations) = operations {
-                    let submitted = Instant::now();
-                    let ran = self.run(operations);
-                    self.offscreen.borrow_mut().settle();
-                    if let Some(work) = report.work.last_mut() {
-                        work.phases.submit += submitted.elapsed();
-                    }
-                    if let Err(message) = ran {
-                        *report.errors.entry(message).or_default() += 1;
-                    }
-                }
-            }
-            Err(error) => {
-                *report.errors.entry(error.to_string()).or_default() += 1;
-            }
-        }
-        report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        self.read_screen(&mut report);
-        report.frame_time += started.elapsed();
-        report.frames += 1;
-        Ok(())
-    }
-
-    /// Records the operations into a frame of their own, submits it and waits for it.
-    fn run(
-        &self,
-        operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    ) -> Result<(), String> {
-        let mut frame = self
-            .authority
-            .begin(&self.device)
-            .map_err(|error| error.to_string())?;
-        let admitted = operations
-            .admit(&frame)
-            .map_err(|error| error.to_string())?;
-        admitted
-            .encode(None, &mut frame)
-            .map_err(|error| error.to_string())?;
-        let submission = frame.finish().submit().map_err(|error| error.to_string())?;
-        self.offscreen.borrow_mut().frame_submitted();
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(submission),
-                timeout: None,
-            })
-            .map_err(|error| error.to_string())?;
         Ok(())
     }
 

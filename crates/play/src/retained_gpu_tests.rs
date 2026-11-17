@@ -13,7 +13,8 @@ use super::*;
 use std::{path::PathBuf, time::Instant};
 
 use crate::PreparedPlayer;
-use crate::player::player_gpu;
+use crate::gpu_device::headless::HeadlessViewer;
+use crate::player::window_gpu;
 
 const SIZE: u32 = 64;
 /// The update that reads the second colour is the fourth `Update` of the script: one in the
@@ -55,14 +56,20 @@ fn play(gpu_work: GpuWork) -> Played {
         data: data.path().to_owned(),
     };
     let window = readback_window(gpu_work);
-    let gpu = player_gpu(gpu_work, &prepared.data);
+    let mut source = HeadlessViewer::new([SIZE, SIZE]);
+    let gpu = window_gpu(gpu_work, &prepared.data, &mut source);
     assert_eq!(
         gpu.is_some(),
         gpu_work == GpuWork::Auto,
         "the test needs a GPU adapter"
     );
+    let shared = gpu.is_some().then_some(source.gpu);
     let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
-    let mut run = viewer.windowless(&mut driver).unwrap();
+    let mut run = match shared {
+        Some(gpu) => viewer.windowless_on(&mut driver, gpu),
+        None => viewer.windowless(&mut driver),
+    }
+    .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     for _ in 0..UPDATES {
         run.frame().unwrap();

@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
+mod cancellation;
 mod composition;
 use composition::check_timing;
 

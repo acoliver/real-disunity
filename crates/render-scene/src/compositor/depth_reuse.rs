@@ -1,18 +1,65 @@
 //! Stock paired depth. Relief reuse requires the shared single-sample receiver producer.
 use super::FrameRenderer;
-use crate::{draw::SceneGpu, renderer::depth::DepthMode, scene_metadata::Geometry};
-use worldrunner_render_post::{AttachmentView, FrameConfig, SceneDepth};
+use crate::{
+    draw::SceneGpu,
+    renderer::depth::DepthMode,
+    scene_metadata::{Geometry, SceneMetadata},
+};
+use worldrunner_render_plan::{SceneSsao, SceneSsr};
+use worldrunner_render_post::{AttachmentView, FrameConfig, FrameError, SceneDepth};
+
+/// The prepass metadata a stock frame owns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Prepass {
+    /// Occlusion computed with these settings every frame: SSAO receivers sample it, and
+    /// enabled reflections read it as application occlusion (neutral settings without SSAO).
+    Occlusion(SceneSsao),
+    /// Only shadow depth fitting reads the prepass. The frame runs the prepass and level 0 of
+    /// the depth hierarchy, receivers bind the constant neutral occlusion, and further stages
+    /// run only when another feature of the frame declares a read of them.
+    DepthOnly,
+}
+
+impl Prepass {
+    pub(super) fn metadata(
+        self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: [u32; 2],
+    ) -> Result<SceneMetadata, FrameError> {
+        match self {
+            Self::Occlusion(settings) => SceneMetadata::new(device, size, settings),
+            Self::DepthOnly => SceneMetadata::depth_only(device, queue, size),
+        }
+    }
+}
+
+/// The metadata a stock frame owns: the requested SSAO, otherwise neutral occlusion when
+/// enabled reflections draw the depth and normal prepass, otherwise the depth alone when shadow
+/// depth fitting does. The owner decides scene depth ownership, so Opaque reuses whichever
+/// consumer's prepass depth. None draws no prepass.
+pub(super) fn prepass_metadata(
+    ssao: Option<SceneSsao>,
+    ssr: Option<&SceneSsr>,
+    depth_fitting: bool,
+) -> Option<Prepass> {
+    if let Some(settings) = ssao {
+        Some(Prepass::Occlusion(settings))
+    } else if ssr.is_some_and(|ssr| ssr.enabled) {
+        Some(Prepass::Occlusion(crate::ssr::neutral_ao()))
+    } else {
+        depth_fitting.then_some(Prepass::DepthOnly)
+    }
+}
 
 pub(super) fn allocation(
-    device: &wgpu::Device,
+    features: wgpu::Features,
     config: FrameConfig,
     complete_prepass: bool,
 ) -> SceneDepth {
     if config.samples == 1
         && complete_prepass
-        && device
-            .features()
-            .contains(wgpu::Features::DEPTH32FLOAT_STENCIL8)
+        && features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8)
     {
         SceneDepth::Ownership
     } else {
@@ -108,10 +155,12 @@ impl FrameRenderer {
             self.chain.factory().clone(),
         )
         .unwrap();
-        self.ssao = self.ssao.as_ref().map(|screen| {
-            crate::scene_metadata::SceneMetadata::new(device, config.size, screen.settings).unwrap()
-        });
-        self.install_reflections(device, config.size).unwrap();
+        self.ssao = self
+            .ssao
+            .as_ref()
+            .map(|screen| screen.rebuilt(device, config.size).unwrap());
+        self.install_reflections(device).unwrap();
+        self.install_gbuffer_producer(device);
         if self.water.is_some() {
             self.chain
                 .register(
@@ -123,6 +172,19 @@ impl FrameRenderer {
                 )
                 .unwrap();
         }
+    }
+
+    /// Replaces depth-only metadata with metadata that computes the neutral occlusion and the
+    /// whole depth hierarchy, as depth-fitting-only frames did before they owned the depth alone:
+    /// the reference those frames must reproduce byte for byte.
+    #[cfg(test)]
+    pub(crate) fn computed_neutral_occlusion_for_test(&mut self, device: &wgpu::Device) {
+        let screen = self.ssao.as_ref().expect("prepass metadata");
+        assert!(!screen.passes.computes_occlusion());
+        self.ssao =
+            Some(SceneMetadata::new(device, screen.size, crate::ssr::neutral_ao()).unwrap());
+        self.install_gbuffer_producer(device);
+        self.share_metadata_depth(device);
     }
 
     pub(crate) fn geometry_for_depth(&self, depth: DepthMode) -> Option<Geometry> {
@@ -176,6 +238,51 @@ mod tests {
         assert_eq!(
             old.validate(&limits).unwrap(),
             shared.validate(&limits).unwrap()
+        );
+    }
+
+    /// Shadow depth fitting draws the prepass even when no screen effect asks for it, so the
+    /// frame must own that prepass and pair its depth with Opaque, as SSAO and SSR frames do.
+    /// Nothing samples occlusion in that frame, so it owns the depth alone, while enabled
+    /// reflections keep the computed neutral occlusion their application AO reads.
+    #[test]
+    fn depth_fitting_alone_owns_the_prepass_and_pairs_its_depth_with_opaque() {
+        let features = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        let single = FrameConfig::new([65, 49], wgpu::TextureFormat::Rgba16Float, 1);
+        let disabled = SceneSsr {
+            enabled: false,
+            ..Default::default()
+        };
+        let fitting = prepass_metadata(None, Some(&disabled), true);
+        assert_eq!(fitting, Some(Prepass::DepthOnly));
+        assert_eq!(prepass_metadata(None, None, true), fitting);
+        assert_eq!(
+            allocation(features, single, fitting.is_some()),
+            SceneDepth::Ownership
+        );
+        let neutral = Some(Prepass::Occlusion(crate::ssr::neutral_ao()));
+        assert_eq!(
+            prepass_metadata(None, Some(&SceneSsr::default()), false),
+            neutral
+        );
+        assert_eq!(
+            prepass_metadata(None, Some(&SceneSsr::default()), true),
+            neutral
+        );
+        let requested = SceneSsao {
+            sample_count: 16,
+            ..crate::ssr::neutral_ao()
+        };
+        assert_eq!(
+            prepass_metadata(Some(requested), None, true),
+            Some(Prepass::Occlusion(requested))
+        );
+        assert_eq!(prepass_metadata(None, Some(&disabled), false), None);
+        assert_eq!(allocation(features, single, false), SceneDepth::Independent);
+        let multisampled = FrameConfig::new([65, 49], wgpu::TextureFormat::Rgba16Float, 4);
+        assert_eq!(
+            allocation(features, multisampled, fitting.is_some()),
+            SceneDepth::Independent
         );
     }
 

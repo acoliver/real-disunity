@@ -13,6 +13,8 @@ use worldrunner_render_plan::{
     TexelFormat, TextureColorSpace, TextureHandle,
 };
 
+use glam::{Vec2, Vec3};
+
 use super::SIZE;
 use crate::frame::FrameUniform;
 use crate::{CameraPose, SceneView, Viewport};
@@ -248,6 +250,30 @@ pub(in crate::object) fn placement(index: usize, count: usize, shift: i64) -> Sc
         },
         scale_millionths: SCALE,
     }
+}
+
+/// Where card `index` of `count` lands in the `SIZE` by `SIZE` targets under `frame`: the left,
+/// top, right and bottom of its projected corners in pixels, with rows counted from the top.
+/// A card that draws whatever its material changes the pixels wholly inside this box, and
+/// neighbouring cards leave gaps between their boxes.
+pub(in crate::object) fn footprint(index: usize, count: usize, frame: &FrameUniform) -> [f32; 4] {
+    let millimetres = |value: i64| f32::from(i16::try_from(value).expect("a few metres")) / 1_000.0;
+    let scale = f32::from(u16::try_from(SCALE / 1_000).expect("a fraction")) / 1_000.0;
+    let size = f32::from(u8::try_from(SIZE).expect("a small target"));
+    let at = placement(index, count, 0)
+        .position_millimeters
+        .map(millimetres);
+    let (mut least, mut most) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    // The card's corners, in metres across and up, before its scale.
+    for (across, up) in [(-1.0, 0.0), (1.0, 0.0), (1.0, 2.0), (-1.0, 2.0)] {
+        let world = Vec3::from_array(at) + Vec3::new(across, 0.0, up) * scale;
+        let clip = frame.view_projection * world.extend(1.0);
+        let ndc = clip.truncate().truncate() / clip.w;
+        let pixel = Vec2::new(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * size;
+        least = least.min(pixel);
+        most = most.max(pixel);
+    }
+    [least.x, least.y, most.x, most.y]
 }
 
 fn effects() -> SceneEffects {

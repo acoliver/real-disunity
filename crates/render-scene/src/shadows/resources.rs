@@ -1,14 +1,18 @@
 #[cfg(test)]
 #[path = "card_rejection_test_support.rs"]
 mod card_rejection_test_support;
+#[cfg(test)]
 use crate::geometry::{instance_attributes, vertex_attributes};
+#[cfg(test)]
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
 use crate::upload::upload_buffer;
+#[cfg(test)]
+use worldrunner_render_shadow::{DepthFragmentState, DepthPipelineDescriptor};
 use worldrunner_render_shadow::{
-    DepthFragmentState, DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError,
-    DepthPipelineDescriptor, ReceiverDescriptor, ReceiverDimension,
+    DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError, ReceiverDescriptor,
+    ReceiverDimension,
 };
 
 use super::DirectionalShadowSettings;
@@ -64,6 +68,51 @@ pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     )
 }
 
+/// The object casters of `pipelines` for `settings` and `sampling`: the caster programs over
+/// [`depth_source`], on the program runtime the receiver pipelines' objects draw with.
+pub(super) fn object_caster(
+    pipelines: &ScenePipelines,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> crate::object::program::Context {
+    object_caster_from(
+        pipelines,
+        &depth_source(),
+        caster_configuration(settings, sampling),
+    )
+}
+
+/// The object casters of `pipelines` over the caster text `source`, with the depth test and bias
+/// of `configuration`.
+pub(super) fn object_caster_from(
+    pipelines: &ScenePipelines,
+    source: &str,
+    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
+) -> crate::object::program::Context {
+    let objects = pipelines.object_context();
+    crate::object::program::Context::new(
+        crate::object::program::Description {
+            device: objects.device().clone(),
+            source: source.into(),
+            colors: Vec::new(),
+            samples: 1,
+            front_face: wgpu::FrontFace::Ccw,
+            depth: crate::renderer::depth::DepthMode::Independent,
+            previous_transforms: false,
+            constants: Vec::new(),
+            frame: pipelines.frame_layout().clone(),
+            shadow: None,
+            screen: None,
+            entry: crate::object::program::Entry::Caster(crate::object::program::Caster {
+                compare: configuration.caster_compare,
+                bias: configuration.caster_bias,
+            }),
+        },
+        objects.family(),
+    )
+}
+
+#[cfg(test)]
 pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
@@ -95,7 +144,7 @@ pub(super) fn depth_pipelines(
 }
 
 /// The caster policy of `settings` with the slope bias of the scene's shadow sampling.
-fn caster_configuration(
+pub(super) fn caster_configuration(
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> worldrunner_render_shadow::DirectionalShadowConfig {
@@ -120,6 +169,7 @@ pub(super) fn terrain_caster(
     )
 }
 
+#[cfg(test)]
 fn object_depth_pipeline(
     device: &wgpu::Device,
     key: PipelineKey,
@@ -161,6 +211,7 @@ fn object_depth_pipeline(
     )
 }
 
+#[cfg(test)]
 fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     let source = depth_source();
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -188,6 +239,28 @@ pub(super) struct ShadowMap {
 }
 
 impl ShadowMap {
+    /// Set 2 of the receivers that sample this map, with the Opaque depth when relief cards
+    /// reject against it.
+    pub fn receiver_groups(
+        &self,
+        scheduler: &crate::compositor::FrameRenderer,
+        device: &wgpu::Device,
+        card_depth: Option<&worldrunner_render_post::AttachmentView>,
+    ) -> crate::scene_metadata::receiver::SetTwo {
+        scheduler.shadow_groups(
+            device,
+            (
+                &self.group,
+                crate::scene_metadata::receiver::ShadowInputs {
+                    uniform: &self.uniform,
+                    depth: self.depth.receiver_view(),
+                    sampler: &self.sampler,
+                },
+            ),
+            card_depth,
+        )
+    }
+
     pub fn select_frame_slot(&mut self, slot: usize) {
         self.uniform = self.slots[slot].0.clone();
         self.group = self.slots[slot].1.clone();

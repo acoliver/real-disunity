@@ -1,5 +1,7 @@
 //! Complete stock configuration replacement, including effect bindings and history.
+mod build;
 mod encoding;
+use build::allocate;
 mod snapshots;
 use super::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
@@ -23,11 +25,19 @@ pub struct RendererConfiguration {
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
+    /// Shadow depth fitting reduces the depth and normal prepass, which this frame then owns
+    /// and pairs with Opaque, as for SSAO and SSR. Requires HDR, like those effects.
+    pub depth_fitting: Option<worldrunner_render_plan::SceneDepthFitting>,
     /// Upper bound for dynamically present shadow receiver displacements.
     pub receiver_gradients: super::ReceiverGradientReservation,
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
     /// Reserve the existing frame-depth snapshots for depth-tested UI.
     pub ui_depth: bool,
+    /// The opaque rendering contract. `GBUFFER_OBSERVATION` adds the four G-buffer targets
+    /// and requires a single-sample frame.
+    pub opaque_path: worldrunner_render_plan::SceneOpaquePath,
+    /// Reserve slot-local visible-object ID targets. Storage is allocated only for live IDs.
+    pub contour_ids: bool,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
@@ -48,9 +58,12 @@ impl RendererConfiguration {
             post: HdrPostSettings::default(),
             ssao: None,
             ssr: None,
+            depth_fitting: None,
             receiver_gradients: super::ReceiverGradientReservation::Opposing,
             water: Vec::new(),
             ui_depth: false,
+            opaque_path: worldrunner_render_plan::SceneOpaquePath::Forward,
+            contour_ids: false,
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
@@ -62,7 +75,24 @@ impl RendererConfiguration {
             self.frame, self.post,
         ));
         screen_allocations(self, &mut set);
+        if self.contour_ids {
+            set.texture(
+                "contour IDs",
+                [self.frame.size[0], self.frame.size[1], 1],
+                crate::contours::FORMAT,
+                [1, self.frame.samples],
+                3,
+            );
+        }
         snapshots::allocations(self, &mut set);
+        if let Ok(Some(usage)) = super::opaque::admit_path(self.opaque_path, self.frame.samples) {
+            crate::gbuffer::allocations(
+                self.frame,
+                self.ssr.is_some_and(|ssr| ssr.enabled),
+                usage,
+                &mut set,
+            );
+        }
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
@@ -98,6 +128,13 @@ impl RendererConfiguration {
             self.allocations_with_history(retained_effect_history)
         }
     }
+    fn prepass_metadata(&self) -> Option<super::depth_reuse::Prepass> {
+        super::depth_reuse::prepass_metadata(
+            self.ssao,
+            self.ssr.as_ref(),
+            self.depth_fitting.is_some(),
+        )
+    }
     fn validate(&self, context: &GpuContext) -> Result<(), PostError> {
         super::validate_clear(self.clear_color)?;
         self.frame.validate_adapter(context.adapter())?;
@@ -118,10 +155,20 @@ impl RendererConfiguration {
         if !(1..=3).contains(&self.frame_slots) {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
+        super::opaque::admit_path(self.opaque_path, self.frame.samples)?;
+        if self.contour_ids {
+            crate::contours::validate_format(
+                context
+                    .adapter()
+                    .get_texture_format_features(crate::contours::FORMAT),
+                self.frame.samples,
+            )?;
+        }
         if self.hdr.is_none()
             && (self.post.enabled()
                 || self.ssao.is_some()
                 || self.ssr.is_some()
+                || self.depth_fitting.is_some()
                 || !self.water.is_empty())
         {
             return Err(PostError::UnsupportedProfile("effects require HDR"));
@@ -150,8 +197,7 @@ impl RendererConfiguration {
 }
 fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
     let [w, h] = settings.frame.size;
-    let reflection = settings.ssr.filter(|ssr| ssr.enabled);
-    if settings.ssao.is_some() || reflection.is_some() {
+    if settings.prepass_metadata().is_some() {
         set.texture(
             "prepass normals",
             [w, h, 1],
@@ -175,6 +221,17 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
                 "scene depth ownership reserve",
                 [w, h, 1],
                 wgpu::TextureFormat::Depth32Float,
+                [1, 1],
+                1,
+            );
+        }
+        // Depth-only frames keep every stage for features that declare reads of them, and
+        // add the constant occlusion texel their receivers bind.
+        if settings.prepass_metadata() == Some(super::depth_reuse::Prepass::DepthOnly) {
+            set.texture(
+                "neutral ambient occlusion",
+                [1, 1, 1],
+                wgpu::TextureFormat::R32Float,
                 [1, 1],
                 1,
             );
@@ -467,7 +524,11 @@ impl ConfiguredFrameRenderer {
             ConfigurationError::ForeignDevice => ConfigurationError::ForeignDevice,
             ConfigurationError::Submission(error) => ConfigurationError::Submission(error),
             ConfigurationError::Allocation(never) => match never {},
-        })?;
+        })?
+        .counted(
+            worldrunner_render_gpu::census::ResourceClass::RenderTarget,
+            &context.device().limits(),
+        );
         Ok(Self {
             state,
             settings,
@@ -584,18 +645,6 @@ fn history(renderer: &FrameRenderer) -> Option<ToneMapOutput> {
         FrameOutput::Copy(_) => None,
     }
 }
-fn allocate(
-    context: &GpuContext,
-    settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
-) -> Result<FrameRenderer, PostError> {
-    let device = context.device();
-    let scope = worldrunner_render_gpu::configuration::AllocationScope::new(device);
-    let result = build(context, settings, history, timing);
-    scope.finish()?;
-    result
-}
 /// Selects the jitter the settings imply: the default sequence under native TAA, the sequence
 /// derived from both extents under reduced temporal reconstruction, none otherwise.
 fn install_jitter(
@@ -604,88 +653,6 @@ fn install_jitter(
 ) -> Result<(), PostError> {
     renderer.set_projection_jitter(crate::post::jitter(&settings.post, settings.frame, None)?)
 }
-fn build(
-    context: &GpuContext,
-    settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
-) -> Result<FrameRenderer, PostError> {
-    let device = context.device();
-    let factory = if let Some((exposure, tone)) = settings.hdr {
-        FrameOutput::Hdr(
-            ToneMapOutput::new(settings.output_format, exposure, tone)?.with_retained_effects(
-                device,
-                settings.post,
-                history,
-            )?,
-        )
-    } else {
-        FrameOutput::Copy(worldrunner_render_post::CopyOutput::new(
-            device,
-            settings.output_format,
-        ))
-    };
-    let mut renderer = FrameRenderer {
-        overlay: super::overlay::OverlayStage::default(),
-        output_format: settings.output_format,
-        chain: PostChain::with_scene_depth(
-            device,
-            settings.frame,
-            Resources::default(),
-            factory,
-            super::depth_reuse::allocation(
-                device,
-                settings.frame,
-                settings.ssao.is_some() || settings.ssr.is_some_and(|ssr| ssr.enabled),
-            ),
-        )?,
-        environment_conventions: [None; 2],
-        water: None,
-        water_state: std::rc::Rc::default(),
-        snapshots: None,
-        snapshot_ready: std::rc::Rc::default(),
-        frame_slot: 0,
-        clear_color: settings.clear_color,
-        post_requested: settings.post,
-        elapsed_seconds: 0.0,
-        selected_time: None,
-        receiver_gradients: settings.receiver_gradients,
-        #[cfg(test)]
-        receiver_reference: None,
-        animation_time: None,
-        frame_delta: 0.0,
-        post_time: std::rc::Rc::default(),
-        exposure_reset: std::rc::Rc::default(),
-        temporal: std::rc::Rc::default(),
-        ssao: settings
-            .ssao
-            .map(|ssao| {
-                crate::scene_metadata::SceneMetadata::new(device, settings.frame.size, ssao)
-            })
-            .transpose()?,
-        ssr: None,
-        ssao_requested: settings.ssao,
-        ssr_requested: settings.ssr,
-    };
-    renderer.install_reflections(device, settings.frame.size)?;
-    renderer.share_metadata_depth(device);
-    install_jitter(&mut renderer, settings)?;
-    renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
-    if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {
-        renderer.snapshots = Some(std::array::from_fn(|_| {
-            crate::water::snapshots::Snapshots::new(device, settings.frame)
-        }));
-    }
-    if let Some(timing) = timing {
-        renderer.chain.restore_timing(timing);
-    } else {
-        renderer
-            .configure_timing(device, context.queue(), settings.timing)
-            .map_err(|error| PostError::Allocation(error.to_string()))?;
-    }
-    Ok(renderer)
-}
-
 #[cfg(test)]
 #[path = "configuration_tests.rs"]
 mod tests;

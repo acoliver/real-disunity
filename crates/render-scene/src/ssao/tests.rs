@@ -16,13 +16,17 @@ fn ambient_injection_uses_one_explicit_marker_independent_of_expression_spacing(
 }
 
 #[test]
-#[should_panic(expected = "shader marker")]
+#[should_panic(
+    expected = "shader rewrite of ssao::ambient_source: anchor \"/* SCREEN_AMBIENT_FACTOR */\" matched 0 times, expected 1"
+)]
 fn missing_shader_marker_fails() {
     ambient_source("fn unrelated() {}");
 }
 
 #[test]
-#[should_panic(expected = "shader marker")]
+#[should_panic(
+    expected = "shader rewrite of ssao::ambient_source: anchor \"/* SCREEN_AMBIENT_FACTOR */\" matched 2 times, expected 1"
+)]
 fn duplicate_shader_marker_fails() {
     ambient_source("/* SCREEN_AMBIENT_FACTOR */ /* SCREEN_AMBIENT_FACTOR */");
 }

@@ -5,7 +5,7 @@ use worldrunner_render_program::ids::{MeshId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
-    OffscreenFrame, RenderDimension, RenderTextureSpec, SourceTexture,
+    OffscreenFrame, RenderDimension, RenderTextureSpec, SourceDimension, SourceTexture,
 };
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
@@ -32,8 +32,20 @@ pub struct Rig {
 
 impl Rig {
     pub fn new() -> Self {
-        let gpu = Gpu::new();
-        let runtime = gpu.runtime_with(AllocationBudget(BUDGET));
+        Self::on(Gpu::new())
+    }
+
+    pub fn with_budget(budget: u64) -> Self {
+        Self::on_with_budget(Gpu::new(), budget)
+    }
+
+    /// A rig on `gpu`.
+    pub fn on(gpu: Gpu) -> Self {
+        Self::on_with_budget(gpu, BUDGET)
+    }
+
+    fn on_with_budget(gpu: Gpu, budget: u64) -> Self {
+        let runtime = gpu.runtime_with(AllocationBudget(budget));
         let limits = gpu.device.limits();
         let mut renderer = Configuration::new(
             &gpu.authority,
@@ -44,7 +56,7 @@ impl Rig {
         )
         .unwrap();
         let reservation = renderer
-            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(BUDGET))
+            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget))
             .unwrap();
         let arena = runtime.open_arena(reservation).unwrap();
         let state = OffscreenState::new(&runtime);
@@ -134,6 +146,7 @@ pub fn image(size: [u32; 2], color: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
 pub fn source(id: u64, size: [u32; 2], bytes: Vec<u8>) -> SourceTexture {
     SourceTexture {
         id: TextureId(id),
+        dimension: SourceDimension::D2,
         size,
         graphics_format: RGBA8,
         bytes,

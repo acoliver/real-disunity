@@ -31,7 +31,7 @@ fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
 #[test]
 fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
@@ -85,6 +85,92 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
                 .passes
                 .iter()
                 .any(|pass| pass.pass_id == crate::PassId::Geometry(crate::PassSlot::Opaque))
+        );
+    }
+}
+
+/// An HDR frame whose prepass only shadow depth fitting reads times the prepass and its linear
+/// depth, and none of the occlusion stages it does not run: the kernel, its filter and the depth
+/// hierarchy past level 0 have no reader there.
+#[test]
+fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    if !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+        return;
+    }
+    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+        adapter,
+        wgpu::Features::empty(),
+        worldrunner_render_post::TimingMode::Optional,
+    ))
+    .unwrap();
+    let scene = fitted_scene();
+    let effects = scene.effects().unwrap();
+    assert!(effects.ssao().is_none() && effects.ssr().is_none());
+    let profile = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let mut resident = Resident::new(&context, &scene, Some(shadow_settings()), profile).unwrap();
+    let size = Viewport {
+        width: 64,
+        height: 64,
+    };
+    let mut presentation = Presentation::with_profile(
+        &context,
+        crate::presentation::COLOR,
+        size,
+        size,
+        profile,
+        scene.effects(),
+    )
+    .unwrap();
+    for (frame_id, capture) in [(0, false), (1, true)] {
+        render_frame(
+            &context,
+            &mut resident,
+            &mut presentation,
+            (Some(frame_id), capture),
+        );
+        finish_timed_output(&context, &presentation);
+        let samples =
+            worldrunner_render_scene::test_support::take_timings(context.device(), 1, || {
+                presentation.scheduler.take_timings()
+            });
+        assert_eq!(samples.len(), 1);
+        let passes: Vec<_> = samples[0].passes.iter().map(|pass| pass.pass_id).collect();
+        for slot in [
+            crate::PassSlot::DepthNormalPrepass,
+            crate::PassSlot::DepthPyramid(0),
+            crate::PassSlot::Opaque,
+        ] {
+            assert_eq!(
+                passes
+                    .iter()
+                    .filter(|&&id| id == crate::PassId::Geometry(slot))
+                    .count(),
+                1,
+                "{slot:?} in frame {frame_id}"
+            );
+        }
+        assert!(
+            !passes.iter().any(|id| matches!(
+                id,
+                crate::PassId::Geometry(
+                    crate::PassSlot::Ssao
+                        | crate::PassSlot::SsaoBlur
+                        | crate::PassSlot::SsaoBlurHorizontal
+                        | crate::PassSlot::OcclusionMetadata(_)
+                )
+            ) || matches!(
+                id,
+                crate::PassId::Geometry(crate::PassSlot::DepthPyramid(level)) if *level > 0
+            )),
+            "frame {frame_id} timed an occlusion stage: {passes:?}"
         );
     }
 }

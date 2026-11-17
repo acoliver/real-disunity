@@ -19,7 +19,7 @@ const BOTH: u32 = (1 << 1) | (1 << 2);
 
 /// A depth-only 8x8 target of `bits` depth bits. With `BOTH` layers the left half is drawn at
 /// depth 0.5 and the right half at depth 0.25.
-fn depth_frame(rig: &mut Rig, mask: u32, bits: u8) -> OffscreenFrame {
+pub fn depth_frame(rig: &mut Rig, mask: u32, bits: u8) -> OffscreenFrame {
     let mut frame = fixture(rig, mask);
     frame.render_textures[0].graphics_format = NO_COLOR;
     frame.render_textures[0].depth_bits = bits;
@@ -106,17 +106,16 @@ fn sample_depth(frame: &mut OffscreenFrame, rig: &mut Rig, source: TextureId) ->
     rig.run(frame, &[(SAMPLED, 0, 0)]).unwrap().remove(0)
 }
 
+/// Only the red channel is checked. A depth texture read through a colour binding holds the depth
+/// in red; WebGPU leaves green, blue and alpha implementation-defined (Vulkan gives 0, 0, 1 and
+/// Metal gives copies of the depth), and Unity shaders read the depth from `.r`.
 fn assert_sampled_depth(image: &[u8]) {
     for y in 0..8 {
         for x in 0..4 {
+            assert_eq!(pixel(image, 8, (x, y))[0], 191, "drawn ({x}, {y})");
             assert_eq!(
-                pixel(image, 8, (x, y)),
-                [191, 0, 0, 255],
-                "drawn ({x}, {y})"
-            );
-            assert_eq!(
-                pixel(image, 8, (x + 4, y)),
-                [255, 0, 0, 255],
+                pixel(image, 8, (x + 4, y))[0],
+                255,
                 "cleared ({}, {y})",
                 x + 4
             );

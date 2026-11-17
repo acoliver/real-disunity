@@ -14,6 +14,12 @@ pub(crate) struct SceneFeature<'a> {
     /// Admitted player program draws, recorded after the stock opaque draw. Present only
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    pub contour: Option<crate::draw::ContourDraw>,
+    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
+    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
+    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
+    /// before Opaque, which draws only the rest.
+    pub renders: bool,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -32,7 +38,7 @@ impl PreparedFeature for SceneFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Absent,
@@ -51,29 +57,64 @@ impl PreparedFeature for SceneFeature<'_> {
         context: &worldrunner_render_post::DrawContext,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
+        if context.slot == PassSlot::ContourIds {
+            self.gpu
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == PassSlot::Celestial {
             self.gpu.draw_celestial(pass);
             return;
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
+        if context.slot == PassSlot::OpaqueLighting {
+            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+            let pipelines = self.colour_pipelines(pass);
+            self.gpu.draw_deferred_lighting(pass, pipelines, inputs);
+            return;
+        }
         if let Some(screen) = &self.screen {
+            if context.slot == PassSlot::OpaqueGbuffer {
+                if let Some((pipelines, group)) = &screen.gbuffer {
+                    let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+                    if self.renders {
+                        let ao = colour_pipelines(self.pipelines, Some(screen)).has_ao_receiver();
+                        self.publications.record_gbuffer(draw, false, ao);
+                    }
+                }
+                return;
+            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.prepass_pipelines(),
-                    &screen.group,
-                ));
+                self.publications.record_prepass(
+                    self.gpu,
+                    self.gpu
+                        .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+                );
                 return;
             }
             if let Some((pipelines, group)) = &screen.forward {
                 pass.set_bind_group(3, group, &[]);
+                if self.renders {
+                    self.publications.record_remainder(
+                        self.gpu,
+                        self.gpu.draw_forward_remainder(pass, pipelines),
+                    );
+                    return;
+                }
                 self.publications
                     .record_color(self.gpu, self.gpu.draw_color(pass, pipelines, None));
                 return;
             }
             pass.set_bind_group(3, &screen.ambient, &[]);
+        }
+        if self.renders {
+            self.publications.record_remainder(
+                self.gpu,
+                self.gpu.draw_forward_remainder(pass, self.pipelines),
+            );
+            return;
         }
         self.publications
             .record_color(self.gpu, self.gpu.draw_color(pass, self.pipelines, None));
@@ -87,22 +128,56 @@ impl PreparedFeature for SceneFeature<'_> {
     }
 }
 
-/// Prepares the terrain pipelines of the passes the scene feature draws terrain in: the
+impl SceneFeature<'_> {
+    /// The pipelines the colour pass draws with, after binding set 3 as that pass does.
+    fn colour_pipelines(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> &crate::renderer::ScenePipelines {
+        let Some(screen) = &self.screen else {
+            return self.pipelines;
+        };
+        if let Some((pipelines, group)) = &screen.forward {
+            pass.set_bind_group(3, group, &[]);
+            return pipelines;
+        }
+        pass.set_bind_group(3, &screen.ambient, &[]);
+        self.pipelines
+    }
+}
+
+/// The pipelines a stock feature's colour pass draws with: the forward reflection pipelines
+/// when installed, otherwise `pipelines`.
+pub(crate) fn colour_pipelines<'a>(
+    pipelines: &'a crate::renderer::ScenePipelines,
+    screen: Option<&'a crate::scene_metadata::Geometry>,
+) -> &'a crate::renderer::ScenePipelines {
+    screen
+        .and_then(|screen| screen.forward.as_ref())
+        .map_or(pipelines, |(forward, _)| forward)
+}
+
+/// Prepares the terrain and object pipelines of the passes the scene feature draws them in: the
 /// prepass when the frame has screen-space passes, and the colour pass with the forward
-/// pipelines when those are installed. The objects' pipelines are prepared for the colour pass
-/// only: the prepass draws them with the fixed pipelines. Preparing is done before the passes
-/// open, where a refusal is still an error.
+/// pipelines when those are installed. The celestial bodies' pipelines are prepared too. Preparing is done before the passes open, where a
+/// refusal is still an error.
 fn prepare_terrain(
     gpu: &crate::draw::SceneGpu,
     frame: &crate::frame::FrameUniform,
     pipelines: &crate::renderer::ScenePipelines,
     screen: Option<&crate::scene_metadata::Geometry>,
 ) -> Result<(), FrameError> {
+    gpu.prepare_celestial(frame)?;
     let Some(screen) = screen else {
         gpu.prepare_terrain(pipelines, frame)?;
         return gpu.prepare_objects(pipelines, frame);
     };
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
+    gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+    if let Some((gbuffer, _)) = &screen.gbuffer {
+        gpu.prepare_terrain(gbuffer, frame)?;
+        gpu.prepare_objects(gbuffer, frame)?;
+    }
     let colour = screen
         .forward
         .as_ref()
@@ -162,6 +237,7 @@ pub fn encode_scene(
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
     let writes_velocity = renderer.draws_velocity(pipelines);
+    renderer.match_producer_velocity(device, writes_velocity);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
@@ -185,6 +261,7 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if let Some(screen) = &renderer.ssao {
         crate::ssao::passes::geometry_declaration(&mut declaration, screen);
+        crate::gbuffer::declare_producer(&mut declaration, screen, depth_mode);
     }
     let mut views = vec![
         color.with_resource(color_id)?,
@@ -199,13 +276,36 @@ pub fn encode_scene(
         &mut views,
         &mut declaration,
     );
+    let contour = renderer.plan_contours(
+        (device, encoder),
+        (gpu, pipelines),
+        &frame,
+        (&mut passes, &mut views, &mut declaration),
+    )?;
+    let deferred = renderer.prepare_deferred_lighting(
+        device,
+        (gpu, colour_pipelines(pipelines, screen.as_ref())),
+        (
+            depth_id,
+            depth.texture(),
+            depth_mode == crate::renderer::depth::DepthMode::Reuse,
+        ),
+        &frame,
+        &mut declaration,
+    )?;
     let mut feature = SceneFeature {
+        contour,
         publications: crate::draw::DrawPublications::default(),
         screen,
         programs,
         gpu,
         pipelines,
         frame,
+        deferred,
+        renders: renderer
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders),
     };
     renderer.encode_frame(
         device,

@@ -20,7 +20,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, RendererListDesc, TargetRef, WorldRenderTexture,
+    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, RendererListDesc, TargetRef,
+    WorldRenderTexture,
 };
 
 use super::frame::{Mapper, RendererSkip, Skip};
@@ -68,14 +69,24 @@ pub fn temporary_ids(work: &[OffscreenWork]) -> BTreeSet<TextureId> {
     temporaries.described.into_keys().collect()
 }
 
-/// The camera a script set up: where its draws go when a target names the camera's own, the view
-/// and the projection (column-major OpenGL matrices, as the world holds them) the draws use, and
-/// the camera's rectangle of its target.
+/// The camera a script set up: where its draws go when a target names the camera's own (its
+/// target texture, or the buffers a script set), the view and the projection (column-major OpenGL
+/// matrices, as the world holds them) the draws use, and the camera's rectangle of its target.
 pub(super) struct CameraSetup {
     pub(super) target: TargetRef,
+    /// The buffers the camera drew into when the script set it up, which are its target when it
+    /// has them.
+    pub(super) buffers: Option<CameraBuffers>,
     pub(super) view: Mat4,
     pub(super) projection: Mat4,
     pub(super) viewport: [f32; 4],
+}
+
+/// What a target names as attachments: the textures whose color buffers are drawn into, in order,
+/// and the texture whose depth buffer is drawn with.
+struct TargetSet {
+    colors: Vec<TextureId>,
+    depth: Option<TextureId>,
 }
 
 /// The global values and keywords as the commands left them, and whether a record has yet to
@@ -143,6 +154,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
     }
 }
 
@@ -150,14 +162,16 @@ impl Mapper<'_> {
     /// Runs a command that sets the running state or makes a record from it.
     pub(super) fn command(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
-            OffscreenWork::SetRenderTarget {
-                color,
-                depth,
-                mip,
-                face,
-                slice,
-            } => {
-                self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?;
+            OffscreenWork::SetRenderTarget { .. }
+            | OffscreenWork::SetGlobal(_)
+            | OffscreenWork::SetGlobalKeyword { .. }
+            | OffscreenWork::AllocateTemporary { .. }
+            | OffscreenWork::ReleaseTemporary { .. }
+            | OffscreenWork::SetupCamera { .. }
+            | OffscreenWork::Cull { .. }
+            | OffscreenWork::CreateRendererList { .. }
+            | OffscreenWork::SetViewProjection { .. } => {
+                self.set_state(work)?;
                 Ok(Vec::new())
             }
             OffscreenWork::ClearRenderTarget {
@@ -172,60 +186,7 @@ impl Mapper<'_> {
                 *value,
                 (*depth_value, *stencil_value),
             ),
-            OffscreenWork::SetGlobal(value) => {
-                let globals = &mut self.script.globals;
-                set_value(&mut globals.layer, value, &mut self.textures);
-                globals.dirty = true;
-                Ok(Vec::new())
-            }
-            OffscreenWork::SetGlobalKeyword { name, enabled } => {
-                let globals = &mut self.script.globals;
-                let changed = if *enabled {
-                    globals.keywords.insert(name.clone())
-                } else {
-                    globals.keywords.remove(name)
-                };
-                globals.dirty |= changed;
-                Ok(Vec::new())
-            }
-            OffscreenWork::AllocateTemporary { name_id, desc } => {
-                self.script.temporaries.allocate(*name_id, *desc);
-                Ok(Vec::new())
-            }
-            OffscreenWork::ReleaseTemporary { name_id } => {
-                if self.script.temporaries.release(*name_id) {
-                    Ok(Vec::new())
-                } else {
-                    Err(Skip::UnknownTemporary)
-                }
-            }
-            OffscreenWork::SetupCamera {
-                camera,
-                view,
-                projection,
-                target,
-            } => {
-                self.setup_camera(*camera, (view, projection), *target);
-                Ok(Vec::new())
-            }
-            OffscreenWork::Cull {
-                id,
-                culling_mask,
-                planes,
-                ..
-            } => {
-                self.cull(*id, *culling_mask, planes);
-                Ok(Vec::new())
-            }
-            OffscreenWork::CreateRendererList { id, desc } => {
-                self.create_list(*id, desc);
-                Ok(Vec::new())
-            }
             OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
-            OffscreenWork::SetViewProjection { view, projection } => {
-                self.set_view_projection(view, projection);
-                Ok(Vec::new())
-            }
             OffscreenWork::DrawMesh {
                 mesh,
                 matrix,
@@ -239,6 +200,19 @@ impl Mapper<'_> {
                 (*material, *pass),
                 block.as_deref(),
             ),
+            OffscreenWork::DrawProcedural {
+                matrix,
+                material,
+                pass,
+                topology,
+                vertex_count,
+                instance_count,
+            } => self.draw_procedural(
+                matrix,
+                (*material, *pass),
+                *topology,
+                (*vertex_count, *instance_count),
+            ),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -247,6 +221,60 @@ impl Mapper<'_> {
                 unreachable!("{} is mapped elsewhere", kind(work))
             }
         }
+    }
+
+    /// Runs a command that changes the running state and makes no record.
+    fn set_state(&mut self, work: &OffscreenWork) -> Result<(), Skip> {
+        match work {
+            OffscreenWork::SetRenderTarget {
+                color,
+                depth,
+                mip,
+                face,
+                slice,
+            } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
+            OffscreenWork::SetGlobal(value) => {
+                let globals = &mut self.script.globals;
+                set_value(&mut globals.layer, value, &mut self.textures);
+                globals.dirty = true;
+            }
+            OffscreenWork::SetGlobalKeyword { name, enabled } => {
+                let globals = &mut self.script.globals;
+                let changed = if *enabled {
+                    globals.keywords.insert(name.clone())
+                } else {
+                    globals.keywords.remove(name)
+                };
+                globals.dirty |= changed;
+            }
+            OffscreenWork::AllocateTemporary { name_id, desc } => {
+                self.script.temporaries.allocate(*name_id, *desc);
+            }
+            OffscreenWork::ReleaseTemporary { name_id } => {
+                if !self.script.temporaries.release(*name_id) {
+                    return Err(Skip::UnknownTemporary);
+                }
+            }
+            OffscreenWork::SetupCamera {
+                camera,
+                view,
+                projection,
+                target,
+                buffers,
+            } => self.setup_camera(*camera, (view, projection), (*target, *buffers))?,
+            OffscreenWork::Cull {
+                id,
+                culling_mask,
+                planes,
+                ..
+            } => self.cull(*id, *culling_mask, planes),
+            OffscreenWork::CreateRendererList { id, desc } => self.create_list(*id, desc),
+            OffscreenWork::SetViewProjection { view, projection } => {
+                self.set_view_projection(view, projection);
+            }
+            _ => unreachable!("{} makes a record", kind(work)),
+        }
+        Ok(())
     }
 
     /// The globals record that carries the changes since the last one, if there are any.
@@ -288,6 +316,61 @@ impl Mapper<'_> {
         }
     }
 
+    /// What a target names as a set of attachments: the textures whose color buffers it draws
+    /// into, in output order, and the texture whose depth buffer it draws with. A texture is its
+    /// own color and depth. The camera's own target is the buffers the camera was set up with when
+    /// it has them (their depth is the first color's when the script named none), else its target
+    /// texture.
+    fn resolve_set(&self, target: &TargetRef) -> Result<TargetSet, Skip> {
+        let buffers = match target {
+            TargetRef::CameraTarget => self.script.camera.as_ref().and_then(|c| c.buffers),
+            _ => None,
+        };
+        let Some(buffers) = buffers else {
+            let texture = self.resolve_target(target)?;
+            return Ok(TargetSet {
+                colors: texture.into_iter().collect(),
+                depth: texture,
+            });
+        };
+        let mut colors = Vec::new();
+        for id in buffers.colors() {
+            colors.extend(self.resolve_target(&TargetRef::Render(*id))?);
+        }
+        let depth = match buffers.depth() {
+            Some(id) => self.resolve_target(&TargetRef::Render(id))?,
+            None => colors.first().copied(),
+        };
+        Ok(TargetSet { colors, depth })
+    }
+
+    /// Refuses colors that one pass cannot draw into together: more than eight, one mip of a
+    /// texture twice, or sizes that differ at the mip.
+    fn check_colors(&self, colors: &[TextureId], mip: u32) -> Result<(), Skip> {
+        if colors.len() > MAX_COLOR_TARGETS {
+            return Err(Skip::TooManyColorTargets);
+        }
+        if colors
+            .iter()
+            .enumerate()
+            .any(|(index, texture)| colors[..index].contains(texture))
+        {
+            return Err(Skip::RepeatedColorTarget);
+        }
+        let size = |texture: TextureId| {
+            self.described(texture).map(|held| {
+                [held.width, held.height].map(|side| side.checked_shr(mip).unwrap_or(0).max(1))
+            })
+        };
+        if colors
+            .iter()
+            .any(|texture| size(*texture) != size(colors[0]))
+        {
+            return Err(Skip::ColorSizeMismatch);
+        }
+        Ok(())
+    }
+
     /// How many mips a texture of the frame has, or 0 for one that is not there.
     fn mips_of(&self, texture: TextureId) -> u32 {
         self.described(texture).map_or(0, |held| held.mip_count)
@@ -304,16 +387,18 @@ impl Mapper<'_> {
     /// The size in pixels of the bound target: of the color attachment's mip, or of the depth
     /// attachment's when there is no color. `None` when no target is bound.
     pub(super) fn target_size(&self) -> Option<[u32; 2]> {
-        let target = self.script.target?;
-        let attachment = target.color.or(target.depth)?;
+        let target = self.script.target.as_ref()?;
+        let attachment = target.colors.first().or(target.depth.as_ref())?;
         let held = self.described(attachment.texture)?;
         let level = |side: u32| side.checked_shr(attachment.mip).unwrap_or(0).max(1);
         Some([level(held.width), level(held.height)])
     }
 
-    /// Binds the targets the draws after this go to. The first color target is the one drawn
-    /// into; a record that names none draws into the depth target alone, and one that names no
-    /// depth target draws with the depth buffer of its color.
+    /// Binds the targets the draws after this go to: every color target, in order, which the
+    /// fragment stage's outputs fill; a record that names none draws into the depth target alone,
+    /// and one that names no depth target draws with the depth buffer of its first color. A
+    /// color target that is the camera's own stands for all the buffers the camera was set up
+    /// with.
     fn set_render_target(
         &mut self,
         color: &[TargetRef],
@@ -324,37 +409,67 @@ impl Mapper<'_> {
         if face > 0 || slice > 0 {
             return Err(Skip::UnsupportedSlice);
         }
-        let first = match color.first() {
-            Some(target) => self.resolve_target(target)?,
-            None => None,
-        };
+        let mut colors = Vec::new();
+        let mut default_depth = None;
+        let mut empty_slot = false;
+        for (index, target) in color.iter().enumerate() {
+            let set = self.resolve_set(target)?;
+            if set.colors.is_empty() {
+                empty_slot = true;
+                continue;
+            }
+            // A named target after an empty one would take the wrong output.
+            if empty_slot {
+                return Err(Skip::EmptyColorSlot);
+            }
+            if index == 0 {
+                default_depth = set.depth;
+            }
+            colors.extend(set.colors);
+        }
         let depth_texture = match depth {
-            Some(target) => self.resolve_target(target)?,
-            None => first,
+            Some(target) => self.resolve_set(target)?.depth,
+            None => default_depth,
         };
-        if first.is_none() && depth_texture.is_none() {
+        if colors.is_empty() && depth_texture.is_none() {
             return Err(Skip::UnboundTarget);
         }
-        if first
+        if colors
             .iter()
             .chain(&depth_texture)
             .any(|texture| mip >= self.mips_of(*texture))
         {
             return Err(Skip::NoSuchMip);
         }
-        if color.len() > 1 {
-            *self
-                .report
-                .census
-                .entry("color targets of a SetRenderTarget left out".to_owned())
-                .or_default() += color.len() - 1;
-        }
+        self.check_colors(&colors, mip)?;
+        self.note_depth_size(&colors, depth_texture, mip);
         let at = |texture| Attachment { texture, mip };
         self.script.target = Some(Attachments {
-            color: first.map(at),
+            colors: colors.into_iter().map(at).collect(),
             depth: depth_texture.map(at),
         });
         Ok(())
+    }
+
+    /// Counts a depth target of another texture than the first color's whose size differs from
+    /// the color's: the pass is drawn without it, as a depth buffer that does not fit cannot go
+    /// with the colors.
+    fn note_depth_size(&mut self, colors: &[TextureId], depth: Option<TextureId>, mip: u32) {
+        let (Some(&first), Some(depth)) = (colors.first(), depth) else {
+            return;
+        };
+        let size = |texture: TextureId| {
+            self.described(texture).map(|held| {
+                [held.width, held.height].map(|side| side.checked_shr(mip).unwrap_or(0).max(1))
+            })
+        };
+        if depth != first && size(depth) != size(first) {
+            *self
+                .report
+                .census
+                .entry("depth target left out: its size differs from the color's".to_owned())
+                .or_default() += 1;
+        }
     }
 
     fn clear(
@@ -363,7 +478,7 @@ impl Mapper<'_> {
         value: [f32; 4],
         (depth_value, stencil_value): (f32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         if !(color || depth || stencil) {
             return Ok(Vec::new());
         }
@@ -377,13 +492,15 @@ impl Mapper<'_> {
         }])
     }
 
-    /// Sets up the camera. When its target is a texture, the draws after this go to it.
+    /// Sets up the camera. When its target is a texture, or it has buffers, the draws after this go
+    /// to it; buffers that cannot be drawn into together refuse the setup and leave the draws
+    /// with no target.
     fn setup_camera(
         &mut self,
         camera: ComponentHandle,
         (view, projection): (&[f32; 16], &[f32; 16]),
-        target: TargetRef,
-    ) {
+        (target, buffers): (TargetRef, Option<CameraBuffers>),
+    ) -> Result<(), Skip> {
         // The world copies the cameras that camera renders name, so a camera set up alone may be
         // absent; it then has the whole target.
         let viewport = self
@@ -393,17 +510,33 @@ impl Mapper<'_> {
             .map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
         self.script.camera = Some(CameraSetup {
             target,
+            buffers,
             view: Mat4::from_cols_array(view),
             projection: Mat4::from_cols_array(projection),
             viewport,
         });
-        if let Ok(Some(texture)) = self.resolve_target(&target) {
-            let whole = Some(Attachment { texture, mip: 0 });
+        let set = match self.resolve_set(&target) {
+            Ok(set) => set,
+            // A camera of the screen or of a texture that is gone has no target to bind.
+            Err(_) if buffers.is_none() => return Ok(()),
+            Err(skip) => {
+                self.script.target = None;
+                return Err(skip);
+            }
+        };
+        if let Err(skip) = self.check_colors(&set.colors, 0) {
+            self.script.target = None;
+            return Err(skip);
+        }
+        if !set.colors.is_empty() || set.depth.is_some() {
+            let whole = |texture| Attachment { texture, mip: 0 };
+            self.note_depth_size(&set.colors, set.depth, 0);
             self.script.target = Some(Attachments {
-                color: whole,
-                depth: whole,
+                colors: set.colors.into_iter().map(whole).collect(),
+                depth: set.depth.map(whole),
             });
         }
+        Ok(())
     }
 
     /// Replaces the view and projection of the camera set up, keeping its target and viewport.
@@ -421,6 +554,7 @@ impl Mapper<'_> {
             none => {
                 *none = Some(CameraSetup {
                     target: TargetRef::CameraTarget,
+                    buffers: None,
                     view,
                     projection,
                     viewport: [0.0, 0.0, 1.0, 1.0],

@@ -1,4 +1,5 @@
 use super::ReceiverLayout;
+use crate::shader::rewrite::ShaderRewrite;
 
 /// Both relief entry points open with this text. The reject goes after the impostor guard, so
 /// the body still begins with the relief depth call that the relief dependency check expects.
@@ -22,7 +23,12 @@ fn insert(source: &str) -> String {
         2,
         "the opaque and masked relief entry points each open with the relief depth call",
     );
-    source.replace(ENTRY, &format!("{ENTRY}{REJECT}"))
+    source.anchored(
+        "scene_metadata::receiver::reject::insert",
+        2,
+        ENTRY,
+        &format!("{ENTRY}{REJECT}"),
+    )
 }
 
 #[cfg(test)]

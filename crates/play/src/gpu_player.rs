@@ -39,6 +39,31 @@ const MAX_TRACES: usize = 32;
 /// The most frame and flush traces a report keeps.
 const MAX_WORK_TRACES: usize = 64;
 
+/// The most textures the draw:MissingTexture line names.
+const TOP_TEXTURES: usize = 5;
+
+/// `title` and the `top` names with the largest counts, largest first and equal counts by name,
+/// as `title: name count, name count`. A count of names past `top` ends the line as `and N more`.
+/// There is no line for no counts.
+fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) -> Option<String> {
+    if counts.is_empty() {
+        return None;
+    }
+    let mut ranked: Vec<_> = counts.iter().collect();
+    // A stable sort keeps the names of equal counts in the map's order.
+    ranked.sort_by(|a, b| b.1.cmp(a.1));
+    let named: Vec<String> = ranked
+        .iter()
+        .take(top)
+        .map(|(name, count)| format!("{name} {count}"))
+        .collect();
+    let line = format!("{title}: {}", named.join(", "));
+    Some(match ranked.len().saturating_sub(top) {
+        0 => line,
+        more => format!("{line}, and {more} more"),
+    })
+}
+
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalListing {
@@ -126,6 +151,9 @@ pub struct GpuWorkReport {
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
     pub defaulted_channels: BTreeMap<String, usize>,
+    /// The draws that read the grey default for a texture no layer set and the shader does not
+    /// declare, which are recorded.
+    pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// What the adapter mapped, by description (see `Report::census`).
@@ -204,6 +232,9 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.undeclared_defaults {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
         }
         for (name, count) in report.lists.named() {
             *self.lists.entry(name).or_default() += count;
@@ -286,12 +317,19 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
+        if let Some(line) = top_counts_line(
+            "draw:MissingTexture by texture",
+            &self.missing_textures,
+            TOP_TEXTURES,
+        ) {
+            eprintln!("[gpu] {line}");
+        }
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
-            ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
+            ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
             ("renderer lists", &self.lists),
             ("records built, by kind", &self.built_by_kind),
             ("records skipped, by kind", &self.skipped_by_kind),
@@ -378,8 +416,10 @@ fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequireme
     };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
-        // them out by name.
-        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        // them out by name. Unity filters its 32-bit float render textures; without
+        // FLOAT32_FILTERABLE they are read at the nearest texel instead.
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
+            | wgpu::Features::FLOAT32_FILTERABLE,
         optional_limits: Some(wgpu::Limits {
             max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
             ..required.clone()
@@ -451,8 +491,51 @@ impl PlayerGpu {
         let requirements = device_requirements(choice.bytes, &adapter.limits());
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
             .map_err(|error| format!("no device: {error}"))?;
-        let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(choice.bytes);
+        let info = adapter.get_info();
+        Self::build(
+            device,
+            SubmissionAuthority::new(queue),
+            AllocationBudget(choice.bytes),
+            data,
+            &format!("adapter {} ({:?})", info.name, info.backend),
+            choice.source,
+        )
+    }
+
+    /// The host on a device and submission authority the caller already has, such as the
+    /// viewer's, so the player's offscreen work and the caller's frames share one device and one
+    /// submission order. The runtime may hold `budget` bytes of storage. The device keeps the
+    /// limits and features it was made with: the arena fits its limits, and work it cannot run is
+    /// left out by name, as on an adapter that lacks a feature.
+    ///
+    /// # Errors
+    /// Fails with the reason when the program runtime cannot reserve its arena on the device.
+    pub fn on(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+    ) -> Result<Self, String> {
+        Self::build(
+            device,
+            authority,
+            budget,
+            data,
+            "the caller's device",
+            "caller",
+        )
+    }
+
+    /// The runtime, its arena and the host on `device`, with the report naming the device as
+    /// `origin` and the budget as coming from `source`.
+    fn build(
+        device: wgpu::Device,
+        authority: SubmissionAuthority,
+        budget: AllocationBudget,
+        data: &Path,
+        origin: &str,
+        source: &str,
+    ) -> Result<Self, String> {
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
@@ -472,19 +555,15 @@ impl PlayerGpu {
         let arena = runtime
             .open_arena(reservation)
             .map_err(|error| format!("no arena: {error}"))?;
-        let info = adapter.get_info();
         let device_line = format!(
-            "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
-             {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
-             runtime budget {} ({})",
-            info.name,
-            info.backend,
+            "{origin}, buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size {}, \
+             max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, runtime \
+             budget {} ({source})",
             limits.max_buffer_size,
             limits.max_uniform_buffer_binding_size,
             limits.max_storage_buffer_binding_size,
             limits.min_uniform_buffer_offset_alignment,
             budget.0,
-            choice.source
         );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
@@ -626,6 +705,36 @@ mod tests {
         }
     }
 
+    fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
+        entries
+            .iter()
+            .map(|(name, count)| ((*name).to_owned(), *count))
+            .collect()
+    }
+
+    #[test]
+    fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
+        let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
+        assert_eq!(
+            top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
+            Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
+        );
+    }
+
+    #[test]
+    fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
+        let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
+        assert_eq!(
+            top_counts_line("t", &counts, 2).as_deref(),
+            Some("t: _A 4, _B 3, and 2 more")
+        );
+    }
+
+    #[test]
+    fn there_is_no_missing_texture_line_without_missing_textures() {
+        assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
+    }
+
     fn listing(names: &[&str]) -> Report {
         let mut report = Report::default();
         for name in names {
@@ -719,5 +828,39 @@ mod tests {
             gpu.report().device.contains("runtime budget"),
             "the report says where the budget came from"
         );
+    }
+
+    #[test]
+    fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
+        let shared =
+            worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
+                .unwrap();
+        let authority = SubmissionAuthority::new(shared.queue.clone());
+        let directory = tempfile::tempdir().unwrap();
+        let budget = AllocationBudget(storage_budget::DEFAULT_BYTES);
+        let gpu = PlayerGpu::on(
+            shared.device.clone(),
+            authority.clone(),
+            budget,
+            directory.path(),
+        )
+        .unwrap();
+        assert!(gpu.authority.same_authority(&authority));
+        assert!(
+            gpu.offscreen
+                .borrow()
+                .authority()
+                .same_authority(&authority),
+            "the program runtime records and submits through the caller's authority"
+        );
+        assert!(
+            !gpu.offscreen
+                .borrow()
+                .authority()
+                .same_authority(&SubmissionAuthority::new(shared.queue.clone())),
+            "a second authority on the same queue is a different one"
+        );
+        assert_eq!(gpu.storage_budget(), budget.0);
+        assert!(gpu.report().device.contains("runtime budget"));
     }
 }

@@ -5,9 +5,9 @@
 //! them and kept as long as the terrain, and the geometry of a streamed chunk is made when the
 //! chunk is uploaded and kept as long as the chunk is resident.
 //!
-//! Recording stays `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map), the fixed
-//! path's count: the pipeline and the material group once, then per chunk two vertex buffers,
-//! the index buffer and the draw. The engine's sets are bound by the pass, as before.
+//! Recording is `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map): the pipeline and
+//! the material group once, then per chunk two vertex buffers, the index buffer and the draw.
+//! The engine's sets are bound by the pass.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -85,7 +85,7 @@ pub(crate) struct ChunkGeometry {
     chunks: RefCell<BTreeMap<TerrainChunk, (Buffer, GeometryDraw)>>,
 }
 
-/// How the pipelines read the chunk and instance buffers, which are the fixed path's.
+/// How the pipelines read the chunk and instance buffers.
 pub(crate) fn vertex_layout() -> VertexLayoutSpec {
     VertexLayoutSpec::new(vec![
         VertexBufferSpec {

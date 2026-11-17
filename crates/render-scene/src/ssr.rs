@@ -211,6 +211,11 @@ impl Ssr {
     ) -> Result<Self, FrameError> {
         validate_settings(&settings)?;
         validate_extent(config, &settings, &device.limits())?;
+        if !screen.passes.computes_occlusion() {
+            return Err(FrameError::SsaoSettings(
+                "reflections read computed application occlusion",
+            ));
+        }
         let velocity = crate::velocity::reflection_writes_velocity(device, config.format, velocity);
         let environment = forward::install(
             device,

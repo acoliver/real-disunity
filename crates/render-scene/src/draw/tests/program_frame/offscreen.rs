@@ -61,7 +61,7 @@ struct Player {
 fn timed() -> Fixture {
     let mut settings = settings();
     settings.timing = TimingMode::Required;
-    let context = pollster::block_on(GpuContext::request_with_features(
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
         crate::device::REQUIRED_FEATURES | wgpu::Features::TIMESTAMP_QUERY,
     ))
     .expect("a device with timestamp queries");
@@ -293,6 +293,7 @@ fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu
         depth_write: true,
         color_write: wgpu::ColorWrites::ALL,
         blend: None,
+        stencil: None,
     };
     let packet = DrawPacket {
         program: &player.patch,
@@ -491,6 +492,9 @@ fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscre
     assert_eq!(image.pixel(30, 20), RED);
     player
         .arena
-        .retire()
+        .retire_settled(
+            fixture.context.device(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
         .expect("the cancelled frame released the arena");
 }

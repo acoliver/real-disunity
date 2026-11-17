@@ -48,12 +48,13 @@ internal static unsafe class CommandWireReader
             7 => $"Keyword {input.Text()}={input.Bool()}",
             8 => $"Allocate {input.I32()} {input.Texture()}",
             9 => $"Release {input.I32()}",
-            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()}",
+            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()} buffers={input.Optional(input.Buffers)}",
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
             15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
             16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()} block=[{input.Optional(input.Block)}]",
+            17 => $"DrawProcedural matrix={input.Floats(16)} material={input.U64()} pass={input.I32()} topology={input.U8()} vertices={input.U32()} instances={input.U32()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
@@ -100,6 +101,13 @@ internal static unsafe class CommandWireReader
         }
 
         public string Optional(Func<string> read) => U8() == 0 ? "-" : read();
+
+        /// <summary>A camera's target buffers: the color render textures in order, then the depth render texture or <c>-</c>.</summary>
+        public string Buffers()
+        {
+            var colors = List(U64);
+            return $"[{string.Join(",", colors)}]/{Optional(() => U64().ToString())}";
+        }
 
         public string Target() => U8() switch
         {

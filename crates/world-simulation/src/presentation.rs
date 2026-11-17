@@ -111,7 +111,8 @@ fn invalid() -> WorldError {
 }
 
 pub mod extraction;
-/// Owned linear texels: single-channel input coverage or RGBA prepared coverage.
+/// Owned linear texels: single-channel coverage/distance bytes or prepared RGBA coverage.
+/// Detached UI draws carry the interpretation of their single-channel texture.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CoverageTexture {
     pub width: u32,

@@ -49,17 +49,23 @@ fn selected_adapter_identity_matches_actual_device() {
     }
     if info.name.to_lowercase().contains("llvmpipe") {
         assert_eq!(identity.class, super::AdapterClass::Software);
+        // A software rasterizer has no PCI device, so nothing names its memory.
+        assert_eq!(identity.memory, None);
     }
+    assert_eq!(
+        identity.memory,
+        worldrunner_render_gpu::adapter_memory::AdapterMemory::probe(&info)
+    );
     eprintln!(
-        "adapter {}: {:?} via {:?}",
-        identity.name, identity.class, info.backend
+        "adapter {}: {:?} via {:?}, memory {:?}",
+        identity.name, identity.class, info.backend, identity.memory
     );
 }
 
 #[test]
 fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     for _ in 0..3 {
         let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
         assert_eq!(
@@ -102,7 +108,7 @@ fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
     use crate::{compositor::FrameRenderer, post_bloom_tests};
     use worldrunner_render_post::{PostError, ToneMap};
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
@@ -195,7 +201,7 @@ fn timestamp_negotiation_reports_optional_and_rejects_required_absence() {
 fn gpu_optional_timestamp_device_enables_only_available_capability() {
     use worldrunner_render_post::{PassTimer, TimingMode, TimingSupport};
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
@@ -247,7 +253,7 @@ const SUPPORTED_FORMATS: [TextureFormat; 6] = [
 ];
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request())
+    pollster::block_on(GpuContext::request_for_test())
         .expect("GPU acceptance requires a real adapter with BC support")
 }
 

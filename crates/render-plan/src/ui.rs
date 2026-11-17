@@ -7,6 +7,9 @@ pub use worldrunner_world_simulation::ui::contribution::{
     UiGlyphQuad, UiGraphicContribution, UiRenderPlan, UiTextContribution, extract_ui,
     extract_ui_layout,
 };
-pub use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
+pub use worldrunner_world_simulation::ui::presentation::{
+    UiDistanceMode, UiDistanceStyle, UiDraw, UiDrawKind, UiPresentation, validate_distance_mapping,
+};
 
 pub use worldrunner_world_simulation::ui::annotations;
+pub use worldrunner_world_simulation::ui::draw_list;

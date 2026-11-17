@@ -5,7 +5,7 @@ use super::error::OffscreenError;
 
 /// The `GraphicsFormat` codes offscreen work draws into and samples: every code of the
 /// [`color_format`] table. A player reports these as the render formats its device supports.
-pub const RENDER_FORMATS: [u32; 6] = [4, 5, 8, 45, 48, 52];
+pub const RENDER_FORMATS: [u32; 7] = [4, 5, 8, 45, 48, 49, 52];
 
 /// The wgpu format of an engine `GraphicsFormat` code.
 pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenError> {
@@ -15,6 +15,7 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
         8 => wgpu::TextureFormat::Rgba8Unorm,
         45 => wgpu::TextureFormat::R16Float,
         48 => wgpu::TextureFormat::Rgba16Float,
+        49 => wgpu::TextureFormat::R32Float,
         52 => wgpu::TextureFormat::Rgba32Float,
         _ => return Err(OffscreenError::UnsupportedFormat { code }),
     })
@@ -61,6 +62,22 @@ pub(crate) fn depth_format(bits: u8) -> Result<Option<wgpu::TextureFormat>, Offs
     })
 }
 
+/// The depth format of the depth buffer of `bits` under a color texture. Unity's 24-bit and
+/// 32-bit depth buffers carry 8 bits of stencil, which a draw may test and write; 16 bits is
+/// depth alone. A device without `DEPTH32FLOAT_STENCIL8` gets a 32-bit buffer with no stencil.
+pub(crate) fn depth_format_with_stencil(
+    bits: u8,
+    features: wgpu::Features,
+) -> Result<Option<wgpu::TextureFormat>, OffscreenError> {
+    Ok(match (bits, depth_format(bits)?) {
+        (24, _) => Some(wgpu::TextureFormat::Depth24PlusStencil8),
+        (32, plain) if features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) => {
+            plain.map(|_| wgpu::TextureFormat::Depth32FloatStencil8)
+        }
+        (_, plain) => plain,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +98,7 @@ mod tests {
             (8, wgpu::TextureFormat::Rgba8Unorm),
             (45, wgpu::TextureFormat::R16Float),
             (48, wgpu::TextureFormat::Rgba16Float),
+            (49, wgpu::TextureFormat::R32Float),
             (52, wgpu::TextureFormat::Rgba32Float),
         ] {
             assert_eq!(color_format(code).unwrap(), format);
@@ -141,12 +159,40 @@ mod tests {
     #[test]
     fn other_formats_are_named_errors_with_their_code() {
         // Rgb8 has no wgpu format; 93 is a depth format, which is not a color format.
-        for code in [0, 7, 49, 93, 101, 4000] {
+        for code in [0, 7, 50, 93, 101, 4000] {
             assert!(matches!(
                 color_format(code),
                 Err(OffscreenError::UnsupportedFormat { code: found }) if found == code
             ));
         }
+    }
+
+    #[test]
+    fn the_depth_under_color_has_stencil_from_24_bits_when_the_device_has_the_format() {
+        use wgpu::TextureFormat as F;
+        let none = wgpu::Features::empty();
+        let d32s8 = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        assert_eq!(depth_format_with_stencil(0, none).unwrap(), None);
+        assert_eq!(
+            depth_format_with_stencil(16, d32s8).unwrap(),
+            Some(F::Depth16Unorm)
+        );
+        assert_eq!(
+            depth_format_with_stencil(24, none).unwrap(),
+            Some(F::Depth24PlusStencil8)
+        );
+        assert_eq!(
+            depth_format_with_stencil(32, none).unwrap(),
+            Some(F::Depth32Float)
+        );
+        assert_eq!(
+            depth_format_with_stencil(32, d32s8).unwrap(),
+            Some(F::Depth32FloatStencil8)
+        );
+        assert!(matches!(
+            depth_format_with_stencil(8, d32s8),
+            Err(OffscreenError::UnsupportedDepth { bits: 8 })
+        ));
     }
 
     #[test]

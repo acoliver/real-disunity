@@ -1,3 +1,15 @@
+/// Builds the object program of `key` for the pass `pipelines` draws into.
+fn program(context: &GpuContext, pipelines: &ScenePipelines, key: crate::pipeline::PipelineKey) {
+    let objects = pipelines.object_context();
+    objects
+        .family()
+        .with_objects((context.device(), context.submission()), |runtime| {
+            objects
+                .program(runtime, key, crate::object::layout::GeometryLayout::Static)
+                .unwrap_or_else(|error| panic!("{key:?}: {error}"));
+        });
+}
+
 #[test]
 fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -15,7 +27,7 @@ fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
         .with_alpha_to_coverage(true)
         .unwrap(),
     );
-    let _ = velocity.get(key);
+    program(&context, &velocity, key);
     let layout = crate::ssr::forward::layout(device);
     for writes_velocity in [false, true] {
         let (object, terrain) = crate::ssr::forward::velocity_sources(
@@ -31,12 +43,12 @@ fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
             None,
             Some(&layout),
         );
-        let _ = pipelines.get(key);
+        program(&context, &pipelines, key);
         let relief = crate::pipeline::PipelineKey {
             relief: true,
             ..key
         };
-        let _ = pipelines.get(relief);
+        program(&context, &pipelines, relief);
     }
 }
 

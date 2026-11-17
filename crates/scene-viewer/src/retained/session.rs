@@ -15,6 +15,8 @@ mod timer_tests;
 #[cfg(test)]
 mod window_control_tests;
 #[cfg(test)]
+mod window_level_tests;
+#[cfg(test)]
 mod work_tests;
 
 use crate::{
@@ -198,6 +200,9 @@ impl Content for Session<'_> {
     fn window_mode(&self) -> crate::WindowMode {
         self.host.options.window_mode
     }
+    fn window_on_top(&self) -> bool {
+        self.host.window_on_top
+    }
     fn size(&self) -> [u32; 2] {
         self.host.options.size
     }
@@ -277,6 +282,8 @@ impl Content for Session<'_> {
                 temporal_history_reset: renderer.temporal_history_reset(),
                 presentation_budget_bytes: renderer.presentation_budget_bytes(),
                 capture_pool_bytes: renderer.capture_pool_bytes(),
+                resident_bytes: renderer.resident_bytes(),
+                upload_staging: renderer.upload_staging(),
             });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;

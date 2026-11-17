@@ -370,7 +370,7 @@ fn angle_cutoff_and_both_receiver_masks_reject_without_changing_pixels() {
 #[test]
 fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
@@ -421,7 +421,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mesh = gpu.meshes[0].lods[0].vertices.clone();
     let material = gpu.materials[0].clone();
-    let texture = gpu.retained.textures[0].clone();
+    let texture = (*gpu.retained.textures[0]).clone();
     let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
     let original = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
     let group = gpu.decals.group();
@@ -437,7 +437,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     assert_eq!(removed, capture(&context, &source(false, true), 1));
     assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
     assert_eq!(material, gpu.materials[0]);
-    assert_eq!(texture, gpu.retained.textures[0]);
+    assert_eq!(texture, *gpu.retained.textures[0]);
     assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);
 }
 

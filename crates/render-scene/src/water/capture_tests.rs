@@ -1,21 +1,21 @@
-//! Byte-equality captures of the water body draw: the bodies of one `WaterFeature` are recorded
-//! through `WaterFeature::draw` and through the frozen copy in `fixed`, into the same targets,
-//! and the scene colour, the three receivers and the depth are compared byte for byte.
+//! Captures of the water body draw: the bodies of one `WaterFeature` are recorded through
+//! `WaterFeature::draw` into targets, and the scene colour, the three receivers and the depth
+//! are compared with a capture that draws nothing.
 //!
 //! Every capture starts from a cleared scene colour, cleared receivers and a cleared depth, and
-//! the live capture has to differ from a capture that draws nothing, so a path that draws
-//! nothing cannot pass. The snapshot is a checker, so refraction reads something that varies.
+//! each target of the live capture has to differ from the same target of a capture that draws
+//! nothing: the resolved scene colour, the depth, and in every sample the scene colour and each
+//! of the three receivers. So a path that draws nothing, or leaves one receiver out, cannot
+//! pass. The snapshot is a checker, so refraction reads something that varies.
 //!
-//! Both paths share the feature's bind groups, buffers and vertex counts, and the live text
-//! specialisers and override constants. The captures establish that the two paths write the
-//! same bytes from the same inputs. They do not independently establish that the uniforms or
-//! the specialised text are correct; the equation tests beside this file do that.
+//! The captures do not independently establish that the uniforms or the specialised text are
+//! correct; the equation tests beside this file do that.
 //!
 //! Covered: one sample and, where the adapter has it, four; no shadow group (the third test
 //! below adds one);
 //! `DepthMode::Independent`; the default specular convention. At four samples the scene colour
 //! and the receivers are compared sample by sample. The depth is compared as the snapshot's
-//! depth copy reads it, which is the nearest sample of each pixel, so a depth difference that
+//! depth copy reads it, which is the nearest sample of each pixel, so a depth change that
 //! leaves every pixel's nearest sample alone is not seen.
 //!
 //! The matrix includes wind, the only term the vertex stage reads: its field varies across the
@@ -277,7 +277,6 @@ fn prepare(
 enum Recorder {
     Nothing,
     Live,
-    Frozen,
 }
 
 /// What a capture leaves in the targets.
@@ -313,7 +312,6 @@ fn capture(
     (depth, shadow): (DepthMode, Option<&wgpu::BindGroup>),
     recorder: Recorder,
 ) -> Captured {
-    let mut drawn = None;
     draw_water_with(
         context,
         renderer,
@@ -326,15 +324,8 @@ fn capture(
                 },
                 pass,
             ),
-            Recorder::Frozen => {
-                let pipelines = fixed::pipelines(context.device(), feature);
-                drawn = Some(fixed::record(context.device(), feature, &pipelines, pass));
-            }
         },
     );
-    if recorder == Recorder::Frozen {
-        assert_eq!(drawn, Some(1), "the fixed path draws the one body");
-    }
     let water = renderer.water.as_ref().unwrap();
     let receivers = &water.receivers[1];
     let sample_read = lighting_tests::environment_tests::sample_read;
@@ -355,8 +346,8 @@ fn capture(
     }
 }
 
-/// Compares the live draw of `case` at `samples` samples with the frozen one and with a draw of
-/// nothing, and returns how many images were equal.
+/// Compares the live draw of `case` at `samples` samples with a draw of nothing, and returns how
+/// many images the live draw wrote.
 fn compare(context: &GpuContext, case: &Case, samples: u32) -> usize {
     let name = format!("{} at {samples} samples", case.name);
     let renderer = prepared(context, case, samples);
@@ -388,21 +379,12 @@ fn compare_prepared(
     );
     let nothing = capture(context, renderer, (depth, shadow), Recorder::Nothing);
     let live = capture(context, renderer, (depth, shadow), Recorder::Live);
-    let frozen = capture(context, renderer, (depth, shadow), Recorder::Frozen);
     assert_eq!(
         live.samples.len(),
         usize::try_from(samples).unwrap(),
         "{name}: every sample is read"
     );
-    let (live_images, frozen_images) = (live.images(), frozen.images());
-    for ((image, live), (_, frozen)) in live_images.iter().zip(&frozen_images) {
-        assert!(
-            live == frozen,
-            "{name}: {image} differs from the fixed path's output (if \
-             the_live_water_wgsl_equals_the_frozen_snapshot fails too, copy the live WGSL \
-             into water/fixtures)"
-        );
-    }
+    let live_images = live.images();
     assert!(
         live.resolved != nothing.resolved,
         "{name}: the water left the scene colour as it was cleared"
@@ -416,16 +398,18 @@ fn compare_prepared(
             drawn[0] != cleared[0],
             "{name}: the water left sample {sample} of the scene colour as it was cleared"
         );
-        assert!(
-            (1..4).any(|index| drawn[index] != cleared[index]),
-            "{name}: the water wrote no receiver in sample {sample}"
-        );
+        for (target, (drawn, cleared)) in PER_SAMPLE.iter().zip(drawn.iter().zip(cleared)).skip(1) {
+            assert!(
+                drawn != cleared,
+                "{name}: the water left {target} of sample {sample} as it was cleared"
+            );
+        }
     }
     live_images.len()
 }
 
 #[test]
-fn the_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
+fn the_body_draw_changes_every_target_in_every_case() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let adapter = context.adapter().get_info().name;
@@ -441,7 +425,7 @@ fn the_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
         for &samples in &counts {
             let equal = compare(&context, &case, samples);
             println!(
-                "WATER-CAPTURE adapter={adapter:?} case={} options={} samples={samples} images={equal} equal={equal}",
+                "WATER-CAPTURE adapter={adapter:?} case={} options={} samples={samples} images={equal}",
                 case.name, case.options
             );
         }
@@ -513,7 +497,7 @@ fn shared_depth_renderer(context: &GpuContext) -> crate::compositor::FrameRender
 }
 
 #[test]
-fn the_shared_depth_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
+fn the_shared_depth_body_draw_changes_every_target() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let stencil = wgpu::Features::DEPTH32FLOAT_STENCIL8;
     let context = match GpuContext::shared_for_test_with_features(
@@ -550,7 +534,7 @@ fn the_shared_depth_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
     );
     assert_eq!(equal, 6, "six images are compared at one sample");
     println!(
-        "WATER-CAPTURE adapter={adapter:?} depth=Shared format=Depth32FloatStencil8 case={} options={} samples=1 images={equal} equal={equal}",
+        "WATER-CAPTURE adapter={adapter:?} depth=Shared format=Depth32FloatStencil8 case={} options={} samples=1 images={equal}",
         case.name, case.options
     );
 }
@@ -634,7 +618,7 @@ fn differing_columns(left: &[u8], right: &[u8]) -> Option<(usize, usize)> {
 /// band allows eight on each side.
 const EDGE_COLUMNS: std::ops::Range<usize> = 8..24;
 
-/// Draws `case` at `samples` samples with `shadow`, compares it with the fixed path, checks that
+/// Draws `case` at `samples` samples with `shadow`, compares it with a draw of nothing, checks that
 /// the group changed the resolved scene colour, prints the summary and returns that colour.
 fn compare_shadowed(
     context: &GpuContext,
@@ -660,14 +644,14 @@ fn compare_shadowed(
         "{name}: the shadow group changed no pixel of the resolved scene colour"
     );
     println!(
-        "WATER-CAPTURE adapter={adapter:?} shadow=cascade case={} options={} samples={samples} images={equal} equal={equal} shadow_changed_pixels={changed}",
+        "WATER-CAPTURE adapter={adapter:?} shadow=cascade case={} options={} samples={samples} images={equal} shadow_changed_pixels={changed}",
         case.name, case.options
     );
     shadowed.resolved
 }
 
 #[test]
-fn the_shadowed_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
+fn the_shadowed_body_draw_changes_every_target_in_every_case() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let adapter = context.adapter().get_info().name;

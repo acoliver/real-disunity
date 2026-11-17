@@ -11,6 +11,32 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
+        ///  caller checks the pass against the shader's pass count; the world holds none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_active_pass_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_active_pass_read(ulong world, DisunityActivePass* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_read(ulong world, ulong material, DisunityMaterialInfo* output);
+        /// <summary>
+        ///  Creates a render texture and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
+        /// <summary>
         ///  Replaces a render texture's description and raises its generation.
         ///
         ///  # Safety
@@ -147,14 +173,19 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_cull", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_cull(ulong world, ulong id, ulong camera, uint culling_mask, float* planes, uint plane_count, uint options);
         /// <summary>
-        ///  Records that draws from here use the view and projection of `camera` (16 floats each,
-        ///  column-major) and go to `target`.
+        ///  Records that draws from here use the view and projection of `camera` (`matrices` holds the view
+        ///  and then the projection, 16 floats each, column-major) and go to `target`. With `buffer_count`
+        ///  above 0 the camera's target is the camera target and its buffers are the color buffers of the
+        ///  `buffer_count` render textures at `buffer_colors` (in output order) and the depth buffer of
+        ///  `buffer_depth` (0 for none), as the camera had them when the script made the call; `target` is
+        ///  then the camera target.
         ///
         ///  # Safety
-        ///  `view` and `projection` are readable for 16 floats; `target` is readable for one record.
+        ///  `matrices` is readable for 32 floats; `target` is readable for one record; `buffer_colors` is
+        ///  readable for `buffer_count` ids, or null when the count is zero.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_setup_camera", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_setup_camera(ulong world, ulong camera, float* view, float* projection, DisunityTargetRef* target);
+        internal static extern DisunityResult disunity_offscreen_setup_camera(ulong world, ulong camera, float* matrices, DisunityTargetRef* target, ulong* buffer_colors, uint buffer_count, ulong buffer_depth);
         /// <summary>
         ///  Records the view and projection that the draws after it use: 16 floats each, column-major,
         ///  as a camera setup carries them. It names no camera and leaves the bound targets as they are.
@@ -177,6 +208,17 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
+        /// <summary>
+        ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
+        ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound
+        ///  targets with the current view and projection. `topology` is 0 for a triangle list and 1 for a
+        ///  line list; any other value and a negative count are refused.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_procedural", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_procedural(ulong world, float* matrix, ulong material, int pass, uint topology, int vertex_count, int instance_count);
         /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///

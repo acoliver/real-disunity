@@ -313,7 +313,10 @@ fn invalid_plans(
     depth: &AttachmentView,
 ) -> Vec<(Vec<PassDeclaration>, FrameError)> {
     let original = opaque(Some(color), Some(depth), 0.125, 1.0);
-    let mut cases = vec![(Vec::new(), FrameError::MissingSlot(PassSlot::Opaque))];
+    let mut cases = vec![(
+        Vec::new(),
+        FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)),
+    )];
     for missing_color in [false, true] {
         let mut pass = original.clone();
         if missing_color {
@@ -321,7 +324,10 @@ fn invalid_plans(
         } else {
             pass.depth = None;
         }
-        cases.push((vec![pass], FrameError::AttachmentContract(PassSlot::Opaque)));
+        cases.push((
+            vec![pass],
+            FrameError::AttachmentContract(PassEntry::new(PassSlot::Opaque)),
+        ));
     }
     for field in 0..6 {
         let mut pass = original.clone();
@@ -329,15 +335,15 @@ fn invalid_plans(
         let expected = match field {
             0 => {
                 attachment.size = [16, 32];
-                FrameError::AttachmentContract(PassSlot::Opaque)
+                FrameError::AttachmentContract(PassEntry::new(PassSlot::Opaque))
             }
             1 => {
                 attachment.samples = 4;
-                FrameError::AttachmentContract(PassSlot::Opaque)
+                FrameError::AttachmentContract(PassEntry::new(PassSlot::Opaque))
             }
             2 => {
                 attachment.format = wgpu::TextureFormat::R32Float;
-                FrameError::AttachmentContract(PassSlot::Opaque)
+                FrameError::AttachmentContract(PassEntry::new(PassSlot::Opaque))
             }
             3 => {
                 attachment.resource.version = 9;
@@ -349,7 +355,7 @@ fn invalid_plans(
             }
             _ => {
                 attachment.load = AttachmentLoad::ClearColor(wgpu::Color::BLACK);
-                FrameError::AttachmentContract(PassSlot::Opaque)
+                FrameError::AttachmentContract(PassEntry::new(PassSlot::Opaque))
             }
         };
         cases.push((vec![pass], expected));

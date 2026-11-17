@@ -199,6 +199,7 @@ fn reject_stock_suffix(
                 passes: &[pass],
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [],
         )

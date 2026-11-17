@@ -2,7 +2,7 @@
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FeaturePass,
-    FrameError, PassDeclaration, PassSlot, ResourceRef,
+    FrameError, PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 pub(crate) mod capture;
@@ -95,7 +95,9 @@ impl Targets {
             .iter()
             .find(|pass| pass.slot == PassSlot::Opaque)
             .and_then(|pass| pass.depth.as_ref())
-            .ok_or(FrameError::AttachmentContract(PassSlot::ContourIds))?;
+            .ok_or(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::ContourIds,
+            )))?;
         validate_format(features, depth.samples)
     }
 

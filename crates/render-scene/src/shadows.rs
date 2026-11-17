@@ -32,10 +32,9 @@
 //! ```
 
 mod capture;
+mod frame;
 pub(crate) use capture::capture_sources;
 mod cascades;
-mod compaction;
-mod encoding;
 mod refresh;
 mod resources;
 pub(crate) use resources::SHADOW_UNIFORM_BYTES;
@@ -54,7 +53,6 @@ pub(crate) fn object_casters(
 ) -> crate::object::program::Context {
     resources::object_caster(pipelines, settings, sampling)
 }
-mod schedule;
 mod settings;
 mod terrain_caster;
 #[cfg(test)]
@@ -70,7 +68,7 @@ pub use worldrunner_render_shadow::CascadeRefreshPolicy;
 pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 
 use worldrunner_render_plan::{RenderScene, SceneEffects};
-use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::{AttachmentView, BorrowedFeature};
 
 use crate::device::GpuContext;
 use crate::draw::{DrawError, SceneGpu};
@@ -598,150 +596,6 @@ pub fn capture_scene_shadowed(
     Ok(target.read_encoded(context, submission)?)
 }
 
-struct ShadowFeature<'a> {
-    publications: crate::draw::DrawPublications,
-    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
-    /// before Opaque, which draws only the rest.
-    renders: bool,
-    screen: Option<crate::scene_metadata::Geometry>,
-    gpu: &'a mut SceneGpu,
-    contour: Option<crate::draw::ContourDraw>,
-    pipelines: &'a ScenePipelines,
-    object_caster: &'a crate::object::program::Context,
-    terrain_caster: &'a terrain_caster::TerrainCaster,
-    depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
-    /// Set 2 for the object draws and for the terrain draws.
-    shadow_groups: &'a crate::scene_metadata::receiver::SetTwo,
-    cascades: cascades::CascadeViews,
-    /// Cascades whose depth pass runs this frame.
-    refresh: [bool; 4],
-    frame: FrameUniform,
-    shadow_uniform: &'a wgpu::Buffer,
-    settings: DirectionalShadowSettings,
-    sampling: worldrunner_render_plan::SceneShadowSampling,
-    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
-    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
-}
-impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
-    fn prepare(
-        &mut self,
-        _context: &mut worldrunner_render_post::PrepareContext<'_>,
-    ) -> Result<(), worldrunner_render_post::FrameError> {
-        Ok(())
-    }
-    fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics(context);
-        self.publications.install(
-            context,
-            crate::draw::PassInstallation::Installed,
-            self.screen.is_some(),
-            self.gpu.ssao,
-        );
-        self.gpu.prepare_instances(context);
-        self.gpu.commit_frame(context, self.frame);
-        self.select_views(context);
-        self.gpu.prepare_view_compaction(context, None, &self.frame);
-        self.prepare_cascade_compaction(context);
-        // Each light view has its own immutable uniform range; billboards keep the main eye.
-        for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
-            let light_frame = light_frame(&self.frame, matrix);
-            context.upload_buffer(&self.depth_frames[index].0, 0, &light_frame.to_bytes());
-        }
-        context.upload_buffer(
-            self.shadow_uniform,
-            0,
-            &resources::uniform_bytes_with_sampling(&self.cascades, self.settings, self.sampling),
-        );
-    }
-    fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.publications.publish(context, self.gpu);
-    }
-    fn draw(
-        &self,
-        context: &worldrunner_render_post::DrawContext,
-        pass: &mut wgpu::RenderPass<'_>,
-    ) {
-        if context.slot == worldrunner_render_post::PassSlot::ContourIds {
-            self.gpu
-                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
-            return;
-        }
-        if context.slot == worldrunner_render_post::PassSlot::Celestial {
-            self.gpu.draw_celestial(pass);
-            return;
-        }
-        #[cfg(test)]
-        crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
-            let screen = self.screen.as_ref().expect("declared G-buffer producer");
-            let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-            let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
-            if self.renders {
-                self.publications
-                    .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
-            }
-        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
-            self.publications.prepass();
-            let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record_prepass(
-                self.gpu,
-                self.gpu
-                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
-            );
-        } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
-            if self.cascades.no_receivers {
-                return;
-            }
-            let matrix = self.cascades.matrices[index as usize];
-            let group = &self.depth_frames[index as usize].1;
-            self.publications.record(self.gpu.draw_casters_prepared(
-                pass,
-                group,
-                self.object_caster,
-                (index, matrix),
-            ));
-            let caster = self
-                .terrain_caster
-                .pipeline()
-                .expect("the terrain caster is prepared before its passes");
-            let terrain = self
-                .gpu
-                .draw_terrain_depth(pass, (&caster, group), (index, matrix));
-            self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
-        } else {
-            if let Some(screen) = &self.screen {
-                pass.set_bind_group(
-                    3,
-                    screen
-                        .forward
-                        .as_ref()
-                        .map_or(&screen.ambient, |(_, group)| group),
-                    &[],
-                );
-            }
-            pass.set_bind_group(2, &self.shadow_groups.object, &[]);
-            if context.slot == worldrunner_render_post::PassSlot::OpaqueLighting {
-                let inputs = self.deferred.as_ref().expect("declared lighting pass");
-                self.gpu
-                    .draw_deferred_lighting(pass, self.pipelines, inputs);
-                return;
-            }
-            if self.renders {
-                self.publications.record_remainder(
-                    self.gpu,
-                    self.gpu.draw_forward_remainder(pass, self.pipelines),
-                );
-                return;
-            }
-            self.publications.record_color(
-                self.gpu,
-                self.gpu
-                    .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -751,7 +605,19 @@ impl From<std::convert::Infallible> for ShadowError {
     }
 }
 
-pub(crate) use encoding::light_frame;
+/// The uniform a shadow caster pass draws with: the light's own matrix and nothing of the
+/// viewer's sub-pixel jitter, which would make cascade edges move with the camera. The material
+/// mip bias is a screen-space policy for the reconstructed view, so a light-view raster uses 0.
+pub(crate) fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
+    FrameUniform {
+        // Directional light fits use right-handed views independently of the viewer.
+        view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        view_projection: matrix,
+        temporal: None,
+        material_mip_bias: 0.0,
+        ..*frame
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn wind_test_pipelines(

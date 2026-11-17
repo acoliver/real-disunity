@@ -8,7 +8,8 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{RenderScene, SceneOpaquePath, SceneSsr};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
+    FrameFeature, PassEntry, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef,
+    ToneMap,
 };
 
 use super::capture_tests::scenes;
@@ -111,7 +112,11 @@ pub(super) fn prepare_with(
     uniform: &FrameUniform,
     configuration: RendererConfiguration,
 ) -> Drawn {
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = if configuration.ssao.is_some() {
+        ScenePipelines::with_ssao(context.device(), HDR, 1).unwrap()
+    } else {
+        ScenePipelines::new(context.device(), HDR)
+    };
     let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *uniform);
     let renderer =
@@ -562,7 +567,9 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             // Opaque, so the slot has no depth to lend and says so.
             assert_eq!(
                 rendered.err(),
-                Some(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))
+                Some(FrameError::AttachmentContract(PassEntry::new(
+                    PassSlot::OpaqueGbuffer
+                )))
             );
             continue;
         }

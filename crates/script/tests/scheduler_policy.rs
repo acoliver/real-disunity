@@ -1,11 +1,14 @@
 //! The scheduler policy of a game's original engine (#147): each setting against the default.
 
+#[path = "scheduler_policy/pause_mask.rs"]
+mod pause_mask;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use worldrunner_script::{
     ClockNative, Fraction, GameScripts, NegativeSleep, NewThread, Order, ResumeValue,
-    SchedulerNames, SchedulerPolicy, ScriptConfig, ThreadWait, WaitKind, ZeroSleep,
+    SchedulerNames, SchedulerPolicy, ScriptConfig, ScriptError, ThreadWait, WaitKind, ZeroSleep,
 };
 
 const GRANTS: [&str; 6] = ["Spawn", "Sleep", "Wakeup", "Kill", "Current", "now"];
@@ -192,6 +195,48 @@ fn two_clocks() -> SchedulerPolicy {
 }
 
 #[test]
+fn clock_paused_is_false_by_default() {
+    let scripts = game(&SchedulerPolicy::default(), &[]);
+    assert!(!scripts.clock_paused("game").unwrap());
+
+    let scripts = game(&two_clocks(), &[]);
+    assert!(!scripts.clock_paused("real").unwrap());
+    assert!(!scripts.clock_paused("game").unwrap());
+}
+
+#[test]
+fn clock_paused_reads_each_clocks_current_state() {
+    let scripts = game(&two_clocks(), &[]);
+    scripts.set_clock_paused("game", true).unwrap();
+    assert!(scripts.clock_paused("game").unwrap());
+    assert!(!scripts.clock_paused("real").unwrap());
+    scripts.set_clock_paused("real", true).unwrap();
+    scripts.set_clock_paused("game", false).unwrap();
+    assert!(!scripts.clock_paused("game").unwrap());
+    assert!(scripts.clock_paused("real").unwrap());
+    scripts.set_clock_paused("real", false).unwrap();
+    assert!(!scripts.clock_paused("real").unwrap());
+}
+
+#[test]
+fn clock_paused_rejects_an_unknown_clock_like_the_setter() {
+    let scripts = game(&two_clocks(), &[]);
+    let error = scripts.clock_paused("nonesuch").unwrap_err();
+    let setter_error = scripts.set_clock_paused("nonesuch", true).unwrap_err();
+    assert!(matches!(
+        &error,
+        ScriptError::Sandbox { message } if message == "no clock named nonesuch"
+    ));
+    assert!(matches!(
+        &setter_error,
+        ScriptError::Sandbox { message } if message == "no clock named nonesuch"
+    ));
+    assert_eq!(error.to_string(), setter_error.to_string());
+    assert!(!scripts.clock_paused("real").unwrap());
+    assert!(!scripts.clock_paused("game").unwrap());
+}
+
+#[test]
 fn clocks_keep_their_own_time_and_a_paused_clock_stops() {
     let mut scripts = game(&two_clocks(), &["SpawnGame", "GameTime", "RealTime"]);
     scripts.set_clock("game", 1000).unwrap();
@@ -216,13 +261,26 @@ fn clocks_keep_their_own_time_and_a_paused_clock_stops() {
          Spawn(function() Sleep(5) Note('real2') end)",
     );
     scripts.set_clock_paused("game", true).unwrap();
-    scripts.advance(20).unwrap();
+    assert!(scripts.clock_paused("game").unwrap());
+    assert!(!scripts.clock_paused("real").unwrap());
+    assert!(scripts.advance(20).unwrap().is_empty());
+    assert!(scripts.clock_paused("game").unwrap());
+    assert!(!scripts.clock_paused("real").unwrap());
     assert_eq!(scripts.clock_now("real"), Some(30));
     assert_eq!(scripts.clock_now("game"), Some(1010));
-    assert_eq!(log(&mut scripts).last().unwrap(), "real2@15");
+    assert_eq!(log(&mut scripts), ["real@10", "game@1010", "real2@15"]);
+    assert_eq!(
+        scripts.thread_count(),
+        1,
+        "paused game thread is still queued"
+    );
     scripts.set_clock_paused("game", false).unwrap();
-    scripts.advance(5).unwrap();
+    assert!(!scripts.clock_paused("game").unwrap());
+    assert!(scripts.advance(5).unwrap().is_empty());
+    assert!(!scripts.clock_paused("game").unwrap());
+    assert_eq!(scripts.clock_now("game"), Some(1015));
     assert_eq!(log(&mut scripts).last().unwrap(), "game2@1015");
+    assert_eq!(scripts.thread_count(), 0);
     assert!(scripts.set_clock("nonesuch", 1).is_err());
 }
 

@@ -249,9 +249,7 @@ impl FrameRenderer {
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             temporal: std::rc::Rc::default(),
             ssao: metadata
-                .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
-                })
+                .map(|prepass| prepass.metadata(context.device(), context.queue(), size))
                 .transpose()?,
             chain: PostChain::with_scene_depth(
                 context.device(),
@@ -430,7 +428,7 @@ impl FrameRenderer {
             .ssao
             .as_ref()
             .filter(|ssao| ssao.size != size)
-            .map(|ssao| crate::scene_metadata::SceneMetadata::new(device, size, ssao.settings))
+            .map(|ssao| ssao.rebuilt(device, size))
             .transpose()?;
         let water = self
             .water

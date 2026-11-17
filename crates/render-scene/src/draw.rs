@@ -233,6 +233,9 @@ struct GpuLod {
 #[derive(Debug)]
 struct GpuMesh {
     lods: Vec<GpuLod>,
+    /// Keeps the chain's buffers counted under `ResourceClass::Mesh` while the mesh is resident.
+    /// The levels hold plain buffer handles, because draws and streaming clone them.
+    _census: Vec<worldrunner_render_gpu::census::CensusEntry>,
 }
 
 /// The terrain surface, as the one draw it has become.
@@ -267,7 +270,8 @@ struct GpuTerrain {
 #[derive(Debug)]
 struct Retained {
     contact_heights: Buffer,
-    textures: Vec<Texture>,
+    /// Scene textures, counted under `ResourceClass::Texture` while resident.
+    textures: Vec<worldrunner_render_gpu::census::Tracked<Texture>>,
     placeholder: Texture,
     sampler: Sampler,
     material_uniforms: Vec<Buffer>,
@@ -384,7 +388,7 @@ impl SceneGpu {
                 (&views, &placeholder_view),
                 &contact_heights,
             );
-        let meshes = upload_meshes(device, queue, &prepared.meshes);
+        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
                 device,

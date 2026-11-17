@@ -314,10 +314,7 @@ impl PlayerRetainedDriver {
             .map_err(|_| PlayError::Invalid("frame delta too long".into()))?;
         self.host.advance(nanos, 1_000_000_000)?;
         self.simulated += dt;
-        self.size = viewer.size().map(|side| side.max(1));
-        if let Some(gpu) = &self.gpu {
-            gpu.set_screen(Some(self.size));
-        }
+        self.resize_screen(viewer.size());
         let presentation = self
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
@@ -354,6 +351,13 @@ impl PlayerRetainedDriver {
         self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
         self.capture(viewer, tick.frame)
+    }
+
+    fn resize_screen(&mut self, size: [u32; 2]) {
+        self.size = size.map(|side| side.max(1));
+        if let Some(gpu) = &self.gpu {
+            gpu.set_screen(Some(self.size));
+        }
     }
 
     /// Hands the frame's offscreen work to the viewer, which runs it in its next frame, and puts

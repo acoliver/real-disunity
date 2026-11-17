@@ -418,6 +418,7 @@ KeyCodeTests.Run();
 DeferredDestroyTests.Run();
 ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();
+PlayerApiReportTests.Run();
 NativeCallbackTests.Run();
 PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();

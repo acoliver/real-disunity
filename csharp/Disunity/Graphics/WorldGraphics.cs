@@ -209,21 +209,31 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }
 
-    internal static void RecordBlit((uint Kind, ulong Texture) source, ulong target, ulong material, int pass)
+    /// <summary>The target kinds a recorded blit or copy writes: a render texture by its world id, or a temporary render
+    /// texture by its property name id.</summary>
+    internal const uint TargetRender = 0, TargetTemporary = 1;
+
+    /// <summary>The texture kind of a temporary render texture named by its property name id, which only recorded blit and copy
+    /// sources and globals set by recorded work take.</summary>
+    internal const uint TextureTemporary = 4;
+
+    internal static void RecordBlit((uint Kind, ulong Texture) source, (uint Kind, ulong Target) target, ulong material, int pass)
     {
         var work = new DisunityOffscreenWork
         {
-            kind = WorkBlit, source_kind = source.Kind, source = source.Texture, target = target, material = material, pass = pass,
+            kind = WorkBlit, source_kind = source.Kind, source = source.Texture, target_kind = target.Kind, target = target.Target,
+            material = material, pass = pass,
         };
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }
 
-    internal static void RecordCopy((uint Kind, ulong Texture) source, uint sourceElement, uint sourceMip, ulong target, uint targetElement, uint targetMip)
+    internal static void RecordCopy((uint Kind, ulong Texture) source, uint sourceElement, uint sourceMip, (uint Kind, ulong Target) target,
+        uint targetElement, uint targetMip)
     {
         var work = new DisunityOffscreenWork
         {
             kind = WorkCopyTexture, source_kind = source.Kind, source = source.Texture, source_element = sourceElement, source_mip = sourceMip,
-            target = target, target_element = targetElement, target_mip = targetMip,
+            target_kind = target.Kind, target = target.Target, target_element = targetElement, target_mip = targetMip,
         };
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }

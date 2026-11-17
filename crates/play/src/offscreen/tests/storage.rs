@@ -13,7 +13,7 @@ use worldrunner_render_program::unity::synthetic::compute_spirv;
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, OffscreenWork, PropertyValue, RenderTextureId, ShaderSource,
-    TextureRef, WorldComputeShader,
+    TargetRef, TextureRef, WorldComputeShader,
 };
 
 use super::super::flush::{FlushOutcome, OffscreenHost};
@@ -139,7 +139,7 @@ fn a_blit_after_the_dispatch_samples_what_the_kernel_wrote() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(painted),
-            target: copied,
+            target: TargetRef::Render(copied),
             material: Some(material),
             pass: 0,
         })

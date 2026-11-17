@@ -8,11 +8,12 @@
 //! scene copy. It says nothing about separate G-buffer targets or about GPU speed.
 
 use super::super::super::rig::{BLACK, Fixture, GREEN, RED};
+use super::super::composition::check_timing_record;
 use super::super::{
     CAMERA_SHADER, CYAN, CameraId, MaterialId, OffscreenFrame, Player, Readbacks, ZERO,
     build_frame, check_offscreen_stages, frame, material, pixel, player,
 };
-use super::{assert_scene_counts, fixture, hdr_pixel};
+use super::{assert_scene_counts, fixture, geometry, hdr_pixel};
 use crate::test_support::SceneTestSession;
 use worldrunner_render_plan::{SceneOpaquePath, SceneTransform};
 use worldrunner_render_post::contracts::RasterId;
@@ -74,7 +75,7 @@ fn queued_offscreen_frames_keep_their_results_with_gbuffer_observation() {
 struct Queued {
     readbacks: Readbacks,
     scene: wgpu::Buffer,
-    operations: Vec<&'static str>,
+    operations: Vec<RasterId>,
 }
 
 /// The first frame with cyan and magenta renderers over a white clear. The blit inverts them to
@@ -104,10 +105,6 @@ fn inverted(color: [u8; 4]) -> [u8; 4] {
     [255 - color[0], 255 - color[1], 255 - color[2], 255]
 }
 
-fn operation_names(ids: impl Iterator<Item = RasterId>) -> Vec<&'static str> {
-    ids.map(|id| id.stage.name).collect()
-}
-
 /// Records, encodes and submits one mixed frame with its own timing frame and copy of the HDR
 /// scene. Nothing here polls the device or reads a result back.
 fn submit_frame(
@@ -125,7 +122,7 @@ fn submit_frame(
     let mut recording = authority.begin(&device).unwrap();
     fixture.renderer.begin_timing(timing).unwrap();
     let admitted = operations.admit(&recording).unwrap();
-    let names = operation_names(admitted.ids());
+    let ids = admitted.ids().collect();
     fixture.gpu.admit_offscreen(admitted);
     fixture.encode(&mut recording).unwrap();
     let scene = fixture.copy_scene(&mut recording);
@@ -155,7 +152,7 @@ fn submit_frame(
     Queued {
         readbacks,
         scene,
-        operations: names,
+        operations: ids,
     }
 }
 
@@ -219,8 +216,6 @@ fn assert_queued_frames(path: SceneOpaquePath) {
         before + 2,
         "two frames, two submissions, before anything is read"
     );
-    assert_eq!(first.operations, second.operations);
-
     check_offscreen_stages(first.readbacks, &device);
     check_second_stages(second.readbacks, &device);
     check_scene(&fixture, &first.scene, &FIRST_SCENE);
@@ -231,4 +226,20 @@ fn assert_queued_frames(path: SceneOpaquePath) {
         before + 2,
         "captures submit nothing and the timings stay unread"
     );
+    check_queued_timings(&fixture, [first.operations, second.operations], path);
+}
+
+fn check_queued_timings(fixture: &Fixture, operations: [Vec<RasterId>; 2], path: SceneOpaquePath) {
+    let timings = crate::test_support::take_timings(fixture.context.device(), 2, || {
+        fixture.renderer.take_timings()
+    });
+    assert_eq!(timings.len(), 2, "both queued frames retain their timings");
+    let geometry = geometry(path);
+    for (id, ids) in [11, 12].into_iter().zip(operations) {
+        let timing = timings
+            .iter()
+            .find(|timing| timing.frame_id == id)
+            .expect("each submitted frame has its own timing record");
+        check_timing_record(timing, &ids, &geometry);
+    }
 }

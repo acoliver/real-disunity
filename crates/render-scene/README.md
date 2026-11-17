@@ -234,7 +234,9 @@ submission authority before mapping any readback. Distinct synthetic tints and
 clear colors pin each frame's camera, blit and array-copy bytes. The stock card
 moves one meter along X between submissions through the ordinary instance update,
 so known HDR pixels differ between frames too. Each encoder records its own
-readback copies while both frames reuse the scene and G-buffer targets.
+readback copies while both frames reuse the scene and G-buffer targets. After both
+submissions, each frame's timing record checks that every offscreen operation
+executes once before the path's expected geometry passes.
 
 ## Material sampling
 

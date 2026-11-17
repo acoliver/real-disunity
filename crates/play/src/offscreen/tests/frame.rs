@@ -143,6 +143,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             Record::CameraRender { .. } => "camera",
             Record::Blit { .. } => "blit",
             Record::CopyTexture { .. } => "copy",
+            Record::GenerateMips { .. } => "mips",
             Record::Clear { .. } => "clear",
             Record::Draws(_) => "draws",
             Record::Globals(_) => "globals",

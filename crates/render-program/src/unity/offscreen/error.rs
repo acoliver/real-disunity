@@ -60,6 +60,16 @@ pub enum OffscreenError {
     },
     #[error("texture {0:?} is 3D, which only a kernel reads or writes, so no record can name it")]
     VolumeInGraph(TextureId),
+    #[error("texture {0:?} is 3D, so its mip levels cannot be generated")]
+    MipsOfVolume(TextureId),
+    #[error(
+        "the mip levels of texture {texture:?} cannot be generated: {format:?} is not a color \
+         format the device filters as floating-point or unorm values"
+    )]
+    MipsOfFormat {
+        texture: TextureId,
+        format: wgpu::TextureFormat,
+    },
     #[error("shader {0:?} is not registered")]
     UnknownShader(ShaderId),
     #[error("material {0:?} is not in the frame")]

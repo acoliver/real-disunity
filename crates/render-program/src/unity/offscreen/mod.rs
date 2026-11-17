@@ -15,6 +15,7 @@ mod format;
 pub mod frame;
 mod list_steps;
 mod meshes;
+mod mips;
 mod plan;
 mod probe;
 mod procedural;

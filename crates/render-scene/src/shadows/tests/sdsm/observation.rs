@@ -1,7 +1,7 @@
 //! A depth-fitted frame with the G-buffer observation on: the fitted frame's capture
 //! contract has to declare the four G-buffer targets the `OpaqueGbuffer` slot writes.
 use super::*;
-use crate::gbuffer::{GBUFFER_FORMATS, Gbuffer};
+use crate::gbuffer::{GBUFFER_FORMATS, Gbuffer, GbufferUse};
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use worldrunner_render_post::{
     BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
@@ -49,7 +49,13 @@ fn gpu_depth_fitted_frame_renders_with_the_gbuffer_observation() {
     ] {
         let (mut frame, mut renderer) = screen_renderers(&context);
         let size = [view().viewport().width, view().viewport().height];
-        frame.gbuffer = Some(Gbuffer::new(context.device(), size));
+        let format = frame.targets().scene().texture().format();
+        frame.gbuffer = Some(Gbuffer::new(
+            context.device(),
+            size,
+            (format, false),
+            GbufferUse::Observe,
+        ));
         frame
             .register(context.device(), Box::new(GbufferRecorder))
             .unwrap();

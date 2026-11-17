@@ -9,6 +9,7 @@ mod overlay;
 pub(crate) mod pages;
 mod picking;
 mod shadow_policy;
+mod shared_device;
 mod terrain;
 mod timers;
 mod timing;

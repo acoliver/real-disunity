@@ -58,18 +58,23 @@ fn render_frame(host: &mut RetainedHost, renderer: &mut Renderer) {
     }
 }
 
-#[test]
-fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
-    let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
-    let device = renderer.context.device().clone();
-    let authority = renderer.context.submission().clone();
+/// The player's runtime on `device` and `authority`, as `PlayerGpu::on` makes it, and the
+/// operations of its one camera clearing the render texture to yellow, with the read-back of it.
+/// The last value keeps the runtime and its arena alive: the operations join a frame only while
+/// their arena's owner has not retired.
+pub(crate) fn clearing_operations(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> (
+    worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    worldrunner_render_program::unity::offscreen::PendingImage,
+    Box<dyn std::any::Any>,
+) {
     let limits = device.limits();
-    // The player's runtime on the viewer's device and authority, as PlayerGpu::on makes it.
     let mut runtime =
         ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(ARENA));
     let mut configuration = Configuration::new(
-        &authority,
+        authority,
         (),
         AllocationSet::default(),
         &limits,
@@ -86,6 +91,21 @@ fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
     let mut state = OffscreenState::new(&runtime);
     let mut operations = state.build(&mut runtime, &arena, &clear()).unwrap();
     let image = operations.read_back(TARGET, 0, 0).unwrap();
+    (operations, image, Box::new((runtime, arena)))
+}
+
+/// Whether `bytes` is the 8 by 8 render texture [`clear`] makes, all yellow.
+pub(crate) fn is_cleared(bytes: &[u8]) -> bool {
+    bytes.len() == 8 * 8 * 4 && bytes.chunks_exact(4).all(|texel| texel == YELLOW)
+}
+
+#[test]
+fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
+    let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let (operations, image, _runtime) = clearing_operations(&device, &authority);
 
     let before = authority.submitted_serial();
     host.admit_offscreen(operations);
@@ -95,10 +115,8 @@ fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
         authority.submitted_serial() > before,
         "the frame went through the viewer's authority"
     );
-    let bytes = image.bytes(&device);
-    assert_eq!(bytes.len(), 8 * 8 * 4);
     assert!(
-        bytes.chunks_exact(4).all(|texel| texel == YELLOW),
+        is_cleared(&image.bytes(&device)),
         "the camera cleared the render texture in the viewer's frame"
     );
 }

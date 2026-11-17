@@ -1,4 +1,4 @@
-mod offscreen;
+pub(crate) mod offscreen;
 mod opaque_admission;
 mod resource_budget;
 mod resource_edits;

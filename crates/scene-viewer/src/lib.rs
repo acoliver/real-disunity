@@ -38,7 +38,7 @@ pub use window_size::{DisplayInfo, WindowMode, WindowSizeUnit};
 mod renderer;
 mod retained;
 mod start;
-pub use start::ViewerStart;
+pub use start::{SharedGpu, ViewerStart};
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,

@@ -79,7 +79,7 @@ pub(crate) fn expected(frames: u32, uploads: u32) -> Vec<u8> {
     bytes
 }
 
-fn noop() -> (wgpu::Device, wgpu::Queue, SubmissionAuthority) {
+pub(crate) fn noop() -> (wgpu::Device, wgpu::Queue, SubmissionAuthority) {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let authority = SubmissionAuthority::new(queue.clone());
     (device, queue, authority)

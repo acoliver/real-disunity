@@ -1,5 +1,7 @@
 //! Device lifetime and host-facing audio. Device startup is explicit and opt-in.
 mod device;
+#[cfg(test)]
+mod pause_tests;
 mod ring;
 #[cfg(test)]
 pub(super) mod test_support;
@@ -15,7 +17,7 @@ use std::{
 };
 pub use worldrunner_world_simulation::audio::{
     AudioCommand, AudioError, AudioReply, BusConfig, ClipHandle, DuckingDetector, DuckingRule,
-    EnvelopeMode, VoiceHandle,
+    EnvelopeMode, ExistingVoices, PlaybackOptions, VoiceHandle,
 };
 use worldrunner_world_simulation::audio::{AudioMixer, MAX_VOICES};
 
@@ -109,7 +111,7 @@ impl AudioService {
     }
     /// Null-device playback is explicit simulated playback, never a Ready device.
     pub fn play(&mut self, clip: &ClipHandle, gain: f32) -> Result<VoiceHandle, AudioServiceError> {
-        self.play_routed(clip, gain, None)
+        self.play_with_options(clip, PlaybackOptions::new(gain))
     }
     pub fn play_on_bus(
         &mut self,
@@ -117,13 +119,18 @@ impl AudioService {
         gain: f32,
         bus: &str,
     ) -> Result<VoiceHandle, AudioServiceError> {
-        self.play_routed(clip, gain, Some(bus))
+        self.play_with_options(
+            clip,
+            PlaybackOptions {
+                bus: Some(bus.into()),
+                ..PlaybackOptions::new(gain)
+            },
+        )
     }
-    fn play_routed(
+    pub fn play_with_options(
         &mut self,
         clip: &ClipHandle,
-        gain: f32,
-        bus: Option<&str>,
+        options: PlaybackOptions,
     ) -> Result<VoiceHandle, AudioServiceError> {
         if !matches!(
             self.status(),
@@ -135,10 +142,25 @@ impl AudioService {
         if state.mixer.occupied_voices() + state.pending.len() == MAX_VOICES {
             return Err(AudioError::VoiceLimit.into());
         }
-        Ok(match bus {
-            Some(bus) => state.mixer.play_on_bus(clip, gain, bus)?,
-            None => state.mixer.play(clip, gain)?,
-        })
+        Ok(state.mixer.play_with_options(clip, options)?)
+    }
+    pub fn pause_mask(&self) -> Result<u32, AudioServiceError> {
+        self.require_open()?;
+        Ok(self
+            .state
+            .lock()
+            .expect("audio mixer poisoned")
+            .mixer
+            .pause_mask())
+    }
+    /// Controls affect subsequent mixing; queued device samples are not withdrawn.
+    pub fn pause(&mut self, bits: u32, existing: ExistingVoices) -> Result<(), AudioServiceError> {
+        self.command(AudioCommand::Pause { bits, existing })?;
+        Ok(())
+    }
+    pub fn resume(&mut self, bits: u32) -> Result<(), AudioServiceError> {
+        self.command(AudioCommand::Resume { bits })?;
+        Ok(())
     }
     pub fn configure_bus(
         &mut self,
@@ -197,6 +219,9 @@ impl AudioService {
             AudioCommand::Play { clip, gain } => AudioReply::Playing(self.play(&clip, gain)?),
             AudioCommand::PlayOnBus { clip, gain, bus } => {
                 AudioReply::Playing(self.play_on_bus(&clip, gain, &bus)?)
+            }
+            AudioCommand::PlayWithOptions { clip, options } => {
+                AudioReply::Playing(self.play_with_options(&clip, options)?)
             }
             AudioCommand::Stop(voice) => AudioReply::Stopped(self.stop(&voice)),
             control => {

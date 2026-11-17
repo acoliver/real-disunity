@@ -17,7 +17,7 @@ mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, BusConfig, ClipHandle, DuckingDetector, DuckingRule, EnvelopeMode,
-    VoiceHandle,
+    ExistingVoices, PlaybackOptions, VoiceHandle,
 };
 mod timers;
 #[cfg(test)]

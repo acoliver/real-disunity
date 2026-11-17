@@ -29,6 +29,26 @@ come from the shared CPU mixer. Audio playback commands do not cross the C ABI;
 there is no ABI record or revision change. See the
 [bus and envelope contract](../world-simulation/README.md#option-buses-and-ducking).
 
+`pause_mask`, `pause(bits, ExistingVoices::{Continue, Suspend})` and `resume(bits)`
+forward to the same mixer under its existing lock. These controls and their
+`AudioCommand::{PauseMask, Pause, Resume}` forms work before startup and reject
+`Closed`; no second reason mask lives in the service. Device cleanup and null-device
+setup cancel voices while preserving held reasons. Accepted output-rate changes
+also preserve reasons but require empty voice and completion slots.
+The read-only query returns `Result<u32, AudioServiceError>`; its typed command
+returns `AudioReply::PauseMask`.
+
+`play_with_options` and `AudioCommand::PlayWithOptions` use the same status and
+pending-completion capacity checks as ordinary playback. `PlaybackOptions::new(gain)`
+is pause-eligible; setting `pause_eligible: false` admits independent UI, music or
+other caller-selected sounds on any existing bus. Eligibility is never inferred
+from a bus name or the host clock. Suspended voices retain capacity and cursor
+and cannot finish until resumed; ineligible voices continue under explicit null
+host-time advancement. The mixer defines the [reason and detector semantics](../world-simulation/README.md#pause-reasons-and-voice-eligibility).
+Pause and resume affect subsequent mixing only. They cannot withdraw samples
+already queued in the physical output ring; no instantaneous speaker silence is
+promised.
+
 `status()` distinguishes `Ready`, `Closed` and `Unavailable` reasons: not started,
 null device, no device, open failure, unsupported configuration and device loss.
 Transitions deliver `AudioStatusChanged`; startup failures also provide

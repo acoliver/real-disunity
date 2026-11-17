@@ -83,6 +83,28 @@ impl<T: Send + 'static> FrameOwner<T> {
     }
 }
 impl<T: Send + 'static> FrameOwner<T> {
+    /// [`Self::retire`] after the completion bookkeeping of the owner's last submission has
+    /// run. A caller that waited for that submission can otherwise see `Busy`: the bookkeeping
+    /// runs in a callback on whichever thread's poll took the completion, after this thread's
+    /// wait may already have returned (hub issue 4d2b47c55165). Polls without blocking until
+    /// it has run or `deadline` passes.
+    ///
+    /// # Errors
+    /// `Busy` while a frame still holds the owner at the deadline, `Expired` once retired.
+    pub fn retire_settled(
+        &mut self,
+        device: &wgpu::Device,
+        deadline: std::time::Instant,
+    ) -> Result<T, LeaseError> {
+        let last = self.lease.last_submission();
+        // A timeout leaves the lease in use, which retire reports as Busy.
+        let _ = self
+            .lease
+            .0
+            .authority
+            .await_completion_record(device, last, deadline);
+        self.retire()
+    }
     /// Gives up the owner's own hold without expiring the frames that already retained it.
     /// Those frames can still be submitted and keep the owner until they are cancelled,
     /// dropped or completed on the GPU, which frees it. No further frame can retain it.

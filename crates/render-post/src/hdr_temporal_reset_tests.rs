@@ -131,19 +131,16 @@ impl Rig {
             self.output,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.upload_scene(&mut encoder, seed);
-        let factory = self.chain.factory();
-        self.frames.select(factory, block.history_valid);
-        factory.prepare_temporal(&mut encoder, slot, block).unwrap();
-        factory
-            .prepare_effects(&mut encoder, slot, 0.031, true)
-            .unwrap();
-        let view = out.create_view(&wgpu::TextureViewDescriptor::default());
-        self.chain.encode(&mut encoder, &view);
-        self.queue.submit([encoder.finish()]);
+        crate::submit_frame(&self.device, &self.queue, |encoder| {
+            self.upload_scene(encoder, seed);
+            let factory = self.chain.factory();
+            self.frames.select(factory, block.history_valid);
+            factory.prepare_temporal(encoder, slot, block)?;
+            factory.prepare_effects(encoder, slot, 0.031, true)?;
+            let view = out.create_view(&wgpu::TextureViewDescriptor::default());
+            self.chain.encode(encoder, &view);
+            Ok::<_, crate::PostError>(())
+        });
         self.frames.submitted();
         crate::Readback::new(
             &self.device,

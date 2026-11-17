@@ -28,21 +28,20 @@ fn gpu_output_scale_precedes_bloom_addition() {
         [8, 8],
         wgpu::TextureFormat::Rgba8UnormSrgb,
     );
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    super::paint(
-        &device,
-        &mut encoder,
-        c.targets().resolved(),
-        "return vec4<f32>(0.25,0.25,0.25,1.0);",
-    );
-    c.factory()
-        .prepare_effects(&mut encoder, 0, 0.25, false)
-        .unwrap();
-    c.encode(
-        &mut encoder,
-        &out.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(&device, &queue, |encoder| {
+        super::paint(
+            &device,
+            encoder,
+            c.targets().resolved(),
+            "return vec4<f32>(0.25,0.25,0.25,1.0);",
+        );
+        c.factory().prepare_effects(encoder, 0, 0.25, false)?;
+        c.encode(
+            encoder,
+            &out.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, PostError>(())
+    });
     device.poll(wgpu::PollType::Poll).unwrap();
     let bytes = Readback::new(&device, FrameConfig::new([8, 8], out.format(), 1), 100_000)
         .unwrap()
@@ -81,22 +80,22 @@ fn submit_sample(
     value: f32,
     step: (usize, f32, bool),
 ) {
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    super::paint(
-        device,
-        &mut encoder,
-        c.targets().resolved(),
-        &format!("return vec4<f32>({value},{value},{value},1.0);"),
-    );
-    c.factory()
-        .prepare_effects(&mut encoder, step.0, step.1, step.2)
-        .unwrap();
     let output = super::output(device, c.targets().config().size);
-    c.encode(
-        &mut encoder,
-        &output.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(device, queue, |encoder| {
+        super::paint(
+            device,
+            encoder,
+            c.targets().resolved(),
+            &format!("return vec4<f32>({value},{value},{value},1.0);"),
+        );
+        c.factory()
+            .prepare_effects(encoder, step.0, step.1, step.2)?;
+        c.encode(
+            encoder,
+            &output.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, PostError>(())
+    });
     device.poll(wgpu::PollType::Poll).unwrap();
 }
 
@@ -137,10 +136,9 @@ fn gpu_luminance_history_pause_reset_and_unsubmitted_cancellation() {
         buffer(&device, &queue, c.factory().exposure_buffer(2).unwrap()),
         second
     );
-    let mut cancelled = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    c.factory()
-        .prepare_effects(&mut cancelled, 2, 1.0, true)
-        .unwrap();
+    let cancelled = crate::record_frame(&device, &queue, |encoder| {
+        c.factory().prepare_effects(encoder, 2, 1.0, true)
+    });
     drop(cancelled);
     submit_sample(&device, &queue, &c, 0.125, (2, 0.0, false));
     assert_eq!(

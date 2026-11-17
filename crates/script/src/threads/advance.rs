@@ -34,24 +34,88 @@ impl GameScripts {
         self.with_clock(name, |clock| clock.now = ms)
     }
 
+    /// Whether the clock called `name` has a nonzero [`Self::clock_pause_mask`].
     /// A paused clock does not move in an advance, and its threads do not run.
-    pub fn set_clock_paused(&self, name: &str, paused: bool) -> Result<(), ScriptError> {
-        self.with_clock(name, |clock| clock.paused = paused)
+    /// Clocks start unpaused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
+    pub fn clock_paused(&self, name: &str) -> Result<bool, ScriptError> {
+        self.clock_pause_mask(name).map(|mask| mask != 0)
     }
 
-    fn with_clock(
+    /// The scheduler-owned pause mask of the clock called `name`. Clocks start with
+    /// mask zero. Any nonzero mask pauses advancement and execution of that clock's threads.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
+    pub fn clock_pause_mask(&self, name: &str) -> Result<u32, ScriptError> {
+        let scheduler = self.scheduler().lock().expect("scheduler");
+        let index = scheduler
+            .clock_index(name)
+            .ok_or_else(|| ScriptError::Sandbox {
+                message: format!("no clock named {name}"),
+            })?;
+        Ok(scheduler.clocks[index].pause_mask)
+    }
+
+    /// ORs `bits` into the named clock's pause mask and returns the new mask.
+    /// Zero bits leave the current mask unchanged. Any nonzero mask pauses the clock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
+    pub fn pause_clock(&self, name: &str, bits: u32) -> Result<u32, ScriptError> {
+        self.with_clock(name, |clock| {
+            clock.pause_mask |= bits;
+            clock.pause_mask
+        })
+    }
+
+    /// Clears `bits` from the named clock's pause mask and returns the new mask.
+    /// Zero bits leave the current mask unchanged. The clock resumes when its mask is zero.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
+    pub fn resume_clock(&self, name: &str, bits: u32) -> Result<u32, ScriptError> {
+        self.with_clock(name, |clock| {
+            clock.pause_mask &= !bits;
+            clock.pause_mask
+        })
+    }
+
+    /// With `true`, ORs bit 1 into the clock's pause mask, exactly as
+    /// [`Self::pause_clock`] with bits 1 does. With `false`, clears every pause bit.
+    /// A nonzero mask stops the clock and its threads during advancement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScriptError::Sandbox`] with `no clock named {name}` for an unknown clock.
+    pub fn set_clock_paused(&self, name: &str, paused: bool) -> Result<(), ScriptError> {
+        self.with_clock(name, |clock| {
+            if paused {
+                clock.pause_mask |= 1;
+            } else {
+                clock.pause_mask = 0;
+            }
+        })
+    }
+
+    fn with_clock<R>(
         &self,
         name: &str,
-        change: impl FnOnce(&mut super::state::ClockState),
-    ) -> Result<(), ScriptError> {
+        change: impl FnOnce(&mut super::state::ClockState) -> R,
+    ) -> Result<R, ScriptError> {
         let mut scheduler = self.scheduler().lock().expect("scheduler");
         let index = scheduler
             .clock_index(name)
             .ok_or_else(|| ScriptError::Sandbox {
                 message: format!("no clock named {name}"),
             })?;
-        change(&mut scheduler.clocks[index]);
-        Ok(())
+        Ok(change(&mut scheduler.clocks[index]))
     }
 
     /// Threads waiting to run, including ones sleeping until woken.

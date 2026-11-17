@@ -70,7 +70,11 @@ impl FrameRenderer {
         match feature {
             FeatureTarget::Depth => self.ssao.as_ref().map(|s| s.passes.depth_levels()[0]),
             FeatureTarget::Normals => self.ssao.as_ref().map(|s| &s.normals),
-            FeatureTarget::AmbientOcclusion => self.ssao.as_ref().map(|s| &s.passes.filtered),
+            FeatureTarget::AmbientOcclusion => self
+                .ssao
+                .as_ref()
+                .filter(|s| s.passes.computes_occlusion())
+                .map(|s| &s.passes.filtered),
             FeatureTarget::Specular => self.ssr.as_ref().map(crate::ssr::Ssr::material_target),
             FeatureTarget::SsrConfidence => {
                 self.ssr.as_ref().map(crate::ssr::Ssr::confidence_target)

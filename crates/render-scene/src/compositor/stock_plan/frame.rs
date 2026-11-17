@@ -281,20 +281,17 @@ fn derive<'s>(
         Some((declaration, feature)) => (Some(declaration), Some(feature)),
         None => (None, None),
     };
-    if let (Some(metadata), Some(screen)) = (environment.ssao, screen_declaration.as_mut()) {
-        let others = authored
-            .features
-            .iter()
-            .chain(&reflection_declaration)
-            .chain(&snapshot_declaration)
-            .chain(&retained);
-        crate::ssao::passes::schedule_declared_reads(
-            metadata,
-            (&mut passes, &mut views),
-            screen,
-            others,
-        )?;
-    }
+    schedule_screen_reads(
+        environment.ssao,
+        screen_declaration.as_mut(),
+        authored.features,
+        [
+            reflection_declaration.as_ref(),
+            snapshot_declaration.as_ref(),
+        ],
+        &retained,
+        (&mut passes, &mut views),
+    )?;
     if let Some(gbuffer) = environment.gbuffer {
         let declared = authored
             .features
@@ -337,6 +334,26 @@ fn derive<'s>(
             snapshot,
         },
     })
+}
+
+/// Adds to the screen feature the stages that the caller's, reflection, snapshot and retained
+/// declarations read, once every other feature of the frame has planned.
+fn schedule_screen_reads(
+    ssao: Option<&SceneMetadata>,
+    screen: Option<&mut FeatureDeclaration>,
+    authored: &[FeatureDeclaration],
+    planned: [Option<&FeatureDeclaration>; 2],
+    retained: &[FeatureDeclaration],
+    plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
+) -> Result<(), FrameError> {
+    let (Some(ssao), Some(screen)) = (ssao, screen) else {
+        return Ok(());
+    };
+    let others = authored
+        .iter()
+        .chain(planned.into_iter().flatten())
+        .chain(retained);
+    crate::ssao::passes::schedule_declared_reads(ssao, plan, screen, others)
 }
 
 fn take_planned_colour_layout(declaration: &mut FeatureDeclaration, passes: &[PassDeclaration]) {

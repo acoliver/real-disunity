@@ -175,6 +175,7 @@ pub struct DisunityOffscreenWork {
     pub kind: u32,
     pub camera: u64,
     pub target: u64,
+    pub target_kind: u32,
     pub source_kind: u32,
     pub source: u64,
     pub material: u64,
@@ -281,4 +282,12 @@ pub struct DisunityUiDraw {
     pub corner_3_g: f32,
     pub corner_3_b: f32,
     pub corner_3_a: f32,
+    /// 0 ordinary coverage; 1 distance fill, 2 outline, 3 glow.
+    pub distance_mode: u32,
+    pub distance_spread: f32,
+    pub distance_radius: f32,
+    pub effect_r: f32,
+    pub effect_g: f32,
+    pub effect_b: f32,
+    pub effect_a: f32,
 }

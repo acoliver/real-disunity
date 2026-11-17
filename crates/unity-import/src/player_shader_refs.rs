@@ -11,7 +11,10 @@
 use std::path::Path;
 
 use worldrunner_unity_serialized::{
-    ClassId, object::PPtr, script_data::ScriptLayouts, shader::Shader,
+    ClassId,
+    object::PPtr,
+    script_data::ScriptLayouts,
+    shader::{Pass, Shader},
 };
 
 use crate::{
@@ -135,9 +138,8 @@ pub(crate) fn decode_shader(
         ));
     }
     let first = shader.parsed.sub_shaders.first();
-    let pass_names: Vec<String> = first.map_or_else(Vec::new, |sub| {
-        sub.passes.iter().map(|pass| pass.name.clone()).collect()
-    });
+    let pass_names: Vec<String> =
+        first.map_or_else(Vec::new, |sub| sub.passes.iter().map(pass_name).collect());
     Ok(ShaderDecl {
         name,
         render_queue: queue,
@@ -147,6 +149,16 @@ pub(crate) fn decode_shader(
         file: file_name(&files.data_dir, file),
         path_id: *path_id,
     })
+}
+
+/// The name a pass declares. A built player keeps it in the pass's render state and leaves the
+/// pass's own name field empty; the own field is read only when the state names nothing.
+fn pass_name(pass: &Pass) -> String {
+    if pass.state.name.is_empty() {
+        pass.name.clone()
+    } else {
+        pass.state.name.clone()
+    }
 }
 
 /// A serialized file's name as the plan states it: relative to the data directory when it is

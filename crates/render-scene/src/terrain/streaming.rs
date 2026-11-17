@@ -1,4 +1,5 @@
 //! Camera-dependent quadtree selection. Leaves always cover the entire grid.
+pub use super::height_bounds::TerrainHeightBounds;
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::{SceneTerrain, TerrainStreamingPolicy};
 
@@ -20,8 +21,13 @@ impl TerrainChunk {
             stride,
         }
     }
-    pub fn children(self) -> Option<Vec<Self>> {
-        if self.stride == 1 {
+    fn span(self) -> u32 {
+        (self.maximum[0] - self.minimum[0]).max(self.maximum[1] - self.minimum[1])
+    }
+    /// Splits the window without reducing the longest axis below the minimum.
+    /// Partial windows and rectangular grids can have shorter other axes.
+    pub fn children(self, minimum_leaf_texels: u32) -> Option<Vec<Self>> {
+        if self.stride == 1 && self.span() / 2 < minimum_leaf_texels {
             return None;
         }
         let middle = std::array::from_fn::<_, 2, _>(|axis| {
@@ -46,7 +52,7 @@ impl TerrainChunk {
                     xs.iter().map(move |&(west, east)| Self {
                         minimum: [west, south],
                         maximum: [east, north],
-                        stride: self.stride / 2,
+                        stride: (self.stride / 2).max(1),
                     })
                 })
                 .collect(),
@@ -85,11 +91,15 @@ pub struct TerrainSelectionObservation {
 
 pub(crate) fn observe(
     terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
 ) -> TerrainSelectionObservation {
-    observation(&desired(terrain, current, matrix, viewport), current)
+    observation(
+        &desired(terrain, bounds, current, matrix, viewport),
+        current,
+    )
 }
 
 fn observation(desired: &[TerrainChunk], leaves: &[TerrainChunk]) -> TerrainSelectionObservation {
@@ -113,11 +123,12 @@ fn observation(desired: &[TerrainChunk], leaves: &[TerrainChunk]) -> TerrainSele
 /// Every chunk counts as ready, so the selection never waits for a mesh.
 pub fn select(
     terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
 ) -> TerrainSelection {
-    select_with_retired(terrain, current, matrix, viewport, 0, &|_| true)
+    select_with_retired(terrain, bounds, current, matrix, viewport, 0, &|_| true)
 }
 
 /// The leaves, uploads and replacement work of one selection, built up in admission order.
@@ -192,6 +203,7 @@ impl<'a> Plan<'a> {
 /// held back and reported in `unready`, and its leaves keep being drawn.
 pub(crate) fn select_with_retired(
     terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
@@ -200,7 +212,7 @@ pub(crate) fn select_with_retired(
 ) -> TerrainSelection {
     let policy = terrain.streaming_policy().expect("streaming policy");
     let mut plan = Plan::new(current, ready);
-    let desired = desired(terrain, current, matrix, viewport);
+    let desired = desired(terrain, bounds, current, matrix, viewport);
     merge(
         terrain,
         TerrainChunk::root(terrain, policy),
@@ -212,6 +224,7 @@ pub(crate) fn select_with_retired(
     }
     refine(
         terrain,
+        bounds,
         &desired,
         (matrix, viewport),
         current.len() + retired,
@@ -222,6 +235,7 @@ pub(crate) fn select_with_retired(
 
 fn refine(
     terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
     desired: &[TerrainChunk],
     (matrix, viewport): (Mat4, [u32; 2]),
     occupied: usize,
@@ -232,18 +246,25 @@ fn refine(
     let mut candidates: Vec<_> = plan
         .leaves
         .iter()
-        .map(|leaf| (error(terrain, *leaf, matrix, viewport), *leaf))
+        .map(|leaf| (error(terrain, bounds, *leaf, matrix, viewport), *leaf))
         .collect();
     candidates.sort_by(|(error_a, a), (error_b, b)| {
         error_b
             .total_cmp(error_a)
-            // Larger strides precede smaller strides, ordering levels from the root.
             .then_with(|| b.stride.cmp(&a.stride))
+            .then_with(|| {
+                // Only opted-in stride-one levels need span to distinguish their depth.
+                if a.stride == 1 && policy.minimum_leaf_texels() < policy.chunk_intervals() {
+                    b.span().cmp(&a.span())
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
             .then_with(|| a.cmp(b))
     });
     let refinements = Nested::new(desired);
     for (_, node) in candidates {
-        let Some(children) = node.children() else {
+        let Some(children) = node.children(policy.minimum_leaf_texels()) else {
             continue;
         };
         if !refinements.inside(node) {
@@ -286,7 +307,7 @@ fn merge(
                 plan.held.push(node);
             }
         }
-    } else if let Some(children) = node.children() {
+    } else if let Some(children) = node.children(policy.minimum_leaf_texels()) {
         for child in children {
             merge(terrain, child, desired, plan);
         }
@@ -310,8 +331,9 @@ pub(crate) fn caster_leaves(
     let mut pending = vec![TerrainChunk::root(terrain, policy)];
     let mut leaves = Vec::new();
     while let Some(node) = pending.pop() {
-        let split = camera.inside(node) && error(terrain, node, matrix, [size, size]) > threshold;
-        match node.children() {
+        let split = camera.inside(node)
+            && footprint(terrain, node, matrix, [size, size], elevation(terrain)) > threshold;
+        match node.children(policy.minimum_leaf_texels()) {
             Some(children) if split => pending.extend(children),
             _ => leaves.push(node),
         }
@@ -321,6 +343,7 @@ pub(crate) fn caster_leaves(
 }
 fn desired(
     terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
@@ -331,14 +354,14 @@ fn desired(
     let leaves = Nested::new(current);
     while let Some(node) = pending.pop() {
         let refined = leaves.inside(node);
-        let footprint = error(terrain, node, matrix, viewport);
+        let footprint = error(terrain, bounds, node, matrix, viewport);
         let threshold = f64::from(policy.split_error_millipixels());
         let subdivide = if refined {
             footprint >= threshold / 1200.0
         } else {
             footprint > threshold / 1000.0
         };
-        if subdivide && let Some(children) = node.children() {
+        if subdivide && let Some(children) = node.children(policy.minimum_leaf_texels()) {
             pending.extend(children);
         } else {
             selected.push(node);
@@ -379,15 +402,41 @@ fn contains(parent: TerrainChunk, child: TerrainChunk) -> bool {
 
 /// Maximum projected cell-axis footprint, sampled at the chunk's eight bounding corners.
 /// A near-plane intersection requests finest geometry rather than dividing by zero.
-pub fn error(terrain: &SceneTerrain, node: TerrainChunk, matrix: Mat4, viewport: [u32; 2]) -> f64 {
-    let points = points(terrain, node);
+pub fn error(
+    terrain: &SceneTerrain,
+    bounds: &TerrainHeightBounds,
+    node: TerrainChunk,
+    matrix: Mat4,
+    viewport: [u32; 2],
+) -> f64 {
+    footprint(terrain, node, matrix, viewport, bounds.elevation(node))
+}
+
+pub(super) fn footprint(
+    terrain: &SceneTerrain,
+    node: TerrainChunk,
+    matrix: Mat4,
+    viewport: [u32; 2],
+    height: [f32; 2],
+) -> f64 {
+    let points = points(terrain, node, height);
     let clips = points.map(|point| matrix * point.extend(1.0));
     if outside(&clips) {
         return 0.0;
     }
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    let cap = policy.chunk_intervals();
+    // Opted-in leaves keep shrinking the nominal footprint below the mesh cap
+    // even though source sampling stays at stride one.
+    let fraction = if policy.minimum_leaf_texels() == cap {
+        1.0
+    } else {
+        f32::from(u16::try_from(node.span().min(cap)).expect("bounded cell cap"))
+            / f32::from(u16::try_from(cap).expect("bounded cell cap"))
+    };
     let cell = crate::geometry::millimeter_to_meter(
         i64::from(node.stride) * i64::from(terrain.sample_spacing_millimeters()),
-    );
+    ) * fraction;
     let mut result = 0.0_f64;
     for (point, clip) in points.into_iter().zip(clips) {
         if clip.w <= 0.0 {
@@ -409,7 +458,7 @@ pub fn error(terrain: &SceneTerrain, node: TerrainChunk, matrix: Mat4, viewport:
 /// World bounds of a chunk's geometry: its sample corners across the terrain's elevation
 /// range, down to the skirt one metre below the lowest sample.
 pub(crate) fn chunk_bounds(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 2] {
-    let corners = points(terrain, node);
+    let corners = points(terrain, node, elevation(terrain));
     let mut minimum = corners.iter().copied().fold(Vec3::INFINITY, Vec3::min);
     let maximum = corners.iter().copied().fold(Vec3::NEG_INFINITY, Vec3::max);
     minimum.z -= 1.0;
@@ -438,8 +487,7 @@ pub(crate) fn camera_order(
     order
 }
 
-fn points(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 8] {
-    let height = elevation(terrain);
+pub(super) fn points(terrain: &SceneTerrain, node: TerrainChunk, height: [f32; 2]) -> [Vec3; 8] {
     std::array::from_fn(|index| {
         let x = if index & 1 == 0 {
             node.minimum[0]

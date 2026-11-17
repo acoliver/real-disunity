@@ -1,3 +1,5 @@
+use crate::shader::rewrite::ShaderRewrite;
+
 pub(crate) fn build(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -7,9 +9,14 @@ pub(crate) fn build(
 ) -> wgpu::RenderPipeline {
     let depth_layout = depth.then(|| depth_layout(device));
     let module = super::scene_shader(device, "native UI overlay", &source(depth));
+    let distance_layout = crate::dynamic::distance::layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("native UI overlay"),
-        bind_group_layouts: &[depth_layout.as_ref(), Some(material)],
+        bind_group_layouts: &[
+            depth_layout.as_ref(),
+            Some(material),
+            Some(&distance_layout),
+        ],
         immediate_size: 0,
     });
     let vertices = crate::geometry::vertex_attributes();
@@ -112,7 +119,9 @@ pub(crate) fn depth_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 
 pub(crate) fn source(depth: bool) -> String {
     let source = include_str!("../shader/overlay.wgsl")
-        .replace(
+        .anchored(
+            "renderer::overlay::source",
+            1,
             "UI_DEPTH_BINDINGS",
             if depth {
                 include_str!("../shader/overlay_depth.wgsl")
@@ -120,7 +129,9 @@ pub(crate) fn source(depth: bool) -> String {
                 ""
             },
         )
-        .replace(
+        .anchored(
+            "renderer::overlay::source",
+            1,
             "UI_DEPTH_TEST",
             if depth { "test_ui_depth(input);" } else { "" },
         );

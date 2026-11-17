@@ -120,6 +120,7 @@ pub(crate) fn selected_camera<'a>(
         };
         if camera.enabled
             && camera.draws_to_screen()
+            && world.camera_buffers(component.handle).is_none()
             && selected.is_none_or(|(_, best)| camera.outranks(best))
             && world.active_in_hierarchy(component.object)?
         {

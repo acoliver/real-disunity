@@ -79,3 +79,27 @@ fn independent_metadata_depth_is_prefix_only() {
     assert!(writes.suffix_keys().any(|key| key == depth));
     assert!(!writes.suffix_keys().any(|key| key == metadata));
 }
+
+#[test]
+fn contour_capture_keeps_physical_target_and_publication_in_suffix_only() {
+    let scene = WriteKey::Resident(1);
+    let published = WriteKey::Resident(2);
+    let target = WriteKey::Resource {
+        id: 2,
+        generation: 0,
+    };
+    let depth = WriteKey::Resource {
+        id: 3,
+        generation: 0,
+    };
+    let reduction = WriteKey::Readback(4);
+    for active in [false, true] {
+        let mut suffix = vec![scene, published, depth];
+        suffix.extend(active.then_some(target));
+        let writes = capture_writes(vec![scene], suffix, vec![depth], depth, reduction).unwrap();
+        assert!(!writes.prefix_keys().any(|key| key == target));
+        assert!(!writes.prefix_keys().any(|key| key == published));
+        assert!(writes.suffix_keys().any(|key| key == published));
+        assert_eq!(writes.suffix_keys().any(|key| key == target), active);
+    }
+}

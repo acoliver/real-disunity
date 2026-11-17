@@ -2,7 +2,7 @@
 //! textures. The world validates and orders these records like the rest of the offscreen list; a
 //! host applies them in order. A recorded global value or keyword is not folded into the global
 //! shader state, because the host applies it at its place in the list.
-use super::{GraphicsError, OffscreenWork, RenderTextureId, properties};
+use super::{GraphicsError, OffscreenWork, PropertyValue, RenderTextureId, properties};
 use crate::{World, WorldError};
 
 /// Most color targets one `SetRenderTarget` names.
@@ -43,11 +43,20 @@ impl World {
                     Err(GraphicsError::NotFinite.into())
                 }
             }
-            OffscreenWork::SetGlobal(value) => self.check_property(value),
+            OffscreenWork::SetGlobal(value) => self.check_work_global(value),
             OffscreenWork::SetGlobalKeyword { name, .. } => {
                 properties::check_name(name).map_err(Into::into)
             }
             OffscreenWork::AllocateTemporary { desc, .. } => desc.validate().map_err(Into::into),
+            _ => Ok(()),
+        }
+    }
+
+    /// Checks a global value recorded work sets, which may name a temporary render texture.
+    fn check_work_global(&self, value: &PropertyValue) -> Result<(), WorldError> {
+        value.validate()?;
+        match value {
+            PropertyValue::Texture(_, slot) => self.check_work_texture(&slot.texture),
             _ => Ok(()),
         }
     }

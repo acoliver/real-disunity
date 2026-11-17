@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    ComputeBufferId, ComputeShaderId, GlobalShaderState, MaterialId, OffscreenWork,
+    CameraBuffers, ComputeBufferId, ComputeShaderId, GlobalShaderState, MaterialId, OffscreenWork,
     RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer, WorldComputeShader,
     WorldMaterial, WorldRenderTexture, WorldShader,
 };
@@ -28,6 +28,8 @@ use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
 pub struct CameraView {
     pub settings: Camera,
     pub world_matrix: [f32; 16],
+    /// The buffers the camera draws into when its script set them, which replace a target texture.
+    pub target_buffers: Option<CameraBuffers>,
 }
 
 /// A light that may light what a camera of the frame draws: its settings and its object's pose in
@@ -226,6 +228,7 @@ fn camera_views(world: &World, work: &[OffscreenWork]) -> BTreeMap<ComponentHand
             CameraView {
                 settings: *settings,
                 world_matrix: pose.to_cols_array(),
+                target_buffers: world.camera_buffers(*camera),
             },
         );
     }

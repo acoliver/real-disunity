@@ -17,6 +17,8 @@
 //! [`MaterialUniform`](crate::pipeline::MaterialUniform) and lent as a buffer, so there is one
 //! source of truth for its offsets.
 
+#[path = "contour.rs"]
+mod contour;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -30,16 +32,16 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    ExternalSet, GraphicsProgram, ProgramRuntime, TargetSignature, VertexBufferSpec,
-    VertexLayoutSpec,
+    ExternalSet, GraphicsProgram, ProgramRuntime, TargetSignature,
 };
 use worldrunner_render_program::state::{RasterState, RenderState};
 use worldrunner_render_program::variant::{FeatureId, FeatureSet};
 
-use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE};
-use crate::geometry::{instance_attributes, previous_instance_attributes, vertex_attributes};
+use super::layout::GeometryLayout;
+use super::skin_source::{PALETTE_BINDING, skinned_source};
 use crate::pipeline::{MATERIAL_UNIFORM_BYTES, MaskCoverage, PipelineKey};
 use crate::renderer::depth::DepthMode;
+use crate::skinning::PALETTE_ENTRY_BYTES;
 use crate::terrain::program::{
     Family, Screen, declare, filtering, float, frame_bindings, object_shadow_bindings, read_only,
 };
@@ -57,6 +59,8 @@ pub(crate) mod semantic {
     pub(crate) const IMPOSTOR_DEPTH: &str = "object.impostor_depth";
     pub(crate) const IMPOSTOR_BORDERS: &str = "object.impostor_borders";
     pub(crate) const WIND_FIELD: &str = "object.wind_field";
+    /// The scene palette, bound in the programs of skinned geometry only.
+    pub(crate) const SKIN_PALETTE: &str = "object.skin_palette";
     /// Declared by the frame set in the contexts that write the object-motion residual.
     pub(crate) const PREVIOUS_FRAME: &str = "scene.previous_frame";
 }
@@ -150,6 +154,21 @@ pub(crate) fn material_bindings() -> Vec<ResourceBinding> {
     bindings
 }
 
+/// The bindings of the material set of `geometry`: the static ones, and for skinned geometry
+/// the scene palette, which only the vertex stage reads.
+pub(crate) fn material_bindings_of(geometry: GeometryLayout) -> Vec<ResourceBinding> {
+    let mut bindings = material_bindings();
+    if geometry.is_skinned() {
+        bindings.push(declare(
+            (1, PALETTE_BINDING),
+            semantic::SKIN_PALETTE,
+            ShaderStages::VERTEX,
+            read_only(PALETTE_ENTRY_BYTES),
+        ));
+    }
+    bindings
+}
+
 /// What the shader reads from the frame group, set 0: terrain's bindings and the previous-frame
 /// block that the velocity contexts' vertex stage reads.
 fn object_frame_bindings() -> ResourceLayout {
@@ -165,32 +184,8 @@ fn object_frame_bindings() -> ResourceLayout {
     ResourceLayout::new(bindings)
 }
 
-/// How the pipelines read the mesh, instance and, in the velocity contexts, previous-instance
-/// buffers: slots 0, 1 and 2.
-pub(crate) fn vertex_layout(previous_transforms: bool) -> VertexLayoutSpec {
-    let mut buffers = vec![
-        VertexBufferSpec {
-            stride: VERTEX_STRIDE,
-            step: wgpu::VertexStepMode::Vertex,
-            attributes: vertex_attributes().to_vec(),
-        },
-        VertexBufferSpec {
-            stride: INSTANCE_STRIDE,
-            step: wgpu::VertexStepMode::Instance,
-            attributes: instance_attributes().to_vec(),
-        },
-    ];
-    if previous_transforms {
-        buffers.push(VertexBufferSpec {
-            stride: INSTANCE_STRIDE,
-            step: wgpu::VertexStepMode::Instance,
-            attributes: previous_instance_attributes().to_vec(),
-        });
-    }
-    VertexLayoutSpec::new(buffers)
-}
-
 /// Everything a context's programs are built from.
+#[derive(Clone)]
 pub(crate) struct Description {
     pub device: Device,
     pub source: Rc<str>,
@@ -216,6 +211,8 @@ pub(crate) struct Description {
 pub(crate) enum Entry {
     /// The forward pass: the shared vertex entry point and the key's fragment entry point.
     Forward,
+    /// Read-only Equal-depth visible IDs, without stencil ownership or lighting.
+    Contour,
     /// The shadow casters: a depth-only pass into a directional map, drawn with the caster entry
     /// points and the map's depth test and bias.
     Caster(Caster),
@@ -258,8 +255,11 @@ struct ContextState {
     description: Description,
     family: Family,
     screen: Option<Screen>,
-    vertex: RefCell<Option<StageProgram>>,
-    programs: RefCell<BTreeMap<FeatureSet, GraphicsProgram>>,
+    contour_layout: Option<BindGroupLayout>,
+    contour: RefCell<Option<Context>>,
+    contour_groups: RefCell<BTreeMap<u8, wgpu::BindGroup>>,
+    vertex: RefCell<BTreeMap<GeometryLayout, StageProgram>>,
+    programs: RefCell<BTreeMap<(GeometryLayout, FeatureSet), GraphicsProgram>>,
 }
 
 /// A context that does not keep its programs alive.
@@ -289,6 +289,10 @@ impl Context {
             .and_then(|_| Screen::of(&description.source));
         Self(Rc::new(ContextState {
             id: CONTEXTS.fetch_add(1, Ordering::Relaxed),
+            contour_layout: matches!(description.entry, Entry::Contour)
+                .then(|| contour::layout(&description.device)),
+            contour: RefCell::default(),
+            contour_groups: RefCell::default(),
             description,
             family: family.clone(),
             screen,
@@ -356,14 +360,18 @@ impl Context {
                 stencil: None,
             };
         }
-        description.depth.render_state(
+        let mut state = description.depth.render_state(
             description.colors.len(),
             RasterState {
                 cull: key.cull_mode(),
                 front_face: description.front_face,
                 alpha_to_coverage: key.alpha_to_coverage(description.samples),
             },
-        )
+        );
+        if matches!(description.entry, Entry::Contour) {
+            state = contour::state(state);
+        }
+        state
     }
 
     fn external(&self) -> Vec<ExternalSet> {
@@ -373,6 +381,13 @@ impl Context {
             layout: description.frame.clone(),
             bindings: object_frame_bindings(),
         }];
+        if let Some(layout) = &self.0.contour_layout {
+            sets.push(ExternalSet {
+                set: 2,
+                layout: layout.clone(),
+                bindings: contour::bindings(),
+            });
+        }
         if let Some(shadow) = &description.shadow {
             sets.push(ExternalSet {
                 set: 2,
@@ -390,38 +405,44 @@ impl Context {
         sets
     }
 
-    /// The vertex stage every key shares, parsed once per context.
-    fn vertex(&self) -> Result<StageProgram, ProgramError> {
-        if let Some(vertex) = self.0.vertex.borrow().as_ref() {
+    /// The vertex stage every key of `geometry` shares, parsed once per context.
+    fn vertex(&self, geometry: GeometryLayout) -> Result<StageProgram, ProgramError> {
+        if let Some(vertex) = self.0.vertex.borrow().get(&geometry) {
             return Ok(vertex.clone());
         }
-        let source: Arc<str> = Arc::from(&*self.0.description.source);
+        let source: Arc<str> = if geometry.is_skinned() {
+            Arc::from(skinned_source(&self.0.description.source))
+        } else {
+            Arc::from(&*self.0.description.source)
+        };
         let vertex = StageProgram::new(
             StageModule {
                 source: StageSource::Wgsl(source),
                 entry_point: match self.0.description.entry {
-                    Entry::Forward => VERTEX_ENTRY,
+                    Entry::Forward | Entry::Contour => VERTEX_ENTRY,
                     Entry::Caster(_) => CASTER_VERTEX,
                     Entry::Celestial => CELESTIAL_VERTEX,
                 }
                 .to_owned(),
                 kind: StageKind::Vertex,
             },
-            declarations(),
+            declarations(geometry),
         )?;
-        *self.0.vertex.borrow_mut() = Some(vertex.clone());
+        self.0.vertex.borrow_mut().insert(geometry, vertex.clone());
         Ok(vertex)
     }
 
-    /// The program of `key`, built on first use.
+    /// The program of `key` for `geometry`, built on first use.
     ///
     /// # Errors
     /// Fails when the composed source does not parse, a declaration does not match what the
-    /// entry points use, or the device cannot hold the layout.
+    /// entry points use, the device cannot hold the layout, or the pass writes object motion
+    /// and the geometry is skinned, which has no previous-pose form yet.
     pub(crate) fn program(
         &self,
         runtime: &ProgramRuntime,
         key: PipelineKey,
+        geometry: GeometryLayout,
     ) -> Result<GraphicsProgram, ProgramError> {
         let description = &self.0.description;
         let key = if matches!(description.entry, Entry::Caster(_)) {
@@ -429,11 +450,16 @@ impl Context {
         } else {
             key
         };
+        if geometry.is_skinned() && self.previous_transforms() {
+            return Err(ProgramError::UnsupportedState {
+                what: "skinned geometry in a pass that writes object motion",
+            });
+        }
         let features = key.features();
-        if let Some(program) = self.0.programs.borrow().get(&features) {
+        if let Some(program) = self.0.programs.borrow().get(&(geometry, features.clone())) {
             return Ok(program.clone());
         }
-        let vertex = self.vertex()?;
+        let vertex = self.vertex(geometry)?;
         // One parse serves the vertex stage and every fragment entry point. Only the fragment
         // stage reads the specialization constants.
         let mut constants = description.constants.clone();
@@ -444,23 +470,24 @@ impl Context {
             (Entry::Celestial, true) => CELESTIAL_MASKED,
             (Entry::Celestial, false) => CELESTIAL_OPAQUE,
             (Entry::Forward, _) => key.fragment_entry(),
+            (Entry::Contour, _) => contour::entry(key),
         };
         let fragment = vertex
             .sibling(entry, StageKind::Fragment)?
-            .with_declarations(declarations())
+            .with_declarations(declarations(geometry))
             .with_overrides(&constants)?;
         let program = runtime.graphics_program_in(&vertex, &fragment, &self.external())?;
         self.0
             .programs
             .borrow_mut()
-            .insert(features, program.clone());
+            .insert((geometry, features), program.clone());
         Ok(program)
     }
 }
 
-fn declarations() -> StageDeclarations {
+fn declarations(geometry: GeometryLayout) -> StageDeclarations {
     StageDeclarations {
-        resources: ResourceLayout::new(material_bindings()),
+        resources: ResourceLayout::new(material_bindings_of(geometry)),
         constants: Vec::new(),
     }
 }

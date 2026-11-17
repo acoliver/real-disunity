@@ -101,7 +101,11 @@ fn capture(
         stock.0.to_owned()
     };
     let object = if let Some(term) = output.1 {
-        crate::compositor::terms::term_sources((&object, stock.1), term).0
+        if frozen {
+            crate::compositor::terms::frozen_term_sources((&object, stock.1), term).0
+        } else {
+            crate::compositor::terms::term_sources((&object, stock.1), term).0
+        }
     } else {
         object
     };
@@ -248,6 +252,46 @@ fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() 
         reflective > 0,
         "fixture must publish nonzero environment radiance"
     );
+}
+
+/// The forward mesh shading reads its lighting record through the functions the deferred
+/// lighting pass shares; its output is unchanged from the frozen body that read the material
+/// inline, in every sample and attachment, with and without shadows.
+#[test]
+fn forward_meshes_match_frozen_scattering_transmission_and_emission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut lit = 0;
+    for (name, scene, pose) in fixtures::mesh_scenes() {
+        for count in [1, 4] {
+            for shadows in [0, 1, 4] {
+                let old = capture(
+                    &context,
+                    (&scene, pose),
+                    (count, shadows, true),
+                    (false, None),
+                );
+                let new = capture(
+                    &context,
+                    (&scene, pose),
+                    (count, shadows, false),
+                    (false, None),
+                );
+                for (index, (expected, got)) in old.iter().zip(&new).enumerate() {
+                    assert!(
+                        expected == got,
+                        "{name}: samples={count}, shadows={shadows}, attachment={index}, mismatching bytes={}",
+                        expected.iter().zip(got).filter(|(a, b)| a != b).count()
+                    );
+                }
+                lit += new[0]
+                    .chunks_exact(8)
+                    .filter(|sample| sample[..6].iter().any(|byte| *byte != 0))
+                    .count();
+            }
+        }
+    }
+    assert!(lit > 0, "the mesh fixtures must shade samples");
 }
 
 #[test]

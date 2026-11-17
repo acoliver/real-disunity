@@ -273,3 +273,43 @@ fn reflections_and_sky_under_taa_draw_without_validation_errors_and_keep_sky_vel
     assert_matches_cpu_residual(&reflective, (125.0, 250.0));
     assert_sky_texels_are_zero_and_quad_moves(&reflective);
 }
+
+/// `scene`, authored as `effects` selects, rendered from the G-buffer.
+fn rendered_from_gbuffer(
+    (scene, effects): (RenderScene, SceneEffects),
+) -> (RenderScene, SceneEffects) {
+    let effects = effects
+        .with_opaque_path(worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER)
+        .unwrap();
+    let scene = RenderScene::new(SceneParts {
+        resources: scene.resources().clone(),
+        geometry: scene.geometry().clone(),
+        terrain: None,
+        effects: Some(effects.clone()),
+    })
+    .unwrap();
+    (scene, effects)
+}
+
+/// Rendered from the G-buffer, Opaque no longer draws the quad, so the G-buffer producers write
+/// its residual: shadows, reflections (whose depth prepass the G-buffer path needs) and sky
+/// under TAA give the plain scene's residual, and the sky stays zero.
+#[test]
+fn a_shadowed_reflective_scene_rendered_from_the_gbuffer_writes_the_residual_of_the_plain_scene() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let frames = [(0.125, pose()), (0.25, pose())];
+    let plain = velocity_after(&context, &windy_under_sky(false), &frames);
+    let rendered = shadowed_velocity_with(
+        &context,
+        rendered_from_gbuffer(with_reflections(&windy_under_sky(false))),
+        &frames,
+    );
+    assert!(pollster::block_on(scope.pop()).is_none());
+    assert_matches_plain(&rendered, &plain);
+    assert_matches_cpu_residual(&rendered, (125.0, 250.0));
+    assert_sky_texels_are_zero_and_quad_moves(&rendered);
+}

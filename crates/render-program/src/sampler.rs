@@ -84,6 +84,7 @@ pub struct SamplerCache {
     device: wgpu::Device,
     fixed: CheckedSampler,
     by_state: HashMap<SamplerState, CheckedSampler>,
+    by_comparison: HashMap<(SamplerState, wgpu::CompareFunction), CheckedSampler>,
 }
 
 impl SamplerCache {
@@ -93,6 +94,7 @@ impl SamplerCache {
             device: device.clone(),
             fixed: CheckedSampler::new(device, &fixed_descriptor()),
             by_state: HashMap::new(),
+            by_comparison: HashMap::new(),
         }
     }
 
@@ -105,6 +107,36 @@ impl SamplerCache {
             .entry(state)
             .or_insert_with(|| CheckedSampler::new(&self.device, &state.descriptor()))
             .clone()
+    }
+
+    /// The comparison sampler of `state` that returns 1 where `function` holds between a
+    /// reference depth and the stored one. It is a sampler of its own, apart from the sampler of
+    /// the same `state` that has no comparison, since a shader declares the two as different
+    /// kinds of binding.
+    pub fn comparison(
+        &mut self,
+        state: SamplerState,
+        function: wgpu::CompareFunction,
+    ) -> CheckedSampler {
+        self.by_comparison
+            .entry((state, function))
+            .or_insert_with(|| {
+                CheckedSampler::new(
+                    &self.device,
+                    &wgpu::SamplerDescriptor {
+                        label: Some("render-program comparison sampler"),
+                        compare: Some(function),
+                        ..state.descriptor()
+                    },
+                )
+            })
+            .clone()
+    }
+
+    /// The comparison samplers made so far.
+    #[must_use]
+    pub fn comparisons(&self) -> usize {
+        self.by_comparison.len()
     }
 
     /// The states that have a sampler of their own.

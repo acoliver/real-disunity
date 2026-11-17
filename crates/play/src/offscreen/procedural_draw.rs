@@ -27,7 +27,7 @@ impl Mapper<'_> {
         topology: DrawTopology,
         (vertices, instances): (u32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
             Ok(one) if one < passes => one..one + 1,

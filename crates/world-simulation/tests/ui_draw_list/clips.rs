@@ -6,6 +6,97 @@ fn draw(list: &mut UiDrawList<'_>) {
 }
 
 #[test]
+fn intersect_replace_intersect_restores_each_scissor_on_pop() {
+    let fonts = fonts();
+    let mut l = list(&fonts);
+    l.push_clip(UiRect::new(10.2, 12.3, 30.6, 40.5)).unwrap();
+    draw(&mut l);
+    l.push_clip_replace(UiRect::new(25.2, 4.3, 60.6, 65.5))
+        .unwrap();
+    draw(&mut l);
+    l.push_clip(UiRect::new(20., 20., 30., 50.)).unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    let p = l.finish().unwrap();
+    assert_eq!(
+        p.draws.iter().map(|d| d.clip_rect).collect::<Vec<_>>(),
+        [
+            [11, 28, 29, 39],
+            [26, 11, 59, 64],
+            [26, 11, 24, 49],
+            [26, 11, 59, 64],
+            [11, 28, 29, 39],
+            [0, 0, 100, 80],
+        ]
+    );
+}
+
+#[test]
+fn replace_intersect_replace_restores_each_scissor_on_pop() {
+    let fonts = fonts();
+    let mut l = list(&fonts);
+    l.push_clip_replace(UiRect::new(10.2, 12.3, 30.6, 40.5))
+        .unwrap();
+    draw(&mut l);
+    l.push_clip(UiRect::new(25.2, 4.3, 60.6, 65.5)).unwrap();
+    draw(&mut l);
+    l.push_clip_replace(UiRect::new(20., 20., 30., 50.))
+        .unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    l.pop_clip().unwrap();
+    draw(&mut l);
+    let p = l.finish().unwrap();
+    assert_eq!(
+        p.draws.iter().map(|d| d.clip_rect).collect::<Vec<_>>(),
+        [
+            [11, 28, 29, 39],
+            [26, 28, 14, 39],
+            [20, 10, 30, 50],
+            [26, 28, 14, 39],
+            [11, 28, 29, 39],
+            [0, 0, 100, 80],
+        ]
+    );
+}
+
+#[test]
+fn zero_width_and_zero_height_replacements_hide_draws_and_restore_parent() {
+    let fonts = fonts();
+    for rect in [
+        UiRect::new(25., 20., 0., 30.),
+        UiRect::new(20., 25., 30., 0.),
+    ] {
+        let mut l = list(&fonts);
+        l.push_clip(UiRect::new(10.2, 12.3, 30.6, 40.5)).unwrap();
+        draw(&mut l);
+        assert_eq!(l.draw_range(), 5..6);
+        l.push_clip_replace(rect).unwrap();
+        draw(&mut l);
+        assert_eq!(l.draw_range(), 5..6, "replacement {rect:?}");
+        l.pop_clip().unwrap();
+        draw(&mut l);
+        assert_eq!(l.draw_range(), 5..7);
+        l.pop_clip().unwrap();
+        draw(&mut l);
+        let p = l.finish().unwrap();
+        assert_eq!(
+            p.draws.iter().map(|d| d.clip_rect).collect::<Vec<_>>(),
+            [[11, 28, 29, 39], [11, 28, 29, 39], [0, 0, 100, 80]],
+            "replacement {rect:?}"
+        );
+    }
+}
+
+#[test]
 fn replace_inside_intersecting_parent_and_pop_restore_each_scissor() {
     let fonts = fonts();
     let mut l = list(&fonts);

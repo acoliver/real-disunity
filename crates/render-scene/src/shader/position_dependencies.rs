@@ -2,18 +2,10 @@
 //! control flow, input layouts, uniform bindings/types, constants and helper bodies.
 //! No arithmetic is reordered. Only the known velocity-only writes are projected away;
 //! the camera wrapper is inlined by exact substitution. Unexpected rewrites fail closed.
+use crate::shader::rewrite::ShaderRewrite;
 use std::collections::{BTreeMap, BTreeSet};
 
 type Graph = BTreeMap<String, Vec<String>>;
-
-fn replace_once(source: &str, from: &str, to: &str) -> String {
-    assert_eq!(
-        source.matches(from).count(),
-        1,
-        "projection changed: {from}"
-    );
-    source.replace(from, to)
-}
 
 fn current_position_source(source: &str) -> String {
     if !source.contains("struct PreviousInstance") {
@@ -45,7 +37,7 @@ fn current_position_source(source: &str) -> String {
             "fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {\n    let to_camera = frame.camera_position.xyz - pivot;",
         ),
     ] {
-        source = replace_once(&source, from, to);
+        source = source.anchored("current position projection", 1, from, to);
     }
     // These are scalar occlusion accesses, never current-position writes.
     source.replace("out.ao_delta.x", "out.ambient_occlusion")

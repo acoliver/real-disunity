@@ -9,8 +9,12 @@ use crate::{
     DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef,
     graphics_readback::readback_kind, physics::component,
 };
-use worldrunner_world_simulation::graphics::{
-    DrawTopology, MAX_CULL_PLANES, MaterialId, OffscreenWork,
+use worldrunner_world_simulation::{
+    WorldError,
+    graphics::{
+        CameraBuffers, DrawTopology, MAX_COLOR_TARGETS, MAX_CULL_PLANES, MaterialId, OffscreenWork,
+        RenderTextureId,
+    },
 };
 
 pub const KIND_CULL: u32 = 10;
@@ -18,6 +22,7 @@ pub const KIND_SETUP_CAMERA: u32 = 11;
 pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
 pub const KIND_DRAW_MESH: u32 = 16;
 pub const KIND_DRAW_PROCEDURAL: u32 = 17;
+pub const KIND_SET_VIEWPORT: u32 = 18;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -61,33 +66,60 @@ pub unsafe extern "C" fn disunity_offscreen_cull(
     })
 }
 
-/// Records that draws from here use the view and projection of `camera` (16 floats each,
-/// column-major) and go to `target`.
+/// Records that draws from here use the view and projection of `camera` (`matrices` holds the view
+/// and then the projection, 16 floats each, column-major) and go to `target`. With `buffer_count`
+/// above 0 the camera's target is the camera target and its buffers are the color buffers of the
+/// `buffer_count` render textures at `buffer_colors` (in output order) and the depth buffer of
+/// `buffer_depth` (0 for none), as the camera had them when the script made the call; `target` is
+/// then the camera target.
 ///
 /// # Safety
-/// `view` and `projection` are readable for 16 floats; `target` is readable for one record.
+/// `matrices` is readable for 32 floats; `target` is readable for one record; `buffer_colors` is
+/// readable for `buffer_count` ids, or null when the count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn disunity_offscreen_setup_camera(
     world: u64,
     camera: u64,
-    view: *const f32,
-    projection: *const f32,
+    matrices: *const f32,
     target: *const DisunityTargetRef,
+    buffer_colors: *const u64,
+    buffer_count: u32,
+    buffer_depth: u64,
 ) -> DisunityResult {
-    if view.is_null() || projection.is_null() || target.is_null() {
+    let count = buffer_count as usize;
+    if matrices.is_null()
+        || target.is_null()
+        || count > MAX_COLOR_TARGETS
+        || (count > 0 && buffer_colors.is_null())
+        || (count == 0 && buffer_depth != 0)
+    {
         return DisunityResult::invalid_argument();
     }
-    let (mut matrices, target) = ([[0.0_f32; 16]; 2], unsafe { *target });
+    let colors: Vec<RenderTextureId> = if count == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(buffer_colors, count) }
+            .iter()
+            .map(|bits| RenderTextureId::from_bits(*bits))
+            .collect()
+    };
+    let depth = (buffer_depth != 0).then(|| RenderTextureId::from_bits(buffer_depth));
+    let (mut held, target) = ([[0.0_f32; 16]; 2], unsafe { *target });
     unsafe {
-        std::ptr::copy_nonoverlapping(view, matrices[0].as_mut_ptr(), 16);
-        std::ptr::copy_nonoverlapping(projection, matrices[1].as_mut_ptr(), 16);
+        std::ptr::copy_nonoverlapping(matrices, held[0].as_mut_ptr(), 16);
+        std::ptr::copy_nonoverlapping(matrices.add(16), held[1].as_mut_ptr(), 16);
     }
     mutate(world, |s| {
         s.native.record_offscreen(OffscreenWork::SetupCamera {
             camera: component(s, camera)?,
-            view: matrices[0],
-            projection: matrices[1],
+            view: held[0],
+            projection: held[1],
             target: target.to_native()?,
+            buffers: if colors.is_empty() {
+                None
+            } else {
+                Some(CameraBuffers::new(&colors, depth).map_err(WorldError::from)?)
+            },
         })?;
         Ok(())
     })
@@ -118,6 +150,24 @@ pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
                 view: matrices[0],
                 projection: matrices[1],
             })?;
+        Ok(())
+    })
+}
+
+/// Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+/// it cover. A value that is not finite and a negative width or height are refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_set_viewport(
+    world: u64,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::SetViewport {
+            rect: [x, y, width, height],
+        })?;
         Ok(())
     })
 }
@@ -243,6 +293,7 @@ pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
         OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
+        OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
         OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
         OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
         other => readback_kind(other),

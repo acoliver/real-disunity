@@ -16,7 +16,8 @@ use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::OffscreenState;
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, TextureRef,
+    GraphicsSnapshot, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, TargetRef,
+    TextureRef,
 };
 
 use super::super::adapter::OffscreenAdapter;
@@ -164,7 +165,7 @@ fn naming_in(world: &mut World, named: &[u64], side: u32) {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(target),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass: 0,
         })
@@ -350,7 +351,7 @@ impl Targets {
             self.world
                 .record_offscreen(OffscreenWork::Blit {
                     source: TextureRef::Render(target),
-                    target,
+                    target: TargetRef::Render(target),
                     material: Some(material),
                     pass: 0,
                 })

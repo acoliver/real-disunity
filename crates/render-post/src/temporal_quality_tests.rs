@@ -214,24 +214,21 @@ impl Rig {
             settings: TaaSettings::new(0.9),
             history_valid,
         };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.paint(&mut encoder, painted);
-        let factory = &self.chain.factory().inner;
-        if let Some(camera) = camera {
-            factory.prepare_temporal_camera(&mut encoder, 0, camera);
-        }
-        self.frames.select(factory, history_valid);
-        factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
-        factory
-            .prepare_effects(&mut encoder, 0, 0.031, true)
-            .unwrap();
-        let view = self
-            .sink
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        self.chain.encode(&mut encoder, &view);
-        self.queue.submit([encoder.finish()]);
+        crate::submit_frame(&self.device, &self.queue, |encoder| {
+            self.paint(encoder, painted);
+            let factory = &self.chain.factory().inner;
+            if let Some(camera) = camera {
+                factory.prepare_temporal_camera(encoder, 0, camera)?;
+            }
+            self.frames.select(factory, history_valid);
+            factory.prepare_temporal(encoder, 0, &block)?;
+            factory.prepare_effects(encoder, 0, 0.031, true)?;
+            let view = self
+                .sink
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            self.chain.encode(encoder, &view);
+            Ok::<_, crate::PostError>(())
+        });
         self.frames.submitted();
     }
 

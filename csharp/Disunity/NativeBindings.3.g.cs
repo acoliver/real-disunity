@@ -220,6 +220,13 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_procedural", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_procedural(ulong world, float* matrix, ulong material, int pass, uint topology, int vertex_count, int instance_count);
         /// <summary>
+        ///  Records a request to fill mip levels 1 and up of the render texture `texture` from its level 0,
+        ///  after the work recorded before it. The world refuses a dead texture and one with a single mip
+        ///  level.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_generate_mips", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_generate_mips(ulong world, ulong texture);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

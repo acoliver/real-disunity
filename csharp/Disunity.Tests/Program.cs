@@ -304,6 +304,7 @@ CheckImport("disunity_offscreen_setup_camera", u64, u64, f32.MakePointerType(), 
 CheckImport("disunity_offscreen_set_view_projection", u64, f32.MakePointerType(), f32.MakePointerType());
 CheckImport("disunity_offscreen_draw_mesh", u64, u64, f32.MakePointerType(), u64, u32, typeof(int));
 CheckImport("disunity_offscreen_draw_procedural", u64, f32.MakePointerType(), u64, typeof(int), u32, typeof(int), typeof(int));
+CheckImport("disunity_offscreen_generate_mips", u64, u64);
 CheckImport("disunity_renderer_list_create_draw", u64, AbiType("DisunityDrawRendererList").MakePointerType(), bytes, u64.MakePointerType());
 CheckImport("disunity_renderer_list_create_shadow", u64, AbiType("DisunityShadowRendererList").MakePointerType(), f32.MakePointerType(), u64.MakePointerType());
 CheckImport("disunity_offscreen_draw_renderer_list", u64, u64);

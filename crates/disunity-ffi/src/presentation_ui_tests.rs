@@ -280,7 +280,7 @@ fn metadata_colors(meta: DisunityUiDraw) -> [[f32; 4]; 4] {
 #[test]
 fn distance_metadata_has_revision_11_layout() {
     use std::mem::{align_of, offset_of, size_of};
-    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 12);
+    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 13);
     assert_eq!(size_of::<DisunityUiDraw>(), 152);
     assert_eq!(align_of::<DisunityUiDraw>(), 8);
     assert_eq!(offset_of!(DisunityUiDraw, distance_mode), 124);

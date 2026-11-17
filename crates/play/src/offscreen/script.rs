@@ -155,6 +155,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
+        OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
 }
 
@@ -213,6 +214,8 @@ impl Mapper<'_> {
                 *topology,
                 (*vertex_count, *instance_count),
             ),
+            // The host runs no mip generation yet, so the record makes no draw.
+            OffscreenWork::GenerateMips { .. } => Ok(Vec::new()),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }

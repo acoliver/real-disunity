@@ -39,6 +39,10 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: a temporary of an array or volume descriptor records its dimension and depth");
             BlitAndCopyRecordRenderTextures();
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
+            GenerateMipsIsRecorded();
+            Console.WriteLine("PASS: CommandBuffer.GenerateMips records the render texture's GenerateMips when executed and refuses targets it cannot name");
+            RenderTextureGenerateMipsIsRecorded();
+            Console.WriteLine("PASS: RenderTexture.GenerateMips records the GenerateMips of a texture with mips it does not fill itself, and logs the existing error otherwise");
             ViewProjectionIsRecordedColumnByColumn();
             Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
             DrawMeshIsRecordedInOrder();
@@ -391,6 +395,62 @@ internal static class CommandBufferExecutionTests
         var taken = Taken();
         Expect.That(taken.Length == 2 && taken[0].Contains(" shape=5x4 ", StringComparison.Ordinal) && taken[1].Contains(" shape=3x6 ", StringComparison.Ordinal),
             $"an array and a volume keep their shape: {string.Join(" | ", taken)}");
+        buffer.Clear();
+        buffer.GetTemporaryRT(23, new RenderTextureDescriptor(8, 8, RenderTextureFormat.ARGB32, 0) { useMipMap = true, autoGenerateMips = true });
+        buffer.GetTemporaryRT(24, new RenderTextureDescriptor(8, 8, RenderTextureFormat.ARGB32, 0) { useMipMap = true, autoGenerateMips = false });
+        buffer.GetTemporaryRT(25, new RenderTextureDescriptor(8, 8, RenderTextureFormat.ARGB32, 0) { useMipMap = false, autoGenerateMips = true });
+        Graphics.ExecuteCommandBuffer(buffer);
+        var mips = Taken();
+        Expect.That(mips.Length == 3 && mips[0].Contains(" automips ", StringComparison.Ordinal) && !mips[1].Contains("automips", StringComparison.Ordinal)
+            && !mips[2].Contains("automips", StringComparison.Ordinal), $"a temporary asks the host to fill its mips only with mips on and the flag set: {string.Join(" | ", mips)}");
+    }
+
+    private static void GenerateMipsIsRecorded()
+    {
+        Taken();
+        var mipped = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 3);
+        mipped.Create();
+        var buffer = new CommandBuffer();
+        buffer.GenerateMips(mipped);
+        buffer.GenerateMips(new RenderTargetIdentifier(mipped));
+        Expect.Equal(2, buffer.commandCount, "two commands are held");
+        Expect.Equal(0, Taken().Length, "nothing reaches the world before the buffer runs");
+        Graphics.ExecuteCommandBuffer(buffer);
+        var line = $"GenerateMips texture={mipped.WorldId}";
+        Same([line, line], Taken(), "each call records the texture's mips");
+        Throws<NotSupportedException>(() => buffer.GenerateMips(new RenderTargetIdentifier(Shader.PropertyToID("_Named"))), "a temporary render texture", "CommandBuffer.GenerateMips");
+        Throws<NotSupportedException>(() => buffer.GenerateMips(BuiltinRenderTextureType.CameraTarget), "the camera target", "CommandBuffer.GenerateMips");
+        Throws<NotSupportedException>(() => buffer.GenerateMips(BuiltinRenderTextureType.None), "no target", "CommandBuffer.GenerateMips");
+        Expect.Equal(2, buffer.commandCount, "a refused call records nothing");
+        var flat = new CommandBuffer();
+        flat.GenerateMips(Target());
+        Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(flat), "a texture with one level has no mips to fill");
+        Expect.Equal(0, Taken().Length, "the world kept no record of the refused call");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.GenerateMips(mipped), "a released buffer");
+    }
+
+    private static void RenderTextureGenerateMipsIsRecorded()
+    {
+        Taken();
+        var texture = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 4) { autoGenerateMips = false };
+        texture.Create();
+        texture.GenerateMips();
+        Same([$"GenerateMips texture={texture.WorldId}"], Taken(), "a call sends the record at once, in call order");
+        var automatic = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 4);
+        var flat = new RenderTexture(16, 16, 0);
+        using (var log = new LogRecorder())
+        {
+            automatic.GenerateMips();
+            flat.GenerateMips();
+            Expect.That(log.Messages.Count == 2 && log.Messages.All(message => message.StartsWith("Error:") && message.Contains("GenerateMips")),
+                "a texture that fills its own mips, or has none, logs the error");
+        }
+        Expect.Equal(0, Taken().Length, "the logged errors record nothing");
+        var late = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 4) { autoGenerateMips = false };
+        late.GenerateMips();
+        Expect.That(late.IsCreated(), "the call creates a texture that was not yet created, as a blit does");
+        Same([$"GenerateMips texture={late.WorldId}"], Taken(), "the new texture's record");
     }
 
     private static void TemporariesCarryTheirDescriptions()
@@ -418,7 +478,7 @@ internal static class CommandBufferExecutionTests
         Expect.That(taken[0] == $"Allocate 11 64x32 format={format} depth=24 mips=1 srgb=False wrap=111 filter=2 aniso=1 bias=0", $"full allocation, got {taken[0]}");
         Expect.That(taken[1] == $"Allocate 12 8x8 format={defaults} depth=0 mips=1 srgb={defaultSrgb} wrap=111 filter=0 aniso=1 bias=0", $"defaults, got {taken[1]}");
         Expect.That(taken[2].StartsWith($"Allocate 13 4x4 format={rgba} depth=16 mips=1 srgb=False wrap=111 filter=1"), $"graphics format, got {taken[2]}");
-        Expect.That(taken[3].StartsWith($"Allocate 14 20x10 format={half} depth=0 mips=3 srgb=False wrap=111 filter=1"), $"descriptor with filter, got {taken[3]}");
+        Expect.That(taken[3].StartsWith($"Allocate 14 20x10 format={half} depth=0 mips=3 srgb=False automips wrap=111 filter=1"), $"descriptor with filter, got {taken[3]}");
         Expect.That(taken[4].StartsWith($"Allocate 15 6x6 format={argb} depth=0") && taken[4].Contains("filter=0"), $"descriptor alone is point filtered, got {taken[4]}");
         Expect.That(taken[5].StartsWith($"Allocate 16 {screen.width}x{screen.height} format={defaults} depth=0"), $"a size of zero or below is the screen, got {taken[5]}");
         Expect.That(taken[6] == "Release 11" && taken[7] == "Release -5", "releases keep their ids");

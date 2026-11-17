@@ -157,6 +157,9 @@ pub enum OffscreenWork {
         vertex_count: u32,
         instance_count: u32,
     },
+    /// Fills mip levels 1 and up of `texture` from level 0, as a script's explicit request for the
+    /// texture's mips. The texture must have more than one mip level.
+    GenerateMips { texture: RenderTextureId },
 }
 
 /// How a procedural draw joins its generated vertices.
@@ -199,7 +202,7 @@ impl OffscreenWork {
                 buffers,
                 ..
             } => target(named) || buffers.is_some_and(|buffers| buffers.names(id)),
-            Self::ReadPixels { texture, .. } => *texture == id,
+            Self::ReadPixels { texture, .. } | Self::GenerateMips { texture } => *texture == id,
             _ => false,
         }
     }
@@ -311,6 +314,7 @@ impl World {
                     },
                 )
                 .map(drop),
+            OffscreenWork::GenerateMips { texture } => self.check_mip(*texture, 1),
             OffscreenWork::CreateRendererList { .. } | OffscreenWork::DrawRendererList { .. } => {
                 self.check_renderer_list(work)
             }

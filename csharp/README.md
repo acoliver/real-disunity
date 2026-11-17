@@ -79,6 +79,12 @@ parameter and result types, entry points, native image, calling conventions,
 and record field types, offsets, and sizes. Native
 and runtime Rust layout tests independently check sizes, alignment, and offsets.
 
+The managed test suite builds `Disunity.IdentifierTests` with warnings as errors
+and runs its CPU-only subprocess checks in a separate integration target, without
+booting a native host. The fixture covers persistence across fresh processes, scope
+switching, deletion reset, barrier-synchronized concurrent creation, invalid stored
+GUIDs and storage errors.
+
 The managed console tests also derive a behaviour from the separate PortableFixture
 assembly and export native state after each step. Commands from Start, Update,
 and LateUpdate must be visible immediately; Start must run only once.

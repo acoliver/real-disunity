@@ -232,7 +232,7 @@ impl OffscreenAdapter {
             }
             match self.supply.load(source) {
                 Ok(loaded) => {
-                    let (_, light_modes) = loaded.program.pass_tags(PASS_TAG);
+                    let (passes, light_modes) = loaded.program.pass_tags(PASS_TAG);
                     for mode in &light_modes {
                         *notes
                             .census
@@ -241,6 +241,7 @@ impl OffscreenAdapter {
                     }
                     let info = ShaderInfo {
                         passes: loaded.passes,
+                        has_untagged: light_modes.len() < passes,
                         light_modes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,

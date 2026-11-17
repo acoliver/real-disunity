@@ -131,6 +131,11 @@ pub enum OffscreenWork {
         view: [f32; 16],
         projection: [f32; 16],
     },
+    /// The rectangle, in pixels of the bound targets, that the draws after this record cover:
+    /// `rect` is x, y, width and height from the bottom left texel. A target setting or a camera
+    /// setup resets it to the whole target. The world checks that every component is finite and
+    /// the width and height are not negative.
+    SetViewport { rect: [f32; 4] },
     /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
     /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
     /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every

@@ -40,7 +40,7 @@ internal static class CommandBufferTests
         Ensure(buffer.name == "after", "the name works after Release");
         Throws<ObjectDisposedException>(buffer.Clear, "Clear after Release");
         Throws<ObjectDisposedException>(() => buffer.BeginSample("x"), "BeginSample after Release");
-        Throws<ObjectDisposedException>(() => buffer.SetViewport(default), "SetViewport after Release");
+        Throws<ObjectDisposedException>(() => buffer.SetViewport(default), "SetViewport after Release", "CommandBuffer");
     }
 
     private static void Recording()
@@ -50,7 +50,6 @@ internal static class CommandBufferTests
         var probes = new (string Member, Action Call)[]
         {
             ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
-            ("SetViewport", () => buffer.SetViewport(new Rect(0, 0, 1, 1))),
         };
         foreach (var (member, call) in probes)
             Throws<NotSupportedException>(call, member, $"CommandBuffer.{member}", "cannot record this member yet");

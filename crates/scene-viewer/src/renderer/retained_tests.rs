@@ -1,3 +1,4 @@
+mod capture_offscreen;
 mod generation_boundaries;
 pub(crate) mod offscreen;
 mod opaque_admission;

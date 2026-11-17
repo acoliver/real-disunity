@@ -2,6 +2,61 @@ mod native_rcas;
 mod pool;
 
 #[test]
+fn accumulated_capture_offscreen_packet_is_handed_off_during_capture_page_warmup() {
+    use crate::renderer::retained_tests::offscreen::{clearing_operations, is_cleared};
+
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut host = RetainedHost::new(
+        crate::retained::layered_scene(),
+        crate::ViewerOptions {
+            size: [64, 64],
+            ..crate::tests::options()
+        },
+    )
+    .unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    assert!(renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+
+    let id = host
+        .request_capture_recipe(0, recipe(1, 2, CaptureJitter::None).with_page_dependency())
+        .unwrap();
+    // A queued recipe can only start with its dependencies ready. Invalidate the sole
+    // terrain page after startup so the active recipe sees a real residency miss.
+    assert_eq!(renderer.start_queued_recipe(&mut host).unwrap(), Some(true));
+    let view = host.view().unwrap().unwrap();
+    assert!(renderer.view_pages_ready(&view).unwrap());
+    renderer
+        .resident
+        .scene_mut()
+        .invalidate_terrain_pages([0.0; 2], [1.0; 2]);
+    assert!(!renderer.view_pages_ready(&view).unwrap());
+
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let (operations, image, _runtime) = clearing_operations(&device, &authority);
+    host.admit_offscreen(operations);
+    let serial = authority.submitted_serial();
+
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    assert_eq!(authority.submitted_serial(), serial + 1);
+    let active = renderer.streaming.captures.active.as_ref().unwrap();
+    assert_eq!((active.id, active.sample), (id, 0));
+    assert!(
+        active.pending.is_none(),
+        "warm-up produced no capture sample"
+    );
+    assert!(host.captures.waiting.iter().any(|request| request.0 == id));
+    renderer.drain().unwrap();
+    assert!(renderer.view_pages_ready(&view).unwrap());
+    assert!(
+        host.offscreen.is_none(),
+        "the warm-up frame took the packet"
+    );
+    assert!(is_cleared(&image.bytes(&device)));
+}
+
+#[test]
 fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity() {
     let mut host = RetainedHost::new(
         crate::renderer::sdsm_tests::fitted_scene(),

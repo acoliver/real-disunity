@@ -37,7 +37,7 @@ struct Arguments {
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
-    /// Whether a headless player run does its offscreen work on a device.
+    /// Whether a player run, headless or in a window, does its offscreen work on a device.
     gpu_work: GpuWork,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
@@ -158,6 +158,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
             keys: scheduled_keys(&arguments.keys),
+            gpu_work: arguments.gpu_work,
         };
         let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);

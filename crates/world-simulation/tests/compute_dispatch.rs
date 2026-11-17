@@ -2,8 +2,8 @@
 //! the frame's other offscreen work.
 use worldrunner_world_simulation::graphics::{
     ComputeBufferId, ComputeKernel, ComputeShaderId, GraphicsError, MaterialId, OffscreenWork,
-    PropertyValue, RenderTextureId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader,
-    WorldRenderTexture, WorldSampler, WorldShader,
+    PropertyValue, RenderTextureId, ShaderSource, TargetRef, TextureRef, TextureSlot,
+    WorldComputeShader, WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::{World, WorldError, WorldSettings};
 
@@ -389,7 +389,7 @@ fn dispatches_and_blits_keep_the_order_they_were_called_in() {
     let b = render_texture(&mut world);
     let blit = |source, target| OffscreenWork::Blit {
         source,
-        target,
+        target: TargetRef::Render(target),
         material: None::<MaterialId>,
         pass: -1,
     };

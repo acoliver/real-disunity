@@ -49,6 +49,12 @@ const CAMERA_LIGHT_MODES: [&str; 5] = [
 /// The mode a pass with no `LightMode` counts as, the last of [`CAMERA_LIGHT_MODES`].
 const UNTAGGED_LIGHT_MODE: &str = "Always";
 
+/// The mode a pass with no `LightMode` has for a renderer list. A scriptable render pipeline
+/// draws such a pass as its `SRPDefaultUnlit` pass, so a list that names `SRPDefaultUnlit`
+/// admits it and one that does not never does. A camera counts the same pass as
+/// [`UNTAGGED_LIGHT_MODE`], which its own list of modes ends with.
+pub(super) const LIST_UNTAGGED_LIGHT_MODE: &str = "SRPDefaultUnlit";
+
 /// What a test render clears its scratch target to: values a render is unlikely to write and a
 /// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
 pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
@@ -164,6 +170,8 @@ pub struct ShaderInfo {
     /// The `LightMode` values of the passes of its first sub-shader, in pass order. A pass with
     /// no such tag adds none.
     pub light_modes: Vec<String>,
+    /// Whether a pass of its first sub-shader has no `LightMode` tag.
+    pub has_untagged: bool,
     /// The texture properties whose declared default the host supplies. A material that sets no
     /// texture for one reads that default.
     pub texture_defaults: Vec<(String, DefaultTexture)>,

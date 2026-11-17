@@ -108,9 +108,21 @@ internal static class ScreenTests
         Ensure(Display.RelativeMouseAt(new Vector3(12, 34, 0)) == new Vector3(12, 34, 0), "mouse on the only display");
         Ensure(!UnityEngineInternal.DisplayInternal.IsASecondaryDisplayIndex(0) && !UnityEngineInternal.DisplayInternal.IsASecondaryDisplayIndex(1)
             && !UnityEngineInternal.DisplayInternal.IsASecondaryDisplayIndex(-1), "with one display no index is a secondary display's");
-        var installation = UnityEngine.Identifiers.Identifiers.installationId;
-        Ensure(Guid.TryParse(installation, out var parsed) && parsed != Guid.Empty && installation == UnityEngine.Identifiers.Identifiers.installationId,
-            "the installation id is a nonzero identifier that does not change within a run");
+        var environment = DisunityHost.GameEnvironment;
+        var directory = Directory.CreateTempSubdirectory("disunity-screen-identity-");
+        try
+        {
+            DisunityHost.ConfigurePlayer(environment with { PersistentDataPath = directory.FullName });
+            var installation = UnityEngine.Identifiers.Identifiers.installationId;
+            Ensure(Guid.TryParse(installation, out var parsed) && parsed != Guid.Empty
+                && installation == UnityEngine.Identifiers.Identifiers.installationId,
+                "the installation id is a nonzero identifier that does not change within a run");
+        }
+        finally
+        {
+            DisunityHost.ConfigurePlayer(environment);
+            directory.Delete(recursive: true);
+        }
         var moved = Screen.mainWindowDisplayInfo;
         NotSupported(() => Screen.MoveMainWindowTo(ref moved, Vector2Int.zero), "MoveMainWindowTo", "Screen.MoveMainWindowTo");
         NotSupported(() => display.SetParams(1, 1, 0, 0), "SetParams", "Display.SetParams");

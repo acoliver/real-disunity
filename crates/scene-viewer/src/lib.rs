@@ -36,6 +36,8 @@ pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan
 pub use window_size::{DisplayInfo, WindowMode, WindowSizeUnit};
 mod renderer;
 mod retained;
+mod start;
+pub use start::ViewerStart;
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
@@ -168,6 +170,8 @@ pub enum ViewerError {
     Adapter(#[from] wgpu::RequestAdapterError),
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
+    #[error("the shared GPU adapter {adapter} cannot present to the window's surface")]
+    SharedSurface { adapter: String },
     #[error("surface does not support requested present mode {0:?}")]
     UnsupportedPresentMode(wgpu::PresentMode),
     #[error("surface has no supported sRGB presentation format")]

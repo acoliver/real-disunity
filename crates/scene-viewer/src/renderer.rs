@@ -15,6 +15,8 @@ mod live;
 mod readiness;
 mod resource_edit;
 mod retained;
+mod shared;
+pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
 mod windowless;
@@ -80,7 +82,7 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, |_, _| {
+        Self::surface(display, window, None, |_, _| {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows,
@@ -91,13 +93,33 @@ impl Renderer {
         .await
     }
 
+    /// As [`Self::new`] with no shadows and the legacy profile, on a device made before the window.
+    #[cfg(all(test, target_os = "linux"))]
+    pub async fn new_shared(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        scene: &RenderScene,
+        shared: Shared,
+    ) -> Result<Self, ViewerError> {
+        Self::surface(display, window, Some(shared), |_, _| {
+            Ok(Resolved {
+                scene: std::borrow::Cow::Borrowed(scene),
+                shadows: None,
+                profile: crate::FrameProfile::Legacy,
+                startup: 2.into(),
+            })
+        })
+        .await
+    }
+
     async fn surface<'a>(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
+        shared: Option<Shared>,
         resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
     ) -> Result<Self, ViewerError> {
         let (instance, surface, context, policy, resolved) =
-            surface_context(display, window.clone(), resolve).await?;
+            shared::surface_context(display, window.clone(), shared, resolve).await?;
         let Resolved {
             scene,
             shadows,
@@ -688,44 +710,6 @@ impl From<usize> for Startup {
             desired_maximum_frame_latency: 2,
         }
     }
-}
-
-async fn surface_context<'a>(
-    display: OwnedDisplayHandle,
-    window: Arc<Window>,
-    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
-) -> Result<
-    (
-        wgpu::Instance,
-        wgpu::Surface<'static>,
-        GpuContext,
-        SurfacePolicy,
-        Resolved<'a>,
-    ),
-    ViewerError,
-> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
-        Box::new(display),
-    ));
-    let surface = instance.create_surface(window.clone())?;
-    let size = window.inner_size();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        })
-        .await?;
-    let capabilities = surface.get_capabilities(&adapter);
-    let resolved = resolve(&adapter, [size.width, size.height])?;
-    let startup = &resolved.startup;
-    let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
-    let context = timing::context(
-        adapter,
-        required_features(&resolved.scene),
-        startup.gpu_timing,
-    )
-    .await?;
-    Ok((instance, surface, context, policy, resolved))
 }
 
 #[cfg(test)]

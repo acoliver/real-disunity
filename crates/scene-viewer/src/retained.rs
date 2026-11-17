@@ -561,6 +561,25 @@ impl RetainedHost {
         )
     }
 
+    /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,
+    /// which another user such as a player's offscreen work may share. The window's surface is
+    /// checked against that device's adapter when it is made.
+    ///
+    /// # Errors
+    /// As [`Self::run`], and [`ViewerError::SharedSurface`] when the adapter cannot present to the
+    /// window, or a missing-feature error when the scene needs a feature the device lacks.
+    pub fn run_on(
+        self,
+        start: crate::ViewerStart,
+        driver: &mut impl RetainedDriver,
+    ) -> Result<(), ViewerError> {
+        self.run_with_activity(
+            driver,
+            crate::activity::ActivityGuard::begin,
+            |host, driver| crate::app::run_retained_on(host, driver, start),
+        )
+    }
+
     pub(crate) fn run_with_activity<G>(
         self,
         driver: &mut dyn RetainedDriver,

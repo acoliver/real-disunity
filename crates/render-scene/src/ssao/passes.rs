@@ -1,3 +1,4 @@
+use crate::compositor::forward_order::forward_position;
 use crate::frame::metadata::FrameProduct;
 #[path = "kernels.rs"]
 mod kernels;
@@ -184,6 +185,14 @@ impl ScreenPasses {
         self.stages.iter().map(|stage| &stage.target).collect()
     }
 
+    /// The roles of the stages and what each reads, which decide the passes they schedule.
+    pub(crate) fn schedule_shape(&self) -> Vec<(PassSlot, Vec<ResourceRef>)> {
+        self.stages
+            .iter()
+            .map(|stage| (stage.slot, stage.reads.clone()))
+            .collect()
+    }
+
     pub(crate) fn schedule_metadata(
         &self,
         passes: &mut Vec<PassDeclaration>,
@@ -354,27 +363,22 @@ impl ScreenPasses {
     }
 }
 
-/// Adds the screen stages that the other features of the frame declare reads of, caller and
-/// retained features included, to the screen feature at `screen` in `features`. Call it once
-/// every feature of the frame has planned.
-pub(crate) fn schedule_declared_reads(
+/// Adds to `screen`, the declaration of the frame's screen feature, the stages that the
+/// declarations in `others` read: the caller's, reflections', the snapshots' and the retained
+/// features'. Call it once every other feature of the frame has planned.
+pub(crate) fn schedule_declared_reads<'a>(
     ssao: &crate::scene_metadata::SceneMetadata,
     plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
-    (features, screen): (&mut [worldrunner_render_post::BorrowedFeature<'_>], usize),
-    retained: &[FeatureDeclaration],
+    screen: &mut FeatureDeclaration,
+    others: impl IntoIterator<Item = &'a FeatureDeclaration>,
 ) -> Result<(), FrameError> {
-    let reads: Vec<_> = features
-        .iter()
-        .enumerate()
-        .filter(|&(index, _)| index != screen)
-        .map(|(_, feature)| &feature.declaration)
-        .chain(retained)
+    let reads: Vec<_> = others
+        .into_iter()
         .flat_map(|declaration| &declaration.passes)
         .flat_map(|pass| pass.reads.iter().copied())
         .collect();
     let (passes, views) = plan;
-    ssao.passes
-        .schedule_reads(passes, views, &mut features[screen].declaration, reads)
+    ssao.passes.schedule_reads(passes, views, screen, reads)
 }
 
 pub(crate) struct ScreenFeature<'a> {
@@ -526,9 +530,10 @@ impl ScreenFeature<'_> {
         let mut screen_passes = Vec::new();
         crate::ssao::passes::prepass(ssao, self.material, &mut screen_passes, views)?;
         let declaration = ssao.passes.schedule(&mut screen_passes, views)?;
+        let anchor = forward_position(PassSlot::DepthNormalPrepass);
         let insertion = passes
             .iter()
-            .position(|pass| pass.slot >= PassSlot::DepthNormalPrepass)
+            .position(|pass| forward_position(pass.slot) >= anchor)
             .unwrap_or(passes.len());
         passes.splice(insertion..insertion, screen_passes);
 

@@ -1,9 +1,13 @@
 //! The producer side of the deferred G-buffer: the stock terrain and object sources whose fragment
 //! stage stores the surface material in the four G-buffer targets instead of lighting it, and the
-//! pipelines the scene draws into the `OpaqueGbuffer` slot with.
+//! pipelines used by observation and by the early depth-writing material pass.
+
+mod early;
+pub(crate) use early::EarlyOutputs;
 
 use crate::gbuffer::GBUFFER_WGSL;
 use crate::renderer::ScenePipelines;
+use crate::shader::rewrite::ShaderRewrite;
 
 const CAMERA: &str = include_str!("ssao/camera.wgsl");
 const TERRAIN_ENTRY: &str = include_str!("gbuffer_writes/terrain.wgsl");
@@ -31,11 +35,6 @@ const FORWARD_OBJECTS: [&str; 4] = [
 /// the G-buffer entry keeps the name the terrain program selects. The result is a base source:
 /// the terrain program composes its page and layered variants over it as over the stock source.
 pub(crate) fn terrain_source(stock: &str) -> String {
-    assert_eq!(
-        stock.matches(FORWARD_TERRAIN).count(),
-        1,
-        "the stock terrain source has one forward entry"
-    );
     format!(
         "{}\n{CAMERA}\n{GBUFFER_WGSL}\n{TERRAIN_ENTRY}",
         without_entry(stock, FORWARD_TERRAIN)
@@ -45,11 +44,8 @@ pub(crate) fn terrain_source(stock: &str) -> String {
 /// `source` without the fragment entry that starts with `entry`, up to its closing brace at the
 /// start of a line. The entry must occur exactly once.
 fn without_entry(source: &str, entry: &str) -> String {
-    assert_eq!(
-        source.matches(entry).count(),
-        1,
-        "one forward entry {entry:?}"
-    );
+    // Replacing the entry's header with itself checks that it occurs exactly once.
+    let source = source.anchored("gbuffer_writes forward entry", 1, entry, entry);
     let start = source.find(entry).expect("forward entry");
     let length = source[start..]
         .find("\n}\n")
@@ -107,12 +103,7 @@ fn card_material(stock: &str) -> String {
     let mut card =
         crate::scene_metadata::receiver::function_source(stock, "scene_card_shade").to_owned();
     for (from, to) in CARD_MATERIAL {
-        assert_eq!(
-            card.matches(from).count(),
-            1,
-            "card material anchor {from:?}"
-        );
-        card = card.replace(from, to);
+        card = card.anchored("gbuffer_writes card material", 1, from, to);
     }
     card
 }
@@ -148,7 +139,7 @@ fn replace_once(source: &str, from: &str, to: &str) -> String {
     assert_eq!(
         source.matches(from).count(),
         1,
-        "G-buffer velocity anchor {from:?}"
+        "G-buffer source anchor {from:?}"
     );
     source.replace(from, to)
 }
@@ -205,6 +196,44 @@ pub(crate) fn pipelines(
     velocity: bool,
 ) -> (ScenePipelines, wgpu::BindGroup) {
     crate::scene_metadata::pipelines_from_sources(device, camera, &sources(velocity))
+}
+
+/// The early material producer and its camera group. Orchestration installs these only for
+/// Render and uses `producer_depth` on the actual scene depth before drawing.
+pub(crate) fn early_pipelines(
+    device: &wgpu::Device,
+    camera: &wgpu::Buffer,
+    outputs: EarlyOutputs,
+) -> (ScenePipelines, wgpu::BindGroup) {
+    crate::scene_metadata::pipelines_from_sources(device, camera, &outputs.sources())
+}
+
+/// The ordered formats of either producer source. Observation keeps its existing outputs.
+pub(crate) fn source_formats(source: &str) -> Vec<wgpu::TextureFormat> {
+    if let Some(outputs) = EarlyOutputs::from_source(source) {
+        return outputs.formats();
+    }
+    let mut formats = crate::gbuffer::GBUFFER_FORMATS.to_vec();
+    if source.contains(crate::velocity::MARKER) {
+        formats.push(worldrunner_render_post::VELOCITY_FORMAT);
+    }
+    formats
+}
+
+/// Observation tests completed depth without writing. Early material production owns winners
+/// and, on shared depth, their stencil marks for later read-only consumers.
+pub(crate) fn producer_depth(
+    early: Option<EarlyOutputs>,
+    format: wgpu::TextureFormat,
+) -> crate::renderer::depth::DepthMode {
+    use crate::renderer::depth::DepthMode;
+    if early.is_none() {
+        DepthMode::Reuse
+    } else if format.has_stencil_aspect() {
+        DepthMode::Prepass
+    } else {
+        DepthMode::Independent
+    }
 }
 
 #[cfg(test)]

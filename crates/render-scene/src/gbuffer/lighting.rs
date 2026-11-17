@@ -18,11 +18,14 @@ use std::rc::Rc;
 use wgpu::util::DeviceExt;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeaturePass, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 use super::records::{LIGHTING_RECORD_BYTES, LightingRecordTable};
 use super::{Gbuffer, GbufferTarget};
+
+#[path = "lighting_front.rs"]
+mod front;
 
 /// The lighting module appended to the forward object source with the G-buffer module.
 pub const LIGHTING_WGSL: &str = include_str!("../shader/gbuffer_lighting.wgsl");
@@ -30,8 +33,8 @@ pub const LIGHTING_WGSL: &str = include_str!("../shader/gbuffer_lighting.wgsl");
 const VERTEX_ENTRY: &str = "vs_scene_deferred_lighting";
 const FRAGMENT_ENTRY: &str = "fs_scene_deferred_lighting";
 
-/// Bytes of the camera block at (1, 22): `scene_from_clip` and the padded `scene_from_view`.
-const CAMERA_BYTES: usize = 112;
+/// Camera at (1, 22): inverse transforms followed by the Render receiver policy.
+const CAMERA_BYTES: usize = 128;
 
 /// One output of the lighting pass, in colour-location order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,11 +162,13 @@ pub(crate) fn schedule_render(passes: &mut Vec<PassDeclaration>) -> Result<(), F
     let opaque = passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+        .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?;
     let colour = opaque
         .color
         .as_mut()
-        .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque,
+        )))?;
     let mut pass = PassDeclaration::new(PassSlot::OpaqueLighting);
     pass.color = Some(colour.clone());
     colour.load = AttachmentLoad::Load;
@@ -187,9 +192,11 @@ pub(crate) fn schedule_render(passes: &mut Vec<PassDeclaration>) -> Result<(), F
 /// normalise; the stored shading normal is already unit length, so both of its branches give
 /// that normal and the lighting pass takes it directly. With the receiver payload the far
 /// side's visibility and the payload pixel come from the receiver consumer, as forward.
+/// Without a payload, Render supplies G3's normal to the same screen-neighbour solve;
+/// observation retains the shading normal.
 pub(crate) fn source(object: &str) -> String {
     const MATERIAL_NORMAL: &str = "fn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }";
-    let object = object.replace(
+    let object = front::source(object).replace(
         MATERIAL_NORMAL,
         "fn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { return normal; }",
     );
@@ -381,13 +388,14 @@ fn inputs_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-/// The camera block for a frame's `view_projection` and right-handed `view`: the inverse of
-/// the projection the producers rasterised with, and the inverse of the view rotation they
-/// encoded normals with.
+/// The camera block for a frame's `view_projection` and right-handed `view`: the inverse
+/// projection with clip depth centred on one, and the inverse view rotation for normals.
 pub(crate) fn camera_bytes(view_projection: glam::Mat4, view: glam::Mat4) -> [u8; CAMERA_BYTES] {
-    let scene_from_clip = view_projection.inverse();
+    let mut scene_from_clip = view_projection.as_dmat4().inverse();
+    // Combine the cancelling depth and translation terms before rounding to the GPU format.
+    scene_from_clip.w_axis += scene_from_clip.z_axis;
     let scene_from_view = glam::Mat3::from_mat4(view).transpose();
-    let mut values = scene_from_clip.to_cols_array().to_vec();
+    let mut values = scene_from_clip.as_mat4().to_cols_array().to_vec();
     for column in [
         scene_from_view.x_axis,
         scene_from_view.y_axis,
@@ -399,6 +407,16 @@ pub(crate) fn camera_bytes(view_projection: glam::Mat4, view: glam::Mat4) -> [u8
     for (chunk, value) in bytes.chunks_exact_mut(4).zip(values) {
         chunk.copy_from_slice(&value.to_le_bytes());
     }
+    bytes
+}
+
+fn receiver_camera_bytes(
+    view_projection: glam::Mat4,
+    view: glam::Mat4,
+    renders: bool,
+) -> [u8; CAMERA_BYTES] {
+    let mut bytes = camera_bytes(view_projection, view);
+    bytes[112..116].copy_from_slice(&u32::from(renders).to_le_bytes());
     bytes
 }
 
@@ -427,7 +445,7 @@ impl LightingInputs {
         });
         let camera = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("deferred lighting camera"),
-            contents: &camera_bytes(frame.view_projection, frame.view),
+            contents: &receiver_camera_bytes(frame.view_projection, frame.view, gbuffer.renders()),
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let mut entries: Vec<_> = views

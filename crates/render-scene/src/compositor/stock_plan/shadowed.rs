@@ -1,48 +1,20 @@
+//! The base passes of a shadowed scene frame: the shadow casters of the cascades being refreshed,
+//! the opaque pass with its velocity attachment, the screen-space passes the frame adds and the
+//! celestial pass, with the declaration of the feature that draws in them.
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, PassDeclaration, PassSlot, ResourceRef,
 };
 use worldrunner_render_shadow::DepthMap;
 
-use super::ShadowError;
+use crate::shadows::ShadowError;
 
-pub(super) struct ShadowSchedule {
+pub(crate) struct ShadowSchedule {
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
     pub declaration: FeatureDeclaration,
-    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 
 impl ShadowSchedule {
-    pub fn prepared(
-        scheduler: &mut crate::compositor::FrameRenderer,
-        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
-        scene: (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-        frame: &crate::frame::FrameUniform,
-        attachments: (&AttachmentView, &AttachmentView),
-        map: (&DepthMap, [bool; 4]),
-    ) -> Result<(Self, Option<crate::draw::ContourDraw>), ShadowError> {
-        let pipelines = scene.1;
-        let mut schedule = Self::new(map.0, attachments.0, attachments.1, pipelines, map.1)?;
-        schedule.deferred = schedule.complete(
-            scheduler,
-            scene,
-            (gpu.0, attachments.0.size()),
-            (pipelines.depth, pipelines.card_reject()),
-            (attachments.1.texture(), frame),
-        )?;
-        let contour = scheduler.plan_contours(
-            gpu,
-            scene,
-            frame,
-            (
-                &mut schedule.passes,
-                &mut schedule.views,
-                &mut schedule.declaration,
-            ),
-        )?;
-        Ok((schedule, contour))
-    }
-
     pub fn celestial(
         &mut self,
         gpu: &crate::draw::SceneGpu,
@@ -237,7 +209,6 @@ impl ShadowSchedule {
             passes,
             views,
             declaration,
-            deferred: None,
         })
     }
 }

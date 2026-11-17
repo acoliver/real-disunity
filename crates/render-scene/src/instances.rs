@@ -4,9 +4,13 @@ pub(crate) mod batch;
 #[cfg(test)]
 mod contour_tests;
 pub(crate) mod fade;
+pub(crate) mod history;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
+mod staged_uploads;
+#[cfg(test)]
+pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
 

@@ -7,6 +7,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
 
 mod capture_tests;
+mod retained_tests;
 
 const SIZE: [u32; 2] = [32, 24];
 
@@ -71,6 +72,38 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
         effects: Some(effects),
     })
     .unwrap()
+}
+
+fn source_with_path(id: u8, path: SceneOpaquePath) -> RenderScene {
+    let source = source(
+        0,
+        Shape::Quad,
+        path == SceneOpaquePath::GBUFFER_RENDER,
+        false,
+    );
+    let mut styles = vec![None; 256];
+    for selected in [1, 2, 255] {
+        styles[selected] = Some(SceneContourStyle::default());
+    }
+    let effects = source
+        .effects()
+        .unwrap()
+        .clone()
+        .with_contours(SceneContours::new([1920, 1080], styles).unwrap())
+        .unwrap()
+        .with_opaque_path(path)
+        .unwrap();
+    source
+        .with_objects_and_effects(
+            source
+                .geometry()
+                .objects()
+                .iter()
+                .map(|object| object.with_contour_id(id))
+                .collect(),
+            Some(effects),
+        )
+        .unwrap()
 }
 
 fn resources(hole: bool) -> SceneResources {

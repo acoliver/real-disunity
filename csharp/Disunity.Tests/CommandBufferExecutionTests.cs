@@ -39,6 +39,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: a temporary of an array or volume descriptor records its dimension and depth");
             BlitAndCopyRecordRenderTextures();
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
+            TemporariesAreBlitAndCopyEnds();
+            Console.WriteLine("PASS: a temporary render texture is a blit source and target, a copy source and target, and a global texture");
             ViewProjectionIsRecordedColumnByColumn();
             Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
             DrawMeshIsRecordedInOrder();
@@ -451,10 +453,38 @@ internal static class CommandBufferExecutionTests
         Expect.That(taken[4] == $"Copy source=2:{ida}[0,0] target={idb}[0,0]", $"copy, got {taken[4]}");
         Expect.That(taken[5] == $"Copy source=2:{mipped.WorldId}[1,2] target={idb}[3,0]", $"copy of elements and mip levels, got {taken[5]}");
         Throws<NotSupportedException>(() => buffer.Blit(a, BuiltinRenderTextureType.CameraTarget), "a blit to the camera target", "CommandBuffer.Blit", "render texture");
-        Throws<NotSupportedException>(() => buffer.Blit(new RenderTargetIdentifier("_Tmp"), b), "a blit from a temporary", "temporary render texture");
-        Throws<NotSupportedException>(() => buffer.CopyTexture(a, 0, 0, "_Tmp", 0, 0), "a copy to a temporary", "CommandBuffer.CopyTexture");
+        Throws<NotSupportedException>(() => buffer.Blit(BuiltinRenderTextureType.CameraTarget, b), "a blit from the camera target", "camera target as a texture");
+        Throws<NotSupportedException>(() => buffer.CopyTexture(a, 0, 0, BuiltinRenderTextureType.None, 0, 0), "a copy to nothing", "CommandBuffer.CopyTexture");
         Throws<ArgumentException>(() => buffer.Blit(a, b, material, -2), "a pass below -1");
         Throws<ArgumentException>(() => buffer.CopyTexture(a, -1, 0, b, 0, 0), "a negative element");
+    }
+
+    /// <summary>The ambient occlusion pass of a shipped game blits a temporary into itself, copies it into a mip of a render texture
+    /// and sets it as a global, all under one property name id.</summary>
+    private static void TemporariesAreBlitAndCopyEnds()
+    {
+        var a = Target();
+        var mipped = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 3);
+        mipped.Create();
+        var material = new Material(Material.SpriteLit);
+        var id = Shader.PropertyToID("_AO_TemporaryEnds");
+        var buffer = new CommandBuffer();
+        buffer.GetTemporaryRT(id, 8, 8);
+        buffer.Blit(id, id, material, 35);
+        buffer.CopyTexture(id, 0, 0, mipped, 0, 2);
+        buffer.SetGlobalTexture("_AO_CurrDepthSource", id);
+        buffer.Blit(a, id);
+        buffer.CopyTexture(a, 0, 0, id, 0, 0);
+        buffer.ReleaseTemporaryRT(id);
+        Graphics.ExecuteCommandBuffer(buffer);
+        var (ida, mat, bits) = (a.WorldId, material.WorldLink.Id, (uint)id);
+        var taken = Taken().Where(line => !line.StartsWith("Allocate", StringComparison.Ordinal) && !line.StartsWith("Release", StringComparison.Ordinal)).ToArray();
+        Expect.Equal(5, taken.Length, "five records between the allocation and the release");
+        Expect.That(taken[0] == $"Blit source=4:{bits} target=temp:{id} material={mat} pass=35", $"blit of a temporary into itself, got {taken[0]}");
+        Expect.That(taken[1] == $"Copy source=4:{bits}[0,0] target={mipped.WorldId}[0,2]", $"copy of a temporary into a mip, got {taken[1]}");
+        Expect.That(taken[2].StartsWith($"SetGlobal _AO_CurrDepthSource=texture temporary:{id} ", StringComparison.Ordinal), $"global temporary, got {taken[2]}");
+        Expect.That(taken[3] == $"Blit source=2:{ida} target=temp:{id} material=0 pass=-1", $"blit into a temporary, got {taken[3]}");
+        Expect.That(taken[4] == $"Copy source=2:{ida}[0,0] target=temp:{id}[0,0]", $"copy into a temporary, got {taken[4]}");
     }
 
     private static void ReleasedAndNullBuffersAreRefused()

@@ -1,5 +1,7 @@
 //! Offscreen operations precede the stock G-buffer and lighting in the same transaction.
 
+mod queued;
+
 use super::{Fixture, build, check_offscreen_stages, check_timing, engine_scene, player, settings};
 use crate::{
     compositor::ReceiverGradientReservation, device::GpuContext, draw::DrawCount,

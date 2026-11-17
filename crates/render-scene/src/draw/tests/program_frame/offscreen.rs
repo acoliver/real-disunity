@@ -250,9 +250,14 @@ struct Readbacks {
 
 /// Builds the frame and appends the readbacks of every stage.
 fn build(player: &mut Player) -> (OffscreenOperations, Readbacks) {
+    build_frame(player, &frame())
+}
+
+/// Builds `frame` and appends the readbacks of the textures the standard frame writes.
+fn build_frame(player: &mut Player, frame: &OffscreenFrame) -> (OffscreenOperations, Readbacks) {
     let mut operations = player
         .state
-        .build(&mut player.runtime, &player.arena, &frame())
+        .build(&mut player.runtime, &player.arena, frame)
         .unwrap();
     let readbacks = Readbacks {
         camera: operations.read_back(A, 0, 0).unwrap(),

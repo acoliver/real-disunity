@@ -248,6 +248,9 @@ impl Renderer {
                 (&retained_view, Some(host))
             }
         };
+        if let Some(host) = host.as_deref() {
+            self.reject_offscreen_depth_fitting(host)?;
+        }
         self.prepare_frame(view, ready.admission.slot())?;
         if let Some(host) = host.as_deref() {
             self.prepare_camera_history(host);
@@ -294,6 +297,7 @@ impl Renderer {
 
         Ok(Some(ticket))
     }
+
     fn apply_retained_shadow_policy(
         &mut self,
         host: &crate::RetainedHost,
@@ -350,12 +354,6 @@ impl Renderer {
                 retained.as_deref().map_or(&[], capture::Products::terms),
             ),
         )?;
-        if fitted && offscreen.is_some() {
-            // The fitted frame was submitted already, before this frame's recording began.
-            return Err(ViewerError::UnsupportedScene(
-                "player offscreen work with same-frame depth fitting",
-            ));
-        }
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
@@ -509,6 +507,13 @@ impl Resident {
         match self {
             Self::Plain(plain) => &mut plain.gpu,
             Self::Shadowed(shadowed) => shadowed.scene_mut(),
+        }
+    }
+
+    fn depth_fitting_enabled(&self) -> bool {
+        match self {
+            Self::Plain(_) => false,
+            Self::Shadowed(scene) => scene.depth_fitting_settings().is_some(),
         }
     }
 

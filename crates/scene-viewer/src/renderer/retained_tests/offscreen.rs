@@ -120,3 +120,28 @@ fn offscreen_work_handed_to_the_host_runs_in_the_next_rendered_frame() {
         "the camera cleared the render texture in the viewer's frame"
     );
 }
+
+#[test]
+fn offscreen_work_refuses_depth_fitted_frame_before_submission() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let options = crate::ViewerOptions {
+        shadows: Some(super::super::shadow_settings()),
+        ..crate::tests::options()
+    };
+    let mut host = RetainedHost::new(crate::renderer::sdsm_tests::fitted_scene(), options).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let device = renderer.context.device().clone();
+    let authority = renderer.context.submission().clone();
+    let (operations, _image, _runtime) = clearing_operations(&device, &authority);
+    let before = authority.submitted_serial();
+    host.admit_offscreen(operations);
+
+    assert!(matches!(
+        renderer.render_retained(&mut host),
+        Err(crate::ViewerError::UnsupportedScene(
+            "player offscreen work with same-frame depth fitting"
+        ))
+    ));
+    assert_eq!(authority.submitted_serial(), before);
+    assert!(host.offscreen.is_some());
+}

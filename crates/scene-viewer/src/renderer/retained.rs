@@ -158,7 +158,20 @@ impl Renderer {
         Ok(self.streaming.captures.is_pending())
     }
 
+    pub(super) fn reject_offscreen_depth_fitting(
+        &self,
+        host: &RetainedHost,
+    ) -> Result<(), ViewerError> {
+        if host.offscreen.is_some() && self.resident.depth_fitting_enabled() {
+            return Err(ViewerError::UnsupportedScene(
+                "player offscreen work with same-frame depth fitting",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
+        self.reject_offscreen_depth_fitting(host)?;
         self.poll()?;
         self.collect_retained(host)?;
         if self.render_recipe(host)?.is_some() {

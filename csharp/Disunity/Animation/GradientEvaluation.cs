@@ -1,14 +1,14 @@
 namespace UnityEngine;
 
-/// <summary>Samples a gradient's color and alpha keys. Blend interpolates each channel linearly,
-/// Fixed holds the first key at or after the time, and PerceptualBlend interpolates the color in Oklab
-/// (treating the key colors as sRGB) and the alpha linearly. Times outside the keys read the end key.</summary>
+/// <summary>Samples sRGB color keys and independent alpha keys. Blend interpolates RGB in the
+/// declared gamma or linear-light space and returns sRGB. Fixed holds the first key at or after the
+/// time; PerceptualBlend interpolates RGB in Oklab. Times outside the keys read the end key.</summary>
 internal static class GradientEvaluation
 {
-    public static Color Evaluate(IReadOnlyList<GradientColorKey> colors, IReadOnlyList<GradientAlphaKey> alphas, GradientMode mode, float time)
+    public static Color Evaluate(IReadOnlyList<GradientColorKey> colors, IReadOnlyList<GradientAlphaKey> alphas, GradientMode mode, ColorSpace colorSpace, float time)
     {
         time = Mathf.Clamp01(time);
-        var rgb = SampleColor(colors, mode, time);
+        var rgb = SampleColor(colors, mode, colorSpace, time);
         return new Color(rgb.r, rgb.g, rgb.b, SampleAlpha(alphas, mode, time));
     }
 
@@ -20,16 +20,19 @@ internal static class GradientEvaluation
         return index;
     }
 
-    private static Color SampleColor(IReadOnlyList<GradientColorKey> keys, GradientMode mode, float time)
+    private static Color SampleColor(IReadOnlyList<GradientColorKey> keys, GradientMode mode, ColorSpace colorSpace, float time)
     {
         if (keys.Count == 0) return Color.white;
         var next = Next(keys, key => key.time, time);
         if (next == keys.Count) return keys[^1].color;
-        if (mode == GradientMode.Fixed || next == 0) return keys[next].color;
+        if (mode == GradientMode.Fixed || next == 0 || keys[next].time == time) return keys[next].color;
         var (left, right) = (keys[next - 1], keys[next]);
         var span = right.time - left.time;
         var t = span > 0f ? (time - left.time) / span : 1f;
-        return mode == GradientMode.PerceptualBlend ? Oklab.Lerp(left.color, right.color, t) : Color.LerpUnclamped(left.color, right.color, t);
+        if (mode == GradientMode.PerceptualBlend) return Oklab.Lerp(left.color, right.color, t);
+        return colorSpace == ColorSpace.Linear
+            ? Color.LerpUnclamped(left.color.linear, right.color.linear, t).gamma
+            : Color.LerpUnclamped(left.color, right.color, t);
     }
 
     private static float SampleAlpha(IReadOnlyList<GradientAlphaKey> keys, GradientMode mode, float time)

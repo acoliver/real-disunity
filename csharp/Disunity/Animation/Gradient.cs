@@ -20,7 +20,8 @@ public class Gradient : IEquatable<Gradient>
 
     public GradientMode mode { get; set; }
 
-    /// <summary>Stored; evaluation does not convert between color spaces.</summary>
+    /// <summary>Blend's interpolation space: Gamma by default, or Linear for linear-light blending.
+    /// Keys and evaluated RGB remain sRGB; alpha, Fixed and PerceptualBlend keep their own policies.</summary>
     public ColorSpace colorSpace { get; set; }
 
     public GradientColorKey[] colorKeys
@@ -39,7 +40,7 @@ public class Gradient : IEquatable<Gradient>
 
     public int alphaKeyCount => alphas.Count;
 
-    public Color Evaluate(float time) => GradientEvaluation.Evaluate(colors, alphas, mode, time);
+    public Color Evaluate(float time) => GradientEvaluation.Evaluate(colors, alphas, mode, colorSpace, time);
 
     public void GetColorKeys(Span<GradientColorKey> keys) => CopyOut(colors, keys);
 

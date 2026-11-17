@@ -6,7 +6,7 @@ use crate::scene::effects::{
 use crate::scene::geometry::{SceneRotation, SceneVertex};
 use crate::scene::resource::{TexelFormat, TextureColorSpace, TextureEncoding};
 
-fn texture() -> crate::scene::resource::SceneTexture {
+pub(super) fn texture() -> crate::scene::resource::SceneTexture {
     crate::scene::resource::SceneTexture::Encoded {
         encoding: TextureEncoding::OpaqueExact,
         color_space: TextureColorSpace::Linear,
@@ -14,7 +14,7 @@ fn texture() -> crate::scene::resource::SceneTexture {
     }
 }
 
-fn effects() -> SceneEffects {
+pub(super) fn effects() -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -79,7 +79,7 @@ fn mesh() -> SceneMesh {
     .expect("synthetic mesh validates")
 }
 
-fn scene_with(
+pub(super) fn scene_with(
     objects: Vec<SceneObject>,
     terrain: Option<crate::scene::terrain::SceneTerrain>,
 ) -> Result<RenderScene, SceneValidationError> {
@@ -105,7 +105,7 @@ fn scene_with(
     })
 }
 
-fn object(mesh: u32, material: u32) -> SceneObject {
+pub(super) fn object(mesh: u32, material: u32) -> SceneObject {
     SceneObject::new(
         SceneTransform {
             position_millimeters: [0, 0, 0],
@@ -117,7 +117,7 @@ fn object(mesh: u32, material: u32) -> SceneObject {
     )
 }
 
-fn terrain(materials: Vec<MaterialHandle>) -> crate::scene::terrain::SceneTerrain {
+pub(super) fn terrain(materials: Vec<MaterialHandle>) -> crate::scene::terrain::SceneTerrain {
     let surfaces = materials
         .into_iter()
         .map(|material| SceneTerrainSurface::new(material, SceneTerrainAppearance::NEUTRAL))
@@ -266,7 +266,7 @@ fn dome_sky_texture_must_address_the_texture_table() {
     ));
 }
 
-fn dome_sky_effects() -> SceneEffects {
+pub(super) fn dome_sky_effects() -> SceneEffects {
     let base = effects();
     SceneEffects::new(SceneEffectsParts {
         water: None,

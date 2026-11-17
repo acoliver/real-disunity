@@ -214,8 +214,7 @@ impl Mapper<'_> {
                 *topology,
                 (*vertex_count, *instance_count),
             ),
-            // The host runs no mip generation yet, so the record makes no draw.
-            OffscreenWork::GenerateMips { .. } => Ok(Vec::new()),
+            OffscreenWork::GenerateMips { texture } => self.generate_mips(*texture),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -381,7 +380,7 @@ impl Mapper<'_> {
 
     /// What a texture of the frame is: a temporary the commands allocated or a render texture of
     /// the snapshot.
-    fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
+    pub(super) fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
         self.script.temporaries.described.get(&texture).or_else(|| {
             ids::render_texture_of(texture).and_then(|id| self.snapshot.render_textures.get(&id))
         })

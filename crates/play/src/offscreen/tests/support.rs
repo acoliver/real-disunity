@@ -185,6 +185,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         sub_meshes: BTreeMap::new(),
         empty_meshes: BTreeSet::new(),
         test_variants: false,
+        float32_filterable: false,
     }
 }
 

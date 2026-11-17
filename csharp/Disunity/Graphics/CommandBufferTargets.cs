@@ -70,8 +70,8 @@ public sealed partial class CommandBuffer
     private void BindTargets(string member, RenderTargetIdentifier[] colors, RenderTargetIdentifier? depth, int? mip, CubemapFace? face, int? slice)
     {
         var member2 = $"CommandBuffer.{member}";
-        var targets = colors.Select(color => CommandTarget.Of(color, member2)).ToArray();
-        var depthTarget = depth is { } d ? CommandTarget.Of(d, member2) : (CommandTarget?)null;
+        var targets = colors.Select(color => CommandTarget.Of(color, member2).AsTarget(member2)).ToArray();
+        var depthTarget = depth is { } d ? CommandTarget.OfDepth(d, member2).AsTarget(member2) : (CommandTarget?)null;
         var first = targets.Length > 0 ? targets[0] : depthTarget ?? default;
         var (useMip, useFace, useSlice) = (mip ?? first.Mip, face is { } f ? (int)f : first.Face, slice ?? first.Slice);
         if (useMip < 0) throw new ArgumentOutOfRangeException(nameof(mip), useMip, $"{member2}: the mip level is negative");
@@ -120,9 +120,8 @@ public sealed partial class CommandBuffer
     {
         ThrowIfReleased();
         if (pass < -1) throw new ArgumentException($"pass {pass} is below -1", nameof(pass));
-        var to = CommandTarget.Of(dest, BlitMember);
-        if (to.Kind != 0) throw new NotSupportedException($"{BlitMember}: the destination must be a render texture");
-        Record(() => WorldGraphics.RecordBlit(source(), to.ToNative().render, mat is null || !mat ? 0UL : mat.WorldLink.Id, pass));
+        var to = CommandTarget.Of(dest, BlitMember).AsWorkTarget(BlitMember);
+        Record(() => WorldGraphics.RecordBlit(source(), to.ToWorkTarget(), mat is null || !mat ? 0UL : mat.WorldLink.Id, pass));
     }
 
     public void CopyTexture(RenderTargetIdentifier src, int srcElement, int srcMip, RenderTargetIdentifier dst, int dstElement, int dstMip)
@@ -132,8 +131,7 @@ public sealed partial class CommandBuffer
             throw new ArgumentException("an element or mip level of a copy is negative");
         var full = "CommandBuffer.CopyTexture";
         var from = CommandTarget.Of(src, full).AsTexture(full);
-        var to = CommandTarget.Of(dst, full);
-        if (to.Kind != 0) throw new NotSupportedException($"{full}: the destination must be a render texture");
-        Record(() => WorldGraphics.RecordCopy(from.ToTexture(), (uint)srcElement, (uint)srcMip, to.ToNative().render, (uint)dstElement, (uint)dstMip));
+        var to = CommandTarget.Of(dst, full).AsWorkTarget(full);
+        Record(() => WorldGraphics.RecordCopy(from.ToTexture(), (uint)srcElement, (uint)srcMip, to.ToWorkTarget(), (uint)dstElement, (uint)dstMip));
     }
 }

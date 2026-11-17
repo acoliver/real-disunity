@@ -1,13 +1,16 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+mod contours;
 pub mod opaque;
 #[cfg(test)]
 mod overlay_tests;
+mod planning;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
+mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
@@ -39,6 +42,8 @@ use worldrunner_render_post::{
 /// Encoding requires the authority-owned encoder. Cancellation discards publication.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
+    contours: crate::contours::Targets,
+    contour_format: wgpu::TextureFormatFeatures,
     overlay: overlay::OverlayStage,
     output_format: wgpu::TextureFormat,
     environment_conventions: [Option<worldrunner_render_plan::SceneSpecularConvention>; 2],
@@ -63,6 +68,8 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
+    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
+    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -104,6 +111,8 @@ impl FrameRenderer {
         output_format: wgpu::TextureFormat,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
+            contours: crate::contours::Targets::default(),
+            contour_format: crate::contours::FORMAT.guaranteed_format_features(device.features()),
             overlay: overlay::OverlayStage::default(),
             output_format,
             environment_conventions: [None; 2],
@@ -111,6 +120,7 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
+            gbuffer: None,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -195,12 +205,31 @@ impl FrameRenderer {
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
+        let metadata = depth_reuse::prepass_metadata(
+            ssao_requested,
+            ssr_requested.as_ref(),
+            effects.is_some_and(|effects| effects.depth_fitting().is_some()),
+        );
+        let gbuffer = opaque::allocate_path(
+            context.device(),
+            effects.map_or_else(
+                Default::default,
+                worldrunner_render_plan::SceneEffects::opaque_path,
+            ),
+            config,
+            ssr_requested.is_some_and(|ssr| ssr.enabled),
+        )?;
         let mut renderer = Self {
+            contours: crate::contours::Targets::default(),
+            contour_format: context
+                .adapter()
+                .get_texture_format_features(crate::contours::FORMAT),
             overlay: overlay::OverlayStage::default(),
             output_format,
             environment_conventions: [None; 2],
             ssao_requested,
             ssr_requested,
+            gbuffer,
             ssr: None,
             water: None,
             water_state: std::rc::Rc::default(),
@@ -219,10 +248,9 @@ impl FrameRenderer {
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             temporal: std::rc::Rc::default(),
-            ssao: effects
-                .and_then(|effects| effects.ssao())
+            ssao: metadata
                 .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, *settings)
+                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
                 })
                 .transpose()?,
             chain: PostChain::with_scene_depth(
@@ -230,14 +258,11 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Hdr(factory),
-                depth_reuse::allocation(
-                    context.device(),
-                    config,
-                    ssao_requested.is_some() || ssr_requested.is_some_and(|ssr| ssr.enabled),
-                ),
+                depth_reuse::allocation(context.device().features(), config, metadata.is_some()),
             )?,
         };
-        renderer.install_reflections(context.device(), size)?;
+        renderer.install_reflections(context.device())?;
+        renderer.install_gbuffer_producer(context.device());
         renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
@@ -250,23 +275,15 @@ impl FrameRenderer {
         Ok(renderer)
     }
 
-    fn install_reflections(
-        &mut self,
-        device: &wgpu::Device,
-        size: [u32; 2],
-    ) -> Result<(), FrameError> {
+    fn install_reflections(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
         if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
             crate::ssr::validate_extent(self.targets().config(), &settings, &device.limits())?;
-            if self.ssao.is_none() {
-                self.ssao = Some(crate::scene_metadata::SceneMetadata::new(
-                    device,
-                    size,
-                    crate::ssr::neutral_ao(),
-                )?);
-            }
             let config = self.targets().config();
             let velocity = self.taa_resident();
-            let screen = self.ssao.as_mut().expect("reflection prepass");
+            let screen = self
+                .ssao
+                .as_mut()
+                .expect("enabled reflections own prepass metadata");
             self.ssr = Some(crate::ssr::Ssr::with_velocity(
                 device, config, settings, screen, velocity,
             )?);
@@ -460,6 +477,14 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
+            self.install_gbuffer_producer(device);
+        }
+        if let Some(gbuffer) = self
+            .gbuffer
+            .as_mut()
+            .filter(|gbuffer| gbuffer.size() != size)
+        {
+            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)
@@ -573,150 +598,6 @@ impl FrameRenderer {
         self.water_state.borrow_mut().feature = feature;
         Ok(())
     }
-    /// Camera-aware composition for stock and external features, including
-    /// declaration-requested snapshots. The optional binding supplies shared shadows.
-    pub fn encode_frame(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        plan: (&[PassDeclaration], &[AttachmentView]),
-        features: &mut [BorrowedFeature<'_>],
-        input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
-    ) -> Result<(), FrameError> {
-        let config = self.targets().config();
-        let (frame, shadow) = input;
-        self.validate_environment_conventions(frame.specular_convention)?;
-        let (passes, views) = plan;
-        let mut passes = passes.to_vec();
-        let mut views = views.to_vec();
-        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        let depth_mode = if passes
-            .iter()
-            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
-            .and_then(|pass| pass.depth.as_ref())
-            .is_some_and(|depth| depth.format.has_stencil_aspect())
-        {
-            crate::renderer::depth::DepthMode::Shared
-        } else {
-            crate::renderer::depth::DepthMode::Independent
-        };
-        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
-        let mut combined = reborrow_features(features);
-        let mut screen = ScreenFeature::installed(self.ssao.as_ref(), self.ssr.as_ref(), &frame);
-        if let Some(screen) = &mut screen {
-            let declaration = screen.schedule(&mut passes, &mut views)?;
-            combined.push(BorrowedFeature {
-                declaration,
-                prepared: screen,
-            });
-        }
-        let water = self
-            .water
-            .as_ref()
-            .map(|water| crate::ssr::water::Inputs::new(water, self.frame_slot));
-        let mut reflection = self
-            .ssr
-            .as_ref()
-            .map(|ssr| ssr.feature(&frame, (&passes, &views), config, water))
-            .transpose()?;
-        if let Some(reflection) = &mut reflection {
-            let declaration = reflection.schedule(&mut passes, &mut views)?;
-            combined.push(BorrowedFeature {
-                declaration,
-                prepared: reflection,
-            });
-        }
-        let retained = self.chain.plan_features(&mut passes, &mut views)?;
-        let (request, mut snapshot_feature) = snapshots::plan(
-            device,
-            (&mut self.snapshots, &mut self.overlay),
-            &(config, frame, self.frame_slot, self.water.is_some()),
-            (&mut passes, &mut views),
-            (&combined, &retained),
-        )?;
-        if let Some((declaration, feature)) = &mut snapshot_feature {
-            combined.push(BorrowedFeature {
-                declaration: declaration.clone(),
-                prepared: feature,
-            });
-        }
-        if let Some(opaque) = passes
-            .iter()
-            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
-        {
-            let opaque_formats = opaque
-                .additional_colors
-                .iter()
-                .map(|attachment| attachment.format)
-                .collect::<Vec<_>>();
-            for feature in &mut combined {
-                for pass in &mut feature.declaration.passes {
-                    if pass.slot == worldrunner_render_post::PassSlot::Opaque {
-                        pass.additional_color_formats.clone_from(&opaque_formats);
-                    }
-                }
-            }
-        }
-        passes.sort_by_key(|pass| pass.slot);
-        encode_planned(
-            &mut self.chain,
-            device,
-            encoder,
-            (&passes, &views),
-            &mut combined,
-        )?;
-        self.publish_snapshots(encoder, request);
-        self.stage_temporal_history(encoder, &frame)
-    }
-    fn publish_snapshots(
-        &self,
-        encoder: &wgpu::CommandEncoder,
-        request: crate::water::planning::SnapshotRequest,
-    ) {
-        let ready = self.snapshot_ready.clone();
-        let slot = self.frame_slot;
-        publication::encode(encoder, &ready.clone(), move || {
-            ready.borrow_mut()[slot] = request;
-        })
-        .expect("checked transaction encoder");
-    }
-    pub fn encode(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        passes: &[PassDeclaration],
-        views: &[AttachmentView],
-        features: &mut [BorrowedFeature<'_>],
-    ) -> Result<(), FrameError> {
-        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
-        self.remember_taa_block(None);
-        if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
-            return Err(FrameError::UnsupportedEffect(
-                "SSAO requires stock geometry composition",
-            ));
-        }
-        self.chain.encode_geometry(
-            device,
-            encoder,
-            &worldrunner_render_post::FramePlan {
-                passes,
-                views,
-                requested: &[],
-            },
-            features,
-        )
-    }
-}
-
-fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
-    features
-        .iter_mut()
-        .map(|feature| BorrowedFeature {
-            declaration: feature.declaration.clone(),
-            prepared: &mut *feature.prepared,
-        })
-        .collect()
 }
 
 pub(crate) fn attachment_resource(
@@ -758,22 +639,3 @@ mod scene;
 #[cfg(test)]
 #[path = "compositor_post_tests.rs"]
 mod post_tests;
-
-fn encode_planned(
-    chain: &mut PostChain<FrameOutput>,
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    plan: (&[PassDeclaration], &[AttachmentView]),
-    features: &mut [BorrowedFeature<'_>],
-) -> Result<(), FrameError> {
-    chain.encode_geometry(
-        device,
-        encoder,
-        &worldrunner_render_post::FramePlan {
-            passes: plan.0,
-            views: plan.1,
-            requested: &[],
-        },
-        features,
-    )
-}

@@ -7,7 +7,7 @@
 //! its block (between the per-object values and the material), no material slots, and one
 //! [`DrawList`] whose items draw the sub-mesh as the record's material, one item for each pass.
 //! The mesh, its channels, the material's constants and textures and the render state of the pass
-//! are then the ones a list draw gives them.
+//! are then the ones a list draw gives them. The record's instance count goes to each item.
 
 use std::sync::Arc;
 
@@ -29,15 +29,17 @@ const NO_CAMERA_LAYER: u32 = 32;
 impl Mapper<'_> {
     /// The record of mesh `mesh`, its sub-mesh `submesh` drawn with `matrix`, `material` and the
     /// record's own property `block`; `pass` picks the one pass drawn, or every pass in order when
-    /// it is -1.
+    /// it is -1. Every drawn pass makes `instances` instances of the sub-mesh. A draw of none
+    /// checks what any draw does and then makes no record, so the commands around it keep their
+    /// order.
     pub(super) fn draw_mesh(
         &mut self,
         (mesh, submesh): (u64, u32),
         matrix: &[f32; 16],
         (material, pass): (WorldMaterialId, i32),
-        block: Option<&ShaderProperties>,
+        (block, instances): (Option<&ShaderProperties>, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
@@ -46,6 +48,9 @@ impl Mapper<'_> {
             _ => return Err(Skip::NoSuchPass),
         };
         let (values, _) = self.current_view()?;
+        if instances == 0 {
+            return Ok(Vec::new());
+        }
         let renderer = ids::mesh_draw_renderer(self.script.mesh_draws);
         self.script.mesh_draws += 1;
         self.frame.renderers.insert(
@@ -71,6 +76,7 @@ impl Mapper<'_> {
                     slot,
                     material: Some(named),
                     pass: PassSelector::Index(pass),
+                    instances,
                 })
                 .collect(),
         }))])

@@ -5,7 +5,7 @@ use crate::scene::opaque::{
 };
 
 #[test]
-fn opaque_path_defaults_to_forward_and_refuses_every_experiment() {
+fn opaque_path_defaults_to_forward_and_admits_only_the_gbuffer_observation_and_render() {
     let effects = SceneEffects::new(parts()).unwrap();
     assert_eq!(effects.opaque_path(), SceneOpaquePath::Forward);
     assert_eq!(
@@ -27,14 +27,33 @@ fn opaque_path_defaults_to_forward_and_refuses_every_experiment() {
                     SceneOpaqueVisibility::MaterialOwnedDepth,
                     SceneOpaqueVisibility::CoveragePrefix,
                 ] {
-                    assert_eq!(
-                        effects
-                            .clone()
-                            .with_opaque_path(SceneOpaquePath::experiment(
-                                mode, family, storage, visibility,
-                            )),
-                        Err(SceneValidationError::UnsupportedOpaquePath)
-                    );
+                    let path = SceneOpaquePath::experiment(mode, family, storage, visibility);
+                    let tuple = (mode, family, storage, visibility);
+                    let admitted = [
+                        (
+                            SceneOpaqueMode::Observe,
+                            SceneOpaqueFamily::Terrain,
+                            SceneOpaqueStorage::Compact,
+                            SceneOpaqueVisibility::MaterialOwnedDepth,
+                        ),
+                        (
+                            SceneOpaqueMode::Render,
+                            SceneOpaqueFamily::AllStock,
+                            SceneOpaqueStorage::Compact,
+                            SceneOpaqueVisibility::MaterialOwnedDepth,
+                        ),
+                    ]
+                    .contains(&tuple);
+                    let selected = effects.clone().with_opaque_path(path);
+                    if admitted {
+                        assert!(
+                            path == SceneOpaquePath::GBUFFER_OBSERVATION
+                                || path == SceneOpaquePath::GBUFFER_RENDER
+                        );
+                        assert_eq!(selected.map(|effects| effects.opaque_path()), Ok(path));
+                    } else {
+                        assert_eq!(selected, Err(SceneValidationError::UnsupportedOpaquePath));
+                    }
                 }
             }
         }

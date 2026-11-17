@@ -1,4 +1,6 @@
 //! Instantiate water's opt-in sampler from the shared cascade implementation.
+use crate::shader::rewrite::ShaderRewrite;
+
 pub(super) const SPECIALIZATION: u32 = 2048;
 
 pub(crate) fn receiver_source() -> String {
@@ -18,13 +20,13 @@ pub(crate) fn receiver_source() -> String {
     // Coverage, projection, derivatives, selection and blending have one source.
     // Only the sampling expression differs; the ambient receiver stays untouched.
     let receiver = format!("fn cascade_visibility{coverage}    return rd_shadow_array_weighted_pcf5(shadow_depth, shadow_sampler, uv, layer, ndc.z - shadow.depth_bias[layer]);\n}}\n\nfn single_shadow_visibility{selection}")
-        .replace(
+        .anchored("water::shadow_filter::receiver_source", 2,
             "cascaded_sunlight_visibility",
             "water_filtered_cascaded_sunlight_visibility",
         )
-        .replace("cascade_visibility", "water_filtered_cascade_visibility")
-        .replace("single_shadow_visibility", "water_filtered_single_shadow_visibility")
-        .replace("raw_sunlight_visibility", "water_filtered_raw_sunlight_visibility");
+        .anchored("water::shadow_filter::receiver_source", 4, "cascade_visibility", "water_filtered_cascade_visibility")
+        .anchored("water::shadow_filter::receiver_source", 2, "single_shadow_visibility", "water_filtered_single_shadow_visibility")
+        .anchored("water::shadow_filter::receiver_source", 1, "raw_sunlight_visibility", "water_filtered_raw_sunlight_visibility");
     format!(
         "{}\n{receiver}",
         worldrunner_render_shadow::WEIGHTED_PCF5_WGSL
@@ -33,7 +35,6 @@ pub(crate) fn receiver_source() -> String {
 
 pub(super) fn source(source: &str) -> String {
     let visibility = "fn water_shadow_visibility(position: vec3<f32>, normal: vec3<f32>, shading_visibility: f32) -> f32 {";
-    assert_eq!(source.matches(visibility).count(), 1);
-    let source = source.replace(visibility, &format!("{visibility}\n    if (u32(water.wind_flags.w) & 4u) != 0u {{ return water_filtered_raw_sunlight_visibility(position, water_shadow_normal(normal)); }}"));
+    let source = source.anchored("water::shadow_filter::source", 1, visibility, &format!("{visibility}\n    if (u32(water.wind_flags.w) & 4u) != 0u {{ return water_filtered_raw_sunlight_visibility(position, water_shadow_normal(normal)); }}"));
     format!("{source}\n{}", receiver_source())
 }

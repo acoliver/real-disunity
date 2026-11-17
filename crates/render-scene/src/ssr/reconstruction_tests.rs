@@ -175,6 +175,7 @@ fn water_bank_arrays_preserve_sampled_texture_budgets() {
                 &settings.radiance_extents(config.size),
                 config.samples,
                 true,
+                gpu::trailing_bindings(true, true),
             )
         } else {
             source

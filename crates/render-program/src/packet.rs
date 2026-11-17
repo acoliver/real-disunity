@@ -118,6 +118,22 @@ impl TargetSignature {
         Self::build(&[], Some(depth), samples)
     }
 
+    /// The signature of a pass with a depth attachment of `format` and no colour attachment, which
+    /// like [`depth_only`](Self::depth_only) takes a state with no colour targets but admits a
+    /// combined depth/stencil format: the pass of a renderer that draws into the depth buffer of
+    /// a render texture with colour.
+    ///
+    /// # Errors
+    /// Fails by name for a format that has no depth and for a sample count that is not a power
+    /// of two up to 16.
+    pub fn depth_attachment(
+        depth: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
+        check_samples(samples)?;
+        Self::build(&[], Some(depth), samples)
+    }
+
     /// The signature of a pass a renderer opens: one to eight colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
     /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with one colour
@@ -496,6 +512,7 @@ impl ProgramRuntime {
                 colors: request.signature.color_count(),
             });
         }
+        request.check_color_outputs()?;
         if request.state.stencil.is_some() && !request.signature.has_stencil() {
             return Err(ProgramError::UnsupportedState {
                 what: "stencil without a stencil attachment",
@@ -631,6 +648,23 @@ pub(crate) struct PipelineRequest<'a> {
 }
 
 impl PipelineRequest<'_> {
+    /// Refuses a colour target the draw writes (a write mask that is not empty) at a location the
+    /// fragment stage has no output for. wgpu builds such a pipeline without complaint, and the
+    /// attachment then receives undefined values on Vulkan and Metal. A target with an empty write
+    /// mask may go without an output, and an output with no target is allowed: wgpu discards it.
+    pub(crate) fn check_color_outputs(&self) -> Result<(), ProgramError> {
+        let Some(fragment) = &self.program.fragment else {
+            return Ok(());
+        };
+        let outputs = fragment.color_outputs();
+        for (location, color) in (0u32..).zip(self.colors) {
+            if !color.write_mask.is_empty() && !outputs.contains(&location) {
+                return Err(ProgramError::TargetWithoutFragmentOutput { location });
+            }
+        }
+        Ok(())
+    }
+
     fn vertex_buffers(&self) -> Vec<Option<wgpu::VertexBufferLayout<'_>>> {
         self.layouts
             .iter()

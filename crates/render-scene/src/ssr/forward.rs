@@ -1,4 +1,5 @@
 use crate::scene_metadata::SceneMetadata;
+use crate::shader::rewrite::ShaderRewrite;
 use wgpu::util::DeviceExt;
 use worldrunner_render_post::{
     AttachmentView, FrameConfig, FrameError, PassDeclaration, PassSlot, ResourceRef,
@@ -7,22 +8,24 @@ use worldrunner_render_post::{
 pub(crate) fn source(source: &str, terrain: bool) -> String {
     let source = lighting_source(source, terrain);
     let source = if terrain {
-        source.replace(
+        source.anchored(
+            "ssr::forward::source",
+            1,
             "@fragment\nfn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>",
             "fn shaded_terrain(input: TerrainVertexOutput) -> vec4<f32>",
         ) + "\n@fragment fn fs_terrain(input: TerrainVertexOutput) -> ReflectionOutput { return reflection_output(shaded_terrain(input)); }"
     } else {
-        source.replace("@fragment\nfn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
+        source.anchored("ssr::forward::source", 1, "@fragment\nfn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
             "fn shaded_opaque(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput")
-            .replace("@fragment\nfn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
+            .anchored("ssr::forward::source", 1, "@fragment\nfn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
                 "fn shaded_masked(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput")
             + "\n@fragment fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { let shaded = shaded_opaque(input, front); var out = reflection_output(shaded.colour); out.depth = shaded.depth; return out; }\n@fragment fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionOutput { let shaded = shaded_masked(input, front); var out = reflection_output(shaded.colour); out.depth = shaded.depth; return out; }"
     };
     let source = if terrain {
         source
     } else {
-        source.replace("@fragment\nfn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_opaque(input: VertexOutput, front_facing: bool) -> vec4<f32>")
-        .replace("@fragment\nfn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>")
+        source.anchored("ssr::forward::source", 1, "@fragment\nfn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_opaque(input: VertexOutput, front_facing: bool) -> vec4<f32>")
+        .anchored("ssr::forward::source", 1, "@fragment\nfn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>", "fn stock_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>")
         + "\n@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionStockOutput { return reflection_stock_output(stock_opaque(input,front)); }\n@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> ReflectionStockOutput { return reflection_stock_output(stock_masked(input,front)); }"
     };
     format!(
@@ -32,11 +35,18 @@ pub(crate) fn source(source: &str, terrain: bool) -> String {
             include_str!("forward.wgsl").to_owned()
         } else {
             include_str!("forward.wgsl")
-                .replace(
+                .anchored(
+                    "ssr::forward::source",
+                    1,
                     "struct ReflectionOutput {",
                     "struct ReflectionOutput { @builtin(frag_depth) depth: f32,",
                 )
-                .replace("ReflectionOutput(color,", "ReflectionOutput(0.0,color,")
+                .anchored(
+                    "ssr::forward::source",
+                    1,
+                    "ReflectionOutput(color,",
+                    "ReflectionOutput(0.0,color,",
+                )
                 + "\nstruct ReflectionStockOutput { @location(0) color: vec4<f32>, @location(1) environment: vec4<f32>, @location(2) factor: vec4<f32>, }\nfn reflection_stock_output(color:vec4<f32>) -> ReflectionStockOutput { let x=reflection_output(color); return ReflectionStockOutput(x.color,x.environment,x.factor); }"
         }
     )
@@ -215,7 +225,7 @@ pub(super) fn products(device: &wgpu::Device, config: FrameConfig) -> [wgpu::Tex
         })
     })
 }
-pub(super) fn resources() -> [ResourceRef; 2] {
+pub(crate) fn resources() -> [ResourceRef; 2] {
     [
         crate::frame::metadata::FrameProduct::forward_specular(1).resource(),
         crate::frame::metadata::FrameProduct::reflection_factor(1).resource(),
@@ -253,27 +263,33 @@ pub(super) fn application_metadata(shader: String, enabled: bool) -> String {
         return shader;
     }
     shader
-        .replace(
+        .anchored(
+            "ssr::forward::application_metadata",
+            1,
             "// APPLICATION_FACTOR",
             "published_factor = rd_split_sum(f0, coefficients) * air;",
         )
-        .replace(
+        .anchored(
+            "ssr::forward::application_metadata",
+            1,
             "vec4<f32>(published_environment, 1.0)",
             "vec4<f32>(published_environment, published_visibility)",
         )
-        .replace(
+        .anchored(
+            "ssr::forward::application_metadata",
+            1,
             "vec4<f32>(published_factor, 1.0)",
             "vec4<f32>(published_factor, published_self_ao)",
         )
 }
 
 fn lighting_source(source: &str, terrain: bool) -> String {
-    let source = source.replace("vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
+    let source = source.anchored("ssr::forward::lighting_source", 1, "vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
         "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion);");
     if terrain {
         source
     } else {
-        source.replace(
+        source.anchored("ssr::forward::lighting_source", 1,
             "forward_reflection(world_position, normal, f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
             "forward_reflection(world_position, scene_environment_normal(normal), f0, scene_environment_roughness(roughness_in), ao, ambient_occlusion)",
         ) + "\nfn scene_environment_normal(normal: vec3<f32>) -> vec3<f32> { if material.contact_surface.z > 0.0 { return reflection_normal(normal); } return normal; }"

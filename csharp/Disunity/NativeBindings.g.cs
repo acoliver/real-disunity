@@ -182,6 +182,26 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_camera_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_camera_matrix_write(ulong world, ulong handle, uint kind, float* matrix);
         /// <summary>
+        ///  Reads the buffers the camera draws into when its script set them with `SetTargetBuffers`.
+        ///  `colors` is writable for 8 ids; `color_count` is 0, with `colors` and `depth` untouched, when the
+        ///  camera has no target buffers. `depth` is 0 when the buffers have no depth texture.
+        ///  # Safety
+        ///  `colors` is writable for 8 ids, `color_count` and `depth` for one value each.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_target_buffers_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_target_buffers_read(ulong world, ulong handle, ulong* colors, uint* color_count, ulong* depth);
+        /// <summary>
+        ///  Sets the render textures the camera draws into: the color buffers of the `color_count` textures
+        ///  at `colors` (1 to 8, none twice) in output order, and the depth buffer of the texture `depth`
+        ///  (0 for none). Every id must name a live render texture. The camera's target texture is cleared,
+        ///  as Unity's `SetTargetBuffers` replaces `targetTexture`. A `color_count` of 0 removes the buffers
+        ///  and leaves the target texture as it is. Nothing changes when a value is refused.
+        ///  # Safety
+        ///  `colors` is readable for `color_count` ids, or null when the count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_camera_target_buffers_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_camera_target_buffers_write(ulong world, ulong handle, ulong* colors, uint color_count, ulong depth);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one canvas scale record.
         /// </summary>
@@ -721,24 +741,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_set_enabled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_set_enabled(ulong world, ulong identity, uint enabled, DisunityAdvance* output);
-        /// <summary>
-        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
-        ///  `written` receives the number of children. When `capacity` is smaller the call returns
-        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
-        ///  Children without an ABI identity (objects still being constructed) are not listed.
-        ///
-        ///  # Safety
-        ///  `buffer` is writable for `capacity` identities and `written` for one count.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one callback record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_callback_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
-        [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
     }
 }

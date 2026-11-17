@@ -3216,6 +3216,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rspirv"
+version = "0.13.0+sdk-1.4.341.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "091dca2e1d6fd3098417b5ec88e77e80d1ba5945750943419dc976858082c296"
+dependencies = [
+ "rustc-hash 1.1.0",
+ "spirv",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5003,6 +5013,7 @@ name = "worldrunner-render-gpu"
 version = "0.1.0"
 dependencies = [
  "pollster",
+ "tempfile",
  "thiserror 2.0.21",
  "wgpu",
  "worldrunner-render-gpu",
@@ -5058,6 +5069,7 @@ dependencies = [
  "blake3",
  "naga",
  "pollster",
+ "rspirv",
  "thiserror 2.0.21",
  "wgpu",
  "worldrunner-render-gpu",
@@ -5083,6 +5095,7 @@ dependencies = [
  "worldrunner-render-program",
  "worldrunner-render-scene",
  "worldrunner-render-shadow",
+ "worldrunner-texture",
  "worldrunner-unity-serialized",
  "worldrunner-world-simulation",
 ]

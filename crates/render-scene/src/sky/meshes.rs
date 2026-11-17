@@ -79,12 +79,6 @@ pub(crate) struct MeshDraw {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub count: u32,
-    /// The material's group, which only the frozen fixed path binds.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "bound by the frozen fixed path")
-    )]
-    pub material: wgpu::BindGroup,
     /// The scene material the body draws with, whose prepared set the program path binds.
     pub material_index: usize,
     pub instance: wgpu::Buffer,
@@ -113,8 +107,8 @@ pub(crate) struct Meshes {
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
-    /// How `draw_geometry` records, for the captures that compare the live draw with the
-    /// frozen fixed path and with no draw at all.
+    /// How `draw_geometry` records, for the captures that compare the live draw with no draw at
+    /// all.
     #[cfg(test)]
     pub(crate) recorder: std::cell::Cell<Recorder>,
 }
@@ -124,7 +118,6 @@ pub(crate) struct Meshes {
 pub(crate) enum Recorder {
     #[default]
     Live,
-    Frozen,
     Nothing,
 }
 impl Meshes {
@@ -289,7 +282,11 @@ impl Meshes {
         for draw in &self.draws {
             let context = self.context(raster, draw.lighting, draw.anchored);
             objects
-                .pipeline(&context, draw.key.index(), draw.material_index)
+                .pipeline(
+                    &context,
+                    (draw.key.index(), draw.material_index),
+                    crate::object::layout::GeometryLayout::Static,
+                )
                 .map_err(
                     |error| worldrunner_render_post::FrameError::FeaturePreparation {
                         feature: "celestial meshes",
@@ -313,11 +310,13 @@ impl Meshes {
         };
         let raster = Self::raster(state);
         #[cfg(test)]
-        if self.recorder.get() != Recorder::Live {
-            self.record_for_test(pass, frame, raster);
+        if self.recorder.get() == Recorder::Nothing {
             return;
         }
-        let layout = crate::object::program::vertex_layout(false);
+        let layout = crate::object::layout::vertex_layout(
+            false,
+            crate::object::layout::GeometryLayout::Static,
+        );
         for draw in &self.draws {
             // A selection that `prepare` did not see would be made here, where a refusal can only
             // panic: every frame that records the bodies must have been prepared with its raster.
@@ -331,7 +330,11 @@ impl Meshes {
             );
             let context = self.context(raster, draw.lighting, draw.anchored);
             let pipeline = objects
-                .pipeline(&context, draw.key.index(), draw.material_index)
+                .pipeline(
+                    &context,
+                    (draw.key.index(), draw.material_index),
+                    crate::object::layout::GeometryLayout::Static,
+                )
                 .expect("the celestial pass prepares its bodies before it opens");
             pipeline.bind(pass);
             pass.set_bind_group(0, frame, &[]);
@@ -356,30 +359,6 @@ impl Meshes {
 }
 #[cfg(test)]
 impl Meshes {
-    /// Records nothing, or the bodies through the frozen fixed path with the selection the
-    /// live draw would make for `raster`.
-    fn record_for_test(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        frame: &wgpu::BindGroup,
-        raster: ([u32; 7], wgpu::FrontFace),
-    ) {
-        use crate::renderer::legacy_objects::celestial::{Selection, pipelines, record};
-        if self.recorder.get() == Recorder::Nothing {
-            return;
-        }
-        let composition = (self.physical, self.separate, self.object_exposure);
-        record(pass, frame, &self.draws, |lighting, anchored| {
-            let selection = Selection {
-                composition,
-                raster,
-                lighting,
-                anchored,
-            };
-            pipelines(&self.device, &self.scene, selection)
-        });
-    }
-
     /// The bodies `draw_geometry` records.
     pub(crate) fn draw_count(&self) -> usize {
         self.draws.len()
@@ -452,7 +431,11 @@ mod tests {
                         family
                             .with_objects((context.device(), authority), |runtime| {
                                 for key in crate::pipeline::PipelineKey::ALL {
-                                    celestial.program(runtime, key)?;
+                                    celestial.program(
+                                        runtime,
+                                        key,
+                                        crate::object::layout::GeometryLayout::Static,
+                                    )?;
                                 }
                                 Ok::<_, worldrunner_render_program::error::ProgramError>(())
                             })

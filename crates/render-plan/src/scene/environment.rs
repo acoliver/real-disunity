@@ -1,7 +1,7 @@
 //! Shared prefiltered radiance and split-sum coefficients addressed by scene handles.
 use super::{
-    SceneEffects, SceneResources, SceneSpecularConvention, SceneTexture, SceneValidationError,
-    TexelFormat, TextureColorSpace, TextureHandle,
+    SceneEffects, SceneResources, SceneSpecularConvention, SceneTexture, SceneTextureDescriptor,
+    SceneValidationError, TexelFormat, TextureColorSpace, TextureHandle,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,20 +58,16 @@ impl SceneEnvironment {
         }
         let cube = lookup(resources, self.cube)?;
         let lut = lookup(resources, self.brdf_lut)?;
-        let SceneTexture::SpecularCube(cube) = cube.payload() else {
+        let Some(SceneTextureDescriptor::SpecularCube(cube)) = cube.domain_descriptor() else {
             return Err(invalid("environment cube format"));
         };
-        if cube.preparation().is_some_and(|settings| {
+        if cube.preparation.is_some_and(|settings| {
             settings.convention.roughness != self.convention.roughness
                 || settings.convention.visibility != self.convention.visibility
         }) {
             return Err(invalid("environment preparation convention mismatch"));
         }
-        if !matches!(lut.payload(), SceneTexture::Texels {
-            format: TexelFormat::Rg16Float | TexelFormat::Rgba16Float,
-            color_space: TextureColorSpace::Linear, width, height, mips: 1, ..
-        } if width == height)
-        {
+        if !is_brdf_lut(lut) {
             return Err(invalid("environment BRDF LUT format"));
         }
         if self.convention.roughness != selected.roughness
@@ -81,6 +77,17 @@ impl SceneEnvironment {
         }
         Ok(())
     }
+}
+/// A square, linear, single-level half-float grid, with its texels held or released.
+fn is_brdf_lut(texture: &SceneTexture) -> bool {
+    matches!(
+        texture.domain_descriptor(),
+        Some(SceneTextureDescriptor::Texels(grid))
+            if matches!(grid.format, TexelFormat::Rg16Float | TexelFormat::Rgba16Float)
+                && grid.color_space == TextureColorSpace::Linear
+                && grid.width == grid.height
+                && grid.mips == 1
+    )
 }
 fn lookup(
     resources: &SceneResources,

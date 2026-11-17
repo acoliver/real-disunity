@@ -8,8 +8,8 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 use worldrunner_unity_serialized::shader::{Shader, ShaderProperty};
 use worldrunner_world_simulation::graphics::{
-    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, TextureSlot,
-    WorldRenderTexture,
+    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TargetRef, TextureRef,
+    TextureSlot, WorldRenderTexture,
 };
 
 use super::super::defaults::{ShaderFill, declared_fill};
@@ -138,6 +138,7 @@ fn a_texture_the_shader_declares_and_the_material_lists_no_slot_for_gets_scale_o
 {
     let fill = ShaderFill {
         textures: vec!["_Main".to_owned(), "_Listed".to_owned()],
+        declared_textures: vec!["_Main".to_owned(), "_Listed".to_owned()],
         values: Vec::new(),
     };
     let found = properties(vec![WorldValue::Texture(
@@ -177,6 +178,7 @@ fn a_scale_and_offset_vector_the_material_sets_itself_is_left_to_it() {
 fn the_shader_defaults_fill_what_the_material_leaves_unset_and_never_what_it_sets() {
     let fill = ShaderFill {
         textures: Vec::new(),
+        declared_textures: Vec::new(),
         values: vec![
             ("_Intensity".to_owned(), PropertyValue::Float(0.75)),
             ("_Cutoff".to_owned(), PropertyValue::Float(0.5)),
@@ -238,7 +240,7 @@ fn a_frame_gives_each_material_a_fallback_layer_of_its_texture_scales_and_shader
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(heights),
-            target: heights,
+            target: TargetRef::Render(heights),
             material: Some(material_id),
             pass: 0,
         })
@@ -249,6 +251,7 @@ fn a_frame_gives_each_material_a_fallback_layer_of_its_texture_scales_and_shader
         *info = ShaderInfo {
             fill: ShaderFill {
                 textures: vec!["_Heightmap".to_owned(), "_Alphamap".to_owned()],
+                declared_textures: vec!["_Heightmap".to_owned(), "_Alphamap".to_owned()],
                 values: vec![
                     ("_Intensity".to_owned(), PropertyValue::Float(1.5)),
                     ("_Cutoff".to_owned(), PropertyValue::Float(0.5)),

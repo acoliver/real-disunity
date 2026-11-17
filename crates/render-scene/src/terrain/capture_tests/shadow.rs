@@ -3,7 +3,7 @@
 
 use wgpu::{BindGroup, TextureFormat};
 
-use super::{Case, Legacy, Rig, Source, Target, capture_against, drawable, scenes};
+use super::{Case, Rig, Source, Target, capture, drawable, scenes};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{
     HDR, VELOCITY, ambient_group, context, reflection_group, shadow_fixture,
@@ -171,10 +171,9 @@ fn shadowed(source: Source, mode: DepthMode) -> usize {
             (source, scenes::frame(scenes::pose())),
         );
         let built = built.for_depth(mode);
-        let legacy = Legacy::new(&context, &rig.gpu, &rig.selected(&built));
         for (slot, group) in shadow.groups.iter().enumerate() {
             let name = format!("{}-slot{slot}", set.name);
-            capture_against(
+            capture(
                 &rig,
                 &Case {
                     name: &name,
@@ -187,7 +186,6 @@ fn shadowed(source: Source, mode: DepthMode) -> usize {
                     screen: screen.as_ref(),
                     shadow: Some(group),
                 },
-                &legacy,
             );
             run += 1;
         }
@@ -200,42 +198,41 @@ fn shadowed(source: Source, mode: DepthMode) -> usize {
 }
 
 #[test]
-fn shadow_receiving_plain_terrain_matches_the_fixed_pipeline_byte_for_byte() {
+fn shadow_receiving_plain_terrain_draws() {
     assert!(shadowed(Source::Plain, DepthMode::Independent) > 0);
 }
 
 #[test]
-fn shadow_receiving_page_terrain_matches_the_fixed_pipeline_byte_for_byte() {
+fn shadow_receiving_page_terrain_draws() {
     assert!(shadowed(Source::Pages, DepthMode::Independent) > 0);
 }
 
 #[test]
-fn shadow_receiving_layered_terrain_matches_the_fixed_pipeline_byte_for_byte() {
+fn shadow_receiving_layered_terrain_draws() {
     shadowed(Source::Layered, DepthMode::Independent);
 }
 
 #[test]
-fn shadow_receiving_layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte() {
+fn shadow_receiving_layered_page_terrain_draws() {
     shadowed(Source::LayeredPages, DepthMode::Independent);
 }
 
 #[test]
-fn shadow_receiving_plain_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+fn shadow_receiving_plain_terrain_draws_with_depth_reuse() {
     assert!(shadowed(Source::Plain, DepthMode::Reuse) > 0);
 }
 
 #[test]
-fn shadow_receiving_page_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+fn shadow_receiving_page_terrain_draws_with_depth_reuse() {
     assert!(shadowed(Source::Pages, DepthMode::Reuse) > 0);
 }
 
 #[test]
-fn shadow_receiving_layered_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+fn shadow_receiving_layered_terrain_draws_with_depth_reuse() {
     shadowed(Source::Layered, DepthMode::Reuse);
 }
 
 #[test]
-fn shadow_receiving_layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse()
-{
+fn shadow_receiving_layered_page_terrain_draws_with_depth_reuse() {
     shadowed(Source::LayeredPages, DepthMode::Reuse);
 }

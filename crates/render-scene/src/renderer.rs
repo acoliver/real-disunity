@@ -44,16 +44,13 @@
 //! Stencil consumption preserves the first primitive at a tied minimum depth.
 
 pub(crate) mod depth;
-#[cfg(test)]
-pub(crate) mod legacy_objects;
-#[cfg(test)]
-pub(crate) mod legacy_terrain;
 pub(crate) mod overlay;
 mod specular;
 mod terrain_access;
 mod unlit;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
 
+use crate::shader::rewrite::ShaderRewrite;
 use depth::DepthMode;
 use std::borrow::Cow;
 
@@ -64,9 +61,8 @@ use wgpu::{
 };
 #[cfg(test)]
 use wgpu::{
-    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
-    RenderPipelineDescriptor, VertexState,
+    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout, PolygonMode,
+    PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor, VertexState,
 };
 
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE};
@@ -489,24 +485,6 @@ fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModul
     })
 }
 
-#[cfg(test)]
-fn pipeline_groups<'a>(
-    frame: &'a BindGroupLayout,
-    material: &'a BindGroupLayout,
-    shadow: Option<&'a BindGroupLayout>,
-    screen: Option<&'a BindGroupLayout>,
-) -> Vec<Option<&'a BindGroupLayout>> {
-    let mut groups = vec![Some(frame), Some(material)];
-    if let Some(shadow) = shadow {
-        groups.push(Some(shadow));
-    }
-    if let Some(screen) = screen {
-        groups.resize(3, None);
-        groups.push(Some(screen));
-    }
-    groups
-}
-
 fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     [Some(ColorTargetState {
         format,
@@ -532,14 +510,18 @@ pub(crate) fn celestial_source(
 ) -> String {
     let source = DepthMode::Independent
         .vertex_source(ENVIRONMENT_WGSL)
-        .replace(
+        .anchored(
+            "renderer::celestial_source",
+            1,
             "@location(0) world_position: vec3<f32>,",
             "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
         );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {
-        crate::sky::meshes::VERTEX.replace(
+        crate::sky::meshes::VERTEX.anchored(
+            "renderer::celestial_source",
+            1,
             "instance.model_column_3.xyz+frame.camera_position.xyz",
             "instance.model_column_3.xyz",
         )
@@ -547,18 +529,6 @@ pub(crate) fn celestial_source(
         crate::sky::meshes::VERTEX.to_owned()
     };
     format!("{source}\n{vertex}")
-}
-#[cfg(test)]
-fn scene_layout(
-    device: &Device,
-    label: &str,
-    groups: &[Option<&BindGroupLayout>],
-) -> PipelineLayout {
-    device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some(label),
-        bind_group_layouts: groups,
-        immediate_size: 0,
-    })
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
@@ -577,8 +547,28 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
     targets
 }
 
+#[cfg(test)]
+pub(crate) fn base_source_targets_for_test(
+    source: &str,
+    format: TextureFormat,
+) -> Vec<Option<ColorTargetState>> {
+    base_source_targets(source, format)
+}
+
 fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
-    if source.contains(crate::velocity::MARKER) {
+    if source.contains(crate::gbuffer_writes::MARKER) {
+        let mut targets = crate::gbuffer::GBUFFER_FORMATS
+            .map(|format| color_targets(format)[0].clone())
+            .to_vec();
+        if source.contains(crate::velocity::MARKER) {
+            targets.push(Some(ColorTargetState {
+                format: worldrunner_render_post::VELOCITY_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            }));
+        }
+        targets
+    } else if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {
             vec![color_targets(format)[0].clone(); 3]

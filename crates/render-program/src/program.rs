@@ -324,7 +324,9 @@ impl ProgramRuntime {
         let mut entries = Vec::new();
         for slot in slots {
             // The runtime has no comparison sampler to fill a binding with, so one is only
-            // accepted where the owner lends it.
+            // accepted where the owner lends it: a program that declares the binding from an
+            // engine semantic. Unity's graphics stages declare theirs so (the offscreen path
+            // binds the shadow-map sampler itself); a binding no one supplies stays refused.
             if matches!(
                 slot.ty,
                 wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison)

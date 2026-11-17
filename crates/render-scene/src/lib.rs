@@ -8,11 +8,15 @@
 //! [`RenderScene`]: worldrunner_render_plan::RenderScene
 
 pub mod compositor;
+mod contours;
+pub use contours::ContourStatistics;
 pub use post::settings as post_settings;
 pub mod device;
 pub mod draw;
 pub mod dynamic;
 pub mod frame;
+pub mod gbuffer;
+mod gbuffer_writes;
 pub mod geometry;
 mod instances;
 mod object;
@@ -23,6 +27,7 @@ mod sampling;
 mod scene_metadata;
 pub mod shader;
 pub mod shadows;
+mod skinning;
 mod ssao;
 mod ssr;
 pub mod terrain;

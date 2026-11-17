@@ -11,7 +11,7 @@ use worldrunner_disunity_runtime::{
     MeshChannel, MeshChannels, MeshRange, PlayerTexture, TextureSampler,
 };
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::offscreen::{
@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::{
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
-    BLIT, blit_parameters, blit_passes, camera_passes, no_cull, variant,
+    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
 use worldrunner_render_program::unity::synthetic::{
     PassSpec, SyntheticShader, shader as synthetic_shader,
@@ -27,7 +27,7 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
-    ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader, dimension,
+    ShaderSource, TargetRef, TextureRef, WorldRenderTexture, WorldSampler, WorldShader, dimension,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
@@ -66,6 +66,10 @@ impl ShaderSupply for Synthetic {
             "blit" => blit_passes("_MainTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
+            // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
+            "cubeslot" => cube_blit("_BlitCubeTexture"),
+            // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
+            "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
@@ -207,7 +211,7 @@ pub(super) fn gpu() -> Gpu {
 
 /// A device whose runtime may hold `budget` bytes of storage.
 pub(super) fn gpu_with_budget(budget: u64) -> Gpu {
-    let instance = headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("the offscreen tests need a GPU adapter");
@@ -275,7 +279,7 @@ impl Rig {
 
     /// Takes the world's frame, adapts it and builds it, with a readback of `reads` after the
     /// last operation.
-    fn frame(
+    pub(super) fn frame(
         &mut self,
         world: &mut World,
         reads: &[RenderTextureId],
@@ -381,7 +385,7 @@ fn blit_and_copy(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(a),
-            target: b,
+            target: TargetRef::Render(b),
             material: Some(material),
             pass: -1,
         })
@@ -391,7 +395,7 @@ fn blit_and_copy(
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: c,
+            target: TargetRef::Render(c),
             target_element: 0,
             target_mip: 0,
         })
@@ -648,7 +652,7 @@ fn a_stored_texture_the_engine_does_not_hold_is_counted_each_frame_and_one_it_do
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(target),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass: 0,
         })

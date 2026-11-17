@@ -13,6 +13,26 @@ UI into scene contributions (the `simulation` and `ui` features).
   uniquely owned, preserving table allocations and texture payload addresses.
   Otherwise it returns the resource value unchanged. Callers can append to the
   owned vectors and validate them again with `SceneResources::new`.
+- `SceneTexture::Released` stands in for a texture whose source bytes were
+  dropped. It holds a `SceneTextureDescriptor`: the texel format, extent and mip
+  count of a texel grid; the block format, colour space, extent and mip count of a
+  validated `DDS` container; or the format, size, mip count, preparation request and
+  face order (+X, -X, +Y, -Y, +Z, -Z; face-major, finest mip first) of a specular
+  cube. Every descriptor also records the exact source length in bytes. A
+  descriptor is validated like the source it replaces, so a released table keeps
+  dense texture handles, material channel admission and fade-threshold admission.
+  `SceneResources::with_textures` swaps the texture table, shares the material
+  table and validates the result. `logical_texture_bytes` returns the checked
+  source-payload total of every texture, released or not. Adoption, append and
+  replacement reject aggregate overflow; failed mutations preserve the table and
+  total. Incremental updates account only for the changed textures, and the total
+  query does not scan the table. `retained_texture_source_bytes` sums
+  only the payload bytes that table value still reaches, so it is zero after every
+  texture is released. Both are table arithmetic: another table value that shares
+  or clones the sources keeps its own bytes, and neither number measures process
+  memory. Operations that need source bytes report the texture as released.
+  `worldrunner-render-scene` validates a table and converts it with
+  `release_texture_sources`, because only its DDS reader can establish container facts.
 - `SceneDirection` validates a unit vector quantized to integer micro-components.
   A scene sun points from a surface toward the light in right-handed Z-up
   coordinates: `[east, north, elevation]`. An authored document sun uses XYZ
@@ -233,11 +253,16 @@ into the existing three-pass post resolve without automatic projection jitter.
 There is no serialized SMAA field. CMAA2 is not exposed by `SceneAntiAlias`.
 
 `SceneEffects::with_opaque_path` defaults to `SceneOpaquePath::Forward`.
-Every `SceneOpaquePath::Experiment` tuple returns
+It admits one experiment, `SceneOpaquePath::GBUFFER_OBSERVATION`, which is
+`experiment(Observe, Terrain, Compact, MaterialOwnedDepth)`: the renderer allocates
+the compact deferred G-buffer, clears it every frame before Opaque and exposes it
+to captures, while the visible frame stays forward. Every other
+`SceneOpaquePath::Experiment` tuple returns
 `SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
+The target layout and the shared WGSL interface are described in the
+[render-scene README](../render-scene/README.md#deferred-g-buffer-observation).
 The CPU admission census is a separate explicit query on
 `RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
-This contract changes no rendering behavior.
 
 ## Shared specular environment
 

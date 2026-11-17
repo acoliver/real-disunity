@@ -13,6 +13,7 @@ fn triangle_copy_out(depth_test: bool) {
         kind: UiDrawKind::Graphic,
         depth_test,
         corner_colors: None,
+        distance_field: None,
         triangle_uv: Some([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]),
         corners: [
             [10., 10., 0.],
@@ -118,6 +119,7 @@ fn snapshot_draw(order: i32, hierarchy: usize) -> UiDraw {
         kind: UiDrawKind::Graphic,
         depth_test: false,
         corner_colors: None,
+        distance_field: None,
         triangle_uv: None,
         corners: [[0.; 3]; 4],
         uv_rect: [0.; 4],
@@ -273,4 +275,109 @@ fn metadata_colors(meta: DisunityUiDraw) -> [[f32; 4]; 4] {
             meta.corner_3_a,
         ],
     ]
+}
+
+#[test]
+fn distance_metadata_keeps_its_layout_at_revision_12() {
+    use std::mem::{align_of, offset_of, size_of};
+    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 16);
+    assert_eq!(size_of::<DisunityUiDraw>(), 152);
+    assert_eq!(align_of::<DisunityUiDraw>(), 8);
+    assert_eq!(offset_of!(DisunityUiDraw, distance_mode), 124);
+    assert_eq!(offset_of!(DisunityUiDraw, distance_spread), 128);
+    assert_eq!(offset_of!(DisunityUiDraw, distance_radius), 132);
+    assert_eq!(offset_of!(DisunityUiDraw, effect_r), 136);
+    assert_eq!(offset_of!(DisunityUiDraw, effect_a), 148);
+}
+
+#[test]
+fn distance_metadata_encodes_modes_and_rejects_invalid_styles() {
+    use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
+    let mut draw = snapshot_draw(0, 0);
+    draw.kind = UiDrawKind::Text;
+    draw.texture = Some(7);
+    draw.corners = [[0., 0., 0.], [16., 0., 0.], [16., 16., 0.], [0., 16., 0.]];
+    draw.uv_rect = [0., 0., 1., 1.];
+    for (mode, code) in [
+        (UiDistanceMode::Fill, 1),
+        (UiDistanceMode::Outline, 2),
+        (UiDistanceMode::Glow, 3),
+    ] {
+        let style = UiDistanceStyle {
+            spread_px: 8.,
+            radius_px: 2.,
+            mode,
+            effect_color: [0.25, 0.5, 0.75, 1.],
+        };
+        draw.distance_field = Some(style);
+        assert!(validate_draw(&draw, None).is_ok());
+        let meta = encode_metadata(&draw);
+        assert_eq!(meta.distance_mode, code);
+        assert_eq!([meta.distance_spread, meta.distance_radius], [8., 2.]);
+        assert_eq!(
+            [meta.effect_r, meta.effect_g, meta.effect_b, meta.effect_a],
+            style.effect_color
+        );
+        draw.distance_field.as_mut().unwrap().spread_px = f32::NAN;
+        assert!(validate_draw(&draw, None).is_err());
+    }
+    draw.distance_field = None;
+    assert_eq!(encode_metadata(&draw).distance_mode, 0);
+}
+
+#[test]
+fn distance_copy_out_preserves_style_and_atlas_bytes() {
+    use worldrunner_world_simulation::{
+        presentation::CoverageTexture,
+        ui::presentation::{UiDistanceMode, UiDistanceStyle, UiPresentation},
+    };
+    let mut draw = snapshot_draw(0, 0);
+    draw.kind = UiDrawKind::Text;
+    draw.texture = Some(7);
+    draw.corners = [[0., 0., 0.], [16., 0., 0.], [16., 16., 0.], [0., 16., 0.]];
+    draw.uv_rect = [0., 0., 1., 1.];
+    draw.distance_field = Some(UiDistanceStyle {
+        mode: UiDistanceMode::Outline,
+        spread_px: 5.,
+        radius_px: 2.,
+        effect_color: [0.25, 0.5, 0.75, 1.],
+    });
+    let world = crate::store::create_world(&mut crate::lock_store()).unwrap();
+    crate::lock_store()
+        .session_mut(world)
+        .unwrap()
+        .ui_presentation = Some(UiPresentation {
+        draws: vec![draw],
+        coverage: std::collections::BTreeMap::from([(
+            7,
+            CoverageTexture {
+                width: 2,
+                height: 2,
+                bytes: std::sync::Arc::from([0, 125, 130, 255]),
+            },
+        )]),
+    });
+    let mut meta = DisunityUiDraw::default();
+    let mut quad = DisunityQuad::default();
+    let mut coverage = DisunityCoverage::default();
+    let mut bytes = [99; 4];
+    unsafe {
+        assert_eq!(
+            disunity_presentation_ui_draw(world, 0, &mut meta, &mut quad).code,
+            0
+        );
+        assert_eq!(
+            disunity_presentation_ui_coverage(world, 0, &mut coverage, bytes.as_mut_ptr(), 4).code,
+            0
+        );
+    }
+    assert_eq!(meta.distance_mode, 2);
+    assert_eq!([meta.distance_spread, meta.distance_radius], [5., 2.]);
+    assert_eq!(
+        [meta.effect_r, meta.effect_g, meta.effect_b, meta.effect_a],
+        [0.25, 0.5, 0.75, 1.]
+    );
+    assert_eq!(quad.texture, 7);
+    assert_eq!(bytes, [0, 125, 130, 255]);
+    crate::store::destroy_world(&mut crate::lock_store(), world).unwrap();
 }

@@ -71,19 +71,26 @@ pub use scene::{
     EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO,
     MAXIMUM_TAA_CLIP_SCALE_MICRO, MINIMUM_TAA_CLIP_SCALE_MICRO, MaterialHandle, MeshHandle,
     ProvenSceneContribution, ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef,
-    RouteSceneFactory, RouteSceneInput, SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera,
-    SceneColor, SceneColorGrading, SceneCompositionFactory, SceneContribution, SceneDirection,
-    SceneDownsampleRounding, SceneEffects, SceneEffectsParts, SceneGeometry, SceneMaterial,
-    SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneOpaqueExperiment,
-    SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage, SceneOpaqueVisibility,
-    SceneParts, ScenePlacement, ScenePostStage, SceneResources, SceneRotation, SceneShadowCascades,
-    SceneShadowFilter, SceneShadowSampling, SceneSky, SceneSsao, SceneSsaoDepthFootprint,
+    RouteSceneFactory, RouteSceneInput, SceneAffineMatrix, SceneAlphaMode, SceneAmbient,
+    SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneCompositionFactory,
+    SceneContribution, SceneDirection, SceneDownsampleRounding, SceneEffects, SceneEffectsParts,
+    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
+    SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
+    SceneOpaqueVisibility, SceneParts, ScenePlacement, ScenePostStage, SceneResources,
+    SceneRotation, SceneShadowCascades, SceneShadowFilter, SceneShadowSampling, SceneSkeleton,
+    SceneSkinInfluence, SceneSkinPose, SceneSky, SceneSsao, SceneSsaoDepthFootprint,
     SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver, SceneSsr, SceneSsrComposition,
     SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping, SceneSsrPassBehind, SceneSsrPyramid,
     SceneSsrTraversal, SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
     SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError, SceneVertex,
-    SceneWaterBody, SceneWaterSurface, TerrainLodPolicy, TexelFormat, TextureColorSpace,
-    TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
+    SceneWaterBody, SceneWaterSurface, SkeletonHandle, SkinPoseHandle, TerrainLodPolicy,
+    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
+    TextureWrap,
+};
+pub use scene::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
+pub use scene::{
+    SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
+    SceneTextureDescriptor,
 };
 pub use scene::{SceneMaterialChannels, TextureChannel};
 pub use scene::{

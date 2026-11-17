@@ -40,7 +40,7 @@ internal static class CommandBufferTests
         Ensure(buffer.name == "after", "the name works after Release");
         Throws<ObjectDisposedException>(buffer.Clear, "Clear after Release");
         Throws<ObjectDisposedException>(() => buffer.BeginSample("x"), "BeginSample after Release");
-        Throws<ObjectDisposedException>(() => buffer.SetViewport(default), "SetViewport after Release");
+        Throws<ObjectDisposedException>(() => buffer.SetViewport(default), "SetViewport after Release", "CommandBuffer");
     }
 
     private static void Recording()
@@ -49,10 +49,7 @@ internal static class CommandBufferTests
         var material = new Material(Material.SpriteLit);
         var probes = new (string Member, Action Call)[]
         {
-            ("BeginSample", () => buffer.BeginSample("s")),
-            ("EndSample", () => buffer.EndSample("s")),
-            ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
-            ("SetViewport", () => buffer.SetViewport(new Rect(0, 0, 1, 1))),
+            ("DrawProcedural", () => buffer.DrawProcedural(new GraphicsBuffer(GraphicsBuffer.Target.Index, 3, 4), Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3)),
         };
         foreach (var (member, call) in probes)
             Throws<NotSupportedException>(call, member, $"CommandBuffer.{member}", "cannot record this member yet");
@@ -65,9 +62,14 @@ internal static class CommandBufferTests
             Throws<NotSupportedException>(() => buffer.SetInstanceMultiplier(multiplier), $"instance multiplier {multiplier}",
                 $"SetInstanceMultiplier({multiplier})", "only 1 is supported");
         Ensure(buffer.commandCount == 0, "a refused instance multiplier records nothing");
+        buffer.BeginSample("s");
+        buffer.EndSample("s");
+        buffer.EndSample("never begun");
+        Ensure(buffer.commandCount == 0, "profiler samples record nothing, since the engine captures no profile");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.SetInstanceMultiplier(1), "an instance multiplier on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.EndSample("s"), "EndSample after Release", "CommandBuffer");
         ExecutionFlagsAreSetOnAnEmptyBuffer();
         ShadingRatesRecordNothing();
         FencesHavePassedAndRecordNothing();

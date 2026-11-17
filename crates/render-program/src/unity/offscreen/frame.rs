@@ -76,7 +76,9 @@ impl RenderDimension {
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
-/// creates the texture again when anything but the id changes.
+/// creates the texture again, empty, when a field that shapes its storage changes (see
+/// [`same_storage`](Self::same_storage)). A rise of `generation` alone, which is what a sampler
+/// edit makes, keeps the texture and its contents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
@@ -98,6 +100,20 @@ impl RenderTextureSpec {
     #[must_use]
     pub const fn layers(&self) -> u32 {
         self.dimension.layers()
+    }
+
+    /// Whether a texture made from `self` can serve `other`: every field but `generation` is
+    /// the same, so the storage has the same shape, format and size and keeps what it holds.
+    /// `generation` is how the host says the texture was edited, and a sampler edit changes no
+    /// storage. The one rule that decides when storage is made again, for the state's creation
+    /// of the texture and for its count of the bytes a frame would add.
+    #[must_use]
+    pub fn same_storage(&self, other: &Self) -> bool {
+        let without_generation = |spec: &Self| Self {
+            generation: 0,
+            ..spec.clone()
+        };
+        without_generation(self) == without_generation(other)
     }
 }
 
@@ -151,28 +167,39 @@ pub struct Attachment {
     pub mip: u32,
 }
 
-/// What a pass draws into: the color storage of one texture and the depth storage of the same or
-/// another. A texture with no color has none to offer, and a depth buffer under a color texture
-/// has one mip, so a pass whose depth does not fit the color is drawn without it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What a pass draws into: the color storage of one to eight textures, in the order of the
+/// fragment stage's outputs, and the depth storage of one texture, which may be a texture none
+/// of the colors is of. A texture with no color has none to offer, and a depth buffer under a
+/// color texture has one mip, so a pass whose depth does not fit the colors is drawn without it. Every color must have
+/// the size of the first at its mip, and no two colors are the same mip of one texture.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Attachments {
-    pub color: Option<Attachment>,
+    pub colors: Vec<Attachment>,
     pub depth: Option<Attachment>,
 }
 
 impl Attachments {
-    /// The textures the attachments are of: the color's, then the depth's.
-    pub fn textures(&self) -> impl Iterator<Item = TextureId> {
-        self.color
-            .into_iter()
-            .chain(self.depth)
+    /// A pass over at most one color, which a camera or a script names with one texture.
+    #[must_use]
+    pub fn single(color: Option<Attachment>, depth: Option<Attachment>) -> Self {
+        Self {
+            colors: color.into_iter().collect(),
+            depth,
+        }
+    }
+
+    /// The textures the attachments are of: the colors', then the depth's.
+    pub fn textures(&self) -> impl Iterator<Item = TextureId> + '_ {
+        self.colors
+            .iter()
+            .chain(&self.depth)
             .map(|attachment| attachment.texture)
     }
 }
 
-/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. The
-/// depth formats this renderer draws into have no stencil, so `stencil` is carried for the
-/// record and sets nothing.
+/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. A clear
+/// of the depth also clears the stencil of a depth buffer that has one to 0, so `stencil` is
+/// carried for the record and sets nothing of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Clear {
     pub color: Option<[f64; 4]>,
@@ -189,6 +216,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
+    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
+    pub instances: u32,
 }
 
 /// A list of draws into attachments.
@@ -292,6 +321,41 @@ pub struct OffscreenFrame {
     pub later_reads: Vec<ReadRange>,
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
+    /// The textures a texture slot reads when no layer sets it and the shader does not declare
+    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
+    /// each as it does any source texture. A draw that reads one is counted by property in
+    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// Only a single-sampled float slot of a dimension that has a default here reads it. A
+    /// property the shader declares, and a depth, multisampled or array slot, are missing as
+    /// before. Without a default for a dimension, which is the default, every slot of that
+    /// dimension no layer sets is missing.
+    pub undeclared_textures: UndeclaredTextures,
+}
+
+/// The texture an unset, undeclared slot reads, by the view dimension of the slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UndeclaredTextures {
+    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
+    /// 0.5 0.5 0.5 1.
+    pub d2: Option<TextureId>,
+    /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
+    /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
+    pub cube: Option<TextureId>,
+    /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
+    /// a [`SourceDimension::D3`] source.
+    pub d3: Option<TextureId>,
+}
+
+impl UndeclaredTextures {
+    /// The default for a slot that samples through `view`, if the frame names one.
+    pub(super) fn for_view(self, view: wgpu::TextureViewDimension) -> Option<TextureId> {
+        match view {
+            wgpu::TextureViewDimension::D2 => self.d2,
+            wgpu::TextureViewDimension::Cube => self.cube,
+            wgpu::TextureViewDimension::D3 => self.d3,
+            _ => None,
+        }
+    }
 }
 
 impl Default for OffscreenFrame {
@@ -308,14 +372,32 @@ impl Default for OffscreenFrame {
             records: Vec::new(),
             later_reads: Vec::new(),
             probe: CameraProbe::default(),
+            undeclared_textures: UndeclaredTextures::default(),
         }
     }
+}
+
+/// The shape of an uploaded source texture.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceDimension {
+    /// A plain 2D texture: `bytes` is its one level.
+    #[default]
+    D2,
+    /// A cube of six square faces, sampled through a cube view. `size` is one face, which must be
+    /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
+    /// +Z, -Z, each as a 2D level is.
+    Cube,
+    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
+    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
+    /// volume is not an upload.
+    D3,
 }
 
 /// A texture the host uploads once: uncompressed, one mip.
 #[derive(Clone, Debug)]
 pub struct SourceTexture {
     pub id: TextureId,
+    pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
     pub bytes: Vec<u8>,

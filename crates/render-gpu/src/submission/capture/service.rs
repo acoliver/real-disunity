@@ -41,25 +41,48 @@ impl SubmissionAuthority {
         &self,
         device: &wgpu::Device,
     ) -> Result<(), CaptureError<std::convert::Infallible>> {
-        let submission = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let pending = {
             let state = self.0.state.lock().unwrap();
             state
                 .capture_cleanup
                 .as_ref()
-                .map(|cleanup| cleanup.submission.clone())
+                .map(|cleanup| (cleanup.submission.clone(), cleanup.serial))
         };
-        if let Some(submission) = submission
+        if let Some((submission, serial)) = pending
             && self.check_device().is_ok()
         {
             device.poll(wgpu::PollType::Wait {
                 submission_index: Some(submission),
-                timeout: Some(std::time::Duration::from_secs(30)),
+                timeout: Some(deadline.saturating_duration_since(std::time::Instant::now())),
             })?;
+            self.await_completion_record(device, serial, deadline)?;
         }
         self.retire_capture();
         self.check_device()?;
         if self.0.state.lock().unwrap().preparing {
             return Err(SubmitError::Busy.into());
+        }
+        Ok(())
+    }
+    /// Waits until every submission up to `serial` has finished its completion bookkeeping
+    /// ([`Self::settled_through`]): its serial recorded, its in-flight count released and its
+    /// leases dropped. The callback runs on whichever thread's poll took the completion, which
+    /// can be after this thread's own wait for the submission returned. Polls without blocking
+    /// until it has run, stops early on device loss, and fails with `PollError::Timeout` past
+    /// `deadline`. Only the callback changes the bookkeeping; this only waits for it.
+    pub fn await_completion_record(
+        &self,
+        device: &wgpu::Device,
+        serial: u64,
+        deadline: std::time::Instant,
+    ) -> Result<(), wgpu::PollError> {
+        while !self.settled_through(serial) && self.check_device().is_ok() {
+            if std::time::Instant::now() >= deadline {
+                return Err(wgpu::PollError::Timeout);
+            }
+            device.poll(wgpu::PollType::Poll)?;
+            std::thread::yield_now();
         }
         Ok(())
     }
@@ -133,11 +156,9 @@ pub(super) fn record<E>(
 ) -> Result<PreparedFrame, CaptureError<E>> {
     authority.check_device()?;
     let scope = Rc::new(WriteScope::new(allowed, active));
-    let mut publications = Publications {
-        scope: Some(scope.clone()),
-        ..Publications::default()
-    };
-    let mut recording = authority.record(device, publications.clone(), false);
+    let mut recording = authority.record(device, Some(scope.clone()), false);
+    // The callback gets the frame's own write set: its authority, transaction and staging.
+    let mut publications = recording.publications();
     prepare(&mut recording, &mut publications).map_err(CaptureError::Preparation)?;
     scope.result()?;
     authority.check_device()?;

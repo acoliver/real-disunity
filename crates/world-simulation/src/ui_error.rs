@@ -4,6 +4,26 @@ pub struct FontId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UiError {
+    #[error("invalid linear RGBA colour or alpha")]
+    InvalidColor,
+    #[error("invalid image source, insets or tile scale")]
+    InvalidImage,
+    #[error("draw-list expanded vertex budget exceeded")]
+    DrawLimit,
+    #[error("draw-list hierarchy range exhausted")]
+    HierarchyLimit,
+    #[error("draw-list stack depth exceeded")]
+    StackLimit,
+    #[error("cannot pop the draw-list root state")]
+    StackUnderflow,
+    #[error("draw-list stacks must be balanced before finishing")]
+    UnbalancedStack,
+    #[error("invalid text effect parameters")]
+    InvalidTextEffect,
+    #[error("distance field exceeds side, spread or scratch limits")]
+    DistanceFieldLimit,
+    #[error("distance text requires an invertible affine quad and UV mapping")]
+    InvalidDistanceMapping,
     #[error("invalid annotation geometry or alignment")]
     InvalidAnnotation,
     #[error("annotation segment or frame vertex budget exceeded")]

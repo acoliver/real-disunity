@@ -27,7 +27,9 @@ public static partial class DisunityHost
     public static unsafe void LoadWorld()
     {
         EnsureLoaded();
-        ThrowIfError(NativeBindings.disunity_abi_check(NativeAbi.Version));
+        uint actualRevision;
+        ThrowIfError(NativeBindings.disunity_abi_version(&actualRevision));
+        NativeAbi.VerifyRevision(actualRevision);
         if (IsLoaded) throw new InvalidOperationException("a world is already loaded");
         ulong world;
         ThrowIfError(NativeBindings.disunity_world_create(&world));

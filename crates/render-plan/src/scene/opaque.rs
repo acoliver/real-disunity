@@ -58,6 +58,27 @@ pub enum SceneOpaquePath {
 }
 
 impl SceneOpaquePath {
+    /// The one admitted experiment: allocate and clear the compact deferred G-buffer
+    /// before Opaque and expose it to captures, while the visible frame stays forward.
+    /// Producers write terrain material values into it; nothing consumes it yet.
+    pub const GBUFFER_OBSERVATION: Self = Self::experiment(
+        SceneOpaqueMode::Observe,
+        SceneOpaqueFamily::Terrain,
+        SceneOpaqueStorage::Compact,
+        SceneOpaqueVisibility::MaterialOwnedDepth,
+    );
+
+    /// Render the opaque frame from the compact deferred G-buffer: terrain, meshes and
+    /// impostor cards store their materials before Opaque, one full-screen pass lights them
+    /// into the scene colour, and Opaque draws only what has no G-buffer producer (sky,
+    /// celestial bodies, dynamic and player draws) before water and transparency.
+    pub const GBUFFER_RENDER: Self = Self::experiment(
+        SceneOpaqueMode::Render,
+        SceneOpaqueFamily::AllStock,
+        SceneOpaqueStorage::Compact,
+        SceneOpaqueVisibility::MaterialOwnedDepth,
+    );
+
     /// Constructs an experiment request; `SceneEffects::with_opaque_path` admits supported tuples.
     #[must_use]
     pub const fn experiment(
@@ -78,11 +99,14 @@ impl SceneOpaquePath {
 impl SceneEffects {
     /// Selects the validated opaque rendering contract.
     ///
-    /// The existing forward path is implemented. Unsupported experiment tuples
-    /// fail explicitly until their rendering path is implemented.
+    /// The forward path, [`SceneOpaquePath::GBUFFER_OBSERVATION`] and
+    /// [`SceneOpaquePath::GBUFFER_RENDER`] are implemented.
+    /// Every other experiment tuple fails explicitly until its rendering path is implemented.
     pub fn with_opaque_path(mut self, path: SceneOpaquePath) -> Result<Self, SceneValidationError> {
         self.opaque_path = match path {
-            SceneOpaquePath::Forward => SceneOpaquePath::Forward,
+            SceneOpaquePath::Forward
+            | SceneOpaquePath::GBUFFER_OBSERVATION
+            | SceneOpaquePath::GBUFFER_RENDER => path,
             SceneOpaquePath::Experiment(_) => {
                 return Err(SceneValidationError::UnsupportedOpaquePath);
             }

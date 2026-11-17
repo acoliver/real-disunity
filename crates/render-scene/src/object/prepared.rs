@@ -2,15 +2,16 @@
 //!
 //! A material's resources are lent to the runtime once, when the scene is uploaded: one
 //! [`ImportTable`] per material holds the 576-byte material block, the surface maps, the sampler,
-//! the contact heights and the impostor and wind textures, as the fixed material group binds
-//! them. A [`PreparedSet`] is made from a table the first time a runtime needs it, and every
-//! pipeline of that runtime whose set-1 layout equals the set's shares it.
+//! the contact heights and the impostor and wind textures, as the material's bind group
+//! (`SceneGpu::materials`, which only the tests that record draws themselves bind) binds them. A
+//! [`PreparedSet`] is made from a table the first time a runtime needs it, and every pipeline of
+//! that runtime whose set-1 layout equals the set's shares it.
 //!
 //! A prepared pipeline holds the bind groups it sets, so the runtime path prepares one pipeline
 //! for each pair of a [`PipelineKey`] and a material that a scene draws. Recording a pair
-//! costs what the fixed path spent on a pipeline change and a material change together: the
-//! pass sets the pipeline once for the run of draws that share it
-//! (`draw::object_runtime`'s pass adapter), and the material's group each time the material changes.
+//! costs a pipeline change and a material change together: the pass sets the pipeline once for
+//! the run of draws that share it (`draw::object_runtime`'s pass adapter), and the material's
+//! group each time the material changes.
 //! Nothing is built in a steady-state frame: pairs are made the first time a frame prepares for
 //! a context, or the first time a draw needs one, and kept as long as the context lives.
 
@@ -27,7 +28,8 @@ use worldrunner_render_program::runtime::{
     Import, ImportTable, Keepalive, PipelineDraw, PreparedPipeline, PreparedSet, ProgramRuntime,
 };
 
-use super::program::{Context, WeakContext, semantic, vertex_layout};
+use super::layout::{GeometryLayout, vertex_layout};
+use super::program::{Context, WeakContext, semantic};
 use crate::pipeline::PipelineKey;
 use crate::terrain::program::WeakFamily;
 
@@ -83,8 +85,8 @@ pub(crate) fn imports(
 /// equal share one layout object, so one set serves all of them.
 type SetKey = (u64, usize, BindGroupLayout);
 
-/// The context, pipeline index and material a pipeline is made for.
-type PairKey = (u64, usize, usize);
+/// The context, pipeline index, material and geometry layout a pipeline is made for.
+type PairKey = (u64, usize, usize, GeometryLayout);
 
 /// The material sets and pipelines a scene's objects have prepared.
 #[derive(Debug)]
@@ -92,6 +94,8 @@ pub(crate) struct PreparedObjects {
     authority: SubmissionAuthority,
     /// What each material lends. Held by every set and pipeline made from it.
     tables: Vec<Arc<ImportTable>>,
+    /// The scene palette every table lends to the programs of skinned geometry.
+    palette: Option<Buffer>,
     /// Sets are built against the runtime of a family, whose program fixes their layout, so they
     /// are kept per family and dropped when it is.
     sets: RefCell<BTreeMap<SetKey, (WeakFamily, PreparedSet)>>,
@@ -101,30 +105,50 @@ pub(crate) struct PreparedObjects {
 }
 
 impl PreparedObjects {
-    pub(crate) fn new(authority: SubmissionAuthority, tables: Vec<ImportTable>) -> Self {
-        Self {
+    pub(crate) fn new(
+        authority: SubmissionAuthority,
+        tables: Vec<ImportTable>,
+        palette: Option<Buffer>,
+    ) -> Self {
+        let mut objects = Self {
             authority,
-            tables: tables.into_iter().map(Arc::new).collect(),
+            tables: Vec::new(),
+            palette,
             sets: RefCell::default(),
             pipelines: RefCell::default(),
+        };
+        objects.extend(tables);
+        objects
+    }
+
+    /// Lends the scene palette through `table`, so that a skinned program of the material finds
+    /// it. A static program does not declare the binding and ignores the entry.
+    fn lend(&self, mut table: ImportTable) -> Arc<ImportTable> {
+        if let Some(palette) = &self.palette {
+            table.insert(Import::buffer(
+                named(semantic::SKIN_PALETTE),
+                palette.clone(),
+            ));
         }
+        Arc::new(table)
     }
 
     /// Adds the materials an append made resident.
     pub(crate) fn extend(&mut self, tables: Vec<ImportTable>) {
-        self.tables.extend(tables.into_iter().map(Arc::new));
+        let lent: Vec<_> = tables.into_iter().map(|table| self.lend(table)).collect();
+        self.tables.extend(lent);
     }
 
     /// Takes the resources a material is now bound to, and forgets the sets and pipelines made
     /// from the old ones.
     pub(crate) fn replace(&mut self, material: usize, table: ImportTable) {
-        self.tables[material] = Arc::new(table);
+        self.tables[material] = self.lend(table);
         self.sets
             .get_mut()
             .retain(|(_, owner, _), _| *owner != material);
         self.pipelines
             .get_mut()
-            .retain(|(_, _, owner), _| *owner != material);
+            .retain(|(_, _, owner, _), _| *owner != material);
     }
 
     /// The prepared pipeline of the pair, made on first use and found in a map afterwards.
@@ -134,10 +158,10 @@ impl PreparedObjects {
     pub(crate) fn pipeline(
         &self,
         context: &Context,
-        index: usize,
-        material: usize,
+        (index, material): (usize, usize),
+        geometry: GeometryLayout,
     ) -> Result<Rc<PreparedPipeline>, ProgramError> {
-        let key = (context.id(), index, material);
+        let key = (context.id(), index, material, geometry);
         if let Some((_, ready)) = self.pipelines.borrow().get(&key) {
             return Ok(ready.clone());
         }
@@ -148,7 +172,7 @@ impl PreparedObjects {
         let made = context
             .family()
             .with_objects((context.device(), &self.authority), |runtime| {
-                self.prepare(runtime, context, (index, material))
+                self.prepare(runtime, context, (index, material), geometry)
             })?;
         let made = Rc::new(made);
         self.pipelines
@@ -166,7 +190,9 @@ impl PreparedObjects {
         context
             .family()
             .with_objects((context.device(), &self.authority), |runtime| {
-                let Ok(program) = context.program(runtime, PipelineKey::ALL[0]) else {
+                let Ok(program) =
+                    context.program(runtime, PipelineKey::ALL[0], GeometryLayout::Static)
+                else {
                     return;
                 };
                 for material in 0..self.tables.len() {
@@ -182,12 +208,13 @@ impl PreparedObjects {
         runtime: &mut ProgramRuntime,
         context: &Context,
         (index, material): (usize, usize),
+        geometry: GeometryLayout,
     ) -> Result<PreparedPipeline, ProgramError> {
         let key = PipelineKey::ALL[index];
-        let program = context.program(runtime, key)?;
+        let program = context.program(runtime, key, geometry)?;
         let set_key = self.set(runtime, context, &program, material)?;
         let sets = self.sets.borrow();
-        let layout = vertex_layout(context.previous_transforms());
+        let layout = vertex_layout(context.previous_transforms(), geometry);
         let state = context.state(key);
         let owners: [Keepalive; 1] = [self.tables[material].clone()];
         runtime.prepare_pipeline(

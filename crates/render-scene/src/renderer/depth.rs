@@ -1,4 +1,5 @@
 //! Depth ownership of a complete, single-sample stock geometry pair.
+use crate::shader::rewrite::ShaderRewrite;
 use wgpu::{
     CompareFunction, DepthStencilState, StencilFaceState, StencilOperation, StencilState,
     TextureFormat,
@@ -20,13 +21,23 @@ pub(crate) enum DepthMode {
 impl DepthMode {
     pub(crate) fn vertex_source(self, source: &str) -> std::borrow::Cow<'_, str> {
         // Paired displacement producers and consumers retain one raster-position contract.
+        // A source made independent before has no invariant position left.
         if self == Self::Independent
+            && source.contains("@invariant")
             && !source.contains("fn scene_receiver_load(")
             && !source.contains("fn scene_capture_receiver(")
         {
-            std::borrow::Cow::Owned(
-                source.replace("@invariant @builtin(position)", "@builtin(position)"),
-            )
+            let independent = source.anchored_at_least(
+                "renderer::depth::vertex_source",
+                1,
+                "@invariant @builtin(position)",
+                "@builtin(position)",
+            );
+            assert!(
+                !independent.contains("@invariant"),
+                "independent depth source keeps an invariant position"
+            );
+            std::borrow::Cow::Owned(independent)
         } else {
             std::borrow::Cow::Borrowed(source)
         }
@@ -84,8 +95,8 @@ impl DepthMode {
 impl DepthMode {
     /// The program runtime's state of a draw that writes depth and every one of `colors`
     /// attachments without blending, under this mode's depth and stencil test: the translation
-    /// of [`state`](Self::state) that terrain and objects share, so that neither can disagree
-    /// with the fixed pipelines' depth reuse.
+    /// of [`state`](Self::state) that terrain and objects share, so that they cannot disagree
+    /// on depth reuse.
     pub(crate) fn render_state(
         self,
         colors: usize,

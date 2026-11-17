@@ -1,3 +1,4 @@
+use crate::shader::rewrite::ShaderRewrite;
 use std::fmt::Write;
 /// A negative cutoff disables rejection while retaining its magnitude for LOD.
 pub(super) fn roughness_cutoff(settings: &worldrunner_render_plan::SceneSsr) -> f32 {
@@ -181,7 +182,12 @@ fn resolve_source_variant(levels: usize, banked: bool) -> String {
         }}").expect("writing shader source");
     }
     source.push_str("default: { return vec4<f32>(0.0); } } }\n");
-    source.replace("REFLECTION_LEVELS", &(levels - 1).to_string())
+    source.anchored(
+        "ssr::gpu::resolve_source_variant",
+        3,
+        "REFLECTION_LEVELS",
+        &(levels - 1).to_string(),
+    )
 }
 
 pub(super) fn trace_source(samples: u32, water: bool) -> String {
@@ -194,8 +200,7 @@ pub(super) fn trace_source(samples: u32, water: bool) -> String {
             "\n",
             include_str!("normal.wgsl")
         )
-    )
-    .replace("SAMPLE_LANES", &samples.to_string());
+    );
     if water {
         super::water::trace_source(&source, samples)
     } else {
@@ -211,7 +216,9 @@ pub(super) fn configured_trace_source(
     let source = trace_source(samples, water);
     match rounding {
         worldrunner_render_plan::SceneDownsampleRounding::Ceil => source,
-        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.replace(
+        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.anchored(
+            "ssr::gpu::configured_trace_source",
+            1,
             "let trace_size = ceil(camera.size.xy / camera.size.z);",
             "let trace_size = max(floor(camera.size.xy / camera.size.z), vec2<f32>(1.0));",
         ),
@@ -219,7 +226,12 @@ pub(super) fn configured_trace_source(
 }
 
 pub(super) fn reduce_source(samples: u32) -> String {
-    include_str!("reduce.wgsl").replace("SAMPLE_LANES", &samples.to_string())
+    include_str!("reduce.wgsl").anchored(
+        "ssr::gpu::reduce_source",
+        1,
+        "SAMPLE_LANES",
+        &samples.to_string(),
+    )
 }
 
 pub(super) fn configured_reduce_source(
@@ -229,7 +241,9 @@ pub(super) fn configured_reduce_source(
     let source = reduce_source(samples);
     match rounding {
         worldrunner_render_plan::SceneDownsampleRounding::Ceil => source,
-        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.replace(
+        worldrunner_render_plan::SceneDownsampleRounding::Floor => source.anchored(
+            "ssr::gpu::configured_reduce_source",
+            1,
             "let target_width = (size.x + 1) / 2;",
             "let target_width = max(size.x / 2, 1);",
         ),
@@ -247,9 +261,18 @@ fn sampled_resolve_source_variant(
     water: bool,
     banked: bool,
 ) -> String {
+    // The resolve reads the lane count once, and each level once for its logical extent and
+    // once for its sampling helper.
     let source = resolve_source_variant(levels, banked)
-        .replace("SAMPLE_LANES", &samples.to_string())
-        .replace(
+        .anchored(
+            "ssr::gpu::sampled_resolve_source_variant",
+            2 * levels + 1,
+            "SAMPLE_LANES",
+            &samples.to_string(),
+        )
+        .anchored(
+            "ssr::gpu::sampled_resolve_source_variant",
+            2,
             "FORWARD_TEXTURE",
             if samples == 1 {
                 "texture_2d<f32>"
@@ -257,7 +280,9 @@ fn sampled_resolve_source_variant(
                 "texture_multisampled_2d<f32>"
             },
         )
-        .replace(
+        .anchored(
+            "ssr::gpu::sampled_resolve_source_variant",
+            2,
             "FORWARD_SAMPLE",
             if samples == 1 { "0" } else { "i32(sample)" },
         );
@@ -350,6 +375,12 @@ pub(super) fn configured_resolve_source(
     configured_resolve_source_variant(levels, samples, water, ao, ao_input, false)
 }
 
+/// The number of bindings a resolve source declares after its reflection levels: the forward
+/// environment and factor, the four water receiver bindings and the application AO.
+pub(super) fn trailing_bindings(water: bool, ao: bool) -> usize {
+    2 + 4 * usize::from(water) + usize::from(ao)
+}
+
 pub(super) fn configured_resolve_source_variant(
     levels: usize,
     samples: u32,
@@ -369,8 +400,8 @@ pub(super) fn configured_resolve_source_variant(
     let published = "textureLoad(forward_environment, p, FORWARD_SAMPLE).a";
     let binding = levels + 7 + if water { 4 } else { 0 };
     let source = format!("{source}\n@group(0) @binding({binding}) var application_ao: texture_2d<f32>;")
-        .replace(&format!("let cosine = {cosine};"), &if water { format!("let cosine = select({published}, {cosine}, is_water);") } else { format!("let cosine = {published};") })
-        .replace("// APPLICATION_AO", if water {
+        .anchored("ssr::gpu::configured_resolve_source_variant", 1, &format!("let cosine = {cosine};"), &if water { format!("let cosine = select({published}, {cosine}, is_water);") } else { format!("let cosine = {published};") })
+        .anchored("ssr::gpu::configured_resolve_source_variant", 1, "// APPLICATION_AO", if water {
             "if !is_water { let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility; }"
         } else {
             "let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility;"
@@ -382,8 +413,15 @@ pub(super) fn configured_resolve_source_variant(
             include_str!("receiver.wgsl"),
             include_str!("../ssao/receiver.wgsl")
         )
-        .replace("ambient_texture", "application_ao")
-        .replace(
+        .anchored(
+            "ssr::gpu::configured_resolve_source_variant",
+            5,
+            "ambient_texture",
+            "application_ao",
+        )
+        .anchored(
+            "ssr::gpu::configured_resolve_source_variant",
+            2,
             "FORWARD_SAMPLE",
             if samples == 1 { "0" } else { "i32(sample)" },
         );
@@ -394,7 +432,9 @@ pub(super) fn configured_resolve_source_variant(
         include_str!("application_ao.wgsl"),
         include_str!("ao_math.wgsl")
     )
-    .replace(
+    .anchored(
+        "ssr::gpu::configured_resolve_source_variant",
+        1,
         "APPLICATION_TAP_DEPTH",
         if ao_input.1 == wgpu::TextureFormat::Rg16Float {
             "tap.g * reflection_far_depth()"
@@ -402,7 +442,9 @@ pub(super) fn configured_resolve_source_variant(
             "textureLoad(opaque_depth, coordinates[i], 0).r"
         },
     )
-    .replace(
+    .anchored(
+        "ssr::gpu::configured_resolve_source_variant",
+        2,
         "FORWARD_SAMPLE",
         if samples == 1 { "0" } else { "i32(sample)" },
     )
@@ -426,7 +468,13 @@ pub(super) fn resolve_pipelines(
         shared_extents.map_or_else(
             || source.clone(),
             |extents| {
-                super::pyramid::resolve_source_variant(source.clone(), extents, samples, banked)
+                super::pyramid::resolve_source_variant(
+                    source.clone(),
+                    extents,
+                    samples,
+                    banked,
+                    trailing_bindings(water, ao),
+                )
             },
         )
     };

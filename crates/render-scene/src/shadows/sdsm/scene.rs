@@ -250,6 +250,11 @@ impl ShadowedScene {
         suffix.push(crate::compositor::publication::key(&self.refresh));
         suffix.extend(self.scheduler.capture_write_keys());
         suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
+        suffix.extend(self.scheduler.capture_contour_keys(
+            input.context.device(),
+            &self.gpu,
+            input.attachments.1,
+        )?);
         let celestial = self
             .gpu
             .capture_celestial_textures(input.context.device(), input.attachments.0.size());
@@ -449,6 +454,8 @@ impl SceneDepthFitting {
         scheduler: &crate::compositor::FrameRenderer,
         size: [u32; 2],
     ) -> Result<crate::scene_metadata::SceneMetadata, ShadowError> {
+        // An HDR frame configured with depth fitting owns this prepass and pairs its depth with
+        // Opaque. Only a frame without screen-space metadata leaves fitting to draw its own.
         if scheduler.ssao.is_none()
             && self
                 .metadata

@@ -124,7 +124,7 @@ pub(super) fn plan_steps(
             )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
             Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, *target, clear)? {
+                match list_steps::clear_step(svc, index, target.clone(), clear)? {
                     Some(step) => step,
                     None => continue,
                 }
@@ -229,8 +229,18 @@ fn pass_report(
     let mut states = std::collections::BTreeMap::<String, usize>::new();
     for draw in draws {
         let state = &draw.plan.state;
+        let stencil = state.stencil.as_ref().map_or_else(String::new, |stencil| {
+            format!(
+                ", stencil reference {} read mask {} write mask {} front {:?} back {:?}",
+                stencil.reference,
+                stencil.ops.read_mask,
+                stencil.ops.write_mask,
+                stencil.ops.front,
+                stencil.ops.back
+            )
+        });
         let words = format!(
-            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}{stencil}",
             state.cull,
             state.depth_compare,
             state.depth_write,
@@ -434,6 +444,7 @@ pub(super) fn counted(
     match planned {
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
+            svc.counts.note_undeclared(&draw.plan.undeclared);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -607,16 +618,7 @@ fn camera_pass(
         color: camera.clear_color,
         depth: camera.clear_depth.then_some(DEPTH_CLEAR),
     };
-    list_steps::attachments_pass(
-        svc,
-        id,
-        Attachments {
-            color: whole,
-            depth: whole,
-        },
-        &loads,
-        draws,
-    )
+    list_steps::attachments_pass(svc, id, &Attachments::single(whole, whole), &loads, draws)
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {
@@ -729,6 +731,7 @@ fn blit_step(
     let plan = svc.plan_program(&spec)?;
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
+    svc.counts.note_undeclared(&plan.undeclared);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

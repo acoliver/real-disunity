@@ -9,10 +9,11 @@ namespace UnityEngine.Rendering;
 /// commands, in order. Sending does not empty the buffer, so a buffer sent twice delivers its commands twice; <see cref="Clear"/>
 /// empties it. The members that record are in CommandBufferTargets.cs, CommandBufferGlobals.cs, CommandBufferCamera.cs,
 /// CommandBufferTemporaries.cs and CommandBufferRendererLists.cs.
-/// The members that would draw indexed procedural geometry, set a global float array, set the viewport or open profiler
-/// samples have no record yet and throw <see cref="NotSupportedException"/> naming themselves. <see cref="DrawMesh(Mesh, Matrix4x4, Material)"/>
-/// is recorded for the host to draw (see CommandBufferMesh.cs), and so are the non-indexed procedural draws (see
-/// CommandBufferProcedural.cs). Global vector and matrix arrays are recorded in order (see
+/// The members that would draw indexed procedural geometry or set a global float array have no record yet and throw
+/// <see cref="NotSupportedException"/> naming themselves. <see cref="DrawMesh(Mesh, Matrix4x4, Material)"/>
+/// is recorded for the host to draw (see CommandBufferMesh.cs), and so are <see cref="DrawMeshInstancedIndirect"/> (see
+/// CommandBufferMeshIndirect.cs), the renderer draws (see CommandBufferRenderer.cs), <see cref="SetViewport"/> and the non-indexed
+/// procedural draws (see CommandBufferProcedural.cs). Global vector and matrix arrays are recorded in order (see
 /// CommandBufferArrays.cs).
 /// After <see cref="Release"/> every member except <see cref="name"/> and Release throws <see cref="ObjectDisposedException"/>;
 /// releasing twice is allowed. The name starts empty, which is the engine's choice, and a null name becomes empty.
@@ -64,13 +65,24 @@ public sealed partial class CommandBuffer : IDisposable
         _commands.Add(send);
     }
 
-    public void BeginSample(string name) => Fail(nameof(BeginSample));
-    public void EndSample(string name) => Fail(nameof(EndSample));
+    /// <summary>Records nothing: the engine has no profiler capture, so a sample marks no span. A render graph pass and
+    /// third-party passes open and close samples around their work every frame.</summary>
+    public void BeginSample(string name) => ThrowIfReleased();
 
-    public void DrawMeshInstancedIndirect(Mesh mesh, int submeshIndex, Material material, int shaderPass, ComputeBuffer bufferWithArgs,
-        int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));
+    /// <summary>Records nothing, as <see cref="BeginSample(string)"/>; an end without a begin is not checked.</summary>
+    public void EndSample(string name) => ThrowIfReleased();
 
-    public void SetViewport(Rect pixelRect) => Fail(nameof(SetViewport));
+    /// <summary>Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after it cover.
+    /// <see cref="SetRenderTarget(RenderTargetIdentifier)"/> and a camera setup reset it to the whole target. A component that
+    /// is not finite or a negative width or height throws <see cref="ArgumentException"/> and records nothing.</summary>
+    public void SetViewport(Rect pixelRect)
+    {
+        ThrowIfReleased();
+        if (!float.IsFinite(pixelRect.x) || !float.IsFinite(pixelRect.y) || !float.IsFinite(pixelRect.width) || !float.IsFinite(pixelRect.height)
+            || pixelRect.width < 0f || pixelRect.height < 0f)
+            throw new ArgumentException($"CommandBuffer.SetViewport: the rectangle {pixelRect} needs finite components and a width and height of 0 or more", nameof(pixelRect));
+        Record(() => WorldGraphics.RecordSetViewport(pixelRect));
+    }
 
     /// <summary>Records nothing: the engine binds no random-write targets, so there are none to clear. The render graph calls
     /// it after every pass.</summary>

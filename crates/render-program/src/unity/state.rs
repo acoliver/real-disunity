@@ -2,16 +2,16 @@
 //! [`RenderState`](crate::state::RenderState).
 //!
 //! The enum values follow the managed engine's own definitions in `Disunity/Enums/Rendering.cs`
-//! (`CullMode`, `CompareFunction`, `BlendMode`, `BlendOp` and `ColorWriteMask`). `BlendOp`
-//! values above `Max` (the logical and advanced blend operations) have no wgpu equivalent and
-//! are rejected as unknown values.
+//! (`CullMode`, `CompareFunction`, `BlendMode`, `BlendOp`, `StencilOp` and `ColorWriteMask`).
+//! `BlendOp` values above `Max` (the logical and advanced blend operations) have no wgpu
+//! equivalent and are rejected as unknown values.
 
 use worldrunner_unity_serialized::shader_state::{
-    ShaderState, StateValue, StencilOps, TargetBlend,
+    ShaderState, StateValue, Stencil, StencilOps, TargetBlend,
 };
 
 use crate::properties::{PropertySet, PropertyValue, lookup};
-use crate::state::{ColorState, DepthState, RasterState};
+use crate::state::{ColorState, DepthState, RasterState, StencilState};
 
 /// State a pass resolves to, for render target 0.
 #[derive(Clone, Debug, PartialEq)]
@@ -21,14 +21,31 @@ pub struct RenderState {
     pub depth_write: bool,
     pub color_write: wgpu::ColorWrites,
     pub blend: Option<wgpu::BlendState>,
+    /// The stencil test, operations and masks, and the reference this draw writes and compares
+    /// with. `None` when the pass leaves the stencil buffer alone: a test that always passes and
+    /// operations that keep.
+    pub stencil: Option<StencilState>,
 }
 
 impl RenderState {
-    /// The neutral state of a draw that treats `front_face` as the front winding: one colour
-    /// target, depth tested and written as resolved, and no stencil, depth bias or alpha to
-    /// coverage, which `resolve_state` has already refused.
+    /// The neutral state of a draw into a pass whose depth attachment has no stencil aspect,
+    /// that treats `front_face` as the front winding: one colour target, depth tested and
+    /// written as resolved, and no stencil, depth bias or alpha to coverage, which
+    /// `resolve_state` has already refused. Unity ignores stencil state when the target has no
+    /// stencil buffer, so the resolved stencil is dropped.
     #[must_use]
     pub fn neutral(&self, front_face: wgpu::FrontFace) -> crate::state::RenderState {
+        self.neutral_with_stencil(front_face, false)
+    }
+
+    /// Like [`neutral`](Self::neutral), keeping the resolved stencil when the pass's depth
+    /// attachment `has_stencil`.
+    #[must_use]
+    pub fn neutral_with_stencil(
+        &self,
+        front_face: wgpu::FrontFace,
+        has_stencil: bool,
+    ) -> crate::state::RenderState {
         crate::state::RenderState {
             raster: RasterState {
                 cull: self.cull,
@@ -44,7 +61,7 @@ impl RenderState {
                 blend: self.blend,
                 write_mask: self.color_write,
             })],
-            stencil: None,
+            stencil: self.stencil.clone().filter(|_| has_stencil),
         }
     }
 }
@@ -110,9 +127,7 @@ impl Resolver<'_> {
         max: u8,
     ) -> Result<u8, StateError> {
         let raw = self.value(value)?;
-        (0..=max)
-            .find(|candidate| same(f32::from(*candidate), raw))
-            .ok_or(StateError::UnknownValue { field, value: raw })
+        whole(field, raw, max)
     }
 
     /// A value that must equal `expected`, for state the renderer does not draw.
@@ -129,6 +144,13 @@ impl Resolver<'_> {
             Err(StateError::Unsupported { field, value: raw })
         }
     }
+}
+
+/// `raw` as a whole number from 0 to `max`.
+fn whole(field: &'static str, raw: f32, max: u8) -> Result<u8, StateError> {
+    (0..=max)
+        .find(|candidate| same(f32::from(*candidate), raw))
+        .ok_or(StateError::UnknownValue { field, value: raw })
 }
 
 /// Whether two floats are the same value, taking -0 for 0.
@@ -157,6 +179,7 @@ pub fn resolve_state(
     let write = reader.choice("ZWrite", &depth.write, 1)?;
     let target = state.blend.first().ok_or(StateError::NoBlendTarget)?;
     let (color_write, blend) = reader.target(target)?;
+    let stencil = reader.stencil(&state.stencil)?;
     Ok(ResolvedState {
         state: RenderState {
             cull: [None, Some(wgpu::Face::Front), Some(wgpu::Face::Back)][usize::from(cull)],
@@ -164,6 +187,7 @@ pub fn resolve_state(
             depth_write: write == 1,
             color_write,
             blend,
+            stencil,
         },
         defaulted: reader.defaulted,
     })
@@ -197,6 +221,40 @@ const FACTORS: [wgpu::BlendFactor; 11] = [
     wgpu::BlendFactor::OneMinusSrcAlpha,
 ];
 
+/// Unity's `StencilOp` in order.
+const STENCIL_OPERATIONS: [wgpu::StencilOperation; 8] = [
+    wgpu::StencilOperation::Keep,
+    wgpu::StencilOperation::Zero,
+    wgpu::StencilOperation::Replace,
+    wgpu::StencilOperation::IncrementClamp,
+    wgpu::StencilOperation::DecrementClamp,
+    wgpu::StencilOperation::Invert,
+    wgpu::StencilOperation::IncrementWrap,
+    wgpu::StencilOperation::DecrementWrap,
+];
+
+/// The names a stencil error gives the pass, fail and depth-fail operations and the comparison
+/// of one face.
+type StencilNames = [&'static str; 4];
+const STENCIL_BOTH: StencilNames = [
+    "stencil pass operation",
+    "stencil fail operation",
+    "stencil depth-fail operation",
+    "stencil comparison",
+];
+const STENCIL_FRONT: StencilNames = [
+    "front stencil pass operation",
+    "front stencil fail operation",
+    "front stencil depth-fail operation",
+    "front stencil comparison",
+];
+const STENCIL_BACK: StencilNames = [
+    "back stencil pass operation",
+    "back stencil fail operation",
+    "back stencil depth-fail operation",
+    "back stencil comparison",
+];
+
 /// Unity's `BlendOp` in order.
 const OPERATIONS: [wgpu::BlendOperation; 5] = [
     wgpu::BlendOperation::Add,
@@ -215,8 +273,8 @@ const MASK_BITS: [(u8, wgpu::ColorWrites); 4] = [
 ];
 
 impl Resolver<'_> {
-    /// Rejects state the renderer does not draw: stencil, depth bias, alpha to coverage,
-    /// conservative rasterisation and unclipped depth.
+    /// Rejects state the renderer does not draw: depth bias, alpha to coverage, conservative
+    /// rasterisation and unclipped depth.
     fn unsupported(&mut self, state: &ShaderState) -> Result<(), StateError> {
         let depth = &state.depth;
         self.require("depth clip", &depth.clip, 1.0)?;
@@ -224,29 +282,82 @@ impl Resolver<'_> {
         self.require("depth offset", &depth.offset_units, 0.0)?;
         self.require("alpha to coverage", &depth.alpha_to_mask, 0.0)?;
         self.require("conservative rasterisation", &depth.conservative, 0.0)?;
-        for ops in [
-            &state.stencil.both,
-            &state.stencil.front,
-            &state.stencil.back,
-        ] {
-            self.stencil_off(ops)?;
-        }
         Ok(())
     }
 
-    /// Stencil ops that keep the buffer and always pass: the same as no stencil.
-    fn stencil_off(&mut self, ops: &StencilOps) -> Result<(), StateError> {
-        for operation in [&ops.pass, &ops.fail, &ops.z_fail] {
-            self.require("stencil", operation, 0.0)?;
+    /// The stencil of a pass, or `None` when it keeps the buffer and always passes.
+    ///
+    /// A face takes each of its own values unless it holds the unset one (keep for an
+    /// operation, `Disabled` or `Always` for the comparison), and then the value set for both
+    /// faces. The masks and the reference are 0 to 255 and may name properties, so each draw
+    /// has its own reference.
+    fn stencil(&mut self, stencil: &Stencil) -> Result<Option<StencilState>, StateError> {
+        let faces = [
+            (&stencil.front, STENCIL_FRONT),
+            (&stencil.back, STENCIL_BACK),
+        ]
+        .map(|(own, names)| self.stencil_face(&stencil.both, own, names));
+        let [front, back] = faces;
+        let (front, back) = (front?, back?);
+        let read_mask = self.choice("stencil read mask", &stencil.read_mask, 255)?;
+        let write_mask = self.choice("stencil write mask", &stencil.write_mask, 255)?;
+        let reference = self.choice("stencil reference", &stencil.reference, 255)?;
+        let inert = wgpu::StencilFaceState::IGNORE;
+        if front == inert && back == inert {
+            return Ok(None);
         }
-        let compare = self.value(&ops.compare)?;
-        if same(compare, 0.0) || same(compare, 8.0) {
-            Ok(())
+        Ok(Some(StencilState {
+            ops: wgpu::StencilState {
+                front,
+                back,
+                read_mask: u32::from(read_mask),
+                write_mask: u32::from(write_mask),
+            },
+            reference: u32::from(reference),
+        }))
+    }
+
+    fn stencil_face(
+        &mut self,
+        both: &StencilOps,
+        own: &StencilOps,
+        names: StencilNames,
+    ) -> Result<wgpu::StencilFaceState, StateError> {
+        let unset_operation = [0.0];
+        let unset_compare = [0.0, 8.0];
+        let operation = |reader: &mut Self, pair: [&StateValue; 2], unset: &[f32], slot: usize| {
+            let (raw, name) = reader.set_value(pair, unset, [STENCIL_BOTH[slot], names[slot]])?;
+            whole(name, raw, 7).map(|op| STENCIL_OPERATIONS[usize::from(op)])
+        };
+        let pass_op = operation(self, [&both.pass, &own.pass], &unset_operation, 0)?;
+        let fail_op = operation(self, [&both.fail, &own.fail], &unset_operation, 1)?;
+        let depth_fail_op = operation(self, [&both.z_fail, &own.z_fail], &unset_operation, 2)?;
+        let (raw, name) = self.set_value(
+            [&both.compare, &own.compare],
+            &unset_compare,
+            [STENCIL_BOTH[3], names[3]],
+        )?;
+        Ok(wgpu::StencilFaceState {
+            compare: COMPARE[usize::from(whole(name, raw, 8)?)],
+            pass_op,
+            fail_op,
+            depth_fail_op,
+        })
+    }
+
+    /// The face's own value of a stencil setting, or the value for both faces when the face holds
+    /// one of the `unset` values, with the name of the field it came from.
+    fn set_value(
+        &mut self,
+        [both, own]: [&StateValue; 2],
+        unset: &[f32],
+        [both_name, own_name]: [&'static str; 2],
+    ) -> Result<(f32, &'static str), StateError> {
+        let raw = self.value(own)?;
+        if unset.iter().any(|value| same(raw, *value)) {
+            Ok((self.value(both)?, both_name))
         } else {
-            Err(StateError::Unsupported {
-                field: "stencil",
-                value: compare,
-            })
+            Ok((raw, own_name))
         }
     }
 

@@ -61,7 +61,7 @@ struct Player {
 fn timed() -> Fixture {
     let mut settings = settings();
     settings.timing = TimingMode::Required;
-    let context = pollster::block_on(GpuContext::request_with_features(
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
         crate::device::REQUIRED_FEATURES | wgpu::Features::TIMESTAMP_QUERY,
     ))
     .expect("a device with timestamp queries");
@@ -293,6 +293,7 @@ fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu
         depth_write: true,
         color_write: wgpu::ColorWrites::ALL,
         blend: None,
+        stencil: None,
     };
     let packet = DrawPacket {
         program: &player.patch,

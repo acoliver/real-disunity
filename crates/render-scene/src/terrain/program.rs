@@ -668,7 +668,7 @@ impl Context {
             declarations(),
         )?;
         // One parse serves both stages. Only the fragment stage reads the specialization
-        // constants, as the frozen reference does.
+        // constants.
         let fragment = vertex
             .sibling(FRAGMENT_ENTRY, StageKind::Fragment)?
             .with_declarations(declarations())

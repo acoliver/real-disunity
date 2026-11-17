@@ -150,7 +150,7 @@ fn commands_interleave_with_other_offscreen_work_in_call_order() {
     let id = texture(&mut world);
     let blit = OffscreenWork::Blit {
         source: TextureRef::None,
-        target: id,
+        target: TargetRef::Render(id),
         material: None,
         pass: -1,
     };
@@ -367,8 +367,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_eight_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 8);
+fn the_wire_version_is_twelve_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 12);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);

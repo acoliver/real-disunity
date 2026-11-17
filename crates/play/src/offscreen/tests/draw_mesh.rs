@@ -27,7 +27,7 @@ use worldrunner_world_simulation::graphics::{
 use super::super::adapter::OffscreenAdapter;
 use super::super::assets::{AssetError, Assets};
 use super::super::compute::ComputeAdapter;
-use super::super::defaults::{ShaderFill, declared};
+use super::super::defaults::{DefaultTexture, ShaderFill, declared};
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::{Settings, Skip};
 use super::super::kernels::PlayerKernels;
@@ -315,6 +315,27 @@ fn draw_mesh(
             submesh,
             pass,
             block: None,
+            instances: 1,
+        },
+    );
+}
+
+fn draw_instances(
+    world: &mut World,
+    (mesh, matrix): (u64, Mat4),
+    material: MaterialId,
+    instances: u32,
+) {
+    record(
+        world,
+        OffscreenWork::DrawMesh {
+            mesh,
+            matrix: matrix.to_cols_array(),
+            material,
+            submesh: 0,
+            pass: 1,
+            block: None,
+            instances,
         },
     );
 }
@@ -354,16 +375,24 @@ fn host_with_budget(kernels: PlayerKernels, budget: u64) -> OffscreenHost {
 }
 
 fn host_over(gpu: Gpu, kernels: PlayerKernels) -> OffscreenHost {
+    host_around(gpu, kernels, adapter())
+}
+
+fn adapter() -> OffscreenAdapter {
+    OffscreenAdapter::with_supply(
+        Shaders,
+        Settings {
+            light_modes: vec!["Alpha".to_owned()],
+            ..Settings::default()
+        },
+    )
+}
+
+fn host_around(gpu: Gpu, kernels: PlayerKernels, adapter: OffscreenAdapter) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
-        OffscreenAdapter::with_supply(
-            Shaders,
-            Settings {
-                light_modes: vec!["Alpha".to_owned()],
-                ..Settings::default()
-            },
-        ),
+        adapter,
         ComputeAdapter::new(kernels),
     )
 }
@@ -371,6 +400,15 @@ fn host_over(gpu: Gpu, kernels: PlayerKernels) -> OffscreenHost {
 fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(PlayerKernels::new(directory.path()));
+    flush_in(&mut host, world, drawn, meshes)
+}
+
+/// As `flush`, on a host that has registered the white and the black default textures but not the
+/// grey, so a texture no layer names and the shader does not declare has nothing to read.
+fn flush_without_grey(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
+    let directory = tempfile::tempdir().unwrap();
+    let adapter = adapter().with_default_textures(&[DefaultTexture::White, DefaultTexture::Black]);
+    let mut host = host_around(gpu(), PlayerKernels::new(directory.path()), adapter);
     flush_in(&mut host, world, drawn, meshes)
 }
 
@@ -531,6 +569,67 @@ fn pass_minus_1_draws_the_passes_in_order_and_the_second_blends_over_the_first()
 
         assert_eq!(run.columns(), expected, "pass {pass}");
     }
+}
+
+/// The color channels of every column of the target, which the blend order of a pass of
+/// partial alpha makes depend on how many times the sub-mesh was drawn.
+fn colors_of(run: &Run) -> Vec<[u8; 3]> {
+    run.columns()
+        .into_iter()
+        .map(|texel| [texel[0], texel[1], texel[2]])
+        .collect()
+}
+
+#[test]
+fn a_draw_of_several_instances_draws_the_sub_mesh_that_many_times() {
+    let tint = [1.0, 0.0, 0.0, 1.0];
+    // Pass 1 blends 0.4 of blue over what the target holds, so every instance moves the texels
+    // it covers from green toward blue: each step keeps 0.6 of the green and adds 0.4 of blue,
+    // as the 8-bit target stores them (green 153, 92, 55; blue 102, 163, 200).
+    let over = [0.0, 0.0, 1.0, 0.4];
+    let meshes = stored([(MESH, left_half())]);
+    for (instances, covered) in [(0, [0, 255, 0]), (1, [0, 153, 102]), (3, [0, 55, 200])] {
+        let (mut world, drawn) = scene();
+        identity_view(&mut world);
+        let layers = material(&mut world, "layers", tint, over);
+        draw_instances(&mut world, (MESH, Mat4::IDENTITY), layers, instances);
+
+        let run = flush(&mut world, drawn, &meshes);
+
+        assert_eq!(
+            colors_of(&run),
+            [covered, covered, [0, 255, 0], [0, 255, 0]],
+            "{instances} instances"
+        );
+        assert!(run.outcome.report.failures.is_empty());
+    }
+}
+
+#[test]
+fn a_draw_of_no_instances_draws_nothing_and_leaves_the_draws_after_it_in_place() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let red = flat(&mut world, [1.0, 0.0, 0.0, 1.0]);
+    let layers = material(
+        &mut world,
+        "layers",
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 0.4],
+    );
+    // The draw of no instances covers the left half, and the flat draw after it the right half.
+    draw_instances(&mut world, (MESH, Mat4::IDENTITY), layers, 0);
+    draw_mesh(
+        &mut world,
+        (MESH, Mat4::from_translation(Vec3::X)),
+        red,
+        (0, 0),
+    );
+
+    let run = flush(&mut world, drawn, &stored([(MESH, left_half())]));
+
+    assert_eq!(run.columns(), [GREEN, GREEN, RED, RED]);
+    assert!(run.outcome.report.failures.is_empty());
+    assert!(run.outcome.report.skipped.is_empty());
 }
 
 #[test]

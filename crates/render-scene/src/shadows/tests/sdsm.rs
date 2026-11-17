@@ -1,3 +1,4 @@
+mod depth_reuse;
 mod gaps;
 mod history;
 mod ssr;

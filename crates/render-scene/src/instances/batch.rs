@@ -3,6 +3,9 @@ use std::ops::Range;
 
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+
+use super::skin_stream::SkinStream;
 use super::slot_bounds::SlotBounds;
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
 
@@ -15,14 +18,16 @@ pub(crate) struct InstanceBatch {
     uploaded: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
     buffer_valid: std::rc::Rc<std::cell::Cell<bool>>,
     encoded: Option<worldrunner_render_gpu::submission::Publications>,
-    pub buffer: Option<wgpu::Buffer>,
+    pub buffer: Option<Tracked<wgpu::Buffer>>,
     /// Slots added since the last published frame; their previous transform is their current one.
     fresh: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
     /// Slots whose previous transform differed from their current one in the last published
     /// frame. They are copied once more so an untouched slot converges to previous == current.
     stale: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
     /// The previous-frame transform of every slot, same layout as `buffer`; velocity draws only.
-    pub previous: Option<wgpu::Buffer>,
+    pub previous: Option<Tracked<wgpu::Buffer>>,
+    /// The per-slot skin descriptors, present when the batch's mesh has a skinned level.
+    pub skin: Option<SkinStream>,
     /// View-independent world bounds per slot, filled during selection.
     pub bounds: std::cell::RefCell<SlotBounds>,
     /// Counts placement edits, so a cached view selection can tell that it is stale.
@@ -34,6 +39,38 @@ pub(crate) struct InstanceBatch {
 }
 
 impl InstanceBatch {
+    /// A batch of a skinned mesh, which keeps a skin descriptor for each slot.
+    pub fn skinned() -> Self {
+        Self {
+            skin: Some(SkinStream::default()),
+            ..Self::default()
+        }
+    }
+
+    /// Stores the skin descriptor of `position` and marks the slot for upload.
+    ///
+    /// A pose change leaves the 80-byte placement unchanged, so the slot is dirty through its
+    /// descriptor alone.
+    pub fn set_skin(&mut self, position: usize, descriptor: [u32; 4]) {
+        let stream = self
+            .skin
+            .as_mut()
+            .expect("a skinned batch has a skin stream");
+        stream.set(position, descriptor);
+        self.edits += 1;
+        self.dirty.insert(position);
+    }
+
+    /// Whether the slot's placement or skin descriptor differs from the last published bytes.
+    fn slot_pending(&self, position: usize) -> bool {
+        let range = position * STRIDE..(position + 1) * STRIDE;
+        self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
+            || self
+                .skin
+                .as_ref()
+                .is_some_and(|stream| stream.differs(position))
+    }
+
     /// Reuse new-slot initialization to upload current transforms as previous ones.
     /// Fresh markers are consumed only by submission, so abandonment keeps the reset.
     pub fn reset_velocity_history(&mut self) {
@@ -123,6 +160,11 @@ impl InstanceBatch {
             .filter_map(|(slot, value)| value.map(|(object, visible)| (slot, object, visible)))
     }
 
+    /// Every allocated slot; removed ones are `None`.
+    pub fn slots(&self) -> &[Option<(SceneObject, bool)>] {
+        &self.placements
+    }
+
     pub fn has_pending(&self) -> bool {
         if worldrunner_render_gpu::submission::Publications::current().is_some_and(|current| {
             self.encoded
@@ -133,10 +175,10 @@ impl InstanceBatch {
         }
         !self.buffer_valid.get()
             || (self.previous.is_some() && self.live_stale().next().is_some())
-            || self.dirty.iter().any(|position| {
-                let range = position * STRIDE..(position + 1) * STRIDE;
-                self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
-            })
+            || self
+                .dirty
+                .iter()
+                .any(|position| self.slot_pending(*position))
     }
 
     fn live_stale(&self) -> impl Iterator<Item = usize> + '_ {
@@ -166,24 +208,22 @@ impl InstanceBatch {
     /// prepares, and a forgotten slot becomes pending again only through `pack`, which marks it
     /// dirty. Without this the set keeps every slot ever written, and each draw pass rescans it.
     fn prune_published(&mut self) {
-        let Self {
-            dirty,
-            uploaded,
-            bytes,
-            ..
-        } = self;
-        let uploaded = uploaded.borrow();
-        dirty.retain(|position| {
-            let range = position * STRIDE..(position + 1) * STRIDE;
-            uploaded.get(range.clone()) != Some(&bytes[range])
-        });
+        let pending: BTreeSet<usize> = self
+            .dirty
+            .iter()
+            .copied()
+            .filter(|position| self.slot_pending(*position))
+            .collect();
+        self.dirty = pending;
     }
 
     pub fn pending_ranges(&self) -> Vec<Range<u32>> {
-        ranges(self.dirty.iter().copied().filter(|position| {
-            let range = position * STRIDE..(position + 1) * STRIDE;
-            self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
-        }))
+        ranges(
+            self.dirty
+                .iter()
+                .copied()
+                .filter(|position| self.slot_pending(*position)),
+        )
     }
 
     #[cfg(test)]
@@ -198,6 +238,9 @@ impl InstanceBatch {
         for range in ranges {
             let bytes = byte_range(range);
             uploaded[bytes.clone()].copy_from_slice(&self.bytes[bytes]);
+        }
+        if let Some(stream) = &self.skin {
+            *stream.uploaded.borrow_mut() = stream.bytes.clone();
         }
         self.dirty.clear();
         self.buffer_valid.set(true);
@@ -225,6 +268,7 @@ fn ranges(positions: impl Iterator<Item = usize>) -> Vec<Range<u32>> {
 pub(crate) fn flush_prepared(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
+    census: &MemoryCensus,
     track_previous: bool,
 ) -> Vec<Range<u32>> {
     batch.prune_published();
@@ -233,7 +277,7 @@ pub(crate) fn flush_prepared(
     if batch.bytes.is_empty() {
         return ranges;
     }
-    grow(batch, context, track_previous);
+    grow(batch, context, census, track_previous);
     let full = !batch.buffer_valid.get();
     if full {
         ranges =
@@ -251,16 +295,20 @@ pub(crate) fn flush_prepared(
     batch.content += 1;
     // Previous transforms are staged first: the encoder runs copies in staging order and the
     // previous buffer is a separate resource, so it can never observe this frame's bytes.
-    if let Some(buffer) = batch.previous.as_ref().filter(|_| track_previous) {
+    if let Some(buffer) = batch.previous.as_deref().filter(|_| track_previous) {
         for (start, bytes) in &previous.uploads {
             context.upload_buffer(buffer, *start, bytes);
         }
     }
-    let buffer = batch.buffer.as_ref().expect("allocated instance buffer");
+    let buffer = batch.buffer.as_deref().expect("allocated instance buffer");
     for range in &ranges {
         let bytes = byte_range(range);
         context.upload_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
     }
+    let skin_published = batch
+        .skin
+        .as_ref()
+        .map(|stream| stream.stage(context, &ranges));
     let uploaded = batch.uploaded.clone();
     let valid = batch.buffer_valid.clone();
     let bytes = batch.bytes.clone();
@@ -268,6 +316,9 @@ pub(crate) fn flush_prepared(
     let included = batch.fresh.borrow().clone();
     crate::compositor::publication::stage(context, &uploaded.clone(), move || {
         *uploaded.borrow_mut() = bytes;
+        if let Some((uploaded, bytes)) = skin_published {
+            *uploaded.borrow_mut() = bytes;
+        }
         valid.set(true);
         fresh.borrow_mut().retain(|slot| !included.contains(slot));
         if track_previous {
@@ -336,14 +387,18 @@ fn ranges_of(positions: impl Iterator<Item = usize>) -> Vec<Range<usize>> {
 fn grow(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
+    census: &MemoryCensus,
     track_previous: bool,
 ) {
     let device = context.device().clone();
     let size = batch.bytes.len() as u64;
-    let fits = |buffer: &Option<wgpu::Buffer>| buffer.as_ref().is_some_and(|b| b.size() >= size);
+    let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
+        buffer.as_deref().is_some_and(|b| b.size() >= size)
+    };
     let current_fits = fits(&batch.buffer);
     let previous_fits = !track_previous || fits(&batch.previous);
-    if current_fits && previous_fits {
+    let skin_fits = batch.skin.as_ref().is_none_or(SkinStream::fits);
+    if current_fits && previous_fits && skin_fits {
         return;
     }
     let capacity = size
@@ -353,29 +408,45 @@ fn grow(
         capacity <= device.limits().max_buffer_size,
         "instance buffer exceeds device limit"
     );
-    let create = |label| {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: capacity,
-            usage: wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        })
+    let create = |label, capacity| {
+        census.create_buffer(
+            &device,
+            ResourceClass::Instance,
+            &wgpu::BufferDescriptor {
+                label: Some(label),
+                size: capacity,
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            },
+        )
     };
     if !current_fits {
-        let buffer = create("retained instances");
-        if let Some(old) = &batch.buffer {
+        let buffer = create("retained instances", capacity);
+        if let Some(old) = batch.buffer.as_deref() {
             context.copy_buffer(old, &buffer, old.size());
         }
         batch.buffer = Some(buffer);
     }
     // A new previous buffer is rewritten in full, so it needs no copy of the old contents.
     if !previous_fits {
-        batch.previous = Some(create("retained previous instances"));
+        batch.previous = Some(create("retained previous instances", capacity));
+    }
+    // The skin stream holds a fifth of the instance bytes per slot, and is rewritten in full
+    // with the instance buffer, so a replacement needs no copy either.
+    if let Some(stream) = batch.skin.as_mut().filter(|stream| !stream.fits()) {
+        stream.buffer = Some(create("retained skin instances", skin_capacity(capacity)));
     }
     batch.buffer_valid.set(false);
     batch.content += 1;
+}
+
+/// Bytes of a skin stream buffer beside an instance buffer of `instance_capacity` bytes: the same
+/// slot count at 16 bytes a slot instead of 80, rounded down to the copy alignment.
+fn skin_capacity(instance_capacity: u64) -> u64 {
+    let slots = instance_capacity / STRIDE as u64;
+    (slots * crate::skinning::SKIN_INSTANCE_BYTES as u64).max(wgpu::COPY_BUFFER_ALIGNMENT)
 }
 
 #[cfg(test)]

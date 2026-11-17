@@ -123,6 +123,16 @@ impl Renderer {
         self.presentation.scheduler.budget().0
     }
 
+    /// Resident GPU bytes the device's census counts, by resource class.
+    pub(crate) fn resident_bytes(&self) -> worldrunner_render_gpu::census::CensusSnapshot {
+        self.context.submission().census().snapshot()
+    }
+
+    /// Counters of the device's reusable upload staging.
+    pub(crate) fn upload_staging(&self) -> worldrunner_render_gpu::submission::StagingStatistics {
+        self.context.submission().upload_staging()
+    }
+
     /// The frame's statistics, consuming its uploads and those of residents it replaced.
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
         let carried = std::mem::take(&mut self.streaming.carried);
@@ -178,7 +188,10 @@ pub(super) fn configure_effects(
     settings.post.native_rcas = native_rcas;
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
+    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
+    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
     settings.water = effects.water_bodies().to_vec();
+    settings.opaque_path = effects.opaque_path();
     if let Some((exposure, _)) = &mut settings.hdr {
         *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     }

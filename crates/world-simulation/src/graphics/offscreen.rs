@@ -2,8 +2,8 @@
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
-    ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
-    ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
+    CameraBuffers, ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue,
+    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -20,19 +20,21 @@ pub enum OffscreenWork {
         target: RenderTextureId,
     },
     /// A full-surface draw of `source` into `target` with a material pass; without a material
-    /// the draw copies. A pass of -1 draws every pass.
+    /// the draw copies. A pass of -1 draws every pass. The target is a render texture or a
+    /// temporary one; a source that is the target reads it as it was before the blit.
     Blit {
         source: TextureRef,
-        target: RenderTextureId,
+        target: TargetRef,
         material: Option<MaterialId>,
         pass: i32,
     },
-    /// A copy of one element and mip level of a texture into one of a render texture.
+    /// A copy of one element and mip level of a texture into one of a render texture or a
+    /// temporary one.
     CopyTexture {
         source: TextureRef,
         source_element: u32,
         source_mip: u32,
-        target: RenderTextureId,
+        target: TargetRef,
         target_element: u32,
         target_mip: u32,
     },
@@ -81,11 +83,17 @@ pub enum OffscreenWork {
     /// Draws after this record use the camera's view and projection (column-major, as the world
     /// holds them) and go to `target`, as the script's setup of the camera properties asked. The
     /// camera supplies the viewport and clear settings when the host executes the record.
+    ///
+    /// `buffers` are the camera's target buffers as the script set them when it made the call,
+    /// which the target is [`TargetRef::CameraTarget`] for: the camera's own target then is these
+    /// color textures and this depth texture, and the record does not depend on what the camera's
+    /// buffers are when the host executes it.
     SetupCamera {
         camera: ComponentHandle,
         view: [f32; 16],
         projection: [f32; 16],
         target: TargetRef,
+        buffers: Option<CameraBuffers>,
     },
     /// A culling of the world's renderers for a camera. `id` names the result for later records of
     /// the frame (see [`World::record_offscreen`]); the host culls with the camera's `culling_mask`
@@ -123,6 +131,11 @@ pub enum OffscreenWork {
         view: [f32; 16],
         projection: [f32; 16],
     },
+    /// The rectangle, in pixels of the bound targets, that the draws after this record cover:
+    /// `rect` is x, y, width and height from the bottom left texel. A target setting or a camera
+    /// setup resets it to the whole target. The world checks that every component is finite and
+    /// the width and height are not negative.
+    SetViewport { rect: [f32; 4] },
     /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
     /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
     /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every
@@ -130,6 +143,8 @@ pub enum OffscreenWork {
     /// that the identity is nonzero and leaves an identity nothing stored to the host. `block` is
     /// the draw's own property block, read between its per-draw values and the material, as a
     /// renderer's block is; the world checks that the render textures it names are alive.
+    /// `instances` is how many instances the draw makes (1 for a plain draw). Zero is a draw of
+    /// nothing that keeps its place among the records, as a procedural draw of a zero count does.
     DrawMesh {
         mesh: u64,
         matrix: [f32; 16],
@@ -137,6 +152,7 @@ pub enum OffscreenWork {
         submesh: u32,
         pass: i32,
         block: Option<Box<ShaderProperties>>,
+        instances: u32,
     },
     /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
     /// (column-major) and the material's pass into the bound targets, with the current view and
@@ -171,7 +187,7 @@ impl OffscreenWork {
         match self {
             Self::CameraRender { target, .. } => *target == id,
             Self::Blit { source, target, .. } | Self::CopyTexture { source, target, .. } => {
-                *target == id || texture(source)
+                *target == TargetRef::Render(id) || texture(source)
             }
             Self::Dispatch { bindings, .. } => bindings
                 .properties
@@ -188,7 +204,11 @@ impl OffscreenWork {
                 color.iter().any(target) || depth.as_ref().is_some_and(target)
             }
             Self::SetGlobal(PropertyValue::Texture(_, slot)) => texture(&slot.texture),
-            Self::SetupCamera { target: named, .. } => target(named),
+            Self::SetupCamera {
+                target: named,
+                buffers,
+                ..
+            } => target(named) || buffers.is_some_and(|buffers| buffers.names(id)),
             Self::ReadPixels { texture, .. } => *texture == id,
             _ => false,
         }
@@ -253,8 +273,8 @@ impl World {
                 material,
                 pass,
             } => {
-                self.check_texture(source)?;
-                self.render_texture(*target)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, 0)?;
                 if let Some(material) = material {
                     self.material(*material)?;
                 }
@@ -270,11 +290,14 @@ impl World {
                 target_mip,
                 ..
             } => {
-                self.check_texture(source)?;
-                self.check_mip(*target, *target_mip)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, *target_mip)?;
                 match source {
                     TextureRef::Render(id) => self.check_mip(*id, *source_mip),
-                    TextureRef::Asset(_) | TextureRef::None | TextureRef::Global(_) => Ok(()),
+                    TextureRef::Asset(_)
+                    | TextureRef::None
+                    | TextureRef::Global(_)
+                    | TextureRef::Temporary(_) => Ok(()),
                 }
             }
             OffscreenWork::Dispatch {
@@ -307,6 +330,18 @@ impl World {
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),
+        }
+    }
+
+    /// Checks the target of a blit or a copy: a live render texture that has the mip level, or a
+    /// temporary under any name id, which the host resolves when it reaches the record.
+    fn check_work_target(&self, target: &TargetRef, mip: u32) -> Result<(), WorldError> {
+        match target {
+            TargetRef::Render(id) => self.check_mip(*id, mip),
+            TargetRef::Temporary(_) => Ok(()),
+            TargetRef::CameraTarget | TargetRef::None => {
+                Err(GraphicsError::InvalidOffscreen.into())
+            }
         }
     }
 

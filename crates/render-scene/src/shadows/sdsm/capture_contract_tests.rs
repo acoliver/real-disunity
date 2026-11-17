@@ -2,6 +2,28 @@ use super::*;
 use worldrunner_render_gpu::submission::capture::{WriteError, WriteKey};
 
 #[test]
+fn visible_instance_history_is_a_suffix_only_cpu_write() {
+    let resource = WriteKey::Resident(1);
+    let history = WriteKey::Resident(2);
+    let depth = WriteKey::Resource {
+        id: 3,
+        generation: 0,
+    };
+    let reduction = WriteKey::Readback(4);
+    let writes = capture_writes(
+        vec![resource],
+        vec![resource, history, depth],
+        vec![],
+        depth,
+        reduction,
+    )
+    .unwrap();
+    assert!(!writes.prefix_keys().any(|key| key == history));
+    assert!(writes.suffix_keys().any(|key| key == history));
+    CaptureWrites::new(writes.prefix_keys(), writes.suffix_keys(), [resource]).unwrap();
+}
+
+#[test]
 fn aliased_metadata_depth_remains_owned_by_the_capture_suffix() {
     let scene = WriteKey::Resident(1);
     let depth = WriteKey::Resource {

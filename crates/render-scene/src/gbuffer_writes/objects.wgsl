@@ -2,7 +2,7 @@
 // instead of lit. Flag bit 0 selects the scattering model (board 112 post 2768): G2.y then holds
 // the per-pixel scattering amount and metal is 0. The material's constant scattering shape and
 // colour and its translucency reach the lighting pass through the material's lighting record,
-// whose index the G-buffer stores in G1.a. Impostor cards (SCENE_IMPOSTOR) store
+// whose index every object stores in G1.a. Impostor cards (SCENE_IMPOSTOR) store
 // scene_card_gbuffer_material, which gbuffer_writes derives from the frozen scene_card_shade.
 struct SceneGbufferReliefTargets {
     @location(0) g0: vec4<f32>,

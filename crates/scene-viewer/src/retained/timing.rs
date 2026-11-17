@@ -1,5 +1,5 @@
 //! Nonblocking observation of the latest completed GPU timestamp frame.
-pub use worldrunner_render_post::{FrameTiming, PassId, PassSlot, PassTiming, StageId};
+pub use worldrunner_render_post::{FrameTiming, PassEntry, PassId, PassSlot, PassTiming, StageId};
 
 /// A timing request never prevents rendering on an unsupported adapter.
 #[derive(Clone, Debug, PartialEq)]

@@ -157,11 +157,11 @@ impl FrameRenderer {
                 encoder,
                 self.frame_slot,
                 camera.unwrap_or(TemporalCamera::NONE),
-            );
+            )?;
             return factory.prepare_temporal(encoder, self.frame_slot, &block);
         }
         if self.taa_resident() {
-            factory.prepare_taa(encoder, self.frame_slot, self.taa_block().as_ref());
+            factory.prepare_taa(encoder, self.frame_slot, self.taa_block().as_ref())?;
         }
         Ok(())
     }

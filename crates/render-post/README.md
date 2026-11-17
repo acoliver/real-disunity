@@ -94,6 +94,20 @@ be finite and within 0..=10 seconds; invalid preparation returns
 capture delta overrides even invalid host timing. Clearing an installed policy
 with empty settings removes all effects and restores the fixed schedule.
 
+The four per-frame uploads of the effects share one rule: `prepare_effects` (the 16-byte
+exposure step), `prepare_taa` (the 96-byte `TaaUniform`; `None` uploads zeros),
+`prepare_temporal` (the 48-byte `TemporalBlock`) and `prepare_temporal_camera` (the 80-byte
+`TemporalCamera`). Each copies its bytes into the reusable upload staging of the
+`SubmissionAuthority` frame that `encoder` records and records the copy into the slot's buffer
+at once, so the values are final when the call returns and a cancelled or dropped frame gives its
+staging back unread. Call them inside `SubmissionAuthority::prepare`, or on the frame `begin`
+returns, with that frame's encoder. Outside a frame they return
+`PostError::Frame(FrameError::Transaction(TransactionError::Missing))`; with any other encoder,
+`ForeignEncoder`. Neither stages anything. Invalid values (`PostError::FrameDelta` for the
+exposure delta, `PostError::UnsupportedProfile` for a `TemporalBlock`) fail before anything is
+staged. A factory without effects has nothing to upload to, so those calls need no frame and
+return `Ok`; `prepare_effects` still validates the delta.
+
 Bloom prefilters unexposed radiance with a quadratic soft knee, downsamples
 with a normalized nine-tap binomial kernel, and upsamples with the same
 separable 3x3 tent. Each upsample averages its local and coarser levels,
@@ -487,7 +501,7 @@ after it read that history and there is no per-slot output texture. The bank hol
 alternates them (see "History without a copy" below). Three compute
 stages at the render extent (`taa_reconstruct.wgsl`, scheduled by `taa_reconstruct_gpu::append`) run
 ahead of it, listed below. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
-`history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal`; there is no all-zero
+`history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal` (inside a frame, see above); there is no all-zero
 block, a reset is a real block with `history_valid: false`. Metering, bloom, Gaussian, CAS, tone
 mapping and RCAS use the colour extent of the chain (`Scene::extent`, the output extent here), and
 `UpscaleSettings::sharpness` becomes a display-linear RCAS after the stage. The history bank is

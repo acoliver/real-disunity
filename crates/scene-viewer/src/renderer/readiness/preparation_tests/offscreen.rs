@@ -71,7 +71,8 @@ fn assert_preparation_pending(
     capture_frame: u64,
 ) {
     assert!(matches!(renderer.render_retained(host), Ok(false)));
-    assert_eq!(renderer.context.submission().submitted_serial(), serial + 1);
+    // The new resident flushes its instances, then preparation uploads one terrain batch.
+    assert_eq!(renderer.context.submission().submitted_serial(), serial + 2);
     assert_eq!(host.accepted_generation(), 2);
     assert_eq!(host.readiness.published, 0);
     assert_eq!(host.readiness.queue.front().unwrap().generation, 1);

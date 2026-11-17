@@ -185,7 +185,7 @@ impl Renderer {
         let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;
         if waits_pages || waits_geometry {
             self.prepare_camera_history(host);
-            let submitted = self.warm_recipe_pages(&view, ready)?;
+            let submitted = self.warm_recipe_pages(host, &view, ready)?;
             if submitted {
                 self.submitted_camera_history(host);
             }
@@ -218,7 +218,8 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, (None, None), &output, Some(&mut image))?;
+        let offscreen = host.offscreen.take();
+        let prepared = self.encode_frame(view, (None, offscreen), &output, Some(&mut image))?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
         self.submitted_camera_history(host);
         let temporal_history_reset = self.temporal_history_reset();
@@ -247,6 +248,7 @@ impl Renderer {
     }
     fn warm_recipe_pages(
         &mut self,
+        host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
     ) -> Result<bool, ViewerError> {
@@ -258,7 +260,8 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, (None, None), &output, None)?;
+        let offscreen = host.offscreen.take();
+        let prepared = self.encode_frame(view, (None, offscreen), &output, None)?;
         self.execution.submit_capture(ready, prepared)?;
         self.streaming.captures.advance_frame();
         Ok(true)

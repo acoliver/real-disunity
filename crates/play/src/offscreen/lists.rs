@@ -131,7 +131,7 @@ impl<'a> Mapper<'a> {
             .get(cull)
             .cloned()
             .ok_or(Skip::UnknownList)?;
-        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
@@ -344,6 +344,7 @@ impl<'a> Mapper<'a> {
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
+                    instances: 1,
                 }
             })
             .collect()

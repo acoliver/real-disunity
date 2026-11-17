@@ -1,7 +1,7 @@
 //! The offscreen work a frame records: validation, call order and draining.
 use worldrunner_world_simulation::graphics::{
-    GraphicsError, MaterialId, OffscreenWork, RenderTextureId, TextureRef, WorldRenderTexture,
-    WorldSampler, WorldShader,
+    GraphicsError, MaterialId, OffscreenWork, RenderTextureId, TargetRef, TextureRef,
+    WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -55,7 +55,7 @@ fn graphics_error(result: Result<(), WorldError>) -> GraphicsError {
 fn blit(source: TextureRef, target: RenderTextureId) -> OffscreenWork {
     OffscreenWork::Blit {
         source,
-        target,
+        target: TargetRef::Render(target),
         material: None,
         pass: -1,
     }
@@ -72,7 +72,7 @@ fn records_come_back_in_call_order_and_then_the_list_is_empty() {
         OffscreenWork::CameraRender { camera, target: a },
         OffscreenWork::Blit {
             source: TextureRef::Render(a),
-            target: b,
+            target: TargetRef::Render(b),
             material: Some(material),
             pass: 2,
         },
@@ -80,7 +80,7 @@ fn records_come_back_in_call_order_and_then_the_list_is_empty() {
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: a,
+            target: TargetRef::Render(a),
             target_element: 0,
             target_mip: 0,
         },
@@ -143,7 +143,7 @@ fn work_that_names_a_destroyed_render_texture_or_material_is_refused() {
         (
             OffscreenWork::Blit {
                 source: TextureRef::None,
-                target: live,
+                target: TargetRef::Render(live),
                 material: Some(material),
                 pass: 0,
             },
@@ -163,7 +163,7 @@ fn a_blit_pass_is_minus_one_for_all_passes_or_an_index() {
     for pass in [-1, 0, 7] {
         let record = OffscreenWork::Blit {
             source: TextureRef::None,
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass,
         };
@@ -171,7 +171,7 @@ fn a_blit_pass_is_minus_one_for_all_passes_or_an_index() {
     }
     let rejected = world.record_offscreen(OffscreenWork::Blit {
         source: TextureRef::None,
-        target,
+        target: TargetRef::Render(target),
         material: None,
         pass: -2,
     });
@@ -189,7 +189,7 @@ fn copy(
         source,
         source_element: 0,
         source_mip,
-        target,
+        target: TargetRef::Render(target),
         target_element: 0,
         target_mip,
     }

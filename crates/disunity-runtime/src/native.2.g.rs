@@ -177,6 +177,7 @@ pub struct DisunityOffscreenWork {
     pub kind: u32,
     pub camera: u64,
     pub target: u64,
+    pub target_kind: u32,
     pub source_kind: u32,
     pub source: u64,
     pub material: u64,

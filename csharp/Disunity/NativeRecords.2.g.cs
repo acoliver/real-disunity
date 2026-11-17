@@ -410,7 +410,10 @@ namespace Disunity.Native
     ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
     ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
     ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
-    ///  does (0 none, 1 asset, 2 render texture); a blit draws with `material` (0 for none) and
+    ///  does (0 none, 1 asset, 2 render texture, 4 temporary render texture), and write the target
+    ///  that `target_kind` names: 0 for the render texture `target`, 1 for the temporary render
+    ///  texture whose property name id is the low 32 bits of `target`. A camera render ignores
+    ///  `target_kind`. A blit draws with `material` (0 for none) and
     ///  `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
     ///  `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
     ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
@@ -426,6 +429,7 @@ namespace Disunity.Native
         public uint kind;
         public ulong camera;
         public ulong target;
+        public uint target_kind;
         public uint source_kind;
         public ulong source;
         public ulong material;
@@ -444,8 +448,8 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
-    ///  by the identity the host knows it by (a player texture identity) and 2 for a world render
-    ///  texture by its id.
+    ///  by the identity the host knows it by (a player texture identity), 2 for a world render
+    ///  texture by its id and 4 for a temporary render texture by its property name id.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureSlot

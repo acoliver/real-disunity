@@ -88,6 +88,9 @@ fn every_context_record(camera: ComponentHandle, id: RenderTextureId) -> Vec<Off
         setup(camera, TargetRef::Render(id)),
         cull(1, camera, planes(6)),
         cull(2, camera, Vec::new()),
+        OffscreenWork::SetViewport {
+            rect: [-1.5, 2.0, 640.0, 0.25],
+        },
     ]
 }
 
@@ -177,8 +180,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_ten_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 10);
+fn the_wire_version_is_thirteen_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 13);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);

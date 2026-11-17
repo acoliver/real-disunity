@@ -5,7 +5,7 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
 };
 use worldrunner_world_simulation::graphics::{
     GraphicsError, GraphicsSnapshot, MAX_PENDING_READBACKS, OffscreenWork, RenderTextureId,
-    TextureRef, WorldRenderTexture, WorldSampler,
+    TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::{LimitKind, TimeSpan, World, WorldError, WorldSettings};
 
@@ -51,7 +51,7 @@ fn a_request_is_recorded_after_the_blit_before_it_and_before_the_work_after_it()
     let b = render_texture(&mut world, 8, 4);
     let blit = |target| OffscreenWork::Blit {
         source: TextureRef::None,
-        target,
+        target: TargetRef::Render(target),
         material: None,
         pass: -1,
     };

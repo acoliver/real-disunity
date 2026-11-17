@@ -105,6 +105,10 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
     }
 
+    /// <summary>Records the rectangle in pixels of the bound targets that the draws after it cover.</summary>
+    internal static void RecordSetViewport(Rect pixelRect) =>
+        Check(NativeBindings.disunity_offscreen_set_viewport(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
+
     /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
     /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
     /// of the block reaches a later draw.</summary>
@@ -123,14 +127,15 @@ internal static unsafe partial class WorldGraphics
     /// <summary>Records a request to fill mip levels 1 and up of a render texture from its level 0.</summary>
     internal static void RecordGenerateMips(ulong texture) => Check(NativeBindings.disunity_offscreen_generate_mips(World, texture));
 
-    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
-    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
+    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it, and
+    /// <paramref name="instances"/> instances of the sub-mesh; none is a draw of nothing that keeps its place.</summary>
+    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, (int Submesh, int Pass) draw, uint instances)
     {
         var columns = stackalloc float[16];
         for (var column = 0; column < 4; column++)
             for (var row = 0; row < 4; row++)
                 columns[column * 4 + row] = matrix[row, column];
-        Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+        Check(NativeBindings.disunity_offscreen_draw_mesh_instanced(World, mesh, columns, material, (uint)draw.Submesh, draw.Pass, instances));
     }
 
     /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a

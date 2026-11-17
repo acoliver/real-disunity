@@ -1,6 +1,6 @@
 //! A render texture's two ways of getting its mips through the ABI: the `auto_generate_mips`
 //! flag of its description, and the generate-mips call that records a script's request. The call
-//! forwards one record, a take hands it back with kind 18 and the bytes that carry it, and the
+//! forwards one record, a take hands it back with kind 19 and the bytes that carry it, and the
 //! graphics snapshot carries both the flag and the record to the host.
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
@@ -67,7 +67,7 @@ fn the_flag_round_trips_through_the_description() {
 }
 
 #[test]
-fn the_call_reaches_the_frame_as_one_record_of_kind_eighteen() {
+fn the_call_reaches_the_frame_as_one_record_of_kind_nineteen() {
     let world = new_world();
     let id = render_texture(world, 4, 0);
     assert_eq!(disunity_offscreen_generate_mips(world, id).code, 0);
@@ -81,7 +81,7 @@ fn the_call_reaches_the_frame_as_one_record_of_kind_eighteen() {
     }
     assert_eq!(count, 1);
     assert_eq!(record[0].kind, KIND_GENERATE_MIPS);
-    assert_eq!(KIND_GENERATE_MIPS, 18);
+    assert_eq!(KIND_GENERATE_MIPS, 19);
     let (mut length, mut bytes) = (0, [0_u8; 64]);
     unsafe {
         assert_eq!(

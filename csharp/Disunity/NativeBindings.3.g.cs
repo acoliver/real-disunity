@@ -17,6 +17,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
         /// <summary>
+        ///  Binds the compute buffer `buffer` to the property `name` of a material as a structured
+        ///  buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
+        ///  that is not alive is refused and the material is unchanged. Draws of the material read the
+        ///  buffer's contents when the host draws.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_buffer", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_buffer(ulong world, ulong material, byte* name, uint length, ulong buffer);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one record.
         /// </summary>
@@ -196,6 +207,12 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
         /// <summary>
+        ///  Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+        ///  it cover. A value that is not finite and a negative width or height are refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_viewport", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_viewport(ulong world, float x, float y, float width, float height);
+        /// <summary>
         ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
         ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
         ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
@@ -208,6 +225,15 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
+        /// <summary>
+        ///  Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+        ///  sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh_instanced", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh_instanced(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass, uint instances);
         /// <summary>
         ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
         ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound

@@ -14,16 +14,17 @@ use std::sync::Arc;
 
 use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, RendererListDesc, TargetRef,
-    WorldRenderTexture,
+    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc,
+    TargetRef, TextureRef, WorldRenderTexture,
 };
 
+use super::assets::sampler_of_world;
 use super::frame::{Mapper, RendererSkip, Skip};
 use super::ids;
 use super::properties::set_value;
@@ -52,7 +53,7 @@ impl Temporaries {
         self.live.remove(&name_id).is_some()
     }
 
-    fn resolve(&self, name_id: i32) -> Option<TextureId> {
+    pub(super) fn resolve(&self, name_id: i32) -> Option<TextureId> {
         self.live.get(&name_id).copied()
     }
 }
@@ -89,6 +90,13 @@ struct TargetSet {
     depth: Option<TextureId>,
 }
 
+/// Whether a viewport of `rect` (x, y, width, height in pixels) covers a target of `size`.
+fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
+    let [x, y, width, height] = rect.map(f64::from);
+    let [target_width, target_height] = size.map(f64::from);
+    x <= 0.0 && y <= 0.0 && x + width >= target_width && y + height >= target_height
+}
+
 /// The global values and keywords as the commands left them, and whether a record has yet to
 /// carry the change.
 struct Globals {
@@ -101,6 +109,10 @@ struct Globals {
 pub(super) struct Script {
     /// What the draws after a `SetRenderTarget` go to.
     pub(super) target: Option<Attachments>,
+    /// The rectangle in pixels (x, y, width, height) the draws after a `SetViewport` cover on every
+    /// attachment of the bound set, until a target or a camera setup binds targets again. `None` is
+    /// the whole target.
+    viewport: Option<[f32; 4]>,
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
@@ -119,6 +131,7 @@ impl Script {
     pub(super) fn new(globals: PropertyLayer, keywords: &[String]) -> Self {
         Self {
             target: None,
+            viewport: None,
             camera: None,
             globals: Globals {
                 layer: globals,
@@ -153,6 +166,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
+        OffscreenWork::SetViewport { .. } => "SetViewport",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
@@ -171,7 +185,8 @@ impl Mapper<'_> {
             | OffscreenWork::SetupCamera { .. }
             | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
-            | OffscreenWork::SetViewProjection { .. } => {
+            | OffscreenWork::SetViewProjection { .. }
+            | OffscreenWork::SetViewport { .. } => {
                 self.set_state(work)?;
                 Ok(Vec::new())
             }
@@ -195,11 +210,12 @@ impl Mapper<'_> {
                 submesh,
                 pass,
                 block,
+                instances,
             } => self.draw_mesh(
                 (*mesh, *submesh),
                 matrix,
                 (*material, *pass),
-                block.as_deref(),
+                (block.as_deref(), *instances),
             ),
             OffscreenWork::DrawProcedural {
                 matrix,
@@ -236,8 +252,14 @@ impl Mapper<'_> {
                 slice,
             } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
             OffscreenWork::SetGlobal(value) => {
+                let temporary = self.temporary_global(value)?;
                 let globals = &mut self.script.globals;
-                set_value(&mut globals.layer, value, &mut self.textures);
+                match temporary {
+                    Some((name, input)) => {
+                        globals.layer.textures.insert(name, input);
+                    }
+                    None => set_value(&mut globals.layer, value, &mut self.textures),
+                }
                 globals.dirty = true;
             }
             OffscreenWork::SetGlobalKeyword { name, enabled } => {
@@ -274,6 +296,7 @@ impl Mapper<'_> {
             OffscreenWork::SetViewProjection { view, projection } => {
                 self.set_view_projection(view, projection);
             }
+            OffscreenWork::SetViewport { rect } => self.script.viewport = Some(*rect),
             _ => unreachable!("{} makes a record", kind(work)),
         }
         Ok(())
@@ -292,8 +315,31 @@ impl Mapper<'_> {
         })))
     }
 
+    /// The name and input of a global texture that names a temporary render texture, read with the
+    /// sampler it was allocated with; `None` for any other value.
+    fn temporary_global(&self, value: &WorldValue) -> Result<Option<(String, TextureInput)>, Skip> {
+        let WorldValue::Texture(name, slot) = value else {
+            return Ok(None);
+        };
+        let TextureRef::Temporary(name_id) = slot.texture else {
+            return Ok(None);
+        };
+        let texture = self
+            .script
+            .temporaries
+            .resolve(name_id)
+            .ok_or(Skip::UnknownTemporary)?;
+        let sampler = self
+            .script
+            .temporaries
+            .described
+            .get(&texture)
+            .map(|desc| sampler_of_world(&desc.sampler));
+        Ok(Some((name.clone(), TextureInput { texture, sampler })))
+    }
+
     /// The texture a target names, or `None` for no target.
-    fn resolve_target(&self, target: &TargetRef) -> Result<Option<TextureId>, Skip> {
+    pub(super) fn resolve_target(&self, target: &TargetRef) -> Result<Option<TextureId>, Skip> {
         match *target {
             TargetRef::None => Ok(None),
             TargetRef::Render(id) => {
@@ -373,6 +419,17 @@ impl Mapper<'_> {
         Ok(())
     }
 
+    /// The targets a clear or a draw goes to. A draw is refused while a recorded viewport leaves
+    /// part of them uncovered, because the offscreen host draws every pass over its whole target.
+    pub(super) fn bound_target(&self) -> Result<Attachments, Skip> {
+        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
+        match (self.script.viewport, self.target_size()) {
+            (None, _) => Ok(target),
+            (Some(rect), Some(size)) if covers(rect, size) => Ok(target),
+            (Some(_), _) => Err(Skip::PartialViewport),
+        }
+    }
+
     /// How many mips a texture of the frame has, or 0 for one that is not there.
     fn mips_of(&self, texture: TextureId) -> u32 {
         self.described(texture).map_or(0, |held| held.mip_count)
@@ -450,6 +507,7 @@ impl Mapper<'_> {
             colors: colors.into_iter().map(at).collect(),
             depth: depth_texture.map(at),
         });
+        self.script.viewport = None;
         Ok(())
     }
 
@@ -480,7 +538,7 @@ impl Mapper<'_> {
         value: [f32; 4],
         (depth_value, stencil_value): (f32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         if !(color || depth || stencil) {
             return Ok(Vec::new());
         }
@@ -517,6 +575,7 @@ impl Mapper<'_> {
             projection: Mat4::from_cols_array(projection),
             viewport,
         });
+        self.script.viewport = None;
         let set = match self.resolve_set(&target) {
             Ok(set) => set,
             // A camera of the screen or of a texture that is gone has no target to bind.

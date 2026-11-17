@@ -59,7 +59,7 @@ fn blit(world: &mut World, source: RenderTextureId, target: RenderTextureId) {
         world,
         OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: 0,
         },
@@ -303,7 +303,7 @@ fn shader_blit(world: &mut World, source: RenderTextureId, target: RenderTexture
         world,
         OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass: -1,
         },

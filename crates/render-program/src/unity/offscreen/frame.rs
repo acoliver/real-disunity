@@ -216,6 +216,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
+    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
+    pub instances: u32,
 }
 
 /// A list of draws into attachments.

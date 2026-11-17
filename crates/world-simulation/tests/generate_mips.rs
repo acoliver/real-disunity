@@ -61,11 +61,11 @@ fn the_flag_and_the_record_survive_the_snapshot_wire_in_call_order() {
 }
 
 #[test]
-fn a_single_record_encodes_under_tag_eighteen_and_round_trips() {
+fn a_single_record_encodes_under_tag_nineteen_and_round_trips() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let id = world.create_render_texture(texture(2, false)).unwrap();
     let bytes = encode_work(&generate(id)).unwrap();
-    assert_eq!(bytes[0], 18);
+    assert_eq!(bytes[0], 19);
     assert_eq!(decode_work(&bytes).unwrap(), generate(id));
     assert!(decode_work(&bytes[..bytes.len() - 1]).is_err());
 }

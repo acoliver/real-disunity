@@ -9,7 +9,8 @@ const WORK_SETUP_CAMERA: u8 = 11;
 const WORK_SET_VIEW_PROJECTION: u8 = 15;
 const WORK_DRAW_MESH: u8 = 16;
 const WORK_DRAW_PROCEDURAL: u8 = 17;
-const WORK_GENERATE_MIPS: u8 = 18;
+const WORK_SET_VIEWPORT: u8 = 18;
+const WORK_GENERATE_MIPS: u8 = 19;
 
 const TOPOLOGY_TRIANGLE_LIST: u8 = 0;
 const TOPOLOGY_LINE_LIST: u8 = 1;
@@ -76,6 +77,10 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             view.write(out)?;
             projection.write(out)
         }
+        OffscreenWork::SetViewport { rect } => {
+            WORK_SET_VIEWPORT.write(out)?;
+            rect.write(out)
+        }
         OffscreenWork::DrawMesh {
             mesh,
             matrix,
@@ -83,6 +88,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             submesh,
             pass,
             block,
+            instances,
         } => {
             WORK_DRAW_MESH.write(out)?;
             mesh.write(out)?;
@@ -90,6 +96,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             material.write(out)?;
             submesh.write(out)?;
             pass.write(out)?;
+            instances.write(out)?;
             block.write(out)
         }
         OffscreenWork::DrawProcedural {
@@ -147,12 +154,16 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             view: Wire::read(input)?,
             projection: Wire::read(input)?,
         }),
+        WORK_SET_VIEWPORT => Ok(OffscreenWork::SetViewport {
+            rect: Wire::read(input)?,
+        }),
         WORK_DRAW_MESH => Ok(OffscreenWork::DrawMesh {
             mesh: Wire::read(input)?,
             matrix: Wire::read(input)?,
             material: Wire::read(input)?,
             submesh: Wire::read(input)?,
             pass: Wire::read(input)?,
+            instances: Wire::read(input)?,
             block: Wire::read(input)?,
         }),
         WORK_DRAW_PROCEDURAL => Ok(OffscreenWork::DrawProcedural {

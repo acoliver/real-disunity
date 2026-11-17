@@ -304,6 +304,7 @@ fn replacement_revalidates_texture_payloads_before_material_handles() {
         textures: textures.into(),
         materials: vec![].into(),
         logical_bytes: 0,
+        reducible_textures: std::sync::Arc::new([]),
     };
     assert_eq!(
         invalid.with_materials(vec![SceneMaterial::new(material_parts()).unwrap()]),

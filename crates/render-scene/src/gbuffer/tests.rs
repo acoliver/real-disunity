@@ -3,7 +3,7 @@
 use glam::{Mat3, Vec3};
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, FeatureDeclaration, FeaturePass, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 use super::reference::{self, Surface, angle_degrees, sphere};
@@ -389,7 +389,9 @@ fn gbuffer_producer_depth_is_the_completed_scene_depth_read_only_or_refused() {
     let mut cleared = frame(false);
     assert_eq!(
         super::attach_producer_depth(&mut cleared, &[producer(true)]),
-        Err(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))
+        Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::OpaqueGbuffer
+        )))
     );
 }
 

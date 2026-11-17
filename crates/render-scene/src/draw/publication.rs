@@ -30,14 +30,22 @@ pub(crate) struct ColorDraw {
 #[derive(Default)]
 pub(crate) struct DrawPublications {
     selections: RefCell<Vec<SelectionPublication>>,
+    color_recorded: Cell<bool>,
     effects: Cell<super::EffectStatistics>,
     geometry: Cell<Option<super::TerrainGeometryStatistics>>,
     /// The G-buffer slot's draw when the frame renders from the G-buffer, published with the
     /// sky count once Opaque has drawn the rest.
-    gbuffer: RefCell<Option<ColorDraw>>,
+    gbuffer: Rc<RefCell<Option<ColorDraw>>>,
 }
 
 impl DrawPublications {
+    pub(crate) fn with_producer(gbuffer: Rc<RefCell<Option<ColorDraw>>>) -> Self {
+        Self {
+            gbuffer,
+            ..Self::default()
+        }
+    }
+
     /// Holds the G-buffer slot's draw of a frame that renders from the G-buffer. Its surfaces
     /// receive the lighting pass's shadows (`shadows`) and screen AO (`ao`), as the colour
     /// pass's surfaces receive its own.
@@ -56,18 +64,29 @@ impl DrawPublications {
             .take()
             .expect("the G-buffer slot draws before Opaque");
         draw.sky = sky;
-        self.record_color(scene, draw);
+        let shadows = self.effects.get().shadows.installation == super::PassInstallation::Installed;
+        draw.shadows = super::ReceiverBindings::new(shadows, draw.terrain_bound && shadows);
+        scene
+            .pass_counters
+            .prepass_objects
+            .record(draw.drawn.objects);
+        self.record_surfaces(scene, draw);
     }
 
     pub fn record_color(&self, scene: &super::SceneGpu, draw: ColorDraw) {
-        self.geometry
-            .set(scene.drawing_geometry_statistics(draw.terrain));
-        scene.pass_counters.terrain.record(draw.terrain);
-        scene.pass_counters.sky.record(draw.sky);
         scene
             .pass_counters
             .opaque_objects
             .record(draw.drawn.objects);
+        self.record_surfaces(scene, draw);
+    }
+
+    fn record_surfaces(&self, scene: &super::SceneGpu, draw: ColorDraw) {
+        self.color_recorded.set(true);
+        self.geometry
+            .set(scene.drawing_geometry_statistics(draw.terrain));
+        scene.pass_counters.terrain.record(draw.terrain);
+        scene.pass_counters.sky.record(draw.sky);
         let mut effects = self.effects.get();
         effects.shadows.receivers = draw.shadows;
         effects.ssao.receivers = draw.ssao;
@@ -94,8 +113,12 @@ impl DrawPublications {
     ) {
         let mut effects = super::EffectStatistics::default();
         effects.shadows.installation = shadows;
-        if context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass) {
+        if context.completed_in_prefix(worldrunner_render_post::PassEntry::new(
+            worldrunner_render_post::PassSlot::DepthNormalPrepass,
+        )) {
             effects.ssao.prepass = super::PassExecution::Ran;
+        } else {
+            self.gbuffer.borrow_mut().take();
         }
         if screen {
             effects.ssao.installation = super::PassInstallation::Installed;
@@ -111,11 +134,18 @@ impl DrawPublications {
         self.effects.set(effects);
     }
 
+    pub fn prepass_ran(&self) -> bool {
+        self.effects.get().ssao.prepass == super::PassExecution::Ran
+    }
+
     pub fn publish(
         &mut self,
         context: &mut worldrunner_render_post::PrepareContext<'_>,
         scene: &super::SceneGpu,
     ) {
+        if self.color_recorded.replace(false) {
+            scene.publish_instance_history(context);
+        }
         let destination = scene.pass_counters.geometry.clone();
         let geometry = self.geometry.take();
         crate::compositor::publication::stage(context, &destination.clone(), move || {

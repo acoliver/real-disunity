@@ -18,7 +18,11 @@ fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
     }
     timer.begin_frame(7);
     for _ in 0..MAX_PASSES {
-        assert!(timer.stamp(PassId::Geometry(PassSlot::Opaque)).is_some());
+        assert!(
+            timer
+                .stamp(PassId::Geometry(PassEntry::new(PassSlot::Opaque)))
+                .is_some()
+        );
     }
     assert!(timer.stamp(PassId::Resolve).is_none());
     let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
@@ -320,6 +324,67 @@ fn gpu_timing_covers_executor_order_and_unread_ring_never_blocks_rendering() {
     .unwrap();
     assert!(bytes.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
 }
+#[test]
+fn gpu_timing_names_a_repeated_role_by_occurrence_and_keeps_the_first_name() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut chain = PostChain::new(
+        &device,
+        FrameConfig::new([8, 8], format, 1),
+        Resources::default(),
+        Factory,
+    )
+    .unwrap();
+    let support = chain
+        .configure_timing(&device, &queue, TimingMode::Optional)
+        .unwrap();
+    eprintln!("timestamp capability branch: {support:?}");
+    let available = device.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+    let mut passes = Vec::new();
+    let mut views = Vec::new();
+    let mut textures = Vec::new();
+    for occurrence in 0..2 {
+        let resource = ResourceRef::new(["first opaque", "second opaque"][occurrence as usize]);
+        let texture = color_texture(&device, resource.name, [8, 8], format);
+        views.push(AttachmentView::new(resource, &texture).unwrap());
+        textures.push(texture);
+        let mut pass = PassDeclaration::nth(PassSlot::Opaque, occurrence);
+        pass.color = Some(AttachmentDeclaration {
+            resource,
+            format,
+            size: [8, 8],
+            samples: 1,
+            load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
+            store: wgpu::StoreOp::Store,
+            read_only: false,
+        });
+        passes.push(pass);
+    }
+    let output = color_texture(&device, "repeated output", [8, 8], format);
+    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    render_frames(&device, &queue, &mut chain, &passes, &views, &output_view);
+    let expected = if available { TIMING_RING_SIZE } else { 0 };
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
+    assert_eq!(frames.len(), expected);
+    for frame in &frames {
+        let ids: Vec<_> = frame
+            .passes
+            .iter()
+            .take(2)
+            .map(|pass| pass.pass_id)
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                PassId::Geometry(PassEntry::new(PassSlot::Opaque)),
+                PassId::Geometry(PassEntry::nth(PassSlot::Opaque, 1)),
+            ]
+        );
+        let names: Vec<_> = ids.iter().map(PassId::to_string).collect();
+        assert_eq!(names, ["Geometry(Opaque)", "Geometry(Opaque#1)"]);
+    }
+}
 fn fixture(
     device: &wgpu::Device,
     chain: &PostChain<Factory>,
@@ -410,6 +475,7 @@ fn render_frames(
                     passes,
                     views,
                     requested: &[],
+                    operations: &[],
                 },
                 &mut [],
             )
@@ -444,7 +510,7 @@ fn assert_results(
         );
         let expected: Vec<_> = passes
             .iter()
-            .map(|pass| PassId::Geometry(pass.slot))
+            .map(|pass| PassId::Geometry(pass.entry()))
             .chain([
                 PassId::Resolve,
                 PassId::Stage(StageId::new("compute probe", 0)),

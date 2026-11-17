@@ -12,10 +12,11 @@
 // in uniform control flow.
 
 struct SceneDeferredCamera {
-    // Scene position from clip position, the inverse of frame.view_projection.
+    // Inverse of frame.view_projection for homogeneous clip depth z - w.
     scene_from_clip: mat4x4<f32>,
     // Scene direction from view direction, the transpose of the producers' view_from_scene.
     scene_from_view: mat3x3<f32>,
+    receiver_policy: vec4<u32>,
 }
 
 @group(1) @binding(16) var scene_deferred_g0: texture_2d<f32>;
@@ -32,17 +33,28 @@ fn vs_scene_deferred_lighting(@builtin(vertex_index) vertex: u32) -> @builtin(po
     return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
 }
 
+// The homogeneous scene position retains 1 / clip w before perspective division.
+fn scene_deferred_homogeneous_position(pixel: vec2<f32>, depth: f32) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(scene_deferred_depth));
+    let ndc = vec2<f32>(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0);
+    let inverse = scene_deferred_camera.scene_from_clip;
+    let scene = fma(inverse[0], vec4<f32>(ndc.x),
+        fma(inverse[1], vec4<f32>(ndc.y),
+            fma(inverse[2], vec4<f32>(depth - 1.0), inverse[3])));
+    return scene;
+}
+
 // The scene position of a pixel centre at stored depth, through the same projection the
 // producers rasterised with.
 fn scene_deferred_position(pixel: vec2<f32>, depth: f32) -> vec3<f32> {
-    let size = vec2<f32>(textureDimensions(scene_deferred_depth));
-    let ndc = vec2<f32>(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0);
-    let scene = scene_deferred_camera.scene_from_clip * vec4<f32>(ndc, depth, 1.0);
+    let scene = scene_deferred_homogeneous_position(pixel, depth);
     return scene.xyz / scene.w;
 }
 
 struct SceneDeferredSurface {
     position: vec3<f32>,
+    reciprocal_w: f32,
+    geometric_normal: vec3<f32>,
     surface: SceneShadingSurface,
     record: SceneLightingRecord,
     // The per-pixel back-scattering amount and the emission intensity.
@@ -60,9 +72,12 @@ fn scene_deferred_surface(pixel: vec4<f32>) -> SceneDeferredSurface {
     let scattering = (stored.flags & SCENE_GBUFFER_FLAG_SCATTERING) != 0u;
     let metal = select(stored.metal, 0.0, scattering);
     let amount = select(0.0, stored.metal, scattering);
-    let position = scene_deferred_position(pixel.xy, textureLoad(scene_deferred_depth, texel, 0));
+    let scene = scene_deferred_homogeneous_position(pixel.xy,
+        textureLoad(scene_deferred_depth, texel, 0));
     return SceneDeferredSurface(
-        position,
+        scene.xyz / scene.w,
+        scene.w,
+        stored.geometric_normal,
         SceneShadingSurface(vec4<f32>(stored.base_colour, 1.0), stored.shading_normal,
             vec3<f32>(stored.roughness, metal, stored.ao)),
         scene_lighting_records[stored.lighting_record],
@@ -71,9 +86,22 @@ fn scene_deferred_surface(pixel: vec4<f32>) -> SceneDeferredSurface {
     );
 }
 
+var<private> scene_deferred_geometric_normal: vec3<f32>;
+// The lit pixel as a rasterised fragment: pixel centre, no depth, and 1 / clip w. Front's
+// receiver-plane solve takes the forward terrain footprint's fragment.
+var<private> scene_deferred_fragment: vec4<f32>;
+var<private> scene_deferred_covered: bool;
+
+fn scene_deferred_receiver_normal(shading: vec3<f32>, geometric: vec3<f32>, renders: bool) -> vec3<f32> {
+    return select(shading, geometric, renders);
+}
+
 // Exactly the forward mesh shading after decals (scene_finish_shading), on stored values.
 fn scene_deferred_shade(pixel: vec4<f32>) -> vec4<f32> {
     let deferred = scene_deferred_surface(pixel);
+    scene_deferred_geometric_normal = deferred.geometric_normal;
+    scene_deferred_fragment = vec4<f32>(pixel.xy, 0.0, deferred.reciprocal_w);
+    scene_deferred_covered = deferred.covered;
     // SCENE_DEFERRED_PIXEL
     let position = deferred.position;
     let normal = deferred.surface.normal;

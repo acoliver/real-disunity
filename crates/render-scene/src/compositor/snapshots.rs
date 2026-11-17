@@ -1,16 +1,16 @@
-use super::overlay;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration,
+    AttachmentView, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, ResourceRef,
 };
+
+/// Plans the snapshots the declared reads ask for. `features` are the declarations of the
+/// frame's own features and then those of its retained ones. `state` is the snapshot banks and
+/// whether depth-tested overlay geometry reads the post-water depth.
 pub(super) fn plan(
     device: &wgpu::Device,
-    state: (
-        &mut Option<[crate::water::snapshots::Snapshots; 3]>,
-        &mut overlay::OverlayStage,
-    ),
+    state: (&mut Option<[crate::water::snapshots::Snapshots; 3]>, bool),
     input: &(FrameConfig, crate::frame::FrameUniform, usize, bool),
     plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
-    features: (&[BorrowedFeature<'_>], &[FeatureDeclaration]),
+    features: (&[&FeatureDeclaration], &[FeatureDeclaration]),
 ) -> Result<
     (
         crate::water::planning::SnapshotRequest,
@@ -21,27 +21,23 @@ pub(super) fn plan(
     let mut reads: Vec<_> = features
         .0
         .iter()
-        .map(|feature| &feature.declaration)
+        .copied()
         .chain(features.1.iter())
         .flat_map(|feature| &feature.passes)
         .flat_map(|pass| &pass.reads)
         .copied()
         .collect();
-    let (snapshots, overlay) = state;
+    let (snapshots, overlay_depth) = state;
     let (config, frame, slot, water) = *input;
-    if overlay.needs_depth() {
-        reads.push(worldrunner_render_post::ResourceRef::new(
-            "post-water depth",
-        ));
+    if overlay_depth {
+        reads.push(ResourceRef::new("post-water depth"));
     }
-    let result = crate::water::planning::snapshot_feature(
+    crate::water::planning::snapshot_feature(
         device,
         snapshots,
         (config, &frame, slot),
         plan,
         &reads,
         water,
-    )?;
-    overlay.prepare_depth(device, snapshots.as_ref().map(|s| &s[slot]), &frame);
-    Ok(result)
+    )
 }

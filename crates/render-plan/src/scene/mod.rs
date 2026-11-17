@@ -11,6 +11,7 @@ mod contour_tests;
 mod material_channels;
 pub use material_channels::{SceneMaterialChannels, TextureChannel};
 mod decal;
+mod reducible;
 pub use decal::{
     SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
     SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
@@ -405,6 +406,17 @@ impl RenderScene {
             )?;
         }
         self.validate_mesh_scalar_channels()?;
+        self.validate_terrain_materials(material_limit)?;
+        if let Some(crate::scene::effects::SceneSky::DomeTexture { texture }) =
+            self.effects.as_ref().map(SceneEffects::sky)
+        {
+            let texture_limit = table_limit(self.resources.textures().len(), "textures")?;
+            require_handle("effects sky", texture.raw(), "texture", texture_limit)?;
+        }
+        self.validate_reducible()
+    }
+
+    fn validate_terrain_materials(&self, material_limit: u64) -> Result<(), SceneValidationError> {
         if let Some(terrain) = &self.terrain {
             for surface in terrain.surfaces() {
                 require_handle(
@@ -418,12 +430,6 @@ impl RenderScene {
                         .require_default_channels("terrain palette")?;
                 }
             }
-        }
-        if let Some(crate::scene::effects::SceneSky::DomeTexture { texture }) =
-            self.effects.as_ref().map(SceneEffects::sky)
-        {
-            let texture_limit = table_limit(self.resources.textures().len(), "textures")?;
-            require_handle("effects sky", texture.raw(), "texture", texture_limit)?;
         }
         Ok(())
     }

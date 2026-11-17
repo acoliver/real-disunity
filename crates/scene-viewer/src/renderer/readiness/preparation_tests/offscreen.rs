@@ -1,5 +1,7 @@
-use super::offscreen::clearing_operations;
-use super::*;
+use crate::renderer::Renderer;
+use crate::renderer::retained_tests::{
+    offscreen::clearing_operations, shadow_settings, terrain_source,
+};
 use crate::{RetainedHost, RetainedUpdate};
 use std::sync::Arc;
 use worldrunner_render_plan::{SceneTerrain, SceneTerrainParts, TerrainStreamingPolicy};

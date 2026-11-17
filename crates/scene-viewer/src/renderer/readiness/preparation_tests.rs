@@ -1,3 +1,5 @@
+mod offscreen;
+
 use super::*;
 use worldrunner_render_plan::*;
 use worldrunner_render_scene::{Viewport, draw::PreparedScene};

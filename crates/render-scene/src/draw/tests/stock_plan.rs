@@ -1,6 +1,7 @@
 //! The stock frame plan of a scene frame: the passes it submits, how often it is rebuilt and
 //! which allocations its attachments are bound to.
 mod cache;
+mod lazy_snapshots;
 mod pins;
 mod rebind;
 

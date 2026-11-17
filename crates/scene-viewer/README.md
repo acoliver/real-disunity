@@ -610,6 +610,28 @@ readiness. Recipe products use owned boxed storage. Cancellation carries no fram
 observation. Timing retains its typed disabled, pending, unavailable or complete
 status; unavailable durations are never represented as zero.
 
+## Moving-frame CPU measurement
+
+The `moving_frame_cpu` example renders a synthetic outdoor scene (terrain, 3000 props over
+41 materials, a shadowed sun with three camera-split cascades and the HDR bloom and FXAA
+chain) through a windowless retained host while the camera walks a circle and moves every
+frame. It reports the median, 90th percentile, minimum and maximum of the time inside host
+calls for each frame, from the driver's camera update to submit, and of the timed thread's
+on-CPU time. The wait for the GPU happens between frames, outside both figures. Shadow view
+selection runs on short-lived worker threads, whose CPU time is in neither figure. Build it in
+release mode, because debug assertions add work that a release build does not do. On Linux
+without a GPU, select lavapipe; its GPU time means nothing, and the CPU figures stay valid:
+
+```text
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
+  cargo run --locked --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
+  --frames 300 --warmup 60 --objects 3000 --in-flight 1 --size 1280x720
+```
+
+`--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
+after the previous one has finished, so the software rasterizer does not compete with the timed
+thread. The example uses no game assets.
+
 ## GPU pass timing
 
 Set `gpu_timing: true` to request GPU timestamps. The default is `false`, which

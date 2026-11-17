@@ -120,6 +120,9 @@ internal static unsafe partial class WorldGraphics
         }
     }
 
+    /// <summary>Records a request to fill mip levels 1 and up of a render texture from its level 0.</summary>
+    internal static void RecordGenerateMips(ulong texture) => Check(NativeBindings.disunity_offscreen_generate_mips(World, texture));
+
     /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
     internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
     {

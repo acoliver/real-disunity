@@ -9,6 +9,7 @@ const WORK_SETUP_CAMERA: u8 = 11;
 const WORK_SET_VIEW_PROJECTION: u8 = 15;
 const WORK_DRAW_MESH: u8 = 16;
 const WORK_DRAW_PROCEDURAL: u8 = 17;
+const WORK_SET_VIEWPORT: u8 = 18;
 
 const TOPOLOGY_TRIANGLE_LIST: u8 = 0;
 const TOPOLOGY_LINE_LIST: u8 = 1;
@@ -74,6 +75,10 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             WORK_SET_VIEW_PROJECTION.write(out)?;
             view.write(out)?;
             projection.write(out)
+        }
+        OffscreenWork::SetViewport { rect } => {
+            WORK_SET_VIEWPORT.write(out)?;
+            rect.write(out)
         }
         OffscreenWork::DrawMesh {
             mesh,
@@ -141,6 +146,9 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
         WORK_SET_VIEW_PROJECTION => Ok(OffscreenWork::SetViewProjection {
             view: Wire::read(input)?,
             projection: Wire::read(input)?,
+        }),
+        WORK_SET_VIEWPORT => Ok(OffscreenWork::SetViewport {
+            rect: Wire::read(input)?,
         }),
         WORK_DRAW_MESH => Ok(OffscreenWork::DrawMesh {
             mesh: Wire::read(input)?,

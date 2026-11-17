@@ -116,6 +116,34 @@ fn a_terrain_palette_map_is_refused_by_name() {
     );
 }
 
+#[test]
+fn resource_replacement_rejects_missing_terrain_material_before_reducer_lookup() {
+    let scene = RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![texture(), texture()], vec![material(0), material(0)])
+            .unwrap(),
+        geometry: SceneGeometry::new(Vec::new(), Vec::new()).unwrap(),
+        terrain: Some(terrain(vec![MaterialHandle::from_raw(1)])),
+        effects: None,
+    })
+    .unwrap()
+    .with_reducible_textures(vec![handle(1)])
+    .unwrap();
+    let resources = scene
+        .resources()
+        .clone()
+        .with_materials(vec![material(0)])
+        .unwrap();
+    assert!(matches!(
+        scene.with_resources(resources, scene.geometry().clone(), None),
+        Err(SceneValidationError::HandleOutOfRange {
+            part: "terrain surfaces",
+            resource: "material",
+            handle: 1,
+            limit: 1,
+        })
+    ));
+}
+
 /// The test effects with one water body whose normal map is texture 0.
 fn water_effects() -> crate::scene::SceneEffects {
     let base = effects();

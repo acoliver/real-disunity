@@ -281,6 +281,15 @@ fn derive<'s>(
         Some((declaration, feature)) => (Some(declaration), Some(feature)),
         None => (None, None),
     };
+    schedule_screen_reads(
+        environment.ssao,
+        &mut screen_declaration,
+        authored.features,
+        reflection_declaration.as_ref(),
+        snapshot_declaration.as_ref(),
+        &retained,
+        (&mut passes, &mut views),
+    )?;
     if let Some(gbuffer) = environment.gbuffer {
         let declared = authored
             .features
@@ -323,6 +332,28 @@ fn derive<'s>(
             snapshot,
         },
     })
+}
+
+fn schedule_screen_reads(
+    ssao: Option<&SceneMetadata>,
+    screen: &mut Option<FeatureDeclaration>,
+    authored: &[FeatureDeclaration],
+    reflection: Option<&FeatureDeclaration>,
+    snapshot: Option<&FeatureDeclaration>,
+    retained: &[FeatureDeclaration],
+    plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
+) -> Result<(), FrameError> {
+    if let (Some(ssao), Some(screen)) = (ssao, screen.as_mut()) {
+        let reads = authored
+            .iter()
+            .chain(reflection)
+            .chain(snapshot)
+            .chain(retained)
+            .flat_map(|declaration| &declaration.passes)
+            .flat_map(|pass| pass.reads.iter().copied());
+        crate::ssao::passes::schedule_declared_reads(ssao, plan, screen, reads)?;
+    }
+    Ok(())
 }
 
 fn take_planned_colour_layout(declaration: &mut FeatureDeclaration, passes: &[PassDeclaration]) {

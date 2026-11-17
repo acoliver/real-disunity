@@ -370,7 +370,7 @@ impl FrameRenderer {
             .ssao
             .as_ref()
             .filter(|ssao| ssao.size != size)
-            .map(|ssao| crate::scene_metadata::SceneMetadata::new(device, size, ssao.settings))
+            .map(|ssao| ssao.rebuilt(device, size))
             .transpose()?;
         let water = self
             .water

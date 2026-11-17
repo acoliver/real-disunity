@@ -674,10 +674,12 @@ domain transfer, reciprocal and quantization behavior.
 
 `RetainedHost::admit_offscreen(operations)` hands the caller's `OffscreenOperations`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
 
-Offscreen work cannot accompany same-frame shadow depth fitting. The viewer
-returns `ViewerError::UnsupportedScene("player offscreen work with same-frame depth fitting")`
+Offscreen work cannot accompany shadow depth fitting. The viewer rejects it
+whenever shadow depth fitting is configured, including interactive
+`QuantizedPerBound` fitting, and returns
+`ViewerError::UnsupportedScene("player offscreen work with same-frame depth fitting")`
 before the fitted path renders or submits work. This refusal leaves the submission
-serial unchanged. Plain frames and shadowed frames without same-frame depth fitting
-accept offscreen work through the frame's recording.
+serial unchanged. Plain frames and shadowed frames without depth fitting accept
+offscreen work through the frame's recording.
 
 `SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

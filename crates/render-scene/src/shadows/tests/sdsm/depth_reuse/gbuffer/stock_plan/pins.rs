@@ -1,4 +1,6 @@
 //! The pinned plans, taken from the frame before its plan was built in one place.
+//! `fitting_source` has no SSAO or SSR. Its exact pins therefore include only depth levels that
+//! a declared reader needs; accepted-main metadata scheduling skips unread occlusion and levels.
 use crate::compositor::plan_trace::Pin;
 
 pub(super) const SCREEN_UNFITTED: &[Pin] = &[Pin {

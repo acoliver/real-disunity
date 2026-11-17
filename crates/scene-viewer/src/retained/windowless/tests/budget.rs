@@ -63,17 +63,31 @@ fn windowless_steady_frames_reuse_upload_staging() {
             .all(|pair| pair[1].uploads > pair[0].uploads),
         "{staging:?}"
     );
-    // Admission bounds the frames in flight, so the pool settles and stops creating chunks.
+    // Admission bounds the frames in flight, but a submitted chunk is free again only once its
+    // mapping callback has run, which depends on when the device is polled, so whether and
+    // when the in-flight frames create more chunks is timing. Once the device is idle every
+    // chunk's mapping has completed, and a frame that starts on an idle device creates none.
+    let in_flight = staging[23].chunks_created;
+    let mut settled = Vec::new();
+    while settled.len() < 8 {
+        assert!(std::time::Instant::now() < deadline, "{settled:?}");
+        run.renderer.drain().unwrap();
+        if run.frame().unwrap() {
+            settled.push(run.host().statistics().unwrap().upload_staging);
+        } else {
+            run.poll().unwrap();
+        }
+    }
     assert!(
-        staging[8..]
+        settled
             .iter()
-            .all(|stats| stats.chunks_created == staging[8].chunks_created),
-        "{staging:?}"
+            .all(|stats| stats.chunks_created == in_flight),
+        "in flight {staging:?}, settled {settled:?}"
     );
     let resident = run.host().statistics().unwrap().resident_bytes;
     assert_eq!(
         resident.get(crate::ResourceClass::Staging),
-        staging[23].bytes,
+        settled[7].bytes,
         "{resident}"
     );
     run.shutdown().unwrap();

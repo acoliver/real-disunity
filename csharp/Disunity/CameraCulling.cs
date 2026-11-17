@@ -35,12 +35,13 @@ public sealed partial class Camera
         return true;
     }
 
-    /// <summary>The view, projection and target a context records when a pipeline sets the camera up. A destroyed camera throws
+    /// <summary>The view, projection and target a context records when a pipeline sets the camera up, and the target buffers
+    /// the script set, which the camera's target is then. A destroyed camera throws
     /// <see cref="InvalidOperationException"/>.</summary>
-    internal (Matrix4x4 View, Matrix4x4 Projection, CommandTarget Target) SetupValues()
+    internal (Matrix4x4 View, Matrix4x4 Projection, CommandTarget Target, WorldGraphics.CameraBuffers? Buffers) SetupValues()
     {
         ThrowIfDestroyed();
-        return (worldToCameraMatrix, projectionMatrix, CommandTarget.OfCamera(targetTexture));
+        return (worldToCameraMatrix, projectionMatrix, CommandTarget.OfCamera(targetTexture), WorldGraphics.ReadCameraBuffers(Handle));
     }
 
     private static bool IsFinite(Matrix4x4 matrix)

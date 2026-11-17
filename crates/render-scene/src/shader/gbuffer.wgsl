@@ -7,10 +7,14 @@
 //   0 G0 Rgb10a2Unorm   rg: view-space shading normal, Lambert azimuthal equal-area
 //                       (spheremap) projection about view +z; b and a reserved, written 0.
 //   1 G1 Rgba8UnormSrgb rgb: linear base colour (the target stores its sRGB encoding);
-//                       a reserved, written 0.
+//                       a: the 8-bit lighting-record index, stored as index / 255 (alpha
+//                       is not sRGB encoded). Record 0 is the neutral standard model.
 //   2 G2 Rgba8Unorm     roughness, metal, sqrt(emission), material AO.
 //   3 G3 R16Uint        bits 9..15 and 2..8: the scene-space geometric normal as a 7+7 bit
 //                       octahedral code (x high, y low); bits 0..1: the two engine flags.
+//                       Flag bit 0 selects the scattering model: G2.g then holds the
+//                       per-pixel scattering amount and the surface has no metal. Bit 1 is
+//                       reserved.
 // Every target clears to zero, and a covered pixel never stores G3 == 0, so G3 == 0 means
 // that no producer wrote the pixel.
 //
@@ -31,7 +35,7 @@ struct SceneGbufferSurface {
     // Linear; G1 is the sRGB view.
     base_colour: vec3<f32>,
     roughness: f32,
-    // Metal or translucency, chosen by the model bits.
+    // Metal, or the per-pixel scattering amount when flag bit 0 selects the scattering model.
     metal: f32,
     // 0..1, stored as its square root.
     emission: f32,
@@ -39,6 +43,9 @@ struct SceneGbufferSurface {
     ao: f32,
     // The two engine bits stored in G3 bits 0..1. Higher bits are not stored.
     flags: u32,
+    // Index into the frame's lighting-record table, 0..255; 0 is the neutral standard model.
+    // Producers copy their material's index (scene_material_lighting_record_index()).
+    lighting_record: u32,
 }
 
 struct SceneGbufferTargets {
@@ -49,6 +56,9 @@ struct SceneGbufferTargets {
 }
 
 const SCENE_GBUFFER_FLAG_MASK: u32 = 3u;
+// G3 flag bit 0: the scattering model.
+const SCENE_GBUFFER_FLAG_SCATTERING: u32 = 1u;
+const SCENE_GBUFFER_RECORD_MAX: f32 = 255.0;
 const SCENE_GBUFFER_OCT_MAX: f32 = 127.0;
 // The octahedral corner codes (0, 0) and (127, 127) both decode to (0, 0, -1).
 const SCENE_GBUFFER_OCT_CORNER: u32 = 127u;
@@ -108,7 +118,7 @@ fn scene_gbuffer_encode(surface: SceneGbufferSurface, view_from_scene: mat3x3<f3
     let view_normal = view_from_scene * surface.shading_normal;
     return SceneGbufferTargets(
         vec4<f32>(scene_gbuffer_spheremap_encode(view_normal), 0.0, 0.0),
-        vec4<f32>(surface.base_colour, 0.0),
+        vec4<f32>(surface.base_colour, f32(surface.lighting_record) / SCENE_GBUFFER_RECORD_MAX),
         vec4<f32>(surface.roughness, surface.metal, sqrt(max(surface.emission, 0.0)), surface.ao),
         scene_gbuffer_g3_encode(surface.geometric_normal, surface.flags),
     );
@@ -130,5 +140,6 @@ fn scene_gbuffer_decode(
         g2.b * g2.b,
         g2.a,
         g3 & SCENE_GBUFFER_FLAG_MASK,
+        u32(g1.a * SCENE_GBUFFER_RECORD_MAX + 0.5),
     );
 }

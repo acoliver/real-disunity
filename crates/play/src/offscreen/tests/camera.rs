@@ -11,6 +11,7 @@ fn view(settings: Camera, position: Vec3, rotation: Quat) -> CameraView {
     CameraView {
         settings,
         world_matrix: Mat4::from_rotation_translation(rotation, position).to_cols_array(),
+        target_buffers: None,
     }
 }
 
@@ -109,6 +110,7 @@ fn the_scale_of_the_camera_object_does_not_change_the_view() {
             Vec3::new(1.0, 2.0, 3.0),
         )
         .to_cols_array(),
+        target_buffers: None,
     };
     let point = [4.0, 1.0, 9.0];
     assert_close(&clip(&scaled, 1.5, point), &clip(&plain, 1.5, point));

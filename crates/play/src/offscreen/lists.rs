@@ -161,7 +161,7 @@ impl<'a> Mapper<'a> {
             .get(cull)
             .cloned()
             .ok_or(Skip::UnknownList)?;
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),

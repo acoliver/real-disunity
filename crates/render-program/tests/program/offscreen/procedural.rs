@@ -110,10 +110,7 @@ fn generated(right: f32, textured: bool, state: impl Fn(&mut ShaderState)) -> Pr
 
 fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
-    Attachments {
-        color: attachment,
-        depth: attachment,
-    }
+    Attachments::single(attachment, attachment)
 }
 
 fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {

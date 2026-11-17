@@ -91,6 +91,7 @@ fn setup(world: &mut World, camera: ComponentHandle, view: Mat4, target: TargetR
             view: view.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target,
+            buffers: None,
         })
         .unwrap();
 }
@@ -696,7 +697,7 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         values.get("_WorldSpaceCameraPos"),
         Some(&PropertyValue::Vector([-1.0, -2.0, -3.0, 0.0]))
     );
-    assert!(first.target.color.is_some() && first.target.depth.is_some());
+    assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
 }
 
 #[test]
@@ -719,7 +720,7 @@ fn a_view_change_after_the_setup_reaches_the_draw_and_keeps_the_bound_targets() 
         Some(&PropertyValue::Vector([-4.0, -5.0, -6.0, 0.0])),
         "the draw sees the view the command buffer set"
     );
-    assert!(first.target.color.is_some() && first.target.depth.is_some());
+    assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
 }
 
 #[test]

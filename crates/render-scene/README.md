@@ -51,18 +51,48 @@ ordered residents. Equal-depth boundary overlap therefore has stable ownership
 when the resident leaf set is identical, independently of upload retirement timing.
 Ordering does not change chunk geometry, streaming budgets or draw counts for
 an identical leaf set. Selection ranks candidates by descending projected error,
-then quadtree level from the root (descending stride), then the chunk's derived
-coordinate key. Exact-error ties therefore have explicit admission priority under
-constrained budgets, independent of resident storage and upload-completion history.
-Selected leaves are returned in derived-key order. Relative to history-based tie
-admission, only exact-error ties can change which geometry becomes resident.
+then descending sampling stride, then the chunk's derived coordinate key. When
+smaller leaves are enabled, equal-error stride-one candidates use descending
+longest-axis texel span before the coordinate key to distinguish refinement levels.
+Exact-error ties therefore have explicit admission priority under constrained
+budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order.
+
+`TerrainStreamingPolicy::chunk_intervals` caps cells per mesh axis. Its
+`minimum_leaf_texels` independently limits quadtree refinement and defaults to
+that cap. `with_minimum_leaf_texels` accepts a positive power of two no larger
+than the cap. On square power-of-two grids, a leaf of N texels has
+`min(chunk_intervals, N)` cells per side. With the default minimum, the selector's
+cell-axis step is the sampling stride, including below-cap roots and partial
+terminal windows. When smaller leaves are enabled, below-cap sampling stride stays
+one while the nominal cell-axis step is `N / chunk_intervals` in floating point.
+This keeps that LOD metric continuous instead of quantizing it to a source texel.
+It approximates projected footprint, not height residuals or the actual finest
+mesh spacing. Eye-plane intersections still request finest
+detail through infinite error; ordinary in-front minimum leaves have finite
+error. A split is refused if halving a stride-one window's longest axis would
+cross the minimum; rectangular or partial windows can have shorter other axes.
+Camera selection, bounds, readiness, triangle-plane descriptors and shadow
+selection share that split rule. Chunk keys keep inclusive coordinates and a
+positive sampling stride, so differently sized stride-one leaves remain distinct.
+Atomic replacement and upload/resident budgets count chunks regardless of size.
+Double-sided skirts on every mesh edge reach the terrain-wide minimum minus one
+metre and cover cracks at unequal strides without neighbour-dependent stitching.
+
+Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
+and streaming policy. Terminal ranges scan all inclusive source samples; parents
+union their children's ranges. Camera selection projects each node's own surface
+height range. CPU selector callers construct and reuse the cache with the same
+terrain source and policy they pass to `select` and `error`.
 
 Camera terrain submissions use the shared mesh frustum plane test against each
-resident leaf's full terrain-wide height range and skirt bottom. Culling only
-filters recorded draws: selection, residency, mesh builds and uploads still cover
-the whole grid. Each camera pass uses its own raster matrix, including projection
-jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
-they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+resident leaf's cached height range and the terrain-wide skirt bottom, padded
+outward for floating-point rounding. Culling only filters recorded draws:
+selection, residency, mesh builds and uploads still cover the whole grid. Each
+camera pass uses its own raster matrix, including projection jitter. Shadow
+cascades use terrain-wide height ranges for their footprint and geometry bounds,
+with their own light-frustum and slice-hull selection; they never use the camera's
+culled subset. Nonstreaming terrain stays unculled.
 
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
@@ -80,6 +110,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
@@ -832,19 +882,31 @@ Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 
-`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
-selection and decal counts without allocating or polling. The transactional
-compositor publishes both at submission; cancelled encoders do not publish them.
-The immediate `set_frame` API updates decal counts with its CPU frame state.
-Counts include each material slot and
-LOD transition complement, with instance counts summed across those draws.
-These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+`SceneGpu::statistics()` reads the last submitted pass draws and decal counts
+without allocating or polling. The transactional compositor publishes both at
+submission; cancelled encoders do not publish them. The immediate `set_frame` API
+updates decal counts with its CPU frame state.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
 water, background sky (including discs), native screen-space text (`passes.ui`),
-and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
-submission. A skipped cascade reports zero draws, even when its cached map is
-reused. Metadata, water masks and separate celestial mesh passes are excluded.
+the main camera's objects in the depth/normal prepass (`passes.prepass_objects`)
+and the colour pass (`passes.opaque_objects`), and each of four directional
+shadow cascades. Counts are recorded by the code that issues the draw commands
+and published only on submission. A skipped cascade reports zero draws, even when
+its cached map is reused. Water masks, capture-term replays and separate celestial
+mesh passes are excluded.
+
+Object counts are the indexed draws the recorder issued: one per material slot of
+each drawn level, plus the preceding level's slots for an LOD transition
+complement, with instance counts summed across those draws. A draw counts under
+`impostors` when its material is an impostor, otherwise under `meshes`.
+`ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
+draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
+draws each selected instance range because the view's gathered instances did not
+hold this selection (the resident path never gathers), and `NotRecorded` means the
+pass did not run in that frame. Compaction merges ranges but keeps every material
+slot and transition complement, so a compacted count never exceeds the ranged
+count of the same selection.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
 SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding
@@ -892,13 +954,14 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
-## Deferred G-buffer observation
+## Deferred G-buffer
 
 `SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
 G-buffer in observation: the renderer allocates four single-sample targets at the
 scene extent and clears them to zero every frame in the `PassSlot::OpaqueGbuffer`
-slot, which runs after Celestial and before Opaque. Nothing reads them except
-captures, so the visible frame and every existing pass are the forward ones.
+slot, which runs after Celestial and before Opaque. Nothing reads them except the
+lighting pass below and captures, so the visible frame and every existing pass are
+the forward ones.
 `Forward`, the default, allocates nothing. `RendererConfiguration::opaque_path`
 carries the choice (scene-viewer copies it from the scene effects), and
 `FrameRenderer::hdr_antialiased` reads it from `effects`. A multisampled frame is
@@ -909,9 +972,9 @@ tuple with `PostError::UnsupportedProfile`.
 | Location | Target | Format | Contents |
 |---|---|---|---|
 | 0 | G0 | `Rgb10a2Unorm` | rg: view-space shading normal, spheremap; b, a reserved, 0 |
-| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a reserved, 0 |
-| 2 | G2 | `Rgba8Unorm` | roughness, metal, sqrt(emission), material AO |
-| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags |
+| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a: 8-bit lighting-record index |
+| 2 | G2 | `Rgba8Unorm` | roughness, metal or scattering amount, sqrt(emission), material AO |
+| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags (bit 0 scattering model, bit 1 reserved) |
 
 To write the targets, a producer registers or borrows a feature whose
 `FeaturePass` names `PassSlot::OpaqueGbuffer`, with `color_format` `Rgb10a2Unorm`
@@ -923,18 +986,22 @@ own camera rotation. The lighting side calls
 `scene_gbuffer_decode(g0, g1, g2, g3, scene_from_view)` on loaded texels.
 `SceneGbufferSurface` holds `shading_normal` (scene space, after decals, unit),
 `geometric_normal` (scene space, unit), `base_colour` (linear), `roughness`,
-`metal` (metal or translucency, chosen by the flags), `emission` (0..1), `ao`
-(material AO; screen AO stays a lighting input) and `flags` (bits 0..1 stored).
+`metal` (metal, or with flag bit 0 the per-pixel scattering amount, the surface
+then having no metal), `emission` (0..1), `ao` (material AO; screen AO stays a
+lighting input), `flags` (bits 0..1 stored) and `lighting_record` (0..255).
 `SceneGbufferTargets` has `@location(0..3)` members `g0`, `g1`, `g2` and `g3`.
+Producers pass the rotation of `FrameUniform::view` as `view_from_scene`; the
+lighting pass decodes with its transpose.
 
-Depth: in observation the slot does not own depth, and Opaque or the depth
-prepass keep writing it as before. A producer that declares a `depth_format` in
-the slot gets the scene depth attached read-only when it is complete before
-Opaque (the depth prepass ran and Opaque loads it); it tests against it, `Equal`
-for exact forward winners, and writes nothing. Without a completed depth the
-request fails with `FrameError::AttachmentContract(OpaqueGbuffer)`. Moving the
-scene depth clear and writes into this slot is part of the switch that renders
-from the G-buffer.
+Depth: the slot does not own depth; the depth prepass clears and writes it. A
+producer that declares a `depth_format` in the slot gets the scene depth attached
+read-only when it is complete before Opaque (the depth prepass ran and Opaque
+loads it); it tests against it, `Equal` for exact forward winners, and writes
+nothing. Without a completed depth the request fails with
+`FrameError::AttachmentContract(OpaqueGbuffer)`. The stock producers
+(`gbuffer_writes`: terrain, opaque, masked and relief meshes, impostor cards) are
+the scene's own terrain and object programs with their fragment entries replaced,
+drawn over the camera selection the prepass and Opaque draw.
 
 Encoding. View space is the camera's right-handed view space (it looks down -z),
 so camera-facing normals have z > 0. G0 stores the Lambert azimuthal equal-area
@@ -944,7 +1011,10 @@ it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
 decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
 `n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
 shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
-z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1. The
+z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1, on
+Metal. lavapipe and RADV round some stores to the neighbouring code, so the GPU
+probe holds each stored normal to the worst decode within one code of the CPU
+mirror's code, or the band bound if that is larger. The
 geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
 within 0.0045 in linear units, roughness, metal and AO within half a code, and
 emission within 1/255 through its square-root transfer. Every target clears to
@@ -958,12 +1028,118 @@ check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
 
+The scene itself is a producer. When the frame uses the G-buffer and Opaque loads
+the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other depth modes declare no producer: the observation leaves the
+cleared targets untouched and rendering from the G-buffer is refused. Each fragment
+entry stores the material its forward entry would light, before any lighting: terrain
+stores `terrain_material`, objects `shade_material`, and impostor cards
+`scene_card_gbuffer_material`, which is derived from the frozen `scene_card_shade` by
+counted rewrites. Scattering materials set flag bit 0 and store their per-pixel amount
+in G2.y with metal 0, and every object entry stores its material's lighting record
+(terrain stores record 0). For scattering materials whose
+mask is not packed, forward lights both the metalness and the amount that
+`scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
+without the depth prepass store nothing.
+
+### Lighting records
+
+A lighting record holds the constant material values that shading reads besides
+the surface's own channels: the back-scattering shape, colour and mode and the
+transmission amount (WGSL `SceneLightingRecord` in `shader/environment.wgsl`:
+`scattering_shape`, `scattering_colour`, `scattering_mode`, `transmission`). The
+renderer builds one table per uploaded material set (`gbuffer::records::LightingRecordTable`,
+extended by appends): equal records share an index and index 0 is the neutral standard
+model, no scattering and no transmission. Every material uniform carries its index in
+`scattering_mode.z`, which producers read with `scene_material_lighting_record_index()`
+and store as `SceneGbufferSurface.lighting_record`; G1.a holds it as `index / 255`.
+Eight bits address 255 records besides record 0. A scene with more refuses the lighting
+pass before any pass records, with `FrameError::FeaturePreparation { feature: "opaque
+G-buffer" }` and the reason `opaque path needs N material records, limit is 255`; indices
+are never truncated. Forward drawing is unaffected by the count.
+
+### Deferred lighting
+
+With a G-buffer path the renderer also runs `PassSlot::OpaqueLighting`, one
+full-screen pass after the G-buffer slot and before Opaque, on the scene depth the
+depth prepass completed. A frame without the prepass has no producers, so its
+observation lights nothing. The stock scene features
+(plain, resident and shadowed) draw it with the same forward pipelines, frame group,
+shadow set and screen-space set as their Opaque draws: the program is the frame's
+forward object source with `gbuffer.wgsl` and `shader/gbuffer_lighting.wgsl` appended,
+so every shadow, SSAO receiver, reflection and receiver-payload variant and every
+specialisation constant is the forward one. Its inputs are set 1, bindings 16 to 22: the
+four targets, the scene depth, the record table and a camera block (inverse
+view-projection and inverse view rotation). Per pixel it reconstructs the position once
+from depth, decodes the surface, and evaluates exactly the forward mesh shading after
+decals: `scene_surface_lighting` (sun with the cascades and the selected disk highlight,
+SH or hemisphere ambient, material and screen AO through the selected occlusion rules,
+environment lookup and BRDF factor), then `scene_record_scattering` and
+`scene_record_transmission` from the record, emission, and height fog and exposure once.
+Forward meshes and impostor cards call the same record functions. Pixels whose G3 is 0
+are discarded, so they keep the targets' clear; every lighting function still runs there
+so that the shadow lookups' derivatives stay in uniform control flow.
+
+Outputs, in the scene colour format at the scene extent: the exposed radiance (alpha 1
+where covered) and, when reflections are installed, the replaceable environment
+contribution and replacement factor that Opaque's second and third colour targets carry
+for SSR. In observation they are diagnostic targets cleared to zero every frame
+(`LightingTarget::Colour`, `Environment`, `Factor`), read only by captures as
+`FeatureTarget::DeferredLighting(target)`, so the visible frame stays forward. Shadow
+receiver-plane derivatives come from neighbouring pixels in the full-screen pass (the
+receiver payload, when present, is read per pixel instead), so they differ from forward
+at depth and normal discontinuities.
+
+### Rendering from the G-buffer
+
+`SceneOpaquePath::GBUFFER_RENDER`, `experiment(Render, AllStock, Compact,
+MaterialOwnedDepth)`, makes the visible frame come from the G-buffer. It needs the
+depth prepass (screen-space AO or reflections): without it the frame is refused with
+`FrameError::FeaturePreparation { feature: "opaque G-buffer" }` and the reason
+`rendering from the G-buffer needs the depth prepass`, and like the observation it
+refuses a multisampled frame. The frame is:
+
+1. The depth prepass clears and writes the scene depth, as in every prepass frame; SSAO
+   and the depth pyramid follow.
+2. `OpaqueGbuffer`: the producers store terrain, meshes and impostor cards, testing the
+   prepass depth `Equal` and writing none. When the frame's colour draws write the TAA
+   object-motion residual, the producers write it too (`@location(4)`, the same
+   residual as the forward velocity entries, zero for terrain), and the slot clears the
+   velocity target in Opaque's place.
+3. `OpaqueLighting`: the lighting pass takes Opaque's colour target and, with
+   reflections, its two reflection products, with Opaque's clears, so the lit surfaces
+   are the scene colour and SSR reads the lighting pass's environment and factor where
+   Opaque's draws wrote them before. No diagnostic lighting targets are allocated.
+4. `Opaque` loads those targets, the depth and the velocity and draws only what has no
+   producer: the sky, the celestial meshes and the dynamic meshes. Terrain and objects
+   are not drawn again.
+5. Water, transparency, SSR and post as in Forward: the after-opaque snapshot copies the
+   lit colour.
+
+The prepass stays the depth owner because it is already there in every frame that has
+producers (SSAO and SSR need it before Opaque), so the G-buffer slot adds no depth work;
+moving the depth writes into the slot would mean a second full depth pass or dropping
+the prepass's metadata outputs. Forward stays the default and draws the same bytes as
+before.
+
+Differences from Forward: the G-buffer quantisation above; scattering materials that also have a per-pixel
+metalness keep only the scattering amount; shadow receiver-plane derivatives come from
+screen neighbours, so shadow edges can differ by a texel at depth and normal
+discontinuities; impostor cards are lit through the mesh path, without the card shading's
+separate back-face shadow lookup for transmission (the far-side visibility uses the
+receiver's `-normal` lookup instead); and a masked surface's scene colour alpha is 1
+where forward wrote its coverage alpha.
+
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
-candidate-layout colour attachment byte costs, attachment limits, and material-record
+candidate-layout colour attachment byte costs, attachment limits, and lighting-record
 counts for a prepared scene. Callers invoke it explicitly; it is independent of
 `SceneOpaquePath` and creates no renderer resources. The report uses typed
-material-family classification, enforces the 16-bit material-ID capacity of 65,536
-records, and refuses sample counts other than one with a typed error.
+material-family classification, counts the distinct lighting records besides record 0
+over the scene's whole material table, enforces Compact's 255 and Wide's 65,535 records
+with `OpaqueAdmissionError::RecordOverflow`, and refuses sample counts other than one
+with a typed error.
 
 ## Native-resolution RCAS
 
@@ -1060,3 +1236,57 @@ fingerprint includes only submitted sample windows after view culling. Streaming
 observations remain present with zero drawn leaves when the camera misses terrain. See the
 [host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
 for counting units and identity encoding. Raw and cancelled draws do not publish.
+
+## Visible object contour IDs
+
+`SceneObject::with_contour_id` assigns a byte ID, with zero meaning no contour.
+`SceneEffects::with_contours` supplies a `SceneContours` table with exactly 256
+optional styles and a positive reference extent, defaulting to 1920 by 1080.
+Entry zero must be absent. Every nonzero object ID must name a defined style,
+including hidden live placements. Widths and shifts are integer millionths of
+reference pixels in 0 to 32; linear RGB is in 0 to 16, and alpha and strengths
+are in 0 to 1. Pulse powers are in (0,16] for a nonzero millisecond period;
+period zero is steady and ignores power. These quantities are authored in
+millionths. Fill and blend descriptions are retained CPU state; no contour
+colour composite is applied.
+
+`SceneGpu::set_instance_object` changes membership without changing the 80-byte
+GPU instance layout. `set_contours` replaces the table atomically and rejects
+removing any referenced ID. A sparse index tracks membership on edits, removals
+and slot reuse. Extraction from object templates preserves IDs.
+
+Stock, resident and shadowed composition schedule `PassSlot::ContourIds` once
+after Opaque. On Forward, Opaque draws the scene's opaque surfaces. With
+`GBUFFER_RENDER`, Opaque follows `OpaqueGbuffer` and `OpaqueLighting` and draws
+the remaining forward-only surfaces, so the ID pass sees the completed scene
+depth on either path. The observation path uses the same ordering. The pass
+writes only selected members, reusing their object programs, original instance
+ranges and skin streams. Its R8Uint target is cleared to zero and has the
+completed scene depth's sample count.
+Depth is loaded read-only, tested Equal and never written; the pass has no
+stencil ownership test, blending or integer alpha-to-coverage. Material alpha,
+fade, LOD, wind, skinning and relief visibility still participate. Fully hidden
+surfaces write no ID. Coplanar selected and unselected surfaces cannot be
+distinguished by depth alone.
+
+A table without live nonzero IDs prepares no contour pipelines and allocates no
+ID target or pass. Clearing the last ID removes the selected frame slot's target
+on successful submission; abandonment preserves its submitted target. Targets
+are isolated by admitted frame slot and replaced when their extent changes.
+Same-frame shadow depth-fitting captures provision the active slot's target before
+building the capture write contract and declare its physical allocation in the
+suffix. Suffix scheduling reuses that allocation without publishing it early.
+`RendererConfiguration::contour_ids` explicitly reserves the three-slot target
+budget and admits the format/sample combination; it defaults to false. The
+unconfigured `FrameRenderer` constructors allocate lazily when membership appears.
+Unsupported format/sample combinations fail instead of reducing MSAA.
+
+`FrameRenderer::contour_target` returns the selected slot's last submitted ID
+texture; `contour_statistics` describes that published target's pass, target and
+sample counts. These are snapshot values, not execution or allocation counters.
+`encode_contour_capture` records an explicit capture-only extraction into a
+single-sample R8Uint COPY_SRC texture. For sample index s, source pixel (x,y)
+appears at `(s * width + x, y)`. This reads exact unsigned IDs with textureLoad,
+without filtering, averaging or a hardware resolve. The ordinary ID target has
+no COPY_SRC usage. Capture may follow scene encoding in the same transaction or
+read its submitted result in a later transaction.

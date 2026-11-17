@@ -5013,6 +5013,7 @@ name = "worldrunner-render-gpu"
 version = "0.1.0"
 dependencies = [
  "pollster",
+ "tempfile",
  "thiserror 2.0.21",
  "wgpu",
  "worldrunner-render-gpu",
@@ -5094,6 +5095,7 @@ dependencies = [
  "worldrunner-render-program",
  "worldrunner-render-scene",
  "worldrunner-render-shadow",
+ "worldrunner-texture",
  "worldrunner-unity-serialized",
  "worldrunner-world-simulation",
 ]

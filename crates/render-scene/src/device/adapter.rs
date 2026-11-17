@@ -29,11 +29,14 @@ pub struct AdapterIdentity {
     pub class: AdapterClass,
     /// The wgpu graphics API used by this adapter, independent of hardware class.
     pub backend: wgpu::Backend,
+    /// The adapter's memory where the platform publishes it (Linux DRM sysfs), else `None`.
+    pub memory: Option<worldrunner_render_gpu::adapter_memory::AdapterMemory>,
 }
 
 impl From<wgpu::AdapterInfo> for AdapterIdentity {
     fn from(info: wgpu::AdapterInfo) -> Self {
         Self {
+            memory: worldrunner_render_gpu::adapter_memory::AdapterMemory::probe(&info),
             name: info.name,
             class: info.device_type.into(),
             backend: info.backend,

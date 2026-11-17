@@ -30,7 +30,7 @@ fn sun_visibility_capture_matches_cpu_occluder_projection_across_edge() {
                 &target.depth_attachment(),
                 encoder,
             )?;
-            renderer.encode_term_capture(context.device(), encoder, &capture);
+            renderer.encode_term_capture(context.device(), encoder, &capture)?;
             Ok::<_, ShadowError>(())
         })
         .unwrap();

@@ -131,11 +131,20 @@ claim about process memory: reclaiming memory needs every holder of the sources 
 drop them. Retained-host release, upload staging and material bind groups do not
 use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
-explicit single-map and cascaded directional shadows are implemented. The HDR
-profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
-validated scene settings. The legacy profile rejects post requests before upload.
-Textured-sky rendering, vignette, nonneutral contrast and saturation remain
-unsupported. Zero-weight unsupported requests still fail.
+explicit single-map and cascaded directional shadows are implemented. Each recorded
+frame retains the census entry for the shadow-map generation it uses: cancellation
+releases that hold, while submitted work keeps the generation counted until GPU
+completion, even after the scene replaces it. The HDR profile also supports SSAO,
+water, SSR, adaptive exposure, bloom and FXAA through validated scene settings. The
+legacy profile rejects post requests before upload. Textured-sky rendering, vignette,
+nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
+requests still fail.
+
+`ShadowedScene::encode_term_capture` and `encode_term_capture_with` replay initialized
+scene/frame state with its matching selected slot. Both return `Result<(), ShadowError>`
+and require the encoder of the active prepared transaction. Transaction or map-lease
+errors propagate as `ShadowError::Submission` before replay. A capture-only transaction
+retains the shadow-map generation independently of the ordinary frame that initialized it.
 
 A scene without an environmental profile renders unlit albedo plus emission,
 without lighting or grading. Directional shadows require an environmental

@@ -1,6 +1,8 @@
 use super::*;
 use crate::compositor::{FrameRenderer, encode_scene};
-use crate::draw::{EffectEnabled, PassExecution, PassInstallation, ReceiverBinding};
+use crate::draw::{
+    EffectEnabled, ObjectDraws, ObjectRecording, PassExecution, PassInstallation, ReceiverBinding,
+};
 use worldrunner_render_post::ToneMap;
 
 #[test]
@@ -142,6 +144,11 @@ fn depth_fit_observation(policy: crate::shadows::sdsm::AdoptionPolicy) {
         resident.gpu.statistics().effects.ssao.prepass,
         PassExecution::Ran
     );
+    let passes = resident.gpu.statistics().passes;
+    // Both camera passes record the camera's gathered groups, so they issue the same draws.
+    assert_eq!(passes.prepass_objects.recording, ObjectRecording::Compacted);
+    assert_eq!(passes.opaque_objects, passes.prepass_objects);
+    assert!(passes.opaque_objects.total().calls > 0);
     crate::scene_metadata::EXECUTED_PASSES.with_borrow(|passes| {
         assert_eq!(
             passes
@@ -181,12 +188,15 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         true,
     ));
     let mut feature = crate::compositor::SceneFeature {
+        contour: None,
         publications: crate::draw::DrawPublications::default(),
         frame: FrameUniform::new(&view(), Some(&resident.effects)).unwrap(),
         gpu: &mut resident.gpu,
         pipelines: &pipelines,
         screen: None,
         programs: None,
+        deferred: None,
+        renders: false,
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     FrameRenderer::new(context.device())
@@ -206,4 +216,7 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         resident.gpu.statistics().effects.ssao.prepass,
         PassExecution::Skipped
     );
+    let passes = resident.gpu.statistics().passes;
+    assert_eq!(passes.prepass_objects, ObjectDraws::default());
+    assert_eq!(passes.opaque_objects.recording, ObjectRecording::Compacted);
 }

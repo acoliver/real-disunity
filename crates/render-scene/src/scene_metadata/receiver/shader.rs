@@ -1,5 +1,6 @@
 use super::{ReceiverCapture, ReceiverLayout};
 use crate::scene_metadata::MetadataOutput;
+use crate::shader::rewrite::ShaderRewrite;
 use std::fmt::Write;
 
 fn fields(layout: ReceiverLayout, first: u32) -> String {
@@ -66,9 +67,21 @@ fn capture(layout: ReceiverLayout, bias: f32, terrain: bool) -> String {
 fn terrain_displacement(source: &str) -> String {
     // Keep the material footprint's plane solve, including its grazing-angle bounds.
     let solve = function(source, "terrain_quad_footprint")
-        .replace("terrain_quad_footprint(", "scene_receiver_displacement(")
-        .replace(") -> vec2<f32>", ") -> vec3<f32>")
-        .replace(
+        .anchored(
+            "scene_metadata::receiver::shader::terrain_displacement",
+            1,
+            "terrain_quad_footprint(",
+            "scene_receiver_displacement(",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::terrain_displacement",
+            1,
+            ") -> vec2<f32>",
+            ") -> vec3<f32>",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::terrain_displacement",
+            1,
             "clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4))",
             "clamp(displacement * direction, vec3<f32>(-1e4), vec3<f32>(1e4))",
         );
@@ -78,7 +91,9 @@ fn terrain_displacement(source: &str) -> String {
 pub(super) fn terrain_local(source: &str) -> String {
     let entry = "fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {";
     assert_eq!(source.matches(entry).count(), 1);
-    let mut prepared = source.replace(
+    let mut prepared = source.anchored(
+        "scene_metadata::receiver::shader::terrain_local",
+        1,
         entry,
         &format!("{entry}\n    scene_prepare_terrain_receiver(input);"),
     );
@@ -87,7 +102,7 @@ pub(super) fn terrain_local(source: &str) -> String {
             "bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpd{axis}(position) + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpd{axis}(position)), shadow.bias.y == 0.0))"
         );
         assert_eq!(prepared.matches(&hardware).count(), 2);
-        prepared = prepared.replace(&hardware, &format!("bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(scene_receiver_d{axis} + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(scene_receiver_d{axis}), shadow.bias.y == 0.0))"));
+        prepared = prepared.anchored("scene_metadata::receiver::shader::terrain_local", 2, &hardware, &format!("bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(scene_receiver_d{axis} + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(scene_receiver_d{axis}), shadow.bias.y == 0.0))"));
     }
     format!("{prepared}\n{}", terrain_displacement(source))
 }
@@ -120,15 +135,21 @@ pub(super) fn producer(
     let displacement = terrain_displacement(&terrain);
     let object = if merged {
         object
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                2,
                 "@location(1) material: vec4<f32>,",
                 &format!("@location(1) material: vec4<f32>,{extra}"),
             )
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                1,
                 "DIELECTRIC_F0), roughness));",
                 &format!("DIELECTRIC_F0), roughness){values});"),
             )
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                2,
                 "surface.material, depth.value",
                 &format!(
                     "surface.material{}, depth.value",
@@ -136,19 +157,25 @@ pub(super) fn producer(
                 ),
             )
     } else {
-        let object = object.replace("fn reflection_metadata(original: VertexOutput, front: bool, masked: bool, position: vec3<f32>, visible: bool) -> vec4<f32>", "fn reflection_metadata(original: VertexOutput, front: bool, masked: bool, position: vec3<f32>, visible: bool) -> SceneReceiverOutput")
-            .replace("return vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0);",
+        let object = object.anchored("scene_metadata::receiver::shader::producer", 1, "fn reflection_metadata(original: VertexOutput, front: bool, masked: bool, position: vec3<f32>, visible: bool) -> vec4<f32>", "fn reflection_metadata(original: VertexOutput, front: bool, masked: bool, position: vec3<f32>, visible: bool) -> SceneReceiverOutput")
+            .anchored("scene_metadata::receiver::shader::producer", 1, "return vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0);",
                 &format!("return SceneReceiverOutput(vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0){values});"));
         let object = object
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                2,
                 "-> @location(0) vec4<f32> { return reflection_metadata",
                 "-> SceneReceiverOutput { return reflection_metadata",
             )
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                2,
                 "front: bool) -> SceneSurfaceOutput {",
                 "front: bool) -> SceneReceiverReliefOutput {",
             )
-            .replace(
+            .anchored(
+                "scene_metadata::receiver::shader::producer",
+                2,
                 "SceneSurfaceOutput(metadata, depth.value)",
                 &format!(
                     "SceneReceiverReliefOutput(metadata.normal{}, depth.value)",
@@ -159,20 +186,21 @@ pub(super) fn producer(
             "{object}\nstruct SceneReceiverOutput {{ @location(0) normal: vec4<f32>,{extra} }}\nstruct SceneReceiverReliefOutput {{ @location(0) normal: vec4<f32>,{extra} @builtin(frag_depth) depth: f32, }}"
         )
     };
-    let object = object.replace("    return SceneMetadataOutput(", "    scene_capture_receiver(input.world_position, projected.normal);\n    return SceneMetadataOutput(")
-        .replace("    return SceneReceiverOutput(", "    scene_capture_receiver(input.world_position, projected.normal);\n    return SceneReceiverOutput(");
+    let object = capture_before_return(&object, merged);
     let terrain = if merged {
-        terrain.replace("@location(1) material: vec4<f32>,", &format!("@location(1) material: vec4<f32>,{extra}"))
-            .replace("projected.properties.x));", &format!("projected.properties.x){values});"))
-            .replace("return SceneMetadataOutput(", "scene_capture_receiver(input.world_position, projected.normal); return SceneMetadataOutput(")
+        terrain.anchored("scene_metadata::receiver::shader::producer", 1, "@location(1) material: vec4<f32>,", &format!("@location(1) material: vec4<f32>,{extra}"))
+            .anchored("scene_metadata::receiver::shader::producer", 1, "projected.properties.x));", &format!("projected.properties.x){values});"))
+            .anchored("scene_metadata::receiver::shader::producer", 1, "return SceneMetadataOutput(", "scene_capture_receiver(input.world_position, projected.normal); return SceneMetadataOutput(")
     } else {
         let normal =
             "vec4<f32>(normalize((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)";
-        terrain.replace("fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>", "fn fs_terrain(input: TerrainVertexOutput) -> SceneReceiverOutput")
-            .replace(&format!("return {normal};"), &format!("scene_capture_receiver(input.world_position, projected.normal); return SceneReceiverOutput({normal}{values});"))
+        terrain.anchored("scene_metadata::receiver::shader::producer", 1, "fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>", "fn fs_terrain(input: TerrainVertexOutput) -> SceneReceiverOutput")
+            .anchored("scene_metadata::receiver::shader::producer", 1, &format!("return {normal};"), &format!("scene_capture_receiver(input.world_position, projected.normal); return SceneReceiverOutput({normal}{values});"))
             + &format!("\nstruct SceneReceiverOutput {{ @location(0) normal: vec4<f32>,{extra} }}")
     };
-    let terrain = terrain.replace(
+    let terrain = terrain.anchored(
+        "scene_metadata::receiver::shader::producer",
+        1,
         "scene_capture_receiver(input.world_position, projected.normal)",
         "scene_capture_receiver(input, projected.normal)",
     );
@@ -185,6 +213,22 @@ pub(super) fn producer(
     )
 }
 
+/// Captures the receiver before the object returns: merged objects return the metadata
+/// output, the others the receiver output of [`producer`].
+fn capture_before_return(object: &str, merged: bool) -> String {
+    let output = if merged {
+        "    return SceneMetadataOutput("
+    } else {
+        "    return SceneReceiverOutput("
+    };
+    object.anchored(
+        "scene_metadata::receiver::shader::producer",
+        1,
+        output,
+        &format!("    scene_capture_receiver(input.world_position, projected.normal);\n{output}"),
+    )
+}
+
 fn capture_before_coverage(source: &str, evaluation: ReceiverCapture) -> String {
     let body = function(source, "reflection_metadata");
     let coverage = "if !scene_geometry_covered(input) || (masked && !(albedo.a >= scene_alpha_cutoff(input, false))) || !visible { discard; }";
@@ -192,15 +236,38 @@ fn capture_before_coverage(source: &str, evaluation: ReceiverCapture) -> String 
     assert_eq!(body.matches(coverage).count(), 1);
     assert_eq!(body.matches(capture).count(), 1);
     let prepared = if evaluation == ReceiverCapture::Position {
-        body.replace(capture, "").replace(
+        body.anchored(
+            "scene_metadata::receiver::shader::capture_before_coverage",
+            1,
+            capture,
+            "",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::capture_before_coverage",
+            1,
             coverage,
             &format!("scene_capture_receiver(input.world_position, geometric);\n    {coverage}"),
         )
     } else {
-        body.replace(coverage, "")
-            .replace(capture, &format!("{capture}\n    {coverage}"))
+        body.anchored(
+            "scene_metadata::receiver::shader::capture_before_coverage",
+            1,
+            coverage,
+            "",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::capture_before_coverage",
+            1,
+            capture,
+            &format!("{capture}\n    {coverage}"),
+        )
     };
-    source.replace(body, &prepared)
+    source.anchored(
+        "scene_metadata::receiver::shader::capture_before_coverage",
+        1,
+        body,
+        &prepared,
+    )
 }
 
 pub(super) fn function<'a>(source: &'a str, name: &str) -> &'a str {
@@ -233,8 +300,9 @@ fn loaded(function: &str, side: u32) -> String {
         let expression = format!(
             "let receiver_d{axis} = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>({position} + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>({position}), shadow.bias.y == 0.0));"
         );
-        assert_eq!(loaded.matches(&expression).count(), 1);
-        loaded = loaded.replace(
+        loaded = loaded.anchored(
+            "scene_metadata::receiver::shader::loaded",
+            1,
             &expression,
             &format!("let receiver_d{axis} = scene_receiver_load({side}).d{axis};"),
         );
@@ -246,36 +314,67 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
     let cascaded = function(source, "cascaded_sunlight_visibility");
     let raw = function(source, "raw_sunlight_visibility");
     let card = function(source, "scene_prepare_card_shadow");
-    let back_cascaded = loaded(cascaded, back).replacen(
+    let back_cascaded = loaded(cascaded, back).anchored_first(
+        "scene_metadata::receiver::shader::consumer",
+        1,
         "cascaded_sunlight_visibility",
         "scene_receiver_back_cascaded",
-        1,
     );
     let back_raw = raw
-        .replacen("raw_sunlight_visibility", "scene_receiver_back_raw", 1)
-        .replace(
+        .anchored_first(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            "raw_sunlight_visibility",
+            "scene_receiver_back_raw",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
             "cascaded_sunlight_visibility",
             "scene_receiver_back_cascaded",
         );
-    let back_card =
-        loaded(card, back).replacen("scene_prepare_card_shadow", "scene_receiver_back_card", 1);
+    let back_card = loaded(card, back).anchored_first(
+        "scene_metadata::receiver::shader::consumer",
+        1,
+        "scene_prepare_card_shadow",
+        "scene_receiver_back_card",
+    );
     let mut source = source
-        .replace(cascaded, &loaded(cascaded, 0))
-        .replace(card, &loaded(card, 0));
-    source = source
-        .replace(
-            "sunlight_visibility(input.world_position, -normal)",
-            "scene_receiver_back_visibility(input.world_position, -normal)",
+        .anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            cascaded,
+            &loaded(cascaded, 0),
         )
-        .replace(
-            "scene_prepare_card_shadow(input.world_position, -projected.normal)",
-            "scene_receiver_back_card(input.world_position, -projected.normal)",
+        .anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            card,
+            &loaded(card, 0),
         );
+    if !terrain {
+        // Only object surfaces shade a back side.
+        source = source
+            .anchored(
+                "scene_metadata::receiver::shader::consumer",
+                1,
+                "sunlight_visibility(input.world_position, -normal)",
+                "scene_receiver_back_visibility(input.world_position, -normal)",
+            )
+            .anchored(
+                "scene_metadata::receiver::shader::consumer",
+                1,
+                "scene_prepare_card_shadow(input.world_position, -projected.normal)",
+                "scene_receiver_back_card(input.world_position, -projected.normal)",
+            );
+    }
     if terrain {
         for name in ["fs_terrain", "shaded_terrain"] {
             if source.contains(&format!("fn {name}(")) {
                 let body = function(&source, name).to_owned();
-                source = source.replace(
+                source = source.anchored(
+                    "scene_metadata::receiver::shader::consumer",
+                    1,
                     &body,
                     &body.replacen(
                         '{',
@@ -286,7 +385,9 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
             }
         }
     } else {
-        source = source.replace("var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
+        // shade, shade_material (the G-buffer producers' material entry) and the forward card
+        // entry each start from the original vertex output.
+        source = source.anchored("scene_metadata::receiver::shader::consumer", 3, "var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
     }
     let source = if terrain {
         source

@@ -59,6 +59,9 @@ impl FrameRenderer {
             frame: *frame,
             screen: Some(source.geometry_for_depth(depth_mode)),
             programs: None,
+            contour: None,
+            deferred: None,
+            renders: false,
         };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,
@@ -117,8 +120,7 @@ impl FrameRenderer {
             textures.extend(ssr.textures());
         }
         if let Some(gbuffer) = &self.gbuffer {
-            textures
-                .extend(crate::gbuffer::GbufferTarget::ALL.map(|target| gbuffer.texture(target)));
+            textures.extend(gbuffer.written_textures());
         }
         if let Some(snapshots) = &self.snapshots {
             let snapshot = &snapshots[self.frame_slot];
@@ -135,6 +137,7 @@ impl FrameRenderer {
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
             super::publication::key(&self.temporal),
+            super::publication::key(&self.contours.published),
         ]
     }
 }

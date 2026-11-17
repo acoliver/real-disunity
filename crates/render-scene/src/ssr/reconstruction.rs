@@ -1,3 +1,4 @@
+use crate::shader::rewrite::ShaderRewrite;
 use std::fmt::Write;
 
 #[cfg(test)]
@@ -21,11 +22,11 @@ pub(super) fn source(levels: usize, banked: bool) -> String {
     source.push_str("default: { return vec2<i32>(1); } } }\n");
     if banked {
         source = source
-            .replace(
+            .anchored("ssr::reconstruction::source", 1,
                 "textureLoad(reflection_0, pixel + offset, 0)",
                 "textureLoad(reflection_0, pixel + offset, reflection_bank_index, 0)",
             )
-            .replace(
+            .anchored("ssr::reconstruction::source", 1,
                 "fn reconstructed_reflection(uv: vec2<f32>, sample: u32, receiver: ReflectionReceiver, roughness: f32) -> vec4<f32> {",
                 "fn reconstructed_reflection(uv: vec2<f32>, sample: u32, receiver: ReflectionReceiver, roughness: f32) -> vec4<f32> {\n    reflection_bank_index = select(0, 1, receiver.owner == 2u && camera.policy.x != 0.0);",
             );
@@ -44,7 +45,9 @@ pub(super) fn shared(source: &mut String, columns: u32) {
         start..end,
         "fn reflection_extent(level: u32) -> vec2<i32> { return logical_sizes[level]; }\n",
     );
-    *source = source.replace(
+    *source = source.anchored(
+        "ssr::reconstruction::shared",
+        1,
         "vec2<i32>(i32(sample) * reflection_extent(0u).x, 0)",
         &format!(
             "vec2<i32>(i32(sample % {columns}u), i32(sample / {columns}u)) * reflection_extent(0u)"

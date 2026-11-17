@@ -24,10 +24,11 @@ impl SceneSpecularCube {
                 part: "specular cube size",
             });
         }
-        let expected: u64 = (0..=size.ilog2())
-            .map(|mip| level_bytes(size >> mip))
-            .sum::<u64>()
-            * 6;
+        let expected = payload_bytes(
+            SceneSpecularCubeFormat::Bc6hRgbUfloat,
+            size,
+            size.ilog2() + 1,
+        );
         if u64::try_from(bytes.len()).expect("addressable cube bytes") != expected {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "specular cube mip payload",
@@ -57,10 +58,7 @@ impl SceneSpecularCube {
                 part: "specular cube extent or mips",
             });
         }
-        let expected: u64 = (0..mips)
-            .map(|m| u64::from(size >> m).pow(2) * 8)
-            .sum::<u64>()
-            * 6;
+        let expected = payload_bytes(SceneSpecularCubeFormat::Rgba16Float, size, mips);
         if bytes.len() as u64 != expected {
             return Err(SceneValidationError::UnsupportedInput {
                 part: "specular cube mip payload",
@@ -91,10 +89,7 @@ impl SceneSpecularCube {
         self.format
     }
     fn level_bytes(&self, size: u32) -> u64 {
-        match self.format {
-            SceneSpecularCubeFormat::Bc6hRgbUfloat => level_bytes(size),
-            SceneSpecularCubeFormat::Rgba16Float => u64::from(size).pow(2) * 8,
-        }
+        format_level_bytes(self.format, size)
     }
     pub const fn size(&self) -> u32 {
         self.size
@@ -122,6 +117,19 @@ impl SceneSpecularCube {
 }
 fn level_bytes(size: u32) -> u64 {
     u64::from(size.div_ceil(4)).pow(2) * 16
+}
+fn format_level_bytes(format: SceneSpecularCubeFormat, size: u32) -> u64 {
+    match format {
+        SceneSpecularCubeFormat::Bc6hRgbUfloat => level_bytes(size),
+        SceneSpecularCubeFormat::Rgba16Float => u64::from(size).pow(2) * 8,
+    }
+}
+/// Payload length of six faces holding `mips` levels each; `mips` must not exceed `size.ilog2() + 1`.
+pub(super) fn payload_bytes(format: SceneSpecularCubeFormat, size: u32, mips: u32) -> u64 {
+    (0..mips)
+        .map(|mip| format_level_bytes(format, size >> mip))
+        .sum::<u64>()
+        * 6
 }
 
 #[cfg(test)]

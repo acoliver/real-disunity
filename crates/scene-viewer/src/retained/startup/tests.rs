@@ -5,6 +5,7 @@ fn identity() -> crate::AdapterIdentity {
         name: "synthetic surface adapter".into(),
         class: crate::AdapterClass::Integrated,
         backend: wgpu::Backend::Metal,
+        memory: None,
     }
 }
 

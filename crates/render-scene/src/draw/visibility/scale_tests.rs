@@ -114,3 +114,51 @@ fn scale_validation_and_default_instance_bytes() {
         assert!(object.with_lod_distance_scale_millionths(scale).is_ok());
     }
 }
+
+#[test]
+fn scaled_ceilings_admit_exactly_the_distances_the_rational_test_admits() {
+    let mut value = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = || {
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        value
+    };
+    let mut ceilings: Vec<u128> = [0_u64, 1, 3, 999_999_999_999, 1_000_000_000_000, 4_000_000]
+        .map(u128::from)
+        .into_iter()
+        .chain([u128::from(u64::MAX).pow(2), u128::MAX, u128::MAX - 1])
+        .collect();
+    let mut scales = vec![
+        None,
+        Some(1),
+        Some(7),
+        Some(999_999),
+        Some(1_000_000),
+        Some(100_000_000),
+    ];
+    for _ in 0..2_000 {
+        let meters = u128::from(next() % 2_000_000);
+        ceilings.push(meters * meters + u128::from(next() % 1_000));
+        scales.push(Some(1 + u32::try_from(next() % 100_000_000).unwrap()));
+    }
+    for (index, &ceiling) in ceilings.iter().enumerate() {
+        for &scale in scales
+            .iter()
+            .skip(index % 7)
+            .step_by(97)
+            .chain(&scales[..6])
+        {
+            let limit = scaled_ceiling(ceiling, scale);
+            let mut distances = vec![0, 1, u128::MAX, ceiling, u128::from(next())];
+            distances.extend([limit.saturating_sub(1), limit, limit.saturating_add(1)]);
+            for distance in distances {
+                assert_eq!(
+                    distance <= limit,
+                    within_ceiling(distance, ceiling, scale),
+                    "{distance} {ceiling} {scale:?}"
+                );
+            }
+        }
+    }
+}

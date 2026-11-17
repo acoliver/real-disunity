@@ -1,5 +1,6 @@
 use crate::frame::FrameUniform;
 use crate::frame::metadata::FrameProduct;
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_post::{DrawContext, PrepareContext, PreparedFeature};
 
 pub(crate) struct SnapshotFeature {
@@ -273,7 +274,9 @@ fn source_layout(device: &wgpu::Device, samples: u32, depth: bool) -> wgpu::Bind
 
 fn snapshot_source(samples: u32) -> String {
     include_str!("snapshot.wgsl")
-        .replace(
+        .anchored(
+            "water::snapshots::snapshot_source",
+            1,
             "SOURCE_COLOR",
             if samples == 1 {
                 "texture_2d<f32>"
@@ -281,7 +284,9 @@ fn snapshot_source(samples: u32) -> String {
                 "texture_multisampled_2d<f32>"
             },
         )
-        .replace(
+        .anchored(
+            "water::snapshots::snapshot_source",
+            1,
             "SOURCE_DEPTH",
             if samples == 1 {
                 "texture_depth_2d"
@@ -289,8 +294,15 @@ fn snapshot_source(samples: u32) -> String {
                 "texture_depth_multisampled_2d"
             },
         )
-        .replace("SAMPLE_COUNT", &samples.to_string())
-        .replace(
+        .anchored(
+            "water::snapshots::snapshot_source",
+            3,
+            "SAMPLE_COUNT",
+            &samples.to_string(),
+        )
+        .anchored(
+            "water::snapshots::snapshot_source",
+            1,
             "DEPTH_LOAD",
             if samples == 1 {
                 "textureLoad(source_depth, pixel, 0)"
@@ -298,7 +310,9 @@ fn snapshot_source(samples: u32) -> String {
                 "textureLoad(source_depth, pixel, sample_index)"
             },
         )
-        .replace(
+        .anchored(
+            "water::snapshots::snapshot_source",
+            1,
             "COLOR_LOAD",
             if samples == 1 {
                 "textureLoad(source_color, pixel, 0)"

@@ -156,11 +156,9 @@ pub(super) fn record<E>(
 ) -> Result<PreparedFrame, CaptureError<E>> {
     authority.check_device()?;
     let scope = Rc::new(WriteScope::new(allowed, active));
-    let mut publications = Publications {
-        scope: Some(scope.clone()),
-        ..Publications::default()
-    };
-    let mut recording = authority.record(device, publications.clone(), false);
+    let mut recording = authority.record(device, Some(scope.clone()), false);
+    // The callback gets the frame's own write set: its authority, transaction and staging.
+    let mut publications = recording.publications();
     prepare(&mut recording, &mut publications).map_err(CaptureError::Preparation)?;
     scope.result()?;
     authority.check_device()?;

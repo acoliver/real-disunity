@@ -62,6 +62,7 @@ fn payload(texture: &SceneTexture) -> *const u8 {
         SceneTexture::Sampled { texture, .. } => payload(texture),
         SceneTexture::SpecularCube(cube) => cube.bytes().as_ptr(),
         SceneTexture::Texels { bytes, .. } | SceneTexture::Encoded { bytes, .. } => bytes.as_ptr(),
+        SceneTexture::Released(_) => panic!("table-sharing fixture requires source texture bytes"),
     }
 }
 
@@ -302,6 +303,7 @@ fn replacement_revalidates_texture_payloads_before_material_handles() {
     let invalid = SceneResources {
         textures: textures.into(),
         materials: vec![].into(),
+        logical_bytes: 0,
     };
     assert_eq!(
         invalid.with_materials(vec![SceneMaterial::new(material_parts()).unwrap()]),

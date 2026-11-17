@@ -70,6 +70,16 @@ impl<'fonts> UiDrawList<'fonts> {
             .push(self.clips.last().expect("root clip").intersect(rect));
         Ok(())
     }
+    /// Push a clip bounded only by the viewport, independently of the active clip.
+    /// Popping restores the previous clip, including any ancestor intersections.
+    pub fn push_clip_replace(&mut self, rect: UiRect) -> Result<(), UiError> {
+        rect.validate()?;
+        if self.clips.len() >= self.limits.max_stack_depth {
+            return Err(UiError::StackLimit);
+        }
+        self.clips.push(self.clips[0].intersect(rect));
+        Ok(())
+    }
     pub fn pop_clip(&mut self) -> Result<(), UiError> {
         if self.clips.len() == 1 {
             return Err(UiError::StackUnderflow);
@@ -189,6 +199,7 @@ impl<'fonts> UiDrawList<'fonts> {
             uv_rect,
             color: self.effective(color),
             corner_colors: None,
+            distance_field: None,
             texture,
             sorting_layer: self.order.layer,
             sorting_order: self.order.order,

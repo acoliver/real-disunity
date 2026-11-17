@@ -143,7 +143,7 @@ pub(super) fn upload_materials(
     queue: &Queue,
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
-) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
+) -> MaterialUpload {
     let views = bindings.views;
     let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
     let inputs = GroupInputs {
@@ -156,22 +156,31 @@ pub(super) fn upload_materials(
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     let mut tables = Vec::new();
+    let mut records = crate::gbuffer::records::LightingRecordTable::default();
     for material in scene.resources().materials() {
-        let uniform = upload_buffer(
-            device,
-            queue,
-            "material",
-            BufferUsages::UNIFORM,
-            &super::fade::uniform(scene, material),
-        );
+        let mut bytes: [u8; crate::pipeline::MATERIAL_UNIFORM_BYTES] =
+            super::fade::uniform(scene, material)
+                .try_into()
+                .expect("one material uniform");
+        records.assign(&mut bytes);
+        let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
         let (group, table) = material_group(device, &inputs, material, &uniform, sampler);
         groups.push(group);
         tables.push(table);
         uniforms.push(uniform);
     }
-    (groups, uniforms, tables)
+    (groups, uniforms, tables, records)
 }
+
+/// Each material's bind group, uniform buffer and program imports, and the lighting records
+/// their uniforms index.
+pub(super) type MaterialUpload = (
+    Vec<BindGroup>,
+    Vec<Buffer>,
+    Vec<ImportTable>,
+    crate::gbuffer::records::LightingRecordTable,
+);
 
 /// Uploads already packed mesh levels without processing source geometry.
 pub(super) fn upload_meshes(
@@ -186,6 +195,7 @@ pub(super) fn upload_meshes(
                 .lods
                 .iter()
                 .map(|lod| GpuLod {
+                    layout: lod.layout,
                     transition: lod.transition.as_ref().map(|bytes| {
                         upload_buffer(
                             device,
@@ -411,6 +421,7 @@ pub(super) fn post_settings(
 
 fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMesh) -> GpuLod {
     GpuLod {
+        layout: crate::object::layout::GeometryLayout::Static,
         transition: None,
         vertices: upload_buffer(
             device,
@@ -459,7 +470,7 @@ pub(super) fn scene_materials(
     pipelines: &crate::renderer::ScenePipelines,
     textures: (&[TextureView], &TextureView),
     heights: &Buffer,
-) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
+) -> MaterialUpload {
     upload_materials(
         device,
         queue,

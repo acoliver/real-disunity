@@ -5,10 +5,13 @@ use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
-use placement::BatchBounds;
+pub(super) use casters::{caster_matrix, caster_placement};
+pub(super) use select::with_placements;
 
+mod casters;
 mod fade;
 mod placement;
+mod select;
 
 /// Object placement counts for one recorded view, excluding terrain.
 /// Hidden live placements count as culled; removed placements are not considered.
@@ -52,6 +55,19 @@ impl Bounds {
             min: center - extent,
             max: center + extent,
         }
+    }
+
+    /// `transformed`, grown by a margin that covers its rounding for this box and for every
+    /// box inside it. A point outside the result is outside the `transformed` box of every
+    /// box this one contains, so group culling can reject a group from its box alone.
+    pub(super) fn transformed_enclosing(self, matrix: Mat4) -> Self {
+        let center = (self.min + self.max) * 0.5;
+        let reach = center.abs() + (self.max - self.min) * 0.5;
+        let magnitude = matrix.x_axis.truncate().abs() * reach.x
+            + matrix.y_axis.truncate().abs() * reach.y
+            + matrix.z_axis.truncate().abs() * reach.z
+            + matrix.w_axis.truncate().abs();
+        self.transformed(matrix).expanded(magnitude * GROUP_MARGIN)
     }
 
     fn support(self, plane: Vec4) -> f32 {
@@ -111,27 +127,59 @@ impl MeshSelection {
         }
     }
 
-    pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
-        self.ceilings_squared
-            .iter()
-            .position(|&ceiling| within_ceiling(distance_squared, ceiling, scale_millionths))
-            .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
+    /// Levels of detail of the mesh.
+    pub(super) fn levels(&self) -> usize {
+        self.ceilings_squared.len()
     }
 
+    /// Fills `ceilings` with each level's squared distance ceiling for a placement whose LOD
+    /// distances scale by `scale_millionths`.
+    pub(super) fn scaled_ceilings(&self, scale_millionths: Option<u32>, ceilings: &mut [u128]) {
+        for (scaled, &ceiling) in ceilings.iter_mut().zip(&self.ceilings_squared) {
+            *scaled = scaled_ceiling(ceiling, scale_millionths);
+        }
+    }
+
+    /// The level a placement draws at from a squared distance, given its `scaled_ceilings`:
+    /// the first whose ceiling the distance does not exceed, else the last.
+    pub(super) fn level(distance_squared: u128, ceilings: &[u128]) -> usize {
+        ceilings
+            .iter()
+            .position(|&ceiling| distance_squared <= ceiling)
+            .unwrap_or_else(|| ceilings.len().saturating_sub(1))
+    }
+
+    #[cfg(test)]
+    pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
+        let mut ceilings = vec![0; self.levels()];
+        self.scaled_ceilings(scale_millionths, &mut ceilings);
+        Self::level(distance_squared, &ceilings)
+    }
+
+    /// The distance from the mesh origin to the farthest point of its bounding box, in metres.
+    pub(super) fn radius(&self) -> f32 {
+        self.bounds.min.abs().max(self.bounds.max.abs()).length()
+    }
+
+    /// The bounds of a placement over the vertices of every level. `reach` is how far, in the
+    /// mesh's own space, a pose can carry a vertex from its bind position.
     pub(super) fn wind_bounds(
         &self,
         transform: &SceneTransform,
         extent: Vec3,
         curved: Option<Vec3>,
         shape: [f32; 2],
+        reach: f32,
     ) -> Bounds {
         let [shaped_radius, capture_radius] = shape;
-        let mut bounds = self.world_bounds(transform);
         let model = model_matrix(transform);
         let scale = model.x_axis.truncate().length();
+        let mut bounds = self
+            .world_bounds(transform)
+            .expanded(Vec3::splat(reach * scale));
         if shaped_radius > 0.0 {
             let center = model.w_axis.truncate();
-            let extent = Vec3::splat(shaped_radius * scale * 1.000_01);
+            let extent = Vec3::splat((shaped_radius + reach) * scale * 1.000_01);
             bounds.min = bounds.min.min(center - extent);
             bounds.max = bounds.max.max(center + extent);
         }
@@ -140,12 +188,7 @@ impl MeshSelection {
         };
         // Each arc is bounded by twice its input length, including arbitrary
         // force directions. Projection and attachment together fit six radii.
-        let radius = self
-            .bounds
-            .min
-            .abs()
-            .max(self.bounds.max.abs())
-            .length()
+        let radius = (self.radius() + reach)
             .max(self.billboard_radius.unwrap_or(0.0))
             .max(shaped_radius)
             + capture_radius;
@@ -162,7 +205,7 @@ impl MeshSelection {
         impostor: [f32; 3],
         relief_stretch: f32,
     ) -> Bounds {
-        self.wind_bounds(transform, wind, curved, [impostor[0], impostor[2]])
+        self.wind_bounds(transform, wind, curved, [impostor[0], impostor[2]], 0.0)
             .expanded(Vec3::splat(
                 impostor[2] * model_matrix(transform).x_axis.truncate().length(),
             ))
@@ -215,6 +258,25 @@ impl MeshSelection {
     }
 }
 
+/// The largest squared distance within `ceiling` once LOD distances scale by `scale`
+/// millionths: `distance / scale^2 <= ceiling / 10^12` holds exactly for the squared distances
+/// up to it, so a placement compares one integer per level instead of dividing.
+fn scaled_ceiling(ceiling: u128, scale: Option<u32>) -> u128 {
+    const UNIT_SQUARED: u128 = 1_000_000_000_000;
+    let Some(scale) = scale else {
+        return ceiling;
+    };
+    let scale_squared = u128::from(scale) * u128::from(scale);
+    // floor(ceiling * scale^2 / 10^12), split so the remainder product stays below 10^28. A
+    // ceiling beyond u128 admits every squared distance.
+    (ceiling / UNIT_SQUARED)
+        .checked_mul(scale_squared)
+        .and_then(|whole| whole.checked_add(ceiling % UNIT_SQUARED * scale_squared / UNIT_SQUARED))
+        .unwrap_or(u128::MAX)
+}
+
+/// The scaled ceiling test before `scaled_ceiling`, kept as its reference.
+#[cfg(test)]
 fn within_ceiling(distance: u128, ceiling: u128, scale: Option<u32>) -> bool {
     const UNIT_SQUARED: u128 = 1_000_000_000_000;
     let Some(scale) = scale else {
@@ -283,6 +345,42 @@ impl Frustum {
             .iter()
             .all(|&plane| bounds.support(plane) >= 0.0)
     }
+
+    /// Whether `intersects` is true for every box inside `bounds`: `bounds` lies in front of
+    /// every plane by more than the rounding of any of those tests.
+    pub fn contains(&self, bounds: Bounds) -> bool {
+        let center = (bounds.min + bounds.max) * 0.5;
+        let half = (bounds.max - bounds.min) * 0.5;
+        let reach = center.abs() + half;
+        self.planes.iter().all(|&plane| {
+            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
+            let nearest = plane.truncate().dot(center) + plane.w - plane.truncate().abs().dot(half);
+            nearest > GROUP_MARGIN * magnitude
+        })
+    }
+
+    /// Whether `intersects` is false for every box inside `bounds`: some plane leaves
+    /// `bounds` behind it by more than the rounding of any of those tests.
+    pub fn excludes(&self, bounds: Bounds) -> bool {
+        let center = (bounds.min + bounds.max) * 0.5;
+        let reach = center.abs() + (bounds.max - bounds.min) * 0.5;
+        self.planes.iter().any(|&plane| {
+            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
+            bounds.support(plane) < -GROUP_MARGIN * magnitude
+        })
+    }
+}
+
+/// Relative margin of group culling. A box test rounds by a few units in the last place of
+/// its operands, about 1e-6 of their magnitude in f32, so a group rejected by more than this
+/// margin holds no placement the exact per-placement test could keep.
+pub(super) const GROUP_MARGIN: f32 = 1e-5;
+
+/// The view tests a group of placements passes for every placement inside it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Passed {
+    frustum: bool,
+    slice: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -317,78 +415,49 @@ impl Selection {
         self.stats.drawn_per_lod.fill(0);
     }
 
-    #[cfg(test)]
-    pub fn rebuild(
-        &mut self,
-        instances: &Instances,
-        meshes: &[MeshSelection],
+    /// The view tests every placement inside `group` passes, given those its parent passed;
+    /// none when the view admits no placement inside it.
+    fn classify(
+        &self,
+        frustum: &Frustum,
         matrix: Mat4,
-        eye_millimeters: [i64; 3],
-    ) {
-        self.rebuild_with_eye(
-            instances,
-            meshes,
-            matrix,
-            eye_millimeters,
-            millimeters_to_meters(eye_millimeters),
-        );
-    }
-
-    pub fn rebuild_with_eye(
-        &mut self,
-        instances: &Instances,
-        meshes: &[MeshSelection],
-        matrix: Mat4,
-        eye_millimeters: [i64; 3],
-        fade_eye: Vec3,
-    ) {
-        self.reset(meshes);
-        let frustum = Frustum::new(matrix);
-        let relief_stretch = if instances
-            .impostor_extents
-            .iter()
-            .any(|extent| extent[1] != 0.0)
-        {
-            relief_ray_stretch(matrix)
-        } else {
-            1.0
-        };
-        for (&key, batch) in &instances.batches {
-            let mesh = &meshes[key.1];
-            let mut bounds = BatchBounds::new(mesh, instances, key.2, batch);
-            // Traversal scans allocated slots; removed slots contribute neither
-            // selection work nor statistics.
-            for (slot, object, visible) in batch.placements() {
-                self.stats.considered += 1;
-                if !visible
-                    || (self.casters_only && !object.casts_shadow())
-                    || !self.admits(
-                        &frustum,
-                        matrix,
-                        bounds.placement(slot, object.transform(), relief_stretch),
-                    )
-                {
-                    self.stats.culled += 1;
-                    continue;
-                }
-                let distance_squared =
-                    distance_squared(object.transform().position_millimeters, eye_millimeters);
-                let lod = mesh.lod(distance_squared, object.lod_distance_scale_millionths());
-                if mesh.fade_empty(instances, object, lod, fade_eye) {
-                    self.stats.culled += 1;
-                    continue;
-                }
-                self.push(key, lod, slot);
-            }
+        group: Bounds,
+        passed: Passed,
+    ) -> Option<Passed> {
+        if !passed.frustum && frustum.excludes(group) {
+            return None;
         }
+        let slice = match &self.slice {
+            None => true,
+            Some(_) if passed.slice => true,
+            Some(slice) if slice.excludes(group, matrix) => return None,
+            Some(slice) => slice.covers(group, matrix),
+        };
+        Some(Passed {
+            frustum: passed.frustum || frustum.contains(group),
+            slice,
+        })
     }
 
-    fn admits(&self, frustum: &Frustum, matrix: Mat4, placement: Bounds) -> bool {
-        frustum.intersects(placement)
-            && self
-                .slice
-                .as_ref()
-                .is_none_or(|slice| slice.overlaps(placement, matrix))
+    /// Whether the view volume and slice admit a placement inside a group that `passed`
+    /// those tests already; `placement` computes its bounds when a test remains.
+    fn admits(
+        &self,
+        frustum: &Frustum,
+        matrix: Mat4,
+        passed: Passed,
+        placement: impl FnOnce() -> Bounds,
+    ) -> bool {
+        if passed.frustum && passed.slice {
+            return true;
+        }
+        let placement = placement();
+        (passed.frustum || frustum.intersects(placement))
+            && (passed.slice
+                || self
+                    .slice
+                    .as_ref()
+                    .is_none_or(|slice| slice.overlaps(placement, matrix)))
     }
 
     fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {
@@ -419,79 +488,6 @@ fn distance_squared(position: [i64; 3], eye: [i64; 3]) -> u128 {
             sum.checked_add(delta * delta)
         })
         .expect("squared placement distance exceeds u128 millimetres")
-}
-
-/// Extend only the toward-light depth end of the authored receiver volume.
-/// XY coverage and its far end stay fixed. Casters beyond the original near
-/// plane must also fit the depth projection, not merely survive CPU culling.
-/// Caster bounds of a visible shadow-casting placement, before any view's relief stretch.
-pub(super) fn caster_placement(
-    instances: &Instances,
-    meshes: &[MeshSelection],
-    handle: crate::instances::InstanceHandle,
-) -> Option<super::caster_edits::CasterBounds> {
-    let (key, slot) = instances.location(handle).ok()?;
-    let batch = &instances.batches[&key];
-    let (object, visible) = batch.get(slot);
-    if !visible || !object.casts_shadow() {
-        return None;
-    }
-    let mesh = &meshes[key.1];
-    let bounds =
-        BatchBounds::new(mesh, instances, key.2, batch).placement(slot, object.transform(), 0.0);
-    let relief = std::iter::once(key.2)
-        .chain(
-            mesh.material_slots
-                .iter()
-                .flatten()
-                .flatten()
-                .map(|slot| slot.material().raw() as usize),
-        )
-        .map(|material| instances.impostor_extents[material][1])
-        .fold(0.0, f32::max);
-    Some(super::caster_edits::CasterBounds { bounds, relief })
-}
-
-pub(super) fn caster_matrix(
-    instances: &Instances,
-    meshes: &[MeshSelection],
-    terrain: Option<Bounds>,
-    receiver: Mat4,
-) -> Mat4 {
-    let mut near = terrain.map_or(0.0, |bounds| caster_near(bounds, receiver));
-    for (&(_, mesh, material), batch) in &instances.batches {
-        let mut bounds = BatchBounds::new(&meshes[mesh], instances, material, batch);
-        // Scan allocated slots, excluding removed placements from caster fitting.
-        for (slot, object, visible) in batch
-            .placements()
-            .filter(|(_, object, visible)| *visible && object.casts_shadow())
-        {
-            debug_assert!(visible);
-            near = near.min(caster_near(
-                bounds.placement(slot, object.transform(), 0.0),
-                receiver,
-            ));
-        }
-    }
-    let scale = (1.0 - near).recip();
-    let mut remap = Mat4::IDENTITY;
-    remap.z_axis.z = scale;
-    remap.w_axis.z = -near * scale;
-    remap * receiver
-}
-
-fn caster_near(bounds: Bounds, receiver: Mat4) -> f32 {
-    let bounds = bounds.transformed(receiver);
-    if bounds.min.x <= 1.0
-        && bounds.max.x >= -1.0
-        && bounds.min.y <= 1.0
-        && bounds.max.y >= -1.0
-        && bounds.min.z <= 1.0
-    {
-        bounds.min.z.min(0.0)
-    } else {
-        0.0
-    }
 }
 
 pub(super) fn terrain_bounds(vertices: &[u8]) -> Bounds {
@@ -528,6 +524,18 @@ mod cache_tests;
 
 #[cfg(test)]
 mod fade_tests;
+
+#[cfg(test)]
+mod large_scene;
+
+#[cfg(test)]
+mod equality_tests;
+
+#[cfg(test)]
+mod group_tests;
+
+#[cfg(test)]
+mod timing_probe;
 
 pub(super) fn has_relief(instances: &Instances, meshes: &[MeshSelection]) -> bool {
     instances.batches.iter().any(|(key, batch)| {

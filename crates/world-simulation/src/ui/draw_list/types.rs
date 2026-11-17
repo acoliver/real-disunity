@@ -176,6 +176,10 @@ pub enum UiTextEffect {
     None,
     /// Offset in final screen axes, after stretching and rotation.
     Shadow { color: [f32; 4], offset: Vec2 },
+    /// Outward band in physical screen pixels, combined beneath the fill.
+    Outline { color: [f32; 4], size: f32 },
+    /// Smooth distance falloff in physical screen pixels, combined beneath the fill.
+    Glow { color: [f32; 4], size: f32 },
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiTextPlacement {

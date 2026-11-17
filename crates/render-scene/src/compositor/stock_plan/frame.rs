@@ -281,6 +281,20 @@ fn derive<'s>(
         Some((declaration, feature)) => (Some(declaration), Some(feature)),
         None => (None, None),
     };
+    if let (Some(metadata), Some(screen)) = (environment.ssao, screen_declaration.as_mut()) {
+        let others = authored
+            .features
+            .iter()
+            .chain(&reflection_declaration)
+            .chain(&snapshot_declaration)
+            .chain(&retained);
+        crate::ssao::passes::schedule_declared_reads(
+            metadata,
+            (&mut passes, &mut views),
+            screen,
+            others,
+        )?;
+    }
     if let Some(gbuffer) = environment.gbuffer {
         let declared = authored
             .features

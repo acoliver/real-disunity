@@ -219,3 +219,37 @@ fn instance_buffers_count_in_the_authority_census_until_the_scene_drops() {
         0
     );
 }
+
+#[test]
+fn scene_textures_and_mesh_buffers_count_in_the_authority_census_until_the_scene_drops() {
+    use worldrunner_render_gpu::census::{ResourceClass, texture_bytes};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    // A private authority, so other scenes on the shared device do not touch its tally.
+    let authority =
+        worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
+    let source = super::super::decals::source(false, true);
+    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let gpu = SceneGpu::upload(context.device(), &authority, &source, &pipelines).unwrap();
+    let textures: u64 = gpu
+        .retained
+        .textures
+        .iter()
+        .map(|texture| texture_bytes(texture))
+        .sum();
+    let meshes: u64 = gpu
+        .meshes
+        .iter()
+        .flat_map(|mesh| &mesh.lods)
+        .flat_map(|lod| lod.transition.iter().chain([&lod.vertices, &lod.indices]))
+        .map(wgpu::Buffer::size)
+        .sum();
+    assert!(textures > 0 && meshes > 0);
+    let snapshot = authority.census().snapshot();
+    assert_eq!(snapshot.get(ResourceClass::Texture), textures);
+    assert_eq!(snapshot.get(ResourceClass::Mesh), meshes);
+    drop(gpu);
+    let snapshot = authority.census().snapshot();
+    assert_eq!(snapshot.get(ResourceClass::Texture), 0);
+    assert_eq!(snapshot.get(ResourceClass::Mesh), 0);
+}

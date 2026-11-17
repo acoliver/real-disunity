@@ -128,7 +128,7 @@ impl RendererConfiguration {
             self.allocations_with_history(retained_effect_history)
         }
     }
-    fn prepass_metadata(&self) -> Option<worldrunner_render_plan::SceneSsao> {
+    fn prepass_metadata(&self) -> Option<super::depth_reuse::Prepass> {
         super::depth_reuse::prepass_metadata(
             self.ssao,
             self.ssr.as_ref(),
@@ -221,6 +221,17 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
                 "scene depth ownership reserve",
                 [w, h, 1],
                 wgpu::TextureFormat::Depth32Float,
+                [1, 1],
+                1,
+            );
+        }
+        // Depth-only frames keep every stage for features that declare reads of them, and
+        // add the constant occlusion texel their receivers bind.
+        if settings.prepass_metadata() == Some(super::depth_reuse::Prepass::DepthOnly) {
+            set.texture(
+                "neutral ambient occlusion",
+                [1, 1, 1],
+                wgpu::TextureFormat::R32Float,
                 [1, 1],
                 1,
             );

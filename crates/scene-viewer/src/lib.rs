@@ -13,7 +13,8 @@ mod activity;
 pub use activity::ActivityReason;
 mod adapter;
 pub use adapter::{
-    AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent, InitialContext,
+    AdapterCallback, AdapterClass, AdapterIdentity, AdapterMemory, AdapterMemorySource,
+    FrameSettings, InitialContent, InitialContext,
 };
 mod app;
 pub mod cpu_profile;

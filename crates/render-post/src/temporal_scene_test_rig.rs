@@ -12,6 +12,7 @@ use crate::{
 };
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
+use worldrunner_render_gpu::submission::PreparedFrame;
 
 pub(crate) const OUTPUT: [u32; 2] = [160, 96];
 
@@ -298,8 +299,9 @@ impl SceneRig {
         history_valid: bool,
         (tail, camera): ([f32; 4], Option<TemporalCamera>),
     ) {
-        let commands = self.record(index, history_valid, tail, camera);
-        self.queue.submit([commands]);
+        self.record(index, history_valid, tail, camera)
+            .submit()
+            .unwrap();
         self.frames.submitted();
     }
 
@@ -335,7 +337,7 @@ impl SceneRig {
         history_valid: bool,
         tail: [f32; 4],
         camera: Option<TemporalCamera>,
-    ) -> wgpu::CommandBuffer {
+    ) -> PreparedFrame {
         let offset = self.jitter.offset_pixels(index);
         let block = TemporalBlock {
             render: self.render,
@@ -345,25 +347,22 @@ impl SceneRig {
             settings: TaaSettings::new(0.9),
             history_valid,
         };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        self.chain.targets().encode_mask_clear(&mut encoder);
-        self.paint(&mut encoder, offset, tail);
-        let factory = &self.chain.factory().inner;
-        if let Some(camera) = camera {
-            factory.prepare_temporal_camera(&mut encoder, 0, camera);
-        }
-        self.frames.select(factory, history_valid);
-        factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
-        factory
-            .prepare_effects(&mut encoder, 0, 0.031, true)
-            .unwrap();
-        let view = self
-            .sink
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        self.chain.encode(&mut encoder, &view);
-        encoder.finish()
+        crate::record_frame(&self.device, &self.queue, |encoder| {
+            self.chain.targets().encode_mask_clear(encoder);
+            self.paint(encoder, offset, tail);
+            let factory = &self.chain.factory().inner;
+            if let Some(camera) = camera {
+                factory.prepare_temporal_camera(encoder, 0, camera)?;
+            }
+            self.frames.select(factory, history_valid);
+            factory.prepare_temporal(encoder, 0, &block)?;
+            factory.prepare_effects(encoder, 0, 0.031, true)?;
+            let view = self
+                .sink
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            self.chain.encode(encoder, &view);
+            Ok::<_, crate::PostError>(())
+        })
     }
 
     /// The HDR reconstruction of the last frame, mean of the colour channels, row major.

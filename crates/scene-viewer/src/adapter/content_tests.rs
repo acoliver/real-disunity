@@ -193,6 +193,7 @@ fn identity() -> AdapterIdentity {
         name: "selected".into(),
         class: AdapterClass::Integrated,
         backend: wgpu::Backend::Metal,
+        memory: None,
     }
 }
 

@@ -76,6 +76,18 @@ impl RenderScene {
                 found.push(("a reducible texture is a fade threshold texture", texture));
             }
             if let Some(impostor) = material.impostor() {
+                for texture in [
+                    Some(material.albedo()),
+                    material.normal(),
+                    material.roughness_metallic(),
+                    material.ambient_occlusion(),
+                    material.self_illumination(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    found.push(("a reducible texture is an impostor atlas", texture));
+                }
                 let maps = [
                     impostor.relief().map(|(texture, _)| texture),
                     impostor.borders(),

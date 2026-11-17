@@ -65,6 +65,23 @@ impl ProgramArena {
         self.ledger.close_arena(self.id);
         Ok(())
     }
+
+    /// [`Self::retire`] after the completion bookkeeping of the last frame that held the arena
+    /// has run, for a caller that waited for that frame: the bookkeeping runs on whichever
+    /// thread's poll took the completion, possibly after this thread's wait returned (hub issue
+    /// 4d2b47c55165). Polls `device` without blocking until then or until `deadline`.
+    ///
+    /// # Errors
+    /// As [`Self::retire`]; `Busy` when a frame still holds the arena at the deadline.
+    pub fn retire_settled(
+        &mut self,
+        device: &wgpu::Device,
+        deadline: std::time::Instant,
+    ) -> Result<(), ProgramError> {
+        self.owner.retire_settled(device, deadline)?;
+        self.ledger.close_arena(self.id);
+        Ok(())
+    }
 }
 
 /// Dropping the arena stops the runtime allocating under it, as retiring does.

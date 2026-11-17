@@ -125,6 +125,13 @@ struct TargetSet {
     depth: Option<TextureId>,
 }
 
+/// Whether a viewport of `rect` (x, y, width, height in pixels) covers a target of `size`.
+fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
+    let [x, y, width, height] = rect.map(f64::from);
+    let [target_width, target_height] = size.map(f64::from);
+    x <= 0.0 && y <= 0.0 && x + width >= target_width && y + height >= target_height
+}
+
 /// The global values and keywords as the commands left them, and whether a record has yet to
 /// carry the change.
 struct Globals {
@@ -137,6 +144,10 @@ struct Globals {
 pub(super) struct Script {
     /// What the draws after a `SetRenderTarget` go to.
     pub(super) target: Option<Attachments>,
+    /// The rectangle in pixels (x, y, width, height) the draws after a `SetViewport` cover on every
+    /// attachment of the bound set, until a target or a camera setup binds targets again. `None` is
+    /// the whole target.
+    viewport: Option<[f32; 4]>,
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
@@ -161,6 +172,7 @@ impl Script {
     ) -> Self {
         Self {
             target: None,
+            viewport: None,
             camera: None,
             globals: Globals {
                 layer: globals,
@@ -196,6 +208,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
+        OffscreenWork::SetViewport { .. } => "SetViewport",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
     }
@@ -213,7 +226,8 @@ impl Mapper<'_> {
             | OffscreenWork::SetupCamera { .. }
             | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
-            | OffscreenWork::SetViewProjection { .. } => {
+            | OffscreenWork::SetViewProjection { .. }
+            | OffscreenWork::SetViewport { .. } => {
                 self.set_state(work)?;
                 Ok(Vec::new())
             }
@@ -321,6 +335,7 @@ impl Mapper<'_> {
             OffscreenWork::SetViewProjection { view, projection } => {
                 self.set_view_projection(view, projection);
             }
+            OffscreenWork::SetViewport { rect } => self.script.viewport = Some(*rect),
             _ => unreachable!("{} makes a record", kind(work)),
         }
         Ok(())
@@ -453,6 +468,17 @@ impl Mapper<'_> {
         }
     }
 
+    /// The targets a clear or a draw goes to. A draw is refused while a recorded viewport leaves
+    /// part of them uncovered, because the offscreen host draws every pass over its whole target.
+    pub(super) fn bound_target(&self) -> Result<Attachments, Skip> {
+        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
+        match (self.script.viewport, self.target_size()) {
+            (None, _) => Ok(target),
+            (Some(rect), Some(size)) if covers(rect, size) => Ok(target),
+            (Some(_), _) => Err(Skip::PartialViewport),
+        }
+    }
+
     /// How many mips a texture of the frame has, or 0 for one that is not there.
     fn mips_of(&self, texture: TextureId) -> u32 {
         self.described(texture).map_or(0, |held| held.mip_count)
@@ -539,6 +565,7 @@ impl Mapper<'_> {
             colors: colors.into_iter().map(at).collect(),
             depth: depth_texture.map(at),
         });
+        self.script.viewport = None;
         Ok(())
     }
 
@@ -569,7 +596,7 @@ impl Mapper<'_> {
         value: [f32; 4],
         (depth_value, stencil_value): (f32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         if !(color || depth || stencil) {
             return Ok(Vec::new());
         }
@@ -606,6 +633,7 @@ impl Mapper<'_> {
             projection: Mat4::from_cols_array(projection),
             viewport,
         });
+        self.script.viewport = None;
         // A target that cannot be named leaves nothing bound, so the next clear or draw is refused
         // instead of reaching the target an earlier command bound.
         let set = match self.resolve_set(&target) {

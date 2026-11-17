@@ -93,7 +93,7 @@ fn accumulated_capture_keeps_offscreen_packet_when_admission_is_blocked() {
         .unwrap(),
     )
     .unwrap();
-    let packet = host.offscreen.as_ref().unwrap() as *const _;
+    let packet = std::ptr::from_ref(host.offscreen.as_ref().unwrap());
     let before = authority.submitted_serial();
     let first = renderer
         .execution

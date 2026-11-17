@@ -54,7 +54,7 @@ fn offscreen_preparation_pending_rejects_fitted_generation_without_frame_submiss
     let authority = renderer.context.submission().clone();
     let (operations, _image, _runtime) = clearing_operations(&device, &authority);
     host.admit_offscreen(operations);
-    let packet = host.offscreen.as_ref().unwrap() as *const _;
+    let packet = std::ptr::from_ref(host.offscreen.as_ref().unwrap());
     let serial = authority.submitted_serial();
     let capture_frame = renderer.streaming.captures.next_frame();
 

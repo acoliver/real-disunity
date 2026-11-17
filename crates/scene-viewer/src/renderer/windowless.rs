@@ -38,12 +38,23 @@ impl Renderer {
                 recipes: true,
             },
         )?;
+        let mut streaming = readiness::Streaming::with_shadow_policy(
+            options.shadows,
+            options.frame_profile,
+            shadow_policy,
+        );
+        streaming.tiers.policy = options.texture_tiers;
+        #[cfg(test)]
+        {
+            streaming.tiers.memory_override = host.texture_tier_memory_override;
+        }
         let resident = super::environment::new_resident(
             &context,
             scene,
             options.shadows,
             options.frame_profile,
             &mut presentation,
+            &mut streaming.tiers,
         )?;
         let execution =
             target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;
@@ -61,11 +72,7 @@ impl Renderer {
             frame_time: std::time::Duration::ZERO,
             live_upload: None,
             live_pending: None,
-            streaming: readiness::Streaming::with_shadow_policy(
-                options.shadows,
-                options.frame_profile,
-                shadow_policy,
-            ),
+            streaming,
         };
         renderer.check_errors()?;
         #[cfg(not(all(test, target_os = "linux")))]

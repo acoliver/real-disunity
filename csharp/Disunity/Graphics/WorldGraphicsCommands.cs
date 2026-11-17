@@ -105,6 +105,10 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
     }
 
+    /// <summary>Records the rectangle in pixels of the bound targets that the draws after it cover.</summary>
+    internal static void RecordSetViewport(Rect pixelRect) =>
+        Check(NativeBindings.disunity_offscreen_set_viewport(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
+
     /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
     /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
     /// of the block reaches a later draw.</summary>

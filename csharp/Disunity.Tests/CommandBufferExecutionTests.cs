@@ -43,6 +43,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: a temporary render texture is a blit source and target, a copy source and target, and a global texture");
             ViewProjectionIsRecordedColumnByColumn();
             Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
+            ViewportIsRecordedBetweenTargetAndDraw();
+            Console.WriteLine("PASS: SetViewport records its rectangle in order with the target and the draw, and refuses a value that is not finite or a negative size");
             DrawMeshIsRecordedInOrder();
             Console.WriteLine("PASS: DrawMesh records the mesh identity, matrix, material, sub-mesh and pass after the target, clear and view of the portrait helper, and the world refuses a matrix that is not finite");
             ReleasedAndNullBuffersAreRefused();
@@ -269,6 +271,38 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(0, Taken().Length, "a refused change records nothing");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.SetViewProjectionMatrices(view, projection), "a released buffer");
+    }
+
+    private static void ViewportIsRecordedBetweenTargetAndDraw()
+    {
+        var target = Target();
+        var mesh = new Mesh();
+        mesh.vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(0, 1, 0)];
+        mesh.triangles = [0, 1, 2];
+        var material = new Material(Material.SpriteLit);
+        var buffer = new CommandBuffer();
+        buffer.SetRenderTarget(target);
+        buffer.SetViewport(new Rect(2, 3.5f, 8, 4));
+        buffer.DrawMesh(mesh, Matrix4x4.identity, material);
+        buffer.SetViewport(new Rect(-1, 0, 0, 0));
+        Expect.Equal(4, buffer.commandCount, "each call records one command");
+        Expect.Equal(0, Taken().Length, "nothing reaches the world before the buffer runs");
+        Graphics.ExecuteCommandBuffer(buffer);
+        var taken = Taken();
+        Same(["SetRenderTarget", "Viewport", "DrawMesh", "Viewport"], taken.Select(line => line.Split(' ')[0]).ToArray(), "the order the buffer recorded");
+        Same(["Viewport rect=(2 3.5 8 4)", "Viewport rect=(-1 0 0 0)"], [taken[1], taken[3]], "the rectangles as the world holds them");
+        foreach (var rect in new[]
+        {
+            new Rect(float.NaN, 0, 1, 1), new Rect(0, float.PositiveInfinity, 1, 1), new Rect(0, 0, float.NegativeInfinity, 1),
+            new Rect(0, 0, 1, float.NaN), new Rect(0, 0, -1, 1), new Rect(0, 0, 1, -0.5f),
+        })
+        {
+            var bad = new CommandBuffer();
+            Throws<ArgumentException>(() => bad.SetViewport(rect), $"the rectangle {rect}", "CommandBuffer.SetViewport");
+            Expect.Equal(0, bad.commandCount, "a refused rectangle records nothing");
+        }
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.SetViewport(new Rect(0, 0, 1, 1)), "a released buffer", "CommandBuffer");
     }
 
     private static void DrawMeshIsRecordedInOrder()

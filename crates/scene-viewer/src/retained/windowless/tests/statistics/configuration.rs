@@ -1,4 +1,5 @@
 use super::*;
+mod texture_tiers;
 use worldrunner_render_plan::SceneOpaquePath;
 
 struct QueuedCapture {
@@ -20,14 +21,21 @@ fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
         (1, SceneOpaquePath::GBUFFER_OBSERVATION, 3_000_000, 225),
         (2, SceneOpaquePath::GBUFFER_RENDER, 2_000_000, 213),
     ] {
+        let prior = run.host().statistics().copied();
         if generation != 0 {
             let effects = gbuffer_effects(run.host().scene().effects().unwrap(), path, exposure);
             run.host_mut()
                 .apply(RetainedUpdate::Settings(Box::new(effects)))
                 .unwrap();
+            assert_eq!(run.host().statistics().copied(), prior);
         }
         assert_eq!(run.host().accepted_generation(), generation);
         let capture = submit_capture(&mut run, center);
+        assert_eq!(capture.statistics.scene.textures.resident_bytes, 4);
+        assert_eq!(
+            capture.statistics.scene.textures.uploaded_bytes,
+            if generation == 0 { 4 } else { 0 }
+        );
         assert_eq!(run.host().scene().effects().unwrap().opaque_path(), path);
         assert_gbuffer_generation(&capture.statistics, generation, path);
         if let Some(previous) = previous_frame {
@@ -46,6 +54,8 @@ fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
     let steady = *run.host().statistics().unwrap();
     assert!(steady.frame > previous_frame.unwrap());
     assert_gbuffer_generation(&steady, 2, SceneOpaquePath::GBUFFER_RENDER);
+    assert_eq!(steady.scene.textures.resident_bytes, 4);
+    assert_eq!(steady.scene.textures.uploaded_bytes, 0);
     run.renderer.drain().unwrap();
     run.poll().unwrap();
     for capture in &captures {
@@ -165,11 +175,6 @@ fn assert_gbuffer_generation(
     );
     assert_eq!(statistics.scene.passes.prepass_objects.meshes.calls, 1);
     assert_eq!(statistics.scene.passes.prepass_objects.meshes.instances, 1);
-    assert_eq!(statistics.scene.textures.resident_bytes, 4);
-    assert_eq!(
-        statistics.scene.textures.uploaded_bytes,
-        if generation == 0 { 4 } else { 0 }
-    );
     let meshes = statistics.scene.mesh_buffers;
     assert!(meshes.resident_bytes > 0);
     assert_eq!(

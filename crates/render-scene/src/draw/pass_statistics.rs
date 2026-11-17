@@ -145,12 +145,9 @@ impl PassCounters {
     }
 }
 impl SceneGpu {
-    /// Clears the pass counters for the frame `context` prepares. A prepass that a geometry
-    /// prefix already submitted in this frame keeps the count that prefix published.
-    pub(crate) fn reset_pass_statistics(
-        &self,
-        context: &worldrunner_render_post::PrepareContext<'_>,
-    ) {
+    /// Clears the frame's pass counters, keeping prepass counts when that pass already ran
+    /// in this frame or a submitted geometry prefix.
+    pub(crate) fn reset_pass_statistics(&self, keep_prepass: bool) {
         for counter in [
             &self.pass_counters.ui,
             &self.pass_counters.ui_depth_tested,
@@ -163,7 +160,7 @@ impl SceneGpu {
         {
             counter.record(DrawCount::default());
         }
-        if !context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass) {
+        if !keep_prepass {
             self.pass_counters
                 .prepass_objects
                 .record(ObjectDraws::default());

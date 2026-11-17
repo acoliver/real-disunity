@@ -1,3 +1,4 @@
+mod opaque_admission;
 mod resource_budget;
 mod resource_edits;
 mod shadow_direction;

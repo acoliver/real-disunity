@@ -50,7 +50,7 @@ mod water_hit_facing_tests;
 pub(crate) mod water_tests;
 use super::*;
 use crate::device::GpuContext;
-use worldrunner_render_post::{Readback, ToneMap};
+use worldrunner_render_post::{PassEntry, Readback, ToneMap};
 
 fn settings() -> SceneSsr {
     SceneSsr {
@@ -535,7 +535,7 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
             &mut [],
             (frame(), None)
         ),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(entry)) if entry == PassEntry::new(PassSlot::Opaque)
     ));
     encoder.finish().submit().unwrap();
 }

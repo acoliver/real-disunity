@@ -56,3 +56,22 @@ impl SceneGpu {
         self.lighting_records.table()
     }
 }
+
+impl crate::compositor::FrameRenderer {
+    /// After receiver admission, returns whether Render reconstructs Front from G3/depth.
+    /// Releases only displacement backing; canonical normal/SSR material targets stay owned.
+    pub(crate) fn prepare_reconstructed_front_receiver(&mut self) -> bool {
+        if !self
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders)
+        {
+            return false;
+        }
+        if let Some(screen) = &mut self.ssao {
+            screen.receiver = None;
+            screen.receiver_backing = None;
+        }
+        true
+    }
+}

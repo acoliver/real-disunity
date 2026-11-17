@@ -1,3 +1,4 @@
+use crate::compositor::forward_order::forward_position;
 use crate::frame::metadata::FrameProduct;
 #[path = "kernels.rs"]
 mod kernels;
@@ -182,6 +183,14 @@ impl ScreenPasses {
 
     pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
         self.stages.iter().map(|stage| &stage.target).collect()
+    }
+
+    /// The roles of the stages and what each reads, which decide the passes they schedule.
+    pub(crate) fn schedule_shape(&self) -> Vec<(PassSlot, Vec<ResourceRef>)> {
+        self.stages
+            .iter()
+            .map(|stage| (stage.slot, stage.reads.clone()))
+            .collect()
     }
 
     pub(crate) fn schedule_metadata(
@@ -526,9 +535,10 @@ impl ScreenFeature<'_> {
         let mut screen_passes = Vec::new();
         crate::ssao::passes::prepass(ssao, self.material, &mut screen_passes, views)?;
         let declaration = ssao.passes.schedule(&mut screen_passes, views)?;
+        let anchor = forward_position(PassSlot::DepthNormalPrepass);
         let insertion = passes
             .iter()
-            .position(|pass| pass.slot >= PassSlot::DepthNormalPrepass)
+            .position(|pass| forward_position(pass.slot) >= anchor)
             .unwrap_or(passes.len());
         passes.splice(insertion..insertion, screen_passes);
 

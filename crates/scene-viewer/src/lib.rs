@@ -327,5 +327,5 @@ pub use retained::{
     TerrainStreamingStatistics,
 };
 pub use retained::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };

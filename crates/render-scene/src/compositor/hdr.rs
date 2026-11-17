@@ -18,7 +18,7 @@ struct HdrSetup {
     post: HdrPostSettings,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
-    metadata: Option<worldrunner_render_plan::SceneSsao>,
+    metadata: Option<depth_reuse::Prepass>,
     gbuffer: Option<crate::gbuffer::Gbuffer>,
     factory: ToneMapOutput,
 }
@@ -139,9 +139,7 @@ fn construct_renderer(
         temporal: std::rc::Rc::default(),
         ssao: setup
             .metadata
-            .map(|settings| {
-                crate::scene_metadata::SceneMetadata::new(device, request.size, settings)
-            })
+            .map(|prepass| prepass.metadata(device, request.context.queue(), request.size))
             .transpose()?,
         chain: worldrunner_render_post::PostChain::with_scene_depth(
             device,

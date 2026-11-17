@@ -64,7 +64,7 @@ public static partial class Graphics
         if (depthSlice != 0) throw NoPath(overload, "a depth slice other than 0, which a record cannot address");
         var from = WorldGraphics.RequireTexture(source, $"Graphics.{overload}", "source");
         if (!dest.IsCreated()) dest.Create();
-        WorldGraphics.RecordBlit(from, dest.WorldId, mat is null ? 0UL : mat.WorldLink.Id, pass);
+        WorldGraphics.RecordBlit(from, (WorldGraphics.TargetRender, dest.WorldId), mat is null ? 0UL : mat.WorldLink.Id, pass);
     }
 
     /// <summary>Copies every mip level both textures have, on element 0.</summary>
@@ -79,7 +79,7 @@ public static partial class Graphics
         var (from, target) = CopyEnds("CopyTexture(Texture, int, int, Texture, int, int)", src, srcElement, dst, dstElement);
         CheckMip(src, srcMip, "srcMip");
         CheckMip(dst, dstMip, "dstMip");
-        WorldGraphics.RecordCopy(from, (uint)srcElement, (uint)srcMip, target, (uint)dstElement, (uint)dstMip);
+        WorldGraphics.RecordCopy(from, (uint)srcElement, (uint)srcMip, (WorldGraphics.TargetRender, target), (uint)dstElement, (uint)dstMip);
     }
 
     public static void CopyTexture(Texture src, int srcElement, int srcMip, int srcX, int srcY, int srcWidth, int srcHeight, Texture dst,
@@ -93,7 +93,7 @@ public static partial class Graphics
     {
         var (from, target) = CopyEnds(overload, src, srcElement, dst, dstElement);
         for (var mip = 0; mip < Math.Min(src.mipmapCount, dst.mipmapCount); mip++)
-            WorldGraphics.RecordCopy(from, (uint)srcElement, (uint)mip, target, (uint)dstElement, (uint)mip);
+            WorldGraphics.RecordCopy(from, (uint)srcElement, (uint)mip, (WorldGraphics.TargetRender, target), (uint)dstElement, (uint)mip);
     }
 
     /// <summary>Validates the two textures of a copy and returns the source as the world holds it and the destination's render

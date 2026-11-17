@@ -3,7 +3,7 @@
 //! read comes from the texture's description in each frame's snapshot.
 
 use worldrunner_world_simulation::graphics::OffscreenWork;
-use worldrunner_world_simulation::graphics::TextureRef;
+use worldrunner_world_simulation::graphics::{TargetRef, TextureRef};
 
 use super::gpu::{Rig, SIDE, camera_render};
 use super::support::{render_texture, world};
@@ -48,7 +48,7 @@ fn a_filter_change_between_frames_keeps_what_the_camera_drew() {
             source: TextureRef::Render(drawn),
             source_element: 0,
             source_mip: 0,
-            target: copy,
+            target: TargetRef::Render(copy),
             target_element: 0,
             target_mip: 0,
         })

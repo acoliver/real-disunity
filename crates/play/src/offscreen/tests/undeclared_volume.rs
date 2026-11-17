@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use worldrunner_world_simulation::graphics::{OffscreenWork, TextureRef};
+use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef};
 
 use super::gpu::{Rig, SIDE, shader, target};
 use super::support::world;
@@ -19,7 +19,7 @@ fn a_blit_whose_3d_slot_nothing_sets_reads_the_grey_volume_and_is_counted_by_pro
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target: out,
+            target: TargetRef::Render(out),
             material: Some(material),
             pass: 0,
         })

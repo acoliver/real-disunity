@@ -17,6 +17,7 @@ impl SceneResources {
             textures,
             materials,
             logical_bytes,
+            reducible_textures: Arc::new([]),
         };
         resources.validate_from(resources.textures.len(), 0)?;
         Ok(resources)
@@ -39,6 +40,7 @@ impl SceneResources {
             textures: self.textures,
             materials: Arc::new(materials),
             logical_bytes: self.logical_bytes,
+            reducible_textures: self.reducible_textures,
         };
         resources.validate()?;
         Ok(resources)
@@ -54,7 +56,9 @@ impl SceneResources {
     /// Returns the same [`SceneValidationError`] as [`Self::new`] for an invalid
     /// texture or a material reference the new table no longer satisfies.
     pub fn with_textures(&self, textures: Vec<SceneTexture>) -> Result<Self, SceneValidationError> {
-        Self::adopt(Arc::new(textures), Arc::clone(&self.materials))
+        let mut resources = Self::adopt(Arc::new(textures), Arc::clone(&self.materials))?;
+        resources.reducible_textures = Arc::clone(&self.reducible_textures);
+        Ok(resources)
     }
 
     /// Returns both owned tables without copying their storage or payloads.

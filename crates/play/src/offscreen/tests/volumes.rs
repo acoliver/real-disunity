@@ -13,7 +13,7 @@ use worldrunner_render_program::unity::synthetic::compute_spirv;
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, OffscreenWork, PropertyValue, RenderTextureId, ShaderSource,
-    TextureRef, WorldComputeShader, dimension,
+    TargetRef, TextureRef, WorldComputeShader, dimension,
 };
 
 use super::super::flush::{FlushOutcome, OffscreenHost};
@@ -289,7 +289,7 @@ fn a_blit_that_names_a_3d_texture_is_refused_by_name_and_the_rest_runs() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(volume),
-            target: copied,
+            target: TargetRef::Render(copied),
             material: Some(material),
             pass: 0,
         })

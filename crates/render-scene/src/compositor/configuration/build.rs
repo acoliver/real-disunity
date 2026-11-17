@@ -86,9 +86,7 @@ fn new_renderer(
         exposure_reset: std::rc::Rc::default(),
         temporal: std::rc::Rc::default(),
         ssao: metadata
-            .map(|ssao| {
-                crate::scene_metadata::SceneMetadata::new(device, settings.frame.size, ssao)
-            })
+            .map(|prepass| prepass.metadata(device, context.queue(), settings.frame.size))
             .transpose()?,
         ssr: None,
         ssao_requested: settings.ssao,

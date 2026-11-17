@@ -127,6 +127,7 @@ struct ScreenShape {
     /// Whether the metadata carries a producer, whether it writes early outputs, and their formats.
     producer: Option<(bool, Vec<wgpu::TextureFormat>)>,
     receiver: Option<Vec<wgpu::TextureFormat>>,
+    computes_occlusion: bool,
     stages: Vec<(PassSlot, Vec<ResourceRef>)>,
 }
 
@@ -150,6 +151,7 @@ impl ScreenShape {
                 .receiver
                 .as_ref()
                 .map(|receiver| receiver.layout.formats()),
+            computes_occlusion: screen.passes.computes_occlusion(),
             stages: screen.passes.schedule_shape(),
         }
     }
@@ -239,4 +241,28 @@ impl Identity {
 #[cfg(any(test, debug_assertions))]
 pub(super) fn identities(views: &[AttachmentView]) -> Vec<ViewIdentity> {
     views.iter().map(ViewIdentity::new).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_shape_distinguishes_computed_occlusion_from_depth_only_metadata() {
+        let base = ScreenShape {
+            settings: crate::ssr::neutral_ao(),
+            size: [64, 64],
+            depth_format: wgpu::TextureFormat::Depth32Float,
+            merged: false,
+            producer: None,
+            receiver: None,
+            computes_occlusion: true,
+            stages: Vec::new(),
+        };
+        let mut depth_only = base.clone();
+        depth_only.computes_occlusion = false;
+
+        assert_eq!(base.stages, depth_only.stages);
+        assert_ne!(base, depth_only);
+    }
 }

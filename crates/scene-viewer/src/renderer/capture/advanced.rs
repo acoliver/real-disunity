@@ -62,61 +62,89 @@ impl Renderer {
         &mut self,
         host: &mut RetainedHost,
     ) -> Result<Option<bool>, ViewerError> {
+        if host.offscreen.is_some() && !self.admit_retained_offscreen(host)? {
+            return Ok(Some(false));
+        }
         if self.streaming.captures.active.is_none() {
-            let queued = host.captures.waiting.iter().any(|r| {
-                host.captures
-                    .recipes
-                    .get(&r.0)
-                    .is_some_and(RetainedCaptureRecipe::accumulated)
-            });
-            if !queued {
-                return Ok(None);
+            match self.start_queued_recipe(host)? {
+                Some(true) => {}
+                Some(false) => return Ok(Some(false)),
+                None => return Ok(None),
             }
-            self.publish_retained(host)?;
-            let Some(view) = host.view()? else {
-                return Ok(Some(false));
-            };
-            let pages = self.retained_pages_ready(host, &view)?;
-            let request = host
-                .captures
-                .waiting
-                .iter()
-                .find(|r| host.capture_ready(r, pages));
-            let Some(&(id, _, _)) = request else {
-                return Ok(None);
-            };
-            let Some(recipe) = host
-                .captures
-                .recipes
-                .get(&id)
-                .filter(|r| r.accumulated())
-                .cloned()
-            else {
-                return Ok(None);
-            };
-            let pool = host.capture_pool_bytes();
-            host.captures
-                .resize_reservation(id, host.size(), pool)
-                .map_err(|error| ViewerError::Driver(error.to_string()))?;
-            let size = Viewport {
-                width: host.size()[0],
-                height: host.size()[1],
-            };
-            self.streaming.captures.active = Some(Active {
-                id,
-                frame: self.streaming.captures.next_frame(),
-                scene: None,
-                temporal_history_reset: crate::TemporalHistoryReset::None,
-                time: self.clock.time(),
-                view,
-                size,
-                accumulation: Accumulation::new(size, &recipe),
-                recipe,
-                sample: 0,
-                pending: None,
-            });
         }
         self.submit_recipe_sample(host).map(Some)
+    }
+
+    fn start_queued_recipe(
+        &mut self,
+        host: &mut RetainedHost,
+    ) -> Result<Option<bool>, ViewerError> {
+        let queued = host.captures.waiting.iter().any(|r| {
+            host.captures
+                .recipes
+                .get(&r.0)
+                .is_some_and(RetainedCaptureRecipe::accumulated)
+        });
+        if !queued {
+            return Ok(None);
+        }
+        if host.offscreen.is_none() {
+            self.publish_retained(host)?;
+        }
+        let Some(view) = host.view()? else {
+            return Ok(Some(false));
+        };
+        let pages = self.retained_pages_ready(host, &view)?;
+        let request = host
+            .captures
+            .waiting
+            .iter()
+            .find(|r| host.capture_ready(r, pages));
+        let Some(&(id, _, _)) = request else {
+            return Ok(None);
+        };
+        let Some(recipe) = host
+            .captures
+            .recipes
+            .get(&id)
+            .filter(|r| r.accumulated())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        self.start_recipe(host, &view, id, recipe)?;
+        Ok(Some(true))
+    }
+
+    fn start_recipe(
+        &mut self,
+        host: &mut RetainedHost,
+        view: &SceneView,
+        id: u64,
+        recipe: RetainedCaptureRecipe,
+    ) -> Result<(), ViewerError> {
+        let pool = host.capture_pool_bytes();
+        host.captures
+            .resize_reservation(id, host.size(), pool)
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        let size = Viewport {
+            width: host.size()[0],
+            height: host.size()[1],
+        };
+        self.streaming.captures.active = Some(Active {
+            id,
+            frame: self.streaming.captures.next_frame(),
+            scene: None,
+            temporal_history_reset: crate::TemporalHistoryReset::None,
+            time: self.clock.time(),
+            view: *view,
+            size,
+            accumulation: Accumulation::new(size, &recipe),
+            recipe,
+            sample: 0,
+            pending: None,
+        });
+        Ok(())
     }
     fn submit_recipe_sample(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
         let active = self

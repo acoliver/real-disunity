@@ -66,6 +66,21 @@ impl Renderer {
 }
 
 impl Renderer {
+    pub(super) fn admit_retained_offscreen(
+        &mut self,
+        host: &mut RetainedHost,
+    ) -> Result<bool, ViewerError> {
+        let serial = self.context.submission().submitted_serial();
+        self.publish_retained(host)?;
+        if serial != self.context.submission().submitted_serial() {
+            return Ok(false);
+        }
+        self.reject_offscreen_depth_fitting(host)?;
+        Ok(true)
+    }
+}
+
+impl Renderer {
     /// Publishes every generation that is ready, in order. A live driver sends several updates
     /// a frame (resources, objects, UI, camera), so publishing one a frame would let the queue
     /// grow until it refuses updates. Publishing stops at the first generation that is not ready

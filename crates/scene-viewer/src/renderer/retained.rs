@@ -1,8 +1,39 @@
 use super::{Renderer, Resident};
 use crate::{ObjectId, RetainedHost, RetainedUpdate, SceneObjectEdit, ViewerError};
 use std::collections::BTreeMap;
+use worldrunner_render_gpu::flight::CompletionTicket;
 use worldrunner_render_plan::SceneEffects;
-use worldrunner_render_scene::draw::{InstanceHandle, SceneGpu};
+use worldrunner_render_scene::{
+    SceneView,
+    draw::{InstanceHandle, SceneGpu},
+};
+
+pub(super) fn finish_admitted_frame(
+    renderer: &mut Renderer,
+    host: Option<&mut RetainedHost>,
+    view: &SceneView,
+    retained_capture: Option<(u64, super::capture::Products)>,
+    ticket: CompletionTicket,
+) -> Result<(), ViewerError> {
+    if let Some(host) = host {
+        renderer.submitted_camera_history(host);
+        let temporal_history_reset = renderer.temporal_history_reset();
+        host.present_pick(view.resolved_view());
+        let statistics = renderer.scene_statistics();
+        renderer.streaming.captures.submitted(
+            host,
+            retained_capture,
+            ticket,
+            renderer.frame_time,
+            &statistics,
+            temporal_history_reset,
+        )?;
+    } else {
+        renderer.streaming.captures.advance_frame();
+    }
+    renderer.check_errors()?;
+    Ok(())
+}
 
 #[derive(Default)]
 pub(super) struct Objects {
@@ -171,7 +202,6 @@ impl Renderer {
     }
 
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
-        self.reject_offscreen_depth_fitting(host)?;
         self.poll()?;
         self.collect_retained(host)?;
         if self.render_recipe(host)?.is_some() {

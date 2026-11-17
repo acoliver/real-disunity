@@ -682,4 +682,11 @@ before the fitted path renders or submits work. This refusal leaves the submissi
 serial unchanged. Plain frames and shadowed frames without depth fitting accept
 offscreen work through the frame's recording.
 
+The check uses the published generation after ready retained updates have been
+applied, respecting capture holds and readiness dependencies. A refusal preserves
+the pending offscreen operations. A later ready settings update that disables
+fitting lets a compatible frame consume those operations without readmission.
+If preparing an update submits GPU work, the call returns pending without taking
+the operations; a later call checks compatibility before rendering.
+
 `SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

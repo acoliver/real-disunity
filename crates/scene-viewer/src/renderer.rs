@@ -231,10 +231,16 @@ impl Renderer {
 
     fn render_admitted(
         &mut self,
-        source: FrameSource<'_>,
+        mut source: FrameSource<'_>,
         update: &mut crate::SceneUpdate,
         capture: Option<&mut live::Capture>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
+        if let FrameSource::Retained(host) = &mut source
+            && host.offscreen.is_some()
+            && !self.admit_retained_offscreen(host)?
+        {
+            return Ok(None);
+        }
         let Some(ready) = self.acquire_render_frame(update)? else {
             return Ok(None);
         };
@@ -242,7 +248,9 @@ impl Renderer {
         let (view, mut host) = match source {
             FrameSource::View(view) => (view, None),
             FrameSource::Retained(host) => {
-                self.publish_retained(host)?;
+                if host.offscreen.is_none() {
+                    self.publish_retained(host)?;
+                }
                 self.apply_retained_shadow_policy(host)?;
                 retained_view = host.view()?.expect("admitted retained extent");
                 (&retained_view, Some(host))
@@ -277,24 +285,7 @@ impl Renderer {
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
-        if let Some(host) = host {
-            self.submitted_camera_history(host);
-            let temporal_history_reset = self.temporal_history_reset();
-            host.present_pick(view.resolved_view());
-            let statistics = self.scene_statistics();
-            self.streaming.captures.submitted(
-                host,
-                retained_capture,
-                ticket.clone(),
-                self.frame_time,
-                &statistics,
-                temporal_history_reset,
-            )?;
-        } else {
-            self.streaming.captures.advance_frame();
-        }
-        self.check_errors()?;
-
+        retained::finish_admitted_frame(self, host, view, retained_capture, ticket.clone())?;
         Ok(Some(ticket))
     }
 

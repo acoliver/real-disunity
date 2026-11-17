@@ -202,28 +202,49 @@ fn edited_moving_frames_stop_creating_staging_and_match_a_fresh_upload() {
         height: 128,
     };
     let mut flight = Flight::new(&context, 1_024, viewport);
-    let mut created = Vec::new();
-    let before = context.submission().upload_staging().uploads;
+    let before = staging(&context);
+    let mut staged = vec![before];
     for frame in 0..24 {
         flight.frame(&context, frame, STRIDE, 3);
-        created.push(context.submission().upload_staging().chunks_created);
+        staged.push(staging(&context));
     }
+    let created: Vec<u64> = staged.iter().map(|[.., created]| *created).collect();
     // About one upload per moved caster, not one per batch.
-    let per_frame = (context.submission().upload_staging().uploads - before) / 24;
+    let per_frame = (staged[24][0] - before[0]) / 24;
     assert!(per_frame > 100, "uploads per frame: {per_frame}");
+    // Each frame's uploads, with their alignment, fit the smallest (256 KiB) chunk, and at most
+    // three frames hold chunks at once. Whether and when the second and third chunks are created
+    // depends on when the device delivers the mapping callbacks that free submitted chunks.
     assert!(
-        created[8..].iter().all(|&count| count == created[23]),
-        "staging chunks created after each frame: {created:?}"
+        staged
+            .windows(2)
+            .all(|pair| pair[1][1] - pair[0][1] + 8 * (pair[1][0] - pair[0][0]) <= 256 * 1024),
+        "{staged:?}"
     );
-    let edited = flight.image(&context, 24);
+    assert!(created[24] - created[0] <= 3, "{created:?}");
+    // Once the device is idle every chunk's mapping has completed, so a frame that starts on an
+    // idle device reuses free chunks and creates none.
+    for frame in 24..32 {
+        context
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        flight.frame(&context, frame, STRIDE, 1);
+        assert_eq!(
+            context.submission().upload_staging().chunks_created,
+            created[24],
+            "settled frame {frame} created staging; in flight: {created:?}"
+        );
+    }
+    let edited = flight.image(&context, 32);
     let mut fresh = Flight::new(&context, 1_024, viewport);
     let handles = fresh.handles.clone();
     // The last STRIDE frames wrote each caster's final position once.
-    for frame in 24 - STRIDE_FRAMES..24 {
+    for frame in 32 - STRIDE_FRAMES..32 {
         edit(&mut fresh.renderer, &handles, frame, STRIDE);
     }
     assert_eq!(
-        fresh.image(&context, 24),
+        fresh.image(&context, 32),
         edited,
         "incrementally uploaded instances must render like a fresh upload of the same state"
     );

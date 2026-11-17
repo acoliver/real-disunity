@@ -1,7 +1,6 @@
 //! Retained HDR effects. GPU state belongs to admitted frame slots, not queue writes.
 use crate::scene_color::{self, Read};
 use crate::{FrameTargets, PostError, Stage, StageSet};
-use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AdaptiveExposure {
@@ -207,7 +206,9 @@ impl HdrPost {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("slot exposure step"),
                     size: 16,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::UNIFORM
+                        | wgpu::BufferUsages::COPY_DST
+                        | step_readback_usage(),
                     mapped_at_creation: false,
                 })
             }),
@@ -228,19 +229,24 @@ impl HdrPost {
         self.taa_history.settle(accepted);
     }
     /// Uploads the TAA block of `slot`; `None` uploads zeros, which reads as no history.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare_taa(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         block: Option<&[u8; crate::TAA_UNIFORM_BYTES]>,
-    ) {
-        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block);
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload(&self.device, encoder, &self.taa[slot], block)
     }
     /// Uploads the temporal block of `slot`.
     ///
     /// # Errors
     ///
-    /// [`PostError::UnsupportedProfile`] for an invalid block.
+    /// [`PostError::UnsupportedProfile`] for an invalid block, [`PostError::Frame`] when `encoder`
+    /// is not the one of a prepared frame.
     pub fn prepare_temporal(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -254,18 +260,34 @@ impl HdrPost {
         self.taa_history.parity().select(odd);
     }
     /// Uploads the camera term of the temporal stage of `slot`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare_temporal_camera(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         slot: usize,
         camera: crate::TemporalCamera,
-    ) {
-        crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera[slot], camera);
+    ) -> Result<(), PostError> {
+        crate::hdr_taa::upload_camera(&self.device, encoder, &self.camera[slot], camera)
     }
     #[cfg(test)]
     pub fn taa_history_size(&self) -> Option<[u32; 2]> {
         self.taa_history.size()
     }
+    /// The step `slot`'s exposure meter reads, for tests that observe what [`Self::prepare`]
+    /// uploaded.
+    #[cfg(test)]
+    pub(crate) fn exposure_step_buffer(&self, slot: usize) -> &wgpu::Buffer {
+        &self.frame[slot]
+    }
+    /// Uploads the exposure step of `slot`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostError::FrameDelta`] for an invalid effective delta, before anything is staged;
+    /// [`PostError::Frame`] when `encoder` is not the one of a prepared frame.
     pub fn prepare(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -284,15 +306,7 @@ impl HdrPost {
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect();
-        let staging = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("immutable exposure step"),
-                contents: &bytes,
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
-        encoder.copy_buffer_to_buffer(&staging, 0, &self.frame[slot], 0, 16);
-        Ok(())
+        crate::frame_upload::stage_copy(&self.device, encoder, &self.frame[slot], &bytes)
     }
     pub fn build(
         &self,
@@ -528,6 +542,16 @@ fn exposure_constants(a: AdaptiveExposure) -> [(&'static str, f64); 10] {
         ("SPEED_DOWN", a.speeds[1].into()),
         ("FIXED_EXPOSURE", a.fixed_exposure.unwrap_or(-1.0).into()),
     ]
+}
+
+/// Tests copy the exposure step back to compare it with what `HdrPost::prepare` uploaded;
+/// production never reads it from the CPU side.
+const fn step_readback_usage() -> wgpu::BufferUsages {
+    if cfg!(test) {
+        wgpu::BufferUsages::COPY_SRC
+    } else {
+        wgpu::BufferUsages::empty()
+    }
 }
 
 pub(crate) fn validate_delta(delta: f32) -> Result<(), PostError> {

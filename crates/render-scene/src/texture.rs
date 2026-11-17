@@ -460,6 +460,8 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 mod release;
 pub use release::{TextureReleaseError, describe_texture, release_texture_sources};
+mod tier;
+pub use tier::{TextureTierPolicy, TierChoice, choose as choose_tier};
 
 #[cfg(test)]
 mod tests;

@@ -429,3 +429,32 @@ fn a_dropped_owner_still_expires_the_frame_that_retained_it() {
     assert_eq!(authority.submitted_serial(), 0);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }
+
+/// The owner's frame is complete on the GPU, but a held poller has not run its completion
+/// bookkeeping (hub issue 4d2b47c55165). Plain retire still sees the frame in flight; retiring
+/// settled waits for the bookkeeping and then hands the owner back.
+#[test]
+fn retiring_settled_waits_for_bookkeeping_a_held_poller_has_not_run() {
+    let (device, queue) = crate::test_support::fresh_device();
+    let authority = SubmissionAuthority::new(queue);
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let mut owner = FrameOwner::new(DropProbe(dropped.clone()), &authority);
+    let recording = authority.begin(&device).unwrap();
+    Publications::retain_lease(&recording, &owner.lease()).unwrap();
+    recording.finish().submit().unwrap();
+    let held = crate::test_support::HeldPoller::start(&device);
+    assert!(
+        matches!(owner.retire(), Err(LeaseError::Busy)),
+        "the held poller has not recorded the completion"
+    );
+    let releaser = held.release_after(std::time::Duration::from_millis(200));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let probe = owner
+        .retire_settled(&device, deadline)
+        .expect("the completion record arrives before the deadline");
+    assert_eq!(authority.completed_serial(), 1);
+    drop(probe);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    releaser.join().unwrap();
+    held.join();
+}

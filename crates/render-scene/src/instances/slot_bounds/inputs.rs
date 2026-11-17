@@ -23,6 +23,34 @@ pub(crate) struct Shape {
     pub references: Vec<SceneFadeReference>,
 }
 
+/// The distinct values of `items` in order of first appearance, which is how a batch's relief
+/// scales and fade references are laid out.
+pub(crate) fn distinct<T: PartialEq>(items: impl Iterator<Item = T>) -> Vec<T> {
+    let mut seen = Vec::new();
+    for item in items {
+        if !seen.contains(&item) {
+            seen.push(item);
+        }
+    }
+    seen
+}
+
+/// Whether `distinct(items)` equals `held`, decided without collecting it.
+pub(crate) fn is_distinct_of<T: PartialEq>(items: impl Iterator<Item = T>, held: &[T]) -> bool {
+    // `held[..matched]` is always the distinct prefix of the items seen so far.
+    let mut matched = 0;
+    for item in items {
+        if held[..matched].contains(&item) {
+            continue;
+        }
+        if held.get(matched) != Some(&item) {
+            return false;
+        }
+        matched += 1;
+    }
+    matched == held.len()
+}
+
 /// A placement's own fade band in metres, as `fade_band_meters` converts it, and its origin.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct SlotFade {

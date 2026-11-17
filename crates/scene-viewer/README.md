@@ -449,6 +449,10 @@ Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
 Classes map directly from wgpu's device type: `Integrated`, `Discrete`, `Virtual`,
 `Software` (CPU adapters), or `Other`. No classification is inferred from a name.
 The backend reports the selected graphics API independently of hardware class.
+`memory` is the adapter's `AdapterMemory` where the platform publishes it: on Linux,
+DRM drivers with `mem_info_*` files in sysfs (amdgpu) give device-local, host-visible
+and GTT totals. It is `None` elsewhere and for software adapters, so a host that
+chooses settings from it must handle the unknown case.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
 The callback runs once per renderer startup, on the calling thread, before device
@@ -508,7 +512,12 @@ submission and replaced before each `Presented` callback. A snapshot identifies
 its renderer submission frame and published accepted scene generation. Frame IDs
 share the capture/timing sequence; capture-only subframes can leave gaps between
 ordinary snapshots. `presentation_budget_bytes` reports the
-effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
+effective presentation admission budget, including the admitted replacement peak.
+`resident_bytes` is the device's GPU memory census at submission, by resource class
+(textures, meshes, instances, shadow maps and the rest); classes the engine does not count
+yet read zero. `upload_staging` counts the device's reusable upload staging since startup:
+chunks created and held, uploads and uploaded bytes. Steady frames reuse chunks, so
+`chunks_created` stops growing once the frames in flight have settled. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 

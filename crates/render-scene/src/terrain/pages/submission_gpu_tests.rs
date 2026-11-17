@@ -6,9 +6,9 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 fn terrain_pages_failed_submission_and_pending_edits_publish_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for fail_submission in [false, true] {
-        let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-            wgpu::Features::empty(),
-        ))
+        let context = pollster::block_on(
+            crate::device::GpuContext::request_with_features_for_test(wgpu::Features::empty()),
+        )
         .unwrap();
         let device = context.device();
         let authority = SubmissionAuthority::new(context.queue().clone());

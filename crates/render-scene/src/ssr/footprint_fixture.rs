@@ -38,12 +38,36 @@ pub(super) fn capture_shaded(
     case: Case,
     perturbed: bool,
 ) -> (Capture, Capture) {
-    capture_variant(context, case, perturbed, false)
+    capture_variant(context, case, perturbed, false, None)
+}
+
+pub(super) fn capture_displaced(
+    context: &GpuContext,
+    case: Case,
+    offset: [f32; 2],
+) -> (Capture, Capture) {
+    capture_variant(context, case, false, false, Some(offset))
+}
+
+const RESOLVE_ENTRY: &str = "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>, @builtin(sample_index) sample: u32) -> @location(0) vec4<f32> {";
+
+// Vulkan reports the sample location in @builtin(position) under per-sample
+// shading; Metal reports the pixel centre. Moving the position inside the pixel
+// reproduces the Vulkan input on any adapter.
+pub(super) fn displaced(source: &str, offset: [f32; 2]) -> String {
+    assert!(source.contains(RESOLVE_ENTRY), "resolve entry point");
+    source.replace(
+        RESOLVE_ENTRY,
+        &format!(
+            "@fragment fn fs_screen(@builtin(position) fragment: vec4<f32>, @builtin(sample_index) sample: u32) -> @location(0) vec4<f32> {{\n    let pixel = fragment + vec4<f32>({:?}, {:?}, 0.0, 0.0);",
+            offset[0], offset[1]
+        ),
+    )
 }
 
 pub(super) fn check_mip_kernel(context: &GpuContext, case: Case) {
-    let actual = capture_variant(context, case, false, false);
-    let expected = capture_variant(context, case, false, true);
+    let actual = capture_variant(context, case, false, false, None);
+    let expected = capture_variant(context, case, false, true, None);
     for (got, want) in [(&actual.0, &expected.0), (&actual.1, &expected.1)] {
         assert!(
             got.iter()
@@ -61,6 +85,7 @@ fn capture_variant(
     case: Case,
     perturbed: bool,
     mip_reference: bool,
+    offset: Option<[f32; 2]>,
 ) -> (Capture, Capture) {
     let config = FrameConfig::new(case.size, wgpu::TextureFormat::Rgba16Float, case.samples);
     let mut screen = SceneMetadata::new(context.device(), case.size, neutral_ao()).unwrap();
@@ -93,6 +118,10 @@ fn capture_variant(
     ssr.application_views(&mut views);
     let captures = [true, false].map(|pair| {
         let shader = mip_source(case, pair, mip_reference);
+        let shader = match offset {
+            Some(offset) => displaced(&shader, offset),
+            None => shader,
+        };
         let pipeline = gpu::pipeline(context.device(), &shader, case.samples, false);
         let group = gpu::group(context.device(), &pipeline, Some(&ssr.uniform), &views);
         render(context, &target, &pipeline, &[&group]);

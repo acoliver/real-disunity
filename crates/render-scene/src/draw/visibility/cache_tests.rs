@@ -16,10 +16,14 @@ fn instances(materials: &[Material]) -> Instances {
     instances.wind_extents.clear();
     instances.curved_wind.clear();
     instances.impostor_extents.clear();
+    // Bounds read no fade, but the batch's level inputs read one per material.
+    let fade = instances.fades[0];
+    instances.fades.clear();
     for material in materials {
         instances.wind_extents.push(material.wind);
         instances.curved_wind.push(material.curved);
         instances.impostor_extents.push(material.impostor);
+        instances.fades.push(fade);
     }
     instances
 }

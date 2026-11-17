@@ -234,3 +234,37 @@ fn a_screen_readback_that_was_refused_is_counted_by_its_reason() {
         "[gpu] screen images read back 3, refused 2 (over the storage budget: 2)"
     );
 }
+
+#[test]
+fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
+    let shared =
+        worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
+            .unwrap();
+    let authority = SubmissionAuthority::new(shared.queue.clone());
+    let directory = tempfile::tempdir().unwrap();
+    let budget = AllocationBudget(storage_budget::DEFAULT_BYTES);
+    let gpu = PlayerGpu::on(
+        shared.device.clone(),
+        authority.clone(),
+        budget,
+        directory.path(),
+    )
+    .unwrap();
+    assert!(gpu.authority.same_authority(&authority));
+    assert!(
+        gpu.offscreen
+            .borrow()
+            .authority()
+            .same_authority(&authority),
+        "the program runtime records and submits through the caller's authority"
+    );
+    assert!(
+        !gpu.offscreen
+            .borrow()
+            .authority()
+            .same_authority(&SubmissionAuthority::new(shared.queue.clone())),
+        "a second authority on the same queue is a different one"
+    );
+    assert_eq!(gpu.storage_budget(), budget.0);
+    assert!(gpu.report().device.contains("runtime budget"));
+}

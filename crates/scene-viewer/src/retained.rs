@@ -58,11 +58,11 @@ pub use input::{
     WheelDelta, WindowControlError,
 };
 mod capture;
+pub(crate) use capture::{CaptureCompletion, Captures, ao_format_from_settings};
 pub use capture::{
     CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureObservation,
     RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe,
 };
-pub(crate) use capture::{Captures, ao_format_from_settings};
 pub(crate) mod readiness;
 pub(crate) mod session;
 pub(crate) use session::Session;
@@ -291,7 +291,7 @@ pub struct RetainedHost {
     size: [u32; 2],
     exit: bool,
     occluded: bool,
-    window_on_top: bool,
+    window_level: winit::window::WindowLevel,
     #[cfg(test)]
     pub(crate) texture_tier_memory_override: Option<u64>,
 }
@@ -306,7 +306,11 @@ impl RetainedHost {
     /// Disabled by default.
     #[must_use]
     pub fn with_window_on_top(mut self, enabled: bool) -> Self {
-        self.window_on_top = enabled;
+        self.window_level = if enabled {
+            winit::window::WindowLevel::AlwaysOnTop
+        } else {
+            winit::window::WindowLevel::Normal
+        };
         self
     }
 

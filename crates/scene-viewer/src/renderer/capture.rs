@@ -2,6 +2,7 @@ use super::{Renderer, live::Capture};
 mod accumulation;
 pub(super) mod advanced;
 mod products;
+use crate::retained::CaptureCompletion;
 use crate::{RetainedHost, ViewerError};
 pub(super) use products::Products;
 use worldrunner_render_gpu::flight::CompletionTicket;
@@ -87,11 +88,8 @@ impl Captures {
         host: &mut RetainedHost,
         image: Option<(u64, Products)>,
         ticket: CompletionTicket,
-        time: std::time::Duration,
-        scene: &worldrunner_render_scene::draw::SceneStatistics,
-        temporal_history_reset: crate::TemporalHistoryReset,
+        completion: &CaptureCompletion,
     ) -> Result<(), ViewerError> {
-        let frame = self.frame;
         self.advance_frame();
         if let Some((id, mut image)) = image {
             let index = host
@@ -104,10 +102,10 @@ impl Captures {
             image.begin()?;
             self.pending.push(Pending {
                 id,
-                frame,
-                scene: *scene,
-                temporal_history_reset,
-                time,
+                frame: completion.frame,
+                scene: completion.scene,
+                temporal_history_reset: completion.temporal_history_reset,
+                time: completion.time,
                 ticket,
                 image,
             });
@@ -139,20 +137,24 @@ impl Captures {
                 } else if host.captures.recipes.contains_key(&pending.id) {
                     host.captures.complete_recipe(
                         pending.id,
-                        pending.frame,
-                        pending.time,
+                        &CaptureCompletion {
+                            frame: pending.frame,
+                            time: pending.time,
+                            scene: pending.scene,
+                            temporal_history_reset: pending.temporal_history_reset,
+                        },
                         image,
-                        &pending.scene,
-                        pending.temporal_history_reset,
                     );
                 } else {
                     host.captures.complete(
                         pending.id,
-                        pending.frame,
-                        pending.time,
+                        &CaptureCompletion {
+                            frame: pending.frame,
+                            time: pending.time,
+                            scene: pending.scene,
+                            temporal_history_reset: pending.temporal_history_reset,
+                        },
                         image.srgb8.expect("plain capture"),
-                        &pending.scene,
-                        pending.temporal_history_reset,
                     );
                 }
                 let pending = self.pending.remove(index);

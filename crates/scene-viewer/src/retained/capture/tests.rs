@@ -327,11 +327,13 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
     };
     host.captures.complete(
         id,
-        7,
-        std::time::Duration::ZERO,
+        &super::CaptureCompletion {
+            frame: 7,
+            time: std::time::Duration::ZERO,
+            scene,
+            temporal_history_reset: crate::TemporalHistoryReset::CameraCut,
+        },
         image,
-        &scene,
-        crate::TemporalHistoryReset::CameraCut,
     );
     host.readiness.published = 1;
     let RetainedEvent::Capture {

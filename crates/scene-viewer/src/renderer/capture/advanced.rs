@@ -1,5 +1,6 @@
 use super::{Products, accumulation::Accumulation};
 use crate::renderer::Renderer;
+use crate::retained::CaptureCompletion;
 use crate::{RetainedCaptureRecipe, RetainedHost, ViewerError};
 use std::time::Duration;
 use worldrunner_render_gpu::flight::CompletionTicket;
@@ -48,11 +49,13 @@ impl Active {
         host.present_captured_pick(self.view.resolved_view());
         host.captures.complete_recipe(
             self.id,
-            self.frame,
-            self.time,
+            &CaptureCompletion {
+                frame: self.frame,
+                time: self.time,
+                scene: self.scene.expect("submitted sample"),
+                temporal_history_reset: self.temporal_history_reset,
+            },
             self.accumulation.finish(),
-            &self.scene.expect("submitted sample"),
-            self.temporal_history_reset,
         );
     }
 }

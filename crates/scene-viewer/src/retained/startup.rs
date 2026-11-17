@@ -72,7 +72,7 @@ impl RetainedHost {
             options,
             exit: false,
             occluded: false,
-            window_on_top: false,
+            window_level: winit::window::WindowLevel::Normal,
             #[cfg(test)]
             texture_tier_memory_override: None,
         };

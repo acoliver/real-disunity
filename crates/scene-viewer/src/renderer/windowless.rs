@@ -1,7 +1,4 @@
-use super::{
-    Extents, Presentation, Renderer, ViewerError, device_errors, readiness, required_features,
-    target,
-};
+use super::{Extents, Renderer, ViewerError, device_errors, readiness, required_features, target};
 
 impl Renderer {
     #[cfg(test)]
@@ -25,7 +22,7 @@ impl Renderer {
             context.device().limits().max_texture_dimension_2d,
         )?
         .expect("validated nonzero extent");
-        let mut presentation = Presentation::with_settings(
+        let mut presentation = super::assembly::configured_presentation(
             &context,
             crate::presentation::COLOR,
             [extents.render, extents.surface],
@@ -58,7 +55,7 @@ impl Renderer {
         )?;
         let execution =
             target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;
-        let renderer = Self {
+        let renderer = Self::assemble(super::assembly::RendererParts {
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance,
@@ -68,13 +65,8 @@ impl Renderer {
             resident,
             viewport: Some(extents.surface),
             errors,
-            clock: crate::clock::Clock::new(),
-            frame_time: std::time::Duration::ZERO,
-            live_upload: None,
-            live_pending: None,
             streaming,
-        };
-        renderer.check_errors()?;
+        })?;
         #[cfg(not(all(test, target_os = "linux")))]
         drop(instance);
         Ok(renderer)

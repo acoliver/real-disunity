@@ -20,13 +20,17 @@ pub(super) fn finish_admitted_frame(
         let temporal_history_reset = renderer.temporal_history_reset();
         host.present_pick(view.resolved_view());
         let statistics = renderer.scene_statistics();
+        let frame = renderer.streaming.captures.next_frame();
         renderer.streaming.captures.submitted(
             host,
             retained_capture,
             ticket,
-            renderer.frame_time,
-            &statistics,
-            temporal_history_reset,
+            &crate::retained::CaptureCompletion {
+                frame,
+                time: renderer.frame_time,
+                scene: statistics,
+                temporal_history_reset,
+            },
         )?;
     } else {
         renderer.streaming.captures.advance_frame();

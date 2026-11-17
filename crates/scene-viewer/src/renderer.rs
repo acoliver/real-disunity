@@ -7,6 +7,7 @@ use std::sync::{Arc, mpsc};
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
+mod assembly;
 mod startup;
 use startup::Resolved;
 mod capture;
@@ -121,6 +122,16 @@ impl Renderer {
     ) -> Result<Self, ViewerError> {
         let (instance, surface, context, policy, resolved) =
             shared::surface_context(display, window.clone(), shared, resolve).await?;
+        let errors = device_errors(context.device(), context.submission());
+        let extents = Extents::for_device(policy.size, context.device())?;
+        let initial = extents.unwrap_or_else(Extents::placeholder);
+        let viewport = extents.map(|extents| extents.surface);
+        let mut presentation = assembly::surface_presentation(
+            &context,
+            policy,
+            [initial.render, initial.surface],
+            &resolved,
+        )?;
         let Resolved {
             scene,
             shadows,
@@ -128,23 +139,6 @@ impl Renderer {
             startup,
         } = resolved;
         let scene = scene.as_ref();
-        let errors = device_errors(context.device(), context.submission());
-        let extents = Extents::for_device(policy.size, context.device())?;
-        let initial = extents.unwrap_or_else(Extents::placeholder);
-        let viewport = extents.map(|extents| extents.surface);
-        let mut presentation = Presentation::with_settings(
-            &context,
-            policy.format,
-            [initial.render, initial.surface],
-            profile,
-            scene.effects(),
-            &crate::presentation::PresentationPolicy {
-                receiver_gradients: crate::presentation::receiver_reservation(shadows),
-                budget: startup.presentation_budget,
-                capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
-                recipes: startup.recipes,
-            },
-        )?;
         let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
             .map_err(surface_error)?;
         let mut streaming = readiness::Streaming::new(shadows, profile);
@@ -165,12 +159,7 @@ impl Renderer {
             window.clone(),
             startup.frames_in_flight,
         )?;
-        let renderer = Self {
-            clock: crate::clock::Clock::new(),
-            frame_time: std::time::Duration::ZERO,
-            live_upload: None,
-            live_pending: None,
-            streaming,
+        Self::assemble(assembly::RendererParts {
             execution: target::Execution::Surface(Box::new(execution)),
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -180,8 +169,8 @@ impl Renderer {
             resident,
             viewport,
             errors,
-        };
-        renderer.check_errors().map(|()| renderer)
+            streaming,
+        })
     }
 
     pub(crate) fn surface_extent(&self) -> [u32; 2] {
@@ -343,16 +332,10 @@ impl Renderer {
         {
             scene.request_shadow_capture();
         }
-        let fitted = self.resident.render_depth_fitted(
-            &self.context,
+        let fitted = self.render_depth_fitted(
             view,
-            &self.presentation.targets,
-            self.presentation.scheduler.encoding(),
-            (
-                Some(self.streaming.captures.next_frame()),
-                capture.is_some() || retained.is_some(),
-                retained.as_deref().map_or(&[], capture::Products::terms),
-            ),
+            capture.is_some() || retained.is_some(),
+            retained.as_deref(),
         )?;
         self.context
             .submission()

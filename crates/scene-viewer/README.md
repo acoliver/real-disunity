@@ -667,3 +667,11 @@ stops must be finite in `0..=2`. The override applies only to that recipe,
 and ordinary frames restore the profile setting. The default is off.
 See [the post contract](../render-post/README.md#native-resolution-rcas) for
 domain transfer, reciprocal and quantization behavior.
+
+## A device another user shares
+
+`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run_on(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own, as `run` does.
+
+`RetainedHost::admit_offscreen(operations)` hands the caller's `OffscreenOperations`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
+
+`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

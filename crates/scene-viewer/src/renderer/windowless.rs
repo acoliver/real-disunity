@@ -34,6 +34,10 @@ impl Renderer {
             shadow_policy,
         );
         streaming.tiers.policy = options.texture_tiers;
+        #[cfg(test)]
+        {
+            streaming.tiers.memory_override = host.texture_tier_memory_override;
+        }
         let resident = super::environment::new_resident(
             &context,
             scene,

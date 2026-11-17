@@ -290,6 +290,8 @@ pub struct RetainedHost {
     exit: bool,
     occluded: bool,
     window_on_top: bool,
+    #[cfg(test)]
+    pub(crate) texture_tier_memory_override: Option<u64>,
 }
 
 impl RetainedHost {

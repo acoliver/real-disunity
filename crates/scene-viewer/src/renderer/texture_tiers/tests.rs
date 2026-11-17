@@ -42,6 +42,7 @@ fn tiers() -> TextureTiers {
             max_dropped_levels: 2,
         }),
         chosen: None,
+        memory_override: None,
     }
 }
 

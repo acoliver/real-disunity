@@ -6,6 +6,8 @@ use worldrunner_render_scene::texture::{TextureTierPolicy, TierChoice};
 pub(super) struct TextureTiers {
     pub policy: Option<TextureTierPolicy>,
     pub chosen: Option<TierChoice>,
+    #[cfg(test)]
+    pub memory_override: Option<u64>,
 }
 
 impl TextureTiers {
@@ -15,6 +17,14 @@ impl TextureTiers {
         prepared: &mut PreparedScene,
     ) -> Option<TierChoice> {
         self.policy?;
+        #[cfg(test)]
+        let memory = self.memory_override.or_else(|| {
+            context
+                .adapter_identity()
+                .memory
+                .map(|memory| memory.device_local)
+        });
+        #[cfg(not(test))]
         let memory = context
             .adapter_identity()
             .memory

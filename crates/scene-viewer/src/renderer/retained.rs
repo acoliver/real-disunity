@@ -128,6 +128,13 @@ impl Renderer {
         self.streaming.tiers.chosen
     }
 
+    #[cfg(test)]
+    pub(crate) fn stock_plan_statistics(
+        &self,
+    ) -> worldrunner_render_scene::compositor::StockPlanStatistics {
+        self.presentation.scheduler.stock_plan_statistics()
+    }
+
     /// Resident GPU bytes the device's census counts, by resource class.
     pub(crate) fn resident_bytes(&self) -> worldrunner_render_gpu::census::CensusSnapshot {
         self.context.submission().census().snapshot()

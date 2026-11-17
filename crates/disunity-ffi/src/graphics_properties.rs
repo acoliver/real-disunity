@@ -31,10 +31,14 @@ const TEXTURE_ASSET: u32 = 1;
 const TEXTURE_RENDER: u32 = 2;
 /// A global texture, which only compute bindings name; the name travels beside the record.
 pub(crate) const TEXTURE_GLOBAL: u32 = 3;
+/// A temporary render texture by the property name id it was allocated under, as the bits of the
+/// `int` in the low 32 bits. Only recorded blit and copy sources and globals set by recorded work
+/// take one; the world refuses it elsewhere.
+const TEXTURE_TEMPORARY: u32 = 4;
 
 /// A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
-/// by the identity the host knows it by (a player texture identity) and 2 for a world render
-/// texture by its id.
+/// by the identity the host knows it by (a player texture identity), 2 for a world render
+/// texture by its id and 4 for a temporary render texture by its property name id.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityTextureSlot {
@@ -54,8 +58,11 @@ pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiErro
         TEXTURE_RENDER if texture != 0 => {
             Ok(TextureRef::Render(RenderTextureId::from_bits(texture)))
         }
+        TEXTURE_TEMPORARY => u32::try_from(texture)
+            .map(|bits| TextureRef::Temporary(bits.cast_signed()))
+            .map_err(|_| "a temporary render texture's name id is a 32-bit int".into()),
         _ => Err(
-            "a texture is none (0), a player texture identity (1) or a render texture (2)".into(),
+            "a texture is none (0), a player texture identity (1), a render texture (2) or a temporary render texture (4)".into(),
         ),
     }
 }
@@ -67,6 +74,7 @@ pub(crate) fn texture_parts(texture: &TextureRef) -> (u32, u64) {
         TextureRef::Asset(identity) => (TEXTURE_ASSET, *identity),
         TextureRef::Render(id) => (TEXTURE_RENDER, id.to_bits()),
         TextureRef::Global(_) => (TEXTURE_GLOBAL, 0),
+        TextureRef::Temporary(name_id) => (TEXTURE_TEMPORARY, u64::from(name_id.cast_unsigned())),
     }
 }
 

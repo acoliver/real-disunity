@@ -99,6 +99,16 @@ internal sealed class SyntheticAssembly
         _metadata.AddMemberReference(parent, _metadata.GetOrAddString(name), _metadata.GetOrAddBlob(signature));
     }
 
+    public void MemberRef(EntityHandle parent, string name, BlobBuilder signature) =>
+        _metadata.AddMemberReference(parent, _metadata.GetOrAddString(name), _metadata.GetOrAddBlob(signature));
+
+    public TypeSpecificationHandle TypeSpec(Action<SignatureTypeEncoder> encode)
+    {
+        var signature = new BlobBuilder();
+        encode(new BlobEncoder(signature).TypeSpecificationSignature());
+        return _metadata.AddTypeSpecification(_metadata.GetOrAddBlob(signature));
+    }
+
     public byte[] Build()
     {
         var image = new BlobBuilder();

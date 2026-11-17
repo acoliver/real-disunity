@@ -74,7 +74,17 @@ public sealed partial class CommandBuffer : IDisposable
     public void DrawMeshInstancedIndirect(Mesh mesh, int submeshIndex, Material material, int shaderPass, ComputeBuffer bufferWithArgs,
         int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));
 
-    public void SetViewport(Rect pixelRect) => Fail(nameof(SetViewport));
+    /// <summary>Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after it cover.
+    /// <see cref="SetRenderTarget(RenderTargetIdentifier)"/> and a camera setup reset it to the whole target. A component that
+    /// is not finite or a negative width or height throws <see cref="ArgumentException"/> and records nothing.</summary>
+    public void SetViewport(Rect pixelRect)
+    {
+        ThrowIfReleased();
+        if (!float.IsFinite(pixelRect.x) || !float.IsFinite(pixelRect.y) || !float.IsFinite(pixelRect.width) || !float.IsFinite(pixelRect.height)
+            || pixelRect.width < 0f || pixelRect.height < 0f)
+            throw new ArgumentException($"CommandBuffer.SetViewport: the rectangle {pixelRect} needs finite components and a width and height of 0 or more", nameof(pixelRect));
+        Record(() => WorldGraphics.RecordSetViewport(pixelRect));
+    }
 
     /// <summary>Records nothing: the engine binds no random-write targets, so there are none to clear. The render graph calls
     /// it after every pass.</summary>

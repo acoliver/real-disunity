@@ -2,6 +2,42 @@ use super::*;
 use std::{sync::Arc, time::Duration};
 
 #[test]
+fn reducible_texture_declaration_preserves_invalid_resource_edit_rejection() {
+    use worldrunner_render_plan::{SceneGeometry, SceneResources, TextureHandle};
+    let base = crate::renderer::retained_tests::terrain_source();
+    let mut textures = base.resources().textures().to_vec();
+    let unrelated = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
+    textures.push(textures[0].clone());
+    let scene = base
+        .with_resources(
+            SceneResources::new(textures, base.resources().materials().to_vec()).unwrap(),
+            SceneGeometry::new(Vec::new(), Vec::new()).unwrap(),
+            base.effects().cloned(),
+        )
+        .unwrap()
+        .with_reducible_textures(vec![unrelated])
+        .unwrap();
+    let resources = scene
+        .resources()
+        .clone()
+        .with_materials(Vec::new())
+        .unwrap();
+    let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
+    assert!(matches!(
+        host.apply(RetainedUpdate::Resources {
+            resources,
+            meshes: Vec::new(),
+        }),
+        Err(ViewerError::Driver(message))
+            if message == "terrain surfaces references material handle 0 outside 0..0"
+    ));
+    assert_eq!(host.scene(), &scene);
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.ready_generation(), 0);
+    assert_eq!(host.preparations_in_flight(), 0);
+}
+
+#[test]
 fn streaming_terrain_admits_replacement_and_capture() {
     let source = crate::renderer::retained_tests::terrain_source();
     let terrain = Arc::new(

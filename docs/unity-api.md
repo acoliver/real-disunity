@@ -92,7 +92,7 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 
 | Type | Supported |
 | --- | --- |
-| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial`, `interpolation` (None and Interpolate; Extrapolate throws `NotSupportedException`) |
+| `Rigidbody2D` | `bodyType` (Dynamic, Kinematic, Static), `velocity`, `linearVelocity`, `angularVelocity`, `mass`, `gravityScale`, `freezeRotation`, `constraints` (`RigidbodyConstraints2D` freeze position X, Y and rotation), `simulated`, `position`, `MovePosition`, `Sleep`, `WakeUp`, `IsSleeping`, `sharedMaterial`, `interpolation` (None, Interpolate and Extrapolate, including imported settings) |
 | `Collider2D` | `enabled`, `isTrigger`, `offset`, `attachedRigidbody`, `sharedMaterial`. |
 | `BoxCollider2D`, `CircleCollider2D` | `size`; `radius` |
 | `UnityEngine.Tilemaps.TilemapCollider2D` | Collides with the `Tilemap` on its object, following its cells as they change. Contacts and queries return it like any other collider. |
@@ -102,7 +102,9 @@ No axes exist until the host registers them with `DisunityHost.RegisterInputAxis
 | `Physics2D` | `Raycast(origin, direction, distance, layerMask)` (nearest hit), `OverlapCircle(point, radius, layerMask)` (first hit, or null). No other `Physics2D` member is defined. |
 | `RaycastHit2D` | `collider`, `point`, `normal`, `distance`, conversion to `bool`. It has no `transform` or `rigidbody`. |
 
-An interpolated body is drawn between its poses before and after the last physics step, by the fraction of a step the clock has run past it, so it moves smoothly when frames and physics steps do not line up. As in Unity it is drawn up to one step behind physics. Unlike Unity, its `transform` keeps the physics pose: interpolation changes what is drawn, and scripts, contacts and queries all see the step pose. A body moved by a script since the last step is drawn where it is.
+`None` draws the last physics pose. `Interpolate` blends the poses before and after the last fixed step by the remaining fraction of a step, drawing up to one step behind physics. `Extrapolate` predicts from the completed step pose using the body's current linear and angular velocity over the remaining time, bounded to one fixed step. Prediction respects frozen axes and rotation; sleeping, disabled, inactive and static bodies are not predicted. Both presentation modes carry child objects along with the body's drawn pose. Before the first fixed step, or after a script moves the body outside physics, it draws at its authoritative pose.
+
+Extrapolation is a constant-velocity approximation. It uses the velocity left by the last collision response but does not predict future gravity or collisions, so the drawn pose can cross geometry before the next step resolves the motion. Presentation never writes physics state: `transform`, scripts, contacts and queries keep the authoritative step pose. The native interpolation tags are 0, 1 and 2; other values fail without changing the selected mode. Synthetic tests in `disunity-ffi/src/physics.rs` cover prediction, child poses, constraints, mode changes and unchanged collision observations.
 
 Physics uses continuous collision detection for all 2D bodies. Joints, effectors, polygon and edge colliders in C#, and 2D forces and impulses (`Rigidbody2D.AddForce`) are not defined, so code that uses them does not compile. 3D physics is described in the next section.
 

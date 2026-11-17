@@ -8,16 +8,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::unity::offscreen::CameraProbe;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
     UndeclaredTextures,
 };
-use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
     ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
-    ShaderId as WorldShaderId, TextureRef, WorldRenderTexture, dimension,
+    ShaderId as WorldShaderId, TargetRef, TextureRef, WorldRenderTexture, dimension,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -31,6 +31,7 @@ use super::pixels::{self, Wanted};
 use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
 use super::script::{Script, kind};
 
+pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
 pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
@@ -54,71 +55,6 @@ const UNTAGGED_LIGHT_MODE: &str = "Always";
 /// admits it and one that does not never does. A camera counts the same pass as
 /// [`UNTAGGED_LIGHT_MODE`], which its own list of modes ends with.
 pub(super) const LIST_UNTAGGED_LIGHT_MODE: &str = "SRPDefaultUnlit";
-
-/// What a test render clears its scratch target to: values a render is unlikely to write and a
-/// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
-pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
-
-/// The changed test renders, in the order of their numbers in [`ids::probe_variant`]: what each
-/// changes in the state the passes declare, to find what leaves a render with no written texel.
-/// The first three change one part of the state each, the fourth replaces the fragment stage, and
-/// the last two combine them.
-pub const TEST_VARIANTS: [(&str, StateVariant); 6] = [
-    (
-        "cull None",
-        StateVariant {
-            cull_none: true,
-            blend_off: false,
-            depth_always: false,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "blend off",
-        StateVariant {
-            cull_none: false,
-            blend_off: true,
-            depth_always: false,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "depth test Always",
-        StateVariant {
-            cull_none: false,
-            blend_off: false,
-            depth_always: true,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "a fragment stage that writes a constant",
-        StateVariant {
-            cull_none: false,
-            blend_off: false,
-            depth_always: false,
-            constant_fragment: true,
-        },
-    ),
-    (
-        "cull None, blend off and depth test Always",
-        StateVariant {
-            cull_none: true,
-            blend_off: true,
-            depth_always: true,
-            constant_fragment: false,
-        },
-    ),
-    (
-        "cull None, blend off, depth test Always and a constant fragment stage",
-        StateVariant {
-            cull_none: true,
-            blend_off: true,
-            depth_always: true,
-            constant_fragment: true,
-        },
-    ),
-];
 
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
@@ -220,7 +156,8 @@ pub enum Skip {
     /// A clear or a draw with no render target bound, or a target that names the camera's own
     /// when the camera has none.
     UnboundTarget,
-    /// A target or a release that names a temporary render texture no allocation made.
+    /// A target, a source, a global or a release that names a temporary render texture no
+    /// allocation made, or one already released.
     UnknownTemporary,
     /// A target that names a cube face or a slice past the first, which a render texture here
     /// does not have.
@@ -259,6 +196,7 @@ fn texture_kind(texture: &TextureRef) -> &'static str {
     match texture {
         TextureRef::None => "none",
         TextureRef::Global(_) => "global",
+        TextureRef::Temporary(_) => "temporary",
         TextureRef::Render(_) => "render",
         TextureRef::Asset(_) => "asset",
     }
@@ -550,7 +488,7 @@ impl<'a> Mapper<'a> {
                 target,
                 material,
                 pass,
-            } => self.blit(source, *target, *material, *pass),
+            } => self.blit(source, target, *material, *pass),
             OffscreenWork::CopyTexture {
                 source,
                 source_element,
@@ -559,7 +497,7 @@ impl<'a> Mapper<'a> {
                 target_element,
                 target_mip,
             } => {
-                let (source, target) = (self.source(source)?, self.target(*target)?);
+                let (source, target) = (self.source(source)?, self.work_target(target)?);
                 Ok(vec![Record::CopyTexture {
                     source,
                     source_element: *source_element,
@@ -585,6 +523,15 @@ impl<'a> Mapper<'a> {
         Ok(ids::render_texture(target))
     }
 
+    /// The name of the texture a blit or a copy writes: a live render texture, or the temporary
+    /// render texture the frame's commands allocated under the name id and have not released.
+    fn work_target(
+        &self,
+        target: &TargetRef,
+    ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
+        self.resolve_target(target)?.ok_or(Skip::UnboundTarget)
+    }
+
     /// The name of a texture a record reads.
     fn source(
         &mut self,
@@ -593,6 +540,11 @@ impl<'a> Mapper<'a> {
         match *source {
             TextureRef::None => Err(Skip::NoBlitSource),
             TextureRef::Global(_) => Err(Skip::GlobalSource),
+            TextureRef::Temporary(name_id) => self
+                .script
+                .temporaries
+                .resolve(name_id)
+                .ok_or(Skip::UnknownTemporary),
             TextureRef::Render(id) => {
                 if !self.snapshot.render_textures.contains_key(&id) {
                     return Err(Skip::StaleSource);
@@ -712,12 +664,12 @@ impl<'a> Mapper<'a> {
     fn blit(
         &mut self,
         source: &TextureRef,
-        target: RenderTextureId,
+        target: &TargetRef,
         material: Option<WorldMaterialId>,
         pass: i32,
     ) -> Result<Vec<Record>, Skip> {
+        let target = self.work_target(target)?;
         let source = self.source(source)?;
-        let target = self.target(target)?;
         let Some(material) = material else {
             self.frame.blit_mesh.get_or_insert(BLIT_MESH);
             return Ok(vec![Record::Blit {

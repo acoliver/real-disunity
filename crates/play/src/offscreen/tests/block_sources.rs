@@ -7,7 +7,9 @@
 //! colours. The test does not establish that interpolated texels agree.
 
 use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
-use worldrunner_world_simulation::graphics::{GraphicsSnapshot, OffscreenWork, TextureRef};
+use worldrunner_world_simulation::graphics::{
+    GraphicsSnapshot, OffscreenWork, TargetRef, TextureRef,
+};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
@@ -110,7 +112,7 @@ fn blitted(rig: &mut Rig, stored: &PlayerTexture) -> Vec<u8> {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Asset(TEXTURE),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass: 0,
         })

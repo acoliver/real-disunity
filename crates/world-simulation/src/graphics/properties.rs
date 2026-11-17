@@ -20,6 +20,11 @@ pub enum TextureRef {
     /// dispatch is recorded. Only the bindings a compute shader stores take one; materials,
     /// property blocks, the global state itself and recorded offscreen work refuse it.
     Global(String),
+    /// The temporary render texture recorded offscreen work allocated under this property name
+    /// id, as it is when the host reaches the record. Only recorded blit and copy sources and
+    /// globals that recorded work sets take one; materials, property blocks, the global state
+    /// itself and compute bindings refuse it.
+    Temporary(i32),
     /// No texture.
     None,
 }

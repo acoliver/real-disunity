@@ -8,8 +8,8 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 use worldrunner_unity_serialized::shader::{Shader, ShaderProperty};
 use worldrunner_world_simulation::graphics::{
-    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, TextureSlot,
-    WorldRenderTexture,
+    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TargetRef, TextureRef,
+    TextureSlot, WorldRenderTexture,
 };
 
 use super::super::defaults::{ShaderFill, declared_fill};
@@ -240,7 +240,7 @@ fn a_frame_gives_each_material_a_fallback_layer_of_its_texture_scales_and_shader
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(heights),
-            target: heights,
+            target: TargetRef::Render(heights),
             material: Some(material_id),
             pass: 0,
         })

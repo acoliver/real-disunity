@@ -192,14 +192,14 @@ impl Rig {
 #[test]
 fn distinct_frames_deliver_their_exact_values_to_every_destination() {
     let rig = Rig::new();
-    let mut previous = None;
+    let mut previous: Option<[Vec<u8>; 4]> = None;
     for frame in 0..FRAMES {
         let frame_values = values(frame);
         rig.submit_and_wait(rig.record(&frame_values).unwrap());
         let observed = rig.observed();
         assert_eq!(observed, expected(&frame_values), "frame {frame}");
         if let Some(previous) = previous {
-            for (now, before) in observed.iter().zip(&previous) {
+            for (now, before) in observed.iter().zip(previous.iter()) {
                 assert_ne!(now, before, "frame {frame} must differ from the one before");
             }
         }

@@ -217,3 +217,20 @@ fn uncovered_receiver_controls_validate_for_each_live_consumer_family() {
         }
     }
 }
+
+#[test]
+fn receiver_pixel_initialization_targets_shading_functions_without_changing_material_evaluation() {
+    let sources = crate::shadows::receiver_sources(true, false, false);
+    let material = function_source(&sources.0, "shade_material");
+    for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+        let consumer = consumer_source(&sources.0, layout, false);
+        validate(&consumer);
+        assert_eq!(function_source(&consumer, "shade_material"), material);
+        for name in ["shade", "scene_card_shade"] {
+            let body = function_source(&consumer, name);
+            let pixel = "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);";
+            assert_eq!(body.matches(pixel).count(), 1, "{name}");
+            assert!(body.find(pixel).unwrap() < body.find("var input = original;").unwrap());
+        }
+    }
+}

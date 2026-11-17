@@ -5,10 +5,10 @@
 //! only that, so it needs no knowledge of how the operations were made.
 
 use worldrunner_render_gpu::submission::{FrameLease, Publications};
-use worldrunner_render_post::TimingState;
 use worldrunner_render_post::contracts::{
     CompiledOperations, ContractError, RasterId, ResourceRegistry,
 };
+use worldrunner_render_post::{FrameError, FrameOperations, OperationsOutput, TimingState};
 
 use crate::error::ProgramError;
 use crate::resources::Pins;
@@ -20,6 +20,7 @@ pub struct AdmittedOffscreen {
     registry: ResourceRegistry,
     lease: FrameLease,
     pins: Pins,
+    exports: Vec<OperationsOutput>,
 }
 
 impl std::fmt::Debug for AdmittedOffscreen {
@@ -35,12 +36,14 @@ impl AdmittedOffscreen {
         registry: ResourceRegistry,
         lease: FrameLease,
         pins: Pins,
+        exports: Vec<OperationsOutput>,
     ) -> Self {
         Self {
             compiled,
             registry,
             lease,
             pins,
+            exports,
         }
     }
 
@@ -76,5 +79,25 @@ impl AdmittedOffscreen {
             Some(timing) => timing.encode_checked(&self.compiled, &self.registry, encoder),
             None => self.compiled.encode_checked(&self.registry, encoder, None),
         }
+    }
+}
+
+/// A frame plan positions the admitted operations among its passes and the executor encodes them
+/// there with the frame's timer.
+///
+/// The outputs are the textures the host exported before admission. Nothing else the operations
+/// write is reported, so a frame that exports nothing leaves its operations unreadable to the
+/// scene's passes.
+impl FrameOperations for AdmittedOffscreen {
+    fn produces(&self) -> &[OperationsOutput] {
+        &self.exports
+    }
+
+    fn encode_operations(
+        &self,
+        timing: Option<&TimingState>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), FrameError> {
+        self.encode(timing, encoder).map_err(FrameError::from)
     }
 }

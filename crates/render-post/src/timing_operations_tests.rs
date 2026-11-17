@@ -1,8 +1,10 @@
 //! A host outside the post chain encodes a compiled list with the frame's pass timer.
 use crate::contracts::*;
 use crate::{
-    CopyOutput, FrameConfig, PassId, PostChain, PostError, Resources, StageFactory, StageSet,
-    TimingMode, TimingSupport,
+    AttachmentDeclaration, AttachmentLoad, AttachmentView, CopyOutput, FrameConfig, FrameError,
+    FrameOperations, FramePlan, OperationsGroup, PassDeclaration, PassEntry, PassId, PassSlot,
+    PostChain, PostError, ResourceRef, Resources, StageFactory, StageSet, TimingMode,
+    TimingSupport,
 };
 
 use super::operations_tests::{buffer, device, id};
@@ -132,4 +134,120 @@ fn a_chain_without_a_timer_still_encodes_the_list() {
     let (bytes, timings, _) = run(false);
     assert_eq!(bytes, BYTES);
     assert!(timings.is_empty());
+}
+
+/// A compiled list a frame plan positions, encoded through the timer the executor hands it.
+struct Positioned {
+    compiled: CompiledOperations,
+    registry: ResourceRegistry,
+}
+impl FrameOperations for Positioned {
+    fn encode_operations(
+        &self,
+        timing: Option<&crate::TimingState>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), FrameError> {
+        timing
+            .expect("the executor hands a group the frame's timer")
+            .encode_checked(&self.compiled, &self.registry, encoder)
+            .map_err(FrameError::from)
+    }
+}
+
+fn clearing(
+    device: &wgpu::Device,
+    entry: PassEntry,
+    name: &'static str,
+) -> (PassDeclaration, AttachmentView) {
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let resource = ResourceRef::new(name);
+    let mut pass = PassDeclaration::nth(entry.slot(), entry.occurrence());
+    pass.color = Some(AttachmentDeclaration {
+        resource,
+        format,
+        size: [8, 8],
+        samples: 1,
+        load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
+        store: wgpu::StoreOp::Store,
+        read_only: false,
+    });
+    let texture = crate::color_texture(device, name, [8, 8], format);
+    (pass, AttachmentView::new(resource, &texture).unwrap())
+}
+
+#[test]
+fn a_positioned_group_is_timed_between_the_passes_around_it() {
+    let (device, queue) = device();
+    let mut chain = PostChain::new(
+        &device,
+        FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
+        Resources::default(),
+        Factory,
+    )
+    .unwrap();
+    let support = chain
+        .configure_timing(&device, &queue, TimingMode::Optional)
+        .unwrap();
+    let (registry, operations, staging) = operations(&device);
+    let compiled = registry.compile_operations(&device, &operations).unwrap();
+    let work = Positioned { compiled, registry };
+    let first = PassEntry::new(PassSlot::Opaque);
+    let second = PassEntry::nth(PassSlot::Opaque, 1);
+    let ((first_pass, first_view), (second_pass, second_view)) = (
+        clearing(&device, first, "first target"),
+        clearing(&device, second, "second target"),
+    );
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+    let mut encoder = authority.begin(&device).unwrap();
+    chain.begin_timing(9).unwrap();
+    chain
+        .encode_geometry(
+            &device,
+            &mut encoder,
+            &FramePlan {
+                passes: &[first_pass, second_pass],
+                views: &[first_view, second_view],
+                requested: &[],
+                operations: &[OperationsGroup {
+                    before: Some(second),
+                    work: &work,
+                }],
+            },
+            &mut [],
+        )
+        .unwrap();
+    chain.finish_timing(&mut encoder).unwrap();
+    let submitted = encoder.finish().submit().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submitted),
+            timeout: Some(std::time::Duration::from_secs(10)),
+        })
+        .unwrap();
+    staging.slice(..).map_async(wgpu::MapMode::Read, |result| {
+        result.unwrap();
+    });
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    assert_eq!(
+        staging.slice(..).get_mapped_range().unwrap().to_vec(),
+        BYTES
+    );
+    let expected = usize::from(support == TimingSupport::Supported);
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
+    if support == TimingSupport::Supported {
+        let passes: Vec<_> = frames[0].passes.iter().map(|pass| pass.pass_id).collect();
+        assert_eq!(
+            passes,
+            [
+                PassId::Geometry(first),
+                PassId::Operation(id("timed upload")),
+                PassId::Operation(id("timed readback")),
+                PassId::Geometry(second),
+            ]
+        );
+    } else {
+        eprintln!("no timestamp queries on this adapter: {support:?}");
+        assert!(frames.is_empty());
+    }
 }

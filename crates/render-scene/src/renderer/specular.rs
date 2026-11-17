@@ -127,6 +127,11 @@ impl ScenePipelines {
             .clone()
     }
 
+    /// Direct canonical outputs are present only in the early depth-writing material source.
+    pub(crate) fn early_outputs(&self) -> Option<crate::gbuffer_writes::EarlyOutputs> {
+        crate::gbuffer_writes::EarlyOutputs::from_source(&self.specialization.source)
+    }
+
     /// The object source these pipelines' forward draws compose.
     #[cfg(test)]
     pub(crate) fn object_source(&self) -> &str {

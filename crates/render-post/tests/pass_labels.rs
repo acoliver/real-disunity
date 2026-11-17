@@ -1,4 +1,4 @@
-use worldrunner_render_post::{PassId, PassSlot, StageId, contracts::RasterId};
+use worldrunner_render_post::{PassEntry, PassId, PassSlot, StageId, contracts::RasterId};
 
 #[test]
 fn geometry_encoder_labels_match_timing_identities() {
@@ -12,6 +12,7 @@ fn geometry_encoder_labels_match_timing_identities() {
         OpaqueGbuffer,
         Opaque,
         OpaqueLighting,
+        ContourIds,
         AfterOpaqueSnapshot,
         AfterOpaqueDepth,
         TransparentWater,
@@ -38,11 +39,67 @@ fn geometry_encoder_labels_match_timing_identities() {
 }
 
 fn assert_geometry_label(slot: PassSlot) {
-    let identity = PassId::Geometry(slot);
+    let identity = PassId::Geometry(PassEntry::new(slot));
     let label = identity.encoder_label();
-    assert_eq!(label.as_ref(), format!("{identity:?}"));
+    // Before a role could repeat, the label was `Geometry(` and the role's Debug spelling.
+    assert_eq!(label.as_ref(), format!("Geometry({slot:?})"));
+    assert_eq!(identity.to_string(), label.as_ref());
     assert!(!label.as_ref().is_empty());
     assert!(!label.as_ref().contains("stock geometry"));
+}
+
+#[test]
+fn first_entry_labels_are_the_names_geometry_passes_always_had() {
+    for (slot, expected) in [
+        (PassSlot::Opaque, "Geometry(Opaque)"),
+        (PassSlot::DepthNormalPrepass, "Geometry(DepthNormalPrepass)"),
+        (PassSlot::TransparentWater, "Geometry(TransparentWater)"),
+        (PassSlot::ShadowCasters(0), "Geometry(ShadowCasters(0))"),
+        (PassSlot::ShadowCasters(3), "Geometry(ShadowCasters(3))"),
+        (PassSlot::ReflectionMip(2), "Geometry(ReflectionMip(2))"),
+    ] {
+        let id = PassId::Geometry(PassEntry::new(slot));
+        assert_eq!(id.encoder_label().as_ref(), expected);
+        assert_eq!(id.to_string(), expected);
+        assert_eq!(PassId::Geometry(PassEntry::nth(slot, 0)), id);
+    }
+}
+
+#[test]
+fn a_repeated_role_is_named_by_its_occurrence() {
+    let name = |slot, occurrence| PassId::Geometry(PassEntry::nth(slot, occurrence)).to_string();
+    assert_eq!(name(PassSlot::Opaque, 1), "Geometry(Opaque#1)");
+    assert_eq!(name(PassSlot::Opaque, 2), "Geometry(Opaque#2)");
+    assert_eq!(
+        name(PassSlot::ShadowCasters(2), 1),
+        "Geometry(ShadowCasters(2)#1)"
+    );
+    assert_ne!(name(PassSlot::Opaque, 0), name(PassSlot::Opaque, 1));
+    assert_ne!(name(PassSlot::Opaque, 1), name(PassSlot::Opaque, 2));
+    // The longest label still fits the stack buffer and encoder label is the reported name.
+    let longest = PassId::Geometry(PassEntry::nth(
+        PassSlot::ReflectionDepthPyramid(u32::MAX),
+        u32::MAX,
+    ));
+    assert_eq!(
+        longest.encoder_label().as_ref(),
+        "Geometry(ReflectionDepthPyramid(4294967295)#4294967295)"
+    );
+    for slot in [PassSlot::Opaque, PassSlot::ShadowCasters(1)] {
+        for occurrence in [1, 7] {
+            let id = PassId::Geometry(PassEntry::nth(slot, occurrence));
+            assert_eq!(id.encoder_label().as_ref(), id.to_string());
+        }
+    }
+}
+
+#[test]
+fn contour_encoder_labels_preserve_occurrence_identity() {
+    for (occurrence, expected) in [(0, "Geometry(ContourIds)"), (1, "Geometry(ContourIds#1)")] {
+        let id = PassId::Geometry(PassEntry::nth(PassSlot::ContourIds, occurrence));
+        assert_eq!(id.encoder_label().as_ref(), expected);
+        assert_eq!(id.to_string(), expected);
+    }
 }
 
 #[test]

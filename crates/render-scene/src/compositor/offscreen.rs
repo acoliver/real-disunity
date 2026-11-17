@@ -18,6 +18,33 @@ use worldrunner_render_program::runtime::AdmittedPrograms;
 
 const FEATURE: &str = "offscreen operations";
 
+/// Takes the offscreen operations admitted to `gpu`, for a path that draws no player programs of
+/// its own (the shadowed one), and retains their arena and storage on `encoder`. They are taken
+/// whether or not the frame goes on to be accepted, so a refused frame leaves none behind.
+///
+/// # Errors
+/// By name when the arena of the offscreen work retired or the frame belongs to another
+/// authority.
+pub(crate) fn take_offscreen(
+    gpu: &mut SceneGpu,
+    encoder: &wgpu::CommandEncoder,
+) -> Result<Option<AdmittedOffscreen>, FrameError> {
+    let offscreen = gpu.take_offscreen();
+    if let Some(offscreen) = &offscreen {
+        retain(offscreen, encoder)?;
+    }
+    Ok(offscreen)
+}
+
+fn retain(offscreen: &AdmittedOffscreen, encoder: &wgpu::CommandEncoder) -> Result<(), FrameError> {
+    offscreen
+        .retain(encoder)
+        .map_err(|error| FrameError::FeaturePreparation {
+            feature: FEATURE,
+            reason: error.to_string(),
+        })
+}
+
 /// Takes the player's work admitted to `gpu`. Returns the draws that join the opaque pass and the
 /// offscreen operations, if any, for the frame plan to position. `frame` is the scene pipelines
 /// and whether the frame writes velocity.
@@ -40,12 +67,7 @@ pub(super) fn encode_player_work(
     let offscreen = gpu.take_offscreen();
     let programs = super::programs::accept(gpu, encoder, renderer, frame)?;
     if let Some(offscreen) = &offscreen {
-        offscreen
-            .retain(encoder)
-            .map_err(|error| FrameError::FeaturePreparation {
-                feature: FEATURE,
-                reason: error.to_string(),
-            })?;
+        retain(offscreen, encoder)?;
     }
     Ok((programs, offscreen))
 }

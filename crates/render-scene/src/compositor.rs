@@ -18,7 +18,7 @@ mod frozen;
 #[cfg(test)]
 mod frozen_tests;
 mod hdr;
-mod offscreen;
+pub(crate) mod offscreen;
 mod output;
 mod overlay;
 mod overlay_depth;

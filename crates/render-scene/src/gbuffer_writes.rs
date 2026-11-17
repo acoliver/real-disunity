@@ -55,16 +55,59 @@ fn without_entry(source: &str, entry: &str) -> String {
 }
 
 /// The object source whose opaque, masked and relief entries write the G-buffer from
-/// `shade_material`. The forward entries are removed, as for terrain: their `@builtin` inputs
-/// cannot survive as ordinary functions, and the G-buffer entries take their names.
+/// `scene_object_gbuffer_material`. The forward entries are removed, as for terrain: their
+/// `@builtin` inputs cannot survive as ordinary functions, and the G-buffer entries take their
+/// names.
 pub(crate) fn object_source(stock: &str) -> String {
     let mut source = stock.to_owned();
     for entry in FORWARD_OBJECTS {
         source = without_entry(&source, &format!("@fragment\nfn {entry}("));
     }
     let card = card_material(stock);
-    format!("{source}\n{card}\n{CAMERA}\n{GBUFFER_WGSL}\n{OBJECT_ENTRIES}")
+    let preparation = crate::scene_metadata::receiver::prepared_normal_source(stock);
+    let material = object_material(stock);
+    format!(
+        "{source}\n{card}\n{CAMERA}\n{GBUFFER_WGSL}\n{preparation}\n{material}\n{PROJECTED_MATERIAL}\n{OBJECT_ENTRIES}"
+    )
 }
+
+/// `shade_material` as the G-buffer's object material. Its statements are the stock ones. The
+/// derivative operands and the base alpha come first, geometry, mask and visibility reject before
+/// any optional term, and the optional terms read the prepared operands.
+const OBJECT_MATERIAL: [(&str, &str); 3] = [
+    (
+        "fn shade_material(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> SceneObjectMaterial {",
+        "fn scene_object_gbuffer_material(original: VertexOutput, front_facing: bool, position: vec3<f32>, masked: bool, visible: bool) -> SceneObjectMaterial {",
+    ),
+    (
+        "    var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input, albedo_footprint), input.tint);\n    let surface = scene_surface_channels(input);\n    let auxiliary = scene_auxiliary_samples(input);\n\n    // A double-sided card is one sheet of geometry standing in for a leaf with\n    // two faces. Its stored normal describes the front, so the back must be\n    // flipped or the leaf lights as though the sun were behind it.\n    let geometric_normal = normalize(input.world_normal) * select(-1.0, 1.0, front_facing);\n\n    let mapped_normal = sample_normal(input, geometric_normal, input.world_position, input.world_tangent);\n",
+        "    // A double-sided card is one sheet of geometry standing in for a leaf with\n    // two faces. Its stored normal describes the front, so the back must be\n    // flipped or the leaf lights as though the sun were behind it.\n    let geometric_normal = normalize(input.world_normal) * select(-1.0, 1.0, front_facing);\n    let surface_footprint = scene_prepare_surface_channels(input);\n    let normal_preparation = scene_prepare_normal(input, geometric_normal, input.world_position);\n    let decal_gradients = scene_prepare_decals(input.world_position);\n    let occlusion_footprint = scene_prepare_card_occlusion(input);\n    let emission_footprint = scene_prepare_card_emission(input);\n    var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input, albedo_footprint), input.tint);\n    if !visible || !scene_geometry_covered(input) || (masked && !scene_alpha_covered(albedo_sample.a, input)) { discard; }\n    let surface = scene_surface_channels_prepared(input, surface_footprint);\n    let occlusion_sample = scene_occlusion_sample_prepared(input, occlusion_footprint);\n    let emission_sample = scene_emission_sample_prepared(input, emission_footprint);\n    let auxiliary = vec2<f32>(occlusion_sample.x, select(emission_sample, occlusion_sample.y, scene_packed_atlas(input)));\n\n    let mapped_normal = sample_normal_prepared(input, geometric_normal, input.world_tangent, normal_preparation);\n",
+    ),
+    (
+        "    return scene_object_material(input, geometric_normal, surface_material, scattering.y, auxiliary.y);",
+        "    return scene_gbuffer_projected_material(input, geometric_normal, surface_material, scattering.y, auxiliary.y, decal_gradients);",
+    ),
+];
+
+/// The stock `shade_material` body as the G-buffer material; see [`OBJECT_MATERIAL`].
+fn object_material(stock: &str) -> String {
+    let mut material =
+        crate::scene_metadata::receiver::function_source(stock, "shade_material").to_owned();
+    for (from, to) in OBJECT_MATERIAL {
+        material = material.anchored("gbuffer_writes object material", 1, from, to);
+    }
+    material
+}
+
+/// `scene_object_material`'s decal projection, reading the gradients that were taken before the
+/// rejection so that no derivative follows a discard.
+const PROJECTED_MATERIAL: &str = "fn scene_gbuffer_projected_material(input: VertexOutput, geometric_normal: vec3<f32>, surface: SceneShadingSurface, masked_amount: f32, emission: f32, gradients: SceneDecalGradients) -> SceneObjectMaterial {
+    let projected = scene_project_decals_prepared(input.world_position, geometric_normal, 1u,
+        surface.albedo.rgb, surface.properties.xy, surface.normal, gradients);
+    let decorated = SceneShadingSurface(vec4<f32>(projected.albedo, surface.albedo.a), projected.normal,
+        vec3<f32>(projected.properties, surface.properties.z));
+    return SceneObjectMaterial(geometric_normal, decorated, masked_amount, emission);
+}";
 
 /// The card shading entry whose material the G-buffer card entries store.
 const CARD_SHADE: &str = "fn scene_card_shade(original: VertexOutput, front_facing: bool, \

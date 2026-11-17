@@ -49,9 +49,8 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
             &mut encoder,
             None,
         ),
-        Err(ShadowError::Schedule(ScheduleError::AttachmentContract(
-            PassSlot::Opaque
-        )))
+        Err(ShadowError::Schedule(ScheduleError::AttachmentContract(entry)))
+            if entry == PassEntry::new(PassSlot::Opaque)
     ));
     assert_eq!(renderer.gpu.current_frame(), None);
     encoder.finish().submit().unwrap();

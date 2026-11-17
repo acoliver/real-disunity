@@ -180,11 +180,12 @@ impl SceneGpu {
         frame_group: &BindGroup,
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> ObjectView {
+        let owner = worldrunner_render_gpu::submission::Publications::current();
         assert!(
             self.instances
                 .batches
                 .values()
-                .all(|batch| !batch.has_pending()),
+                .all(|batch| batch.ready_for(owner.as_ref())),
             "flush instance updates before drawing"
         );
         let frame = self

@@ -80,6 +80,7 @@ impl ShadowedScene {
         )?;
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
+        map.retain(encoder)?;
         let work = shadow.complete_shadow_schedule(
             (context, encoder),
             attachments,

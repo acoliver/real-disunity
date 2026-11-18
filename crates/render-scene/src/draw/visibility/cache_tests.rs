@@ -260,3 +260,5 @@ fn every_edit_refreshes_cached_bounds_for_selection_and_casters() {
         "the reused slot's new bounds extend the caster range"
     );
 }
+
+mod skip_tests;

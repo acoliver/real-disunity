@@ -23,6 +23,9 @@ pub struct RuntimeStats {
     /// Draws prepared, whether by `prepare_draw`, a material, an admission or
     /// `prepare_imported_draw`.
     pub draws_prepared: u64,
+    /// Staging buffers made for block-image transfers: one for the first transfer and another
+    /// only when a later transfer needs more room than the one held.
+    pub transfer_buffers_built: u64,
 }
 
 /// The runtime's counters. They are atomic so that counting needs only a shared reference, as
@@ -34,6 +37,7 @@ pub(crate) struct Counters {
     bind_groups: AtomicU64,
     sets: AtomicU64,
     draws: AtomicU64,
+    transfer_buffers: AtomicU64,
 }
 
 impl Counters {
@@ -57,6 +61,10 @@ impl Counters {
         self.draws.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub(crate) fn transfer_buffer_built(&self) {
+        self.transfer_buffers.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(crate) fn snapshot(&self) -> RuntimeStats {
         RuntimeStats {
             modules_built: self.modules.load(Ordering::Relaxed),
@@ -64,6 +72,7 @@ impl Counters {
             bind_groups_built: self.bind_groups.load(Ordering::Relaxed),
             sets_prepared: self.sets.load(Ordering::Relaxed),
             draws_prepared: self.draws.load(Ordering::Relaxed),
+            transfer_buffers_built: self.transfer_buffers.load(Ordering::Relaxed),
         }
     }
 }

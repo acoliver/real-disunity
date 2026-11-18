@@ -39,6 +39,7 @@ mod append;
 mod append_skinning;
 mod compaction;
 mod compaction_gather;
+mod compaction_mirror;
 mod contours;
 mod curved_wind;
 mod decal_mip_bias;

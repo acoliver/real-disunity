@@ -8,8 +8,10 @@ use glam::Vec3;
 
 mod inputs;
 mod tree;
-pub(crate) use inputs::{Shape, Slot, SlotFade, SlotMut};
+use inputs::is_distinct_of;
+pub(crate) use inputs::{Shape, Slot, SlotFade, SlotMut, distinct};
 pub(crate) use tree::{Node, Tree};
+use worldrunner_render_plan::SceneFadeReference;
 
 /// World-space boxes for the allocated slots of one batch, one box per relief scale, and
 /// each slot's level inputs.
@@ -39,6 +41,24 @@ impl SlotBounds {
         }
         self.levels.forget(position);
         self.stale = true;
+    }
+
+    /// Whether `refresh` would find nothing to do for a batch whose materials make these relief
+    /// scales and fade references over a mesh of `levels` levels: no slot changed and the stored
+    /// layout is the one they make. Each iterator lists its values per material and may repeat
+    /// them; only their distinct values in order of first appearance are compared, and nothing
+    /// is allocated.
+    pub fn is_current(
+        &self,
+        reliefs: impl Iterator<Item = u32>,
+        levels: usize,
+        references: impl Iterator<Item = SceneFadeReference>,
+    ) -> bool {
+        let shape = self.inputs.shape();
+        !self.stale
+            && shape.levels == levels
+            && is_distinct_of(reliefs, &self.reliefs)
+            && is_distinct_of(references, &shape.references)
     }
 
     /// Fills the boxes and level inputs of every live slot that has none and regroups the

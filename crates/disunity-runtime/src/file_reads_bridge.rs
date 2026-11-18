@@ -10,11 +10,10 @@ use netcorehost::pdcstring::PdCString;
 // release=6, complete=7, valid=8. Negative results: stale=-1, argument=-2,
 // capacity=-3, pending=-4. Submit uses id as offset and value as size.
 type Callback = unsafe extern "C" fn(*mut c_void, u32, u64, *mut u8, u32, u64) -> i64;
-type Configure = unsafe extern "system" fn(*mut c_void, Option<Callback>) -> i32;
 
 pub(crate) struct FileReadBridge {
     context: Box<Mutex<FileReads>>,
-    configure: Configure,
+    configure: unsafe extern "system" fn(*mut c_void, Option<Callback>) -> i32,
 }
 
 impl FileReadBridge {
@@ -25,7 +24,9 @@ impl FileReadBridge {
                 .map_err(|error| HostError::Hostfxr(error.to_string()))
         };
         let configure = *loader
-            .get_function_with_unmanaged_callers_only::<Configure>(
+            .get_function_with_unmanaged_callers_only::<
+                unsafe extern "system" fn(*mut c_void, Option<Callback>) -> i32,
+            >(
                 &name("Disunity.Hosting.AsyncReadBridge, Disunity.Engine")?,
                 &name("Configure")?,
             )

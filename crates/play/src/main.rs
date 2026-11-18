@@ -169,13 +169,6 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let windowed =
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
-    if !arguments.globals.is_empty() && (windowed || matches!(arguments.gpu_work, GpuWork::Off)) {
-        return Err(
-            "--global needs the offscreen work of a headless run: no --size, --capture or --key, \
-             and --gpu-work on"
-                .into(),
-        );
-    }
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
     // The one place the environment is read: the request and the GPU work get this value.
@@ -271,8 +264,27 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
     Ok(())
 }
 
+/// `--global` values start the offscreen work of a player's frames, in a window and headless
+/// alike, so it needs a player and a run that does that work.
+fn check_globals(arguments: &Arguments) -> Result<(), String> {
+    if arguments.globals.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--global applies only to --player".into());
+    }
+    if matches!(arguments.gpu_work, GpuWork::Off) {
+        return Err(
+            "--global needs the offscreen work of a player: --gpu-work on, which is the default"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
+    check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -484,14 +496,76 @@ mod tests {
     }
 
     #[test]
-    fn a_global_is_refused_for_a_run_that_does_no_offscreen_work() {
-        for extra in [&["--size", "64x64"][..], &["--gpu-work", "off"][..]] {
+    fn a_global_reaches_a_player_that_does_its_offscreen_work_headless_or_in_a_window() {
+        for extra in [
+            &[][..],
+            &["--size", "64x64"][..],
+            &["--key", "1:w:down"][..],
+            &["--capture", "1:out.png"][..],
+            &["--gpu-work", "on", "--size", "64x64"][..],
+        ] {
             let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
             args.extend_from_slice(extra);
             let arguments = parsed(&args).expect("parses");
-            let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
+            assert_eq!(super::check_globals(&arguments), Ok(()), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn a_windowed_player_with_a_global_is_not_refused_for_it() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--size",
+            "64x64",
+            "--global",
+            "a=1",
+        ])
+        .expect("parses");
+        // The run goes on to read the player's data, which does not exist here; the refusal of
+        // `--global` is not what stops it.
+        let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
+        assert!(!error.contains("--global"), "{error}");
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_with_no_gpu_work() {
+        for extra in [&[][..], &["--size", "64x64"][..]] {
+            let mut args = vec![
+                "--player",
+                "Game_Data",
+                "--global",
+                "a=1",
+                "--gpu-work",
+                "off",
+            ];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert!(
+                error.starts_with("--global needs") && error.contains("--gpu-work on"),
+                "{error}"
+            );
+            let error = super::play(parsed(&args).expect("parses")).unwrap_err();
             assert!(error.starts_with("--global needs"), "{error}");
         }
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_that_is_not_a_player() {
+        for args in [
+            &["snake", "--global", "a=1"][..],
+            &["--global", "a=1"][..],
+            &["pong", "--size", "64x64", "--global", "a=1"][..],
+        ] {
+            let arguments = parsed(args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+            let error = super::play(parsed(args).expect("parses")).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+        }
+        let plain = parsed(&["snake", "--size", "64x64"]).expect("parses");
+        assert_eq!(super::check_globals(&plain), Ok(()));
     }
 
     #[test]

@@ -493,6 +493,8 @@ CommandBufferMeshRefreshTests.Run();
 CommandBufferMeshLifecycleTests.Run();
 CommandBufferMeshFailureTests.Run();
 CommandBufferMeshBlockTests.Run();
+CommandBufferRendererTests.Run();
+CommandBufferWireframeTests.Run();
 CommandBufferCameraTests.Run();
 CommandBufferProceduralTests.Run();
 GlobalArrayTests.Run();

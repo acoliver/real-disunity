@@ -2,9 +2,10 @@
 //!
 //! Issue 450 requires that frame cost does not rise. A frame records the frame group once and
 //! then, for each selected range (one batch of instances at one level of detail): the instance
-//! buffer, the previous-instance buffer when the pipelines write velocity, the vertex buffer and
-//! the index buffer, one draw per material slot, and a pipeline or a material group only when it
-//! differs from the one bound before. A steady-state frame builds nothing on the program
+//! buffer, the previous-instance buffer when the pipelines write velocity, one draw per material
+//! slot, and a pipeline, a material group, a vertex buffer or an index buffer only when it differs
+//! from the one bound before. Ranges of one mesh level share its vertex and index buffers, so
+//! consecutive ranges of one mesh bind them once. A steady-state frame builds nothing on the program
 //! runtime.
 
 use std::ops::Range;
@@ -105,7 +106,8 @@ fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
 }
 
 /// Eight cards with eight different keys, one batch each: eight pipelines, eight material
-/// groups and the frame group, and per batch two vertex buffers, one index buffer and one draw.
+/// groups and the frame group, and per batch its instance buffer and one draw. The cards use two
+/// meshes (plain and impostor) in two runs, so their vertex and index buffers bind twice.
 #[test]
 fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
     let scene = scenes::scene(&scenes::base_specs());
@@ -115,12 +117,12 @@ fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
         Counted {
             pipelines: 8,
             groups: 1 + 8,
-            vertex_buffers: 2 * 8,
-            index_buffers: 8,
+            vertex_buffers: 8 + 2,
+            index_buffers: 2,
             draws: 8,
         }
     );
-    assert_eq!(counted.total(), 49);
+    assert_eq!(counted.total(), 37);
 }
 
 /// A velocity pipeline adds the previous-instance buffer to every batch and nothing else.
@@ -136,12 +138,12 @@ fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
             ..plain
         }
     );
-    assert_eq!(recorded.total(), 57);
+    assert_eq!(recorded.total(), 45);
 }
 
 /// Cards with one key and a material each share the pipeline bind and rebind their material
-/// group: one pipeline, a group for the frame and one per material, and per batch the same
-/// buffers and draw as before.
+/// group: one pipeline, a group for the frame and one per material, and per batch its instance
+/// buffer and draw. The six share one mesh, so its vertex and index buffers bind once.
 #[test]
 fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
     let scene = scenes::scene(&[Spec::default(); 6]);
@@ -151,11 +153,12 @@ fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
         Counted {
             pipelines: 1,
             groups: 1 + 6,
-            vertex_buffers: 2 * 6,
-            index_buffers: 6,
+            vertex_buffers: 6 + 1,
+            index_buffers: 1,
             draws: 6,
         },
-        "six materials share one pipeline: one set_pipeline, a group for the frame and one each"
+        "six materials share one pipeline and one mesh: one set_pipeline, one vertex and index \
+         buffer, a group for the frame and one each"
     );
 }
 

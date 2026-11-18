@@ -549,3 +549,74 @@ fn raw_colour_requires_its_history_key_in_the_capture_write_contract() {
     fixture.raw_only().submit().unwrap();
     assert!(!fixture.pending_history());
 }
+
+#[test]
+fn raw_draws_of_one_unchanged_transaction_scan_readiness_once() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut fixture = Fixture::new();
+    fixture.submit();
+    let Fixture {
+        context,
+        authority,
+        gpu,
+        handle,
+        pipelines,
+        targets,
+    } = &mut fixture;
+    let mut scans = Vec::new();
+    authority
+        .prepare(context.device(), |encoder, _| {
+            gpu.set_instance_transform(*handle, moved(250)).unwrap();
+            gpu.flush_instances_encoded(context.device(), encoder)?;
+            for _ in 0..3 {
+                record_raw(encoder, gpu, pipelines, targets)?;
+                scans.push(gpu.instances.ready_scans());
+            }
+            Ok::<_, TransactionError>(())
+        })
+        .unwrap()
+        .cancel();
+    assert_eq!(scans[1], scans[0]);
+    assert_eq!(scans[2], scans[0]);
+}
+
+#[test]
+fn an_edit_after_a_passing_raw_draw_in_the_same_transaction_is_refused() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut fixture = Fixture::new();
+    fixture.submit();
+    let Fixture {
+        context,
+        authority,
+        gpu,
+        handle,
+        pipelines,
+        targets,
+    } = &mut fixture;
+    let mut refusal = None;
+    authority
+        .prepare(context.device(), |encoder, _| {
+            gpu.set_instance_transform(*handle, moved(250)).unwrap();
+            gpu.flush_instances_encoded(context.device(), encoder)?;
+            record_raw(encoder, gpu, pipelines, targets)?;
+            gpu.set_instance_transform(*handle, moved(500)).unwrap();
+            refusal = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || record_raw(encoder, gpu, pipelines, targets),
+            )));
+            Ok::<_, TransactionError>(())
+        })
+        .unwrap()
+        .cancel();
+    let payload = refusal
+        .expect("the transaction ran")
+        .expect_err("a draw after an unflushed edit must be refused");
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(ToString::to_string)
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+    assert!(
+        message.contains("flush instance updates before drawing"),
+        "unexpected refusal: {message}"
+    );
+}

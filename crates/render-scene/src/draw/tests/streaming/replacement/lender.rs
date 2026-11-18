@@ -1,5 +1,6 @@
 //! The terrain lender while a retained replacement freezes the previous source.
 use super::*;
+use crate::compositor::{FrameTerrainError, FrameTerrainHandle};
 use crate::draw::TerrainChunkViewError;
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
 use worldrunner_render_post::{FrameError, PrepareContext};
@@ -47,6 +48,13 @@ fn continuation_refuses_a_cover_its_prefix_replaced() {
                 assert_eq!(
                     old.prepared_terrain_chunks(frame, VIEWPORT),
                     Err(TerrainChunkViewError::Replaced)
+                );
+                // A route lends the refusal to the game without failing the frame.
+                let lent = FrameTerrainHandle::default();
+                lent.publish(&old, frame, VIEWPORT);
+                assert_eq!(
+                    lent.current().unwrap_err(),
+                    FrameTerrainError::View(TerrainChunkViewError::Replaced)
                 );
                 Ok::<_, FrameError>(())
             },

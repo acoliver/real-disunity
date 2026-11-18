@@ -2,7 +2,7 @@
 //! the game's pass draws the chunks the frame's stock selection admitted, from the resident chunk
 //! buffers the renderer lends it, with a program of its own.
 use super::common::{self, graphics};
-use super::fixture::{Rig, SIZE, streamed_terrain_scene};
+use super::fixture::{Rig, SIZE, quad_scene, streamed_terrain_scene, terrain_scene};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -14,10 +14,11 @@ use worldrunner_render_program::runtime::{
 use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
-        ColorOutput, DepthAccess, FrameCameraHandle, FrameTerrainHandle, GameBuild,
-        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, TerrainDraws,
+        ColorOutput, DepthAccess, FrameCameraHandle, FrameTerrainError, FrameTerrainHandle,
+        GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
+        TerrainDraws,
     },
-    draw::TerrainChunkDraw,
+    draw::{TerrainChunkDraw, TerrainChunkEdge},
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
         GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
@@ -45,11 +46,13 @@ struct In {
     return vec4<f32>(0.0, 1.0, 0.0, 1.0);
 }";
 
+/// What the frame terrain handle answered in one prepared frame.
+type Answer = Result<Option<Vec<TerrainChunkDraw>>, FrameTerrainError>;
+
 /// What the game saw in each frame it prepared.
 #[derive(Default)]
 struct Seen {
-    /// The chunks the frame lent, per prepared frame.
-    chunks: Vec<Vec<TerrainChunkDraw>>,
+    answers: Vec<Answer>,
 }
 
 thread_local! {
@@ -205,11 +208,14 @@ impl GameFrame {
 
 impl PreparedFeature for GameFrame {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
-        let chunks = self
+        let answer: Answer = self
             .parts
             .terrain
-            .current()?
-            .expect("the scene streams its terrain");
+            .current()
+            .map(|lent| lent.map(|c| c.to_vec()));
+        self.parts.seen.lock().unwrap().answers.push(answer.clone());
+        // A game that cannot get the terrain draws none; the frame itself goes on.
+        let chunks = answer.ok().flatten().unwrap_or_default();
         let camera = self.parts.camera.current()?;
         let transform = context
             .device()
@@ -229,7 +235,6 @@ impl PreparedFeature for GameFrame {
             .map(|chunk| self.chunk_draw(&target, (chunk, &transform)))
             .collect::<Result<Vec<_>, _>>()?;
         *self.parts.draws.lock().unwrap() = draws;
-        self.parts.seen.lock().unwrap().chunks.push(chunks.to_vec());
         Ok(())
     }
 
@@ -245,34 +250,105 @@ fn centre(image: &[[u8; 4]]) -> [u8; 4] {
     Rig::pixel(image, SIZE[0] as usize / 2, SIZE[1] as usize / 2)
 }
 
+/// Renders `frames` frames of `scene` with the terrain game and returns what it saw each frame,
+/// the last image and the rig.
+fn run(
+    scene: &worldrunner_render_plan::RenderScene,
+    draws: TerrainDraws,
+    frames: usize,
+) -> (Vec<Answer>, Vec<[u8; 4]>, Rig) {
+    let seen = Shared::default();
+    let mut rig = Rig::new(scene, SIZE, |settings| {
+        settings.terrain_draws = draws;
+        settings.game_passes = GamePasses::new().with(Arc::new(TerrainGame { seen: seen.clone() }));
+    });
+    let mut image = Vec::new();
+    for _ in 0..frames {
+        image = rig.render().unwrap();
+    }
+    let answers = std::mem::take(&mut seen.lock().unwrap().answers);
+    (answers, image, rig)
+}
+
+/// The chunks of the last frame, which has refined past the root.
+fn refined(answers: &[Answer]) -> Vec<TerrainChunkDraw> {
+    let chunks = answers.last().unwrap().clone().unwrap().unwrap();
+    assert!(chunks.len() > 1, "the selection refined past its root");
+    chunks
+}
+
 #[test]
 fn a_game_pass_draws_the_lent_stock_chunks_while_stock_terrain_is_suppressed() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let seen = Shared::default();
-    let mut rig = Rig::new(&streamed_terrain_scene(), SIZE, |settings| {
-        settings.terrain_draws = TerrainDraws::Suppressed;
-        settings.game_passes = GamePasses::new().with(Arc::new(TerrainGame { seen: seen.clone() }));
-    });
-    for _ in 0..2 {
-        let image = rig.render().unwrap();
-        assert_eq!(centre(&image), GREEN, "the game drew the lent terrain");
-    }
+    let (answers, image, rig) = run(&streamed_terrain_scene(), TerrainDraws::Suppressed, 3);
+    assert_eq!(centre(&image), GREEN, "the game drew the lent terrain");
     assert_eq!(
         rig.gpu.statistics().passes.terrain.calls,
         0,
         "no stock terrain draw"
     );
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.chunks.len(), 2);
-    for chunks in &seen.chunks {
-        assert!(!chunks.is_empty());
-        for chunk in chunks {
-            let buffers = chunk.buffers();
-            assert!(buffers.index_count > 0);
-            assert_eq!(buffers.vertices.size() % VERTEX_STRIDE, 0);
-            assert_eq!(buffers.indices.size(), u64::from(buffers.index_count) * 4);
-        }
+    assert_eq!(answers.len(), 3);
+    let chunks = refined(&answers);
+    assert!(chunks.iter().any(|chunk| {
+        [
+            TerrainChunkEdge::West,
+            TerrainChunkEdge::East,
+            TerrainChunkEdge::South,
+            TerrainChunkEdge::North,
+        ]
+        .into_iter()
+        .any(|edge| !chunk.neighbors(edge).is_empty())
+    }));
+    for chunk in &chunks {
+        let buffers = chunk.buffers();
+        assert!(buffers.index_count > 0);
+        assert_eq!(buffers.vertices.size() % VERTEX_STRIDE, 0);
+        assert_eq!(buffers.indices.size(), u64::from(buffers.index_count) * 4);
     }
-    // Outside a frame there is no terrain to lend, never the last frame's.
-    HANDLE.with_borrow(|handle| assert!(handle.as_ref().unwrap().current().is_err()));
+    // Neither between frames nor in a later frame that prepared no terrain does the handle
+    // answer with an earlier frame's chunks.
+    HANDLE.with_borrow(|handle| {
+        let handle = handle.as_ref().unwrap();
+        assert_eq!(
+            handle.current().unwrap_err(),
+            FrameTerrainError::OutsideFrame
+        );
+        rig.context
+            .submission()
+            .prepare(rig.context.device(), |_, _| {
+                assert_eq!(
+                    handle.current().unwrap_err(),
+                    FrameTerrainError::NotPrepared
+                );
+                Ok::<_, FrameError>(())
+            })
+            .unwrap()
+            .cancel();
+    });
+}
+
+#[test]
+fn stock_terrain_draws_and_lends_the_same_frame_selection() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (answers, _, rig) = run(&streamed_terrain_scene(), TerrainDraws::Stock, 3);
+    assert!(
+        rig.gpu.statistics().passes.terrain.calls > 0,
+        "the stock pass drew the terrain"
+    );
+    refined(&answers);
+}
+
+#[test]
+fn unstreamed_terrain_is_refused_by_name_without_failing_the_frame() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (answers, image, _) = run(&terrain_scene(), TerrainDraws::Suppressed, 1);
+    assert_eq!(answers, [Err(FrameTerrainError::NotStreamed)]);
+    assert_ne!(centre(&image), GREEN, "the game drew nothing");
+}
+
+#[test]
+fn a_scene_without_terrain_lends_none() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (answers, _, _) = run(&quad_scene(), TerrainDraws::Stock, 1);
+    assert_eq!(answers, [Ok(None)]);
 }

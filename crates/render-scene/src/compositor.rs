@@ -36,9 +36,9 @@ pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 pub use game::{
-    ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameTerrainHandle, GameBuild,
-    GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, TargetDeclaration,
-    TargetExtent, TargetLifetime, join_pass,
+    ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameTerrainError,
+    FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
+    PassTarget, TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

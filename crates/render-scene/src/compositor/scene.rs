@@ -433,7 +433,7 @@ fn prepare_scene_draw<'a, 'b>(
     let frame = renderer.prepare_uniform(*frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
-    renderer.publish_game_terrain(gpu, &frame, color.size())?;
+    renderer.publish_game_terrain(gpu, &frame, color.size());
     gpu.prepare_sky(device, encoder, &frame)?;
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
     let screen = renderer.geometry_for_depth(depth_mode);

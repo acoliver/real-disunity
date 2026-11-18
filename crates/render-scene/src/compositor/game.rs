@@ -31,7 +31,7 @@ pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
-pub use terrain::FrameTerrainHandle;
+pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
 #[cfg(test)]
 mod tests;

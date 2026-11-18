@@ -84,7 +84,7 @@ fn shadowed_frames_lend_their_streamed_terrain_to_game_features() {
     let lent = Lent::default();
     GamePasses::new()
         .with(Arc::new(Probe { lent: lent.clone() }))
-        .install(&mut renderer.scheduler, &context)
+        .install(&mut renderer.scheduler, &context, None)
         .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     for _ in 0..2 {
@@ -93,5 +93,6 @@ fn shadowed_frames_lend_their_streamed_terrain_to_game_features() {
     let lent = lent.lock().unwrap();
     assert_eq!(lent.len(), 2, "the probe prepared in both frames");
     assert!(lent.iter().all(|&count| count > 0));
+    assert!(lent[1] > 1, "the second frame lends the refined selection");
     HANDLE.with_borrow(|handle| assert!(handle.as_ref().unwrap().current().is_err()));
 }

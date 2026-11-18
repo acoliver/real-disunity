@@ -60,6 +60,7 @@ impl RetainedHost {
             captures: capture::Captures::default(),
             capture_pool,
             offscreen: None,
+            game_screen: None,
             readiness: initial_readiness(scene.as_ref(), &options),
             initial_scene: scene.clone(),
             scene,

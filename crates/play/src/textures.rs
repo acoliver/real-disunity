@@ -9,7 +9,6 @@ use worldrunner_unity_import::{Filter, PlanTexture, Project, Wrap, import_textur
 use crate::{
     PlayError,
     block_texture::{BlockLayout, decode_level, dx10_dds, flip_rows, level_bytes},
-    offscreen::ScreenImage,
 };
 
 /// Decodes texture `i` of the plan into identity `first + i`, with its import sampling.
@@ -129,26 +128,6 @@ pub fn player_scene_texture(
         return block(texture, format, layout);
     }
     Ok(rgba_texels(texture, &player_rgba8(texture)?))
-}
-
-/// An image of the screen as a scene texture: RGBA8 texels with their rows top first, as the
-/// image holds them, and the sRGB values the screen stores. The window draws it at its own size,
-/// so it is sampled by the nearest texel and does not wrap.
-#[must_use]
-pub fn screen_scene_texture(image: &ScreenImage) -> SceneTexture {
-    SceneTexture::Texels {
-        format: TexelFormat::Rgba8Unorm,
-        color_space: TextureColorSpace::Srgb,
-        width: image.width,
-        height: image.height,
-        mips: 1,
-        bytes: image.rgba.clone().into_boxed_slice(),
-    }
-    .with_sampler(TextureSampler {
-        filter: TextureFilter::Point,
-        wrap_u: TextureWrap::Clamp,
-        wrap_v: TextureWrap::Clamp,
-    })
 }
 
 /// The name and layout of a block-compressed engine `TextureFormat` this host decodes.

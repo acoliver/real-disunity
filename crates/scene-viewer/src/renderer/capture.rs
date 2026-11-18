@@ -1,4 +1,4 @@
-use super::{Renderer, live::Capture};
+use super::{Renderer, game_screen::ViewMisses, live::Capture};
 mod accumulation;
 pub(super) mod advanced;
 mod products;
@@ -15,6 +15,41 @@ struct Pending {
     time: std::time::Duration,
     ticket: CompletionTicket,
     image: Products,
+}
+
+/// A retained capture the next frame takes, and the terrain its view still lacks.
+#[derive(Default)]
+pub(super) struct HostCapture {
+    pub(super) request: Option<(u64, Products)>,
+    pub(super) misses: ViewMisses,
+}
+
+impl Renderer {
+    pub(super) fn prepare_host_capture(
+        &mut self,
+        host: Option<&mut RetainedHost>,
+        view: &worldrunner_render_scene::SceneView,
+        output: &wgpu::Texture,
+    ) -> Result<HostCapture, ViewerError> {
+        let Some(host) = host else {
+            return Ok(HostCapture::default());
+        };
+        let readiness = self.retained_pages_ready(host, view)?;
+        let request = self.streaming.captures.prepare(
+            self.context.device(),
+            host,
+            output,
+            &self.presentation.scheduler,
+            readiness.pages_ready,
+        )?;
+        if let Some((id, _)) = &request {
+            self.reject_stale_attachments(host, *id)?;
+        }
+        Ok(HostCapture {
+            request,
+            misses: readiness.misses,
+        })
+    }
 }
 
 #[derive(Default)]
@@ -196,3 +231,6 @@ mod specular_tests;
 
 #[cfg(test)]
 mod lighting_term_tests;
+
+#[cfg(test)]
+mod screen_tests;

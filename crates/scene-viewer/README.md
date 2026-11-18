@@ -703,6 +703,27 @@ domain transfer, reciprocal and quantization behavior.
 
 `RetainedHost::admit_offscreen(operations)` hands the caller's `OffscreenOperations`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. An accumulated recipe's first admitted warmup or sample consumes the packet once; later samples do not replay it. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
 
+`RetainedHost::show_game_screen` offers a single-sample `Rgba8UnormSrgb` texture
+on the shared device. Export `GAME_SCREEN` from the operations that write it. The
+viewer samples it in the same frame and draws the UI over it. With no current
+writer, the viewer uses the last submitted contents of that allocation. A host
+that filled the texture in an earlier submission can declare that when it calls
+`GameScreen::new`. An unwritten or withdrawn screen selects the stock scene.
+
+Accumulated capture samples (supersampling, temporal samples, jitter or native
+RCAS) offer the screen and carry the queued operations like an ordinary frame.
+The first admitted warm-up or sample runs the operations once. Later samples
+show the submitted screen contents. When the requested view needs a terrain page
+or geometry upload, the screen frame records it in the same submission. A warm-up
+records no capture sample. A frame that shows the screen does not encode the stock
+scene, so the attachments that scene writes (depth, normals, ambient occlusion, SSR
+confidence and the specular plane) hold nothing current for it. A capture
+request for any of them returns
+`ViewerError::UnsupportedScene("capture of frame attachments while the game screen replaces the stock scene")`
+before the frame submits or takes the queued operations, while a screen with
+contents is offered or the queued operations export the offered screen. The
+submission serial, the request and the queued operations stay as they were.
+
 Offscreen work cannot accompany shadow depth fitting. The viewer rejects it
 whenever shadow depth fitting is configured, including interactive
 `QuantizedPerBound` fitting, and returns

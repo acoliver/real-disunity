@@ -45,11 +45,15 @@ fn bind(color: &[TargetRef], depth: Option<TargetRef>) -> OffscreenWork {
 }
 
 fn clear_all() -> OffscreenWork {
+    clear_with_color([0.25, 0.5, 0.75, 1.0])
+}
+
+fn clear_with_color(value: [f32; 4]) -> OffscreenWork {
     OffscreenWork::ClearRenderTarget {
         color: true,
         depth: true,
         stencil: false,
-        value: [0.25, 0.5, 0.75, 1.0],
+        value,
         depth_value: 1.0,
         stencil_value: 0,
     }
@@ -242,4 +246,62 @@ fn the_screens_names_belong_to_no_other_texture() {
     assert!(!ids::is_screen(drawn));
     assert!(!ids::is_screen(ids::temporary(7, 0)));
     assert!(!ids::is_screen(ids::probe_scratch(drawn)));
+}
+
+fn clear_colors(adapted: &Adapted) -> Vec<Option<[f64; 4]>> {
+    adapted
+        .frame
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            Record::Clear { clear, .. } => Some(clear.color),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_camera_setup_restores_the_screen_after_a_partial_viewport() {
+    let mut world = world();
+    let camera = camera(&mut world);
+    record(&mut world, bind(&[TargetRef::CameraTarget], None));
+    record(
+        &mut world,
+        OffscreenWork::SetViewport {
+            rect: [0.0, 0.0, 4.0, f32::from(u8::try_from(SIZE[1]).unwrap())],
+        },
+    );
+    record(&mut world, clear_all());
+    set_up(&mut world, camera, TargetRef::CameraTarget);
+    record(&mut world, clear_with_color([1.0, 0.0, 0.0, 1.0]));
+
+    let adapted = run(&mut world, Some(SIZE));
+    assert_eq!(adapted.report.skipped.get(&Skip::PartialViewport), Some(&1));
+    assert_eq!(bound(&adapted), [screen_bound()]);
+    assert_eq!(clear_colors(&adapted), [Some([1.0, 0.0, 0.0, 1.0])]);
+}
+
+#[test]
+fn a_camera_setup_without_a_target_clears_the_previous_binding() {
+    for target in [TargetRef::None, TargetRef::CameraTarget] {
+        let mut world = world();
+        let texture = render_texture(&mut world, [4, 4]);
+        let attachment = whole(ids::render_texture(texture));
+        record(&mut world, bind(&[TargetRef::Render(texture)], None));
+        record(&mut world, clear_all());
+        let camera = camera(&mut world);
+        set_up(&mut world, camera, target);
+        record(&mut world, clear_with_color([1.0, 0.0, 0.0, 1.0]));
+
+        let adapted = run(&mut world, None);
+        assert_eq!(
+            bound(&adapted),
+            [Attachments {
+                colors: vec![attachment],
+                depth: Some(attachment),
+            }]
+        );
+        assert_eq!(adapted.report.skipped.get(&Skip::UnboundTarget), Some(&1));
+        assert_eq!(clear_colors(&adapted), [Some([0.25, 0.5, 0.75, 1.0])]);
+    }
 }

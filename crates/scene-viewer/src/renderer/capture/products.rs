@@ -107,7 +107,29 @@ impl Native {
         Ok(true)
     }
 }
+/// Outputs read from frame attachments that the stock scene's encoding writes.
+const STOCK_ATTACHMENTS: [(CaptureOutput, FeatureTarget); 6] = [
+    (CaptureOutput::Specular, FeatureTarget::Specular),
+    (CaptureOutput::Depth, FeatureTarget::Depth),
+    (CaptureOutput::Normals, FeatureTarget::Normals),
+    (
+        CaptureOutput::AmbientOcclusion,
+        FeatureTarget::AmbientOcclusion,
+    ),
+    (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
+    (
+        CaptureOutput::SsrConfidenceWater,
+        FeatureTarget::SsrConfidenceWater,
+    ),
+];
+
 impl Products {
+    /// Whether any of `outputs` is read from an attachment that only a stock scene frame writes.
+    pub(in crate::renderer) fn reads_stock_attachments(outputs: &[CaptureOutput]) -> bool {
+        STOCK_ATTACHMENTS
+            .iter()
+            .any(|(output, _)| outputs.contains(output))
+    }
     pub(in crate::renderer) fn new(
         device: &wgpu::Device,
         output: &wgpu::Texture,
@@ -172,20 +194,7 @@ impl Products {
         scheduler: &ConfiguredFrameRenderer,
         outputs: &[CaptureOutput],
     ) -> Result<(), ViewerError> {
-        for (output, target) in [
-            (CaptureOutput::Specular, FeatureTarget::Specular),
-            (CaptureOutput::Depth, FeatureTarget::Depth),
-            (CaptureOutput::Normals, FeatureTarget::Normals),
-            (
-                CaptureOutput::AmbientOcclusion,
-                FeatureTarget::AmbientOcclusion,
-            ),
-            (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
-            (
-                CaptureOutput::SsrConfidenceWater,
-                FeatureTarget::SsrConfidenceWater,
-            ),
-        ] {
+        for (output, target) in STOCK_ATTACHMENTS {
             if outputs.contains(&output) {
                 let texture =
                     scheduler

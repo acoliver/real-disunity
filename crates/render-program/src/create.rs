@@ -432,9 +432,14 @@ impl ProgramRuntime {
         Ok(self.store.add_texture(entry(texture), reservation))
     }
 
-    /// The wgpu texture behind a handle.
+    /// The texture for sampling on this device after the submission that writes it.
+    /// Drop the clone when its allocation is replaced: the runtime accounts for the handle's
+    /// lifetime and cannot track references retained by the caller.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown handle.
     #[cfg(feature = "unity")]
-    pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
+    pub fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }
 

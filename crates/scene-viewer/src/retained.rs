@@ -278,6 +278,8 @@ pub struct RetainedHost {
     pub(crate) capture_pool: u64,
     /// The player's offscreen work for the next frame the viewer renders.
     pub(crate) offscreen: Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
+    /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
+    pub(crate) game_screen: Option<crate::GameScreen>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -579,6 +581,19 @@ impl RetainedHost {
         operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
     ) {
         self.offscreen = Some(operations);
+    }
+
+    /// Offers the game's own screen, or withdraws it with `None`, for the frames the viewer renders
+    /// next. While a screen with contents is offered a frame shows it in place of the stock scene
+    /// and the UI draws over it, with no copy through the CPU. A screen has contents once an
+    /// earlier frame that carried operations exporting it as [`crate::GAME_SCREEN`] was submitted,
+    /// or when the offer says submitted work wrote it (see [`crate::GameScreen::new`]). Until then,
+    /// and in a frame whose operations do not reach the viewer, the stock scene shows. Offering a
+    /// different texture, such as the one a resize makes, starts without contents. A capture of
+    /// frame attachments the stock scene writes, such as depth and normals, is refused with
+    /// [`crate::ViewerError::UnsupportedScene`] while the screen can replace that scene.
+    pub fn show_game_screen(&mut self, screen: Option<crate::GameScreen>) {
+        self.game_screen = screen;
     }
 
     /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,

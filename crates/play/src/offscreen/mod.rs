@@ -74,6 +74,7 @@ mod trace;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use adapter::Settling;
 pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
     AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,

@@ -236,8 +236,6 @@ struct PlayerRetainedDriver {
     publication: CameraPublication,
     simulated: Duration,
     size: [u32; 2],
-    /// The number of the frame whose screen image the sprite textures hold, if any.
-    screen_shown: Option<u64>,
     presented: u64,
     reported: BTreeSet<u64>,
     /// Requested captures not delivered yet, by request id, with the update they belong to.
@@ -272,7 +270,6 @@ impl PlayerRetainedDriver {
             publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
-            screen_shown: None,
             presented: 0,
             reported: BTreeSet::new(),
             pending: BTreeMap::new(),
@@ -361,9 +358,11 @@ impl PlayerRetainedDriver {
         }
     }
 
-    /// Hands the frame's offscreen work to the viewer, which runs it in its next frame, and puts
-    /// the game's own frame (the screen image) into the sprite textures when the work of an
-    /// earlier frame drew a newer one.
+    /// Hands the frame's offscreen work to the viewer, which runs it in its next frame, and
+    /// offers the game's own frame (the screen texture) for the viewer to show in place of the
+    /// stock scene. The viewer shows it once a frame it submitted wrote it; no frame is read back.
+    /// The offer is made every update so a texture a resize replaced or a screen taken away is
+    /// withdrawn at once.
     fn show_screen(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
         let Some(gpu) = &self.gpu else {
             return Ok(());
@@ -371,13 +370,7 @@ impl PlayerRetainedDriver {
         if let Some(operations) = gpu.frame_for_viewer(&mut self.host)? {
             viewer.admit_offscreen(operations);
         }
-        if let Some(image) = gpu.screen()
-            && self.screen_shown != Some(image.frame)
-        {
-            self.screen_shown = Some(image.frame);
-            self.player_textures
-                .set_screen_image(&image, &mut self.sprites);
-        }
+        viewer.show_game_screen(gpu.game_screen());
         Ok(())
     }
 

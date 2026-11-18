@@ -40,6 +40,8 @@ mod meshes;
 mod reclaim;
 mod textures;
 
+pub(crate) use reclaim::Settling;
+
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
     supply: Box<dyn ShaderSupply>,
@@ -151,7 +153,20 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
-        self.adapt_probing(snapshot, assets, state, runtime, false)
+        self.adapt_with(snapshot, assets, (state, runtime), false, Settling::Wait)
+    }
+
+    /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
+    /// to finish with the storage they give back.
+    pub(crate) fn adapt_settling(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        settling: Settling,
+    ) -> Adapted {
+        self.adapt_with(snapshot, assets, (state, runtime), false, settling)
     }
 
     /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
@@ -163,6 +178,17 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         probe: bool,
+    ) -> Adapted {
+        self.adapt_with(snapshot, assets, (state, runtime), probe, Settling::Wait)
+    }
+
+    fn adapt_with(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
+        probe: bool,
+        settling: Settling,
     ) -> Adapted {
         self.epoch += 1;
         let mut notes = Report::default();
@@ -190,9 +216,9 @@ impl OffscreenAdapter {
         // What the snapshot names is stamped before anything is uploaded, so that making room for
         // one upload never gives back another the snapshot is about to use.
         self.stamp(&meshes, &wanted);
-        self.register_meshes(meshes, assets, (state, runtime), &mut notes);
+        self.register_meshes(meshes, assets, (state, runtime), &mut notes, settling);
         self.register_defaults(state, runtime, &mut notes);
-        self.register_textures(&wanted, assets, (state, runtime), &mut notes);
+        self.register_textures(&wanted, assets, (state, runtime), &mut notes, settling);
         available.meshes = usable(&self.meshes);
         available.bounds = self
             .bounds

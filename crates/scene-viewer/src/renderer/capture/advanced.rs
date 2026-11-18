@@ -1,5 +1,5 @@
 use super::{Products, accumulation::Accumulation};
-use crate::renderer::Renderer;
+use crate::renderer::{Renderer, game_screen::ViewMisses};
 use crate::retained::CaptureCompletion;
 use crate::{RetainedCaptureRecipe, RetainedHost, ViewerError};
 use std::time::Duration;
@@ -97,7 +97,7 @@ impl Renderer {
         let Some(view) = host.view()? else {
             return Ok(Some(false));
         };
-        let pages = self.retained_pages_ready(host, &view)?;
+        let pages = self.retained_pages_ready(host, &view)?.pages_ready;
         let request = host
             .captures
             .waiting
@@ -183,12 +183,13 @@ impl Renderer {
             return Ok(false);
         };
         self.apply_retained_shadow_policy(host)?;
-        let pages = self.retained_pages_ready(host, &view)?;
-        let waits_pages = !pages && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
+        let readiness = self.retained_pages_ready(host, &view)?;
+        let waits_pages =
+            !readiness.pages_ready && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
         let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;
         if waits_pages || waits_geometry {
             self.prepare_camera_history(host);
-            let submitted = self.warm_recipe_pages(host, &view, ready)?;
+            let submitted = self.warm_recipe_pages(host, &view, ready, readiness.misses)?;
             if submitted {
                 self.submitted_camera_history(host);
             }
@@ -201,14 +202,14 @@ impl Renderer {
         self.frame_time = time;
         self.presentation.scheduler.set_frame_time_duration(time)?;
         self.prepare_camera_history(host);
-        self.encode_recipe_sample(host, &view, ready, &outputs)
+        self.encode_recipe_sample(host, &view, ready, (outputs.as_slice(), readiness.misses))
     }
     fn encode_recipe_sample(
         &mut self,
         host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
-        outputs: &[crate::CaptureOutput],
+        (outputs, misses): (&[crate::CaptureOutput], ViewMisses),
     ) -> Result<bool, ViewerError> {
         let mut image = Products::new(
             self.context.device(),
@@ -221,9 +222,12 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        self.game_screen.offer(host.game_screen.as_ref());
         let offscreen = host.offscreen.take();
-        let prepared = self.encode_frame(view, (None, offscreen), &output, Some(&mut image))?;
+        let prepared =
+            self.encode_frame(view, (None, offscreen), &output, Some(&mut image), misses)?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
+        self.game_screen.submitted();
         self.submitted_camera_history(host);
         let temporal_history_reset = self.temporal_history_reset();
         let frame = self.streaming.captures.next_frame();
@@ -254,6 +258,7 @@ impl Renderer {
         host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
+        misses: ViewMisses,
     ) -> Result<bool, ViewerError> {
         self.resident.select_frame_slot(ready.admission.slot());
         self.presentation
@@ -263,9 +268,11 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        self.game_screen.offer(host.game_screen.as_ref());
         let offscreen = host.offscreen.take();
-        let prepared = self.encode_frame(view, (None, offscreen), &output, None)?;
+        let prepared = self.encode_frame(view, (None, offscreen), &output, None, misses)?;
         self.execution.submit_capture(ready, prepared)?;
+        self.game_screen.submitted();
         self.streaming.captures.advance_frame();
         Ok(true)
     }

@@ -10,16 +10,11 @@ use worldrunner_render_plan::simulation::SpriteTextures;
 
 use crate::{
     PlayError,
-    offscreen::ScreenImage,
-    textures::{BlockPath, player_scene_texture, screen_scene_texture},
+    textures::{BlockPath, player_scene_texture},
 };
 
 /// Player textures take renderer identities from here up; the managed engine allocates them.
 pub const FIRST_PLAYER_TEXTURE: u64 = 1 << 40;
-
-/// The identity of the window's screen image among the sprite textures. The managed engine
-/// allocates player textures upward from [`FIRST_PLAYER_TEXTURE`] and never reaches this one.
-pub(crate) const SCREEN_IMAGE: u64 = u64::MAX;
 
 /// The window's device is created for the scene it starts with, which has no block-compressed
 /// textures, so it cannot upload them; block formats are decoded here instead.
@@ -48,17 +43,6 @@ impl PlayerTextures {
             return format!("texture conversion failed: {error}");
         }
         "no texture was stored by the managed host".into()
-    }
-
-    /// Puts `image`, the game's own frame, into `textures` under [`SCREEN_IMAGE`] and raises its
-    /// generation, so the UI that draws it is replaced. The scene's textures are not told: no
-    /// mesh object shows it.
-    pub(crate) fn set_screen_image(&mut self, image: &ScreenImage, textures: &mut SpriteTextures) {
-        let generation = self.generation(SCREEN_IMAGE) + 1;
-        self.generations.insert(SCREEN_IMAGE, generation);
-        textures
-            .textures
-            .insert(SCREEN_IMAGE, screen_scene_texture(image));
     }
 
     /// The textures converted new or again since the last call.

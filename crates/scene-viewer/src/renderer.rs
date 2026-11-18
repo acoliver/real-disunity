@@ -13,6 +13,7 @@ use startup::Resolved;
 mod capture;
 mod environment;
 mod execution;
+mod game_screen;
 mod live;
 mod readiness;
 mod resource_edit;
@@ -54,6 +55,7 @@ pub(super) struct Renderer {
     live_upload: Option<live::Upload>,
     live_pending: Option<live::Pending>,
     streaming: readiness::Streaming,
+    game_screen: game_screen::Frames,
 }
 
 enum Resident {
@@ -265,24 +267,21 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut retained_capture = if let Some(host) = host.as_deref_mut() {
-            let pages_ready = self.retained_pages_ready(host, view)?;
-            self.streaming.captures.prepare(
-                self.context.device(),
-                host,
-                &ready.frame.texture,
-                &self.presentation.scheduler,
-                pages_ready,
-            )?
-        } else {
-            None
-        };
+        // The offer comes first: capture preparation refuses what a screen frame cannot supply,
+        // and it does so before the frame takes the host's queued operations.
+        self.game_screen
+            .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
+        let capture::HostCapture {
+            request: mut retained_capture,
+            misses,
+        } = self.prepare_host_capture(host.as_deref_mut(), view, &ready.frame.texture)?;
         let image = retained_capture.as_mut().map(|(_, image)| image);
         let offscreen = host.as_deref_mut().and_then(|host| host.offscreen.take());
-        let prepared = self.encode_frame(view, (capture, offscreen), &output, image)?;
+        let prepared = self.encode_frame(view, (capture, offscreen), &output, image, misses)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
+        self.game_screen.submitted();
         retained::finish_admitted_frame(self, host, view, retained_capture, ticket.clone())?;
         Ok(Some(ticket))
     }
@@ -325,38 +324,27 @@ impl Renderer {
         ),
         output: &wgpu::TextureView,
         mut retained: Option<&mut capture::Products>,
+        misses: game_screen::ViewMisses,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         let (mut capture, mut offscreen) = work;
-        if (capture.is_some() || retained.is_some())
-            && let Resident::Shadowed(scene) = &mut self.resident
-        {
-            scene.request_shadow_capture();
-        }
-        let fitted = self.render_depth_fitted(
-            view,
-            capture.is_some() || retained.is_some(),
-            retained.as_deref(),
-        )?;
+        let fitted = self.fit_stock_scene(view, capture.is_some(), retained.as_deref())?;
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
-                if let Some(operations) = offscreen.take() {
-                    let admitted = operations
-                        .admit(encoder)
-                        .map_err(|error| ViewerError::Offscreen(error.to_string()))?;
-                    self.resident.scene_mut().admit_offscreen(admitted);
-                }
                 if !fitted {
                     self.presentation
                         .scheduler
                         .begin_timing(self.streaming.captures.next_frame())
                         .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-                    self.resident.render(
-                        &self.context,
-                        view,
-                        &self.presentation.targets,
+                    self.game_screen.render(
+                        &mut self.resident,
+                        (&self.context, view, &self.presentation.targets),
                         encoder,
                         self.presentation.scheduler.encoding(),
+                        game_screen::ScreenWork {
+                            operations: offscreen.take(),
+                            misses,
+                        },
                     )?;
                 }
                 self.presentation.present(encoder, output)?;

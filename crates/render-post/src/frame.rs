@@ -156,6 +156,8 @@ pub struct FeaturePass {
     pub color_format: Option<wgpu::TextureFormat>,
     pub additional_color_formats: Vec<wgpu::TextureFormat>,
     pub depth_format: Option<wgpu::TextureFormat>,
+    /// This pipeline can only draw in an entry without a depth attachment.
+    pub requires_no_depth: bool,
     pub samples: u32,
 }
 impl FeaturePass {
@@ -170,6 +172,7 @@ impl FeaturePass {
             color_format: None,
             additional_color_formats: Vec::new(),
             depth_format: None,
+            requires_no_depth: false,
             samples: 1,
         }
     }
@@ -482,6 +485,7 @@ fn validate_feature(
                 .iter()
                 .map(|attachment| attachment.format)
                 .collect::<Vec<_>>()
+        || (feature.requires_no_depth && pass.depth.is_some())
         || feature
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))

@@ -9,7 +9,8 @@
 //!   are adapted, built and run in one submission, which the player waits for. A window does not
 //!   wait: it makes the player on the viewer's device (`PlayerGpu::shared`) and hands each
 //!   frame's built operations to the viewer (`PlayerGpu::frame_for_viewer`), which runs them in
-//!   its own frame's submission.
+//!   its own frame's submission. The operations that draw into the screen export it, and the
+//!   window shows the screen's texture itself (`PlayerGpu::game_screen`): nothing is read back.
 //! * When a script reads a compute buffer back, the managed engine calls the flush handler
 //!   [`PlayerGpu::install`] registers. It runs the work recorded so far, dispatches included,
 //!   waits for the submission, and writes the changed buffers back before the read returns. It
@@ -28,11 +29,12 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Con
 use worldrunner_render_gpu::device::{headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
 
 use crate::PlayError;
-use crate::gpu_device::{DeviceSource, player_device};
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
     ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
     Report, ScreenImage, Settings, WorkTrace,
@@ -428,8 +430,8 @@ pub struct PlayerGpu {
     device: wgpu::Device,
     /// The newest image of the screen read back, if work has drawn into it.
     screen: RefCell<Option<ScreenImage>>,
-    /// The frame whose operations went to the viewer and have not been taken as submitted yet.
-    handed: Cell<Option<u64>>,
+    /// The size the screen has been asked to be, which a texture of another size no longer is.
+    screen_size: Cell<Option<[u32; 2]>>,
 }
 
 impl PlayerGpu {
@@ -446,12 +448,25 @@ impl PlayerGpu {
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena. The run goes on without GPU work then.
     pub fn headless(data: &Path) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture();
+        Self::headless_with_inputs(data, &inputs)
+    }
+
+    fn headless_with_inputs(data: &Path, inputs: &PlayerStartupInputs) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        let wanted = player_device(&adapter);
-        let (device, queue, _) = pollster::block_on(request_device(&adapter, &wanted.requirements))
+        Self::headless_on_adapter(&adapter, data, inputs)
+    }
+
+    fn headless_on_adapter(
+        adapter: &wgpu::Adapter,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+    ) -> Result<Self, String> {
+        let wanted = player_device(adapter, inputs);
+        let (device, queue, _) = pollster::block_on(request_device(adapter, &wanted.requirements))
             .map_err(|error| format!("no device: {error}"))?;
         let info = adapter.get_info();
         Self::build(
@@ -473,8 +488,26 @@ impl PlayerGpu {
     /// Fails with the reason when `source` has no adapter or cannot make the device, or the
     /// program runtime cannot reserve its arena on it.
     pub(crate) fn shared(source: &mut dyn DeviceSource, data: &Path) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture();
+        Self::shared_with_inputs(source, data, &inputs)
+    }
+
+    fn shared_with_inputs(
+        source: &mut dyn DeviceSource,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+    ) -> Result<Self, String> {
         let adapter = source.adapter()?;
-        let wanted = player_device(&adapter);
+        Self::shared_on_adapter(source, &adapter, data, inputs)
+    }
+
+    fn shared_on_adapter(
+        source: &mut dyn DeviceSource,
+        adapter: &wgpu::Adapter,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+    ) -> Result<Self, String> {
+        let wanted = player_device(adapter, inputs);
         let (device, authority) = source.device(&wanted.requirements)?;
         let info = adapter.get_info();
         Self::build(
@@ -569,7 +602,7 @@ impl PlayerGpu {
             authority,
             device,
             screen: RefCell::new(None),
-            handed: Cell::new(None),
+            screen_size: Cell::new(None),
         })
     }
 
@@ -577,6 +610,7 @@ impl PlayerGpu {
     /// the screen away with `None`. The next frame whose work names it makes it at that size,
     /// empty, so a window calls this when it is resized.
     pub fn set_screen(&self, size: Option<[u32; 2]>) {
+        self.screen_size.set(size);
         self.offscreen.borrow_mut().set_screen(size);
         if size.is_none() {
             *self.screen.borrow_mut() = None;
@@ -589,6 +623,30 @@ impl PlayerGpu {
     #[must_use]
     pub fn screen(&self) -> Option<std::cell::Ref<'_, ScreenImage>> {
         std::cell::Ref::filter_map(self.screen.borrow(), Option::as_ref).ok()
+    }
+
+    /// The screen as the window shows it: the texture the offscreen work draws into, with whether
+    /// a flush the player submitted itself already wrote it. Nothing is copied. `None` while there
+    /// is no screen, before any frame made its texture, and when the texture is not the size the
+    /// screen was last asked to be: a resize makes the next frame that has work a new one, and the
+    /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
+    /// counted in the report and shows nothing.
+    pub(crate) fn game_screen(&self) -> Option<GameScreen> {
+        let host = self.offscreen.borrow();
+        let (texture, flushed) = host.screen_texture()?;
+        if self.screen_size.get() != Some([texture.width(), texture.height()]) {
+            return None;
+        }
+        GameScreen::new(texture, flushed)
+            .map_err(|error| {
+                *self
+                    .report
+                    .borrow_mut()
+                    .errors
+                    .entry(error.to_string())
+                    .or_default() += 1;
+            })
+            .ok()
     }
 
     /// Reads the screen back when work drew into it since the last read, and keeps the image.

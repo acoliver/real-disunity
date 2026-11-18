@@ -17,6 +17,12 @@ pub(crate) mod forward_order;
 mod frozen;
 #[cfg(test)]
 mod frozen_tests;
+mod game_screen;
+#[cfg(test)]
+mod game_screen_tests;
+pub use game_screen::GameScreenComposite;
+mod game_screen_frame;
+pub use game_screen_frame::{GameScreenFrame, GameScreenPass};
 mod hdr;
 pub(crate) mod offscreen;
 mod output;

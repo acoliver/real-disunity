@@ -22,14 +22,14 @@
 use std::time::Instant;
 
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime, TextureHandle};
 use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, OffscreenWork};
 
-use super::adapter::{OffscreenAdapter, build};
+use super::adapter::{OffscreenAdapter, Settling, build};
 use super::assets::Assets;
 use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
 use super::frame::{Adapted, Reclaimed, Report, is_test_render};
@@ -40,6 +40,8 @@ use super::probe::{BeforeDispatch, Probe};
 use super::screen::{ScreenImage, writes_screen};
 use super::sink::BufferSink;
 use super::trace::WorkTrace;
+
+mod screen_view;
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
 /// contents the CPU holds.
@@ -97,6 +99,44 @@ struct Submitted {
     submission: Option<wgpu::SubmissionIndex>,
 }
 
+impl Submitted {
+    fn resolve(
+        self,
+        device: &wgpu::Device,
+        report: &mut Report,
+        pixels: &mut Vec<PixelAnswer>,
+        dispatched: bool,
+        probe: Option<Probe>,
+    ) {
+        let Self {
+            before,
+            read,
+            submission,
+        } = self;
+        match (read, &submission) {
+            (Some(Ok(copy)), Some(submission)) => match copy.resolve(submission) {
+                Ok(answer) => {
+                    report.pixel_reads += 1;
+                    pixels.push(answer);
+                }
+                Err(reason) => refuse_read(report, reason),
+            },
+            (Some(Err(reason)), _) => refuse_read(report, &reason),
+            _ => {}
+        }
+        if dispatched && let Some(trace) = report.traces.last_mut() {
+            "ran".clone_into(&mut trace.outcome);
+            *report
+                .census
+                .entry("dispatches ran".to_owned())
+                .or_default() += 1;
+            if let (Some(probe), Some(before), Some(submission)) = (probe, before, &submission) {
+                probe.resolve(before, submission, device, trace);
+            }
+        }
+    }
+}
+
 /// Whether `record` only sets the state the records after it draw with.
 fn is_state(record: &Record) -> bool {
     matches!(record, Record::Globals(_))
@@ -133,6 +173,8 @@ pub struct OffscreenHost {
     screen_written: bool,
     /// Whether the last `frame`'s operations draw into the screen; counted once submitted.
     frame_writes_screen: bool,
+    /// The allocation last written by a submitted flush. A handle does not keep it alive.
+    screen_flushed: Option<TextureHandle>,
 }
 
 impl OffscreenHost {
@@ -178,6 +220,7 @@ impl OffscreenHost {
             traces: Vec::new(),
             screen_written: false,
             frame_writes_screen: false,
+            screen_flushed: None,
         }
     }
 
@@ -192,6 +235,7 @@ impl OffscreenHost {
         }
         self.screen_written = false;
         self.frame_writes_screen = false;
+        self.screen_flushed = None;
         let screen = ids::screen_color();
         if self
             .state
@@ -315,20 +359,43 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
+        self.frame_with(snapshot, assets, Settling::Wait)
+    }
+
+    /// As [`frame`](Self::frame); with `settling`, the way giving storage back for the frame's
+    /// room gets the GPU to finish with it. A frame the viewer submits later uses
+    /// [`Settling::Poll`], which collects what the GPU has finished and never waits for the
+    /// viewer's submission.
+    ///
+    /// # Errors
+    /// As [`frame`](Self::frame).
+    pub(crate) fn frame_with(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        settling: Settling,
+    ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
         let live_before = self.runtime.live_bytes();
         let started = Instant::now();
         self.frame_writes_screen = false;
-        let mut adapted = self
-            .adapter
-            .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        let mut adapted = self.adapter.adapt_settling(
+            snapshot,
+            assets,
+            &mut self.state,
+            &mut self.runtime,
+            settling,
+        );
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
-        let reclaimed = self
-            .adapter
-            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let reclaimed = self.adapter.make_room_settling(
+            &mut self.state,
+            &mut self.runtime,
+            &adapted.frame,
+            settling,
+        );
         adapted.report.reclaimed.add(reclaimed);
         let built = build(
             &mut self.state,
@@ -452,39 +519,20 @@ impl OffscreenHost {
                 self.make_room_for_read(wanted, &mut adapted.report);
             }
             let submitted = Instant::now();
-            let Submitted {
-                before,
-                read,
-                submission,
-            } = self.submit(operations, prepared.as_ref(), probe.as_ref(), wanted)?;
+            let result = self.submit(operations, prepared.as_ref(), probe.as_ref(), wanted)?;
             adapted.report.phases.submit += submitted.elapsed();
             // A later segment that fails does not undo what this one drew.
             self.screen_written |= wrote_screen;
-            match (read, &submission) {
-                (Some(Ok(copy)), Some(submission)) => match copy.resolve(submission) {
-                    Ok(answer) => {
-                        adapted.report.pixel_reads += 1;
-                        pixels.push(answer);
-                    }
-                    Err(reason) => refuse_read(&mut adapted.report, reason),
-                },
-                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, &reason),
-                _ => {}
+            if wrote_screen {
+                self.note_screen_flushed();
             }
-            if prepared.is_some()
-                && let Some(trace) = adapted.report.traces.last_mut()
-            {
-                "ran".clone_into(&mut trace.outcome);
-                *adapted
-                    .report
-                    .census
-                    .entry("dispatches ran".to_owned())
-                    .or_default() += 1;
-                if let (Some(probe), Some(before), Some(submission)) = (probe, before, &submission)
-                {
-                    probe.resolve(before, submission, self.runtime.device(), trace);
-                }
-            }
+            result.resolve(
+                self.runtime.device(),
+                &mut adapted.report,
+                &mut pixels,
+                prepared.is_some(),
+                probe,
+            );
         }
         adapted.report.built = built;
         let writes = self.read_back(buffers, &mut adapted.report.traces)?;
@@ -628,6 +676,7 @@ impl OffscreenHost {
         let Some(bytes) = self.state.read_bytes(texture) else {
             return Reclaimed::default();
         };
+        // A read waits for its own submission, which follows every other, so it can wait now.
         self.adapter
             .make_room_for(&mut self.state, &mut self.runtime, bytes)
     }

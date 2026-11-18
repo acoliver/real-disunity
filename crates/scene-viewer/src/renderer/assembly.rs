@@ -34,6 +34,7 @@ impl Renderer {
             frame_time: std::time::Duration::ZERO,
             live_upload: None,
             live_pending: None,
+            game_screen: super::game_screen::Frames::default(),
             streaming: parts.streaming,
         };
         renderer.check_errors()?;

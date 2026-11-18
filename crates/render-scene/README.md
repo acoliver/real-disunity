@@ -254,6 +254,27 @@ A draw admitted with `admit_programs` can sample a render texture that the offsc
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
 
+## Game-screen composition
+
+`compositor::GameScreenComposite` replaces one authored colour pass with a named
+screen texture. Register it on `FrameRenderer` with the screen `ResourceRef`, the
+`PassEntry`, and the destination colour format. Each frame plan supplies that
+resource as an `AttachmentView`; the pass must have exactly one colour target of
+the configured format, one sample and no depth attachment. The screen must be a
+single-sample `Rgba8UnormSrgb` texture with `TEXTURE_BINDING` usage. Its sample decodes sRGB to
+linear, and the target format performs its normal output conversion. The fullscreen
+copy scales to the target extent. It presents the last stored source row at the
+top, matching the bottom-first row order of the player screen.
+
+Place the composite at the existing opaque entry and omit the stock opaque feature
+from that authored plan. Add UI at a later entry that loads the same target. Plans
+without a registered composite retain their existing behavior. A current-frame writer exports the screen through a `FrameOperations` group
+positioned before the composite. It must supply the matching retained view. A retained view can also supply the last
+submitted screen in a frame without a current writer. Operation, composite and UI
+commands use the frame's encoder and submission authority. Unsupported source or
+target contracts return a named preparation error; multisampled composite targets
+are unsupported.
+
 ## Material sampling
 
 Mesh and impostor scalar selectors use direct component indexing with uniform integers,

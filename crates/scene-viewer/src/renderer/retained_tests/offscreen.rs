@@ -10,7 +10,7 @@ use worldrunner_render_program::unity::offscreen::OffscreenState;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, OffscreenFrame, Record, RenderDimension, RenderTextureSpec,
 };
-use worldrunner_render_program::unity::runtime::ProgramRuntime;
+use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::shader::PassSelector;
 
 const TARGET: TextureId = TextureId(10);
@@ -58,21 +58,13 @@ fn render_frame(host: &mut RetainedHost, renderer: &mut Renderer) {
     }
 }
 
-/// The player's runtime on `device` and `authority`, as `PlayerGpu::on` makes it, and the
-/// operations of its one camera clearing the render texture to yellow, with the read-back of it.
-/// The last value keeps the runtime and its arena alive: the operations join a frame only while
-/// their arena's owner has not retired.
-pub(crate) fn clearing_operations(
+/// The player's runtime on `device` and `authority` and its arena, as `PlayerGpu::on` makes them.
+fn runtime_on(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-) -> (
-    worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    worldrunner_render_program::unity::offscreen::PendingImage,
-    Box<dyn std::any::Any>,
-) {
+) -> (ProgramRuntime, ProgramArena) {
     let limits = device.limits();
-    let mut runtime =
-        ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(ARENA));
+    let runtime = ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(ARENA));
     let mut configuration = Configuration::new(
         authority,
         (),
@@ -88,10 +80,48 @@ pub(crate) fn clearing_operations(
         )
         .unwrap();
     let arena = runtime.open_arena(reservation).unwrap();
+    (runtime, arena)
+}
+
+/// The operations of one camera clearing the render texture to yellow on `device` and
+/// `authority`, with the read-back of it. The last value keeps the runtime and its arena alive:
+/// the operations join a frame only while their arena's owner has not retired.
+pub(crate) fn clearing_operations(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> (
+    worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    worldrunner_render_program::unity::offscreen::PendingImage,
+    Box<dyn std::any::Any>,
+) {
+    let (mut runtime, arena) = runtime_on(device, authority);
     let mut state = OffscreenState::new(&runtime);
     let mut operations = state.build(&mut runtime, &arena, &clear()).unwrap();
     let image = operations.read_back(TARGET, 0, 0).unwrap();
     (operations, image, Box::new((runtime, arena)))
+}
+
+/// The operations of [`clearing_operations`] on a texture stored as sRGB, as a game's screen is,
+/// exported as the game's screen, with the texture they write. The last value keeps the runtime
+/// and its arena alive.
+pub(crate) fn screen_operations(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> (
+    worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    wgpu::Texture,
+    Box<dyn std::any::Any>,
+) {
+    let (mut runtime, arena) = runtime_on(device, authority);
+    let mut state = OffscreenState::new(&runtime);
+    let mut frame = clear();
+    frame.render_textures[0].graphics_format = 4;
+    frame.render_textures[0].srgb = true;
+    let mut operations = state.build(&mut runtime, &arena, &frame).unwrap();
+    operations.export(TARGET, 0, 0, crate::GAME_SCREEN).unwrap();
+    let handle = state.texture_handle(TARGET).unwrap();
+    let texture = runtime.gpu_texture(handle).unwrap();
+    (operations, texture, Box::new((runtime, arena)))
 }
 
 /// Whether `bytes` is the 8 by 8 render texture [`clear`] makes, all yellow.

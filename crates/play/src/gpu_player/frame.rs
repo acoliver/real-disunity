@@ -8,6 +8,7 @@ use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 
 use super::{GpuWorkReport, PlayerGpu};
 use crate::PlayError;
+use crate::offscreen::Settling;
 
 /// How a frame's operations leave the player.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -16,6 +17,17 @@ pub(super) enum Delivery {
     Submit,
     /// The viewer runs them in its next frame.
     Viewer,
+}
+
+impl Delivery {
+    /// How the frame's reclaiming gets the GPU to finish with the storage it gives back. The
+    /// viewer's submissions are not the player's to wait for.
+    fn settling(self) -> Settling {
+        match self {
+            Self::Submit => Settling::Wait,
+            Self::Viewer => Settling::Poll,
+        }
+    }
 }
 
 impl PlayerGpu {
@@ -34,9 +46,10 @@ impl PlayerGpu {
     /// submitted and nothing waits on the GPU here: storage the GPU has finished with is freed,
     /// and the rest goes when a later frame finds its submission complete.
     ///
-    /// A frame's operations count as submitted at the start of the next call, so the screen they
-    /// drew is read then, one frame after the work, and its image is numbered with the frame that
-    /// drew it. The viewer must have run or replaced the operations by then.
+    /// Operations that draw into the screen name it as the viewer's game screen, so the frame that
+    /// runs them shows the result; the texture is [`Self::game_screen`]. Nothing is read back for
+    /// the window. Operations the viewer replaces before it renders never run, and the viewer
+    /// counts only a screen it submitted a write to.
     ///
     /// # Errors
     /// As [`Self::frame`].
@@ -53,19 +66,21 @@ impl PlayerGpu {
         delivery: Delivery,
     ) -> Result<Option<OffscreenOperations>, PlayError> {
         let snapshot = host.graphics_snapshot()?;
-        let drawn = self.begin(delivery);
+        self.begin(delivery);
         if snapshot.work.is_empty() {
             let mut report = self.report.borrow_mut();
             // A flush earlier in the update may have drawn into the screen.
-            let frame = drawn.unwrap_or(report.frames);
-            self.read_screen(&mut report, frame);
+            self.read_for_player(&mut report, delivery);
             report.frames += 1;
             return Ok(None);
         }
         let started = Instant::now();
         let mut report = self.report.borrow_mut();
         report.frames_with_work += 1;
-        let built = self.offscreen.borrow_mut().frame(&snapshot, &*host);
+        let built = self
+            .offscreen
+            .borrow_mut()
+            .frame_with(&snapshot, &*host, delivery.settling());
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         let mut handed = None;
         match built {
@@ -80,38 +95,42 @@ impl PlayerGpu {
             }
         }
         report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        let frame = drawn.unwrap_or(report.frames);
-        self.read_screen(&mut report, frame);
+        self.read_for_player(&mut report, delivery);
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(handed)
     }
 
-    /// What a frame does before it builds. For the viewer it takes the operations handed last
-    /// time as submitted and frees what the GPU has finished with. Returns the frame whose work
-    /// drew into the screen by that submission, if it did.
-    fn begin(&self, delivery: Delivery) -> Option<u64> {
-        if delivery == Delivery::Submit {
-            return None;
+    /// What a frame does before it builds. For the viewer it frees the storage the GPU has
+    /// finished with, without waiting for anything.
+    fn begin(&self, delivery: Delivery) {
+        if delivery == Delivery::Viewer {
+            self.offscreen.borrow_mut().collect_completed();
         }
-        let mut host = self.offscreen.borrow_mut();
-        let flushed = host.screen_written();
-        host.frame_submitted();
-        host.collect_completed();
-        self.handed
-            .take()
-            .filter(|_| host.screen_written() && !flushed)
     }
 
-    /// Runs `operations` as `delivery` says. The viewer's are given back to its caller.
+    /// Reads the screen back for the player's own frames, which have the image written to a file.
+    /// The viewer shows the screen from the GPU, so its frames read nothing.
+    fn read_for_player(&self, report: &mut GpuWorkReport, delivery: Delivery) {
+        if delivery == Delivery::Submit {
+            let frame = report.frames;
+            self.read_screen(report, frame);
+        }
+    }
+
+    /// Runs `operations` as `delivery` says. The viewer's are given back to its caller, with the
+    /// screen exported from them when they write it. An export the operations refuse is counted
+    /// and the operations still go: the viewer then has no write to count for the screen.
     fn deliver(
         &self,
         report: &mut GpuWorkReport,
-        operations: OffscreenOperations,
+        mut operations: OffscreenOperations,
         delivery: Delivery,
     ) -> Option<OffscreenOperations> {
         if delivery == Delivery::Viewer {
-            self.handed.set(Some(report.frames));
+            if let Err(error) = self.offscreen.borrow().export_screen(&mut operations) {
+                *report.errors.entry(error.to_string()).or_default() += 1;
+            }
             return Some(operations);
         }
         let submitted = Instant::now();

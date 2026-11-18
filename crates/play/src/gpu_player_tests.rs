@@ -1,8 +1,8 @@
 use super::*;
 
-use crate::gpu_device::DeviceSource;
 use crate::gpu_device::device_requirements;
 use crate::gpu_device::headless::HeadlessViewer;
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs};
 use crate::player::{GpuWork, window_gpu};
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
@@ -307,8 +307,12 @@ fn submit_like_the_viewer(gpu: &PlayerGpu, operations: OffscreenOperations) {
 
 #[test]
 fn the_window_and_the_headless_player_ask_for_the_same_device() {
-    let (_viewer, shared, data) = window_player([8, 4]);
-    let headless = PlayerGpu::headless(data.path()).unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let mut viewer = HeadlessViewer::new([8, 4]);
+    let adapter = viewer.adapter().unwrap();
+    let inputs = PlayerStartupInputs::from_snapshot(None, Some(6 << 30));
+    let shared = PlayerGpu::shared_on_adapter(&mut viewer, &adapter, data.path(), &inputs).unwrap();
+    let headless = PlayerGpu::headless_on_adapter(&adapter, data.path(), &inputs).unwrap();
     let (window, alone) = (shared.device.limits(), headless.device.limits());
     assert_eq!(
         window.max_storage_textures_per_shader_stage,
@@ -392,7 +396,7 @@ fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
 }
 
 #[test]
-fn the_screen_a_handed_frame_drew_is_read_in_the_frame_after_the_viewer_submitted_it() {
+fn a_frame_with_no_work_after_the_clears_gives_the_viewer_nothing() {
     let _turn = fixture_turn();
     let (_viewer, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
@@ -403,16 +407,95 @@ fn the_screen_a_handed_frame_drew_is_read_in_the_frame_after_the_viewer_submitte
     let next = gpu.frame_for_viewer(&mut host).unwrap();
 
     assert!(next.is_none(), "the script draws nothing more");
-    let image = gpu.screen().expect("the clear was read back");
-    assert_eq!((image.width, image.height, image.frame), (8, 4, 0));
-    assert!(
-        image
-            .rgba
-            .chunks_exact(4)
-            .all(|texel| texel == [255, 255, 0, 255]),
-        "the screen is yellow all over"
-    );
     let report = gpu.report();
-    assert_eq!(report.screen_reads, 1);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn the_window_reads_nothing_back_from_the_screen_it_shows() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    submit_like_the_viewer(&gpu, operations);
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    gpu.frame_for_viewer(&mut host).unwrap();
+
+    let screen = gpu.game_screen().expect("the screen texture is offered");
+
+    assert_eq!(
+        (screen.texture().width(), screen.texture().height()),
+        (8, 4)
+    );
+    assert!(
+        !screen.submitted(),
+        "the viewer's frame wrote it, not a flush"
+    );
+    assert!(gpu.screen().is_none(), "no image was made of it");
+    let report = gpu.report();
+    assert_eq!((report.screen_reads, report.frames_with_work), (0, 1));
+    assert!(report.screen_reads_refused.is_empty());
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn there_is_no_screen_to_offer_before_work_made_it_or_after_it_was_taken_away() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    assert!(gpu.game_screen().is_none(), "no work has made it yet");
+    let mut host = started_screen_fixture(&gpu);
+    gpu.frame_for_viewer(&mut host).unwrap();
+    assert!(gpu.game_screen().is_some());
+
+    gpu.set_screen(None);
+
+    assert!(gpu.game_screen().is_none());
+}
+
+#[test]
+fn a_screen_of_another_size_than_the_window_is_not_offered() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    gpu.frame_for_viewer(&mut host).unwrap();
+    assert!(gpu.game_screen().is_some());
+
+    gpu.set_screen(Some([16, 8]));
+
+    assert!(
+        gpu.game_screen().is_none(),
+        "the old texture is the size the window had; the next frame with work makes a new one"
+    );
+}
+
+#[test]
+fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    gpu.set_screen(Some([8, 4]));
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    let snapshot = host.graphics_snapshot().unwrap();
+    gpu.offscreen.borrow_mut().flush(&snapshot, &host).unwrap();
+
+    let screen = gpu.game_screen().expect("the flush made the screen");
+
+    assert!(
+        screen.submitted(),
+        "the flush ran in a submission of the player's own, before any frame the viewer carries"
+    );
+
+    gpu.set_screen(Some([16, 8]));
+    let (writer, _) = gpu.offscreen.borrow_mut().frame(&snapshot, &host).unwrap();
+    assert!(writer.is_some());
+    let resized = gpu.game_screen().expect("the frame allocated a new screen");
+    assert_eq!(
+        (resized.texture().width(), resized.texture().height()),
+        (16, 8)
+    );
+    assert!(!resized.submitted(), "the flush wrote the old allocation");
 }

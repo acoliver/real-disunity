@@ -13,6 +13,7 @@ use crate::{
 pub struct CopyOutput {
     format: wgpu::TextureFormat,
     exact: bool,
+    bottom_first: bool,
     resources: Result<Arc<OnceLock<CopyResources>>, PostError>,
 }
 
@@ -21,15 +22,25 @@ impl CopyOutput {
         Self {
             format,
             exact: false,
+            bottom_first: false,
             resources: validate_output(device, format).map(|()| Arc::new(OnceLock::new())),
         }
     }
+    /// Nearest copy from a texture whose first stored row is the displayed bottom row.
+    pub fn bottom_first(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self {
+            bottom_first: true,
+            ..Self::new(device, format)
+        }
+    }
+
     /// Deterministic sRGB8 output from linear single-sample f32 composition.
     /// Supply an `ExactSrgb8::write_view` or an `Rgba8Unorm` output view.
     pub fn exact_srgb8(device: &wgpu::Device) -> Self {
         Self {
             format: ExactSrgb8::WRITE_FORMAT,
             exact: true,
+            bottom_first: false,
             resources: ExactSrgb8::frame_config(device, [1, 1]).map(|_| Arc::new(OnceLock::new())),
         }
     }
@@ -51,6 +62,70 @@ impl CopyOutput {
     }
 }
 
+/// A bound nearest-copy draw for an executor-owned single-sample colour pass.
+/// The caller declares the sampled resource and the destination format in its feature contract.
+pub struct CopySource {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+}
+
+impl CopySource {
+    pub fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+}
+
+impl CopyOutput {
+    /// Binds a checked attachment subresource for a nearest-copy feature draw.
+    /// Sampling an sRGB source decodes it to linear; the destination performs its transfer.
+    ///
+    /// # Errors
+    /// Refuses multisampled or unsampleable sources and unsupported colour formats.
+    pub fn source(
+        &self,
+        device: &wgpu::Device,
+        source: &crate::AttachmentView,
+    ) -> Result<CopySource, PostError> {
+        if source.texture().sample_count() != 1
+            || !source
+                .texture()
+                .usage()
+                .contains(wgpu::TextureUsages::TEXTURE_BINDING)
+        {
+            return Err(PostError::CopySourceFormat(source.format()));
+        }
+        self.validate_config(
+            device,
+            crate::FrameConfig::new(source.size(), source.format(), 1),
+        )?;
+        self.bind_source(device, &source.sampled_view())
+    }
+
+    fn bind_source(
+        &self,
+        device: &wgpu::Device,
+        source: &wgpu::TextureView,
+    ) -> Result<CopySource, PostError> {
+        let resources = self.resources.as_ref().map_err(Clone::clone)?;
+        let resources = resources
+            .get_or_init(|| CopyResources::new(device, self.format, self.exact, self.bottom_first));
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("post copy source"),
+            layout: &resources.layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(source),
+            }],
+        });
+        Ok(CopySource {
+            pipeline: resources.pipeline.clone(),
+            group,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 struct CopyResources {
     layout: wgpu::BindGroupLayout,
@@ -58,7 +133,12 @@ struct CopyResources {
 }
 
 impl CopyResources {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, exact: bool) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        exact: bool,
+        bottom_first: bool,
+    ) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post copy source"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -94,7 +174,11 @@ impl CopyResources {
                 vertex_entry: "vertex",
                 fragment_entry: if exact { "fragment_exact" } else { "fragment" },
                 format,
-                constants: &[],
+                constants: if bottom_first {
+                    &[("bottom_first", 1.0)]
+                } else {
+                    &[]
+                },
             },
         );
         Self { layout, pipeline }
@@ -136,24 +220,13 @@ impl StageFactory for CopyOutput {
         targets: &FrameTargets,
         _: &Resources,
     ) -> Result<StageSet, PostError> {
-        let resources = self.resources.as_ref().map_err(Clone::clone)?;
         self.validate_config(device, targets.config())?;
-        // Validate both formats before allocation; clones and resizes reuse the pipeline.
-        let resources =
-            resources.get_or_init(|| CopyResources::new(device, self.format, self.exact));
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("post copy source"),
-            layout: &resources.layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(targets.resolved()),
-            }],
-        });
+        let source = self.bind_source(device, targets.resolved())?;
         Ok(StageSet {
             stages: vec![Stage::fullscreen(
                 crate::StageId::new("post copy output", 0),
-                &resources.pipeline,
-                &[&group],
+                &source.pipeline,
+                &[&source.group],
                 StageTarget::Output,
             )],
             resources: Resources::default(),

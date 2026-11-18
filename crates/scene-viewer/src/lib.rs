@@ -26,6 +26,8 @@ pub use live::{
 };
 mod clock;
 pub use clock::RenderClock;
+mod game_screen;
+pub use game_screen::{GAME_SCREEN, GameScreen};
 mod camera;
 mod capture_pool;
 mod presentation;

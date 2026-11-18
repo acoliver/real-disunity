@@ -14,6 +14,34 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
+/// Inputs sampled once when a player starts, so its adapter requests use one storage policy.
+#[derive(Clone, Debug)]
+pub(crate) struct PlayerStartupInputs {
+    storage_budget_mb: Option<String>,
+    host_available_bytes: Option<u64>,
+}
+
+impl PlayerStartupInputs {
+    /// Takes the process inputs that determine a software adapter's adaptive storage budget.
+    pub(crate) fn capture() -> Self {
+        Self::from_snapshot(
+            std::env::var(STORAGE_BUDGET_ENV).ok(),
+            host_available_bytes(),
+        )
+    }
+
+    /// Holds a startup snapshot, also used to make parity checks independent of host memory.
+    pub(crate) fn from_snapshot(
+        storage_budget_mb: Option<String>,
+        host_available_bytes: Option<u64>,
+    ) -> Self {
+        Self {
+            storage_budget_mb,
+            host_available_bytes,
+        }
+    }
+}
+
 /// What the player asks of an adapter and the storage budget it runs with there.
 pub(crate) struct PlayerDevice {
     pub requirements: DeviceRequirements,
@@ -22,8 +50,8 @@ pub(crate) struct PlayerDevice {
 
 /// What the player asks of `adapter`: the requirements of its device, and the storage budget the
 /// runtime on it may hold, whose largest buffer those requirements allow.
-pub(crate) fn player_device(adapter: &wgpu::Adapter) -> PlayerDevice {
-    let choice = storage_choice(adapter);
+pub(crate) fn player_device(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> PlayerDevice {
+    let choice = storage_choice(adapter, inputs);
     PlayerDevice {
         requirements: device_requirements(choice.bytes, &adapter.limits()),
         choice,
@@ -46,12 +74,11 @@ pub(crate) trait DeviceSource {
 }
 
 /// The storage budget for `adapter`: see [`storage_budget`].
-fn storage_choice(adapter: &wgpu::Adapter) -> Choice {
-    let env = std::env::var(STORAGE_BUDGET_ENV).ok();
+fn storage_choice(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> Choice {
     storage_budget::choose(
-        env.as_deref(),
+        inputs.storage_budget_mb.as_deref(),
         adapter.get_info().device_type,
-        host_available_bytes(),
+        inputs.host_available_bytes,
     )
 }
 
@@ -93,11 +120,12 @@ const PREFERRED_STORAGE_IMAGES: u32 = 8;
 /// # Errors
 /// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
 pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
+    let inputs = PlayerStartupInputs::capture();
     let instance = headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .map_err(|error| format!("no adapter: {error}"))?;
-    let wanted = player_device(&adapter);
+    let wanted = player_device(&adapter, &inputs);
     let budget = wanted.choice.bytes;
     let (device, queue, _) = pollster::block_on(request_device(&adapter, &wanted.requirements))
         .map_err(|error| format!("no device: {error}"))?;

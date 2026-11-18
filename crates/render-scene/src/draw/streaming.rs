@@ -554,7 +554,12 @@ impl SceneGpu {
         context.finish();
         Ok(())
     }
-    pub(crate) fn prepare_terrain_geometry(
+    /// Stages terrain streamed geometry for this view and raster extent in the current submission.
+    /// Frames that replace stock scene draws can still advance a retained residency request.
+    ///
+    /// # Errors
+    /// Returns the preparation error if the terrain upload cannot be recorded.
+    pub fn prepare_terrain_geometry(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,

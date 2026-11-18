@@ -28,6 +28,7 @@ mod nonfinite;
 pub mod offscreen;
 mod packet;
 mod pipeline_key;
+mod primitive;
 mod program;
 pub mod properties;
 mod range;

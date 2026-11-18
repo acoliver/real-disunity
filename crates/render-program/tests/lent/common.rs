@@ -236,6 +236,7 @@ pub fn prepare(
             bindings: &inputs.bindings,
             imports: &inputs.imports,
             sets: &[],
+            topology: wgpu::PrimitiveTopology::TriangleList,
             geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
             instances: 0..1,
             owners: &[],

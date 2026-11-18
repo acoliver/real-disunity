@@ -66,6 +66,9 @@ fn new_renderer(
         output_format: settings.output_format,
         producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
+        game_features: 0,
+        game_camera: super::super::FrameCameraHandle::default(),
+        terrain_draws: settings.terrain_draws,
         chain: scene_chain(context, settings, factory)?,
         environment_conventions: [None; 2],
         water: None,
@@ -132,6 +135,7 @@ fn finish_renderer(
     install_jitter(renderer, settings)?;
     renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
     ensure_snapshots(renderer, device, settings);
+    settings.game_passes.install(renderer, context)?;
     restore_timing(renderer, context, settings.timing, timing)?;
     Ok(())
 }

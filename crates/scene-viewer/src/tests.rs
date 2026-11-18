@@ -211,6 +211,7 @@ pub(crate) fn options() -> ViewerOptions {
         cadence: crate::PresentationCadence::default(),
         ssr: None,
         render_clock: crate::RenderClock::default(),
+        game: crate::GameRendering::default(),
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,

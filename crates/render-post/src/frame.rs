@@ -41,6 +41,24 @@ pub enum PassSlot {
     ReflectionTrace,
     ReflectionMip(u32),
     ScreenSpaceAfterTransparent,
+    /// A pass a game adds to the frame at the place `GamePlace` names. Its position in the
+    /// frame follows from that place, not from this enum's order; passes in one place run in the
+    /// order of their entries' occurrences.
+    Game(GamePlace),
+}
+
+/// Where a game's own pass sits among the stock passes of a forward frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GamePlace {
+    /// Immediately before the first Opaque entry, after the G-buffer and its lighting when the
+    /// frame has them. Opaque loads what these passes left in the attachments they share.
+    BeforeOpaque,
+    /// Immediately after the last Opaque entry, before the contour IDs and the opaque snapshots,
+    /// so the snapshots include what these passes drew.
+    AfterOpaque,
+    /// After the transparent passes and the post-water depth, before the reflection and
+    /// screen-space passes that follow transparency.
+    AfterTransparent,
 }
 
 /// Identity of one entry in an authored pass list: a role plus which appearance of
@@ -540,6 +558,7 @@ pub struct PrepareContext<'a> {
     publications: worldrunner_render_gpu::submission::Publications,
     staged: Vec<Staged>,
     views: Vec<AttachmentView>,
+    passes: Vec<PassDeclaration>,
     completed: Vec<PassEntry>,
 }
 impl<'a> PrepareContext<'a> {
@@ -554,6 +573,7 @@ impl<'a> PrepareContext<'a> {
             publications,
             staged: Vec::new(),
             views: Vec::new(),
+            passes: Vec::new(),
             completed: Vec::new(),
         })
     }
@@ -574,6 +594,25 @@ impl<'a> PrepareContext<'a> {
     pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
         self.views = views.to_vec();
     }
+    pub(crate) fn set_passes(&mut self, passes: &[PassDeclaration]) {
+        self.passes = passes.to_vec();
+    }
+    /// The frame's validated passes in the order they run, with the attachments each one is
+    /// opened with. Empty outside a frame's own preparation.
+    pub fn passes(&self) -> &[PassDeclaration] {
+        &self.passes
+    }
+    /// The validated declaration of `entry`, for a feature that must match the pass it records
+    /// into.
+    ///
+    /// # Errors
+    /// [`FrameError::MissingPass`] when the frame has no such entry.
+    pub fn pass(&self, entry: PassEntry) -> Result<&PassDeclaration, FrameError> {
+        self.passes
+            .iter()
+            .find(|pass| pass.entry() == entry)
+            .ok_or(FrameError::MissingPass(entry))
+    }
     /// Frame-local checked inputs, available only after full plan validation.
     pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
         self.views
@@ -583,6 +622,12 @@ impl<'a> PrepareContext<'a> {
     }
     pub fn device(&self) -> &wgpu::Device {
         self.device
+    }
+    /// The frame's encoder, for calls that take one only to name the frame they belong to, such
+    /// as retaining a prepared draw's resources until the frame completes. Features record
+    /// nothing through it.
+    pub fn encoder(&self) -> &wgpu::CommandEncoder {
+        self.encoder
     }
     pub fn copy_buffer(&mut self, source: &wgpu::Buffer, destination: &wgpu::Buffer, bytes: u64) {
         self.copy_buffer_region((source, 0), (destination, 0), bytes);

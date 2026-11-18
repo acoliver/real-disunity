@@ -121,6 +121,7 @@ impl Renderer {
                 budget: startup.presentation_budget,
                 capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
                 recipes: startup.recipes,
+                game: startup.game.clone(),
             },
         )?;
         let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
@@ -655,6 +656,7 @@ pub(crate) struct Startup {
     pub(crate) capture_pool: u64,
     pub(crate) recipes: bool,
     pub(crate) texture_tiers: Option<worldrunner_render_scene::texture::TextureTierPolicy>,
+    pub(crate) game: crate::GameRendering,
     frames_in_flight: usize,
     gpu_timing: bool,
     present_mode: wgpu::PresentMode,
@@ -667,6 +669,7 @@ impl From<&crate::ViewerOptions> for Startup {
             capture_pool: 256 * 1024 * 1024,
             recipes: false,
             texture_tiers: options.texture_tiers,
+            game: options.game.clone(),
             frames_in_flight: options.frames_in_flight,
             gpu_timing: options.gpu_timing,
             present_mode: options.present_mode,
@@ -681,6 +684,7 @@ impl From<usize> for Startup {
             capture_pool: 256 * 1024 * 1024,
             recipes: false,
             texture_tiers: None,
+            game: crate::GameRendering::default(),
             frames_in_flight,
             gpu_timing: false,
             present_mode: wgpu::PresentMode::Fifo,

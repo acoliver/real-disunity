@@ -44,6 +44,7 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
             crate::FrameProfile::Legacy,
             source().effects(),
             &crate::presentation::PresentationPolicy {
+                game: crate::GameRendering::default(),
                 receiver_gradients:
                     worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
                 budget: crate::PresentationBudget(budget).into(),

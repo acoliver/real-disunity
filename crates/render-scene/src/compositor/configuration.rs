@@ -41,6 +41,13 @@ pub struct RendererConfiguration {
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
     pub additional: AllocationSet,
+    /// The game's inventoried feature factories. Each is registered on every renderer generation
+    /// this configuration builds, on allocation and after every replacement. Empty by default,
+    /// which leaves every frame as the stock frame.
+    pub game_passes: super::GamePasses,
+    /// Whether the stock passes draw the scene's terrain. A game that draws it with its own
+    /// passes suppresses the stock draws; the terrain stays resident and updated either way.
+    pub terrain_draws: super::TerrainDraws,
 }
 impl RendererConfiguration {
     /// Request-owned replay targets, charged to the host capture reservation.
@@ -66,6 +73,8 @@ impl RendererConfiguration {
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
+            game_passes: super::GamePasses::default(),
+            terrain_draws: super::TerrainDraws::Stock,
         }
     }
     pub fn allocations(&self) -> AllocationSet {
@@ -95,6 +104,7 @@ impl RendererConfiguration {
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
+        set.extend(self.game_passes.allocations(self.frame.size));
         set.extend(self.additional.clone());
         set
     }
@@ -155,6 +165,8 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
         self.validate_opaque(&context.device().limits())?;
+        self.game_passes
+            .validate(self.frame.size, &context.device().limits())?;
         if self.contour_ids {
             crate::contours::validate_format(
                 context
@@ -431,7 +443,9 @@ fn reflection_depth_allocations(mut size: [u32; 2], count: usize, set: &mut Allo
 }
 
 /// Stock renderer whose allocation changes require `reconfigure`.
-/// Low-level resize, timing setup and custom registration are intentionally unavailable.
+/// Low-level resize, timing setup and ad-hoc registration are intentionally unavailable; a game's
+/// features enter through [`RendererConfiguration::game_passes`], which registers them on every
+/// generation.
 ///
 /// ```compile_fail
 /// # use worldrunner_render_scene::compositor::ConfiguredFrameRenderer;
@@ -601,7 +615,9 @@ impl ConfiguredFrameRenderer {
             .map_err(ConfigurationError::Allocation)?;
         let allocations = settings.allocation_plan(context, self.has_effect_history());
         let previous = self.state.current();
-        if previous.chain.registered_feature_count() != usize::from(previous.water.is_some()) {
+        if previous.chain.registered_feature_count()
+            != usize::from(previous.water.is_some()) + previous.game_features
+        {
             return Err(ConfigurationError::Invalid(
                 "custom registrations require a custom replacement builder",
             ));

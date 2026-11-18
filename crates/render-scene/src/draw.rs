@@ -57,12 +57,14 @@ pub use geometry_statistics::{
 };
 pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
+mod terrain_draws;
 mod terrain_runtime;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
+pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
@@ -321,6 +323,8 @@ pub struct SceneGpu {
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
+    /// Whether the stock passes draw the terrain; selected by the renderer each frame.
+    terrain_draws: Cell<TerrainDraws>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
     player: programs::PlayerWork,
@@ -448,6 +452,7 @@ impl SceneGpu {
             caster_fits: selection_reuse::CasterFits::default(),
             gather: compaction::Shared::default(),
             terrain,
+            terrain_draws: Cell::new(TerrainDraws::Stock),
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
             player: programs::PlayerWork::default(),

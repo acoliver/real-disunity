@@ -26,6 +26,7 @@ impl Renderer {
                 budget: options.presentation_budget,
                 capture_pool: crate::CapturePoolPolicy::Fixed(host.capture_pool_bytes()),
                 recipes: true,
+                game: options.game.clone(),
             },
         )?;
         let mut streaming = readiness::Streaming::with_shadow_policy(

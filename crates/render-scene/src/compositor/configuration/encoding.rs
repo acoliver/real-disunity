@@ -2,7 +2,9 @@
 use super::{ConfiguredFrameRenderer, FrameRenderer};
 use worldrunner_render_post::{AttachmentView, FrameError, PostError};
 
-/// Restricted stock composition. Custom features need a separately inventoried builder.
+/// Restricted stock composition. It runs the stock frame and the features the configuration
+/// inventoried in [`RendererConfiguration::game_passes`](super::RendererConfiguration::game_passes);
+/// no other feature reaches a frame through it.
 ///
 /// ```compile_fail
 /// # use worldrunner_render_scene::compositor::FrameEncoding;

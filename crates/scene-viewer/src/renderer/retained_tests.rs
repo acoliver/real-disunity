@@ -184,6 +184,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
             cadence: crate::PresentationCadence::default(),
             ssr: None,
             render_clock: crate::RenderClock::default(),
+            game: crate::GameRendering::default(),
             shadows,
             ..crate::tests::options()
         };

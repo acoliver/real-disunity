@@ -42,13 +42,13 @@ pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, BusConfig, CameraContinuity, CameraShadowPolicy, CancelToken, CaptureJitter,
     CaptureOutput, CaptureRequestError, ClipHandle, CursorError, CursorGrabMode, DuckingDetector,
-    DuckingRule, EnvelopeMode, KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton, NativeKeyCode,
-    ObjectId, PhysicalKey, PickHit, RetainedCaptureObservation, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate,
-    SceneObjectEdit, TemporalHistoryReset, TimerError, TimerHandle, VoiceHandle, WheelDelta,
-    WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError,
-    WorkSubmitError, WorkTicket,
+    DuckingRule, EnvelopeMode, ExistingVoices, KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton,
+    NativeKeyCode, ObjectId, PhysicalKey, PickHit, PlaybackOptions, RetainedCaptureObservation,
+    RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver,
+    RetainedEvent, RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick,
+    RetainedUpdate, SceneObjectEdit, TemporalHistoryReset, TimerError, TimerHandle, VoiceHandle,
+    WheelDelta, WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue,
+    WorkQueueError, WorkSubmitError, WorkTicket,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 

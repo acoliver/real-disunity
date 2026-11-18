@@ -285,15 +285,36 @@ impl Lent {
         instances: std::ops::Range<u32>,
         owners: &[Keepalive],
     ) -> Result<PreparedProgramDraw, ProgramError> {
+        self.prepare_over(runtime, (imports, &[]), &self.geometry(), instances, owners)
+    }
+
+    /// One instance of `geometry` with the lent imports and no bound resources.
+    fn prepare_geometry(
+        &self,
+        runtime: &mut ProgramRuntime,
+        geometry: &ImportedGeometry,
+    ) -> Result<PreparedProgramDraw, ProgramError> {
+        self.prepare_over(runtime, (&self.imports, &[]), geometry, 0..1, &[])
+    }
+
+    fn prepare_over(
+        &self,
+        runtime: &mut ProgramRuntime,
+        (imports, bindings): (&[Import], &[BoundResource]),
+        geometry: &ImportedGeometry,
+        instances: std::ops::Range<u32>,
+        owners: &[Keepalive],
+    ) -> Result<PreparedProgramDraw, ProgramError> {
         runtime.prepare_imported_draw(
             &ImportedDraw {
                 program: &self.program,
                 state: &no_cull(),
                 vertex_inputs: &self.inputs,
-                bindings: &[],
+                bindings,
                 imports,
                 sets: &[],
-                geometry: &self.geometry(),
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                geometry,
                 instances,
                 owners,
             },
@@ -407,22 +428,7 @@ fn an_index_range_past_the_lent_index_buffer_is_refused_by_name() {
         count: 6,
         base_vertex: 0,
     });
-    let error = runtime
-        .prepare_imported_draw(
-            &ImportedDraw {
-                program: &lent.program,
-                state: &no_cull(),
-                vertex_inputs: &lent.inputs,
-                bindings: &[],
-                imports: &lent.imports,
-                sets: &[],
-                geometry: &geometry,
-                instances: 0..1,
-                owners: &[],
-            },
-            signature(),
-        )
-        .unwrap_err();
+    let error = lent.prepare_geometry(&mut runtime, &geometry).unwrap_err();
     assert_eq!(
         error,
         ProgramError::IndexRangePastBuffer {
@@ -439,42 +445,12 @@ fn a_non_indexed_draw_over_lent_vertices_reads_only_the_range_it_names() {
     let lent = lent(&gpu, &runtime, wgpu::FilterMode::Nearest);
     // Vertices 0..3 of the quad are one triangle: the lower right half of the quadrant.
     let geometry = ImportedGeometry::Vertices { first: 0, count: 3 };
-    let draw = runtime
-        .prepare_imported_draw(
-            &ImportedDraw {
-                program: &lent.program,
-                state: &no_cull(),
-                vertex_inputs: &lent.inputs,
-                bindings: &[],
-                imports: &lent.imports,
-                sets: &[],
-                geometry: &geometry,
-                instances: 0..1,
-                owners: &[],
-            },
-            signature(),
-        )
-        .unwrap();
+    let draw = lent.prepare_geometry(&mut runtime, &geometry).unwrap();
     let image = gpu.render(&gpu.target(), &[&draw]);
     assert_pixel(&image, (1, 3), RED_TINTED);
     assert_pixel(&image, (0, 2), CLEAR);
     let past = ImportedGeometry::Vertices { first: 2, count: 3 };
-    let error = runtime
-        .prepare_imported_draw(
-            &ImportedDraw {
-                program: &lent.program,
-                state: &no_cull(),
-                vertex_inputs: &lent.inputs,
-                bindings: &[],
-                imports: &lent.imports,
-                sets: &[],
-                geometry: &past,
-                instances: 0..1,
-                owners: &[],
-            },
-            signature(),
-        )
-        .unwrap_err();
+    let error = lent.prepare_geometry(&mut runtime, &past).unwrap_err();
     assert!(matches!(
         error,
         ProgramError::VertexRangePastBuffer { slot: 0, .. }
@@ -571,20 +547,13 @@ fn a_runtime_handle_cannot_fill_a_binding_that_takes_an_import() {
     let mut runtime = gpu.runtime();
     let lent = lent(&gpu, &runtime, wgpu::FilterMode::Nearest);
     let own = runtime.create_buffer("own", &[0; 16]).unwrap();
-    let error = runtime
-        .prepare_imported_draw(
-            &ImportedDraw {
-                program: &lent.program,
-                state: &no_cull(),
-                vertex_inputs: &lent.inputs,
-                bindings: &[BoundResource::buffer(0, 0, own)],
-                imports: &lent.imports,
-                sets: &[],
-                geometry: &lent.geometry(),
-                instances: 0..1,
-                owners: &[],
-            },
-            signature(),
+    let error = lent
+        .prepare_over(
+            &mut runtime,
+            (&lent.imports, &[BoundResource::buffer(0, 0, own)]),
+            &lent.geometry(),
+            0..1,
+            &[],
         )
         .unwrap_err();
     assert_eq!(

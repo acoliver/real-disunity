@@ -281,40 +281,87 @@ fn a_mesh_that_cannot_be_drawn_is_named() {
 }
 
 fn stored_sampler(wrap: [u32; 3], filter: u32) -> TextureSampler {
+    sampler_with_aniso(wrap, filter, 8)
+}
+
+fn sampler_with_aniso(wrap: [u32; 3], filter: u32, aniso_level: u32) -> TextureSampler {
     TextureSampler {
         generation: 1,
         wrap_u: wrap[0],
         wrap_v: wrap[1],
         wrap_w: wrap[2],
         filter,
-        aniso_level: 8,
+        aniso_level,
+        mip_bias: 0.5,
+    }
+}
+
+fn world_sampler(wrap: [u32; 3], filter: u32, aniso_level: u32) -> WorldSampler {
+    WorldSampler {
+        wrap_u: wrap[0],
+        wrap_v: wrap[1],
+        wrap_w: wrap[2],
+        filter,
+        aniso_level,
         mip_bias: 0.5,
     }
 }
 
 #[test]
-fn a_stored_textures_wrap_and_filter_become_the_sampler_state() {
+fn a_stored_textures_wrap_filter_and_anisotropy_become_the_sampler_state() {
     let state = sampler_of_stored(&stored_sampler([1, 2, 0], 0));
     assert_eq!(
         state,
         SamplerState {
             wrap_u: Wrap::Clamp,
             wrap_v: Wrap::Mirror,
+            wrap_w: Wrap::Repeat,
             filter: Filter::Point,
+            anisotropy: 8,
         }
     );
     assert_eq!(
-        sampler_of_stored(&stored_sampler([0, 0, 0], 1)),
+        sampler_of_stored(&sampler_with_aniso([0, 0, 0], 1, 1)),
         SamplerState {
             wrap_u: Wrap::Repeat,
             wrap_v: Wrap::Repeat,
+            wrap_w: Wrap::Repeat,
             filter: Filter::Bilinear,
+            anisotropy: 1,
         }
     );
     assert_eq!(
         sampler_of_stored(&stored_sampler([0, 0, 0], 2)).filter,
         Filter::Trilinear
     );
+}
+
+#[test]
+fn the_wrap_along_w_of_a_stored_texture_maps_like_the_other_axes() {
+    let along_w = |mode| sampler_of_stored(&stored_sampler([0, 0, mode], 1)).wrap_w;
+    assert_eq!(along_w(0), Wrap::Repeat);
+    assert_eq!(along_w(1), Wrap::Clamp);
+    assert_eq!(along_w(2), Wrap::Mirror);
+    assert_eq!(along_w(3), Wrap::Mirror);
+    assert_eq!(along_w(99), Wrap::Repeat);
+}
+
+#[test]
+fn an_anisotropy_level_is_carried_and_zero_reads_as_one_and_more_than_sixteen_as_sixteen() {
+    let level = |level| sampler_of_stored(&sampler_with_aniso([0; 3], 2, level)).anisotropy;
+    let world_level = |level| sampler_of_world(&world_sampler([0; 3], 2, level)).anisotropy;
+    for (given, read) in [
+        (0, 1),
+        (1, 1),
+        (2, 2),
+        (8, 8),
+        (16, 16),
+        (17, 16),
+        (u32::MAX, 16),
+    ] {
+        assert_eq!(level(given), read, "stored level {given}");
+        assert_eq!(world_level(given), read, "render texture level {given}");
+    }
 }
 
 #[test]
@@ -332,20 +379,15 @@ fn mirror_once_is_read_as_mirror_and_unknown_values_as_the_engines_defaults() {
 
 #[test]
 fn a_render_textures_sampler_maps_like_a_stored_textures() {
-    let world = WorldSampler {
-        wrap_u: 1,
-        wrap_v: 0,
-        wrap_w: 0,
-        filter: 2,
-        aniso_level: 1,
-        mip_bias: 0.0,
-    };
+    let world = world_sampler([1, 0, 2], 2, 4);
     assert_eq!(
         sampler_of_world(&world),
         SamplerState {
             wrap_u: Wrap::Clamp,
             wrap_v: Wrap::Repeat,
+            wrap_w: Wrap::Mirror,
             filter: Filter::Trilinear,
+            anisotropy: 4,
         }
     );
 }

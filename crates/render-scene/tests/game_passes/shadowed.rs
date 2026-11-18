@@ -1,0 +1,512 @@
+//! A game's passes in a frame whose shadows are fitted by a same-frame capture. The capture
+//! submits the whole frame as its suffix, so what the game writes, a per-frame target and a
+//! persistent one, has to be part of the capture's write contract in every frame, including the
+//! ones that read persistent contents an earlier frame left.
+use super::common::{self, texture_binding};
+use super::fixture::{FORMAT, Rig, SIZE, quad_scene, view};
+use std::sync::{Arc, Mutex};
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_plan::{
+    RenderScene, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
+    SceneDirection, SceneEffects, SceneEffectsParts, SceneShadowCascades, SceneSky, SceneSun,
+};
+use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
+use worldrunner_render_program::module::StageDeclarations;
+use worldrunner_render_program::runtime::{
+    GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
+};
+use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::{
+    compositor::{
+        ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
+        GameTargets, PassTarget, TargetDeclaration, TargetExtent,
+    },
+    executor::{
+        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef,
+    },
+    shadows::{
+        DirectionalShadowSettings, ShadowedScene,
+        sdsm::{AdoptionPolicy, RangeFit, SdsmSettings},
+    },
+    wgpu,
+};
+use worldrunner_render_shadow::{MinimumSpanPolicy, SplitPolicy};
+
+const FILL_GREEN_WGSL: &str = "
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }";
+
+const FILL_RED_WGSL: &str = "
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }";
+
+/// Writes the frame's colour from the red of the persistent target and the green of the
+/// per-frame one, so a pixel shows exactly which of them the frame could read.
+const READ_WGSL: &str = "
+@group(0) @binding(0) var transient_target: texture_2d<f32>;
+@group(0) @binding(1) var kept_target: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs() -> @location(0) vec4<f32> {
+    let t = textureLoad(transient_target, vec2<i32>(0, 0), 0);
+    let k = textureLoad(kept_target, vec2<i32>(0, 0), 0);
+    return vec4<f32>(k.r, t.g, 0.0, 1.0);
+}";
+
+const TRANSIENT: &str = "painter transient";
+const KEPT: &str = "painter kept";
+const FILL_TRANSIENT: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
+const FILL_KEPT: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
+const READER: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 10);
+
+/// Which of the game's producers the next frame plans.
+#[derive(Clone, Copy)]
+struct Knobs {
+    fill_transient: bool,
+    fill_kept: bool,
+}
+
+type Shared = Arc<Mutex<Knobs>>;
+
+fn declarations() -> [TargetDeclaration; 2] {
+    [
+        TargetDeclaration::new(
+            TRANSIENT,
+            wgpu::TextureFormat::Rgba8Unorm,
+            TargetExtent::Fixed([4, 4]),
+        ),
+        TargetDeclaration::new(
+            KEPT,
+            wgpu::TextureFormat::Rgba8Unorm,
+            TargetExtent::Fixed([4, 4]),
+        )
+        .persistent(),
+    ]
+}
+
+/// A game that fills a per-frame target green and a persistent target red, then writes the
+/// frame's colour from both.
+struct Painter {
+    knobs: Shared,
+}
+
+impl GameFeatureFactory for Painter {
+    fn name(&self) -> &'static str {
+        "painter"
+    }
+
+    fn targets(&self) -> Vec<TargetDeclaration> {
+        declarations().to_vec()
+    }
+
+    fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+        let runtime = ProgramRuntime::new(
+            context.context.device().clone(),
+            context.context.submission().clone(),
+            AllocationBudget(1 << 24),
+        );
+        let program = |wgsl, declarations| {
+            common::graphics(
+                &runtime,
+                wgsl,
+                "vs",
+                "fs",
+                StageDeclarations::default(),
+                declarations,
+            )
+        };
+        let nothing = StageDeclarations::default;
+        let filter = wgpu::TextureSampleType::Float { filterable: true };
+        let fill_green = program(FILL_GREEN_WGSL, nothing());
+        let fill_red = program(FILL_RED_WGSL, nothing());
+        let reader = program(
+            READ_WGSL,
+            StageDeclarations {
+                resources: ResourceLayout::new(vec![
+                    texture_binding(0, "painter.transient", filter),
+                    texture_binding(1, "painter.kept", filter),
+                ]),
+                constants: Vec::new(),
+            },
+        );
+        Ok(Box::new(PainterFeature {
+            targets: context.targets.clone(),
+            camera: context.camera.clone(),
+            knobs: self.knobs.clone(),
+            parts: Arc::new(Mutex::new(Parts {
+                runtime,
+                green: fill_green,
+                red: fill_red,
+                read: reader,
+                draws: Vec::new(),
+            })),
+        }))
+    }
+}
+
+struct Parts {
+    runtime: ProgramRuntime,
+    green: GraphicsProgram,
+    red: GraphicsProgram,
+    read: GraphicsProgram,
+    draws: Vec<(PassEntry, PreparedProgramDraw)>,
+}
+
+struct PainterFeature {
+    targets: GameTargets,
+    camera: FrameCameraHandle,
+    knobs: Shared,
+    parts: Arc<Mutex<Parts>>,
+}
+
+impl FrameFeature for PainterFeature {
+    fn declare(&self) -> FeatureDeclaration {
+        FeatureDeclaration {
+            passes: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+
+    fn plan(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        let knobs = *self.knobs.lock().unwrap();
+        let [transient, kept] = declarations();
+        let mut declared = Vec::new();
+        let mut plan = |spec: &GamePassSpec| -> Result<(), FrameError> {
+            declared.push(self.targets.plan_pass(spec, passes, views)?);
+            Ok(())
+        };
+        if knobs.fill_transient {
+            plan(
+                &GamePassSpec::new(GamePlace::BeforeOpaque, 0)
+                    .writing([ColorOutput::Target(transient.layer(0))]),
+            )?;
+        }
+        if knobs.fill_kept {
+            plan(
+                &GamePassSpec::new(GamePlace::BeforeOpaque, 1)
+                    .writing([ColorOutput::Target(kept.layer(0))]),
+            )?;
+        }
+        plan(
+            &GamePassSpec::new(GamePlace::BeforeOpaque, 10)
+                .writing([ColorOutput::Frame])
+                .reading([transient.layer(0), kept.layer(0)]),
+        )?;
+        Ok(FeatureDeclaration {
+            passes: declared,
+            effects: Vec::new(),
+        })
+    }
+
+    fn build(&self, _context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+        Ok(Box::new(PainterFrame {
+            targets: self.targets.clone(),
+            camera: self.camera.clone(),
+            knobs: self.knobs.clone(),
+            parts: self.parts.clone(),
+        }))
+    }
+}
+
+struct PainterFrame {
+    targets: GameTargets,
+    camera: FrameCameraHandle,
+    knobs: Shared,
+    parts: Arc<Mutex<Parts>>,
+}
+
+impl PainterFrame {
+    /// Prepares the draw of an entry the first time a frame has it.
+    fn prepare_entry(
+        &self,
+        context: &PrepareContext<'_>,
+        entry: PassEntry,
+    ) -> Result<(), FrameError> {
+        let mut parts = self.parts.lock().unwrap();
+        let parts = &mut *parts;
+        if parts.draws.iter().any(|(known, _)| *known == entry) {
+            return Ok(());
+        }
+        let target = PassTarget::of(context, entry)?;
+        let state = target.render_state(RasterState {
+            cull: None,
+            front_face: self.camera.current()?.front_face,
+            alpha_to_coverage: false,
+        });
+        let imports = if entry == READER {
+            let sampled = |name: &'static str, semantic: &str| -> Result<Import, FrameError> {
+                let texture = self.targets.texture(name)?;
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                Ok(Import::texture(
+                    EngineSemantic::named(semantic),
+                    texture,
+                    view,
+                ))
+            };
+            vec![
+                sampled(TRANSIENT, "painter.transient")?,
+                sampled(KEPT, "painter.kept")?,
+            ]
+        } else {
+            Vec::new()
+        };
+        let program = match entry {
+            READER => &parts.read,
+            FILL_TRANSIENT => &parts.green,
+            _ => &parts.red,
+        };
+        let draw = parts
+            .runtime
+            .prepare_imported_draw(
+                &ImportedDraw {
+                    program,
+                    state: &state,
+                    vertex_inputs: &[],
+                    bindings: &[],
+                    imports: &imports,
+                    sets: &[],
+                    geometry: &ImportedGeometry::Vertices { first: 0, count: 3 },
+                    instances: 0..1,
+                    owners: &[],
+                },
+                target.signature().unwrap(),
+            )
+            .map_err(|error| common::program_error("painter", &error))?;
+        target.admit("painter", &draw)?;
+        parts.draws.push((entry, draw));
+        Ok(())
+    }
+}
+
+impl PreparedFeature for PainterFrame {
+    fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        let knobs = *self.knobs.lock().unwrap();
+        for (planned, entry) in [
+            (knobs.fill_transient, FILL_TRANSIENT),
+            (knobs.fill_kept, FILL_KEPT),
+            (true, READER),
+        ] {
+            if planned {
+                self.prepare_entry(context, entry)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+        let parts = self.parts.lock().unwrap();
+        let (_, draw) = parts
+            .draws
+            .iter()
+            .find(|(entry, _)| *entry == context.entry)
+            .expect("prepared");
+        draw.record(pass);
+    }
+}
+
+fn inventory() -> (GamePasses, Shared) {
+    let knobs = Arc::new(Mutex::new(Knobs {
+        fill_transient: true,
+        fill_kept: true,
+    }));
+    let inventory = GamePasses::new().with(Arc::new(Painter {
+        knobs: knobs.clone(),
+    }));
+    (inventory, knobs)
+}
+
+/// The first frame writes both targets. Later frames write the per-frame target again and leave
+/// the persistent one as the first frame did.
+fn first_frame(knobs: &Shared) {
+    *knobs.lock().unwrap() = Knobs {
+        fill_transient: true,
+        fill_kept: true,
+    };
+}
+
+fn later_frame(knobs: &Shared) {
+    *knobs.lock().unwrap() = Knobs {
+        fill_transient: true,
+        fill_kept: false,
+    };
+}
+
+/// A pixel outside the stock quad shows the game's colour: the persistent red and the
+/// per-frame green.
+fn assert_painted(image: &[[u8; 4]], context: &str) {
+    assert_eq!(Rig::pixel(image, 3, 20), [255, 255, 0, 255], "{context}");
+}
+
+fn effects() -> SceneEffects {
+    SceneEffects::new(SceneEffectsParts {
+        water: None,
+        sky: SceneSky::ProceduralHemisphere {
+            zenith: SceneColor {
+                red: 255,
+                green: 255,
+                blue: 255,
+            },
+            horizon: SceneColor {
+                red: 255,
+                green: 255,
+                blue: 255,
+            },
+        },
+        sun: SceneSun {
+            direction: SceneDirection::new([600_000, 0, 800_000]).unwrap(),
+            irradiance_micro: 1_000_000,
+        },
+        ambient: SceneAmbient {
+            sky_irradiance_micro: 100_000,
+            ground_irradiance_micro: 100_000,
+        },
+        shadows: SceneShadowCascades::new(vec![4_000], 0).unwrap(),
+        ssao: None,
+        camera: SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 20_000,
+        },
+        grading: SceneColorGrading {
+            exposure_micro: 1_000_000,
+            contrast_micro: 1_000_000,
+            saturation_micro: 1_000_000,
+        },
+        post: vec![],
+        anti_alias: SceneAntiAlias::Disabled,
+    })
+    .unwrap()
+}
+
+/// The stock quad scene under a sun, which the shadowed scene fits cascades to.
+fn lit_scene() -> RenderScene {
+    let source = quad_scene();
+    source
+        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects()))
+        .unwrap()
+}
+
+/// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
+fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
+    let rig = Rig::new(&quad_scene(), SIZE, |settings| {
+        settings.game_passes = inventory;
+    });
+    let mut scene = ShadowedScene::with_target(
+        &rig.context,
+        &lit_scene(),
+        DirectionalShadowSettings {
+            focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
+            half_extent_meters: 4.0,
+            depth_half_extent_meters: 4.0,
+            resolution: 512,
+            depth_bias: 0.001,
+            normal_bias_meters: 0.01,
+            refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
+        },
+        FORMAT,
+        1,
+    )
+    .unwrap();
+    scene
+        .set_depth_fitting(
+            &rig.context,
+            Some(SdsmSettings {
+                policy: AdoptionPolicy::SameFrameCapture,
+                range: RangeFit {
+                    near_step: 0.1,
+                    far_step: 1.0,
+                    minimum_span: 1.0,
+                    minimum_span_policy: MinimumSpanPolicy::ExtendNear,
+                    active_maximum: None,
+                    split_lambda: 0.5,
+                    split_policy: SplitPolicy::Practical,
+                },
+            }),
+        )
+        .unwrap();
+    (rig, scene)
+}
+
+/// Captures one frame with the rig's renderer and returns its colour.
+fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+    let targets = rig.renderer.targets();
+    let color =
+        AttachmentView::new(ResourceRef::new("scene color"), targets.scene().texture()).unwrap();
+    let depth =
+        AttachmentView::new(ResourceRef::new("scene depth"), targets.depth().texture()).unwrap();
+    let fit = rig
+        .renderer
+        .encoding()
+        .render_depth_fitted(
+            &rig.context,
+            &view(SIZE),
+            (&color, &depth),
+            (Some(frame), true),
+            scene,
+        )
+        .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));
+    assert!(fit.is_some(), "frame {frame} adopted its own fit");
+    let mut encoder = rig
+        .context
+        .submission()
+        .begin(rig.context.device())
+        .unwrap();
+    rig.renderer.targets().encode_resolve(&mut encoder);
+    encoder.finish().submit().unwrap();
+    rig.read(rig.renderer.targets().texture())
+}
+
+#[test]
+fn a_shadowed_same_frame_capture_writes_the_games_per_frame_and_persistent_targets() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (inventory, knobs) = inventory();
+    let (mut rig, mut scene) = shadowed(inventory);
+    first_frame(&knobs);
+    assert_painted(&capture(&mut rig, &mut scene, 0), "frame 0");
+    assert!(rig.renderer.game_targets().is_written(KEPT, 0));
+}
+
+#[test]
+fn a_shadowed_capture_reads_the_persistent_target_an_earlier_capture_wrote() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (inventory, knobs) = inventory();
+    let (mut rig, mut scene) = shadowed(inventory);
+    first_frame(&knobs);
+    assert_painted(&capture(&mut rig, &mut scene, 0), "frame 0");
+    later_frame(&knobs);
+    for frame in 1..4 {
+        assert_painted(
+            &capture(&mut rig, &mut scene, frame),
+            &format!("frame {frame}"),
+        );
+    }
+}
+
+#[test]
+fn an_unshadowed_frame_reads_the_persistent_target_an_earlier_frame_wrote() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (inventory, knobs) = inventory();
+    let mut rig = Rig::new(&quad_scene(), SIZE, |settings| {
+        settings.game_passes = inventory;
+    });
+    first_frame(&knobs);
+    assert_painted(&rig.render().unwrap(), "frame 0");
+    later_frame(&knobs);
+    for frame in 1..4 {
+        assert_painted(&rig.render().unwrap(), &format!("frame {frame}"));
+    }
+}

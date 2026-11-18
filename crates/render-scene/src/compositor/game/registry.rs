@@ -228,3 +228,23 @@ impl PreparedFeature for RegisteredPrepared {
         self.prepared.draw(context, pass);
     }
 }
+
+impl FrameRenderer {
+    /// The writes the game's targets add to a capture's contract: each target's texture, which
+    /// the frame's passes attach, and the bookkeeping of each persistent one, which the frame
+    /// publishes on submission. A capture whose suffix is the full frame lists them with the
+    /// stock targets', or the frame's own writes are refused as undeclared.
+    ///
+    /// # Errors
+    /// [`FrameError`] when the renderer's registry refuses a texture.
+    pub(crate) fn capture_game_keys(
+        &mut self,
+    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
+        let Some(store) = self.game_store.clone() else {
+            return Ok(Vec::new());
+        };
+        let mut keys = self.capture_texture_keys(&store.textures())?;
+        keys.extend(store.write_keys());
+        Ok(keys)
+    }
+}

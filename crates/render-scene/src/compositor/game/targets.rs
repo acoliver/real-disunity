@@ -311,6 +311,23 @@ impl TargetStore {
         self.created
     }
 
+    /// Every texture of the store, which the frame's passes may write.
+    pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
+        self.backings
+            .iter()
+            .map(|backing| &backing.texture)
+            .collect()
+    }
+
+    /// The keys of the retained-state bookkeeping a frame publishes for the persistent backings.
+    pub(crate) fn write_keys(&self) -> Vec<WriteKey> {
+        self.backings
+            .iter()
+            .filter(|backing| backing.persistent())
+            .map(Backing::write_key)
+            .collect()
+    }
+
     fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
         self.backings
             .iter()

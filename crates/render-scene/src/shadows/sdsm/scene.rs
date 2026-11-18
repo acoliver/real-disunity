@@ -271,6 +271,7 @@ impl ShadowedScene {
         suffix.push(crate::compositor::publication::key(&self.refresh));
         suffix.extend(self.scheduler.capture_write_keys());
         suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
+        suffix.extend(self.scheduler.capture_game_keys()?);
         suffix.extend(self.scheduler.capture_contour_keys(
             input.context.device(),
             &self.gpu,

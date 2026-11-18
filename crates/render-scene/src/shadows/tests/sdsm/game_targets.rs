@@ -150,3 +150,33 @@ fn a_game_feature_that_writes_nothing_is_admitted_by_an_owned_capture() {
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert!(renderer.last_depth_fit().is_some(), "the capture fitted");
 }
+
+#[test]
+fn a_clear_only_game_target_is_written_inside_a_same_frame_capture() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let (mut renderer, target, _) = captured(&context, vec![scratch(), kept()]);
+    assert!(!renderer.scheduler.game_targets().is_written(KEPT, 0));
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert!(renderer.last_depth_fit().is_some(), "the capture fitted");
+    assert!(
+        renderer.scheduler.game_targets().is_written(KEPT, 0),
+        "the submitted capture frame wrote the persistent target"
+    );
+}
+
+#[test]
+fn a_capture_whose_suffix_fails_publishes_none_of_the_games_bookkeeping() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let (mut renderer, target, poison) = captured(&context, vec![kept()]);
+    poison.store(true, Ordering::SeqCst);
+    assert!(render_target(&mut renderer, &context, &view(), &target).is_err());
+    assert!(
+        !renderer.scheduler.game_targets().is_written(KEPT, 0),
+        "a failed suffix leaves the persistent target unwritten"
+    );
+    poison.store(false, Ordering::SeqCst);
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert!(renderer.scheduler.game_targets().is_written(KEPT, 0));
+}

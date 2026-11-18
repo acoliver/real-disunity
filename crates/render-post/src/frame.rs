@@ -757,6 +757,7 @@ pub struct BorrowedFeature<'a> {
 #[derive(Clone, Debug)]
 pub struct AttachmentView {
     retained: bool,
+    initialized_allocation: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -772,6 +773,23 @@ impl AttachmentView {
     /// Whether this view declares initialized contents from an earlier ordered submission.
     pub fn retained(&self) -> bool {
         self.retained
+    }
+
+    /// Declares that the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission in other layers, without claiming any for this view's own layer. Every
+    /// view of a texture whose allocation is initialized is declared the same way, so the frame
+    /// imports the texture once whichever of its layers the frame attaches. The caller must
+    /// retain the allocation and submit encoders in preparation order.
+    #[must_use]
+    pub fn with_initialized_allocation(mut self) -> Self {
+        self.initialized_allocation = true;
+        self
+    }
+
+    /// Whether the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission: this view's own, or another layer's.
+    pub fn allocation_initialized(&self) -> bool {
+        self.retained || self.initialized_allocation
     }
 
     pub const fn resource(&self) -> ResourceRef {
@@ -818,6 +836,7 @@ impl AttachmentView {
         Ok(Self {
             resource,
             retained: self.retained,
+            initialized_allocation: self.initialized_allocation,
             view: self.view.clone(),
             format: self.format,
         })
@@ -843,6 +862,7 @@ impl AttachmentView {
             resource,
             view,
             retained: false,
+            initialized_allocation: false,
             format: texture.format(),
         })
     }

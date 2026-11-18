@@ -24,7 +24,9 @@ pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::batch::{
     GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
 };
+pub use crate::block_transfer::{BlockDestination, BlockImageTransfer, BlockSource};
 pub use crate::budget::Holding;
+pub use crate::create::TextureShape;
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::import::{
@@ -75,6 +77,8 @@ pub struct ProgramRuntime {
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
     pub(crate) counters: Counters,
+    /// The staging buffer of block-image transfers, made by the first and reused after.
+    pub(crate) block_staging: Mutex<Option<crate::block_transfer::Staging>>,
 }
 
 /// Gives each runtime its own number, so a handle from another runtime is refused.
@@ -105,6 +109,7 @@ impl ProgramRuntime {
             render_pipelines: HashMap::new(),
             compute_pipelines: HashMap::new(),
             counters: Counters::default(),
+            block_staging: Mutex::new(None),
         }
     }
 

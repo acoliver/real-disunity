@@ -218,6 +218,8 @@ const SHORTEST_AXIS: f32 = 1.0e-6;
 /// A frame adds its light to the globals the script starts from, below every global the world or
 /// the script sets, so a light the game's own pipeline sets as a global replaces the host's at
 /// the place in the frame where it sets it (see `Mapper::new`).
+/// A default a shader declares for either name sits below the globals too (see
+/// `split_below_globals`), so the host's light is not hidden by it.
 pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let Some(index) = main_light_index(lights.iter().map(|light| &light.settings)) else {
         return;

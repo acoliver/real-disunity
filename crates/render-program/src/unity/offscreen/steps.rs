@@ -284,13 +284,14 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 6] = [
+pub const DRAW_LAYERS: [&str; 7] = [
     "per-draw",
     "camera",
     "property block",
     "material",
     "material fallback",
     "globals",
+    "declared default below globals",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -409,6 +410,7 @@ pub(super) fn planned_draw(
         &material.properties,
         &material.fallback,
         look.globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -725,6 +727,7 @@ fn blit_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,

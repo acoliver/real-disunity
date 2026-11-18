@@ -86,6 +86,7 @@ fn frame(undeclared_textures: UndeclaredTextures) -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties: PropertyLayer::default(),
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

@@ -7,6 +7,7 @@ mod builtins;
 mod camera;
 mod causes;
 mod compute_census;
+mod declared_light;
 mod defaults;
 mod draw_mesh;
 mod empty_meshes;

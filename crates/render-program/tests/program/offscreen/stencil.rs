@@ -124,6 +124,7 @@ fn frame(items: &[(Item, u32)], cameras: &[Camera], depth_bits: u8) -> Offscreen
                 keywords: Vec::new(),
                 properties,
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: queue,
             },
         );

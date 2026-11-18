@@ -54,6 +54,7 @@ fn shadow_frame(rig: &mut Rig, mask: u32, source: TextureId) -> OffscreenFrame {
             keywords: Vec::new(),
             properties: PropertyLayer::default(),
             fallback: PropertyLayer::default(),
+            below_globals: PropertyLayer::default(),
             render_queue: 2000,
         },
     );

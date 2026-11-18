@@ -36,7 +36,7 @@ pub(super) fn procedural_step(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(draw.material))?;
-    // The same six places a list item's values come from; a procedural draw has no property block.
+    // The same seven places a list item's values come from; a procedural draw has no property block.
     let block = PropertyLayer::default();
     let layers = [
         &draw.per_draw,
@@ -45,6 +45,7 @@ pub(super) fn procedural_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let mut draws = Vec::new();
     for selector in &draw.passes {

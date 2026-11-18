@@ -324,3 +324,27 @@ pub fn fallback_layer(
     }
     layer
 }
+
+/// Splits the values of `fallback` named in `host_filled` out into a layer of their own, and
+/// gives back the rest of `fallback` first. The frame's globals hold what the host fills for
+/// those names, so their declared defaults belong below the globals and not above them.
+#[must_use]
+pub fn split_below_globals(
+    fallback: PropertyLayer,
+    host_filled: &[&str],
+) -> (PropertyLayer, PropertyLayer) {
+    let mut above = PropertyLayer {
+        textures: fallback.textures,
+        ..PropertyLayer::default()
+    };
+    let mut below = PropertyLayer::default();
+    for (name, value) in fallback.values.iter() {
+        let target = if host_filled.contains(&name) {
+            &mut below
+        } else {
+            &mut above
+        };
+        target.values.set(name, value.clone());
+    }
+    (above, below)
+}

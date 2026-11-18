@@ -84,6 +84,7 @@ fn frame() -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties,
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

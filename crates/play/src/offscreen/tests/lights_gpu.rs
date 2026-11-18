@@ -27,7 +27,7 @@ use super::gpu::{MESH, Quad, SIDE, target};
 use super::support::{assert_close, camera, object, renderer_with, snapshot, world};
 
 const ARGB32: u32 = 8;
-const COLOR: &str = "_MainLightColor";
+pub(super) const COLOR: &str = "_MainLightColor";
 const POSITION: &str = "_MainLightPosition";
 
 /// A vertex stage that places its position by the draw constants `_Place`, and fragment stages
@@ -129,7 +129,7 @@ pub(super) fn record(world: &mut World, work: OffscreenWork) {
     world.record_offscreen(work).unwrap();
 }
 
-fn set_global(world: &mut World, name: &str, value: [f32; 3]) {
+pub(super) fn set_global(world: &mut World, name: &str, value: [f32; 3]) {
     let value = [value[0], value[1], value[2], 1.0];
     record(
         world,
@@ -238,7 +238,7 @@ pub(super) fn two_lists(
 }
 
 /// Flushes the world's frame and reads the whole of `drawn`.
-fn flush_and_read(mut world: World, drawn: RenderTextureId) -> Vec<f32> {
+pub(super) fn flush_and_read(mut world: World, drawn: RenderTextureId) -> Vec<f32> {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(directory.path());
     let request = world
@@ -257,7 +257,10 @@ fn flush_and_read(mut world: World, drawn: RenderTextureId) -> Vec<f32> {
 
 /// A world whose light is the host's `intensity` of white, drawing the shader in `file` over the
 /// left half through layer 0 and over the right half through layer 1.
-fn halves_world(file: &str, (color, intensity): ([f32; 3], f32)) -> (World, RenderTextureId) {
+pub(super) fn halves_world(
+    file: &str,
+    (color, intensity): ([f32; 3], f32),
+) -> (World, RenderTextureId) {
     let mut world = world();
     let drawn = target(&mut world, ARGB32);
     quad(&mut world, file, 0, [0.5, 1.0, -0.5, 0.0]);
@@ -341,7 +344,7 @@ fn a_list_drawn_with_no_light_set_by_the_script_uses_the_hosts_main_light() {
 
 /// A world whose one renderer fills the target, drawn by the camera into `first` and then, after
 /// the commands `between` records, into `second`.
-fn camera_renders(
+pub(super) fn camera_renders(
     shader: &str,
     (color, intensity): ([f32; 3], f32),
     (before, between): (Option<[f32; 3]>, Option<[f32; 3]>),
@@ -375,7 +378,10 @@ fn camera_renders(
 }
 
 /// Flushes the world's frame and reads both targets.
-fn flush_and_read_both(mut world: World, targets: [RenderTextureId; 2]) -> [Vec<f32>; 2] {
+pub(super) fn flush_and_read_both(
+    mut world: World,
+    targets: [RenderTextureId; 2],
+) -> [Vec<f32>; 2] {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(directory.path());
     let requests = targets.map(|texture| {

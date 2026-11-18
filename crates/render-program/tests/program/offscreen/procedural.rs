@@ -123,6 +123,7 @@ fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
         keywords: Vec::new(),
         properties,
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }

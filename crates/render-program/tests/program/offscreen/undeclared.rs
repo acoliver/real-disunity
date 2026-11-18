@@ -68,6 +68,7 @@ fn frame(pass: usize, grey: Option<TextureId>) -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", [1.0; 4])]),
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

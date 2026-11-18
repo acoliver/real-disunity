@@ -126,6 +126,10 @@ pub struct Material {
     /// The values of properties the material does not set, which the host derives from what its
     /// shader declares and the material's textures. They sit below the material's own.
     pub fallback: PropertyLayer,
+    /// The declared defaults of the names the host fills in the globals, such as the main light.
+    /// They sit below every global, so a value the world, the script or the host puts in the
+    /// globals wins over the default the shader declares.
+    pub below_globals: PropertyLayer,
     pub render_queue: i32,
 }
 

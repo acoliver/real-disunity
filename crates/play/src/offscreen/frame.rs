@@ -29,9 +29,11 @@ use super::defaults::{DefaultTexture, ShaderFill};
 use super::depth_range::DepthRange;
 use super::ids;
 use super::pixels::{self, Wanted};
-use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
+use super::properties::{
+    Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
+};
 use super::script::{Script, kind};
-use super::supplied::{SuppliedGlobal, add_supplied};
+use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
 pub use super::report::{Reclaimed, Report};
@@ -787,7 +789,9 @@ impl<'a> Mapper<'a> {
                 &defaults,
                 undeclared,
             );
-            let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
+            let declared = fallback_layer(&material.properties, &info.fill, &mut self.textures);
+            let (fallback, below_globals) =
+                split_below_globals(declared, &host_filled(&self.settings.supplied));
             self.frame.materials.insert(
                 named,
                 Material {
@@ -795,6 +799,7 @@ impl<'a> Mapper<'a> {
                     keywords: material.keywords.clone(),
                     properties,
                     fallback,
+                    below_globals,
                     render_queue: queue,
                 },
             );

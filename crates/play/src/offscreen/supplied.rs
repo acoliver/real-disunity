@@ -11,6 +11,8 @@ use std::fmt;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
+use super::builtins::{MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION};
+
 /// The most floats a supplied value holds.
 const MOST_COMPONENTS: usize = 4;
 
@@ -96,6 +98,16 @@ pub fn add_supplied(layer: &mut PropertyLayer, supplied: &[SuppliedGlobal]) {
                 .set(&global.name, PropertyValue::Vector(global.value));
         }
     }
+}
+
+/// The names the host can put in a frame's starting globals: its main light and the globals the
+/// run supplies. A shader's declared default for one of them is read only when no global has it.
+#[must_use]
+pub fn host_filled(supplied: &[SuppliedGlobal]) -> Vec<&str> {
+    [MAIN_LIGHT_POSITION, MAIN_LIGHT_COLOR]
+        .into_iter()
+        .chain(supplied.iter().map(SuppliedGlobal::name))
+        .collect()
 }
 
 /// The summary line a run that supplies globals prints, or `None` when it supplies none.

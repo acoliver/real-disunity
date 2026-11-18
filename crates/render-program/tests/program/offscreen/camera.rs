@@ -35,6 +35,7 @@ pub fn material(tint: [f32; 4], queue: i32) -> Material {
         keywords: Vec::new(),
         properties: layer(&[("_Tint", tint)]),
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: queue,
     }
 }

@@ -34,7 +34,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
-use super::super::defaults::{ShaderFill, declared};
+use super::super::defaults::{ShaderFill, declared, declared_fill};
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
@@ -73,6 +73,22 @@ impl ShaderSupply for Synthetic {
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
+            // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
+            // of the default `declared_light::DECLARED`.
+            "declared_light" => {
+                let mut synthetic = super::lights_gpu::per_frame_passes("fs_color");
+                synthetic.shader.parsed.properties = vec![ShaderProperty {
+                    name: "_MainLightColor".to_owned(),
+                    description: String::new(),
+                    attributes: Vec::new(),
+                    kind: 0,
+                    flags: 0,
+                    default_value: super::declared_light::DECLARED,
+                    default_texture: String::new(),
+                    texture_dimension: 0,
+                }];
+                synthetic
+            }
             "light_data" => super::lights_gpu::per_frame_passes_named(
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],
@@ -99,6 +115,11 @@ impl ShaderSupply for Synthetic {
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
         let texture_defaults = declared(&synthetic.shader);
+        let fill = if source.file == "declared_light" {
+            declared_fill(&synthetic.shader)
+        } else {
+            ShaderFill::default()
+        };
         let program = ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap();
         Ok(LoadedShader {
             passes: program.pass_count(),
@@ -106,7 +127,7 @@ impl ShaderSupply for Synthetic {
             queue: 2000,
             texture_defaults,
             declared_defaults: Vec::new(),
-            fill: ShaderFill::default(),
+            fill,
         })
     }
 }

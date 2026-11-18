@@ -1,6 +1,7 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::occlusion::FrameOcclusionHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
 use crate::compositor::FrameRenderer;
@@ -25,6 +26,8 @@ pub struct GameBuild<'a> {
     pub camera: FrameCameraHandle,
     /// The stock shadow cascades of the frame in flight, published by the shadowed route.
     pub shadows: FrameShadowHandle,
+    /// The stock ambient occlusion of the frame in flight, set as each frame begins encoding.
+    pub occlusion: FrameOcclusionHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -156,6 +159,7 @@ impl GamePasses {
                 targets: GameTargets::new(store.clone()),
                 camera: renderer.game_camera.clone(),
                 shadows: renderer.game.shadows.clone(),
+                occlusion: renderer.game.occlusion.clone(),
             })?;
             renderer.chain.register(
                 context.device(),
@@ -181,6 +185,8 @@ pub(crate) struct Installed {
     pub(crate) store: Option<Arc<TargetStore>>,
     /// Where the shadowed route lends its cascades to the features of this generation.
     pub(crate) shadows: FrameShadowHandle,
+    /// Where every route lends its ambient occlusion to the features of this generation.
+    pub(crate) occlusion: FrameOcclusionHandle,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the

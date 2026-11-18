@@ -41,6 +41,10 @@ pub struct GamePassSpec {
     /// the frame or hold kept contents; a read nothing writes is refused at planning by the
     /// target's name.
     pub reads: Vec<ResourceRef>,
+    /// Stock products of the frame the pass samples through a view a frame handle lends, such as
+    /// [`FrameOcclusion::read`](super::FrameOcclusion::read). They attach nothing; frame
+    /// validation refuses the frame when no earlier pass of it produces them.
+    pub frame_reads: Vec<ResourceRef>,
 }
 
 impl GamePassSpec {
@@ -51,6 +55,7 @@ impl GamePassSpec {
             colors: Vec::new(),
             depth: None,
             reads: Vec::new(),
+            frame_reads: Vec::new(),
         }
     }
 
@@ -73,6 +78,13 @@ impl GamePassSpec {
     #[must_use]
     pub fn reading(mut self, reads: impl IntoIterator<Item = ResourceRef>) -> Self {
         self.reads.extend(reads);
+        self
+    }
+
+    /// Adds stock products of the frame the pass samples; see [`Self::frame_reads`].
+    #[must_use]
+    pub fn sampling_frame(mut self, reads: impl IntoIterator<Item = ResourceRef>) -> Self {
+        self.frame_reads.extend(reads);
         self
     }
 }
@@ -163,7 +175,12 @@ impl GameTargets {
         views.extend(fresh);
         passes.push(pass);
         Ok(FeaturePass {
-            reads: spec.reads.clone(),
+            reads: spec
+                .reads
+                .iter()
+                .chain(&spec.frame_reads)
+                .copied()
+                .collect(),
             ..feature
         })
     }

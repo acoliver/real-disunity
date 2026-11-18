@@ -5,7 +5,7 @@ use super::refresh::depth_layers;
 use super::scheduler::uniforms;
 use super::*;
 use crate::compositor::{
-    CascadeSelection, ColorOutput, FrameShadowError, FrameShadowHandle, FrameShadows, GameBuild,
+    CascadeSelection, ColorOutput, FrameInputError, FrameShadowHandle, FrameShadows, GameBuild,
     GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
 };
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
@@ -32,7 +32,7 @@ const SAMPLE_WGSL: &str = "
     return vec4<f32>(textureLoad(cascades, texel, 0, 0), 0.0, 0.0, 1.0);
 }";
 
-type Seen = Arc<Mutex<Vec<Result<FrameShadows, FrameShadowError>>>>;
+type Seen = Arc<Mutex<Vec<Result<FrameShadows, FrameInputError>>>>;
 
 /// A game that reads the lent shadows in every `prepare`. With `sample` it also draws a pass that
 /// samples the first cascade layer into a 4 x 4 target.
@@ -363,15 +363,12 @@ fn gpu_the_handle_lends_nothing_between_frames_and_never_an_earlier_frames_casca
     let context = context();
     let (mut renderer, target) = shadowed(&context);
     let (seen, handle) = Probe::install(&mut renderer, &context, false);
-    assert_eq!(
-        handle.current().unwrap_err(),
-        FrameShadowError::OutsideFrame
-    );
+    assert_eq!(handle.current().unwrap_err(), FrameInputError::OutsideFrame);
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert!(seen.lock().unwrap()[0].is_ok());
     assert_eq!(
         handle.current().unwrap_err(),
-        FrameShadowError::OutsideFrame,
+        FrameInputError::OutsideFrame,
         "the frame is over"
     );
 
@@ -385,11 +382,8 @@ fn gpu_the_handle_lends_nothing_between_frames_and_never_an_earlier_frames_casca
         })
         .unwrap()
         .cancel();
-    assert_eq!(verdict, Some(Some(FrameShadowError::NotPrepared)));
-    assert_eq!(
-        handle.current().unwrap_err(),
-        FrameShadowError::OutsideFrame
-    );
+    assert_eq!(verdict, Some(Some(FrameInputError::NotPrepared)));
+    assert_eq!(handle.current().unwrap_err(), FrameInputError::OutsideFrame);
 
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert_eq!(seen.lock().unwrap().len(), 2);
@@ -409,7 +403,7 @@ fn gpu_a_frame_with_shadows_off_lends_nothing_and_still_renders() {
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert!(matches!(
         seen.lock().unwrap().as_slice(),
-        [Err(FrameShadowError::NotPrepared)]
+        [Err(FrameInputError::NotPrepared)]
     ));
     renderer.set_shadows_enabled(true);
     render_target(&mut renderer, &context, &view(), &target).unwrap();

@@ -353,6 +353,11 @@ fn assert_painted(image: &[[u8; 4]], context: &str) {
 }
 
 fn effects() -> SceneEffects {
+    effects_with(None)
+}
+
+/// The sunlit effects of the shadowed scene, with `ssao`.
+pub(super) fn effects_with(ssao: Option<worldrunner_render_plan::SceneSsao>) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -376,7 +381,7 @@ fn effects() -> SceneEffects {
             ground_irradiance_micro: 100_000,
         },
         shadows: SceneShadowCascades::new(vec![4_000], 0).unwrap(),
-        ssao: None,
+        ssao,
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,

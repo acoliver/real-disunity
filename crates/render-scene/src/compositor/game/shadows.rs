@@ -1,9 +1,6 @@
 //! The stock shadow cascades of the frame in flight, lent to a game's features to sample.
+use super::lent::{FrameInputError, Lent};
 use glam::{Mat4, Vec4};
-use std::cell::RefCell;
-use std::rc::Rc;
-use worldrunner_render_gpu::submission::Publications;
-use worldrunner_render_post::FrameError;
 
 /// How the stock receivers choose which cascade shades a point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,35 +81,6 @@ pub struct FrameShadows {
     pub normal_bias_meters: f32,
 }
 
-/// Why a frame cannot lend its shadows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum FrameShadowError {
-    /// No frame is being prepared, so no cascades are current. The cascades of an earlier frame
-    /// are never returned.
-    #[error("shadow cascades are lent only while a frame is being encoded")]
-    OutsideFrame,
-    /// The frame in flight published none: its route draws without shadows, shadows are off, or
-    /// no cascade has a receiver to shade, in which case the casters wrote nothing this frame.
-    #[error("the frame in flight published no shadow cascades")]
-    NotPrepared,
-}
-
-impl From<FrameShadowError> for FrameError {
-    fn from(error: FrameShadowError) -> Self {
-        Self::FeaturePreparation {
-            feature: "frame shadows",
-            reason: error.to_string(),
-        }
-    }
-}
-
-/// What a frame published, with the frame it belongs to.
-#[derive(Debug)]
-struct Published {
-    frame: Publications,
-    shadows: FrameShadows,
-}
-
 /// Where a game reads the stock shadow cascades of the frame in flight. The shadowed route
 /// publishes them once its cascades for the frame are final, before any feature prepares, so a
 /// feature reads them in `prepare` and `draw` of the same frame. A route without shadows
@@ -120,37 +88,26 @@ struct Published {
 ///
 /// A game pass that samples [`FrameShadows::depth`] declares no read of it. Every game place sits
 /// after the shadow casters in the forward frame, and the device orders the casters' writes
-/// before the pass's samples within the frame's encoder. The seam also could not carry such a
-/// declaration: [`GamePassSpec::reading`](super::GamePassSpec::reading) resolves names against
-/// the game's own targets and refuses a stock resource.
+/// before the pass's samples within the frame's encoder.
+/// [`GamePassSpec::reading`](super::GamePassSpec::reading) resolves names against the game's own
+/// targets and refuses a stock resource.
 #[derive(Clone, Debug, Default)]
-pub struct FrameShadowHandle(Rc<RefCell<Option<Published>>>);
+pub struct FrameShadowHandle(Lent<FrameShadows>);
 
 impl FrameShadowHandle {
     /// The shadow cascades of the frame now being encoded.
     ///
     /// # Errors
-    /// [`FrameShadowError::OutsideFrame`] when no frame is being prepared, and
-    /// [`FrameShadowError::NotPrepared`] when the frame in flight published none, including when
+    /// [`FrameInputError::OutsideFrame`] when no frame is being prepared, and
+    /// [`FrameInputError::NotPrepared`] when the frame in flight published none, including when
     /// the only publication belongs to an earlier frame.
-    pub fn current(&self) -> Result<FrameShadows, FrameShadowError> {
-        let frame = Publications::current().ok_or(FrameShadowError::OutsideFrame)?;
-        let mut slot = self.0.borrow_mut();
-        if let Some(published) = slot.as_ref() {
-            if published.frame.same_frame(&frame) {
-                return Ok(published.shadows.clone());
-            }
-            // An earlier frame's views are of no use to anyone; do not keep them alive.
-            *slot = None;
-        }
-        Err(FrameShadowError::NotPrepared)
+    pub fn current(&self) -> Result<FrameShadows, FrameInputError> {
+        self.0.current()
     }
 
     /// Stores `shadows` as the publication of the frame being prepared. A frame with no
     /// transaction in scope publishes nothing.
     pub(crate) fn publish(&self, shadows: FrameShadows) {
-        if let Some(frame) = Publications::current() {
-            *self.0.borrow_mut() = Some(Published { frame, shadows });
-        }
+        self.0.publish(shadows);
     }
 }

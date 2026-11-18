@@ -131,11 +131,20 @@ claim about process memory: reclaiming memory needs every holder of the sources 
 drop them. Retained-host release, upload staging and material bind groups do not
 use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
-explicit single-map and cascaded directional shadows are implemented. The HDR
-profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
-validated scene settings. The legacy profile rejects post requests before upload.
-Textured-sky rendering, vignette, nonneutral contrast and saturation remain
-unsupported. Zero-weight unsupported requests still fail.
+explicit single-map and cascaded directional shadows are implemented. Each recorded
+frame retains the census entry for the shadow-map generation it uses: cancellation
+releases that hold, while submitted work keeps the generation counted until GPU
+completion, even after the scene replaces it. The HDR profile also supports SSAO,
+water, SSR, adaptive exposure, bloom and FXAA through validated scene settings. The
+legacy profile rejects post requests before upload. Textured-sky rendering, vignette,
+nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
+requests still fail.
+
+`ShadowedScene::encode_term_capture` and `encode_term_capture_with` replay initialized
+scene/frame state with its matching selected slot. Both return `Result<(), ShadowError>`
+and require the encoder of the active prepared transaction. Transaction or map-lease
+errors propagate as `ShadowError::Submission` before replay. A capture-only transaction
+retains the shadow-map generation independently of the ordinary frame that initialized it.
 
 A scene without an environmental profile renders unlit albedo plus emission,
 without lighting or grading. Directional shadows require an environmental
@@ -215,6 +224,36 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 - **Shadow caster.** `shadows::terrain_caster::TerrainCaster` is a vertex-only program (`vs_terrain_depth` over the shadow depth source) on `TargetSignature::depth_only(Depth32Float, 1)`, with the caster's state (back faces culled, the configured depth test with writes, and its depth bias, slope included). Each cascade's light frame buffer is the program's set 0, lent as an import and prepared once per buffer, so a scene prepares four sets for each frame slot it draws. `ShadowedScene` prepares them with its other per-frame preparation, and recording is `2 + 4C` commands for C chunks, over the same chunk geometry as the forward draw. `SceneGpu::terrain_caster_selection` keeps the cascade's frustum and slice hull test in one place for the draw and the captures. A `vertex_only_program_in` that lends the engine's frame group would remove the four sets; the runtime has no such constructor yet.
 - **No fixed pipelines.** `ScenePipelines` holds no terrain pipeline, bind group layout or bind group: every context's terrain, caster and prepass records through the program runtime, and a context whose screen group the program does not lend fails to build its terrain program rather than drawing another way. The captures in `terrain/capture_tests` draw plain, pages, layered and layered pages across the twelve forward target sets and the six single-sample ones again with shared depth and with depth reuse, where the depth and stencil planes are checked too; the gather receivers, shadow receivers, specialization, and streaming residency; the metadata prepass in both outputs with independent, shared and winner-marking depth; and the six capture terms in the plain, shadowed, ambient and reflection replays; the shadow caster's depth texels in four cascades over the whole terrain with and without a depth bias, and over streamed chunks with the cascades' volumes and a slice hull. Each capture asserts that the runtime recorded the terrain once and prepared a pipeline and set for it.
 
+### Stock geometry for caller-owned terrain passes
+
+`SceneGpu::prepared_terrain_chunks` reads the chunks the stock camera pass would
+submit. Call it inside the scene's frame transaction after stock scene preparation
+or `SceneGpu::prepare_terrain_geometry`, with the same selection projection and
+viewport. The supplied raster projection and camera position give the same
+frustum culling and nearest-first order as the stock pass. In an owned capture,
+declare `SceneGpu::capture_write_keys` for the prefix if it prepares terrain.
+After the prefix submits, its continuation may read the published selection
+with the same view without re-preparing terrain or declaring suffix writes for
+that read. If an earlier segment replaced the prepared cover, for example by
+coarsening a frozen source during retained replacement, the continuation gets
+`TerrainChunkViewError::Replaced`. Camera preparation refuses a scene whose
+retained replacement has not finished, and a second view in one recording is a
+`StreamingSelectionConflict`, including for a frozen source. A cancelled or
+unrelated frame cannot read that preparation. A scene without streamed terrain
+returns `None`.
+
+Each draw carries its inclusive height-sample bounds and sampling stride. Edge
+neighbors come from the entire admitted cover, including culled leaves. Their
+positive-length overlaps are sorted along the edge and can describe multiple
+strides. The caller owns material nodes, material page slots and index-map
+coordinates and lifetimes; geometric sampling strides do not describe those.
+
+`terrain::build_terrain_chunk_mesh` packs a chunk from the matching `SceneTerrain`
+using the same builder as the stock uploads. It produces scene-metre vertices
+in the stock geometry layout, little-endian `u32` indices and double-sided skirts.
+Both far endpoints are preserved on partial intervals. Invalid chunk windows or
+strides and unaddressable mesh sizes return a typed `TerrainError`.
+
 ## Objects on the program runtime
 
 Lit objects, foliage and impostors draw through `render-program` in the forward passes: plain, velocity, SSAO and its gather receiver, reflection, and each of them as a shadow receiver, at one or four samples. The metadata prepass, the opaque term replays and the shadow casters draw them through the runtime too, in their own contexts: `SceneGpu::draw_color`, `draw_prepass`, `draw_opaque_capture` and `draw_casters_prepared` record the objects through the runtime. A caster context draws into a depth-only signature with the caster entry points and the map's depth test and bias, and casts every key as the first key of its family. No pass draws objects with fixed pipelines: a production `ScenePipelines` compiles no fixed object shader module and has no public `get`. Celestial meshes keep their own fixed pipelines (`renderer::celestial_specialization`), built from the same object source. The shader source is the scene's own, unchanged.
@@ -222,7 +261,7 @@ Lit objects, foliage and impostors draw through `render-program` in the forward 
 - **Programs.** `object::program::Context` holds one program per `PipelineKey`, made on first use. The key's five axes are the features `MASKED`, `DOUBLE_SIDED`, `COVERAGE_MULTISAMPLE`, `IMPOSTOR` and `RELIEF` (`PipelineKey::features`); they pick the fragment entry point (`fs_opaque`, `fs_masked`, `fs_relief_opaque` or `fs_relief_masked`) and the `SCENE_ALPHA_TO_COVERAGE` and `SCENE_IMPOSTOR` overrides, and the key's cull mode and `RasterState::alpha_to_coverage` (multisampled passes only). One parse of the context's source serves the vertex stage and every fragment entry point. The depth and stencil state is `DepthMode::render_state`, the translation terrain shares, so forward depth reuse (equal depth and stencil at one sample) is unchanged.
 - **Sets the pass owner binds.** The frame group (set 0, with the previous-frame block in the velocity contexts), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses.
 - **Material sets.** Set 1 is the material's own. Where the fixed material bind group is built (`upload`, `append_prepared`, `replace_texture_prepared`) the scene also keeps an `ImportTable` for the material: the 576-byte `object.material` block, the five surface maps, the sampler, the contact heights, and the impostor depth, impostor borders and wind field (the placeholder where a material has none). A `PreparedSet` is made from each table for the objects' runtime of a `ScenePipelines` family (a runtime of its own, beside the terrain's) when the scene is uploaded, or when another family first draws it. The derived layout of set 1 is the eleven bindings of the fixed layout in every key and context, so one set serves all 32 keys.
-- **Recording.** `draw/lod_material.rs` walks a view's selected ranges and names the buffers and draws to a `DrawSink`. The test-only `FixedSink` sets each buffer as it is named on pipelines a test built; the runtime sink (`draw/object_runtime.rs`) draws a `GeometryDraw` over them, with the previous-instance buffer as the third vertex buffer in the velocity contexts. Change tracking is unchanged: a change of pipeline or material binds the prepared pipeline of the pair of key and material, and a pass adapter leaves out the commands a run repeats (the render pipeline when the new pair shares it, and a vertex or index buffer the walk has not named again), so a pass records no state a run repeats. `render-program` has no way to bind a prepared set apart from the pipeline it was prepared with, so there is one prepared pipeline for each pair of key and material that a scene draws; a pair is cheap, and pairs of one key share one render pipeline.
+- **Recording.** `draw/lod_material.rs` walks a view's selected ranges and names the buffers and draws to a `DrawSink`. The test-only `FixedSink` sets each buffer as it is named on pipelines a test built; the runtime sink (`draw/object_runtime.rs`) records each draw once with `PreparedPipeline::draw_borrowed` over references to the buffers it holds, so a draw allocates nothing, with the previous-instance buffer as the third vertex buffer in the velocity contexts. Change tracking is unchanged: a change of pipeline or material binds the prepared pipeline of the pair of key and material, and a pass adapter leaves out the commands a run repeats (the render pipeline when the new pair shares it, and a vertex or index buffer the walk has not named again), so a pass records no state a run repeats. `render-program` has no way to bind a prepared set apart from the pipeline it was prepared with, so there is one prepared pipeline for each pair of key and material that a scene draws; a pair is cheap, and pairs of one key share one render pipeline.
 - **Cost.** `src/object/cost_tests.rs` holds the claims. A frame of eight cards with eight keys records 49 commands (57 under velocity), six materials of one key record one pipeline and seven groups, and a level with two material slots records two draws, two pipelines and three groups (`draw/tests/lod_material.rs`). `SceneGpu::prepare_objects` prepares the pairs a frame draws before any pass opens (`encode_scene`, `ShadowedScene` and `encode_resident`, for the forward pass only), where a refusal is still an error; a raw `draw` prepares what it finds missing as it records. After the first frame `RuntimeStats` does not move, and a second scene drawn with the same pipelines compiles no pipeline and no module.
 - **Tests.** `src/object/capture_tests.rs` draws the object scenes in the twelve forward target sets, the gather receivers and the shadow receivers, and requires the objects to change the attachments they write and the draws the scene selected to use all 32 keys (`SceneGpu::pipeline_keys_drawn` reads the keys off the selection through the walk a pass records). The prepass and term replays require three keys. Those captures draw at 0 ms of the animation clock, where the fixture's periodic wind displaces nothing; `capture_tests/variants.rs` draws the foliage cards again at a quarter period and requires the depth plane to differ from the 0 ms one.
 
@@ -237,6 +276,25 @@ A draw admitted with `admit_programs` can sample a render texture that the offsc
 - A cancelled frame submits nothing; the render textures keep what they held and the arena can retire.
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
+
+`offscreen/gbuffer.rs` combines the camera, blit and copy work with an unshadowed
+stock G-buffer scene, without admitted opaque program draws. It checks Render and
+Observation separately: offscreen readbacks, stock scene pixels, ordered frame
+timings, submission serials and submitted object counters. Render uses the fused
+depth/G-buffer producer before lighting and the forward remainder: the card is
+counted once under prepass objects, with no opaque object draw. Observation also
+counts the card under opaque objects. Scene pixels are read as exact linear HDR
+bytes. The existing screen-space restriction on admitted opaque program draws is
+unchanged.
+
+`offscreen/gbuffer/queued.rs` submits two mixed frames on one offscreen state and
+submission authority before mapping any readback. Distinct synthetic tints and
+clear colors pin each frame's camera, blit and array-copy bytes. The stock card
+moves one meter along X between submissions through the ordinary instance update,
+so known HDR pixels differ between frames too. Each encoder records its own
+readback copies while both frames reuse the scene and G-buffer targets. After both
+submissions, each frame's timing record checks that every offscreen operation
+executes once before the path's expected geometry passes.
 
 ## Material sampling
 

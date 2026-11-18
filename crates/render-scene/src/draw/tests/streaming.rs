@@ -1,3 +1,4 @@
+mod chunk_lender;
 mod geometry_holds;
 mod meshes;
 mod observations;

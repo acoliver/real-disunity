@@ -23,6 +23,7 @@ use crate::packet::{
     Bound, PipelineRequest, PreparedGeometry, PreparedProgramDraw, RecordableDraw, TargetSignature,
     VertexLayout, instance_end,
 };
+use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
 use crate::range::{Extent, Fetch, check_extent};
 use crate::resources::{BoundResource, Keepalive, Pins};
@@ -208,13 +209,96 @@ pub enum ImportedGeometry {
     Indexed(ImportedIndices),
 }
 
-/// One draw of triangles over resources lent to it.
+/// Which vertices a one-shot draw reads, with its index buffer borrowed rather than held.
+///
+/// It is [`ImportedGeometry`] for a caller that records a draw once and keeps nothing, so that
+/// naming the index buffer costs no reference count.
+#[derive(Clone, Copy, Debug)]
+pub enum BorrowedGeometry<'a> {
+    Vertices {
+        first: u32,
+        count: u32,
+    },
+    Indexed {
+        buffer: &'a wgpu::Buffer,
+        format: wgpu::IndexFormat,
+        first: u32,
+        count: u32,
+        base_vertex: i32,
+    },
+}
+
+impl<'a> From<&'a ImportedGeometry> for BorrowedGeometry<'a> {
+    fn from(geometry: &'a ImportedGeometry) -> Self {
+        match geometry {
+            ImportedGeometry::Vertices { first, count } => Self::Vertices {
+                first: *first,
+                count: *count,
+            },
+            ImportedGeometry::Indexed(indices) => Self::Indexed {
+                buffer: &indices.buffer,
+                format: indices.format,
+                first: indices.first,
+                count: indices.count,
+                base_vertex: indices.base_vertex,
+            },
+        }
+    }
+}
+
+impl<'a> From<&'a PreparedGeometry> for BorrowedGeometry<'a> {
+    fn from(geometry: &'a PreparedGeometry) -> Self {
+        match geometry {
+            PreparedGeometry::Vertices { first, count } => Self::Vertices {
+                first: *first,
+                count: *count,
+            },
+            PreparedGeometry::Indexed {
+                buffer,
+                format,
+                first,
+                count,
+                base_vertex,
+            } => Self::Indexed {
+                buffer,
+                format: *format,
+                first: *first,
+                count: *count,
+                base_vertex: *base_vertex,
+            },
+        }
+    }
+}
+
+impl BorrowedGeometry<'_> {
+    /// What the draw reads, for the range checks.
+    pub(crate) fn extent(self) -> Extent {
+        match self {
+            Self::Vertices { first, count } => Extent::Vertices { first, count },
+            Self::Indexed {
+                buffer,
+                format,
+                first,
+                count,
+                base_vertex,
+            } => Extent::Indexed {
+                buffer_len: buffer.size(),
+                format,
+                first,
+                count,
+                base_vertex,
+            },
+        }
+    }
+}
+
+/// One draw of primitives over resources lent to it.
 ///
 /// `imports` fill the bindings the program sources from an engine semantic, `bindings` fill the
 /// ones that name runtime handles, `vertex_inputs` and the geometry's index buffer are borrowed,
-/// and `instances` is the range of instances drawn. An instance-rate vertex buffer must hold as
-/// many strides as the range's end. `owners` are held by the draw and by every frame that
-/// retains it.
+/// `topology` is how the geometry's vertices join into primitives, and `instances` is the range
+/// of instances drawn. An instance-rate vertex buffer must hold as many strides as the range's
+/// end. `owners` are held by the draw and by every frame that retains it.
 #[derive(Clone)]
 pub struct ImportedDraw<'a> {
     pub program: &'a GraphicsProgram,
@@ -224,6 +308,8 @@ pub struct ImportedDraw<'a> {
     pub imports: &'a [Import],
     /// Sets prepared ahead of this draw. The draw builds no group for a set it is given one for.
     pub sets: &'a [&'a PreparedSet],
+    /// A strip read through indices restarts at the largest value of the indices' format.
+    pub topology: wgpu::PrimitiveTopology,
     pub geometry: &'a ImportedGeometry,
     pub instances: Range<u32>,
     pub owners: &'a [Keepalive],
@@ -239,9 +325,9 @@ impl ProgramRuntime {
     /// # Errors
     /// Fails on a binding with no import, an import no binding takes or one given twice, an
     /// import that is not the kind of resource its binding is or a buffer smaller than the
-    /// shader needs, a state that does not describe the signature's attachments, an instance
-    /// range that ends before it starts, geometry that runs past a borrowed buffer, a lost
-    /// device or a GPU validation error.
+    /// shader needs, a state that does not describe the signature's attachments, a depth bias
+    /// on a topology of points or lines, an instance range that ends before it starts, geometry
+    /// that runs past a borrowed buffer, a lost device or a GPU validation error.
     pub fn prepare_imported_draw(
         &mut self,
         draw: &ImportedDraw<'_>,
@@ -268,8 +354,8 @@ impl ProgramRuntime {
             })
             .collect();
         check_extent(
-            &fetches,
-            extent(draw.geometry),
+            fetches.iter().copied(),
+            BorrowedGeometry::from(draw.geometry).extent(),
             instance_end(&draw.instances),
         )?;
         let layouts: Vec<_> = draw
@@ -287,7 +373,7 @@ impl ProgramRuntime {
             layouts: &layouts,
             signature,
             colors: &colors,
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: Primitive::new(draw.topology, index_format(draw.geometry)),
         })?;
         let groups = self.bind_groups_sharing(
             &draw.program.gpu,
@@ -320,19 +406,10 @@ impl ProgramRuntime {
     }
 }
 
-pub(crate) fn extent(geometry: &ImportedGeometry) -> Extent {
+fn index_format(geometry: &ImportedGeometry) -> Option<wgpu::IndexFormat> {
     match geometry {
-        ImportedGeometry::Vertices { first, count } => Extent::Vertices {
-            first: *first,
-            count: *count,
-        },
-        ImportedGeometry::Indexed(indices) => Extent::Indexed {
-            buffer_len: indices.buffer.size(),
-            format: indices.format,
-            first: indices.first,
-            count: indices.count,
-            base_vertex: indices.base_vertex,
-        },
+        ImportedGeometry::Vertices { .. } => None,
+        ImportedGeometry::Indexed(indices) => Some(indices.format),
     }
 }
 

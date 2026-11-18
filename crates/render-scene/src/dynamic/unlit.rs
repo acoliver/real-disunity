@@ -309,6 +309,7 @@ pub(super) fn prepare_quads(
                     bindings: &[],
                     imports: &imports,
                     sets: &[],
+                    topology: wgpu::PrimitiveTopology::TriangleList,
                     geometry: &ImportedGeometry::Indexed(ImportedIndices {
                         buffer: resources.indices.clone(),
                         format: wgpu::IndexFormat::Uint32,

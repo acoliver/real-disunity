@@ -78,13 +78,14 @@ impl Store {
                 base_vertex,
             },
         };
-        check_extent(&fetches, extent, instance_end)
+        check_extent(fetches.iter().copied(), extent, instance_end)
     }
 }
 
-/// The rules of [`Store::check_instanced_geometry`] for buffers whose lengths are known.
-pub(crate) fn check_extent(
-    fetches: &[Fetch<'_>],
+/// The rules of [`Store::check_instanced_geometry`] for buffers whose lengths are known, given
+/// as an iterator so that a caller with its buffers at hand collects nothing.
+pub(crate) fn check_extent<'a>(
+    fetches: impl Iterator<Item = Fetch<'a>> + Clone,
     extent: Extent,
     instance_end: u32,
 ) -> Result<(), ProgramError> {
@@ -109,7 +110,7 @@ pub(crate) fn check_extent(
                     available,
                 });
             }
-            check_vertex_buffers(fetches, (0, instances))?;
+            check_vertex_buffers(fetches.clone(), (0, instances))?;
             check_base_vertex(fetches, count, base_vertex)
         }
     }
@@ -117,16 +118,16 @@ pub(crate) fn check_extent(
 
 /// Every vertex-rate buffer must hold `vertices` vertices and every instance-rate buffer
 /// `instances` instances.
-fn check_vertex_buffers(
-    fetches: &[Fetch<'_>],
+fn check_vertex_buffers<'a>(
+    fetches: impl Iterator<Item = Fetch<'a>>,
     (vertices, instances): (u64, u64),
 ) -> Result<(), ProgramError> {
-    for (slot, fetch) in fetches.iter().enumerate() {
+    for (slot, fetch) in fetches.enumerate() {
         let strides = match fetch.step {
             wgpu::VertexStepMode::Vertex => vertices,
             wgpu::VertexStepMode::Instance => instances,
         };
-        let needed = bytes_read(fetch, strides);
+        let needed = bytes_read(&fetch, strides);
         if needed > fetch.len {
             return Err(ProgramError::VertexRangePastBuffer {
                 slot,
@@ -138,19 +139,19 @@ fn check_vertex_buffers(
     Ok(())
 }
 
-fn check_base_vertex(
-    fetches: &[Fetch<'_>],
+fn check_base_vertex<'a>(
+    fetches: impl Iterator<Item = Fetch<'a>>,
     count: u32,
     base_vertex: i32,
 ) -> Result<(), ProgramError> {
     let Ok(base) = u64::try_from(base_vertex) else {
         return Ok(());
     };
-    for (slot, fetch) in fetches.iter().enumerate() {
+    for (slot, fetch) in fetches.enumerate() {
         if fetch.step != wgpu::VertexStepMode::Vertex {
             continue;
         }
-        let vertices = vertices_held(fetch);
+        let vertices = vertices_held(&fetch);
         if count > 0 && base >= vertices {
             return Err(ProgramError::BaseVertexPastBuffer {
                 slot,

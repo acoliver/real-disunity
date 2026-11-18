@@ -196,6 +196,12 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
         /// <summary>
+        ///  Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+        ///  it cover. A value that is not finite and a negative width or height are refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_viewport", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_viewport(ulong world, float x, float y, float width, float height);
+        /// <summary>
         ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
         ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
         ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and

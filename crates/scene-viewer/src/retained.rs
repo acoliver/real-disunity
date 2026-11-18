@@ -17,7 +17,7 @@ mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, BusConfig, ClipHandle, DuckingDetector, DuckingRule, EnvelopeMode,
-    VoiceHandle,
+    ExistingVoices, PlaybackOptions, VoiceHandle,
 };
 mod timers;
 #[cfg(test)]
@@ -39,7 +39,7 @@ pub use statistics::{
     PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
     ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 mod decals;
 pub use decals::DecalUpdate;
@@ -290,6 +290,8 @@ pub struct RetainedHost {
     exit: bool,
     occluded: bool,
     window_on_top: bool,
+    #[cfg(test)]
+    pub(crate) texture_tier_memory_override: Option<u64>,
 }
 
 impl RetainedHost {

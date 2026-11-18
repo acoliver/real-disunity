@@ -363,7 +363,8 @@ pub(super) fn read_depth(
     state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
 ) -> Vec<u8> {
     read_depth_by(context, state, |pass| {
-        drop(gpu.draw_objects(pass, &gpu.frame_group, pipelines, None));
+        let materials = gpu.objects.material_groups(context.device());
+        drop(gpu.draw_objects(pass, &gpu.frame_group, (pipelines, &materials), None));
     })
 }
 

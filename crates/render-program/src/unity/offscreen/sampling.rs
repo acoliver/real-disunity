@@ -47,11 +47,7 @@ pub(super) fn read_unfilterable(
 fn nearest(state: Option<SamplerState>) -> SamplerState {
     SamplerState {
         filter: Filter::Point,
-        ..state.unwrap_or(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Clamp,
-            filter: Filter::Point,
-        })
+        ..state.unwrap_or(SamplerState::new(Wrap::Clamp, Wrap::Clamp, Filter::Point))
     }
 }
 
@@ -81,16 +77,18 @@ pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::
 ///
 /// An inline sampler name as the shader modules declare it (`sampler_LinearClampCompare`) carries a
 /// filter (`Point`, `Linear` or `Trilinear`) and a wrap mode (`Clamp`, `Repeat` or `Mirror`), and a
-/// part it leaves out is the texture's. A sampler named after its texture, such as
-/// `sampler_MainLightShadowmapTexture`, says neither and reads as the texture does.
+/// part it leaves out is the texture's. The wrap along w and the anisotropy are always the
+/// texture's, since a comparison sampler reads a 2D depth texture and the name has no word for
+/// them. A sampler named after its texture, such as `sampler_MainLightShadowmapTexture`, says
+/// neither and reads as the texture does.
 pub(super) fn comparison_state(name: Option<&str>, paired: Option<&Sampled>) -> SamplerState {
     let texture = paired
         .and_then(|paired| paired.state)
-        .unwrap_or(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Clamp,
-            filter: Filter::Bilinear,
-        });
+        .unwrap_or(SamplerState::new(
+            Wrap::Clamp,
+            Wrap::Clamp,
+            Filter::Bilinear,
+        ));
     let Some(name) = name else { return texture };
     let filter = named(
         name,
@@ -112,6 +110,7 @@ pub(super) fn comparison_state(name: Option<&str>, paired: Option<&Sampled>) -> 
         wrap_u: wrap.unwrap_or(texture.wrap_u),
         wrap_v: wrap.unwrap_or(texture.wrap_v),
         filter: filter.unwrap_or(texture.filter),
+        ..texture
     }
 }
 
@@ -152,19 +151,11 @@ mod tests {
     const UNFILTERABLE: Type = Type::Float { filterable: false };
 
     fn bilinear(wrap: Wrap) -> SamplerState {
-        SamplerState {
-            wrap_u: wrap,
-            wrap_v: wrap,
-            filter: Filter::Bilinear,
-        }
+        SamplerState::new(wrap, wrap, Filter::Bilinear)
     }
 
     fn point(wrap: Wrap) -> SamplerState {
-        SamplerState {
-            wrap_u: wrap,
-            wrap_v: wrap,
-            filter: Filter::Point,
-        }
+        SamplerState::new(wrap, wrap, Filter::Point)
     }
 
     #[test]
@@ -316,11 +307,7 @@ mod tests {
     fn a_comparison_sampler_with_no_name_and_no_texture_state_filters_linearly_clamped() {
         assert_eq!(
             comparison(None, None),
-            SamplerState {
-                wrap_u: Wrap::Clamp,
-                wrap_v: Wrap::Clamp,
-                filter: Filter::Bilinear,
-            }
+            SamplerState::new(Wrap::Clamp, Wrap::Clamp, Filter::Bilinear)
         );
     }
 
@@ -357,11 +344,7 @@ mod tests {
         );
         assert_eq!(
             comparison(Some("sampler_TrilinearMirrorCompare"), None),
-            SamplerState {
-                wrap_u: Wrap::Mirror,
-                wrap_v: Wrap::Mirror,
-                filter: Filter::Trilinear,
-            }
+            SamplerState::new(Wrap::Mirror, Wrap::Mirror, Filter::Trilinear)
         );
     }
 
@@ -374,6 +357,25 @@ mod tests {
         assert_eq!(
             comparison(Some("sampler_RepeatCompare"), Some(paired)),
             point(Wrap::Repeat)
+        );
+    }
+
+    #[test]
+    fn a_comparison_sampler_keeps_the_wrap_along_w_and_the_anisotropy_of_the_texture() {
+        let texture = SamplerState {
+            wrap_w: Wrap::Mirror,
+            anisotropy: 8,
+            ..SamplerState::new(Wrap::Repeat, Wrap::Repeat, Filter::Trilinear)
+        };
+        let paired = Sampled {
+            state: Some(texture),
+            unfiltered: false,
+        };
+        let named = comparison(Some("sampler_LinearClampCompare"), Some(paired));
+        assert_eq!((named.wrap_w, named.anisotropy), (Wrap::Mirror, 8));
+        assert_eq!(
+            (named.wrap_u, named.filter),
+            (Wrap::Clamp, Filter::Bilinear)
         );
     }
 

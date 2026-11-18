@@ -229,9 +229,8 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
     assert_eq!(
         adapted.frame.globals.textures["_Lookup"].sampler,
         Some(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Mirror,
-            filter: Filter::Point,
+            wrap_w: Wrap::Repeat,
+            ..SamplerState::new(Wrap::Clamp, Wrap::Mirror, Filter::Point)
         })
     );
 }

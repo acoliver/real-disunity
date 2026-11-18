@@ -17,6 +17,7 @@ mod gpu_flush;
 mod gpu_reads;
 mod graphics_snapshot;
 mod managed_entrypoints;
+pub mod monotonic;
 pub mod signal_stack;
 
 use managed_entrypoints::ManagedBridge;
@@ -25,6 +26,7 @@ use managed_entrypoints::ManagedBridge;
 pub mod native;
 pub use gpu_flush::{GpuFlush, GpuFlushHandler};
 pub use gpu_reads::{GpuComputeBuffer, GpuComputeShader, GpuKernel, GpuScope, GpuShader};
+pub use monotonic::KernelMonotonic;
 pub use native::DisunityErrorReason;
 pub use native::DisunityObjectState;
 use native::{DisunityAdvance, DisunityResult};

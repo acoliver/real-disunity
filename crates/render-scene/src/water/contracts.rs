@@ -246,21 +246,18 @@ fn missing_snapshot_version_fails_before_retained_preparation() {
 }
 
 #[test]
-fn unsupported_overlapping_transparent_writers_have_typed_errors() {
+fn overlapping_transparent_writers_in_one_entry_have_typed_errors() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let water = FeatureDeclaration::new(PassSlot::TransparentWater);
-    let alpha = FeatureDeclaration::new(PassSlot::TransparentAlpha);
     let passes = [
         PassDeclaration::new(PassSlot::TransparentWater),
         PassDeclaration::new(PassSlot::TransparentAlpha),
     ];
     assert_eq!(
-        validate_frame(&passes, &[water.clone(), water.clone()], &[]),
-        Err(FrameError::TransparentOrdering)
-    );
-    assert_eq!(
-        validate_frame(&passes, &[water, alpha], &[]),
-        Err(FrameError::TransparentOrdering)
+        validate_frame(&passes, &[water.clone(), water], &[]),
+        Err(FrameError::TransparentOrdering(PassEntry::new(
+            PassSlot::TransparentWater
+        )))
     );
     assert!(PassSlot::Opaque < PassSlot::AfterOpaqueSnapshot);
     assert!(PassSlot::AfterOpaqueDepth < PassSlot::TransparentWater);

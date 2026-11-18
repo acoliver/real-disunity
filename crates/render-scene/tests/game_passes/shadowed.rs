@@ -279,6 +279,7 @@ impl PainterFrame {
                     bindings: &[],
                     imports: &imports,
                     sets: &[],
+                    topology: wgpu::PrimitiveTopology::TriangleList,
                     geometry: &ImportedGeometry::Vertices { first: 0, count: 3 },
                     instances: 0..1,
                     owners: &[],

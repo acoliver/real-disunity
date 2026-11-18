@@ -17,4 +17,5 @@ mod ranges;
 mod set_layout;
 mod sets;
 mod stencil;
+mod topology;
 mod unfilterable;

@@ -10,6 +10,7 @@ mod arena;
 mod batch;
 mod bind;
 pub mod binding;
+mod block_transfer;
 mod budget;
 pub mod constants;
 mod create;

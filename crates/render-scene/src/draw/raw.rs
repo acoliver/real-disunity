@@ -52,10 +52,7 @@ impl SceneGpu {
             "physical skies require compositor preparation"
         );
         assert!(
-            self.instances
-                .batches
-                .values()
-                .all(|batch| batch.ready_for(Some(owner))),
+            self.instances.ready_for(Some(owner)),
             "flush instance updates before drawing"
         );
         self.drawing_uniform();

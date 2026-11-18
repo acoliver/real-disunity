@@ -51,7 +51,7 @@ fn shaded(color: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-const CORNERS: [[f32; 2]; 4] = [[0.0, -1.0], [0.5, -1.0], [0.5, 1.0], [0.0, 1.0]];
+pub(crate) const CORNERS: [[f32; 2]; 4] = [[0.0, -1.0], [0.5, -1.0], [0.5, 1.0], [0.0, 1.0]];
 const QUAD: [u32; 6] = [0, 1, 2, 0, 2, 3];
 const INSTANCE_STRIDE: u64 = 24;
 
@@ -71,7 +71,7 @@ fn tint_semantic() -> worldrunner_render_program::binding::EngineSemantic {
     worldrunner_render_program::binding::EngineSemantic::named("batch.tint")
 }
 
-fn program(runtime: &ProgramRuntime) -> GraphicsProgram {
+pub(crate) fn program(runtime: &ProgramRuntime) -> GraphicsProgram {
     let declarations = StageDeclarations {
         resources: ResourceLayout::new(vec![fragment_uniform(
             0,
@@ -87,7 +87,11 @@ fn program(runtime: &ProgramRuntime) -> GraphicsProgram {
         .unwrap()
 }
 
-fn tint_set(gpu: &Gpu, runtime: &mut ProgramRuntime, program: &GraphicsProgram) -> PreparedSet {
+pub(crate) fn tint_set(
+    gpu: &Gpu,
+    runtime: &mut ProgramRuntime,
+    program: &GraphicsProgram,
+) -> PreparedSet {
     tint_set_held(gpu, runtime, program, Vec::new())
 }
 
@@ -111,7 +115,7 @@ fn instance_attributes() -> Vec<wgpu::VertexAttribute> {
 }
 
 /// Corners at stride 8, then one instance record of offset and colour at stride 24.
-fn layout() -> VertexLayoutSpec {
+pub(crate) fn layout() -> VertexLayoutSpec {
     VertexLayoutSpec::new(vec![
         VertexBufferSpec {
             stride: 8,
@@ -128,14 +132,14 @@ fn layout() -> VertexLayoutSpec {
 
 /// What the geometries of a test share: corners, indices and the instance records, where record
 /// `i` puts a quad in column `i` with `COLORS[i]`.
-struct Shared {
-    corners: wgpu::Buffer,
-    indices: wgpu::Buffer,
-    instances: wgpu::Buffer,
+pub(crate) struct Shared {
+    pub(crate) corners: wgpu::Buffer,
+    pub(crate) indices: wgpu::Buffer,
+    pub(crate) instances: wgpu::Buffer,
 }
 
 impl Shared {
-    fn new(gpu: &Gpu) -> Self {
+    pub(crate) fn new(gpu: &Gpu) -> Self {
         let corners = gpu.floats(wgpu::BufferUsages::VERTEX, CORNERS.as_flattened());
         let indices: Vec<u8> = QUAD.iter().flat_map(|index| index.to_le_bytes()).collect();
         let records: Vec<f32> = (0_u8..4)
@@ -152,7 +156,7 @@ impl Shared {
         }
     }
 
-    fn indexed(&self) -> ImportedGeometry {
+    pub(crate) fn indexed(&self) -> ImportedGeometry {
         ImportedGeometry::Indexed(ImportedIndices {
             buffer: self.indices.clone(),
             format: wgpu::IndexFormat::Uint32,
@@ -215,7 +219,7 @@ impl Shared {
     }
 }
 
-fn prepare(
+pub(crate) fn prepare(
     runtime: &mut ProgramRuntime,
     (program, set): (&GraphicsProgram, &PreparedSet),
     layout: &VertexLayoutSpec,
@@ -280,7 +284,7 @@ fn render_with(
 /// Every pass command a recording issues, by kind, so a test counts what a pipeline records
 /// without a GPU pass.
 #[derive(Default)]
-struct Commands(Vec<&'static str>);
+pub(crate) struct Commands(pub(crate) Vec<&'static str>);
 
 impl PassCommands for Commands {
     fn set_pipeline(&mut self, _: &wgpu::RenderPipeline) {
@@ -303,7 +307,7 @@ impl PassCommands for Commands {
     }
 }
 
-const DRAW: [&str; 4] = ["vertices", "vertices", "indices", "draw indexed"];
+pub(crate) const DRAW: [&str; 4] = ["vertices", "vertices", "indices", "draw indexed"];
 
 /// Columns `lit` hold their record's shaded colour and the rest are clear.
 fn assert_columns(image: &[u8], lit: &[usize]) {

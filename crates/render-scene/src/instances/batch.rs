@@ -157,6 +157,11 @@ impl InstanceBatch {
         self.content
     }
 
+    /// Rises with every change to the history that `ready_for` reads.
+    pub fn history_version(&self) -> u64 {
+        self.history.version()
+    }
+
     /// Drops every slot's cached bounds after the batch's mesh changed, and counts it as an
     /// edit so a cached view selection is not reused.
     pub fn forget_bounds(&mut self) {
@@ -380,6 +385,7 @@ fn stage_uploads(
         .record(&context.publications(), &chunks, batch.skin.as_ref());
     let uploaded = batch.uploaded.clone();
     let valid = batch.buffer_valid.clone();
+    let changes = batch.history.changes();
     let length = batch.bytes.len();
     crate::compositor::publication::stage(context, &uploaded.clone(), move || {
         let mut uploaded = uploaded.borrow_mut();
@@ -391,6 +397,7 @@ fn stage_uploads(
             *uploaded.borrow_mut() = bytes;
         }
         valid.set(true);
+        changes.record();
     });
 }
 
@@ -459,6 +466,9 @@ fn skin_capacity(instance_capacity: u64) -> u64 {
     (slots * crate::skinning::SKIN_INSTANCE_BYTES as u64).max(wgpu::COPY_BUFFER_ALIGNMENT)
 }
 
+#[cfg(test)]
+#[path = "ready_memo_tests.rs"]
+mod ready_memo_tests;
 #[cfg(test)]
 #[path = "velocity_reset_cpu_tests.rs"]
 mod velocity_reset_cpu_tests;

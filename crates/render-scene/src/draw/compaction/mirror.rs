@@ -11,6 +11,10 @@
 //! Like the view buffers, the mirror is overwritten in place within a transaction, and what it
 //! holds publishes with the transaction, so a cancelled frame leaves the committed state exact.
 //!
+//! The state is shared, never edited in place: a transaction that changes the layout or a range's
+//! content builds its own copy, and one that changes nothing hands on the state it found. A
+//! moving view therefore clones no layout and no content records.
+//!
 //! Its buffers count as instance bytes in the scene's memory census until the last state that
 //! holds them (committed or in a transaction) drops.
 use std::collections::BTreeMap;
@@ -23,6 +27,9 @@ use worldrunner_render_post::PrepareContext;
 
 use super::{SKIN_STRIDE, STRIDE};
 use crate::instances::{BatchKey, InstanceBatch, Instances};
+use verified::Verified;
+
+mod verified;
 
 /// The record range of one batch in the mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,11 +51,7 @@ impl Layout {
     /// Gives `key` `reserved` records unless its range already holds that many.
     /// Returns false when the mirror has no room left for it.
     pub fn reserve(&mut self, key: BatchKey, reserved: u32) -> bool {
-        if self
-            .extents
-            .get(&key)
-            .is_some_and(|extent| extent.reserved >= reserved)
-        {
+        if self.holds(key, reserved) {
             return true;
         }
         let Some(end) = self
@@ -67,6 +70,13 @@ impl Layout {
         );
         self.end = end;
         true
+    }
+
+    /// Whether `key`'s range already holds `reserved` records.
+    fn holds(&self, key: BatchKey, reserved: u32) -> bool {
+        self.extents
+            .get(&key)
+            .is_some_and(|extent| extent.reserved >= reserved)
     }
 
     /// Packs `batches` from record zero in key order into the next power of two of their total.
@@ -123,13 +133,78 @@ pub(super) struct State {
     pub layout: Layout,
     pub buffers: Option<Buffers>,
     held: BTreeMap<BatchKey, Held>,
+    /// The batches this state was last found to hold at their current content.
+    verified: Verified,
 }
 
-/// Committed and in-transaction mirror state, like a view's compaction.
+impl State {
+    /// The record of what copying `batch` into its range would leave there, or `None` when the
+    /// range already holds the batch's current content.
+    fn stale(&self, key: BatchKey, batch: &InstanceBatch, halves: Halves) -> Option<Held> {
+        let wanted = Held {
+            content: batch.content(),
+            previous: halves.previous,
+            skin: halves.skin && batch.skin.is_some(),
+        };
+        let current = self.held.get(&key).is_some_and(|held| {
+            held.content == wanted.content
+                && (held.previous || !wanted.previous)
+                && (held.skin || !wanted.skin)
+        });
+        (!current).then_some(wanted)
+    }
+}
+
+/// Committed and in-transaction mirror state, like a view's compaction. A state is replaced,
+/// never edited, once it is committed or staged for publication.
 #[derive(Debug, Default)]
 pub(super) struct Mirror {
-    pub committed: Rc<RefCell<State>>,
-    drawing: RefCell<Option<(Publications, State)>>,
+    pub committed: Rc<RefCell<Rc<State>>>,
+    drawing: RefCell<Option<(Publications, Rc<State>)>>,
+    /// How many times `prepare` checked every batch range of its keys one by one.
+    #[cfg(test)]
+    scans: std::cell::Cell<usize>,
+}
+
+/// What a test can compare of a mirror state: its layout, what each range holds, and which
+/// buffers back it.
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Snapshot {
+    layout: Layout,
+    held: BTreeMap<BatchKey, Held>,
+    buffers: Option<[Option<usize>; 3]>,
+}
+
+#[cfg(test)]
+impl Snapshot {
+    /// Batches whose ranges hold content.
+    pub fn batches(&self) -> usize {
+        self.held.len()
+    }
+}
+
+#[cfg(test)]
+impl Mirror {
+    pub fn scans(&self) -> usize {
+        self.scans.get()
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let committed = Rc::clone(&self.committed.borrow());
+        let identity = |buffer: &Rc<Tracked<Buffer>>| Rc::as_ptr(buffer) as usize;
+        Snapshot {
+            layout: committed.layout.clone(),
+            held: committed.held.clone(),
+            buffers: committed.buffers.as_ref().map(|buffers| {
+                [
+                    Some(identity(&buffers.current)),
+                    buffers.previous.as_ref().map(identity),
+                    buffers.skin.as_ref().map(identity),
+                ]
+            }),
+        }
+    }
 }
 
 /// Records a batch's buffer can hold.
@@ -138,58 +213,104 @@ fn reserved(buffer: &Buffer) -> u32 {
 }
 
 impl Mirror {
-    fn state_in(&self, transaction: &Publications) -> State {
+    fn state_in(&self, transaction: &Publications) -> Rc<State> {
         self.drawing
             .borrow()
             .as_ref()
             .filter(|(owner, _)| owner.same_transaction(transaction))
             .map_or_else(
-                || self.committed.borrow().clone(),
-                |(_, state)| state.clone(),
+                || Rc::clone(&self.committed.borrow()),
+                |(_, state)| Rc::clone(state),
             )
     }
 
-    /// Brings the ranges of `keys` up to their batches' content, staging the copies in
-    /// `context`, and returns the mirror state the gather reads. Every key must name a batch
-    /// with a flushed buffer, with a previous buffer when `halves.previous`, and with a flushed
-    /// skin stream when the batch is skinned.
+    /// Brings the ranges of `keys`, which the caller lists in ascending order, up to their
+    /// batches' content, staging the copies in `context`, and returns the mirror state the
+    /// gather reads. Every key must name a batch with a flushed buffer, with a previous buffer
+    /// when `halves.previous`, and with a flushed skin stream when the batch is skinned.
+    /// `generation` is `instances.content_generation()`. A state that already passed these keys at
+    /// that generation is returned without checking any batch.
     pub fn prepare(
         &self,
         context: &mut PrepareContext<'_>,
         instances: &Instances,
         keys: &[BatchKey],
-        halves: Halves,
-    ) -> State {
-        let batches = &instances.batches;
+        (halves, generation): (Halves, u64),
+    ) -> Rc<State> {
+        debug_assert_eq!(generation, instances.content_generation());
         let owner = context.publications();
-        let mut state = self.state_in(&owner);
-        let mut layout = state.layout.clone();
-        let fits = state.buffers.as_ref().is_some_and(|buffers| {
-            (!halves.previous || buffers.previous.is_some())
-                && (!halves.skin || buffers.skin.is_some())
-        }) && keys
-            .iter()
-            .all(|key| layout.reserve(*key, reserved(flushed(batches, *key))));
-        if fits {
-            // A batch that moved to the end holds nothing at its new range yet.
-            let moved = &state.layout.extents;
-            state
-                .held
-                .retain(|key, _| layout.extents.get(key) == moved.get(key));
-            state.layout = layout;
+        let found = self.state_in(&owner);
+        let state = if found.verified.covers(generation, halves, keys) {
+            found
         } else {
-            state = Self::allocate(context.device(), &state, instances, keys, halves);
-        }
-        for &key in keys {
-            Self::refresh(context, &mut state, (key, &batches[&key]), halves);
-        }
-        *self.drawing.borrow_mut() = Some((owner, state.clone()));
+            #[cfg(test)]
+            self.scans.set(self.scans.get() + 1);
+            Self::brought_up_to_date(context, found, (instances, keys), (halves, generation))
+        };
+        *self.drawing.borrow_mut() = Some((owner, Rc::clone(&state)));
         let committed = self.committed.clone();
-        let published = state.clone();
+        let published = Rc::clone(&state);
         crate::compositor::publication::stage(context, &committed.clone(), move || {
             *committed.borrow_mut() = published;
         });
         state
+    }
+
+    /// `found` with the ranges of `keys` copied up to their batches' content.
+    fn brought_up_to_date(
+        context: &mut PrepareContext<'_>,
+        found: Rc<State>,
+        (instances, keys): (&Instances, &[BatchKey]),
+        (halves, generation): (Halves, u64),
+    ) -> Rc<State> {
+        let mut state = Self::laid_out(context.device(), found, (instances, keys), halves);
+        for &key in keys {
+            let batch = &instances.batches[&key];
+            if let Some(wanted) = state.stale(key, batch, halves) {
+                // The state is shared with the committed one and with earlier publications, so
+                // the first edit of a transaction copies it.
+                let editable = Rc::make_mut(&mut state);
+                Self::refresh(context, editable, (key, batch), wanted);
+            }
+        }
+        state.verified.remember(generation, halves, keys);
+        state
+    }
+
+    /// `state` when its ranges already hold `keys`, otherwise a state with them appended or, when
+    /// the mirror is full or lacks a half, a packed relayout in new buffers.
+    fn laid_out(
+        device: &wgpu::Device,
+        state: Rc<State>,
+        (instances, keys): (&Instances, &[BatchKey]),
+        halves: Halves,
+    ) -> Rc<State> {
+        let batches = &instances.batches;
+        let halves_exist = state.buffers.as_ref().is_some_and(|buffers| {
+            (!halves.previous || buffers.previous.is_some())
+                && (!halves.skin || buffers.skin.is_some())
+        });
+        let size = |key: &BatchKey| reserved(flushed(batches, *key));
+        if halves_exist && keys.iter().all(|key| state.layout.holds(*key, size(key))) {
+            return state;
+        }
+        let mut layout = state.layout.clone();
+        if !(halves_exist && keys.iter().all(|key| layout.reserve(*key, size(key)))) {
+            return Rc::new(Self::allocate(device, &state, instances, keys, halves));
+        }
+        // A batch that moved to the end holds nothing at its new range yet.
+        let held = state
+            .held
+            .iter()
+            .filter(|(key, _)| layout.extents.get(key) == state.layout.extents.get(key))
+            .map(|(key, held)| (*key, *held))
+            .collect();
+        Rc::new(State {
+            layout,
+            buffers: state.buffers.clone(),
+            held,
+            verified: Verified::default(),
+        })
     }
 
     /// A packed layout of every batch the mirror held and `keys`, in new buffers that hold
@@ -241,28 +362,18 @@ impl Mirror {
                 skin: skin.then(|| create("gather skin mirror", skin_bytes)),
             }),
             held: BTreeMap::new(),
+            verified: Verified::default(),
         }
     }
 
-    /// Copies a batch into its range unless the range already holds its current content.
+    /// Copies a batch into its range, which [`State::stale`] found to lack `held`.
     fn refresh(
         context: &mut PrepareContext<'_>,
         state: &mut State,
         (key, batch): (BatchKey, &InstanceBatch),
-        halves: Halves,
+        held: Held,
     ) {
-        let previous = halves.previous;
-        let skin = halves.skin && batch.skin.is_some();
-        let held = Held {
-            content: batch.content(),
-            previous,
-            skin,
-        };
-        if state.held.get(&key).is_some_and(|h| {
-            h.content == held.content && (h.previous || !previous) && (h.skin || !skin)
-        }) {
-            return;
-        }
+        let (previous, skin) = (held.previous, held.skin);
         let buffers = state.buffers.as_ref().expect("allocated gather mirror");
         let base = u64::from(state.layout.base(key)) * STRIDE;
         let current = batch.buffer.as_deref().expect("flushed instance buffer");

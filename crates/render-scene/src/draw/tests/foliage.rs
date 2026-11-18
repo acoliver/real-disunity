@@ -229,7 +229,8 @@ fn pass_readback(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        gpu.draw_objects(&mut pass, &gpu.frame_group, &pipelines, None);
+        let materials = gpu.objects.material_groups(device);
+        gpu.draw_objects(&mut pass, &gpu.frame_group, (&pipelines, &materials), None);
     }
     copy_attachment(
         &mut encoder,

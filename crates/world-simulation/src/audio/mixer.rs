@@ -1,7 +1,11 @@
+#[cfg(test)]
+mod pause_tests;
+
 use super::buses::Routing;
 use super::{
-    AudioCommand, AudioError, AudioReply, BusConfig, Clip, ClipHandle, DuckingRule, MAX_CLIPS,
-    MAX_DECODED_BYTES, MAX_VOICES, Owner, VoiceHandle, small_float, validate_gain, validate_rate,
+    AudioCommand, AudioError, AudioReply, BusConfig, Clip, ClipHandle, DuckingRule, ExistingVoices,
+    MAX_CLIPS, MAX_DECODED_BYTES, MAX_VOICES, Owner, PlaybackOptions, VoiceHandle, small_float,
+    validate_gain, validate_rate,
 };
 use std::{collections::VecDeque, sync::Arc};
 
@@ -11,6 +15,8 @@ struct Voice {
     position: u64,
     gain: f32,
     bus: Option<usize>,
+    pause_eligible: bool,
+    suspended: bool,
 }
 
 /// Linear interpolation with a held final sample, integer rational phase and
@@ -27,6 +33,7 @@ pub struct AudioMixer {
     generation: u64,
     master: f32,
     muted: bool,
+    pause_mask: u32,
     routing: Routing,
 }
 impl AudioMixer {
@@ -42,6 +49,7 @@ impl AudioMixer {
             generation: 0,
             master: 1.0,
             muted: false,
+            pause_mask: 0,
             routing: Routing::default(),
         })
     }
@@ -51,7 +59,33 @@ impl AudioMixer {
     pub fn active_voices(&self) -> usize {
         self.voices.len()
     }
+    pub fn pause_mask(&self) -> u32 {
+        self.pause_mask
+    }
+    /// ORs reasons and optionally suspends existing eligible voices. A zero-bit
+    /// call still sweeps when another reason is held; Continue never unsuspends.
+    pub fn pause(&mut self, bits: u32, existing: ExistingVoices) {
+        self.pause_mask |= bits;
+        if self.pause_mask != 0 && existing == ExistingVoices::Suspend {
+            for voice in &mut self.voices {
+                if voice.pause_eligible {
+                    voice.suspended = true;
+                }
+            }
+        }
+    }
+    /// Only final aggregate clearance releases suspension, without moving cursors.
+    pub fn resume(&mut self, bits: u32) {
+        let previous = self.pause_mask;
+        self.pause_mask &= !bits;
+        if previous != 0 && self.pause_mask == 0 {
+            for voice in &mut self.voices {
+                voice.suspended = false;
+            }
+        }
+    }
     /// Output reconfiguration is only valid before admitting voices.
+    /// Independent pause reasons survive reconfiguration.
     pub fn set_output_rate(&mut self, rate: u32) -> Result<(), AudioError> {
         validate_rate(rate)?;
         if self.occupied_voices() != 0 {
@@ -82,7 +116,7 @@ impl AudioMixer {
         Ok(handle)
     }
     pub fn play(&mut self, clip: &ClipHandle, gain: f32) -> Result<VoiceHandle, AudioError> {
-        self.admit_voice(clip, gain, None)
+        self.play_with_options(clip, PlaybackOptions::new(gain))
     }
     pub fn play_on_bus(
         &mut self,
@@ -90,8 +124,26 @@ impl AudioMixer {
         gain: f32,
         bus: &str,
     ) -> Result<VoiceHandle, AudioError> {
-        let index = self.routing.index(bus)?;
-        self.admit_voice(clip, gain, Some(index))
+        self.play_with_options(
+            clip,
+            PlaybackOptions {
+                bus: Some(bus.into()),
+                ..PlaybackOptions::new(gain)
+            },
+        )
+    }
+    /// Resolves the bus, then validates gain, owner, capacity and pause admission
+    /// in that order. Refused starts allocate neither an identity nor a slot.
+    pub fn play_with_options(
+        &mut self,
+        clip: &ClipHandle,
+        options: PlaybackOptions,
+    ) -> Result<VoiceHandle, AudioError> {
+        let bus = options
+            .bus
+            .map(|name| self.routing.index(&name))
+            .transpose()?;
+        self.admit_voice(clip, options.gain, bus, options.pause_eligible)
     }
     pub fn configure_bus(&mut self, name: &str, config: BusConfig) -> Result<(), AudioError> {
         self.routing.configure(name, config)
@@ -104,6 +156,7 @@ impl AudioMixer {
         clip: &ClipHandle,
         gain: f32,
         bus: Option<usize>,
+        pause_eligible: bool,
     ) -> Result<VoiceHandle, AudioError> {
         validate_gain(gain)?;
         if clip.owner != self.owner {
@@ -111,6 +164,9 @@ impl AudioMixer {
         }
         if self.occupied_voices() == MAX_VOICES {
             return Err(AudioError::VoiceLimit);
+        }
+        if pause_eligible && self.pause_mask != 0 {
+            return Err(AudioError::Paused);
         }
         self.generation = self
             .generation
@@ -126,6 +182,8 @@ impl AudioMixer {
             position: 0,
             gain,
             bus,
+            pause_eligible,
+            suspended: false,
         });
         Ok(handle)
     }
@@ -151,6 +209,18 @@ impl AudioMixer {
             AudioCommand::PlayOnBus { clip, gain, bus } => {
                 AudioReply::Playing(self.play_on_bus(&clip, gain, &bus)?)
             }
+            AudioCommand::PlayWithOptions { clip, options } => {
+                AudioReply::Playing(self.play_with_options(&clip, options)?)
+            }
+            AudioCommand::PauseMask => AudioReply::PauseMask(self.pause_mask()),
+            AudioCommand::Pause { bits, existing } => {
+                self.pause(bits, existing);
+                AudioReply::Applied
+            }
+            AudioCommand::Resume { bits } => {
+                self.resume(bits);
+                AudioReply::Applied
+            }
             AudioCommand::ConfigureBus { name, config } => {
                 self.configure_bus(&name, config)?;
                 AudioReply::Applied
@@ -173,6 +243,7 @@ impl AudioMixer {
     pub fn take_finished(&mut self) -> Option<VoiceHandle> {
         self.finished.pop_front()
     }
+    /// Clears voices, endings and ducking envelopes, preserving pause reasons.
     pub fn clear_voices(&mut self) {
         self.voices.clear();
         self.finished.clear();
@@ -192,7 +263,9 @@ impl AudioMixer {
             let mut index = 0;
             while index < self.voices.len() {
                 let voice = &self.voices[index];
-                if voice.position >= voice.clip.samples().len() as u64 * u64::from(self.rate) {
+                if !voice.suspended
+                    && voice.position >= voice.clip.samples().len() as u64 * u64::from(self.rate)
+                {
                     self.finished.push_back(self.voices.remove(index).handle);
                 } else {
                     index += 1;
@@ -204,6 +277,9 @@ impl AudioMixer {
         let mut samples = [[0.0; 2]; MAX_VOICES];
         self.routing.begin_frame();
         for (voice, sample) in self.voices.iter_mut().zip(&mut samples) {
+            if voice.suspended {
+                continue;
+            }
             *sample = voice_sample(voice, self.rate);
             if let Some(bus) = voice.bus {
                 self.routing.observe(bus, *sample);

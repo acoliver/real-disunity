@@ -7,6 +7,7 @@ pub use worldrunner_render_scene::draw::{
     ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
     TerrainPageStatistics, TerrainStreamingStatistics,
 };
+pub use worldrunner_render_scene::texture::{TextureTierPolicy, TierChoice};
 
 /// The latest ordinary submission, available during `Presented` and subsequent updates.
 /// Captures and polls do not replace this snapshot. GPU completion is not implied.
@@ -29,6 +30,9 @@ pub struct RetainedFrameStatistics {
     /// device was created. `chunks_created` stops growing once the frames in flight have
     /// settled: steady frames reuse staging instead of creating buffers.
     pub upload_staging: StagingStatistics,
+    /// The texture tier chosen for the resident scene: dropped levels and the authored, kept
+    /// and saved bytes of the declared reducible textures. `None` without a host policy.
+    pub texture_tier: Option<TierChoice>,
 }
 impl super::RetainedHost {
     /// A single replaceable snapshot, initially absent. Reading does not consume it.

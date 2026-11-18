@@ -23,8 +23,8 @@ pub(crate) struct Geometry {
     /// when reflections are installed.
     pub merged: Option<ScenePipelines>,
     pub forward: Option<(ScenePipelines, wgpu::BindGroup)>,
-    /// Pipelines that store the stock material in the deferred G-buffer, present when the frame
-    /// observes the G-buffer. They test the finished scene depth and write none.
+    /// Material producers: observation tests completed depth read-only; early Render writes
+    /// depth, G0-G3 and the configured canonical metadata in the prepass slot.
     pub gbuffer: Option<(ScenePipelines, wgpu::BindGroup)>,
 }
 
@@ -153,9 +153,9 @@ impl SceneMetadata {
         } else {
             DepthMode::Independent
         };
-        if !crate::gbuffer::producer_depth_available(depth) {
-            geometry.gbuffer = None;
-        }
+        geometry.gbuffer = geometry.gbuffer.filter(|(pipelines, _)| {
+            pipelines.early_outputs().is_some() || crate::gbuffer::producer_depth_available(depth)
+        });
         geometry.pipelines = geometry.pipelines.for_depth(metadata);
         geometry.merged = geometry
             .merged
@@ -165,13 +165,16 @@ impl SceneMetadata {
             *pipelines = pipelines.for_depth(depth);
         }
         if let Some((pipelines, _)) = &mut geometry.gbuffer {
-            *pipelines = pipelines.for_depth(DepthMode::Reuse);
+            *pipelines = pipelines.for_depth(crate::gbuffer_writes::producer_depth(
+                pipelines.early_outputs(),
+                self.depth.format(),
+            ));
         }
         geometry
     }
 
     pub(crate) fn depth_resource(&self) -> worldrunner_render_post::ResourceRef {
-        if self.depth.format().has_stencil_aspect() {
+        if self.depth.format().has_stencil_aspect() || self.depth != self.independent_depth {
             worldrunner_render_post::ResourceRef::new("scene depth")
         } else {
             crate::frame::metadata::FrameProduct::prepass_depth().resource()

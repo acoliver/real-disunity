@@ -203,7 +203,8 @@ fn draw_pixels(
             &depth.create_view(&TextureViewDescriptor::default()),
             gpu,
             pipelines,
-        );
+        )
+        .unwrap();
     }
     transaction.copy_texture_to_buffer(
         color.as_image_copy(),

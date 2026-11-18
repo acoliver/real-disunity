@@ -10,8 +10,7 @@ use worldrunner_render_gpu::configuration::{
     AllocationBudget, AllocationBudgetPolicy, AllocationSet, Configuration, ConfigurationError,
 };
 use worldrunner_render_post::{
-    FrameConfig, HdrPostSettings, PostChain, PostError, Resources, TimingMode, ToneMap,
-    ToneMapOutput,
+    FrameConfig, HdrPostSettings, PostError, TimingMode, ToneMap, ToneMapOutput,
 };
 
 /// One stock replacement description. Physical effect storage retains three slots;
@@ -155,7 +154,7 @@ impl RendererConfiguration {
         if !(1..=3).contains(&self.frame_slots) {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
-        super::opaque::admit_path(self.opaque_path, self.frame.samples)?;
+        self.validate_opaque(&context.device().limits())?;
         if self.contour_ids {
             crate::contours::validate_format(
                 context
@@ -213,7 +212,9 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             1,
         );
         if settings.frame.samples == 1 {
-            if let Some(receiver) = settings.receiver_gradients.layout() {
+            if settings.opaque_path != worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER
+                && let Some(receiver) = settings.receiver_gradients.layout()
+            {
                 set.extend(receiver.allocations(settings.frame.size));
             }
             // Combined scene depth costs two float planes; relief also retains its own prepass.
@@ -565,6 +566,10 @@ impl ConfiguredFrameRenderer {
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         self.state.resident_bytes(limits)
     }
+    /// What the stock frame plan cache did, across the renderers this configuration replaced.
+    pub fn stock_plan_statistics(&self) -> crate::compositor::StockPlanStatistics {
+        self.state.current().stock_plan_statistics()
+    }
     pub fn generation(&self) -> u64 {
         self.state.generation()
     }
@@ -601,6 +606,7 @@ impl ConfiguredFrameRenderer {
                 "custom registrations require a custom replacement builder",
             ));
         }
+        let plan_cache = previous.plan_cache.clone();
         let post_time = previous.post_time.clone();
         let reset = previous.exposure_reset.clone();
         let temporal = previous.temporal.clone();
@@ -617,6 +623,7 @@ impl ConfiguredFrameRenderer {
                 retain_water_inputs(&mut next, water.as_ref());
                 retain_reflection_inputs(context.device(), &mut next, reflection.as_ref());
                 next.retain_environment_conventions(environment_conventions);
+                next.plan_cache = plan_cache;
                 next.post_time = post_time;
                 next.exposure_reset = reset;
                 next.temporal = temporal;

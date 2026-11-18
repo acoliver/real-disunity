@@ -101,6 +101,9 @@ pub struct ViewerOptions {
     pub present_mode: wgpu::PresentMode,
     /// Positive desired latency, default 2. wgpu clamps this hint to backend limits.
     pub desired_maximum_frame_latency: u32,
+    /// Drops the top mip levels of the scene's declared reducible textures to fit a share of the
+    /// adapter's device-local memory (GitHub #376). `None` uploads every texture as authored.
+    pub texture_tiers: Option<worldrunner_render_scene::texture::TextureTierPolicy>,
     /// Resolves optional frame settings from the selected adapter before GPU scene preparation.
     pub adapter_callback: Option<AdapterCallback>,
     /// Presentation scheduling; defaults to a 16 ms fixed interval.
@@ -324,8 +327,8 @@ pub use retained::{
     PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
     ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 pub use retained::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };

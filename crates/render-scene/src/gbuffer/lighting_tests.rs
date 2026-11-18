@@ -5,6 +5,12 @@ use crate::scene_metadata::receiver::{self as metadata, ReceiverLayout};
 use crate::shader::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 use worldrunner_render_plan::SceneSsaoReceiver;
 
+#[path = "front_tests.rs"]
+mod front;
+
+#[path = "lighting/tests/reciprocal_w.rs"]
+mod reciprocal_w;
+
 /// The receiver siblings `ScenePipelines` derives from `source`: the gathering SSAO receiver
 /// when the source loads nearest AO, and for shadowed sources the receiver-payload consumer and
 /// the card-reject consumer of each payload layout.
@@ -192,7 +198,9 @@ fn camera_block_inverts_the_projection_and_the_view_rotation() {
         .collect();
     let scene_from_clip = glam::Mat4::from_cols_slice(&floats[..16]);
     let point = glam::Vec3::new(0.5, -0.25, -4.0);
-    let back = scene_from_clip * (view_projection * point.extend(1.0));
+    let mut clip = view_projection * point.extend(1.0);
+    clip.z -= clip.w;
+    let back = scene_from_clip * clip;
     assert!((back.truncate() / back.w - point).length() < 1e-4);
     let scene_from_view = glam::Mat3::from_cols(
         glam::Vec3::from_slice(&floats[16..19]),
@@ -206,4 +214,53 @@ fn camera_block_inverts_the_projection_and_the_view_rotation() {
         [floats[19], floats[23], floats[27]].map(f32::to_bits),
         [0; 3]
     );
+}
+
+#[test]
+fn camera_reconstruction_preserves_the_stored_depth_ray_near_the_far_plane() {
+    let position = metadata::function_source(LIGHTING_WGSL, "scene_deferred_homogeneous_position");
+    assert!(position.contains("fma(inverse[0], vec4<f32>(ndc.x)"));
+    assert!(position.contains("fma(inverse[1], vec4<f32>(ndc.y)"));
+    assert!(position.contains("fma(inverse[2], vec4<f32>(depth - 1.0), inverse[3])"));
+    let view = glam::camera::rh::view::look_at_mat4(
+        glam::Vec3::new(0.0, -4.0, 6.5),
+        glam::Vec3::ZERO,
+        glam::Vec3::Z,
+    );
+    let projection = glam::camera::rh::proj::directx::perspective(1.0, 257.0 / 241.0, 0.1, 20.0);
+    let view_projection = projection * view;
+    let values: Vec<f32> = camera_bytes(view_projection, view)[..64]
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    let inverse = glam::Mat4::from_cols_slice(&values);
+    let reference = view_projection.as_dmat4().inverse();
+    for row in [78.5_f32, 79.5] {
+        for code in 0x3f7e_52a7..=0x3f7e_52a9 {
+            let clip = glam::Vec4::new(
+                179.5 / 257.0 * 2.0 - 1.0,
+                1.0 - row / 241.0 * 2.0,
+                f32::from_bits(code),
+                1.0,
+            );
+            let expected = reference * clip.as_dvec4();
+            let expected = (expected.truncate() / expected.w).as_vec3();
+            let shifted = clip - glam::Vec4::Z * clip.w;
+            let columns = inverse.to_cols_array_2d();
+            let actual = glam::Vec4::from_array(std::array::from_fn(|row| {
+                columns[0][row].mul_add(
+                    shifted.x,
+                    columns[1][row].mul_add(
+                        shifted.y,
+                        columns[2][row].mul_add(shifted.z, columns[3][row]),
+                    ),
+                )
+            }));
+            let actual = actual.truncate() / actual.w;
+            assert!(
+                (actual - expected).abs().max_element() < 5e-7,
+                "row {row}, depth {code:#x}: {actual:?} != {expected:?}"
+            );
+        }
+    }
 }

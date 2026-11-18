@@ -1,4 +1,8 @@
 use super::*;
+use worldrunner_render_post::FrameError;
+
+#[path = "opaque/early_tests.rs"]
+mod early;
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, SceneAlphaMode, SceneGeometry, SceneMaterial, SceneMaterialParts,
     SceneMesh, SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneTerrain,

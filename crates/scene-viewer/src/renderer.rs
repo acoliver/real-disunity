@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod budget_tests;
+mod texture_tiers;
 
 use std::sync::{Arc, mpsc};
 
@@ -124,8 +125,16 @@ impl Renderer {
         )?;
         let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
             .map_err(surface_error)?;
-        let resident =
-            environment::new_resident(&context, scene, shadows, profile, &mut presentation)?;
+        let mut streaming = readiness::Streaming::new(shadows, profile);
+        streaming.tiers.policy = startup.texture_tiers;
+        let resident = environment::new_resident(
+            &context,
+            scene,
+            shadows,
+            profile,
+            &mut presentation,
+            &mut streaming.tiers,
+        )?;
         #[cfg(all(test, target_os = "linux"))]
         let test_instance = instance.clone();
         let execution = execution::SurfaceExecution::new(
@@ -139,7 +148,7 @@ impl Renderer {
             frame_time: std::time::Duration::ZERO,
             live_upload: None,
             live_pending: None,
-            streaming: readiness::Streaming::new(shadows, profile),
+            streaming,
             execution: target::Execution::Surface(Box::new(execution)),
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -303,9 +312,9 @@ impl Renderer {
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        mut capture: Option<&mut live::Capture>,
+        capture: Option<&mut live::Capture>,
         output: &wgpu::TextureView,
-        mut retained: Option<&mut capture::Products>,
+        retained: Option<&mut capture::Products>,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
         if (capture.is_some() || retained.is_some())
             && let Resident::Shadowed(scene) = &mut self.resident
@@ -340,25 +349,12 @@ impl Renderer {
                     )?;
                 }
                 self.presentation.present(encoder, output)?;
-                if let Some(capture) = &mut capture {
-                    capture.encode(encoder, self.presentation.targets.color.texture())?;
+                capture::Encoding {
+                    device: self.context.device(),
+                    resident: &self.resident,
+                    presentation: &self.presentation,
                 }
-                if let Some(retained) = &mut retained {
-                    if !fitted {
-                        retained.replay(
-                            self.context.device(),
-                            encoder,
-                            &self.resident,
-                            &self.presentation.scheduler,
-                        );
-                    }
-                    retained.encode(
-                        encoder,
-                        output.texture(),
-                        self.presentation.scheduler.targets().texture(),
-                    )?;
-                }
-                Ok::<_, ViewerError>(())
+                .encode(encoder, output, capture, retained, fitted)
             })
             .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
@@ -658,6 +654,7 @@ pub(crate) struct Startup {
     pub(crate) presentation_budget: crate::PresentationBudgetPolicy,
     pub(crate) capture_pool: u64,
     pub(crate) recipes: bool,
+    pub(crate) texture_tiers: Option<worldrunner_render_scene::texture::TextureTierPolicy>,
     frames_in_flight: usize,
     gpu_timing: bool,
     present_mode: wgpu::PresentMode,
@@ -669,6 +666,7 @@ impl From<&crate::ViewerOptions> for Startup {
             presentation_budget: options.presentation_budget,
             capture_pool: 256 * 1024 * 1024,
             recipes: false,
+            texture_tiers: options.texture_tiers,
             frames_in_flight: options.frames_in_flight,
             gpu_timing: options.gpu_timing,
             present_mode: options.present_mode,
@@ -682,6 +680,7 @@ impl From<usize> for Startup {
             presentation_budget: crate::PresentationBudget::default().into(),
             capture_pool: 256 * 1024 * 1024,
             recipes: false,
+            texture_tiers: None,
             frames_in_flight,
             gpu_timing: false,
             present_mode: wgpu::PresentMode::Fifo,

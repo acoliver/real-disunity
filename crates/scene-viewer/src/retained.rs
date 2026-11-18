@@ -31,7 +31,7 @@ pub use work::{
 };
 mod timing;
 pub use timing::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };
 mod statistics;
 pub use statistics::{
@@ -39,7 +39,7 @@ pub use statistics::{
     PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
     ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
     StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 mod decals;
 pub use decals::DecalUpdate;
@@ -290,6 +290,8 @@ pub struct RetainedHost {
     exit: bool,
     occluded: bool,
     window_on_top: bool,
+    #[cfg(test)]
+    pub(crate) texture_tier_memory_override: Option<u64>,
 }
 
 impl RetainedHost {
@@ -332,6 +334,9 @@ impl RetainedHost {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
+        }
+        if let RetainedUpdate::Settings(effects) = &update {
+            Self::validate_streamed_effects(effects, &self.options)?;
         }
         if resource_edits::is_resource_edit(&update) {
             return self.apply_resource_edit(update);
@@ -418,7 +423,6 @@ impl RetainedHost {
         let mut replacement = None;
         let rebuild = match &update {
             RetainedUpdate::Settings(next) => {
-                Self::validate_streamed_effects(next, &self.options)?;
                 let rebuild = readiness::resource_settings_changed(self.scene().effects(), next);
                 effects = Some(*next.clone());
                 rebuild

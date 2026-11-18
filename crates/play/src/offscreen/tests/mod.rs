@@ -20,6 +20,7 @@ mod kernels;
 mod lists;
 mod lists_gpu;
 mod mesh_cache;
+mod mips;
 mod pixels;
 mod policy;
 mod probe;

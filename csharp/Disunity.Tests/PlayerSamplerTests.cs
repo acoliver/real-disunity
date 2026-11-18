@@ -17,6 +17,7 @@ internal static class PlayerSamplerTests
             GivesNoIdentityToATextureASetterChanges();
             SendsTheSamplerOfARenderTexture();
             SendsTheShapeOfARenderTexture();
+            SendsTheAutoGenerateFlagOfARenderTexture();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -110,6 +111,19 @@ internal static class PlayerSamplerTests
         Expect.That(faces.dimension == 4 && faces.volume_depth == 1, "a cube sends one slice whatever its volume depth says");
         Expect.Throws<ArgumentException>(() => new RenderTexture(new RenderTextureDescriptor(8, 8) { dimension = TextureDimension.None }), "a render texture of no dimension");
         Console.WriteLine("PASS: a render texture sends its dimension and volume depth, one slice for 2D and cube");
+    }
+
+    private static void SendsTheAutoGenerateFlagOfARenderTexture()
+    {
+        var mipped = new RenderTexture(16, 16, 0) { useMipMap = true };
+        Expect.That(ReadRenderTexture(mipped.WorldId).auto_generate_mips == 1, "a texture with mips asks the host to regenerate them by default");
+        var generation = ReadRenderTexture(mipped.WorldId).generation;
+        mipped.autoGenerateMips = false;
+        var manual = ReadRenderTexture(mipped.WorldId);
+        Expect.That(manual.auto_generate_mips == 0 && manual.generation > generation, "turning the flag off reaches the world, which counts a change");
+        var flat = new RenderTexture(16, 16, 0);
+        Expect.That(flat.autoGenerateMips && ReadRenderTexture(flat.WorldId).auto_generate_mips == 0, "without mips the flag has nothing to fill, so the world gets 0");
+        Console.WriteLine("PASS: a render texture sends autoGenerateMips only when it has mips, and a change reaches the world");
     }
 
     private static void SendsTheSamplerOfARenderTexture()

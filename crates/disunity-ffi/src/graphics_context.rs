@@ -23,6 +23,7 @@ pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
 pub const KIND_DRAW_MESH: u32 = 16;
 pub const KIND_DRAW_PROCEDURAL: u32 = 17;
 pub const KIND_SET_VIEWPORT: u32 = 18;
+pub const KIND_GENERATE_MIPS: u32 = 19;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -287,6 +288,19 @@ pub unsafe extern "C" fn disunity_offscreen_draw_procedural(
     })
 }
 
+/// Records a request to fill mip levels 1 and up of the render texture `texture` from its level 0,
+/// after the work recorded before it. The world refuses a dead texture and one with a single mip
+/// level.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_generate_mips(world: u64, texture: u64) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::GenerateMips {
+            texture: RenderTextureId::from_bits(texture),
+        })?;
+        Ok(())
+    })
+}
+
 /// The kind a taken context record has, or `None` for other work.
 pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
     match work {
@@ -296,6 +310,7 @@ pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
         OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
         OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
         OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
+        OffscreenWork::GenerateMips { .. } => Some(KIND_GENERATE_MIPS),
         other => readback_kind(other),
     }
 }

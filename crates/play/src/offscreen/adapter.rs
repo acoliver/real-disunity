@@ -198,6 +198,10 @@ impl OffscreenAdapter {
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
         available.buffers.clone_from(buffers);
+        available.float32_filterable = runtime
+            .device()
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE);
         if !self.blit_mesh {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();

@@ -29,6 +29,7 @@ use super::builtins::{
 };
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
+use super::mips::AutoMips;
 use super::pixels::{self, Wanted};
 use super::properties::{
     Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
@@ -142,6 +143,9 @@ pub struct Available {
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
+    /// Whether the device filters 32-bit float textures, which decides whether the mips of one
+    /// can be generated.
+    pub float32_filterable: bool,
 }
 
 /// Why a record was left out.
@@ -264,7 +268,7 @@ pub(super) fn is_test_render(
 }
 
 /// Whether `record` draws into a scratch copy, as every test render does.
-fn is_scratch_render(record: &Record) -> bool {
+pub(super) fn is_scratch_render(record: &Record) -> bool {
     matches!(record, Record::CameraRender { target, .. } if ids::is_probe_scratch(*target))
 }
 
@@ -278,6 +282,7 @@ pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::id
         Record::Clear { ref target, .. } => target.textures().collect(),
         Record::Draws(ref list) => list.target.textures().collect(),
         Record::Procedural(ref draw) => draw.target.textures().collect(),
+        Record::GenerateMips { texture } => vec![texture],
         Record::Globals(_) => Vec::new(),
     }
 }
@@ -316,7 +321,7 @@ pub(super) struct Mapper<'a> {
     pub(super) report: Report,
     /// What the frame's commands have set so far.
     pub(super) script: Script,
-    placements: Vec<Placed>,
+    pub(super) placements: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
     /// The render textures whose camera renders are examined, and those with a scratch copy.
@@ -324,6 +329,8 @@ pub(super) struct Mapper<'a> {
     scratch: BTreeSet<RenderTextureId>,
     /// How many changed test renders each scratch copy has.
     variants: usize,
+    /// The flagged render textures written and waiting for their mips.
+    pub(super) auto_mips: AutoMips,
 }
 
 impl<'a> Mapper<'a> {
@@ -375,6 +382,7 @@ impl<'a> Mapper<'a> {
             probed: BTreeSet::new(),
             scratch: BTreeSet::new(),
             variants: 0,
+            auto_mips: AutoMips::default(),
         }
     }
 
@@ -403,84 +411,7 @@ impl<'a> Mapper<'a> {
         };
     }
 
-    fn records(&mut self) {
-        for (index, work) in self.snapshot.work.iter().enumerate() {
-            if let OffscreenWork::Dispatch { bindings, .. } = work {
-                self.dispatch(index, bindings);
-                continue;
-            }
-            if let Some(wanted) = Wanted::of(work) {
-                self.pixel_read(index, wanted);
-                continue;
-            }
-            match self.record(work) {
-                Ok(records) => {
-                    *self
-                        .report
-                        .built_by_kind
-                        .entry(kind(work).to_owned())
-                        .or_default() += 1;
-                    self.report.built += records
-                        .iter()
-                        .filter(|record| !is_scratch_render(record))
-                        .count();
-                    if !records.is_empty() {
-                        let globals = self.pending_globals();
-                        self.frame.records.extend(globals);
-                    }
-                    self.frame.records.extend(records);
-                }
-                Err(skip) => {
-                    *self.report.skipped.entry(skip).or_default() += 1;
-                    *self
-                        .report
-                        .skipped_by_kind
-                        .entry(format!("{}: {skip:?}", kind(work)))
-                        .or_default() += 1;
-                }
-            }
-        }
-    }
-
-    /// Notes where a dispatch sits and brings the render textures its properties name into the
-    /// frame, so they exist when the dispatch binds them.
-    fn dispatch(&mut self, work: usize, bindings: &ComputeBindings) {
-        self.report.dispatches += 1;
-        self.placements.push(Placed {
-            after: self.frame.records.len(),
-            work,
-        });
-        for (_, slot) in &bindings.properties.textures {
-            self.textures.resolve(&slot.texture);
-        }
-    }
-
-    /// Notes where a pixel read sits and brings its render texture into the frame, so it exists
-    /// when the read is made. A texture of integers or one the snapshot lacks is refused here.
-    fn pixel_read(&mut self, work: usize, wanted: Wanted) {
-        let refusal = match self.snapshot.render_textures.get(&wanted.texture) {
-            None => Some(pixels::REFUSED_NO_TEXTURE),
-            Some(texture) if pixels::is_integer_format(texture.format) => {
-                Some(pixels::REFUSED_INTEGER)
-            }
-            Some(_) => None,
-        };
-        if let Some(reason) = refusal {
-            *self
-                .report
-                .pixel_reads_refused
-                .entry(reason.to_owned())
-                .or_default() += 1;
-            return;
-        }
-        self.textures.resolve(&TextureRef::Render(wanted.texture));
-        self.placements.push(Placed {
-            after: self.frame.records.len(),
-            work,
-        });
-    }
-
-    fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
+    pub(super) fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
             OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
             OffscreenWork::CameraRender { camera, target } => {

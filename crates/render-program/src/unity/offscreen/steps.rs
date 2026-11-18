@@ -19,6 +19,7 @@ use crate::unity::shader::{PassSelector, ResolveError};
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads};
+use super::mips;
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::resample::{ResampleStep, resample_step};
@@ -123,6 +124,10 @@ pub(super) fn plan_steps(
                 (*material, *pass),
             )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
+            Record::GenerateMips { texture } => {
+                steps.extend(mips::generate_steps(svc, steps.len(), *texture)?);
+                continue;
+            }
             Record::Clear { target, clear } => {
                 match list_steps::clear_step(svc, index, target.clone(), clear)? {
                     Some(step) => step,

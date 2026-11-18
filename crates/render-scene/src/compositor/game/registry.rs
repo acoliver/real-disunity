@@ -207,26 +207,17 @@ impl PreparedFeature for RegisteredPrepared {
 
     fn commit(&mut self, context: &mut PrepareContext<'_>) {
         self.prepared.commit(context);
-        // Written layers are recorded when the frame is submitted, never before: a frame that is
-        // cancelled leaves persistent targets as they were, contents and bookkeeping alike.
-        let writes: Vec<_> = context
-            .passes()
-            .iter()
-            .flat_map(|pass| {
-                pass.color
-                    .iter()
-                    .chain(&pass.additional_colors)
-                    .chain(&pass.depth)
-            })
-            .filter(|attachment| !attachment.read_only)
-            .map(|attachment| attachment.resource)
-            .collect();
-        let store = self.store.clone();
-        context.publish(move || {
-            for resource in writes {
-                store.mark_written(resource.name, resource.layer);
-            }
-        });
+        // What a frame left in the persistent targets is recorded when it is submitted, never
+        // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
+        // Each publication names the exact backing it records, which an owned capture needs to
+        // admit it; a frame that writes no declared target publishes nothing.
+        for (backing, layers) in self.store.frame_effects(context) {
+            let key = backing.write_key();
+            // The capture records a refusal and fails before submission, as for stock state.
+            let _ = context
+                .publications()
+                .stage_write(key, move || backing.record(&layers));
+        }
     }
 
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {

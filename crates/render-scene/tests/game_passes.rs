@@ -17,6 +17,8 @@ mod persistence;
 mod refusals;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
+#[path = "game_passes/stores.rs"]
+mod stores;
 #[path = "game_passes/strip.rs"]
 mod strip;
 #[path = "game_passes/terrain.rs"]

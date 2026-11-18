@@ -1,8 +1,10 @@
 //! Targets a game declares: allocated once, shared by its passes and, when persistent, kept
 //! across frames and renderer replacements.
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use worldrunner_render_gpu::configuration::AllocationSet;
-use worldrunner_render_post::{AttachmentView, FrameError, PostError, ResourceRef};
+use worldrunner_render_gpu::submission::capture::WriteKey;
+use worldrunner_render_post::{AttachmentView, FrameError, PostError, PrepareContext, ResourceRef};
 
 /// How large a declared target is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,13 +190,20 @@ impl Backing {
         self.persistent() && self.layers().get(layer as usize) == Some(&true)
     }
 
-    /// Records that a submitted frame wrote `layer` of this persistent backing.
-    pub(super) fn mark_written(&self, layer: u32) {
-        if self.persistent()
-            && let Some(written) = self.layers().get_mut(layer as usize)
-        {
-            *written = true;
+    /// Records what a submitted frame left in layers of this persistent backing: contents a
+    /// pass can read without writing them first, or nothing.
+    pub(super) fn record(&self, layers: &[(u32, bool)]) {
+        let mut written = self.layers();
+        for (layer, stored) in layers {
+            if let Some(flag) = written.get_mut(*layer as usize) {
+                *flag = *stored;
+            }
         }
+    }
+
+    /// Names this exact texture's bookkeeping in a capture's write contract.
+    pub(crate) fn write_key(self: &Arc<Self>) -> WriteKey {
+        WriteKey::Resident(u64::try_from(Arc::as_ptr(self) as usize).expect("resident identity"))
     }
 }
 
@@ -329,11 +338,49 @@ impl TargetStore {
             .is_some_and(|backing| backing.is_written(layer))
     }
 
-    /// Records that a submitted frame wrote `layer` of the persistent target `name`.
-    pub(super) fn mark_written(&self, name: &str, layer: u32) {
-        if let Some(backing) = self.backing(name) {
-            backing.mark_written(layer);
+    /// What the frame being prepared leaves in the persistent targets of this store, by exact
+    /// backing: for each layer, whether the last attachment that wrote it stored its contents.
+    /// A stock attachment that shares a target's name is another texture and counts for nothing.
+    pub(super) fn frame_effects(
+        &self,
+        context: &PrepareContext<'_>,
+    ) -> Vec<(Arc<Backing>, Vec<(u32, bool)>)> {
+        let mut last = BTreeMap::new();
+        for attachment in context
+            .passes()
+            .iter()
+            .flat_map(|pass| {
+                pass.color
+                    .iter()
+                    .chain(&pass.additional_colors)
+                    .chain(&pass.depth)
+            })
+            .filter(|attachment| !attachment.read_only)
+        {
+            let Ok(view) = context.resource(attachment.resource) else {
+                continue;
+            };
+            let Some(index) = self
+                .backings
+                .iter()
+                .position(|backing| backing.persistent() && backing.texture == *view.texture())
+            else {
+                continue;
+            };
+            let stored = attachment.store == wgpu::StoreOp::Store;
+            last.insert((index, attachment.resource.layer), stored);
         }
+        let mut effects: Vec<(Arc<Backing>, Vec<(u32, bool)>)> = Vec::new();
+        for ((index, layer), stored) in last {
+            let backing = &self.backings[index];
+            match effects.last_mut() {
+                Some((known, layers)) if Arc::ptr_eq(known, backing) => {
+                    layers.push((layer, stored))
+                }
+                _ => effects.push((backing.clone(), vec![(layer, stored)])),
+            }
+        }
+        effects
     }
 }
 

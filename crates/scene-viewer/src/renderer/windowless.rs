@@ -89,8 +89,13 @@ pub(super) async fn windowless_context_with(
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
     let size = host.options.size;
-    let resolved =
-        super::startup::resolve(super::SceneSource::Retained(host), &adapter, size, None)?;
+    let resolved = super::startup::resolve(
+        super::SceneSource::Retained(host),
+        &adapter,
+        size,
+        None,
+        None,
+    )?;
     let context = super::timing::context(
         adapter,
         required_features(&resolved.scene),
@@ -106,11 +111,18 @@ fn adopt(
     host: &mut crate::RetainedHost,
     shared: super::Shared,
 ) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
-    let super::Shared { instance, context } = shared;
+    let super::Shared {
+        instance, context, ..
+    } = shared;
     let adapter = context.adapter();
     let size = host.options.size;
-    let resolved =
-        super::startup::resolve(super::SceneSource::Retained(host), adapter, size, None)?;
+    let resolved = super::startup::resolve(
+        super::SceneSource::Retained(host),
+        adapter,
+        size,
+        None,
+        None,
+    )?;
     let missing = required_features(&resolved.scene).difference(context.device().features());
     if !missing.is_empty() {
         return Err(

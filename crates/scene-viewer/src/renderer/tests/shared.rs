@@ -11,9 +11,11 @@ use worldrunner_render_scene::device::DeviceError;
 
 /// The instance and a device without block compression, made before any surface exists.
 fn shared(event_loop: &EventLoop<()>) -> super::super::Shared {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
-        Box::new(event_loop.owned_display_handle()),
+    let descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
+        event_loop.owned_display_handle(),
     ));
+    let backends = descriptor.backends;
+    let instance = wgpu::Instance::new(descriptor);
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
@@ -24,7 +26,11 @@ fn shared(event_loop: &EventLoop<()>) -> super::super::Shared {
         &DeviceRequirements::default(),
     ))
     .unwrap();
-    super::super::Shared { instance, context }
+    super::super::Shared {
+        instance,
+        backends,
+        context,
+    }
 }
 
 fn encoded_scene() -> RenderScene {

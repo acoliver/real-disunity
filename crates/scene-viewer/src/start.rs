@@ -19,14 +19,16 @@ use crate::{ViewerError, ViewerOptions};
 /// makes one for [`crate::RetainedHost::windowless_on`].
 pub struct SharedGpu {
     instance: wgpu::Instance,
+    backends: wgpu::Backends,
     adapter: Option<wgpu::Adapter>,
     context: Option<worldrunner_render_scene::device::GpuContext>,
 }
 
 impl SharedGpu {
-    fn on(instance: wgpu::Instance) -> Self {
+    fn on(instance: wgpu::Instance, backends: wgpu::Backends) -> Self {
         Self {
             instance,
+            backends,
             adapter: None,
             context: None,
         }
@@ -35,9 +37,9 @@ impl SharedGpu {
     /// An instance with no display, for a session with no window.
     #[must_use]
     pub fn headless() -> Self {
-        Self::on(wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-        ))
+        let descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        let backends = descriptor.backends;
+        Self::on(wgpu::Instance::new(descriptor), backends)
     }
 
     /// The adapter the device will be made on. The first call chooses it, without a surface, and
@@ -79,7 +81,12 @@ impl SharedGpu {
     /// The instance and device, if [`Self::device`] made one.
     pub(crate) fn into_shared(self) -> Option<Shared> {
         let instance = self.instance;
-        self.context.map(|context| Shared { instance, context })
+        let backends = self.backends;
+        self.context.map(|context| Shared {
+            instance,
+            backends,
+            context,
+        })
     }
 }
 
@@ -97,13 +104,14 @@ impl ViewerStart {
     /// Fails when the platform has no event loop.
     pub fn new() -> Result<Self, ViewerError> {
         let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
-                Box::new(event_loop.owned_display_handle()),
-            ));
+        let descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
+            event_loop.owned_display_handle(),
+        ));
+        let backends = descriptor.backends;
+        let instance = wgpu::Instance::new(descriptor);
         Ok(Self {
             event_loop,
-            gpu: SharedGpu::on(instance),
+            gpu: SharedGpu::on(instance, backends),
         })
     }
 

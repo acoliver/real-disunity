@@ -87,7 +87,7 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, None, |_, _| {
+        Self::surface(display, window, None, |_, _, _| {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows,
@@ -106,7 +106,7 @@ impl Renderer {
         scene: &RenderScene,
         shared: Shared,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, Some(shared), |_, _| {
+        Self::surface(display, window, Some(shared), |_, _, _| {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows: None,
@@ -121,7 +121,11 @@ impl Renderer {
         display: OwnedDisplayHandle,
         window: Arc<Window>,
         shared: Option<Shared>,
-        resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
+        resolve: impl FnOnce(
+            &wgpu::Adapter,
+            [u32; 2],
+            Option<&[wgpu::Backend]>,
+        ) -> Result<Resolved<'a>, ViewerError>,
     ) -> Result<Self, ViewerError> {
         let (instance, surface, context, policy, resolved) =
             shared::surface_context(display, window.clone(), shared, resolve).await?;
@@ -649,6 +653,9 @@ mod hdr_tests;
 
 #[cfg(test)]
 mod camera_cut_tests;
+
+#[cfg(test)]
+mod backend_census_tests;
 
 #[cfg(test)]
 pub(crate) mod sdsm_tests;

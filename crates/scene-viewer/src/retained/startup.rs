@@ -16,9 +16,11 @@ impl RetainedHost {
     }
 
     /// Defers content creation until the rendering adapter and physical surface
-    /// extent are known. The supplier runs once, before device creation.
+    /// extent are known. The supplier runs once if startup reaches content
+    /// resolution, after desktop surface compatibility and backend census checks.
+    /// Owned paths create a device afterward; shared paths use an existing device.
     /// It cannot be combined with an adapter callback.
-    /// Until then edits fail with `InitialSceneUnavailable`, `view` returns `None`,
+    /// Until then edits fail with `InitialSceneUnavailable`, `view` returns `Ok(None)`,
     /// object queries are empty, and generation-zero captures queue for validation.
     pub fn with_initial_content(
         options: ViewerOptions,

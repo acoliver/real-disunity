@@ -174,6 +174,15 @@ pub enum ViewerError {
     Surface(#[from] wgpu::CreateSurfaceError),
     #[error("no presentation-compatible GPU adapter: {0}")]
     Adapter(#[from] wgpu::RequestAdapterError),
+    #[error(
+        "selected adapter backend {backend:?} is excluded by the effective instance backend mask {enabled:?}"
+    )]
+    SelectedBackendDisallowed {
+        backend: wgpu::Backend,
+        enabled: wgpu::Backends,
+    },
+    #[error("selected adapter backend {backend:?} was absent from presentability observations")]
+    SelectedBackendMissing { backend: wgpu::Backend },
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
     #[error("the player's offscreen work could not join the frame: {0}")]

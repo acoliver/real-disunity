@@ -55,6 +55,7 @@ fn concrete_startup_reuses_object_and_decal_storage() {
         &adapter,
         size,
         None,
+        None,
     )
     .unwrap();
     assert_storage(&scene, &resolved.scene);
@@ -79,6 +80,7 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
             super::SceneSource::Retained(&mut host),
             &adapter,
             [64, 32],
+            None,
             None,
         )
         .unwrap();

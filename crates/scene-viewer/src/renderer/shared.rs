@@ -13,6 +13,7 @@ use crate::ViewerError;
 /// instance it came from. The window's surface is made on that instance.
 pub(crate) struct Shared {
     pub instance: wgpu::Instance,
+    pub backends: wgpu::Backends,
     pub context: GpuContext,
 }
 
@@ -29,10 +30,14 @@ pub(super) async fn surface_context<'a>(
     display: OwnedDisplayHandle,
     window: Arc<Window>,
     shared: Option<Shared>,
-    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
+    resolve: impl FnOnce(
+        &wgpu::Adapter,
+        [u32; 2],
+        Option<&[wgpu::Backend]>,
+    ) -> Result<Resolved<'a>, ViewerError>,
 ) -> Result<SurfaceContext<'a>, ViewerError> {
     match shared {
-        Some(shared) => adopt(&window, shared, resolve),
+        Some(shared) => adopt(&window, shared, resolve).await,
         None => own(display, window, resolve).await,
     }
 }
@@ -40,11 +45,15 @@ pub(super) async fn surface_context<'a>(
 async fn own<'a>(
     display: OwnedDisplayHandle,
     window: Arc<Window>,
-    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
+    resolve: impl FnOnce(
+        &wgpu::Adapter,
+        [u32; 2],
+        Option<&[wgpu::Backend]>,
+    ) -> Result<Resolved<'a>, ViewerError>,
 ) -> Result<SurfaceContext<'a>, ViewerError> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
-        Box::new(display),
-    ));
+    let descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display));
+    let backends = descriptor.backends;
+    let instance = wgpu::Instance::new(descriptor);
     let surface = instance.create_surface(window.clone())?;
     let size = window.inner_size();
     let adapter = instance
@@ -53,8 +62,9 @@ async fn own<'a>(
             ..Default::default()
         })
         .await?;
+    let census = backend_census(&instance, backends, &surface, adapter.get_info().backend).await?;
+    let resolved = resolve(&adapter, [size.width, size.height], Some(&census))?;
     let capabilities = surface.get_capabilities(&adapter);
-    let resolved = resolve(&adapter, [size.width, size.height])?;
     let startup = &resolved.startup;
     let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
     let context = timing::context(
@@ -69,22 +79,31 @@ async fn own<'a>(
 /// The window on `shared`'s device. Its adapter was chosen before the window existed, so the
 /// surface is checked here: an adapter that cannot present to it, or a device without the
 /// features the scene needs, is refused by name.
-fn adopt<'a>(
+async fn adopt<'a>(
     window: &Arc<Window>,
     shared: Shared,
-    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
+    resolve: impl FnOnce(
+        &wgpu::Adapter,
+        [u32; 2],
+        Option<&[wgpu::Backend]>,
+    ) -> Result<Resolved<'a>, ViewerError>,
 ) -> Result<SurfaceContext<'a>, ViewerError> {
-    let Shared { instance, context } = shared;
+    let Shared {
+        instance,
+        backends,
+        context,
+    } = shared;
     let surface = instance.create_surface(window.clone())?;
+    let size = window.inner_size();
     let adapter = context.adapter();
     if !adapter.is_surface_supported(&surface) {
         return Err(ViewerError::SharedSurface {
             adapter: adapter.get_info().name,
         });
     }
-    let size = window.inner_size();
+    let census = backend_census(&instance, backends, &surface, adapter.get_info().backend).await?;
     let capabilities = surface.get_capabilities(adapter);
-    let resolved = resolve(adapter, [size.width, size.height])?;
+    let resolved = resolve(adapter, [size.width, size.height], Some(&census))?;
     let missing = required_features(&resolved.scene).difference(context.device().features());
     if !missing.is_empty() {
         return Err(DeviceError::MissingFeatures {
@@ -95,4 +114,18 @@ fn adopt<'a>(
     }
     let policy = surface_policy(&capabilities, [size.width, size.height], &resolved.startup)?;
     Ok((instance, surface, context, policy, resolved))
+}
+
+async fn backend_census(
+    instance: &wgpu::Instance,
+    enabled: wgpu::Backends,
+    surface: &wgpu::Surface<'_>,
+    selected: wgpu::Backend,
+) -> Result<Vec<wgpu::Backend>, ViewerError> {
+    let adapters = instance.enumerate_adapters(enabled).await;
+    let observations = adapters.into_iter().map(|adapter| {
+        let backend = adapter.get_info().backend;
+        (backend, adapter.is_surface_supported(surface))
+    });
+    super::startup::reduce_backend_census(enabled, selected, observations)
 }

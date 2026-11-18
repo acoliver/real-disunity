@@ -108,6 +108,7 @@ fn the_inventory_counts_the_games_targets_and_carries_its_options() {
 
 #[test]
 fn every_renderer_the_viewer_builds_registers_the_games_factory() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 65,

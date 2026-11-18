@@ -290,8 +290,7 @@ impl Rig {
                 timeout: Some(Duration::from_secs(30)),
             })
             .unwrap();
-        let bytes = staging.slice(..).get_mapped_range().unwrap().to_vec();
-        bytes
+        staging.slice(..).get_mapped_range().unwrap().to_vec()
     }
 
     pub fn pixel(image: &[[u8; 4]], column: usize, row: usize) -> [u8; 4] {

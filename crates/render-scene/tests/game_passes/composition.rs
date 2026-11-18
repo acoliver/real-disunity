@@ -1,7 +1,7 @@
 //! The strip game in a forward frame: its passes sit before Opaque, share the frame's depth, and
 //! the stock object composes with them by depth.
 use super::fixture::{Rig, SIZE, STOCK_TEXEL, quad_scene};
-use super::strip::{LIGHT, STRIP, StripGame, knobs};
+use super::strip::{LIGHT, LIGHT_AFTER, STRIP, StripGame, knobs};
 use std::sync::Arc;
 use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
 use worldrunner_render_scene::compositor::GamePasses;
@@ -119,6 +119,33 @@ fn a_strip_behind_the_stock_object_shows_through_only_where_the_object_is_absent
         region(&image, 18..=28),
         region(&reference, 18..=28),
         "quad alone"
+    );
+}
+
+#[test]
+fn a_light_pass_after_opaque_draws_over_the_stock_object_whatever_the_strip_depth() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let reference = stock_frame();
+    let (mut rig, knobs) = rig(BEHIND);
+    knobs.lock().unwrap().light_after_opaque = true;
+    let image = rig.render().unwrap();
+    // The light pass runs once the stock object is in the frame and has no depth test, so the
+    // strip shows over the object even though the strip's depth is behind it.
+    for pixel in region(&image, 36..=46) {
+        assert_strip(pixel, "overlap, light after Opaque");
+    }
+    for pixel in region(&image, 52..=55) {
+        assert_strip(pixel, "strip alone");
+    }
+    assert_eq!(
+        region(&image, 18..=28),
+        region(&reference, 18..=28),
+        "quad alone"
+    );
+    assert_eq!(region(&image, 2..=8), region(&reference, 2..=8), "neither");
+    assert_eq!(
+        knobs.lock().unwrap().counts.recorded,
+        vec![STRIP, LIGHT_AFTER]
     );
 }
 

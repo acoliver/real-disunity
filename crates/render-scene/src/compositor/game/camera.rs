@@ -63,7 +63,7 @@ impl FrameCameraHandle {
         })
     }
 
-    pub(crate) fn set(&self, camera: FrameCamera) {
-        *self.0.borrow_mut() = Some(camera);
+    pub(crate) fn set(&self, camera: &FrameCamera) {
+        *self.0.borrow_mut() = Some(*camera);
     }
 }

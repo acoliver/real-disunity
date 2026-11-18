@@ -77,6 +77,8 @@ pub const FORMATS: [TextureFormat; 4] = [
 pub const NAMES: [&str; 4] = ["strip0", "strip1", "strip2", "strip3"];
 pub const STRIP: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
 pub const LIGHT: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
+/// The light pass when the game places it after Opaque instead.
+pub const LIGHT_AFTER: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaque), 0);
 
 /// What the test chooses and what the feature reports back.
 #[derive(Default)]
@@ -90,6 +92,8 @@ pub struct Knobs {
     pub skip_strip: bool,
     /// Plan the strip pass without the frame's depth.
     pub without_depth: bool,
+    /// Place the light pass after Opaque, where it draws over what the stock object drew.
+    pub light_after_opaque: bool,
     pub counts: Counts,
     /// The program runtime's counters after the latest preparation.
     pub stats: Option<worldrunner_render_program::runtime::RuntimeStats>,
@@ -159,6 +163,10 @@ impl GameFeatureFactory for StripGame {
     }
 }
 
+fn light_entry(after_opaque: bool) -> PassEntry {
+    if after_opaque { LIGHT_AFTER } else { LIGHT }
+}
+
 fn light_declarations() -> StageDeclarations {
     StageDeclarations {
         resources: ResourceLayout::new(vec![
@@ -226,7 +234,12 @@ impl FrameFeature for Strip {
             }
             declared.push(self.targets.plan_pass(&spec, passes, views)?);
         }
-        let light = GamePassSpec::new(GamePlace::BeforeOpaque, 1)
+        let (place, occurrence) = if knobs.light_after_opaque {
+            (GamePlace::AfterOpaque, 0)
+        } else {
+            (GamePlace::BeforeOpaque, 1)
+        };
+        let light = GamePassSpec::new(place, occurrence)
             .writing([ColorOutput::Frame])
             .reading(set);
         declared.push(self.targets.plan_pass(&light, passes, views)?);
@@ -267,7 +280,7 @@ impl StripFrame {
         let mut guard = self.parts.lock().unwrap();
         let parts = &mut *guard;
         let raster = self.raster()?;
-        let light_target = PassTarget::of(context, LIGHT)?;
+        let light_target = PassTarget::of(context, light_entry(knobs.light_after_opaque))?;
         let strip = if knobs.skip_strip {
             None
         } else {
@@ -330,7 +343,7 @@ impl StripFrame {
                 let texture = self.targets.texture(name)?;
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                 Ok(Import::texture(
-                    EngineSemantic::named(&format!("strip.g{index}")),
+                    EngineSemantic::named(format!("strip.g{index}")),
                     texture,
                     view,
                 ))

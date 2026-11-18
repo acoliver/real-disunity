@@ -139,7 +139,7 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
         created,
         "no target was recreated"
     );
-    assert!(passes.targets().texture(ARRAY).unwrap() == array);
+    assert_eq!(passes.targets().texture(ARRAY).unwrap(), array);
     knobs.lock().unwrap().produce.clear();
     assert_filled(&rig.render().unwrap(), "after replacement");
 
@@ -152,7 +152,7 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
         created + 1,
         "only the history target"
     );
-    assert!(passes.targets().texture(ARRAY).unwrap() == array);
+    assert_eq!(passes.targets().texture(ARRAY).unwrap(), array);
     assert!(passes.targets().is_written(ARRAY, LAYERS - 1));
     assert!(!passes.targets().is_written(HISTORY, 0));
 }

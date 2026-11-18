@@ -588,7 +588,7 @@ impl FrameRenderer {
         let config = self.targets().config();
         let (frame, shadow) = *input;
         self.game_camera
-            .set(FrameCamera::of(&frame, self.frame_slot));
+            .set(&FrameCamera::of(&frame, self.frame_slot));
         self.validate_environment_conventions(frame.specular_convention)?;
         let (passes, views) = plan;
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;

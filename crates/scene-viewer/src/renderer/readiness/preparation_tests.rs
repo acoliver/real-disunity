@@ -152,9 +152,15 @@ fn setup(
         },
     )
     .unwrap();
-    let mut resident =
-        super::super::environment::new_resident(context, old, None, profile, &mut presentation)
-            .unwrap();
+    let mut resident = super::super::environment::new_resident(
+        context,
+        old,
+        None,
+        profile,
+        &mut presentation,
+        &mut crate::renderer::texture_tiers::TextureTiers::default(),
+    )
+    .unwrap();
     let mut target = worldrunner_render_scene::offscreen::OffscreenTarget::new(
         context.device(),
         Viewport {

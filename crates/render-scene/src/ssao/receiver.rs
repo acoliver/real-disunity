@@ -120,8 +120,8 @@ pub(crate) fn group(
     })
 }
 
-/// The final filter of `filter` with the consumed depth beside the occlusion: the box filter
-/// (`blur.wgsl`) returns `sum / weights`, the separable bilateral `sum / total`.
+/// The final filter with consumed depth beside the occlusion. Weighted deviations from the
+/// centre preserve constant occlusion exactly through normalization.
 pub(super) fn filter_source(source: &str, filter: SceneSsaoFilter) -> String {
     let result = match filter {
         SceneSsaoFilter::ScalableBilateral { .. } => {
@@ -132,8 +132,8 @@ pub(super) fn filter_source(source: &str, filter: SceneSsaoFilter) -> String {
                 "textureLoad(depths, pixel, 0).r);",
             );
         }
-        SceneSsaoFilter::DepthAwareBox => "sum / weights",
-        SceneSsaoFilter::SeparableBilateral => "sum / total",
+        SceneSsaoFilter::DepthAwareBox => "anchor + sum / weights",
+        SceneSsaoFilter::SeparableBilateral => "anchor + sum / total",
     };
     source
         .anchored(

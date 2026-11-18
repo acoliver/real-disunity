@@ -163,7 +163,6 @@ fn unique_position(listed: &[PassId], id: PassId) -> usize {
 /// Checks one timing record, preserving the offscreen names and prefix contract. Geometry
 /// entries must appear exactly once, in the supplied order, after every admitted operation.
 pub(super) fn check_timing(fixture: &Fixture, ids: &[RasterId], geometry: &[PassEntry]) {
-    check_operation_names(ids);
     fixture
         .context
         .device()
@@ -175,9 +174,26 @@ pub(super) fn check_timing(fixture: &Fixture, ids: &[RasterId], geometry: &[Pass
     let [timing] = timings.as_slice() else {
         panic!("one timing record, got {}", timings.len());
     };
+    check_timing_record(timing, ids, geometry);
+}
+
+pub(super) fn check_timing_record(
+    timing: &worldrunner_render_post::FrameTiming,
+    ids: &[RasterId],
+    geometry: &[PassEntry],
+) {
+    check_operation_names(ids);
     let listed: Vec<_> = timing.passes.iter().map(|pass| pass.pass_id).collect();
     let expected: Vec<_> = ids.iter().map(|id| PassId::Operation(*id)).collect();
     assert_eq!(listed[..expected.len()], expected[..]);
+    let actual_geometry: Vec<_> = listed
+        .iter()
+        .filter_map(|id| match id {
+            PassId::Geometry(entry) => Some(*entry),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(actual_geometry.as_slice(), geometry);
     let positions: Vec<_> = geometry
         .iter()
         .map(|entry| unique_position(&listed, PassId::Geometry(*entry)))

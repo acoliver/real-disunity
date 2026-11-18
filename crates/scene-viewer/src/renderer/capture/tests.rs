@@ -309,7 +309,7 @@ impl Harness {
                         encoder,
                         &self.resident,
                         &self.presentation.scheduler,
-                    );
+                    )?;
                     image.encode(
                         encoder,
                         &self.output,

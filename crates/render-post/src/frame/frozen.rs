@@ -108,7 +108,9 @@ fn writes_depth(pass: &PassDeclaration, resource: ResourceRef) -> bool {
 }
 
 /// A pass that reads the depth Opaque draws with reads it complete: after a prepass wrote it, or
-/// after every Opaque entry that writes it.
+/// after every Opaque entry that writes it. A pass reads it by listing it among its feature's
+/// reads or by testing against it through a read-only depth attachment; a pass that attaches it
+/// for writing is a writer and is not held to this.
 fn validate_opaque_depth(
     passes: &[PassDeclaration],
     features: &[FeatureDeclaration],
@@ -132,10 +134,12 @@ fn validate_opaque_depth(
         for (index, pass) in passes.iter().enumerate() {
             let complete = prepass.is_some_and(|prepass| prepass < index)
                 || opaque.is_some_and(|opaque| opaque < index);
-            if complete || attaches(pass, resource) {
+            if complete {
                 continue;
             }
-            if reads(pass.entry(), features, resource) {
+            let reader = tests_depth(pass, resource)
+                || (!attaches(pass, resource) && reads(pass.entry(), features, resource));
+            if reader {
                 return Err(FrameError::IncompleteDepth {
                     pass: pass.entry(),
                     resource,
@@ -144,6 +148,13 @@ fn validate_opaque_depth(
         }
     }
     Ok(())
+}
+
+/// Whether the pass tests against `resource` through a read-only depth attachment.
+fn tests_depth(pass: &PassDeclaration, resource: ResourceRef) -> bool {
+    pass.depth
+        .as_ref()
+        .is_some_and(|depth| depth.resource == resource && depth.read_only)
 }
 
 fn attaches(pass: &PassDeclaration, resource: ResourceRef) -> bool {

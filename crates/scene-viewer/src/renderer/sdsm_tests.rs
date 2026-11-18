@@ -158,13 +158,21 @@ fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
             );
         }
         assert!(
-            !slots.iter().any(|slot| matches!(
-                slot,
-                crate::PassSlot::Ssao
-                    | crate::PassSlot::SsaoBlur
-                    | crate::PassSlot::SsaoBlurHorizontal
-                    | crate::PassSlot::OcclusionMetadata(_)
-            ) || matches!(slot, crate::PassSlot::DepthPyramid(level) if *level > 0)),
+            !passes.iter().any(|id| matches!(
+                id,
+                crate::PassId::Geometry(entry)
+                    if matches!(
+                        entry.slot(),
+                        crate::PassSlot::Ssao
+                            | crate::PassSlot::SsaoBlur
+                            | crate::PassSlot::SsaoBlurHorizontal
+                            | crate::PassSlot::OcclusionMetadata(_)
+                    )
+            ) || matches!(
+                id,
+                crate::PassId::Geometry(entry)
+                    if matches!(entry.slot(), crate::PassSlot::DepthPyramid(level) if level > 0)
+            )),
             "frame {frame_id} timed an occlusion stage: {passes:?}"
         );
     }

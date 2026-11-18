@@ -8,6 +8,7 @@ use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
 use crate::upload::upload_buffer;
+use worldrunner_render_gpu::submission::{FrameOwner, Publications};
 #[cfg(test)]
 use worldrunner_render_shadow::{DepthFragmentState, DepthPipelineDescriptor};
 use worldrunner_render_shadow::{
@@ -229,13 +230,28 @@ pub(crate) fn depth_source() -> String {
         .into_owned()
 }
 
-#[derive(Debug)]
 pub(super) struct ShadowMap {
     pub depth: DepthMap,
+    /// Detached when replaced; recorded frames keep the census entry through completion.
+    census_owner: Option<FrameOwner<worldrunner_render_gpu::census::CensusEntry>>,
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
     slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     pub(super) sampler: wgpu::Sampler,
+}
+
+impl std::fmt::Debug for ShadowMap {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShadowMap")
+            .field("depth", &self.depth)
+            .field("census_owned", &self.census_owner.is_some())
+            .field("uniform", &self.uniform)
+            .field("group", &self.group)
+            .field("slots", &self.slots)
+            .field("sampler", &self.sampler)
+            .finish()
+    }
 }
 
 impl ShadowMap {
@@ -265,6 +281,15 @@ impl ShadowMap {
         self.uniform = self.slots[slot].0.clone();
         self.group = self.slots[slot].1.clone();
     }
+
+    pub fn retain(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_gpu::submission::SubmitError> {
+        let owner = self.census_owner.as_ref().expect("live shadow map owner");
+        Publications::retain_lease(encoder, &owner.lease())
+    }
+
     pub fn new(
         context: &crate::device::GpuContext,
         settings: DirectionalShadowSettings,
@@ -272,27 +297,7 @@ impl ShadowMap {
         layers: u32,
     ) -> Result<Self, DepthMapError> {
         let device = context.device();
-        let max_resolution = u64::from(super::MAX_SHADOW_RESOLUTION);
-        let depth = DepthMap::new(
-            device,
-            DepthMapDescriptor {
-                label: Some("directional shadow depth"),
-                resolution: settings.resolution,
-                layers,
-                receiver_dimension: ReceiverDimension::D2Array,
-                readback: cfg!(test),
-                budget: DepthMapBudget {
-                    max_resolution: super::MAX_SHADOW_RESOLUTION,
-                    max_layers: 4,
-                    max_texture_bytes: max_resolution * max_resolution * 4 * 4,
-                    max_readback_bytes: if cfg!(test) {
-                        max_resolution * max_resolution * 4
-                    } else {
-                        0
-                    },
-                },
-            },
-        )?;
+        let depth = shadow_depth_map(device, settings, layers)?;
         let sampler = settings.configuration().comparison_sampler(device);
         let slots: Vec<_> = (0..3)
             .map(|_| {
@@ -324,14 +329,52 @@ impl ShadowMap {
                 (uniform, group)
             })
             .collect();
+        let census = context.submission().census().track(
+            worldrunner_render_gpu::census::ResourceClass::ShadowMap,
+            worldrunner_render_gpu::census::texture_bytes(depth.texture()),
+        );
+        let census_owner = FrameOwner::new(census, context.submission());
         Ok(Self {
             depth,
+            census_owner: Some(census_owner),
             uniform: slots[0].0.clone(),
             group: slots[0].1.clone(),
             slots,
             sampler,
         })
     }
+}
+
+impl Drop for ShadowMap {
+    fn drop(&mut self) {
+        if let Some(owner) = self.census_owner.take() {
+            owner.detach();
+        }
+    }
+}
+
+fn shadow_depth_map(
+    device: &wgpu::Device,
+    settings: DirectionalShadowSettings,
+    layers: u32,
+) -> Result<DepthMap, DepthMapError> {
+    let maximum = u64::from(super::MAX_SHADOW_RESOLUTION);
+    DepthMap::new(
+        device,
+        DepthMapDescriptor {
+            label: Some("directional shadow depth"),
+            resolution: settings.resolution,
+            layers,
+            receiver_dimension: ReceiverDimension::D2Array,
+            readback: cfg!(test),
+            budget: DepthMapBudget {
+                max_resolution: super::MAX_SHADOW_RESOLUTION,
+                max_layers: 4,
+                max_texture_bytes: maximum * maximum * 4 * 4,
+                max_readback_bytes: if cfg!(test) { maximum * maximum * 4 } else { 0 },
+            },
+        },
+    )
 }
 
 #[cfg(test)]

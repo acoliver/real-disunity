@@ -358,10 +358,7 @@ impl TargetStore {
     /// What the frame being prepared leaves in the persistent targets of this store, by exact
     /// backing: for each layer, whether the last attachment that wrote it stored its contents.
     /// A stock attachment that shares a target's name is another texture and counts for nothing.
-    pub(super) fn frame_effects(
-        &self,
-        context: &PrepareContext<'_>,
-    ) -> Vec<(Arc<Backing>, Vec<(u32, bool)>)> {
+    pub(super) fn frame_effects(&self, context: &PrepareContext<'_>) -> Vec<FrameEffect> {
         let mut last = BTreeMap::new();
         for attachment in context
             .passes()
@@ -387,18 +384,28 @@ impl TargetStore {
             let stored = attachment.store == wgpu::StoreOp::Store;
             last.insert((index, attachment.resource.layer), stored);
         }
-        let mut effects: Vec<(Arc<Backing>, Vec<(u32, bool)>)> = Vec::new();
+        let mut effects: Vec<FrameEffect> = Vec::new();
         for ((index, layer), stored) in last {
             let backing = &self.backings[index];
             match effects.last_mut() {
-                Some((known, layers)) if Arc::ptr_eq(known, backing) => {
-                    layers.push((layer, stored))
+                Some(effect) if Arc::ptr_eq(&effect.backing, backing) => {
+                    effect.layers.push((layer, stored));
                 }
-                _ => effects.push((backing.clone(), vec![(layer, stored)])),
+                _ => effects.push(FrameEffect {
+                    backing: backing.clone(),
+                    layers: vec![(layer, stored)],
+                }),
             }
         }
         effects
     }
+}
+
+/// What one frame leaves in one persistent backing: for each layer it wrote, whether the last
+/// write stored its contents.
+pub(super) struct FrameEffect {
+    pub(super) backing: Arc<Backing>,
+    pub(super) layers: Vec<(u32, bool)>,
 }
 
 /// A game's view of its targets for one renderer generation. Cloning shares the same textures.

@@ -26,6 +26,7 @@ pub use camera::{FrameCamera, FrameCameraHandle};
 pub use pass_target::PassTarget;
 pub(crate) use plan::reconcile_loads;
 pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass};
+pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};

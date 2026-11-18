@@ -145,10 +145,9 @@ fn a_second_renderer_that_nothing_has_written_refuses_the_read_by_name() {
         *configured = settings;
     });
     knobs.lock().unwrap().produce.clear();
-    let error = second
-        .render()
-        .err()
-        .expect("the second renderer's array was never written");
+    let Err(error) = second.render() else {
+        panic!("the second renderer's array was never written");
+    };
     assert!(
         matches!(error, FrameError::MissingProducer(resource) if resource.name == ARRAY),
         "{error:?}"

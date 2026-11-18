@@ -140,7 +140,9 @@ fn a_layer_whose_last_attachment_discarded_its_contents_is_not_retained_state() 
 
     plan.lock().unwrap().stores = Vec::new();
     plan.lock().unwrap().read = Some(PAD);
-    let error = rig.render().err().expect("nothing wrote the pad");
+    let Err(error) = rig.render() else {
+        panic!("nothing wrote the pad");
+    };
     assert!(
         matches!(error, FrameError::MissingProducer(resource) if resource.name == PAD),
         "{error:?}"
@@ -170,10 +172,9 @@ fn a_target_named_like_a_stock_attachment_is_not_marked_by_the_stock_pass_that_w
         "the stock Opaque pass wrote a different texture"
     );
     plan.lock().unwrap().read = Some(STOCK_NAME);
-    let error = rig
-        .render()
-        .err()
-        .expect("the game's own target holds nothing");
+    let Err(error) = rig.render() else {
+        panic!("the game's own target holds nothing");
+    };
     assert!(
         matches!(error, FrameError::AttachmentHazard(resource) if resource.name == STOCK_NAME),
         "{error:?}"

@@ -18,7 +18,7 @@ pub struct FrameEncoding<'a>(&'a mut FrameRenderer);
 impl FrameRenderer {
     /// The game's declared targets of this generation; none are declared without an inventory.
     pub(crate) fn game_targets(&self) -> crate::compositor::GameTargets {
-        crate::compositor::GameTargets::new(self.game_store.clone().unwrap_or_default())
+        crate::compositor::GameTargets::new(self.game.store.clone().unwrap_or_default())
     }
     pub(crate) fn timing_state(&self) -> worldrunner_render_post::TimingState {
         self.chain.timing_state()

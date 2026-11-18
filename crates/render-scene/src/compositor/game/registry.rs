@@ -1,7 +1,7 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
-use super::targets::{GameTargets, TargetDeclaration, TargetStore};
+use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -160,11 +160,21 @@ impl GamePasses {
                     store: store.clone(),
                 }),
             )?;
-            renderer.game_features += 1;
+            renderer.game.features += 1;
         }
-        renderer.game_store = Some(store);
+        renderer.game.store = Some(store);
         Ok(())
     }
+}
+
+/// What the game inventory installed on one renderer generation.
+#[derive(Default)]
+pub(crate) struct Installed {
+    /// How many features the factories registered on the chain.
+    pub(crate) features: usize,
+    /// The textures behind the declared targets: made from the previous generation's, and handed
+    /// on to the next one.
+    pub(crate) store: Option<Arc<TargetStore>>,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the
@@ -211,7 +221,7 @@ impl PreparedFeature for RegisteredPrepared {
         // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
         // Each publication names the exact backing it records, which an owned capture needs to
         // admit it; a frame that writes no declared target publishes nothing.
-        for (backing, layers) in self.store.frame_effects(context) {
+        for FrameEffect { backing, layers } in self.store.frame_effects(context) {
             let key = backing.write_key();
             // The capture records a refusal and fails before submission, as for stock state.
             let _ = context
@@ -240,7 +250,7 @@ impl FrameRenderer {
     pub(crate) fn capture_game_keys(
         &mut self,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
-        let Some(store) = self.game_store.clone() else {
+        let Some(store) = self.game.store.clone() else {
             return Ok(Vec::new());
         };
         let mut keys = self.capture_texture_keys(&store.textures())?;

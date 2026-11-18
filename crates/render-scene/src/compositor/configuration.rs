@@ -628,11 +628,11 @@ impl ConfiguredFrameRenderer {
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
         let previous = self.state.current();
-        let game = previous.game_store.clone();
+        let game = previous.game.store.clone();
         let allocations =
             settings.allocation_plan(context, self.has_effect_history(), game.as_deref());
         if previous.chain.registered_feature_count()
-            != usize::from(previous.water.is_some()) + previous.game_features
+            != usize::from(previous.water.is_some()) + previous.game.features
         {
             return Err(ConfigurationError::Invalid(
                 "custom registrations require a custom replacement builder",

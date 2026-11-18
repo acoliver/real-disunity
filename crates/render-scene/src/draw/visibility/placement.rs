@@ -2,12 +2,12 @@
 //! and the cached eye-independent inputs of each placement's level.
 
 use glam::Vec3;
-use worldrunner_render_plan::{SceneObject, SceneTransform};
+use worldrunner_render_plan::{SceneFadeReference, SceneObject, SceneTransform};
 
 use super::{Bounds, MeshSelection};
 use crate::geometry::{fade_band_meters, millimeters_to_meters, model_matrix};
 use crate::instances::fade::Anchor;
-use crate::instances::slot_bounds::{Shape, SlotFade, SlotMut};
+use crate::instances::slot_bounds::{Shape, SlotFade, SlotMut, distinct};
 use crate::instances::{InstanceBatch, Instances};
 
 /// The materials a batch's placements draw with, and their distinct relief scales.
@@ -28,30 +28,13 @@ pub(super) struct BatchShape {
 
 impl BatchShape {
     pub fn new(mesh: &MeshSelection, instances: &Instances, material: usize) -> Self {
-        let materials: Vec<usize> = std::iter::once(material)
-            .chain(
-                mesh.material_slots
-                    .iter()
-                    .flatten()
-                    .flatten()
-                    .map(|slot| slot.material().raw() as usize),
-            )
-            .collect();
-        let mut reliefs: Vec<u32> = Vec::new();
-        let mut references = Vec::new();
-        for &material in &materials {
-            let relief = instances.impostor_extents[material][1].to_bits();
-            if !reliefs.contains(&relief) {
-                reliefs.push(relief);
-            }
-            // A material that keeps fragments at every distance never measures its reference.
-            let fade = instances.fades[material];
-            if let Some(reference) = fade.reference().filter(|_| fade.can_empty())
-                && !references.contains(&reference)
-            {
-                references.push(reference);
-            }
-        }
+        let materials: Vec<usize> = drawn_materials(mesh, material).collect();
+        let reliefs = distinct(materials.iter().map(|&m| relief_bits(instances, m)));
+        let references = distinct(
+            materials
+                .iter()
+                .filter_map(|&m| measured_reference(instances, m)),
+        );
         Self {
             materials,
             reliefs,
@@ -106,13 +89,55 @@ impl BatchShape {
             let group = self
                 .materials
                 .iter()
-                .filter(|&&material| instances.impostor_extents[material][1].to_bits() == relief)
+                .filter(|&&material| relief_bits(instances, material) == relief)
                 .map(|&material| view_independent(mesh, instances, transform, reach, material))
                 .reduce(union)
                 .expect("every relief group has a material");
             *stored = [group.min, group.max];
         }
     }
+}
+
+/// The materials a batch draws with: its own, then every slot material of its mesh.
+fn drawn_materials(mesh: &MeshSelection, material: usize) -> impl Iterator<Item = usize> {
+    std::iter::once(material).chain(
+        mesh.material_slots
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|slot| slot.material().raw() as usize),
+    )
+}
+
+/// The relief scale of `material`, by bit pattern so grouping is exact.
+fn relief_bits(instances: &Instances, material: usize) -> u32 {
+    instances.impostor_extents[material][1].to_bits()
+}
+
+/// The fade reference `material` measures from, if it can fade out. A material that keeps
+/// fragments at every distance never measures its reference.
+fn measured_reference(instances: &Instances, material: usize) -> Option<SceneFadeReference> {
+    let fade = instances.fades[material];
+    fade.reference().filter(|_| fade.can_empty())
+}
+
+/// Whether the stored boxes and level inputs of `batch` are already those of `mesh`, its
+/// materials and its placements, so that `refresh` has nothing to fill. It reads the same
+/// materials as `BatchShape::new` but builds none of its vectors, because it runs for every
+/// batch of every view. `Instances::edits` cannot stand in: a material's relief scale and fade
+/// reference change without it.
+pub(super) fn is_current(
+    mesh: &MeshSelection,
+    instances: &Instances,
+    material: usize,
+    batch: &InstanceBatch,
+) -> bool {
+    let materials = || drawn_materials(mesh, material);
+    batch.bounds.borrow().is_current(
+        materials().map(|m| relief_bits(instances, m)),
+        mesh.levels(),
+        materials().filter_map(|m| measured_reference(instances, m)),
+    )
 }
 
 /// Fills the cached boxes and level inputs of every live placement of `batch` and regroups
@@ -123,6 +148,9 @@ pub(super) fn refresh(
     material: usize,
     batch: &InstanceBatch,
 ) {
+    if is_current(mesh, instances, material, batch) {
+        return;
+    }
     let shape = BatchShape::new(mesh, instances, material);
     batch.bounds.borrow_mut().refresh(
         (shape.reliefs(), &shape.levels),

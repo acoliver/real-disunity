@@ -45,23 +45,12 @@ impl SceneGpu {
     /// That frame encodes them with its own timer before any of its stock operations, in the same
     /// submission, so a draw admitted with [`Self::admit_programs`] can sample what they write.
     ///
-    /// Only [`crate::compositor::FrameEncoding::encode_scene`] encodes them. The resident path and
-    /// the shadowed path refuse a scene that holds them by name. A later call replaces operations
-    /// that no frame took.
+    /// [`crate::compositor::FrameEncoding::encode_scene`] and the shadowed path
+    /// ([`crate::compositor::FrameEncoding::encode_shadowed`]) encode them. The resident path
+    /// refuses a scene that holds them by name. A later call replaces operations that no frame
+    /// took.
     pub fn admit_offscreen(&mut self, offscreen: AdmittedOffscreen) {
         self.player.offscreen = Some(offscreen);
-    }
-
-    /// What a path that cannot draw player work refuses by name: admitted draws or admitted
-    /// offscreen operations, if any wait for a frame.
-    pub(crate) fn waiting_player_work(&self) -> Option<&'static str> {
-        if self.has_programs() {
-            Some("player programs")
-        } else if self.has_offscreen() {
-            Some("offscreen operations")
-        } else {
-            None
-        }
     }
 
     /// Whether admitted offscreen operations are waiting for a frame.

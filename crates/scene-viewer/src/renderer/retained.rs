@@ -1,8 +1,43 @@
 use super::{Renderer, Resident};
 use crate::{ObjectId, RetainedHost, RetainedUpdate, SceneObjectEdit, ViewerError};
 use std::collections::BTreeMap;
+use worldrunner_render_gpu::flight::CompletionTicket;
 use worldrunner_render_plan::SceneEffects;
-use worldrunner_render_scene::draw::{InstanceHandle, SceneGpu};
+use worldrunner_render_scene::{
+    SceneView,
+    draw::{InstanceHandle, SceneGpu},
+};
+
+pub(super) fn finish_admitted_frame(
+    renderer: &mut Renderer,
+    host: Option<&mut RetainedHost>,
+    view: &SceneView,
+    retained_capture: Option<(u64, super::capture::Products)>,
+    ticket: CompletionTicket,
+) -> Result<(), ViewerError> {
+    if let Some(host) = host {
+        renderer.submitted_camera_history(host);
+        let temporal_history_reset = renderer.temporal_history_reset();
+        host.present_pick(view.resolved_view());
+        let statistics = renderer.scene_statistics();
+        let frame = renderer.streaming.captures.next_frame();
+        renderer.streaming.captures.submitted(
+            host,
+            retained_capture,
+            ticket,
+            &crate::retained::CaptureCompletion {
+                frame,
+                time: renderer.frame_time,
+                scene: statistics,
+                temporal_history_reset,
+            },
+        )?;
+    } else {
+        renderer.streaming.captures.advance_frame();
+    }
+    renderer.check_errors()?;
+    Ok(())
+}
 
 #[derive(Default)]
 pub(super) struct Objects {
@@ -168,6 +203,18 @@ impl Renderer {
             .collect(self.context.submission().completed_serial());
         self.streaming.captures.collect(host)?;
         Ok(self.streaming.captures.is_pending())
+    }
+
+    pub(super) fn reject_offscreen_depth_fitting(
+        &self,
+        host: &RetainedHost,
+    ) -> Result<(), ViewerError> {
+        if host.offscreen.is_some() && self.resident.depth_fitting_enabled() {
+            return Err(ViewerError::UnsupportedScene(
+                "player offscreen work with same-frame depth fitting",
+            ));
+        }
+        Ok(())
     }
 
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {

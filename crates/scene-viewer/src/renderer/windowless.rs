@@ -1,11 +1,18 @@
-use super::{
-    Extents, Presentation, Renderer, ViewerError, device_errors, readiness, required_features,
-    target,
-};
+use super::{Extents, Renderer, ViewerError, device_errors, readiness, required_features, target};
 
 impl Renderer {
+    #[cfg(test)]
     pub(crate) async fn windowless(host: &mut crate::RetainedHost) -> Result<Self, ViewerError> {
-        let (instance, context) = windowless_context(host).await?;
+        Self::windowless_with(host, None).await
+    }
+
+    /// A renderer with no window, on `shared`'s device when one is given, otherwise on a device
+    /// of its own.
+    pub(crate) async fn windowless_with(
+        host: &mut crate::RetainedHost,
+        shared: Option<super::Shared>,
+    ) -> Result<Self, ViewerError> {
+        let (instance, context) = windowless_context_with(host, shared).await?;
         let scene = host.initial_scene();
         let options = &host.options;
         let shadow_policy = host.readiness.shadow_policy;
@@ -15,7 +22,7 @@ impl Renderer {
             context.device().limits().max_texture_dimension_2d,
         )?
         .expect("validated nonzero extent");
-        let mut presentation = Presentation::with_settings(
+        let mut presentation = super::assembly::configured_presentation(
             &context,
             crate::presentation::COLOR,
             [extents.render, extents.surface],
@@ -48,7 +55,7 @@ impl Renderer {
         )?;
         let execution =
             target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;
-        let renderer = Self {
+        let renderer = Self::assemble(super::assembly::RendererParts {
             execution,
             #[cfg(all(test, target_os = "linux"))]
             instance,
@@ -58,13 +65,8 @@ impl Renderer {
             resident,
             viewport: Some(extents.surface),
             errors,
-            clock: crate::clock::Clock::new(),
-            frame_time: std::time::Duration::ZERO,
-            live_upload: None,
-            live_pending: None,
             streaming,
-        };
-        renderer.check_errors()?;
+        })?;
         #[cfg(not(all(test, target_os = "linux")))]
         drop(instance);
         Ok(renderer)
@@ -74,9 +76,13 @@ impl Renderer {
     }
 }
 
-pub(super) async fn windowless_context(
+pub(super) async fn windowless_context_with(
     host: &mut crate::RetainedHost,
+    shared: Option<super::Shared>,
 ) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
+    if let Some(shared) = shared {
+        return adopt(host, shared);
+    }
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = instance
@@ -91,5 +97,29 @@ pub(super) async fn windowless_context(
         resolved.startup.gpu_timing,
     )
     .await?;
+    Ok((instance, context))
+}
+
+/// The device a caller made before the session. Its adapter was chosen without the scene, so a
+/// feature the scene needs and the device lacks is refused by name, as a window's start does.
+fn adopt(
+    host: &mut crate::RetainedHost,
+    shared: super::Shared,
+) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
+    let super::Shared { instance, context } = shared;
+    let adapter = context.adapter();
+    let size = host.options.size;
+    let resolved =
+        super::startup::resolve(super::SceneSource::Retained(host), adapter, size, None)?;
+    let missing = required_features(&resolved.scene).difference(context.device().features());
+    if !missing.is_empty() {
+        return Err(
+            worldrunner_render_scene::device::DeviceError::MissingFeatures {
+                adapter: adapter.get_info().name,
+                missing,
+            }
+            .into(),
+        );
+    }
     Ok((instance, context))
 }

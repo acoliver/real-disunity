@@ -696,3 +696,51 @@ stops must be finite in `0..=2`. The override applies only to that recipe,
 and ordinary frames restore the profile setting. The default is off.
 See [the post contract](../render-post/README.md#native-resolution-rcas) for
 domain transfer, reciprocal and quantization behavior.
+
+## A device another user shares
+
+`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run_on(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own, as `run` does.
+
+`RetainedHost::admit_offscreen(operations)` hands the caller's `OffscreenOperations`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. An accumulated recipe's first admitted warmup or sample consumes the packet once; later samples do not replay it. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
+
+`RetainedHost::show_game_screen` offers a single-sample `Rgba8UnormSrgb` texture
+on the shared device. Export that same texture as `GAME_SCREEN` from the operations
+that write it. An export of another texture under that name does not write the
+offered screen: the frame drops the export, runs the operations and leaves the
+offered screen as it was; the same holds while no screen is offered. The
+viewer samples it in the same frame and draws the UI over it. With no current
+writer, the viewer uses the last submitted contents of that allocation. A host
+that filled the texture in an earlier submission can declare that when it calls
+`GameScreen::new`. An unwritten or withdrawn screen selects the stock scene.
+
+Accumulated capture samples (supersampling, temporal samples, jitter or native
+RCAS) offer the screen and carry the queued operations like an ordinary frame.
+The first admitted warm-up or sample runs the operations once. Later samples
+show the submitted screen contents. When the requested view needs a terrain page
+or geometry upload, the screen frame records it in the same submission. A warm-up
+records no capture sample. A frame that shows the screen can supply its display
+colour and, when configured, linear HDR. Depth, normals, ambient occlusion, SSR
+confidence and the specular plane require the stock scene. Albedo, sun visibility,
+and diffuse and specular lighting terms also require the stock scene, even when
+requested on their own. A capture request containing any of these outputs returns
+`ViewerError::UnsupportedScene("capture of frame attachments while the game screen replaces the stock scene")`
+before the frame submits or takes the queued operations, while a screen with
+contents is offered or the queued operations export the offered screen. The
+submission serial, the request and the queued operations stay as they were.
+
+Offscreen work cannot accompany shadow depth fitting. The viewer rejects it
+whenever shadow depth fitting is configured, including interactive
+`QuantizedPerBound` fitting, and returns
+`ViewerError::UnsupportedScene("player offscreen work with same-frame depth fitting")`
+before the fitted path renders or submits work. This refusal leaves the submission
+serial unchanged. Plain frames and shadowed frames without depth fitting accept
+offscreen work through the frame's recording.
+
+The check uses the published generation after ready retained updates have been
+applied, respecting capture holds and readiness dependencies. A refusal preserves
+the pending offscreen operations. A later ready settings update that disables
+fitting lets a compatible frame consume those operations without readmission.
+If preparing an update submits GPU work, the call returns pending without taking
+the operations; a later call checks compatibility before rendering.
+
+`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

@@ -146,7 +146,7 @@ fn selected_invalid_shadows_fail_before_device_creation() {
     })
     .unwrap();
     assert!(matches!(
-        pollster::block_on(super::windowless::windowless_context(&mut host)),
+        pollster::block_on(super::windowless::windowless_context_with(&mut host, None)),
         Err(crate::ViewerError::Shadow(_))
     ));
 }
@@ -231,7 +231,7 @@ fn supplier_selected_scene_determines_required_features_before_preparation() {
         })
     })
     .unwrap();
-    let result = pollster::block_on(super::windowless::windowless_context(&mut host));
+    let result = pollster::block_on(super::windowless::windowless_context_with(&mut host, None));
     let (_, context) = result.unwrap();
     assert!(
         context

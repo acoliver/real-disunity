@@ -1,0 +1,501 @@
+use super::*;
+
+use crate::gpu_device::device_requirements;
+use crate::gpu_device::headless::HeadlessViewer;
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs};
+use crate::player::{GpuWork, window_gpu};
+use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
+use crate::storage_budget;
+use worldrunner_render_gpu::device::DeviceRequirements;
+use worldrunner_render_program::unity::offscreen::OffscreenOperations;
+
+fn trace(records: usize, error: Option<&str>) -> WorkTrace {
+    WorkTrace {
+        records,
+        error: error.map(str::to_owned),
+        ..WorkTrace::default()
+    }
+}
+fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
+    entries
+        .iter()
+        .map(|(name, count)| ((*name).to_owned(), *count))
+        .collect()
+}
+
+#[test]
+fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
+    let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
+    assert_eq!(
+        top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
+        Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
+    );
+}
+
+#[test]
+fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
+    let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
+    assert_eq!(
+        top_counts_line("t", &counts, 2).as_deref(),
+        Some("t: _A 4, _B 3, and 2 more")
+    );
+}
+
+#[test]
+fn there_is_no_missing_texture_line_without_missing_textures() {
+    assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
+}
+
+fn listing(names: &[&str]) -> Report {
+    let mut report = Report::default();
+    for name in names {
+        report.global_textures.insert((*name).to_owned(), 1);
+    }
+    report
+}
+
+#[test]
+fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs_to() {
+    let mut report = GpuWorkReport::default();
+    report.add(&listing(&["_Height: render"]), "flush");
+    report.add(&Report::default(), "flush");
+    report.frames = 3;
+    report.add(&listing(&["_Height: render", "_Last: none"]), "flush");
+    report.add(&listing(&["_Last: render"]), "frame");
+    let found: Vec<_> = report
+        .global_listings
+        .iter()
+        .map(GlobalListing::line)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "globals at a flush of frame 0: _Height: render",
+            "globals at a flush of frame 3: _Height: render, _Last: none",
+            "globals at a frame of frame 3: _Last: render",
+        ]
+    );
+}
+
+#[test]
+fn work_the_gpu_refused_whole_is_counted_with_its_records_and_the_rest_is_not() {
+    let mut report = GpuWorkReport::default();
+    report.keep_traces(vec![
+        trace(2513, Some("over its budget")),
+        trace(27, None),
+        trace(30, Some("a shader")),
+    ]);
+    assert_eq!((report.refused_works, report.refused_records), (2, 2543));
+    assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
+}
+
+/// The limits an adapter that offers `storage_images` storage images in a stage and buffers
+/// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
+fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
+    let available = wgpu::Limits {
+        max_buffer_size: adapter_buffer,
+        max_storage_textures_per_shader_stage: storage_images,
+        ..wgpu::Limits::default()
+    };
+    worldrunner_render_gpu::device::negotiate(
+        wgpu::Features::empty(),
+        &available,
+        &device_requirements(budget, &available),
+    )
+    .unwrap()
+    .limits
+}
+
+#[test]
+fn the_headless_device_asks_for_the_storage_images_the_old_world_kernels_bind_when_offered() {
+    let budget = storage_budget::DEFAULT_BYTES;
+    // Two Old World compute variants bind five storage images in their one stage, one more
+    // than the default limit of four.
+    let offered = negotiated(16, budget * 2, budget);
+    assert!(offered.max_storage_textures_per_shader_stage >= 5);
+    assert_eq!(offered.max_buffer_size, budget);
+    assert_eq!(
+        negotiated(4, budget * 2, budget).max_storage_textures_per_shader_stage,
+        4,
+        "an adapter at the default limit still gets a device"
+    );
+}
+
+#[test]
+fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
+    // The budget is a total, not a buffer: the device takes the adapter's largest buffer.
+    let default = wgpu::Limits::default().max_buffer_size;
+    let limits = negotiated(16, default, 4 * default);
+    assert_eq!(limits.max_buffer_size, default);
+    assert!(limits.max_storage_textures_per_shader_stage >= 5);
+}
+
+#[test]
+fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
+    let directory = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(directory.path()).unwrap();
+    assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
+    assert!(
+        gpu.report().device.contains("runtime budget"),
+        "the report says where the budget came from"
+    );
+}
+
+/// Plays the portable screen fixture on `gpu` for `frames` frames. Its script clears the screen to
+/// yellow in its first two updates: the one while the scene loads and the first the host advances.
+fn play_screen_fixture(gpu: &PlayerGpu, frames: u64) {
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    for _ in 0..frames {
+        host.advance(16_000_000, 1_000_000_000).unwrap();
+        gpu.frame(&mut host).unwrap();
+    }
+}
+
+#[test]
+fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_image_alone() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    gpu.set_screen(Some([8, 4]));
+    assert!(gpu.screen().is_none(), "nothing drew yet");
+
+    play_screen_fixture(&gpu, 4);
+
+    let image = gpu.screen().expect("the clear was read back");
+    assert_eq!((image.width, image.height), (8, 4));
+    assert_eq!(image.frame, 0, "both clears were in the first frame's work");
+    assert!(
+        image
+            .rgba
+            .chunks_exact(4)
+            .all(|texel| texel == [255, 255, 0, 255]),
+        "the screen is yellow all over"
+    );
+    let report = gpu.report();
+    assert_eq!((report.frames, report.screen_reads), (4, 1));
+    assert!(report.screen_reads_refused.is_empty());
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(
+        report
+            .screen_line()
+            .starts_with("[gpu] screen images read back 1, refused 0")
+    );
+}
+
+#[test]
+fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+
+    play_screen_fixture(&gpu, 2);
+
+    assert!(gpu.screen().is_none());
+    let report = gpu.report();
+    assert_eq!(report.screen_reads, 0);
+    assert!(
+        report
+            .skipped_by_kind
+            .contains_key("SetRenderTarget: UnboundTarget"),
+        "{:?}",
+        report.skipped_by_kind
+    );
+}
+
+#[test]
+fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    gpu.set_screen(Some([8, 4]));
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    // A flush in the middle of an update draws the screen before the frame reads it.
+    let snapshot = host.graphics_snapshot().unwrap();
+    gpu.offscreen.borrow_mut().flush(&snapshot, &host).unwrap();
+    assert!(gpu.offscreen.borrow().screen_written());
+
+    gpu.set_screen(None);
+    gpu.frame(&mut host).unwrap();
+
+    assert!(gpu.screen().is_none());
+    assert_eq!(gpu.report().screen_reads, 0);
+}
+
+#[test]
+fn a_screen_readback_that_was_refused_is_counted_by_its_reason() {
+    let report = GpuWorkReport {
+        screen_reads: 3,
+        screen_reads_refused: BTreeMap::from([("over the storage budget".to_owned(), 2)]),
+        ..GpuWorkReport::default()
+    };
+    assert_eq!(
+        report.screen_line(),
+        "[gpu] screen images read back 3, refused 2 (over the storage budget: 2)"
+    );
+}
+
+#[test]
+fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
+    let shared =
+        worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
+            .unwrap();
+    let authority = SubmissionAuthority::new(shared.queue.clone());
+    let directory = tempfile::tempdir().unwrap();
+    let budget = AllocationBudget(storage_budget::DEFAULT_BYTES);
+    let gpu = PlayerGpu::on(
+        shared.device.clone(),
+        authority.clone(),
+        budget,
+        directory.path(),
+    )
+    .unwrap();
+    assert!(gpu.authority.same_authority(&authority));
+    assert!(
+        gpu.offscreen
+            .borrow()
+            .authority()
+            .same_authority(&authority),
+        "the program runtime records and submits through the caller's authority"
+    );
+    assert!(
+        !gpu.offscreen
+            .borrow()
+            .authority()
+            .same_authority(&SubmissionAuthority::new(shared.queue.clone())),
+        "a second authority on the same queue is a different one"
+    );
+    assert_eq!(gpu.storage_budget(), budget.0);
+    assert!(gpu.report().device.contains("runtime budget"));
+}
+
+/// A viewer with no window and a player on the device it made, with nothing to play yet.
+fn window_player(size: [u32; 2]) -> (HeadlessViewer, PlayerGpu, tempfile::TempDir) {
+    let data = tempfile::tempdir().unwrap();
+    let mut viewer = HeadlessViewer::new(size);
+    let gpu = PlayerGpu::shared(&mut viewer, data.path()).unwrap();
+    gpu.set_screen(Some(size));
+    (viewer, gpu, data)
+}
+
+/// Boots the screen fixture on `gpu`, as `play_screen_fixture` does, and advances its first update.
+fn started_screen_fixture(gpu: &PlayerGpu) -> DisunityHost {
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    host
+}
+
+/// What the viewer does with the operations of a frame: admits them on its own recording and
+/// submits that, without waiting.
+fn submit_like_the_viewer(gpu: &PlayerGpu, operations: OffscreenOperations) {
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    let admitted = operations.admit(&frame).unwrap();
+    admitted.encode(None, &mut frame).unwrap();
+    frame.finish().submit().unwrap();
+}
+
+#[test]
+fn the_window_and_the_headless_player_ask_for_the_same_device() {
+    let data = tempfile::tempdir().unwrap();
+    let mut viewer = HeadlessViewer::new([8, 4]);
+    let adapter = viewer.adapter().unwrap();
+    let inputs = PlayerStartupInputs::from_snapshot(None, Some(6 << 30));
+    let shared = PlayerGpu::shared_on_adapter(&mut viewer, &adapter, data.path(), &inputs).unwrap();
+    let headless = PlayerGpu::headless_on_adapter(&adapter, data.path(), &inputs).unwrap();
+    let (window, alone) = (shared.device.limits(), headless.device.limits());
+    assert_eq!(
+        window.max_storage_textures_per_shader_stage,
+        alone.max_storage_textures_per_shader_stage
+    );
+    assert_eq!(window.max_buffer_size, alone.max_buffer_size);
+    assert!(
+        shared
+            .device
+            .features()
+            .contains(headless.device.features()),
+        "block compression and filterable floats are on the shared device where offered"
+    );
+    assert_eq!(shared.storage_budget(), headless.storage_budget());
+}
+
+/// A source that has no adapter, and counts what it is asked.
+#[derive(Default)]
+struct NoAdapter {
+    asked: usize,
+}
+
+impl DeviceSource for NoAdapter {
+    fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
+        self.asked += 1;
+        Err("no adapter".into())
+    }
+
+    fn device(
+        &mut self,
+        _: &DeviceRequirements,
+    ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
+        self.asked += 1;
+        Err("no device".into())
+    }
+}
+
+#[test]
+fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    let mut source = NoAdapter::default();
+    assert!(window_gpu(GpuWork::Off, data.path(), &mut source).is_none());
+    assert_eq!(source.asked, 0, "no adapter and no device was asked for");
+}
+
+#[test]
+fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
+    let data = tempfile::tempdir().unwrap();
+    let mut source = NoAdapter::default();
+    assert!(window_gpu(GpuWork::Auto, data.path(), &mut source).is_none());
+    assert!(source.asked > 0);
+}
+
+#[test]
+fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
+    let _turn = fixture_turn();
+    let (mut viewer, gpu, _data) = window_player([8, 4]);
+    let authority = viewer.authority();
+    let mut host = started_screen_fixture(&gpu);
+
+    let before = authority.submitted_serial();
+    let operations = gpu.frame_for_viewer(&mut host).unwrap();
+
+    assert!(
+        operations.is_some(),
+        "the script's clears are the frame's work"
+    );
+    assert_eq!(
+        authority.submitted_serial(),
+        before,
+        "the viewer's frame submits it, not the player"
+    );
+    assert!(
+        gpu.screen().is_none(),
+        "nothing has drawn into the screen yet"
+    );
+    assert!(!gpu.offscreen.borrow().screen_written());
+    let report = gpu.report();
+    assert_eq!((report.frames, report.frames_with_work), (1, 1));
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn a_frame_with_no_work_after_the_clears_gives_the_viewer_nothing() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    submit_like_the_viewer(&gpu, operations);
+
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    let next = gpu.frame_for_viewer(&mut host).unwrap();
+
+    assert!(next.is_none(), "the script draws nothing more");
+    let report = gpu.report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn the_window_reads_nothing_back_from_the_screen_it_shows() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    submit_like_the_viewer(&gpu, operations);
+    host.advance(16_000_000, 1_000_000_000).unwrap();
+    gpu.frame_for_viewer(&mut host).unwrap();
+
+    let screen = gpu.game_screen().expect("the screen texture is offered");
+
+    assert_eq!(
+        (screen.texture().width(), screen.texture().height()),
+        (8, 4)
+    );
+    assert!(
+        !screen.submitted(),
+        "the viewer's frame wrote it, not a flush"
+    );
+    assert!(gpu.screen().is_none(), "no image was made of it");
+    let report = gpu.report();
+    assert_eq!((report.screen_reads, report.frames_with_work), (0, 1));
+    assert!(report.screen_reads_refused.is_empty());
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn there_is_no_screen_to_offer_before_work_made_it_or_after_it_was_taken_away() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    assert!(gpu.game_screen().is_none(), "no work has made it yet");
+    let mut host = started_screen_fixture(&gpu);
+    gpu.frame_for_viewer(&mut host).unwrap();
+    assert!(gpu.game_screen().is_some());
+
+    gpu.set_screen(None);
+
+    assert!(gpu.game_screen().is_none());
+}
+
+#[test]
+fn a_screen_of_another_size_than_the_window_is_not_offered() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    gpu.frame_for_viewer(&mut host).unwrap();
+    assert!(gpu.game_screen().is_some());
+
+    gpu.set_screen(Some([16, 8]));
+
+    assert!(
+        gpu.game_screen().is_none(),
+        "the old texture is the size the window had; the next frame with work makes a new one"
+    );
+}
+
+#[test]
+fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    gpu.set_screen(Some([8, 4]));
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    let snapshot = host.graphics_snapshot().unwrap();
+    gpu.offscreen.borrow_mut().flush(&snapshot, &host).unwrap();
+
+    let screen = gpu.game_screen().expect("the flush made the screen");
+
+    assert!(
+        screen.submitted(),
+        "the flush ran in a submission of the player's own, before any frame the viewer carries"
+    );
+
+    gpu.set_screen(Some([16, 8]));
+    let (writer, _) = gpu.offscreen.borrow_mut().frame(&snapshot, &host).unwrap();
+    assert!(writer.is_some());
+    let resized = gpu.game_screen().expect("the frame allocated a new screen");
+    assert_eq!(
+        (resized.texture().width(), resized.texture().height()),
+        (16, 8)
+    );
+    assert!(!resized.submitted(), "the flush wrote the old allocation");
+}

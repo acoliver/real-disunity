@@ -188,6 +188,30 @@ impl FrameEncoding<'_> {
     ) -> Result<(), FrameError> {
         super::super::encode_scene(self.0, device, encoder, scene, attachments, frame)
     }
+    /// The pass that shows a game screen named `resource` in the renderer's scene colour format.
+    /// Build it once and reuse it for every frame that shows a screen.
+    ///
+    /// # Errors
+    /// Fails when the device cannot build the composite for that format.
+    pub fn game_screen_pass(
+        &self,
+        device: &wgpu::Device,
+        resource: worldrunner_render_post::ResourceRef,
+    ) -> Result<super::super::GameScreenPass, FrameError> {
+        super::super::GameScreenPass::new(&*self.0, device, resource)
+    }
+    /// Encodes a frame whose scene is the game's screen, in place of
+    /// [`Self::encode_scene`]'s stock scene. The scene's admitted offscreen operations run before
+    /// the screen is sampled; its UI overlay draws over it in the output stage.
+    pub fn encode_game_screen(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &mut crate::draw::SceneGpu,
+        frame: super::super::GameScreenFrame<'_>,
+    ) -> Result<(), FrameError> {
+        super::super::game_screen_frame::encode_game_screen(self.0, device, encoder, scene, frame)
+    }
     pub fn render_depth_fitted(
         &mut self,
         context: &crate::device::GpuContext,

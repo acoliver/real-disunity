@@ -7,15 +7,19 @@ use std::sync::{Arc, mpsc};
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
 
+mod assembly;
 mod startup;
 use startup::Resolved;
 mod capture;
 mod environment;
 mod execution;
+mod game_screen;
 mod live;
 mod readiness;
 mod resource_edit;
 mod retained;
+mod shared;
+pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
 mod windowless;
@@ -51,6 +55,7 @@ pub(super) struct Renderer {
     live_upload: Option<live::Upload>,
     live_pending: Option<live::Pending>,
     streaming: readiness::Streaming,
+    game_screen: game_screen::Frames,
 }
 
 enum Resident {
@@ -81,7 +86,7 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, |_, _| {
+        Self::surface(display, window, None, |_, _| {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows,
@@ -92,13 +97,43 @@ impl Renderer {
         .await
     }
 
+    /// As [`Self::new`] with no shadows and the legacy profile, on a device made before the window.
+    #[cfg(all(test, target_os = "linux"))]
+    pub async fn new_shared(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        scene: &RenderScene,
+        shared: Shared,
+    ) -> Result<Self, ViewerError> {
+        Self::surface(display, window, Some(shared), |_, _| {
+            Ok(Resolved {
+                scene: std::borrow::Cow::Borrowed(scene),
+                shadows: None,
+                profile: crate::FrameProfile::Legacy,
+                startup: 2.into(),
+            })
+        })
+        .await
+    }
+
     async fn surface<'a>(
         display: OwnedDisplayHandle,
         window: Arc<Window>,
+        shared: Option<Shared>,
         resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
     ) -> Result<Self, ViewerError> {
         let (instance, surface, context, policy, resolved) =
-            surface_context(display, window.clone(), resolve).await?;
+            shared::surface_context(display, window.clone(), shared, resolve).await?;
+        let errors = device_errors(context.device(), context.submission());
+        let extents = Extents::for_device(policy.size, context.device())?;
+        let initial = extents.unwrap_or_else(Extents::placeholder);
+        let viewport = extents.map(|extents| extents.surface);
+        let mut presentation = assembly::surface_presentation(
+            &context,
+            policy,
+            [initial.render, initial.surface],
+            &resolved,
+        )?;
         let Resolved {
             scene,
             shadows,
@@ -106,23 +141,6 @@ impl Renderer {
             startup,
         } = resolved;
         let scene = scene.as_ref();
-        let errors = device_errors(context.device(), context.submission());
-        let extents = Extents::for_device(policy.size, context.device())?;
-        let initial = extents.unwrap_or_else(Extents::placeholder);
-        let viewport = extents.map(|extents| extents.surface);
-        let mut presentation = Presentation::with_settings(
-            &context,
-            policy.format,
-            [initial.render, initial.surface],
-            profile,
-            scene.effects(),
-            &crate::presentation::PresentationPolicy {
-                receiver_gradients: crate::presentation::receiver_reservation(shadows),
-                budget: startup.presentation_budget,
-                capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
-                recipes: startup.recipes,
-            },
-        )?;
         let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
             .map_err(surface_error)?;
         let mut streaming = readiness::Streaming::new(shadows, profile);
@@ -143,12 +161,7 @@ impl Renderer {
             window.clone(),
             startup.frames_in_flight,
         )?;
-        let renderer = Self {
-            clock: crate::clock::Clock::new(),
-            frame_time: std::time::Duration::ZERO,
-            live_upload: None,
-            live_pending: None,
-            streaming,
+        Self::assemble(assembly::RendererParts {
             execution: target::Execution::Surface(Box::new(execution)),
             #[cfg(all(test, target_os = "linux"))]
             instance: test_instance,
@@ -158,8 +171,8 @@ impl Renderer {
             resident,
             viewport,
             errors,
-        };
-        renderer.check_errors().map(|()| renderer)
+            streaming,
+        })
     }
 
     pub(crate) fn surface_extent(&self) -> [u32; 2] {
@@ -218,10 +231,16 @@ impl Renderer {
 
     fn render_admitted(
         &mut self,
-        source: FrameSource<'_>,
+        mut source: FrameSource<'_>,
         update: &mut crate::SceneUpdate,
         capture: Option<&mut live::Capture>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
+        if let FrameSource::Retained(host) = &mut source
+            && host.offscreen.is_some()
+            && !self.admit_retained_offscreen(host)?
+        {
+            return Ok(None);
+        }
         let Some(ready) = self.acquire_render_frame(update)? else {
             return Ok(None);
         };
@@ -229,12 +248,17 @@ impl Renderer {
         let (view, mut host) = match source {
             FrameSource::View(view) => (view, None),
             FrameSource::Retained(host) => {
-                self.publish_retained(host)?;
+                if host.offscreen.is_none() {
+                    self.publish_retained(host)?;
+                }
                 self.apply_retained_shadow_policy(host)?;
                 retained_view = host.view()?.expect("admitted retained extent");
                 (&retained_view, Some(host))
             }
         };
+        if let Some(host) = host.as_deref() {
+            self.reject_offscreen_depth_fitting(host)?;
+        }
         self.prepare_frame(view, ready.admission.slot())?;
         if let Some(host) = host.as_deref() {
             self.prepare_camera_history(host);
@@ -243,43 +267,25 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut retained_capture = if let Some(host) = host.as_deref_mut() {
-            let pages_ready = self.retained_pages_ready(host, view)?;
-            self.streaming.captures.prepare(
-                self.context.device(),
-                host,
-                &ready.frame.texture,
-                &self.presentation.scheduler,
-                pages_ready,
-            )?
-        } else {
-            None
-        };
+        // The offer comes first: capture preparation refuses what a screen frame cannot supply,
+        // and it does so before the frame takes the host's queued operations.
+        self.game_screen
+            .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
+        let capture::HostCapture {
+            request: mut retained_capture,
+            misses,
+        } = self.prepare_host_capture(host.as_deref_mut(), view, &ready.frame.texture)?;
         let image = retained_capture.as_mut().map(|(_, image)| image);
-        let prepared = self.encode_frame(view, capture, &output, image)?;
+        let offscreen = host.as_deref_mut().and_then(|host| host.offscreen.take());
+        let prepared = self.encode_frame(view, (capture, offscreen), &output, image, misses)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
-        if let Some(host) = host {
-            self.submitted_camera_history(host);
-            let temporal_history_reset = self.temporal_history_reset();
-            host.present_pick(view.resolved_view());
-            let statistics = self.scene_statistics();
-            self.streaming.captures.submitted(
-                host,
-                retained_capture,
-                ticket.clone(),
-                self.frame_time,
-                &statistics,
-                temporal_history_reset,
-            )?;
-        } else {
-            self.streaming.captures.advance_frame();
-        }
-        self.check_errors()?;
-
+        self.game_screen.submitted();
+        retained::finish_admitted_frame(self, host, view, retained_capture, ticket.clone())?;
         Ok(Some(ticket))
     }
+
     fn apply_retained_shadow_policy(
         &mut self,
         host: &crate::RetainedHost,
@@ -312,26 +318,16 @@ impl Renderer {
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        capture: Option<&mut live::Capture>,
+        work: (
+            Option<&mut live::Capture>,
+            Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
+        ),
         output: &wgpu::TextureView,
         retained: Option<&mut capture::Products>,
+        misses: game_screen::ViewMisses,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
-        if (capture.is_some() || retained.is_some())
-            && let Resident::Shadowed(scene) = &mut self.resident
-        {
-            scene.request_shadow_capture();
-        }
-        let fitted = self.resident.render_depth_fitted(
-            &self.context,
-            view,
-            &self.presentation.targets,
-            self.presentation.scheduler.encoding(),
-            (
-                Some(self.streaming.captures.next_frame()),
-                capture.is_some() || retained.is_some(),
-                retained.as_deref().map_or(&[], capture::Products::terms),
-            ),
-        )?;
+        let (capture, mut offscreen) = work;
+        let fitted = self.fit_stock_scene(view, capture.is_some(), retained.as_deref())?;
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
@@ -340,12 +336,15 @@ impl Renderer {
                         .scheduler
                         .begin_timing(self.streaming.captures.next_frame())
                         .map_err(|error| ViewerError::Gpu(error.to_string()))?;
-                    self.resident.render(
-                        &self.context,
-                        view,
-                        &self.presentation.targets,
+                    self.game_screen.render(
+                        &mut self.resident,
+                        (&self.context, view, &self.presentation.targets),
                         encoder,
                         self.presentation.scheduler.encoding(),
+                        game_screen::ScreenWork {
+                            operations: offscreen.take(),
+                            misses,
+                        },
                     )?;
                 }
                 self.presentation.present(encoder, output)?;
@@ -466,6 +465,13 @@ impl Resident {
         match self {
             Self::Plain(plain) => &mut plain.gpu,
             Self::Shadowed(shadowed) => shadowed.scene_mut(),
+        }
+    }
+
+    fn depth_fitting_enabled(&self) -> bool {
+        match self {
+            Self::Plain(_) => false,
+            Self::Shadowed(scene) => scene.depth_fitting_settings().is_some(),
         }
     }
 
@@ -687,44 +693,6 @@ impl From<usize> for Startup {
             desired_maximum_frame_latency: 2,
         }
     }
-}
-
-async fn surface_context<'a>(
-    display: OwnedDisplayHandle,
-    window: Arc<Window>,
-    resolve: impl FnOnce(&wgpu::Adapter, [u32; 2]) -> Result<Resolved<'a>, ViewerError>,
-) -> Result<
-    (
-        wgpu::Instance,
-        wgpu::Surface<'static>,
-        GpuContext,
-        SurfacePolicy,
-        Resolved<'a>,
-    ),
-    ViewerError,
-> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(
-        Box::new(display),
-    ));
-    let surface = instance.create_surface(window.clone())?;
-    let size = window.inner_size();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        })
-        .await?;
-    let capabilities = surface.get_capabilities(&adapter);
-    let resolved = resolve(&adapter, [size.width, size.height])?;
-    let startup = &resolved.startup;
-    let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
-    let context = timing::context(
-        adapter,
-        required_features(&resolved.scene),
-        startup.gpu_timing,
-    )
-    .await?;
-    Ok((instance, surface, context, policy, resolved))
 }
 
 #[cfg(test)]

@@ -10,6 +10,17 @@
 - `CopyOutput` is the built-in **no-effects** factory: nearest texel copy, including scaling and destination attachment transfer/channel encoding. It does not introduce a display look.
 - `color_texture` allocates common intermediate/output textures. `Readback` retains bounded staging storage, verifies the source contract, strips padding and returns native bytes (RGBA/BGRA/HDR are not silently converted). Mapping has a shared 30-second deadline and unmaps on returned errors.
 
+`CopyOutput::source` binds one sampled `AttachmentView` for a feature drawing
+inside an executor-owned pass. It returns a retained `CopySource`; call `record`
+inside that pass and keep the source's sampled-read declaration in the frame
+plan. The pass must have one single-sample colour target in the factory's output
+format and no depth attachment. Sources must be single-sample float colour
+subresources with `TEXTURE_BINDING` usage. The copy uses nearest scaling, decodes
+sRGB input through the sampled view, and leaves output transfer to the target
+format. `CopyOutput::bottom_first` inverts the sampled row after selecting the
+nearest texel. The default factory preserves row order. Rebinding a source reuses
+the pipeline. Recording the draw does not submit commands or read back pixels.
+
 Minimal copy-only presentation:
 
 ```rust,ignore

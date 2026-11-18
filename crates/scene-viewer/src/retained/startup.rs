@@ -59,6 +59,8 @@ impl RetainedHost {
             },
             captures: capture::Captures::default(),
             capture_pool,
+            offscreen: None,
+            game_screen: None,
             readiness: initial_readiness(scene.as_ref(), &options),
             initial_scene: scene.clone(),
             scene,
@@ -71,7 +73,7 @@ impl RetainedHost {
             options,
             exit: false,
             occluded: false,
-            window_on_top: false,
+            window_level: winit::window::WindowLevel::Normal,
             #[cfg(test)]
             texture_tier_memory_override: None,
         };

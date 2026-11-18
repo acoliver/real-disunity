@@ -30,6 +30,7 @@ use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
 use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
@@ -86,6 +87,17 @@ pub(super) struct DrawPlan {
     /// The texture properties that no layer set and the shader does not declare, which the draw
     /// reads from the frame's `undeclared_textures`.
     pub(super) undeclared: Vec<String>,
+    /// The constant buffer members and state properties no layer supplied. They count as the
+    /// frame's only once the draw is kept (see [`Services::keep_unset`]).
+    pub(super) unset: BTreeSet<String>,
+}
+
+/// The program and render state `choose` picked for a draw, and the state properties no layer
+/// supplied.
+pub(super) struct Chosen {
+    pub(super) entry: Arc<ProgramEntry>,
+    pub(super) state: RenderState,
+    unset: BTreeSet<String>,
 }
 
 /// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
@@ -247,13 +259,21 @@ pub(super) struct Services<'a> {
     /// Whether the draws planned now use a fragment stage that writes a constant colour, whatever
     /// the pass's own does.
     pub(super) constant_fragment: bool,
+    /// Whether depth is reversed (near 1, far 0): see `depth_range`.
+    pub(super) reversed_depth: bool,
 }
 
 impl Services<'_> {
     /// Chooses the program of `spec`, packs its constants, binds its textures and samplers.
     pub(super) fn plan_program(&mut self, spec: &DrawSpec<'_>) -> Result<DrawPlan, OffscreenError> {
-        let (entry, render_state) = self.choose(spec)?;
-        self.plan_chosen(spec, entry, render_state)
+        let chosen = self.choose(spec)?;
+        self.plan_chosen(spec, chosen)
+    }
+
+    /// Adds the names a kept draw left unset to those the frame reports. A draw left out reports
+    /// none, whichever step refused it.
+    pub(super) fn keep_unset(&mut self, plan: &DrawPlan) {
+        self.missing.extend(plan.unset.iter().cloned());
     }
 
     /// Packs the constants of the program `choose` picked for `spec` and binds its textures and
@@ -261,9 +281,13 @@ impl Services<'_> {
     pub(super) fn plan_chosen(
         &mut self,
         spec: &DrawSpec<'_>,
-        entry: Arc<ProgramEntry>,
-        render_state: RenderState,
+        chosen: Chosen,
     ) -> Result<DrawPlan, OffscreenError> {
+        let Chosen {
+            entry,
+            state: render_state,
+            unset,
+        } = chosen;
         let slots = entry.program.layout().slots().to_vec();
         let mut plan = DrawPlan {
             entry,
@@ -274,6 +298,7 @@ impl Services<'_> {
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
             undeclared: Vec::new(),
+            unset,
         };
         let entry = Arc::clone(&plan.entry);
         // Every texture is looked for before anything is bound, so a draw that lacks one changes
@@ -332,8 +357,8 @@ impl Services<'_> {
     /// The texture a slot of property `name` reads, and whether it is the frame's default for an
     /// undeclared property.
     ///
-    /// A layer's texture wins. With none, Unity binds its grey default texture of the slot's
-    /// dimension when the shader does not declare the property, so the frame's
+    /// A layer's texture wins. With none, and when the shader does not declare the property,
+    /// this engine reads a grey default texture of the slot's dimension, so the frame's
     /// `undeclared_textures` stand in, for a slot that samples a single-sampled float texture of
     /// a dimension with a default. A declared property, a slot of another kind or dimension and a
     /// frame without the texture leave the property missing.
@@ -373,10 +398,7 @@ impl Services<'_> {
     }
 
     /// The program and render state of the pass and variant `spec` selects.
-    pub(super) fn choose(
-        &mut self,
-        spec: &DrawSpec<'_>,
-    ) -> Result<(Arc<ProgramEntry>, RenderState), OffscreenError> {
+    pub(super) fn choose(&mut self, spec: &DrawSpec<'_>) -> Result<Chosen, OffscreenError> {
         let started = std::time::Instant::now();
         let shader = self
             .shaders
@@ -398,9 +420,14 @@ impl Services<'_> {
             entry
         };
         self.counts.program_time += started.elapsed();
-        let state = resolve_state(&resolved.state, &spec.layers.values())?;
-        self.missing.extend(state.defaulted);
-        Ok((entry, state.state))
+        let mut state = resolve_state(&resolved.state, &spec.layers.values())?;
+        state.state.depth_compare =
+            depth_range::depth_test(state.state.depth_compare, self.reversed_depth);
+        Ok(Chosen {
+            entry,
+            state: state.state,
+            unset: state.defaulted.into_iter().collect(),
+        })
     }
 
     fn runtime_program(
@@ -472,7 +499,7 @@ impl Services<'_> {
                 &spec.layers.values(),
             );
         }
-        self.missing.extend(packed.missing);
+        plan.unset.extend(packed.missing);
         let placed = self.constants.push(&packed.bytes)?;
         plan.constants.push(PendingConstant {
             set: slot.set,
@@ -639,7 +666,9 @@ impl Services<'_> {
                 SamplerBinding {
                     binding: slot.binding,
                     visibility: slot.visibility,
-                    sampler: self.samplers.comparison(state, sampling::SHADOW_COMPARE),
+                    sampler: self
+                        .samplers
+                        .comparison(state, depth_range::shadow_compare(self.reversed_depth)),
                 },
             ));
             return;

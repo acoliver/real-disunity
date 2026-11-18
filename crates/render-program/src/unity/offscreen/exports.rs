@@ -11,13 +11,39 @@ use crate::ids::TextureId;
 use super::OffscreenOperations;
 use super::error::OffscreenError;
 
+/// An export and the texture of the runtime it names.
+pub(super) struct Export {
+    pub(super) output: OperationsOutput,
+    texture: wgpu::Texture,
+}
+
 impl OffscreenOperations {
     /// Whether the pending work declares a checked write to `resource` on admission.
     #[must_use]
     pub fn exports(&self, resource: ResourceRef) -> bool {
         self.exports
             .iter()
-            .any(|output| output.resource == resource)
+            .any(|export| export.output.resource == resource)
+    }
+
+    /// Whether the pending work exports `texture` itself as `resource`. Another texture of the
+    /// same format and size exported under that name does not count.
+    #[must_use]
+    pub fn exports_texture(&self, resource: ResourceRef, texture: &wgpu::Texture) -> bool {
+        self.exports
+            .iter()
+            .any(|export| export.output.resource == resource && export.texture == *texture)
+    }
+
+    /// Drops the export named `resource`, for a host with no use for it in this frame. The
+    /// operations still run and write their textures; the admitted work no longer reports
+    /// `resource` as an output, so a plan that does not read it need not host it. Returns whether
+    /// there was such an export.
+    pub fn withdraw_export(&mut self, resource: ResourceRef) -> bool {
+        let before = self.exports.len();
+        self.exports
+            .retain(|export| export.output.resource != resource);
+        self.exports.len() != before
     }
 
     /// Names one mip and layer of a texture of the frame, which the operations write, as
@@ -65,11 +91,19 @@ impl OffscreenOperations {
         if self.exports(resource) {
             return Err(OffscreenError::ExportedTwice(resource));
         }
-        self.exports.push(OperationsOutput::new(
-            resource,
-            imported.format,
-            imported.size.map(|side| (side >> mip).max(1)),
-        ));
+        let texture = self
+            .tracker
+            .primary_texture(texture)
+            .ok_or(OffscreenError::UnknownTexture(texture))?
+            .clone();
+        self.exports.push(Export {
+            output: OperationsOutput::new(
+                resource,
+                imported.format,
+                imported.size.map(|side| (side >> mip).max(1)),
+            ),
+            texture,
+        });
         Ok(())
     }
 }

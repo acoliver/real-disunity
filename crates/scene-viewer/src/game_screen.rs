@@ -106,6 +106,11 @@ impl<K: PartialEq + Clone> Ledger<K> {
         true
     }
 
+    /// The allocation the host currently offers.
+    pub(crate) fn offered(&self) -> Option<&K> {
+        self.screen.as_ref()
+    }
+
     /// Whether an earlier submission wrote the currently offered allocation.
     pub(crate) fn has_submitted_screen(&self) -> bool {
         self.written

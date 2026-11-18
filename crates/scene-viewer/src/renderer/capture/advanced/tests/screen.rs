@@ -194,6 +194,7 @@ fn screen_warmup_restores_the_missing_page_and_the_capture_completes() {
     host.show_game_screen(Some(GameScreen::new(texture, false).unwrap()));
     host.admit_offscreen(ops);
     let before = authority.submitted_serial();
+    let warmup_frame = renderer.streaming.captures.next_frame();
 
     assert!(!renderer.render_retained(&mut host).unwrap());
     assert_eq!(authority.submitted_serial(), before + 1);
@@ -210,7 +211,35 @@ fn screen_warmup_restores_the_missing_page_and_the_capture_completes() {
         "screen warm-up left its required page missing"
     );
 
-    let image = await_capture(&mut host, &mut renderer, id).srgb8.unwrap();
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    let first_scene = renderer.scene_statistics();
+    let first_reset = renderer.temporal_history_reset();
+    let first_time = renderer.frame_time;
+    renderer.drain().unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    let Some(RetainedEvent::Capture {
+        id: actual,
+        generation: 0,
+        outcome:
+            RetainedCaptureOutcome::RecipeCompleted {
+                frame,
+                time,
+                observation,
+                products,
+            },
+    }) = host.captures.take_event()
+    else {
+        panic!("two samples after warmup did not complete");
+    };
+    assert_eq!(actual, id);
+    assert_eq!(frame, warmup_frame + 1);
+    assert_eq!(time, first_time);
+    assert_eq!(observation.scene, first_scene);
+    assert_eq!(observation.temporal_history_reset, first_reset);
+    let image = products.srgb8.unwrap();
     assert_eq!(image.pixels.len(), 64 * 64 * 4);
     assert!(is_all(&image, YELLOW));
 }

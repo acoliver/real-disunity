@@ -124,11 +124,11 @@ const STOCK_ATTACHMENTS: [(CaptureOutput, FeatureTarget); 6] = [
 ];
 
 impl Products {
-    /// Whether any of `outputs` is read from an attachment that only a stock scene frame writes.
-    pub(in crate::renderer) fn reads_stock_attachments(outputs: &[CaptureOutput]) -> bool {
-        STOCK_ATTACHMENTS
-            .iter()
-            .any(|(output, _)| outputs.contains(output))
+    /// Whether any output needs a stock scene attachment or a replay of its lighting.
+    pub(in crate::renderer) fn requires_stock_scene(outputs: &[CaptureOutput]) -> bool {
+        outputs.iter().any(|output| {
+            output.term().is_some() || STOCK_ATTACHMENTS.iter().any(|(stock, _)| stock == output)
+        })
     }
     pub(in crate::renderer) fn new(
         device: &wgpu::Device,

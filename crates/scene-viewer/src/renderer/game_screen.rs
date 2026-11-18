@@ -79,6 +79,33 @@ impl Frames {
         }
     }
 
+    /// Whether `operations` write the offered texture itself under [`GAME_SCREEN`]. An export of
+    /// another texture under that name is not a write of the offered screen.
+    fn writes_offered(&self, operations: Option<&OffscreenOperations>) -> bool {
+        self.ledger
+            .offered()
+            .zip(operations)
+            .is_some_and(|(screen, work)| work.exports_texture(GAME_SCREEN, screen))
+    }
+
+    /// The operations as the frame hosts them, and whether they write the offered screen. An
+    /// export under [`GAME_SCREEN`] that does not name the offered texture is dropped: the
+    /// frame's plan hosts no view for it, so it would fail validation, or count another texture
+    /// as written.
+    fn screen_writer(
+        &self,
+        operations: Option<OffscreenOperations>,
+    ) -> (Option<OffscreenOperations>, bool) {
+        let writes = self.writes_offered(operations.as_ref());
+        let operations = operations.map(|mut operations| {
+            if !writes {
+                operations.withdraw_export(GAME_SCREEN);
+            }
+            operations
+        });
+        (operations, writes)
+    }
+
     pub(super) fn covers_stock_scene(&self) -> bool {
         self.ledger.has_submitted_screen()
     }
@@ -100,10 +127,7 @@ impl Frames {
         work: ScreenWork,
     ) -> Result<(), ViewerError> {
         let (context, view, targets) = scene;
-        let writes = work
-            .operations
-            .as_ref()
-            .is_some_and(|op| op.exports(GAME_SCREEN));
+        let (operations, writes) = self.screen_writer(work.operations);
         let composite = if let Some(show) = self.ledger.plan(writes) {
             let color =
                 AttachmentView::new(ResourceRef::new("scene color"), targets.color.texture())?;
@@ -125,7 +149,7 @@ impl Frames {
             None
         };
         // Keep the packet local until the selected frame has finished its preparation.
-        if let Some(operations) = work.operations {
+        if let Some(operations) = operations {
             let admitted = operations
                 .admit(encoder)
                 .map_err(|error| ViewerError::Offscreen(error.to_string()))?;
@@ -166,12 +190,11 @@ impl super::Renderer {
             .recipes
             .get(&id)
             .map_or(&[][..], crate::RetainedCaptureRecipe::outputs);
-        if super::capture::Products::reads_stock_attachments(outputs)
-            && self.game_screen.ledger.will_show(
-                host.offscreen
-                    .as_ref()
-                    .is_some_and(|work| work.exports(GAME_SCREEN)),
-            )
+        if super::capture::Products::requires_stock_scene(outputs)
+            && self
+                .game_screen
+                .ledger
+                .will_show(self.game_screen.writes_offered(host.offscreen.as_ref()))
         {
             return Err(ViewerError::UnsupportedScene(
                 "capture of frame attachments while the game screen replaces the stock scene",

@@ -586,7 +586,8 @@ impl RetainedHost {
     /// Offers the game's own screen, or withdraws it with `None`, for the frames the viewer renders
     /// next. While a screen with contents is offered a frame shows it in place of the stock scene
     /// and the UI draws over it, with no copy through the CPU. A screen has contents once an
-    /// earlier frame that carried operations exporting it as [`crate::GAME_SCREEN`] was submitted,
+    /// earlier frame that carried operations exporting this texture as [`crate::GAME_SCREEN`] was
+    /// submitted (an export of another texture under that name is dropped and counts for nothing),
     /// or when the offer says submitted work wrote it (see [`crate::GameScreen::new`]). Until then,
     /// and in a frame whose operations do not reach the viewer, the stock scene shows. Offering a
     /// different texture, such as the one a resize makes, starts without contents. A capture of

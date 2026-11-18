@@ -531,7 +531,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
-    exports: Vec<OperationsOutput>,
+    exports: Vec<exports::Export>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -837,7 +837,10 @@ impl OffscreenOperations {
             registry,
             self.lease,
             Pins::new(&self.authority, self.shares),
-            self.exports,
+            self.exports
+                .into_iter()
+                .map(|export| export.output)
+                .collect(),
         );
         admitted.retain(encoder)?;
         Ok(admitted)

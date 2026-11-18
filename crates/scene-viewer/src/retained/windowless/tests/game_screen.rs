@@ -155,6 +155,50 @@ fn a_new_allocation_starts_without_contents_and_shows_the_stock_scene() {
     );
 }
 
+#[test]
+fn a_screen_the_handed_operations_did_not_export_is_not_marked_written() {
+    let (gpu, device, authority) = shared();
+    let (operations, written, _runtime) = screen_operations(&device, &authority);
+    let unwritten = blank(&device, 8);
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let baseline = super::capture(&mut run, &events).1;
+
+    run.host_mut()
+        .show_game_screen(Some(GameScreen::new(unwritten, false).unwrap()));
+    run.host_mut().admit_offscreen(operations);
+    let shown = super::capture(&mut run, &events).1;
+    let later = super::capture(&mut run, &events).1;
+    run.shutdown().unwrap();
+
+    drop(written);
+    assert_eq!(
+        shown, baseline,
+        "the writer exported another texture: the offered one has no contents"
+    );
+    assert_eq!(later, baseline, "the offered texture stays unwritten");
+}
+
+#[test]
+fn work_exporting_a_withdrawn_screen_runs_in_a_stock_frame() {
+    let (gpu, device, authority) = shared();
+    let (operations, texture, _runtime) = screen_operations(&device, &authority);
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let baseline = super::capture(&mut run, &events).1;
+
+    run.host_mut()
+        .show_game_screen(Some(GameScreen::new(texture, false).unwrap()));
+    run.host_mut().show_game_screen(None);
+    run.host_mut().admit_offscreen(operations);
+    let shown = super::capture(&mut run, &events).1;
+    run.shutdown().unwrap();
+
+    assert_eq!(shown, baseline, "no screen is offered: the stock scene");
+}
+
 /// Clears `texture` to yellow in a submission of its own, as a flush the player runs does.
 fn fill_yellow(device: &wgpu::Device, authority: &SubmissionAuthority, texture: &wgpu::Texture) {
     let mut frame = authority.begin(device).unwrap();
@@ -239,6 +283,12 @@ fn an_ordinary_frame_that_shows_the_screen_is_one_submission_and_no_readback() {
             authority.submitted_serial() - before,
             1,
             "frame {frame}: a copy of the screen for the CPU would be a submission of its own"
+        );
+        // Release the flight slot before asking for another measured frame.
+        run.renderer.drain().unwrap();
+        assert!(
+            authority.settled_through(before + 1),
+            "the measured frame still occupies a flight slot"
         );
     }
     run.shutdown().unwrap();

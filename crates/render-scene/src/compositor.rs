@@ -35,6 +35,8 @@ pub use crate::draw::TerrainDraws;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
+#[cfg(test)]
+pub(crate) use game::terrain_probe;
 pub use game::{
     ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameTerrainError,
     FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,

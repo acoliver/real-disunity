@@ -5,6 +5,9 @@ use std::rc::Rc;
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::FrameError;
 
+#[cfg(test)]
+pub(crate) mod probe;
+
 /// Why the frame in flight has no terrain chunks to lend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameTerrainError {

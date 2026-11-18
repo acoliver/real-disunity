@@ -25,6 +25,8 @@ struct State {
     settling: BTreeSet<usize>,
     revision: u64,
     serial: u64,
+    /// Rises with every change to what `History::ready` reads, from any caller.
+    version: u64,
 }
 
 #[derive(Debug, Default)]
@@ -55,6 +57,7 @@ pub(crate) struct Candidate {
 impl History {
     pub fn add(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
+        state.version += 1;
         state.revision += 1;
         let revision = state.revision;
         let length = (slot + 1).max(state.slots.len());
@@ -72,6 +75,7 @@ impl History {
 
     pub fn edit(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
+        state.version += 1;
         state.revision += 1;
         let revision = state.revision;
         state.slots[slot]
@@ -83,6 +87,7 @@ impl History {
 
     pub fn remove(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
+        state.version += 1;
         state.slots[slot] = None;
         state.pending.remove(&slot);
         state.settling.remove(&slot);
@@ -95,6 +100,18 @@ impl History {
             let slot = state.slots[slot].as_mut().expect("live history slot");
             slot.reset = Some(slot.revision);
         }
+    }
+
+    /// A counter that moves whenever anything `ready` reads changes: slots, pending and settling
+    /// sets, physical previous bytes, the prepared candidate. Candidates and staged publications
+    /// move it too, since they run after the batch's own edits.
+    pub fn version(&self) -> u64 {
+        self.state.borrow().version
+    }
+
+    /// Lets a publication that runs later record a change to what `ready` reads.
+    pub fn changes(&self) -> Changes {
+        Changes(self.state.clone())
     }
 
     pub fn has_pending(&self) -> bool {
@@ -146,6 +163,7 @@ impl History {
             .copied()
             .collect();
         state.serial += 1;
+        state.version += 1;
         let records = frontier
             .into_iter()
             .filter_map(|slot| {
@@ -208,6 +226,16 @@ impl History {
     }
 }
 
+/// Records, from a publication that runs after the batch's own edits, that readiness may have
+/// changed.
+pub(crate) struct Changes(Rc<RefCell<State>>);
+
+impl Changes {
+    pub fn record(&self) {
+        self.0.borrow_mut().version += 1;
+    }
+}
+
 impl Record {
     fn choose(
         slot: usize,
@@ -266,6 +294,7 @@ impl Candidate {
     /// Acknowledges previous bytes only after the upload's actual encoder was enqueued.
     pub fn acknowledge_previous(&self, full: bool) {
         let mut state = self.state.borrow_mut();
+        state.version += 1;
         for record in self
             .records
             .iter()
@@ -283,6 +312,7 @@ impl Candidate {
     /// Called exclusively by a submitted final-colour publication.
     pub fn publish(self) {
         let mut state = self.state.borrow_mut();
+        state.version += 1;
         for record in self.records.iter() {
             let Some(slot) = state.slots.get_mut(record.slot).and_then(Option::as_mut) else {
                 continue;

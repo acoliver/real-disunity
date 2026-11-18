@@ -298,27 +298,42 @@ fn filter_of(mode: u32) -> Filter {
     }
 }
 
-/// The wrap and filter of a stored texture's sampler. The wrap along w, anisotropy and mip bias
-/// are not carried by render-program's sampler state. A value the engine does not define reads
-/// as the engine's default: repeat and bilinear.
+/// The wrap along each axis, filter and anisotropy of a stored texture's sampler. A value the
+/// engine does not define reads as the engine's default: repeat and bilinear. The project defines
+/// anisotropy levels 0 to 16 and the default as 1, and says nothing different for 0, so 0 and 1
+/// both read as no anisotropy and a level above 16 as 16. The sampler applies the level only to
+/// a trilinear filter. The mip bias is not carried: wgpu samplers have no LOD bias.
 #[must_use]
 pub fn sampler_of_stored(sampler: &TextureSampler) -> SamplerState {
+    sampler_state(
+        [sampler.wrap_u, sampler.wrap_v, sampler.wrap_w],
+        sampler.filter,
+        sampler.aniso_level,
+    )
+}
+
+/// The sampler state of a render texture's sampler; see [`sampler_of_stored`].
+#[must_use]
+pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
+    sampler_state(
+        [sampler.wrap_u, sampler.wrap_v, sampler.wrap_w],
+        sampler.filter,
+        sampler.aniso_level,
+    )
+}
+
+fn sampler_state(wrap: [u32; 3], filter: u32, aniso_level: u32) -> SamplerState {
     SamplerState {
-        wrap_u: wrap_of(sampler.wrap_u),
-        wrap_v: wrap_of(sampler.wrap_v),
-        filter: filter_of(sampler.filter),
+        wrap_u: wrap_of(wrap[0]),
+        wrap_v: wrap_of(wrap[1]),
+        wrap_w: wrap_of(wrap[2]),
+        filter: filter_of(filter),
+        anisotropy: u16::try_from(aniso_level.clamp(1, MAX_ANISO_LEVEL)).unwrap_or(1),
     }
 }
 
-/// The wrap and filter of a render texture's sampler; see [`sampler_of_stored`].
-#[must_use]
-pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
-    SamplerState {
-        wrap_u: wrap_of(sampler.wrap_u),
-        wrap_v: wrap_of(sampler.wrap_v),
-        filter: filter_of(sampler.filter),
-    }
-}
+/// The highest anisotropy level the host stores.
+const MAX_ANISO_LEVEL: u32 = 16;
 
 /// The `GraphicsFormat` of a stored block-compressed texture's blocks and the bytes per 4x4 block,
 /// for the engine `TextureFormat`s the device samples as they are: DXT1 (10), DXT5 (12), BC7 (25)

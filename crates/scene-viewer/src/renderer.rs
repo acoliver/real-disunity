@@ -25,6 +25,7 @@ pub(crate) mod timing;
 mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{
     SceneView, Viewport,
     device::GpuContext,
@@ -318,10 +319,7 @@ impl Renderer {
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        work: (
-            Option<&mut live::Capture>,
-            Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
-        ),
+        work: (Option<&mut live::Capture>, Option<PendingOffscreen>),
         output: &wgpu::TextureView,
         retained: Option<&mut capture::Products>,
         misses: game_screen::ViewMisses,

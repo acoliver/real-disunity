@@ -6,6 +6,7 @@ use crate::{ViewerError, ViewerOptions};
 pub use camera::{CameraContinuity, TemporalHistoryReset};
 use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
@@ -277,7 +278,7 @@ pub struct RetainedHost {
     pub(crate) captures: capture::Captures,
     pub(crate) capture_pool: u64,
     /// The player's offscreen work for the next frame the viewer renders.
-    pub(crate) offscreen: Option<worldrunner_render_program::unity::offscreen::OffscreenOperations>,
+    pub(crate) offscreen: Option<PendingOffscreen>,
     /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
     pub(crate) game_screen: Option<crate::GameScreen>,
     pub(crate) scene: Option<RenderScene>,
@@ -576,10 +577,7 @@ impl RetainedHost {
     /// render textures are written before the scene samples them. A later call replaces work no
     /// frame took. The operations must come from a runtime on the device the window draws on,
     /// such as one [`crate::ViewerStart::device`] made.
-    pub fn admit_offscreen(
-        &mut self,
-        operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    ) {
+    pub fn admit_offscreen(&mut self, operations: PendingOffscreen) {
         self.offscreen = Some(operations);
     }
 

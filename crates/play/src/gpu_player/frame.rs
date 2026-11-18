@@ -4,6 +4,7 @@
 use std::time::Instant;
 
 use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 
 use super::{GpuWorkReport, PlayerGpu};
@@ -56,8 +57,9 @@ impl PlayerGpu {
     pub(crate) fn frame_for_viewer(
         &self,
         host: &mut DisunityHost,
-    ) -> Result<Option<OffscreenOperations>, PlayError> {
+    ) -> Result<Option<PendingOffscreen>, PlayError> {
         self.frame_with(host, Delivery::Viewer)
+            .map(|operations| operations.map(OffscreenOperations::into_pending))
     }
 
     fn frame_with(

@@ -14,7 +14,7 @@ use super::Resident;
 use crate::game_screen::{GAME_SCREEN, GameScreen, Ledger};
 use crate::{RetainedHost, ViewerError, presentation::Targets};
 use worldrunner_render_post::{AttachmentView, ResourceRef};
-use worldrunner_render_program::unity::offscreen::OffscreenOperations;
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FrameEncoding, GameScreenFrame, GameScreenPass},
@@ -63,7 +63,7 @@ impl ViewMisses {
 
 /// Offscreen work and terrain dependencies for this encoder.
 pub(super) struct ScreenWork {
-    pub(super) operations: Option<OffscreenOperations>,
+    pub(super) operations: Option<PendingOffscreen>,
     pub(super) misses: ViewMisses,
 }
 
@@ -81,7 +81,7 @@ impl Frames {
 
     /// Whether `operations` write the offered texture itself under [`GAME_SCREEN`]. An export of
     /// another texture under that name is not a write of the offered screen.
-    fn writes_offered(&self, operations: Option<&OffscreenOperations>) -> bool {
+    fn writes_offered(&self, operations: Option<&PendingOffscreen>) -> bool {
         self.ledger
             .offered()
             .zip(operations)
@@ -94,8 +94,8 @@ impl Frames {
     /// as written.
     fn screen_writer(
         &self,
-        operations: Option<OffscreenOperations>,
-    ) -> (Option<OffscreenOperations>, bool) {
+        operations: Option<PendingOffscreen>,
+    ) -> (Option<PendingOffscreen>, bool) {
         let writes = self.writes_offered(operations.as_ref());
         let operations = operations.map(|mut operations| {
             if !writes {

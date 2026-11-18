@@ -5,6 +5,7 @@ use crate::renderer::retained_tests::{
 use crate::{RetainedHost, RetainedUpdate};
 use std::sync::Arc;
 use worldrunner_render_plan::{SceneTerrain, SceneTerrainParts, TerrainStreamingPolicy};
+use worldrunner_render_program::offscreen::PendingOffscreen;
 
 #[test]
 fn offscreen_preparation_pending_rejects_fitted_generation_without_frame_submission() {
@@ -66,7 +67,7 @@ fn offscreen_preparation_pending_rejects_fitted_generation_without_frame_submiss
 fn assert_preparation_pending(
     renderer: &mut Renderer,
     host: &mut RetainedHost,
-    packet: *const worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    packet: *const PendingOffscreen,
     serial: u64,
     capture_frame: u64,
 ) {
@@ -85,7 +86,7 @@ fn assert_preparation_pending(
 fn assert_fitted_rejection(
     renderer: &mut Renderer,
     host: &mut RetainedHost,
-    packet: *const worldrunner_render_program::unity::offscreen::OffscreenOperations,
+    packet: *const PendingOffscreen,
     capture_frame: u64,
 ) {
     let serial = renderer.context.submission().submitted_serial();

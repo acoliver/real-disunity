@@ -7,7 +7,7 @@ use crate::player::{GpuWork, window_gpu};
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
 use worldrunner_render_gpu::device::DeviceRequirements;
-use worldrunner_render_program::unity::offscreen::OffscreenOperations;
+use worldrunner_render_program::offscreen::PendingOffscreen;
 
 fn trace(records: usize, error: Option<&str>) -> WorkTrace {
     WorkTrace {
@@ -298,7 +298,7 @@ fn started_screen_fixture(gpu: &PlayerGpu) -> DisunityHost {
 
 /// What the viewer does with the operations of a frame: admits them on its own recording and
 /// submits that, without waiting.
-fn submit_like_the_viewer(gpu: &PlayerGpu, operations: OffscreenOperations) {
+fn submit_like_the_viewer(gpu: &PlayerGpu, operations: PendingOffscreen) {
     let mut frame = gpu.authority.begin(&gpu.device).unwrap();
     let admitted = operations.admit(&frame).unwrap();
     admitted.encode(None, &mut frame).unwrap();

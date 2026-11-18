@@ -6,10 +6,11 @@ use std::collections::BTreeMap;
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_program::ids::{CameraId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::OffscreenState;
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, OffscreenFrame, Record, RenderDimension, RenderTextureSpec,
 };
+use worldrunner_render_program::unity::offscreen::{OffscreenState, PendingImage};
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::shader::PassSelector;
 
@@ -89,16 +90,12 @@ fn runtime_on(
 pub(crate) fn clearing_operations(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-) -> (
-    worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    worldrunner_render_program::unity::offscreen::PendingImage,
-    Box<dyn std::any::Any>,
-) {
+) -> (PendingOffscreen, PendingImage, Box<dyn std::any::Any>) {
     let (mut runtime, arena) = runtime_on(device, authority);
     let mut state = OffscreenState::new(&runtime);
     let mut operations = state.build(&mut runtime, &arena, &clear()).unwrap();
     let image = operations.read_back(TARGET, 0, 0).unwrap();
-    (operations, image, Box::new((runtime, arena)))
+    (operations.into_pending(), image, Box::new((runtime, arena)))
 }
 
 /// The operations of [`clearing_operations`] on a texture stored as sRGB, as a game's screen is,
@@ -107,11 +104,7 @@ pub(crate) fn clearing_operations(
 pub(crate) fn screen_operations(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-) -> (
-    worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    wgpu::Texture,
-    Box<dyn std::any::Any>,
-) {
+) -> (PendingOffscreen, wgpu::Texture, Box<dyn std::any::Any>) {
     let (mut runtime, arena) = runtime_on(device, authority);
     let mut state = OffscreenState::new(&runtime);
     let mut frame = clear();
@@ -121,7 +114,11 @@ pub(crate) fn screen_operations(
     operations.export(TARGET, 0, 0, crate::GAME_SCREEN).unwrap();
     let handle = state.texture_handle(TARGET).unwrap();
     let texture = runtime.gpu_texture(handle).unwrap();
-    (operations, texture, Box::new((runtime, arena)))
+    (
+        operations.into_pending(),
+        texture,
+        Box::new((runtime, arena)),
+    )
 }
 
 /// Whether `bytes` is the 8 by 8 render texture [`clear`] makes, all yellow.

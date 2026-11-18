@@ -39,9 +39,9 @@ use crate::arena::ProgramArena;
 use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
-use crate::offscreen::AdmittedOffscreen;
+use crate::offscreen::{AdmissionError, AdmittedOffscreen, Export, PendingOffscreen};
 use crate::program::GraphicsProgram;
-use crate::resources::{BufferHandle, Pins, TextureHandle};
+use crate::resources::{BufferHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
 use crate::unity::shader::ProgramShader;
@@ -531,7 +531,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
-    exports: Vec<exports::Export>,
+    exports: Vec<Export>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -817,6 +817,22 @@ impl OffscreenOperations {
         &self.missing
     }
 
+    /// Hands the operations and their exports to a consumer that admits them on its own frame.
+    /// Finish adapter-side reporting, readbacks and exports before handing off the packet.
+    #[must_use]
+    pub fn into_pending(self) -> PendingOffscreen {
+        PendingOffscreen {
+            device: self.device,
+            authority: self.authority,
+            lease: self.lease,
+            registry: self.tracker.registry,
+            operations: self.operations,
+            reads: self.reads,
+            exports: self.exports,
+            shares: self.shares,
+        }
+    }
+
     /// Has the contract check the whole list and the reads the scene will make after it, and has
     /// `encoder`'s frame retain the arena and the storage the operations use until the GPU has
     /// completed the frame. Nothing is retained when the check fails.
@@ -829,20 +845,11 @@ impl OffscreenOperations {
         self,
         encoder: &wgpu::CommandEncoder,
     ) -> Result<AdmittedOffscreen, OffscreenError> {
-        let registry = self.tracker.registry;
-        let compiled =
-            registry.compile_operations_with_reads(&self.device, &self.operations, &self.reads)?;
-        let admitted = AdmittedOffscreen::new(
-            compiled,
-            registry,
-            self.lease,
-            Pins::new(&self.authority, self.shares),
-            self.exports
-                .into_iter()
-                .map(|export| export.output)
-                .collect(),
-        );
-        admitted.retain(encoder)?;
-        Ok(admitted)
+        self.into_pending()
+            .admit(encoder)
+            .map_err(|error| match error {
+                AdmissionError::Contract(error) => error.into(),
+                AdmissionError::Program(error) => error.into(),
+            })
     }
 }

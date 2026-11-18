@@ -716,3 +716,6 @@ fn mixed_pressure_evicts_old_source_and_target_but_preserves_a_global_target() {
         held + new_target_bytes - 8 * 8 * 4
     );
 }
+
+#[path = "reclaim/pending_completion.rs"]
+mod pending_completion;

@@ -221,6 +221,8 @@ pub enum ProgramError {
     UnsupportedTarget(#[from] UnsupportedTarget),
     #[error(transparent)]
     TextureUpload(#[from] UploadError),
+    #[error("block-image transfer refused: {0}")]
+    BlockTransfer(#[from] BlockTransferError),
     /// The encoder is not one the submission authority handed out for the frame being recorded.
     #[error(transparent)]
     Transaction(#[from] TransactionError),
@@ -260,6 +262,69 @@ pub enum StorageImageError {
     Unsupported {
         format: wgpu::TextureFormat,
         access: wgpu::StorageTextureAccess,
+    },
+}
+
+/// Which texture of a block-image transfer a refusal is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum TransferSide {
+    #[error("source")]
+    Source,
+    #[error("destination")]
+    Destination,
+}
+
+/// Why a block-image transfer is refused before anything is recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum BlockTransferError {
+    #[error(
+        "the {side} texture is {dimension:?} with {samples} samples per texel; a transfer takes single-sample 2D textures"
+    )]
+    NotFlat {
+        side: TransferSide,
+        dimension: wgpu::TextureDimension,
+        samples: u32,
+    },
+    #[error("the source holds {format:?} texels; a transfer reads Rg32Uint or Rgba32Uint blocks")]
+    SourceFormat { format: wgpu::TextureFormat },
+    #[error("the destination is {format:?}, which is not block-compressed")]
+    DestinationNotCompressed { format: wgpu::TextureFormat },
+    #[error("the device lacks {missing:?}, which {format:?} needs")]
+    DeviceLacksFormat {
+        format: wgpu::TextureFormat,
+        missing: wgpu::Features,
+    },
+    #[error("a source texel is {texel_bytes} bytes and a destination block is {block_bytes}")]
+    BlockSizeMismatch { texel_bytes: u32, block_bytes: u32 },
+    #[error("the {side} texture's usage {usage:?} lacks {needed:?}")]
+    Usage {
+        side: TransferSide,
+        usage: wgpu::TextureUsages,
+        needed: wgpu::TextureUsages,
+    },
+    #[error("the {side} layer {layer} is outside the texture's {layers} layers")]
+    LayerOutOfRange {
+        side: TransferSide,
+        layer: u32,
+        layers: u32,
+    },
+    #[error("the {side} mip {mip} is outside the texture's {mips} mips")]
+    MipOutOfRange {
+        side: TransferSide,
+        mip: u32,
+        mips: u32,
+    },
+    #[error("a transfer extent has a zero side")]
+    EmptyExtent,
+    #[error("the extent {extent:?} does not fit the destination mip of {mip:?}")]
+    ExtentPastMip { extent: [u32; 2], mip: [u32; 2] },
+    #[error("the destination extent holds {blocks:?} blocks and the source region is {region:?}")]
+    BlockCountMismatch { blocks: [u32; 2], region: [u32; 2] },
+    #[error("the source region at {origin:?} of {extent:?} does not fit the source mip of {mip:?}")]
+    SourceRegionPastMip {
+        origin: [u32; 2],
+        extent: [u32; 2],
+        mip: [u32; 2],
     },
 }
 

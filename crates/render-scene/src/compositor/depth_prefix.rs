@@ -212,7 +212,6 @@ impl FrameRenderer {
         let (gpu, pipelines) = scene;
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
-        self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();
         let mut views = prefix.views.clone();

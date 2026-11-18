@@ -224,6 +224,28 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 - **Shadow caster.** `shadows::terrain_caster::TerrainCaster` is a vertex-only program (`vs_terrain_depth` over the shadow depth source) on `TargetSignature::depth_only(Depth32Float, 1)`, with the caster's state (back faces culled, the configured depth test with writes, and its depth bias, slope included). Each cascade's light frame buffer is the program's set 0, lent as an import and prepared once per buffer, so a scene prepares four sets for each frame slot it draws. `ShadowedScene` prepares them with its other per-frame preparation, and recording is `2 + 4C` commands for C chunks, over the same chunk geometry as the forward draw. `SceneGpu::terrain_caster_selection` keeps the cascade's frustum and slice hull test in one place for the draw and the captures. A `vertex_only_program_in` that lends the engine's frame group would remove the four sets; the runtime has no such constructor yet.
 - **No fixed pipelines.** `ScenePipelines` holds no terrain pipeline, bind group layout or bind group: every context's terrain, caster and prepass records through the program runtime, and a context whose screen group the program does not lend fails to build its terrain program rather than drawing another way. The captures in `terrain/capture_tests` draw plain, pages, layered and layered pages across the twelve forward target sets and the six single-sample ones again with shared depth and with depth reuse, where the depth and stencil planes are checked too; the gather receivers, shadow receivers, specialization, and streaming residency; the metadata prepass in both outputs with independent, shared and winner-marking depth; and the six capture terms in the plain, shadowed, ambient and reflection replays; the shadow caster's depth texels in four cascades over the whole terrain with and without a depth bias, and over streamed chunks with the cascades' volumes and a slice hull. Each capture asserts that the runtime recorded the terrain once and prepared a pipeline and set for it.
 
+### Stock geometry for caller-owned terrain passes
+
+`SceneGpu::prepared_terrain_chunks` reads the chunks the stock camera pass would
+submit. Call it inside the scene's frame transaction after stock scene preparation
+or `SceneGpu::prepare_terrain_geometry`, with the same selection projection and
+viewport. The supplied raster projection and camera position give the same
+frustum culling and nearest-first order as the stock pass. A cancelled or unrelated
+frame cannot read that preparation. A scene without streamed terrain returns
+`None`.
+
+Each draw carries its inclusive height-sample bounds and sampling stride. Edge
+neighbors come from the entire admitted cover, including culled leaves. Their
+positive-length overlaps are sorted along the edge and can describe multiple
+strides. The caller owns material nodes, material page slots and index-map
+coordinates and lifetimes; geometric sampling strides do not describe those.
+
+`terrain::build_terrain_chunk_mesh` packs a chunk from the matching `SceneTerrain`
+using the same builder as the stock uploads. It produces scene-metre vertices
+in the stock geometry layout, little-endian `u32` indices and double-sided skirts.
+Both far endpoints are preserved on partial intervals. Invalid chunk windows or
+strides and unaddressable mesh sizes return a typed `TerrainError`.
+
 ## Objects on the program runtime
 
 Lit objects, foliage and impostors draw through `render-program` in the forward passes: plain, velocity, SSAO and its gather receiver, reflection, and each of them as a shadow receiver, at one or four samples. The metadata prepass, the opaque term replays and the shadow casters draw them through the runtime too, in their own contexts: `SceneGpu::draw_color`, `draw_prepass`, `draw_opaque_capture` and `draw_casters_prepared` record the objects through the runtime. A caster context draws into a depth-only signature with the caster entry points and the map's depth test and bias, and casts every key as the first key of its family. No pass draws objects with fixed pipelines: a production `ScenePipelines` compiles no fixed object shader module and has no public `get`. Celestial meshes keep their own fixed pipelines (`renderer::celestial_specialization`), built from the same object source. The shader source is the scene's own, unchanged.

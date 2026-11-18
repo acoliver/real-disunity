@@ -6,6 +6,7 @@
 mod support;
 
 mod batch;
+mod borrowed;
 mod common;
 mod comparison;
 mod coverage;

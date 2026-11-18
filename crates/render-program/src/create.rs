@@ -325,8 +325,7 @@ impl ProgramRuntime {
     ///
     /// # Errors
     /// Fails when the budget or the device refuses the texture.
-    #[cfg(feature = "unity")]
-    pub(crate) fn create_empty_texture(
+    pub fn create_empty_texture(
         &mut self,
         label: &str,
         shape: TextureShape,
@@ -432,9 +431,10 @@ impl ProgramRuntime {
         Ok(self.store.add_texture(entry(texture), reservation))
     }
 
-    /// The wgpu texture behind a handle.
-    #[cfg(feature = "unity")]
-    pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
+    /// The wgpu texture behind a handle, for work the runtime does not record itself, such as
+    /// reading a block-compressed texture back. The result shares wgpu's reference-counted
+    /// texture; the runtime still counts its storage in the budget until the handle is released.
+    pub fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }
 
@@ -501,21 +501,19 @@ impl ProgramRuntime {
 }
 
 /// The shape of a texture [`ProgramRuntime::create_empty_texture`] makes.
-#[cfg(feature = "unity")]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct TextureShape {
-    pub(crate) size: [u32; 2],
-    pub(crate) layers: u32,
-    pub(crate) mips: u32,
-    pub(crate) format: wgpu::TextureFormat,
+pub struct TextureShape {
+    pub size: [u32; 2],
+    pub layers: u32,
+    pub mips: u32,
+    pub format: wgpu::TextureFormat,
     /// Whether a kernel binds the texture as a storage image, which the format must allow.
-    pub(crate) storage: bool,
+    pub storage: bool,
     /// The dimension of the default view, which is the one a kernel or a draw samples the texture
     /// through. A 3D view makes a 3D texture with `layers` as its depth.
-    pub(crate) view: wgpu::TextureViewDimension,
+    pub view: wgpu::TextureViewDimension,
 }
 
-#[cfg(feature = "unity")]
 impl TextureShape {
     fn volume(self) -> bool {
         self.view == wgpu::TextureViewDimension::D3

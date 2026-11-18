@@ -17,9 +17,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    ComputeBindings, ComputeBufferId, MaterialId as WorldMaterialId, OffscreenWork,
-    RenderTextureId, ShaderId as WorldShaderId, TargetRef, TextureRef, WorldRenderTexture,
-    dimension,
+    ComputeBufferId, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TargetRef, TextureRef, WorldRenderTexture, dimension,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -30,11 +29,10 @@ use super::builtins::{
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::mips::AutoMips;
-use super::pixels::{self, Wanted};
 use super::properties::{
     Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
 };
-use super::script::{Script, kind};
+use super::script::Script;
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
 pub use super::report::{Reclaimed, Report};

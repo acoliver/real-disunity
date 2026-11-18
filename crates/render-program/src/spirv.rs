@@ -19,11 +19,14 @@ pub(crate) fn id(operand: &Operand) -> Option<u32> {
     }
 }
 
-/// The instructions of a module's words after the five-word header, each with its head word.
+/// The words of a module's header: magic number, version, generator, id bound and schema.
+pub(crate) const HEADER_WORDS: usize = 5;
+
+/// The instructions of a module's words after the header, each with its head word.
 /// The walk stops at the first instruction whose length does not fit, leaving diagnostics for a
 /// malformed stream to naga.
 pub(crate) fn instructions(words: &[u32]) -> impl Iterator<Item = &[u32]> {
-    let mut rest = words.get(5..).unwrap_or_default();
+    let mut rest = words.get(HEADER_WORDS..).unwrap_or_default();
     std::iter::from_fn(move || {
         let size = (*rest.first()? >> 16) as usize;
         if size == 0 || size > rest.len() {

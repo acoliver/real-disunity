@@ -15,6 +15,12 @@
 //! when a non-finite constant has a use a function cannot take over: the initialiser of a global
 //! variable or an operand of a specialization constant instruction. naga then refuses it as it
 //! always did. Specialization constants are never rewritten, and neither are 64-bit constants.
+//!
+//! A module that is rewritten loses its source-line markers (`OpLine`, `OpNoLine`) and the
+//! records of `NonSemantic.Shader.DebugInfo.100`, with the names of those records, so debug and
+//! line attribution does not survive the rewrite. If an instruction that stays reads a dropped
+//! record, the module is returned borrowed instead.
+mod metadata;
 mod rewrite;
 mod scan;
 #[cfg(test)]
@@ -32,10 +38,11 @@ pub(crate) fn lower(words: &[u32]) -> Result<Cow<'_, [u32]>, ModuleError> {
     if !has_non_finite_constant(words) {
         return Ok(Cow::Borrowed(words));
     }
-    let mut module = rspirv::dr::load_words(words)
+    let stripped = metadata::Stripped::new(words);
+    let mut module = rspirv::dr::load_words(&stripped.words)
         .map_err(|error| ModuleError::Parse(format!("SPIR-V: {error}")))?;
     let scan = scan::Scan::new(&module);
-    if scan.blocked {
+    if scan.blocked || stripped.is_used_by(&module) {
         return Ok(Cow::Borrowed(words));
     }
     rewrite::rewrite(&mut module, &scan)?;

@@ -89,24 +89,40 @@ the pipeline-constant pass evaluates every function expression whose operands ar
 constants, and a load of a local variable is never one, so the value stays a run-time value and is
 never turned back into the refused literal.
 
+A module that is rewritten loses its source-line markers and its debug-info records:
+every `OpLine` and `OpNoLine`, every `OpExtInst` of the `NonSemantic.Shader.DebugInfo.100`
+set, and the `OpName` of those records' results. Debug and line attribution is therefore
+not preserved for rewritten modules. naga reads none of these records, and the rewrite
+cannot keep them: rspirv moves an `OpLine` that precedes an `OpLabel` out of its
+function, and it refuses an `OpExtInst` outside a function. A marker among an entry
+block's variables would also split the run of leading variables whose initialisers the
+rewrite moves. The import, the `SPV_KHR_non_semantic_info` extension and every other
+instruction stay. Records of other `NonSemantic` sets are not touched; naga refuses
+those sets anyway.
+
 Modules without a non-finite 32-bit `OpConstant` borrow their words and are returned
-byte for byte. Limits that leave the module to naga, which refuses it as before:
+byte for byte, line markers and debug records included, and so are the modules that
+are declined below. Limits that leave the module to naga, which refuses it as before:
 
 - Specialization constants are never rewritten. `OpSpecConstant` with a non-finite
   default stays an override with a refused literal, because a pipeline may replace its
   value and nothing computed in a function would honour that.
 - A non-finite constant that a global variable initialiser or a specialization constant
   instruction uses leaves the whole module unchanged.
+- A module in which an instruction that stays still reads the result of a removed
+  debug-info record is left unchanged, so no reference is left without its definition.
 - 64-bit and 16-bit constants are not touched.
 - Hardware and driver behaviour of NaN is the device's: a driver that compiles with
   fast-math may treat NaN and infinity as undefined. The tests run on lavapipe only;
   naga's MSL writer translates the rewritten modules, which no test runs on Metal.
 
 `src/nonfinite/tests.rs` covers admission, byte-identical pass-through, the refused
-cases and MSL translation on the CPU. `tests/nonfinite.rs` runs synthetic modules on
-the selected GPU: a NaN position discards its primitives while the others draw, and
-scalars, mixed composites, local initialisers and constants shared by two functions keep
-their exact bits through a storage buffer. The modules are WGSL compiled to SPIR-V with
+cases and MSL translation on the CPU. `src/nonfinite/tests/debug_records.rs` covers line
+markers and debug-info records, and `src/nonfinite/tests/guards.rs` covers nested
+composites shared by functions and used by an `OpPhi`, and specialization constants.
+`tests/nonfinite.rs` runs synthetic modules on the selected GPU: a NaN position discards
+its primitives while the others draw, and scalars, mixed composites, local initialisers
+and constants shared by two functions keep their exact bits through a storage buffer. The modules are WGSL compiled to SPIR-V with
 finite sentinel constants whose words are replaced by the non-finite patterns
 (`tests/support/sentinel.rs`), because no naga module can hold such a literal.
 

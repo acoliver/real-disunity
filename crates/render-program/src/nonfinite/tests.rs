@@ -3,8 +3,11 @@ use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 use rspirv::dr::{Instruction, Operand};
 use rspirv::spirv::{Decoration, Op};
 
+mod debug_records;
+mod guards;
 #[path = "../../tests/support/sentinel.rs"]
 mod sentinel;
+mod words;
 
 const NAN: u32 = 0x7fc0_0123;
 const INFINITY: u32 = 0x7f80_0000;
@@ -148,10 +151,16 @@ fn a_constant_a_global_initializer_needs_is_left_for_naga_to_refuse() {
 /// The module with its non-finite constant declared as a specialization constant, whose default
 /// is the same bit pattern.
 fn specialized(words: &[u32]) -> Vec<u32> {
+    specialized_bits(words, NAN)
+}
+
+/// The module with each float constant of the bit pattern `bits` declared as a specialization
+/// constant of that default.
+fn specialized_bits(words: &[u32], bits: u32) -> Vec<u32> {
     let mut module = rspirv::dr::load_words(words).unwrap();
     let mut ids = Vec::new();
     for i in &mut module.types_global_values {
-        if i.class.opcode == Op::Constant && i.operands == [Operand::LiteralBit32(NAN)] {
+        if i.class.opcode == Op::Constant && i.operands == [Operand::LiteralBit32(bits)] {
             *i = Instruction::new(
                 Op::SpecConstant,
                 i.result_type,

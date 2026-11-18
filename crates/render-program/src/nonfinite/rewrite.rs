@@ -136,7 +136,11 @@ impl Rewrite<'_> {
             .first_mut()
             .ok_or_else(|| malformed("function without a block"))?;
         let mut head = std::mem::take(&mut entry.instructions);
-        let tail = head.split_off(head.partition_point(|i| i.class.opcode == Op::Variable));
+        let variables = head
+            .iter()
+            .position(|i| i.class.opcode != Op::Variable)
+            .unwrap_or(head.len());
+        let tail = head.split_off(variables);
         let stores = take_initializers(&mut head, &renamed);
         entry.instructions = [built.variables, head, built.values, stores, tail].concat();
         for i in function

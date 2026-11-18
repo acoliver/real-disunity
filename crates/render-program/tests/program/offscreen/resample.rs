@@ -96,11 +96,7 @@ fn a_blit_without_a_material_scales_the_source_to_the_size_of_the_target() {
     assert_eq!(pixel(&down, 2, (1, 1)), BLUE);
 
     let mut point = texels([2, 2], RGBA8_SRGB, halves([2, 2]));
-    point.sampler = Some(SamplerState {
-        wrap_u: Wrap::Clamp,
-        wrap_v: Wrap::Clamp,
-        filter: Filter::Point,
-    });
+    point.sampler = Some(SamplerState::new(Wrap::Clamp, Wrap::Clamp, Filter::Point));
     upload(&mut rig, &point);
     let up = rig
         .run(&copy_into(srgb_target([4, 4])), &[(TARGET, 0, 0)])

@@ -182,10 +182,7 @@ impl SceneGpu {
     ) -> ObjectView {
         let owner = worldrunner_render_gpu::submission::Publications::current();
         assert!(
-            self.instances
-                .batches
-                .values()
-                .all(|batch| batch.ready_for(owner.as_ref())),
+            self.instances.ready_for(owner.as_ref()),
             "flush instance updates before drawing"
         );
         let frame = self

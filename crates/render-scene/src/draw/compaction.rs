@@ -461,6 +461,12 @@ impl SceneGpu {
         }
     }
 
+    /// The committed gather mirror, for comparison.
+    #[cfg(test)]
+    pub(crate) fn committed_mirror(&self) -> mirror::Snapshot {
+        self.gather.mirror.snapshot()
+    }
+
     /// Selected ranges and (batch, LOD) groups of the view's last published selection.
     pub(crate) fn published_ranges_and_groups(&self, view: usize) -> (usize, usize) {
         let selection = self.views[view].published.borrow();

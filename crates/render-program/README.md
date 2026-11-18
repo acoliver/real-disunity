@@ -64,6 +64,52 @@ returned channels for the six scalar/two-component formats. Its fixtures expose
 the raw fetched vec4 with a documented post-DXC edit, because HLSL otherwise
 reconstructs or discards the missing channels.
 
+## SPIR-V non-finite constants
+
+Compilers write NaN and infinity as `OpConstant` bit patterns, alone and inside
+`OpConstantComposite`; a vertex stage that discards an instance writes a position of
+`vec4(NaN)` this way. naga turns every constant into a constant expression and its
+validator refuses a non-finite float literal in any expression, so `StageProgram::new`
+used to fail with `ConstExpression { source: Literal(NaN) }`. SPIR-V passthrough is not
+an option because the same stages must also reach Metal through naga's MSL writer.
+
+After the typed buffer pass and before naga parses the words, `StageSource::SpirV`
+removes each non-finite 32-bit `OpConstant` and each `OpConstantComposite` that
+contains one. Every function that used a removed constant builds it at the top of its
+entry block: a local `u32` variable initialised with the bit pattern, an `OpLoad` and an
+`OpBitcast` to the float, and for a composite an `OpCompositeConstruct` of its parts.
+Finite parts keep their original constants. A local variable initialised with a removed
+constant is stored to after the value exists. The bits are unchanged: quiet NaN
+payloads, signs and both infinities arrive at the GPU shader compiler as written.
+
+naga 30.0.1's SPIR-V front end appends a function's expressions without evaluating
+them, and its constant evaluator reports a bitcast as not implemented, so a bitcast
+of a constant would probably not be folded today. The rewrite does not depend on that:
+the pipeline-constant pass evaluates every function expression whose operands are
+constants, and a load of a local variable is never one, so the value stays a run-time value and is
+never turned back into the refused literal.
+
+Modules without a non-finite 32-bit `OpConstant` borrow their words and are returned
+byte for byte. Limits that leave the module to naga, which refuses it as before:
+
+- Specialization constants are never rewritten. `OpSpecConstant` with a non-finite
+  default stays an override with a refused literal, because a pipeline may replace its
+  value and nothing computed in a function would honour that.
+- A non-finite constant that a global variable initialiser or a specialization constant
+  instruction uses leaves the whole module unchanged.
+- 64-bit and 16-bit constants are not touched.
+- Hardware and driver behaviour of NaN is the device's: a driver that compiles with
+  fast-math may treat NaN and infinity as undefined. The tests run on lavapipe only;
+  naga's MSL writer translates the rewritten modules, which no test runs on Metal.
+
+`src/nonfinite/tests.rs` covers admission, byte-identical pass-through, the refused
+cases and MSL translation on the CPU. `tests/nonfinite.rs` runs synthetic modules on
+the selected GPU: a NaN position discards its primitives while the others draw, and
+scalars, mixed composites, local initialisers and constants shared by two functions keep
+their exact bits through a storage buffer. The modules are WGSL compiled to SPIR-V with
+finite sentinel constants whose words are replaced by the non-finite patterns
+(`tests/support/sentinel.rs`), because no naga module can hold such a literal.
+
 ## The native API
 
 A Rust game registers programs and makes materials without building stages, layouts and bindings by hand. The calls are on `ProgramRuntime` and take no Unity type. [Drawing with your own shader programs](../../docs/render-program-native.md) is the guide, with a complete example that `cargo run -p worldrunner-render-program --example native_material` runs and that CI compiles.

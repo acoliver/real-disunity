@@ -45,6 +45,8 @@ pub enum TerrainChunkViewError {
     Unprepared,
     #[error("streaming terrain was prepared for a different selection projection or viewport")]
     ViewMismatch,
+    #[error("an earlier capture segment replaced the prepared streaming terrain cover")]
+    Replaced,
 }
 
 impl SceneGpu {
@@ -91,6 +93,13 @@ impl Streaming {
             if !prepared.matches_view(frame, viewport) {
                 return Err(TerrainChunkViewError::ViewMismatch);
             }
+            // A later segment reads the published cover, which an earlier segment's other
+            // publications (a retained replacement coarsening this source) may have replaced.
+            if !owner.same_transaction(&prepared.owner)
+                && !same_cover(&prepared.residents, &self.committed.borrow())
+            {
+                return Err(TerrainChunkViewError::Replaced);
+            }
         }
         Ok(self.with_residents(Some(&owner), |residents, _| {
             let topology = Adjacency::new(residents.iter().map(|&(chunk, _)| chunk));
@@ -107,6 +116,13 @@ impl Streaming {
             .collect()
         }))
     }
+}
+
+fn same_cover(prepared: &super::Residents, committed: &super::Residents) -> bool {
+    prepared.len() == committed.len()
+        && prepared
+            .iter()
+            .all(|(chunk, _)| committed.iter().any(|(other, _)| other == chunk))
 }
 
 #[derive(Default)]

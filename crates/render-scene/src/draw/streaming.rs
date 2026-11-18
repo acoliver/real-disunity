@@ -120,16 +120,18 @@ impl Streaming {
         viewport: [u32; 2],
         completed: u64,
     ) -> Result<(), FrameError> {
-        if self.frozen.get() {
-            self.prepare_frozen(context, frame, viewport);
-            return Ok(());
+        if self.replacement.borrow().is_some() {
+            return Err(FrameError::FeaturePreparation {
+                feature: "streaming terrain",
+                reason: "the retained replacement must finish before camera preparation".into(),
+            });
         }
-        assert!(
-            self.replacement.borrow().is_none(),
-            "replacement must finish before drawing"
-        );
         let owner = context.publications();
         if self.reuse_prepared(&owner, frame, viewport)? {
+            return Ok(());
+        }
+        if self.frozen.get() {
+            self.prepare_frozen(context, frame, viewport);
             return Ok(());
         }
         *self.drawing.borrow_mut() = None;

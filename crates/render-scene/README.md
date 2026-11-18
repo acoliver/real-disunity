@@ -234,8 +234,13 @@ frustum culling and nearest-first order as the stock pass. In an owned capture,
 declare `SceneGpu::capture_write_keys` for the prefix if it prepares terrain.
 After the prefix submits, its continuation may read the published selection
 with the same view without re-preparing terrain or declaring suffix writes for
-that read. A cancelled or unrelated frame cannot read that preparation.
-A scene without streamed terrain returns `None`.
+that read. If an earlier segment replaced the prepared cover, for example by
+coarsening a frozen source during retained replacement, the continuation gets
+`TerrainChunkViewError::Replaced`. Camera preparation refuses a scene whose
+retained replacement has not finished, and a second view in one recording is a
+`StreamingSelectionConflict`, including for a frozen source. A cancelled or
+unrelated frame cannot read that preparation. A scene without streamed terrain
+returns `None`.
 
 Each draw carries its inclusive height-sample bounds and sampling stride. Edge
 neighbors come from the entire admitted cover, including culled leaves. Their

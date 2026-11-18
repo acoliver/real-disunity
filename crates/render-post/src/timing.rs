@@ -5,8 +5,6 @@
 //! samples when the resolve shares the sampled submission (issue 9f99236ea41c).
 use std::sync::mpsc;
 
-use crate::PassSlot;
-
 pub const TIMING_RING_SIZE: usize = 3;
 const MAX_PASSES: u32 = 1024;
 const BUFFER_BYTES: u64 = MAX_PASSES as u64 * 16;
@@ -35,7 +33,7 @@ pub enum TimingSupport {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PassId {
-    Geometry(PassSlot),
+    Geometry(crate::PassEntry),
     Resolve,
     Stage(StageId),
     Operation(crate::contracts::RasterId),
@@ -336,7 +334,7 @@ impl PassTimer {
             };
             let authority = match &slot.transaction {
                 Some(owner) if owner.status() != TransactionStatus::Submitted => continue,
-                Some(owner) => owner.authority().cloned(),
+                Some(owner) => Some(owner.authority().clone()),
                 None => None,
             };
             let gate = sampled.gate.get_or_insert_with(|| {

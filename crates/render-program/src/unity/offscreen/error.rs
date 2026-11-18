@@ -116,6 +116,24 @@ pub enum OffscreenError {
         mip: u32,
         element: u32,
     },
+    #[error("no operation of the frame writes mip {mip} of element {element} of {texture:?}")]
+    NotWritten {
+        texture: TextureId,
+        mip: u32,
+        element: u32,
+    },
+    #[error("{0:?} is exported twice")]
+    ExportedTwice(worldrunner_render_post::ResourceRef),
+    #[error(
+        "{resource:?} names mip {} of layer {}, but the export is mip {mip} of element {element}",
+        .resource.mip,
+        .resource.layer
+    )]
+    ExportNamesAnotherSubresource {
+        resource: worldrunner_render_post::ResourceRef,
+        mip: u32,
+        element: u32,
+    },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },
     #[error("set {set} binding {binding} is {what}, which offscreen draws do not bind")]
@@ -136,6 +154,22 @@ pub enum OffscreenError {
     ConstantsOverBudget { needed: u64, budget: u64 },
     #[error("texture {0:?} cannot be sampled and rendered into in one operation")]
     FeedbackLoop(TextureId),
+    #[error("a pass names {count} color attachments and this renderer draws into one to eight")]
+    ColorTargets { count: usize },
+    #[error(
+        "color attachment {texture:?} is {size:?} at its mip and the first color attachment, \
+         {first:?}, is {first_size:?}, and the colors of a pass have one size"
+    )]
+    ColorTargetsDiffer {
+        first: TextureId,
+        first_size: [u32; 2],
+        texture: TextureId,
+        size: [u32; 2],
+    },
+    #[error("texture {texture:?} mip {mip} is more than one color attachment of one pass")]
+    ColorTargetRepeated { texture: TextureId, mip: u32 },
+    #[error("texture {0:?} has no color storage, so it cannot be one of several color attachments")]
+    ColorTargetWithoutColor(TextureId),
 }
 
 impl OffscreenError {

@@ -1,5 +1,8 @@
 use super::*;
-use worldrunner_render_plan::{MaterialHandle, MeshHandle, SceneRotation, SceneTransform};
+use crate::geometry::{millimeter_to_meter, model_matrix};
+use worldrunner_render_plan::{
+    MaterialHandle, MeshHandle, SceneFadeBand, SceneObject, SceneRotation, SceneTransform,
+};
 
 #[test]
 fn distance_bounds_enclose_shader_order_and_fma_at_transformed_fade_boundaries() {
@@ -72,7 +75,7 @@ fn check_reference(transform: SceneTransform) {
                         bounded.lo <= actual && bounded.hi >= actual,
                         "{transform:?}, {eye:?}, {clamp:?}, {fused}: {bounded:?} versus {actual}"
                     );
-                    if policy.empty(object, eye, &mut Distances::default()) {
+                    if policy.empty_alone(object, eye) {
                         assert!(actual >= 6.0);
                     }
                 }

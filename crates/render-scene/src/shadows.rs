@@ -32,9 +32,9 @@
 //! ```
 
 mod capture;
+mod frame;
 pub(crate) use capture::capture_sources;
 mod cascades;
-mod compaction;
 mod refresh;
 mod resources;
 pub(crate) use resources::SHADOW_UNIFORM_BYTES;
@@ -53,7 +53,6 @@ pub(crate) fn object_casters(
 ) -> crate::object::program::Context {
     resources::object_caster(pipelines, settings, sampling)
 }
-mod schedule;
 mod settings;
 mod terrain_caster;
 #[cfg(test)]
@@ -528,6 +527,10 @@ impl ShadowedScene {
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+            if let Some((gbuffer, _)) = &screen.gbuffer {
+                gpu.prepare_terrain(gbuffer, frame)?;
+                gpu.prepare_objects(gbuffer, frame)?;
+            }
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
@@ -557,119 +560,6 @@ impl ShadowedScene {
             &self.shadow_layout,
             count,
         )?))
-    }
-
-    fn encode_fitted(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        encoder: &mut wgpu::CommandEncoder,
-        input: (
-            Option<&mut crate::compositor::FrameRenderer>,
-            Option<(sdsm::DepthRange, sdsm::RangeFit)>,
-        ),
-    ) -> Result<(), ShadowError> {
-        self.update_caster_pipelines(context);
-        let mut replacement = self.replacement_map(context)?;
-        let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let ((scheduler, fitting), (color, depth)) = (input, attachments);
-        let object_casters = self.shadows_enabled.then_some(&self.object_caster);
-        let scheduler = scheduler.unwrap_or(&mut self.scheduler);
-        Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
-        scheduler.prepare_receiver_gradients(
-            context.device(),
-            &self.gpu,
-            self.settings.normal_bias_meters,
-        )?;
-        scheduler.prepare_scene_inputs(context.device(), &self.gpu);
-        let depth_mode = scheduler.forward_depth(&self.gpu, depth);
-        let selected = scheduler
-            .receiver_pipelines(&self.pipelines, depth_mode)
-            .for_depth(depth_mode);
-        self.gpu.prepare_dynamic(encoder, &selected)?;
-        let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
-        self.gpu
-            .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
-        let screen = scheduler.geometry_for_depth(depth_mode);
-        Self::prepare_terrain_passes(
-            (&self.gpu, &self.terrain_caster, object_casters),
-            (screen.as_ref(), &selected, &frame),
-        )?;
-        let mut cascades = Self::prepare_cascades(
-            (&self.gpu, &self.effects, self.settings),
-            view,
-            frame.shadow_direction,
-            fitting,
-        )?;
-        self.gpu.prepare_caster_terrain(
-            context.device(),
-            encoder,
-            &cascades.matrices,
-            self.settings.resolution,
-        )?;
-        let refresh = next_refresh.prepare(
-            &self.gpu,
-            &mut cascades,
-            self.settings,
-            frame.shadow_direction,
-            color.size(),
-            self.shadows_enabled,
-        );
-        let map = replacement.as_mut().unwrap_or(&mut self.map);
-        map.select_frame_slot(self.frame_slot);
-        let card_depth = selected.card_reject().then_some(depth);
-        let shadow_groups = scheduler.shadow_groups(
-            context.device(),
-            (
-                &map.group,
-                crate::scene_metadata::receiver::ShadowInputs {
-                    uniform: &map.uniform,
-                    depth: map.depth.receiver_view(),
-                    sampler: &map.sampler,
-                },
-            ),
-            card_depth,
-        );
-        let mut schedule =
-            schedule::ShadowSchedule::new(&map.depth, color, depth, &selected, refresh)?;
-        schedule.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
-        if card_depth.is_some() {
-            debug_assert_eq!(depth_mode, crate::renderer::depth::DepthMode::Reuse);
-            schedule.card_reject_depth();
-        }
-        schedule.celestial(&self.gpu, context.device(), color.size());
-        let mut feature = ShadowFeature {
-            publications: crate::draw::DrawPublications::default(),
-            screen,
-            gpu: &mut self.gpu,
-            pipelines: &selected,
-            object_caster: &self.object_caster,
-            terrain_caster: &self.terrain_caster,
-            depth_frames: &self.depth_frames,
-            shadow_groups: &shadow_groups,
-            cascades,
-            refresh,
-            frame,
-            shadow_uniform: &map.uniform,
-            settings: self.settings,
-            sampling: self.effects.shadows().sampling(),
-        };
-        scheduler.encode_frame(
-            context.device(),
-            encoder,
-            (&schedule.passes, &schedule.views),
-            &mut [BorrowedFeature {
-                declaration: schedule.declaration,
-                prepared: &mut feature,
-            }],
-            (frame, Some(&map.group)),
-        )?;
-        if let Some(map) = replacement {
-            self.map = map;
-        }
-        next_refresh.publish(encoder, &self.refresh)?;
-        Ok(())
     }
 }
 
@@ -704,118 +594,6 @@ pub fn capture_scene_shadowed(
         .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
     let submission = prepared.submit()?;
     Ok(target.read_encoded(context, submission)?)
-}
-
-struct ShadowFeature<'a> {
-    publications: crate::draw::DrawPublications,
-    screen: Option<crate::scene_metadata::Geometry>,
-    gpu: &'a mut SceneGpu,
-    pipelines: &'a ScenePipelines,
-    object_caster: &'a crate::object::program::Context,
-    terrain_caster: &'a terrain_caster::TerrainCaster,
-    depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
-    /// Set 2 for the object draws and for the terrain draws.
-    shadow_groups: &'a crate::scene_metadata::receiver::SetTwo,
-    cascades: cascades::CascadeViews,
-    /// Cascades whose depth pass runs this frame.
-    refresh: [bool; 4],
-    frame: FrameUniform,
-    shadow_uniform: &'a wgpu::Buffer,
-    settings: DirectionalShadowSettings,
-    sampling: worldrunner_render_plan::SceneShadowSampling,
-}
-impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
-    fn prepare(
-        &mut self,
-        _context: &mut worldrunner_render_post::PrepareContext<'_>,
-    ) -> Result<(), worldrunner_render_post::FrameError> {
-        Ok(())
-    }
-    fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics(context);
-        self.publications.install(
-            context,
-            crate::draw::PassInstallation::Installed,
-            self.screen.is_some(),
-            self.gpu.ssao,
-        );
-        self.gpu.prepare_instances(context);
-        self.gpu.commit_frame(context, self.frame);
-        self.select_views(context);
-        self.gpu.prepare_view_compaction(context, None, &self.frame);
-        self.prepare_cascade_compaction(context);
-        // Each light view has its own immutable uniform range; billboards keep the main eye.
-        for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
-            let light_frame = light_frame(&self.frame, matrix);
-            context.upload_buffer(&self.depth_frames[index].0, 0, &light_frame.to_bytes());
-        }
-        context.upload_buffer(
-            self.shadow_uniform,
-            0,
-            &resources::uniform_bytes_with_sampling(&self.cascades, self.settings, self.sampling),
-        );
-    }
-    fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.publications.publish(context, self.gpu);
-    }
-    fn draw(
-        &self,
-        context: &worldrunner_render_post::DrawContext,
-        pass: &mut wgpu::RenderPass<'_>,
-    ) {
-        if context.slot == worldrunner_render_post::PassSlot::Celestial {
-            self.gpu.draw_celestial(pass);
-            return;
-        }
-        #[cfg(test)]
-        crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
-            self.publications.prepass();
-            let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record_prepass(
-                self.gpu,
-                self.gpu
-                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
-            );
-        } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
-            if self.cascades.no_receivers {
-                return;
-            }
-            let matrix = self.cascades.matrices[index as usize];
-            let group = &self.depth_frames[index as usize].1;
-            self.publications.record(self.gpu.draw_casters_prepared(
-                pass,
-                group,
-                self.object_caster,
-                (index, matrix),
-            ));
-            let caster = self
-                .terrain_caster
-                .pipeline()
-                .expect("the terrain caster is prepared before its passes");
-            let terrain = self
-                .gpu
-                .draw_terrain_depth(pass, (&caster, group), (index, matrix));
-            self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
-        } else {
-            if let Some(screen) = &self.screen {
-                pass.set_bind_group(
-                    3,
-                    screen
-                        .forward
-                        .as_ref()
-                        .map_or(&screen.ambient, |(_, group)| group),
-                    &[],
-                );
-            }
-            pass.set_bind_group(2, &self.shadow_groups.object, &[]);
-            self.publications.record_color(
-                self.gpu,
-                self.gpu
-                    .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
-            );
-        }
-    }
 }
 
 #[cfg(test)]

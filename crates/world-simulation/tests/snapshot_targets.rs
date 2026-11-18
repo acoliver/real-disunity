@@ -18,6 +18,7 @@ fn setup(camera: ComponentHandle, target: RenderTextureId) -> OffscreenWork {
         view: std::array::from_fn(|index| if index % 5 == 0 { 1.0 } else { 0.0 }),
         projection: std::array::from_fn(|index| if index % 5 == 0 { 1.0 } else { 0.0 }),
         target: TargetRef::Render(target),
+        buffers: None,
     }
 }
 
@@ -157,7 +158,7 @@ fn every_kind_of_record_that_reads_or_draws_a_texture_names_it() {
         OffscreenWork::CameraRender { camera, target: id },
         OffscreenWork::Blit {
             source: TextureRef::Render(id),
-            target: other,
+            target: TargetRef::Render(other),
             material: None,
             pass: 0,
         },

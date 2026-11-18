@@ -34,7 +34,7 @@ fn influence(joint: u8, weight: u8) -> SceneSkinInfluence {
 }
 
 /// The ribbon: left quad on joint 0, middle quad unweighted, right quad on joint 1.
-pub(super) fn ribbon() -> SceneMesh {
+pub(crate) fn ribbon() -> SceneMesh {
     let mut vertices = quad_at(-1_000, -500);
     vertices.extend(quad_at(-400, -50));
     vertices.extend(quad_at(100, 600));
@@ -55,14 +55,14 @@ pub(super) fn ribbon() -> SceneMesh {
     SceneMesh::new(vec![lod]).expect("a one-level chain is valid")
 }
 
-pub(super) fn shifted(millimeters: i64) -> SceneAffineMatrix {
+pub(crate) fn shifted(millimeters: i64) -> SceneAffineMatrix {
     SceneAffineMatrix {
         translation_millimeters: [millimeters, 0, 0],
         ..SceneAffineMatrix::IDENTITY
     }
 }
 
-pub(super) fn skeleton(joints: usize) -> SceneSkeleton {
+pub(crate) fn skeleton(joints: usize) -> SceneSkeleton {
     SceneSkeleton::new(
         (0..joints)
             .map(|joint| {

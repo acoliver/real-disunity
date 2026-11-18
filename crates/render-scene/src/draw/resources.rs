@@ -1,3 +1,4 @@
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
 use worldrunner_render_program::runtime::ImportTable;
 
 use super::{
@@ -46,7 +47,7 @@ pub(super) fn upload_textures(
     device: &Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     prepared: &[crate::texture::OwnedPreparedTexture],
-) -> Result<(Vec<Texture>, Vec<TextureView>), DrawError> {
+) -> Result<(Vec<Tracked<Texture>>, Vec<TextureView>), DrawError> {
     let mut textures = Vec::new();
     let mut views = Vec::new();
     for texture in prepared {
@@ -59,7 +60,11 @@ pub(super) fn upload_textures(
             uploaded = super::source_environment::filter(device, authority, &uploaded, request)?;
         }
         views.push(uploaded.create_view(&TextureViewDescriptor::default()));
-        textures.push(uploaded);
+        textures.push(
+            authority
+                .census()
+                .track_texture(ResourceClass::Texture, uploaded),
+        );
     }
     Ok((textures, views))
 }
@@ -130,7 +135,7 @@ pub(super) fn upload_materials(
     queue: &Queue,
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
-) -> (Vec<Buffer>, Vec<ImportTable>) {
+) -> MaterialUpload {
     let views = bindings.views;
     let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
     let inputs = GroupInputs {
@@ -141,63 +146,85 @@ pub(super) fn upload_materials(
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::new();
     let mut tables = Vec::new();
+    let mut records = crate::gbuffer::records::LightingRecordTable::default();
     for material in scene.resources().materials() {
-        let uniform = upload_buffer(
-            device,
-            queue,
-            "material",
-            BufferUsages::UNIFORM,
-            &super::fade::uniform(scene, material),
-        );
+        let mut bytes: [u8; crate::pipeline::MATERIAL_UNIFORM_BYTES] =
+            super::fade::uniform(scene, material)
+                .try_into()
+                .expect("one material uniform");
+        records.assign(&mut bytes);
+        let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
         tables.push(material_imports(&inputs, material, &uniform, sampler));
         uniforms.push(uniform);
     }
-    (uniforms, tables)
+    (uniforms, tables, records)
 }
+
+/// Each material's uniform buffer and program imports, and the lighting records their uniforms
+/// index.
+pub(super) type MaterialUpload = (
+    Vec<Buffer>,
+    Vec<ImportTable>,
+    crate::gbuffer::records::LightingRecordTable,
+);
 
 /// Uploads already packed mesh levels without processing source geometry.
 pub(super) fn upload_meshes(
     device: &Device,
     queue: &Queue,
+    census: &MemoryCensus,
     meshes: &[super::prepared::PreparedMesh],
 ) -> Vec<GpuMesh> {
     meshes
         .iter()
-        .map(|mesh| GpuMesh {
-            lods: mesh
+        .map(|mesh| {
+            let lods: Vec<GpuLod> = mesh
                 .lods
                 .iter()
-                .map(|lod| GpuLod {
-                    layout: lod.layout,
-                    transition: lod.transition.as_ref().map(|bytes| {
-                        upload_buffer(
-                            device,
-                            queue,
-                            "mesh card complement",
-                            BufferUsages::VERTEX,
-                            bytes,
-                        )
-                    }),
-                    vertices: upload_buffer(
-                        device,
-                        queue,
-                        "mesh vertices",
-                        BufferUsages::VERTEX,
-                        &lod.vertices,
-                    ),
-                    indices: upload_buffer(
-                        device,
-                        queue,
-                        "mesh indices",
-                        BufferUsages::INDEX,
-                        &lod.indices,
-                    ),
-                    index_count: lod.index_count,
-                })
-                .collect(),
+                .map(|lod| upload_lod(device, queue, lod))
+                .collect();
+            let census = lods
+                .iter()
+                .flat_map(|lod| lod.transition.iter().chain([&lod.vertices, &lod.indices]))
+                .map(|buffer| census.track(ResourceClass::Mesh, buffer.size()))
+                .collect();
+            GpuMesh {
+                lods,
+                _census: census,
+            }
         })
         .collect()
+}
+
+fn upload_lod(device: &Device, queue: &Queue, lod: &super::prepared::PreparedLod) -> GpuLod {
+    GpuLod {
+        layout: lod.layout,
+        transition: lod.transition.as_ref().map(|bytes| {
+            upload_buffer(
+                device,
+                queue,
+                "mesh card complement",
+                BufferUsages::VERTEX,
+                bytes,
+            )
+        }),
+        vertices: upload_buffer(
+            device,
+            queue,
+            "mesh vertices",
+            BufferUsages::VERTEX,
+            &lod.vertices,
+        ),
+        indices: upload_buffer(
+            device,
+            queue,
+            "mesh indices",
+            BufferUsages::INDEX,
+            &lod.indices,
+        ),
+        index_count: lod.index_count,
+    }
 }
 
 /// Builds the single terrain draw: its mesh, its uniform and its bind group.

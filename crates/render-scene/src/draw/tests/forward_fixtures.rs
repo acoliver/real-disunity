@@ -168,3 +168,35 @@ pub(crate) fn scenes() -> Vec<(&'static str, RenderScene, CameraPose)> {
         })
         .collect()
 }
+
+/// The first card fixture drawn as an ordinary mesh: the same geometry and maps without the
+/// impostor and with a self-illumination mask, masked and opaque, under the scattering and
+/// transmission of [`a2c_scene`]. The forward mesh shading then draws every term a lighting
+/// record carries, and emission.
+pub(crate) fn mesh_scenes() -> Vec<(&'static str, RenderScene, CameraPose)> {
+    let (_, first, pose) = alpha_fixtures::scenes()[0].clone();
+    let old = first.resources().materials()[0];
+    [("mesh masked", false), ("mesh opaque", true)]
+        .into_iter()
+        .map(|(name, opaque)| {
+            let material = SceneMaterial::new(SceneMaterialParts {
+                albedo: old.albedo(),
+                normal: old.normal(),
+                roughness_metallic: old.roughness_metallic(),
+                ambient_occlusion: old.ambient_occlusion(),
+                self_illumination: Some(TextureHandle::from_raw(3)),
+                roughness_micro: old.roughness_micro(),
+                metalness_micro: old.metalness_micro(),
+                alpha_mode: if opaque {
+                    SceneAlphaMode::Opaque
+                } else {
+                    old.alpha_mode()
+                },
+                double_sided: true,
+            })
+            .unwrap();
+            assert!(material.impostor().is_none());
+            (name, a2c_scene(&replace_material(&first, &material)), pose)
+        })
+        .collect()
+}

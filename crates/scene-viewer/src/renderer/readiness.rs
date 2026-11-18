@@ -1,3 +1,4 @@
+use super::texture_tiers::TextureTiers;
 use super::{Presentation, Renderer, Resident, ViewerError, required_features};
 use crate::RetainedHost;
 use std::sync::mpsc::TryRecvError;
@@ -110,7 +111,7 @@ impl Streaming {
         if !self.advance_preparation(context, resident, presentation, front)? {
             return Ok(());
         }
-        if let Some((mut next_resident, scene, _reservation)) = self.preparing.take() {
+        if let Some((mut next_resident, scene, _reservation, chosen)) = self.preparing.take() {
             next_resident.apply_shadow_policy(self.shadow_policy())?;
             next_resident.scene_mut().finish_retained_terrain();
             let decals = next_resident.scene_mut().decal_placements();
@@ -142,6 +143,7 @@ impl Streaming {
             self.carried
                 .add(&old_resident.scene_mut().take_statistics());
             self.retired.push_back((serial, old_resident));
+            self.tiers.chosen = chosen;
         } else {
             self.apply_in_place(context, resident, presentation, front)?;
         }
@@ -157,6 +159,7 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &mut crate::retained::readiness::Preparation,
     ) -> Result<(), ViewerError> {
+        super::retained::preflight_preparation(context, presentation, front)?;
         if let crate::RetainedUpdate::Ui(overlay) = &front.update {
             super::retained::apply_ui(context, resident, presentation, overlay)?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
@@ -180,6 +183,7 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &crate::retained::readiness::Preparation,
     ) -> Result<bool, ViewerError> {
+        super::retained::preflight_preparation(context, presentation, front)?;
         let scene = if self.preparing.is_some() {
             None
         } else if let Some(receive) = &front.scene {
@@ -195,15 +199,16 @@ impl Streaming {
         } else {
             None
         };
-        if let Some(prepared) = scene {
+        if let Some(mut prepared) = scene {
+            let chosen = self.tiers.apply(context, &mut prepared);
             let source = prepared.scene().clone();
             let reservation = presentation.prepare_scene(context, &prepared)?;
             let mut next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
             next.scene_mut()
                 .retain_resource_reservation(reservation.resident);
-            self.preparing = Some((next, source, reservation.transient));
+            self.preparing = Some((next, source, reservation.transient, chosen));
         }
-        if let Some((next, _, _)) = &mut self.preparing {
+        if let Some((next, _, _, _)) = &mut self.preparing {
             if next.scene_mut().retained_terrain_ready() {
                 return Ok(true);
             }
@@ -270,10 +275,12 @@ pub(super) struct Streaming {
     /// Uploads of residents that retired before a frame reported them.
     pub carried: CarriedUploads,
     pub temporal_history_reset: crate::TemporalHistoryReset,
+    pub tiers: TextureTiers,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
         worldrunner_render_gpu::configuration::AllocationReservation,
+        Option<worldrunner_render_scene::texture::TierChoice>,
     )>,
 }
 impl Streaming {
@@ -298,6 +305,7 @@ impl Streaming {
             shadow_policy,
             carried: CarriedUploads::default(),
             temporal_history_reset: crate::TemporalHistoryReset::None,
+            tiers: TextureTiers::default(),
             preparing: None,
         }
     }
@@ -342,3 +350,6 @@ mod tests;
 
 #[cfg(test)]
 mod preparation_tests;
+
+#[cfg(test)]
+mod opaque_admission_tests;

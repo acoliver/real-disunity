@@ -319,9 +319,9 @@ fn capture(
         |feature, pass| match recorder {
             Recorder::Nothing => {}
             Recorder::Live => feature.draw(
-                &worldrunner_render_post::DrawContext {
-                    slot: PassSlot::TransparentWater,
-                },
+                &worldrunner_render_post::DrawContext::new(PassEntry::new(
+                    PassSlot::TransparentWater,
+                )),
                 pass,
             ),
         },

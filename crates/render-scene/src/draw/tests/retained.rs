@@ -340,6 +340,7 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
 }
 
 mod previous;
+mod raw_previous;
 mod scheduler;
 
 mod flight;

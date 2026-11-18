@@ -3,7 +3,7 @@
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
-    ComputeKernel, OffscreenWork, ShaderSource, TextureRef, WorldComputeShader,
+    ComputeKernel, OffscreenWork, ShaderSource, TargetRef, TextureRef, WorldComputeShader,
 };
 use worldrunner_world_simulation::presentation::{
     Camera, Light, LightBakeType, LightKind, LightSettings, LightShadowMode,
@@ -173,7 +173,7 @@ fn materials_and_shaders_of_blits_and_renderers_are_copied_and_destroyed_ones_ar
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(target),
-            target,
+            target: TargetRef::Render(target),
             material: Some(blit),
             pass: 0,
         })
@@ -273,7 +273,7 @@ fn a_frame_without_dispatches_copies_no_compute_resources() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::None,
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: -1,
         })
@@ -371,7 +371,7 @@ fn a_frame_without_camera_work_copies_no_lights() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: -1,
         })

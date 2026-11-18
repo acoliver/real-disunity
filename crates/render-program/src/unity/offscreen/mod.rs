@@ -10,6 +10,7 @@
 mod constants_plan;
 mod defaults;
 mod error;
+mod exports;
 mod finish;
 mod format;
 pub mod frame;
@@ -29,10 +30,10 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use worldrunner_render_gpu::submission::{FrameLease, SubmissionAuthority};
-use worldrunner_render_post::StageId;
 use worldrunner_render_post::contracts::{
     CheckedDraw, RasterId, ResourceUse, TypedOperation, TypedWork, UseKind,
 };
+use worldrunner_render_post::{OperationsOutput, StageId};
 
 use crate::arena::ProgramArena;
 use crate::budget::Reservation;
@@ -171,8 +172,9 @@ impl OffscreenState {
     }
 
     /// The bytes the render textures of `specs` would add to the runtime's storage: those the
-    /// state has not made, or made from another spec. A host that must make room asks before it
-    /// builds the frame.
+    /// state has not made or must replace for different storage or storage-binding capability.
+    /// This includes both color and depth while the old storage remains live. A host that must
+    /// make room asks before it builds the frame.
     #[must_use]
     pub fn new_render_texture_bytes(
         &self,
@@ -374,6 +376,7 @@ impl OffscreenState {
             tracker,
             operations,
             reads,
+            exports: Vec::new(),
             shares,
             missing: missing.into_iter().collect(),
             counts,
@@ -528,6 +531,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
+    exports: Vec<OperationsOutput>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -833,6 +837,7 @@ impl OffscreenOperations {
             registry,
             self.lease,
             Pins::new(&self.authority, self.shares),
+            self.exports,
         );
         admitted.retain(encoder)?;
         Ok(admitted)

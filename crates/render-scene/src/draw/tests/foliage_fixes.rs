@@ -233,7 +233,7 @@ fn upload_contact_materials(
     let (_textures, views) =
         super::super::resources::upload_textures(device, authority, &prepared.textures)?;
     let (_placeholder, view) = crate::upload::placeholder_with_view(device, authority.queue());
-    let (_uniforms, imports) = super::super::resources::upload_materials(
+    let (_uniforms, imports, _records) = super::super::resources::upload_materials(
         device,
         authority.queue(),
         scene,

@@ -1,15 +1,16 @@
 //! Encoder diagnostics share the timer's typed identities, independently of query support.
 use std::{borrow::Cow, fmt};
 
-use crate::{PassId, PassSlot, StageId};
+use crate::{PassEntry, PassId, StageId};
 
 impl PassId {
     /// The spelling shared by encoder diagnostics and timing reports. Authored labels
     /// with levels or occurrences allocate and must be retained when building a schedule.
-    /// Indexed geometry uses a bounded stack buffer.
+    /// Geometry uses a bounded stack buffer: `Geometry(role)` for a role's first entry and
+    /// `Geometry(role#n)` for the nth entry after it.
     pub fn encoder_label(self) -> impl AsRef<str> {
         match self {
-            Self::Geometry(slot) => geometry_label(slot),
+            Self::Geometry(entry) => EncoderLabel::geometry(entry),
             Self::Resolve => EncoderLabel::Static("Resolve"),
             Self::Stage(stage) => EncoderLabel::Authored(stage.diagnostic_label()),
             Self::Operation(_) => EncoderLabel::Authored(Cow::Owned(format!("{self:?}"))),
@@ -36,19 +37,20 @@ impl StageId {
 enum EncoderLabel {
     Static(&'static str),
     Authored(Cow<'static, str>),
-    Indexed { bytes: [u8; 64], length: usize },
+    Geometry { bytes: [u8; 64], length: usize },
 }
 
 impl EncoderLabel {
-    fn indexed(name: &'static str, index: u32) -> Self {
+    fn geometry(entry: PassEntry) -> Self {
         use std::io::Write;
-        // The longest geometry name plus a decimal u32 and delimiters fits in 64 bytes.
+        // The longest role name with a u32 index, `#`, a u32 occurrence and delimiters is
+        // 55 bytes, which fits in 64.
         let mut bytes = [0; 64];
         let mut remaining = bytes.as_mut_slice();
-        write!(remaining, "Geometry({name}({index}))").expect("bounded geometry label");
+        write!(remaining, "Geometry({entry})").expect("bounded geometry label");
         let unused = remaining.len();
         let length = bytes.len() - unused;
-        Self::Indexed { bytes, length }
+        Self::Geometry { bytes, length }
     }
 }
 
@@ -57,37 +59,9 @@ impl AsRef<str> for EncoderLabel {
         match self {
             Self::Static(name) => name,
             Self::Authored(name) => name.as_ref(),
-            Self::Indexed { bytes, length } => {
+            Self::Geometry { bytes, length } => {
                 std::str::from_utf8(&bytes[..*length]).expect("ASCII geometry label")
             }
         }
-    }
-}
-
-fn geometry_label(slot: PassSlot) -> EncoderLabel {
-    use EncoderLabel::Static;
-    match slot {
-        PassSlot::ShadowCasters(index) => EncoderLabel::indexed("ShadowCasters", index),
-        PassSlot::DepthNormalPrepass => Static("Geometry(DepthNormalPrepass)"),
-        PassSlot::DepthPyramid(index) => EncoderLabel::indexed("DepthPyramid", index),
-        PassSlot::OcclusionMetadata(index) => EncoderLabel::indexed("OcclusionMetadata", index),
-        PassSlot::Ssao => Static("Geometry(Ssao)"),
-        PassSlot::SsaoBlurHorizontal => Static("Geometry(SsaoBlurHorizontal)"),
-        PassSlot::SsaoBlur => Static("Geometry(SsaoBlur)"),
-        PassSlot::Celestial => Static("Geometry(Celestial)"),
-        PassSlot::OpaqueGbuffer => Static("Geometry(OpaqueGbuffer)"),
-        PassSlot::Opaque => Static("Geometry(Opaque)"),
-        PassSlot::AfterOpaqueSnapshot => Static("Geometry(AfterOpaqueSnapshot)"),
-        PassSlot::AfterOpaqueDepth => Static("Geometry(AfterOpaqueDepth)"),
-        PassSlot::TransparentWater => Static("Geometry(TransparentWater)"),
-        PassSlot::TransparentWaterMask => Static("Geometry(TransparentWaterMask)"),
-        PassSlot::TransparentAlpha => Static("Geometry(TransparentAlpha)"),
-        PassSlot::AfterWaterDepth => Static("Geometry(AfterWaterDepth)"),
-        PassSlot::ReflectionDepthPyramid(index) => {
-            EncoderLabel::indexed("ReflectionDepthPyramid", index)
-        }
-        PassSlot::ReflectionTrace => Static("Geometry(ReflectionTrace)"),
-        PassSlot::ReflectionMip(index) => EncoderLabel::indexed("ReflectionMip", index),
-        PassSlot::ScreenSpaceAfterTransparent => Static("Geometry(ScreenSpaceAfterTransparent)"),
     }
 }

@@ -1,6 +1,6 @@
 //! Encoder-only adapter for hosts that already uploaded their frame uniforms.
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, DrawContext, FrameError, PassDeclaration, PassSlot,
+    AttachmentView, BorrowedFeature, DrawContext, FrameError, PassDeclaration, PassEntry, PassSlot,
     PrepareContext, PreparedFeature,
 };
 
@@ -10,21 +10,36 @@ use crate::{draw::SceneGpu, renderer::ScenePipelines};
 struct Resident<'a> {
     publications: crate::draw::DrawPublications,
     scene: &'a SceneGpu,
+    contour: Option<crate::draw::ContourDraw>,
     pipelines: &'a ScenePipelines,
+    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         Ok(())
     }
     fn commit(&mut self, context: &mut PrepareContext<'_>) {
-        self.scene.reset_pass_statistics(context);
+        self.scene.reset_pass_statistics(
+            context.completed_in_prefix(PassEntry::new(PassSlot::DepthNormalPrepass)),
+        );
     }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context, self.scene);
     }
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
+        if context.slot == PassSlot::ContourIds {
+            self.scene
+                .draw_contours(pass, self.contour.as_ref().expect("declared contour pass"));
+            return;
+        }
         if context.slot == PassSlot::Celestial {
             self.scene.draw_celestial(pass);
+            return;
+        }
+        if context.slot == PassSlot::OpaqueLighting {
+            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+            self.scene
+                .draw_deferred_lighting(pass, self.pipelines, inputs);
             return;
         }
         self.publications.record_color(
@@ -81,10 +96,25 @@ pub fn encode_resident(
         &mut views,
         &mut declaration,
     );
+    let contour = renderer.plan_contours(
+        (device, encoder),
+        (scene, pipelines),
+        &scene.resident_frame(),
+        (&mut passes, &mut views, &mut declaration),
+    )?;
+    let deferred = renderer.prepare_deferred_lighting(
+        device,
+        (scene, pipelines),
+        (depth.resource(), depth.texture(), false),
+        &scene.resident_frame(),
+        &mut declaration,
+    )?;
     let mut feature = Resident {
+        contour,
         scene,
         pipelines,
         publications: crate::draw::DrawPublications::default(),
+        deferred,
     };
     renderer.encode_frame(
         device,

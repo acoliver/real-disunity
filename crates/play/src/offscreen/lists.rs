@@ -13,6 +13,11 @@
 //! per-object data are read and not applied. Planes and a split's sphere are tested against the
 //! box of the renderer's mesh, moved by its matrix; a mesh with no box is tested as the point its
 //! matrix places it at.
+//!
+//! A drawing list names the `LightMode` values of the passes it draws, in order of preference. A
+//! pass with no `LightMode` counts as `SRPDefaultUnlit` for a list (a camera counts it as
+//! `Always`), so the Old World shaders whose passes carry no tag are drawn by the lists that name
+//! `SRPDefaultUnlit` and left out of the rest.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -26,7 +31,9 @@ use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
 use super::builtins::{add_main_light, add_screen_size, view_layer};
-use super::frame::{Mapper, PASS_TAG, RendererSkip, Skip, fills_target};
+use super::frame::{
+    LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
+};
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
 /// the passes of the Old World player's shaders come from the decoded pass tags, which the report
@@ -45,6 +52,29 @@ const NO_CASTER_PASS: &str = "no shadow caster pass";
 /// The winding that counts as a front face for a list or a mesh draw. The image is the other way
 /// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
+
+impl ShaderInfo {
+    /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
+    /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
+    /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
+    /// same rule.
+    fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
+        tags.iter().find(|tag| {
+            self.light_modes.contains(tag)
+                || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
+        })
+    }
+}
+
+/// The passes a drawing list with `tags` draws: the first pass with the first of the tags that
+/// any pass has, a pass with no `LightMode` counting as [`LIST_UNTAGGED_LIGHT_MODE`].
+pub(super) fn list_pass_selector(tags: &[String]) -> PassSelector {
+    PassSelector::TagWithUntagged {
+        key: PASS_TAG.to_owned(),
+        values: tags.to_vec(),
+        untagged: LIST_UNTAGGED_LIGHT_MODE.to_owned(),
+    }
+}
 
 /// One draw a list is going to make, before it is ordered.
 struct Candidate {
@@ -131,7 +161,7 @@ impl<'a> Mapper<'a> {
             .get(cull)
             .cloned()
             .ok_or(Skip::UnknownList)?;
-        let target = self.script.target.ok_or(Skip::UnboundTarget)?;
+        let target = self.bound_target()?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
@@ -224,10 +254,7 @@ impl<'a> Mapper<'a> {
         let selector = if replacement.is_some() {
             PassSelector::Index(usize::try_from(*override_pass).unwrap_or(0))
         } else {
-            PassSelector::Tag {
-                key: PASS_TAG.to_owned(),
-                values: pass_tags.clone(),
-            }
+            list_pass_selector(pass_tags)
         };
         let mut candidates = Vec::new();
         for &index in culled {
@@ -246,7 +273,7 @@ impl<'a> Mapper<'a> {
                 let Some(material) = *material else {
                     continue;
                 };
-                let Some((queue, modes)) = self.queue_and_modes(view, material) else {
+                let Some((queue, info)) = self.queue_and_modes(view, material) else {
                     self.left_out(MATERIAL_UNAVAILABLE, 1);
                     continue;
                 };
@@ -256,7 +283,7 @@ impl<'a> Mapper<'a> {
                 }
                 let tag = if replacement.is_some() {
                     format!("override pass {override_pass}")
-                } else if let Some(tag) = pass_tags.iter().find(|tag| modes.contains(tag)) {
+                } else if let Some(tag) = info.list_tag(pass_tags) {
                     tag.clone()
                 } else {
                     self.left_out(NO_TAGGED_PASS, 1);
@@ -308,11 +335,11 @@ impl<'a> Mapper<'a> {
                 let Some(material) = *material else {
                     continue;
                 };
-                let Some((queue, modes)) = self.queue_and_modes(view, material) else {
+                let Some((queue, info)) = self.queue_and_modes(view, material) else {
                     self.left_out(MATERIAL_UNAVAILABLE, 1);
                     continue;
                 };
-                if !modes.iter().any(|mode| mode == SHADOW_CASTER) {
+                if !info.light_modes.iter().any(|mode| mode == SHADOW_CASTER) {
                     self.left_out(NO_CASTER_PASS, 1);
                     continue;
                 }
@@ -361,13 +388,13 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// The render queue a slot's material draws in and the `LightMode` values its shader's passes
-    /// have, or `None` when the material or its shader is not available.
+    /// The render queue a slot's material draws in and what its shader offers, or `None` when the
+    /// material or its shader is not available.
     fn queue_and_modes(
         &self,
         view: &RendererView,
         material: worldrunner_world_simulation::graphics::MaterialId,
-    ) -> Option<(i32, &'a [String])> {
+    ) -> Option<(i32, &'a ShaderInfo)> {
         let (snapshot, available) = (self.snapshot, self.available);
         let held = snapshot.materials.get(&material)?;
         let info = available.shaders.get(&held.shader)?;
@@ -376,7 +403,7 @@ impl<'a> Mapper<'a> {
         } else {
             held.render_queue
         };
-        Some((view.render_queue.unwrap_or(own), &info.light_modes))
+        Some((view.render_queue.unwrap_or(own), info))
     }
 }
 

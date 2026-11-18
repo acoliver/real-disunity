@@ -1,6 +1,7 @@
 mod depth_reuse;
 mod gaps;
 mod history;
+mod observation;
 mod ssr;
 mod velocity;
 use super::*;

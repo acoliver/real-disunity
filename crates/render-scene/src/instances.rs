@@ -1,10 +1,16 @@
 //! Scene-local instance identity and deterministic sparse placement storage.
 
 pub(crate) mod batch;
+#[cfg(test)]
+mod contour_tests;
 pub(crate) mod fade;
+pub(crate) mod history;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
+mod staged_uploads;
+#[cfg(test)]
+pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
 
@@ -101,6 +107,8 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    pub contours: worldrunner_render_plan::SceneContours,
+    pub contour_members: BTreeMap<(BatchKey, usize), u8>,
     /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
     pub(crate) census: worldrunner_render_gpu::census::MemoryCensus,
 }
@@ -150,6 +158,11 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            contours: scene
+                .effects()
+                .map(|effects| effects.contours().clone())
+                .unwrap_or_default(),
+            contour_members: BTreeMap::new(),
             census: worldrunner_render_gpu::census::MemoryCensus::new(),
         };
         for object in scene.geometry().objects() {
@@ -235,6 +248,7 @@ impl Instances {
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         object.transform().validate()?;
+        self.contours.validate_id(object.contour_id())?;
         let descriptor = self.skin.check(&object)?;
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let material =
@@ -272,7 +286,23 @@ impl Instances {
             self.slots.len() - 1
         });
         self.slots[slot].location = Some((key, position));
+        if object.contour_id() != 0 {
+            self.contour_members
+                .insert((key, position), object.contour_id());
+        }
         Ok(self.handle(slot))
+    }
+
+    pub fn set_contours(
+        &mut self,
+        contours: worldrunner_render_plan::SceneContours,
+    ) -> Result<(), SceneValidationError> {
+        contours.validate()?;
+        for &id in self.contour_members.values() {
+            contours.validate_id(id)?;
+        }
+        self.contours = contours;
+        Ok(())
     }
 
     pub fn handles(&self) -> impl Iterator<Item = InstanceHandle> + '_ {
@@ -322,6 +352,7 @@ impl Instances {
             .expect("instance generation exhausted");
         slot.location = None;
         self.free.insert(handle.slot);
+        self.contour_members.remove(&(key, position));
         self.batches
             .get_mut(&key)
             .expect("live batch")
@@ -350,6 +381,7 @@ impl Instances {
     ) -> Result<(), InstanceError> {
         let (key, position) = self.location(handle)?;
         object.transform().validate()?;
+        self.contours.validate_id(object.contour_id())?;
         let batch = self.batches.get_mut(&key).expect("live batch");
         let old = batch.get(position).0;
         if old.mesh() != object.mesh() || old.material() != object.material() {
@@ -357,6 +389,12 @@ impl Instances {
         }
         let descriptor = self.skin.check(&object)?;
         batch.set_object(position, object);
+        if object.contour_id() == 0 {
+            self.contour_members.remove(&(key, position));
+        } else {
+            self.contour_members
+                .insert((key, position), object.contour_id());
+        }
         if let Some(descriptor) = descriptor {
             batch.set_skin(position, descriptor);
         }

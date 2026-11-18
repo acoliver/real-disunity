@@ -1,14 +1,25 @@
-//! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION`.
+//! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION` and
+//! `SceneOpaquePath::GBUFFER_RENDER`.
 //!
-//! The renderer owns four single-sample targets at the scene extent and clears them in
-//! the [`PassSlot::OpaqueGbuffer`] slot, which runs before Opaque, every frame. Producers
-//! draw into that slot through the ordinary feature boundary; the shared encoding lives in
-//! [`GBUFFER_WGSL`]. In observation nothing reads the targets except captures, so the
-//! visible frame and every other pass are unchanged.
+//! The renderer owns four single-sample targets at the scene extent. Observation clears them
+//! in [`PassSlot::OpaqueGbuffer`] before Opaque; Render fuses their clear and production into
+//! [`PassSlot::DepthNormalPrepass`]. Producers use the ordinary feature boundary and the shared
+//! encoding in [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote before Opaque,
+//! with the lighting records of [`records`].
+//!
+//! In observation the lighting pass writes diagnostic targets and nothing reads them except
+//! captures, so the visible frame and every other pass are unchanged. When the frame renders
+//! from the G-buffer ([`GbufferUse::Render`]), the lighting pass takes over Opaque's colour
+//! targets and their clears, so it writes the scene colour and the reflection products SSR
+//! reads, and Opaque loads them and draws only the surfaces without a producer. With
+//! velocity, the early producers write the object-motion residual and clear the velocity target
+//! in Opaque's place.
+mod early;
+pub(crate) use early::producer_pass;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 /// The shared WGSL encode and decode module. It declares no bindings; producers and the
@@ -63,13 +74,34 @@ pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
     GbufferTarget::G3.format(),
 ];
 
-/// The renderer's four targets, reallocated with the scene extent.
+/// What a frame does with the G-buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GbufferUse {
+    /// `SceneOpaquePath::GBUFFER_OBSERVATION`: store and light into diagnostic targets; the
+    /// visible frame stays forward.
+    Observe,
+    /// `SceneOpaquePath::GBUFFER_RENDER`: the lighting pass writes the scene colour.
+    Render,
+}
+
+/// The renderer's four targets and the lighting pass's targets, reallocated with the scene
+/// extent.
 pub(crate) struct Gbuffer {
     textures: [wgpu::Texture; 4],
+    lighting: lighting::LightingTargets,
+    usage: GbufferUse,
 }
 
 impl Gbuffer {
-    pub(crate) fn new(device: &wgpu::Device, size: [u32; 2]) -> Self {
+    /// The targets at `size`, with lighting outputs in the scene colour `format` and, with
+    /// `reflections`, the two reflection products. Only observation allocates diagnostic
+    /// lighting targets; rendering writes Opaque's own.
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        size: [u32; 2],
+        (format, reflections): (wgpu::TextureFormat, bool),
+        usage: GbufferUse,
+    ) -> Self {
         Self {
             textures: GbufferTarget::ALL.map(|target| {
                 worldrunner_render_post::color_texture(
@@ -79,7 +111,29 @@ impl Gbuffer {
                     target.format(),
                 )
             }),
+            lighting: lighting::LightingTargets::new(
+                device,
+                size,
+                (format, reflections),
+                usage == GbufferUse::Observe,
+            ),
+            usage,
         }
+    }
+
+    /// The same targets at another extent.
+    pub(crate) fn resized(&self, device: &wgpu::Device, size: [u32; 2]) -> Self {
+        Self::new(
+            device,
+            size,
+            (self.lighting.format(), self.lighting.reflections()),
+            self.usage,
+        )
+    }
+
+    /// Whether the frame renders from the G-buffer rather than observing it.
+    pub(crate) fn renders(&self) -> bool {
+        self.usage == GbufferUse::Render
     }
 
     pub(crate) fn size(&self) -> [u32; 2] {
@@ -88,6 +142,26 @@ impl Gbuffer {
 
     pub(crate) fn texture(&self, target: GbufferTarget) -> &wgpu::Texture {
         &self.textures[target as usize]
+    }
+
+    /// Every texture the G-buffer slot and the lighting pass write besides Opaque's own: the
+    /// four targets and, in observation, the diagnostic lighting targets. A capture segment
+    /// must own these writes.
+    pub(crate) fn written_textures(&self) -> impl Iterator<Item = &wgpu::Texture> {
+        self.textures.iter().chain(self.lighting.textures())
+    }
+
+    /// One of the lighting pass's targets; the reflection products only with reflections.
+    pub(crate) fn lighting_texture(
+        &self,
+        target: lighting::LightingTarget,
+    ) -> Option<&wgpu::Texture> {
+        self.lighting.texture(target)
+    }
+
+    /// The lighting pass's colour format and whether it writes the reflection products.
+    pub(crate) fn lighting_outputs(&self) -> (wgpu::TextureFormat, bool) {
+        (self.lighting.format(), self.lighting.reflections())
     }
 
     /// Adds the slot's pass, which clears all four targets to zero, and their views. A
@@ -99,6 +173,11 @@ impl Gbuffer {
         views: &mut Vec<AttachmentView>,
         features: impl IntoIterator<Item = &'a FeatureDeclaration>,
     ) -> Result<(), FrameError> {
+        if self.renders() {
+            let velocity = early::move_early_velocity(passes, views)?;
+            self.fuse_prepass(passes, views, velocity.as_ref())?;
+            return lighting::schedule_render(passes);
+        }
         let mut pass = PassDeclaration::new(PassSlot::OpaqueGbuffer);
         for target in GbufferTarget::ALL {
             let view = AttachmentView::new(
@@ -122,7 +201,39 @@ impl Gbuffer {
             views.push(view);
         }
         passes.push(pass);
+        self.lighting.schedule(passes, views)?;
         attach_producer_depth(passes, features)
+    }
+}
+
+/// Whether Opaque loads the completed prepass depth that the producer tests.
+pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::DepthMode) -> bool {
+    matches!(depth, crate::renderer::depth::DepthMode::Reuse)
+}
+
+/// Declares the producer carried by the metadata. Observation tests completed `Reuse` depth
+/// read-only in `OpaqueGbuffer`; Render writes depth and its fused outputs in the early prepass.
+/// Replacing a declaration for the same entry keeps a single geometry walk.
+pub(crate) fn declare_producer(
+    declaration: &mut FeatureDeclaration,
+    screen: &crate::scene_metadata::SceneMetadata,
+    depth: crate::renderer::depth::DepthMode,
+) {
+    let Some((pipelines, _)) = &screen.geometry.gbuffer else {
+        return;
+    };
+    let pass = producer_pass(pipelines, screen.depth.format());
+    if pass.slot == PassSlot::OpaqueGbuffer && !producer_depth_available(depth) {
+        return;
+    }
+    if let Some(existing) = declaration
+        .passes
+        .iter_mut()
+        .find(|existing| existing.entry() == pass.entry())
+    {
+        *existing = pass;
+    } else {
+        declaration.passes.push(pass);
     }
 }
 
@@ -132,8 +243,8 @@ impl Gbuffer {
 /// Opaque (the depth prepass ran, so Opaque loads it), the slot attaches that same depth
 /// read-only: producers test against it (`Equal`, like forward reuse) and write none, so
 /// depth ownership and the visible frame are unchanged. Without a completed depth the
-/// request is refused with [`FrameError::AttachmentContract`]. Making this slot clear and
-/// write the scene depth is the switch that admits rendering from the G-buffer.
+/// request is refused with [`FrameError::AttachmentContract`]. Render owns depth in the fused
+/// early prepass and does not schedule this observation slot.
 pub(crate) fn attach_producer_depth<'a>(
     passes: &mut [PassDeclaration],
     features: impl IntoIterator<Item = &'a FeatureDeclaration>,
@@ -151,11 +262,15 @@ pub(crate) fn attach_producer_depth<'a>(
         .and_then(|pass| pass.depth.as_ref())
         .filter(|depth| depth.load == AttachmentLoad::Load)
         .cloned()
-        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?;
     passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
+        .ok_or(FrameError::MissingPass(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?
         .depth = Some(AttachmentDeclaration {
         read_only: true,
         ..depth
@@ -163,18 +278,37 @@ pub(crate) fn attach_producer_depth<'a>(
     Ok(())
 }
 
-/// Declares the four targets for the allocation budget.
-pub(crate) fn allocations(size: [u32; 2], set: &mut AllocationSet) {
+/// Declares the four targets and, in observation, the lighting targets for the allocation
+/// budget.
+pub(crate) fn allocations(
+    frame: worldrunner_render_post::FrameConfig,
+    reflections: bool,
+    usage: GbufferUse,
+    set: &mut AllocationSet,
+) {
+    let size = [frame.size[0], frame.size[1], 1];
     for target in GbufferTarget::ALL {
-        set.texture(
-            target.resource_name(),
-            [size[0], size[1], 1],
-            target.format(),
-            [1, 1],
-            1,
-        );
+        set.texture(target.resource_name(), size, target.format(), [1, 1], 1);
+    }
+    if usage == GbufferUse::Render {
+        return;
+    }
+    let outputs: &[lighting::LightingTarget] = if reflections {
+        &[
+            lighting::LightingTarget::Colour,
+            lighting::LightingTarget::Environment,
+            lighting::LightingTarget::Factor,
+        ]
+    } else {
+        &[lighting::LightingTarget::Colour]
+    };
+    for target in outputs {
+        set.texture(target.resource_name(), size, frame.format, [1, 1], 1);
     }
 }
+
+pub mod lighting;
+pub mod records;
 
 #[cfg(test)]
 pub(crate) mod reference;

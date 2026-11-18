@@ -118,7 +118,8 @@ public sealed partial class Camera : Behaviour
     private (int Width, int Height) TargetSize() =>
         targetTexture is { } texture ? (texture.width, texture.height) : ScreenSize();
 
-    /// <summary>The texture the camera draws into, or null for the screen. The camera holds the id of the texture's render
+    /// <summary>The texture the camera draws into, or null for the screen or for target buffers set with
+    /// <see cref="SetTargetBuffers(RenderBuffer, RenderBuffer)"/>; setting it, null included, replaces the buffers. The camera holds the id of the texture's render
     /// texture in the world. A frame does not present a camera with a target texture; <see cref="Render"/> records its offscreen work.</summary>
     public RenderTexture? targetTexture
     {
@@ -138,6 +139,8 @@ public sealed partial class Camera : Behaviour
             var id = value is null ? 0ul : value.WorldId;
             if (value is not null) lock (TargetLock) TargetTextures[id] = new WeakReference<RenderTexture>(value);
             Update(c => { c.target_texture = id; return c; });
+            // A texture replaces any buffers in the world; null has to say so, since zero is also what buffers leave there.
+            if (value is null) WorldGraphics.WriteCameraBuffers(Handle, [], 0);
         }
     }
 

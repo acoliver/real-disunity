@@ -441,6 +441,35 @@ A derived plan describes startup sizing with the supplied effects. When planning
 replacement effects for an existing host, pass `CapturePoolPolicy::Fixed` with
 that host's `capture_pool_bytes` statistic to preserve its lifetime capacity.
 
+## Texture residency tiers
+
+Set `ViewerOptions::texture_tiers` to `Some(TextureTierPolicy { budget_fraction_micro,
+max_dropped_levels })` to reduce declared scene textures at upload. `None` preserves
+the authored chains. The fraction is in millionths of the selected adapter's
+device-local memory. Unknown adapter memory preserves the authored chains.
+
+Only handles in `SceneResources::reducible_textures()` participate. The scene
+validates that these handles have no fixed-level or authored-size consumers.
+The uploader chooses one global count of top mip levels to drop, using the
+smallest count that fits the budget. Each texture retains a base of at least
+4x4; cubes retain their authored chains. The remaining authored mip data uploads
+directly, without resampling. If the maximum reduction still exceeds the budget,
+the maximum is used and the reported choice has `fits: false`.
+
+The choice includes incoming fixed-size scene textures and the device census at
+preparation time. During replacement, previous textures remain counted until their
+resident generation retires. This is a texture sizing policy, separate from
+presentation allocation admission. Allocations created after the choice and driver
+overhead are outside its estimate. With a policy enabled, retained texture
+replacements and appends containing textures prepare a complete replacement scene,
+so the global tier and its byte totals are recalculated together. Other resource
+edits keep their in-place upload path.
+
+`RetainedFrameStatistics::texture_tier` reports the resident scene's choice:
+`dropped_levels`, `authored_bytes`, `kept_bytes`, and `saved_bytes()`. Byte counts
+cover the declared reducible textures. The field is `None` without a policy.
+Queued scene preparation does not replace the current resident's choice.
+
 ## Selected adapter
 
 Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
@@ -449,6 +478,10 @@ Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
 Classes map directly from wgpu's device type: `Integrated`, `Discrete`, `Virtual`,
 `Software` (CPU adapters), or `Other`. No classification is inferred from a name.
 The backend reports the selected graphics API independently of hardware class.
+`memory` is the adapter's `AdapterMemory` where the platform publishes it: on Linux,
+DRM drivers with `mem_info_*` files in sysfs (amdgpu) give device-local, host-visible
+and GTT totals. It is `None` elsewhere and for software adapters, so a host that
+chooses settings from it must handle the unknown case.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
 The callback runs once per renderer startup, on the calling thread, before device
@@ -508,7 +541,12 @@ submission and replaced before each `Presented` callback. A snapshot identifies
 its renderer submission frame and published accepted scene generation. Frame IDs
 share the capture/timing sequence; capture-only subframes can leave gaps between
 ordinary snapshots. `presentation_budget_bytes` reports the
-effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
+effective presentation admission budget, including the admitted replacement peak.
+`resident_bytes` is the device's GPU memory census at submission, by resource class
+(textures, meshes, instances, shadow maps and the rest); classes the engine does not count
+yet read zero. `upload_staging` counts the device's reusable upload staging since startup:
+chunks created and held, uploads and uploaded bytes. Steady frames reuse chunks, so
+`chunks_created` stops growing once the frames in flight have settled. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 

@@ -59,8 +59,8 @@ mod tests {
         .expect("the skinned module validates as a whole");
     }
 
-    /// The object sources the forward, receiver and screen-space contexts compose, without
-    /// the previous-pose rewrite that skinned geometry does not take yet.
+    /// The object sources the forward, receiver, screen-space and G-buffer producer contexts
+    /// compose, without the previous-pose rewrite that skinned geometry does not take yet.
     fn contexts() -> Vec<(&'static str, String)> {
         let mut sources = vec![
             ("forward", crate::shader::ENVIRONMENT_WGSL.to_owned()),
@@ -74,6 +74,8 @@ mod tests {
             ),
         ];
         sources.push(("shadow caster", crate::shadows::caster_source()));
+        // Rendering from the G-buffer draws skinned objects only through the producers.
+        sources.push(("G-buffer producer", crate::gbuffer_writes::sources(false).0));
         sources.push((
             "metadata prepass",
             crate::scene_metadata::sources(crate::scene_metadata::MetadataOutput::Normal).0,

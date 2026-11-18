@@ -143,7 +143,7 @@ fn coverage(context: &GpuContext, enabled: Option<bool>, samples: u32) -> Vec<u8
     let color_view = color.create_view(&TextureViewDescriptor::default());
     let resolved_view = resolved.create_view(&TextureViewDescriptor::default());
     let depth_view = depth.create_view(&TextureViewDescriptor::default());
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(device).unwrap();
     draw(
         &mut encoder,
         (&color_view, &resolved_view, &depth_view),
@@ -156,7 +156,11 @@ fn coverage(context: &GpuContext, enabled: Option<bool>, samples: u32) -> Vec<u8
     finish(context, encoder, output)
 }
 
-fn finish(context: &GpuContext, mut encoder: CommandEncoder, output: &Texture) -> Vec<u8> {
+fn finish(
+    context: &GpuContext,
+    mut encoder: worldrunner_render_gpu::submission::RecordingFrame,
+    output: &Texture,
+) -> Vec<u8> {
     let device = context.device();
     let readback = device.create_buffer(&BufferDescriptor {
         label: None,
@@ -176,7 +180,7 @@ fn finish(context: &GpuContext, mut encoder: CommandEncoder, output: &Texture) -
         },
         output.size(),
     );
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     map_pixels(device, &readback)
 }
 
@@ -188,31 +192,34 @@ fn draw(
     samples: u32,
     background: &SceneGpu,
 ) {
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: None,
-        color_attachments: &[Some(RenderPassColorAttachment {
-            view: views.0,
-            depth_slice: None,
-            resolve_target: (samples > 1).then_some(views.1),
-            ops: Operations {
-                load: LoadOp::Clear(Color::TRANSPARENT),
-                store: StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: views.2,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(1.0),
-                store: StoreOp::Store,
+    let pass = worldrunner_render_gpu::submission::RecordingRenderPass::begin(
+        encoder,
+        &RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: views.0,
+                depth_slice: None,
+                resolve_target: (samples > 1).then_some(views.1),
+                ops: Operations {
+                    load: LoadOp::Clear(Color::TRANSPARENT),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: views.2,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
             }),
-            stencil_ops: None,
-        }),
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        multiview_mask: None,
-    });
-    gpu.draw(&mut pass, pipelines);
-    background.draw(&mut pass, pipelines);
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        },
+    )
+    .unwrap();
+    SceneGpu::draw_many(pass, &[(gpu, pipelines), (background, pipelines)]).unwrap();
 }
 
 #[test]

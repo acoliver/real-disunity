@@ -1,4 +1,8 @@
 pub(crate) mod casters;
+mod chunk_view;
+pub use chunk_view::{
+    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
+};
 mod culling;
 mod meshes;
 mod observations;
@@ -50,6 +54,11 @@ struct Prepared {
     #[cfg(test)]
     uploads: usize,
 }
+impl Prepared {
+    fn matches_view(&self, frame: &crate::frame::FrameUniform, viewport: [u32; 2]) -> bool {
+        self.matrix == frame.selection_view_projection() && self.viewport == viewport
+    }
+}
 impl Streaming {
     pub fn new(scene: RenderScene, root: GpuLod, authority: &SubmissionAuthority) -> Self {
         let terrain = scene.terrain().expect("terrain");
@@ -89,7 +98,7 @@ impl Streaming {
         else {
             return Ok(false);
         };
-        if prepared.matrix != frame.selection_view_projection() || prepared.viewport != viewport {
+        if !prepared.matches_view(frame, viewport) {
             return Err(FrameError::StreamingSelectionConflict);
         }
         #[cfg(test)]
@@ -111,16 +120,18 @@ impl Streaming {
         viewport: [u32; 2],
         completed: u64,
     ) -> Result<(), FrameError> {
-        if self.frozen.get() {
-            self.prepare_frozen(context, frame, viewport);
-            return Ok(());
+        if self.replacement.borrow().is_some() {
+            return Err(FrameError::FeaturePreparation {
+                feature: "streaming terrain",
+                reason: "the retained replacement must finish before camera preparation".into(),
+            });
         }
-        assert!(
-            self.replacement.borrow().is_none(),
-            "replacement must finish before drawing"
-        );
         let owner = context.publications();
         if self.reuse_prepared(&owner, frame, viewport)? {
+            return Ok(());
+        }
+        if self.frozen.get() {
+            self.prepare_frozen(context, frame, viewport);
             return Ok(());
         }
         *self.drawing.borrow_mut() = None;
@@ -360,13 +371,20 @@ impl Streaming {
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
         (terrain, frame): (&super::GpuTerrain, &crate::frame::FrameUniform),
     ) -> super::DrawCount {
-        let scene = self.scene.terrain().expect("terrain");
         self.record_prepared(
             pass,
             pipeline,
             (terrain, Some(frame.camera_position)),
-            culling::keep(scene, &self.height_bounds, frame.view_projection),
+            self.camera_keep(frame),
         )
+    }
+
+    fn camera_keep(
+        &self,
+        frame: &crate::frame::FrameUniform,
+    ) -> impl Fn(&TerrainChunk) -> bool + '_ {
+        let scene = self.scene.terrain().expect("terrain");
+        culling::keep(scene, &self.height_bounds, frame.view_projection)
     }
 
     /// Records the resident chunks whose world bounds `keep` accepts, in resident order.
@@ -392,8 +410,7 @@ impl Streaming {
     ) -> super::DrawCount {
         let mut count = super::DrawCount::default();
         self.with_residents(Publications::current().as_ref(), |residents, _| {
-            let kept: Vec<_> = residents.iter().filter(|(chunk, _)| keep(chunk)).collect();
-            for (chunk, lod) in self.ordered(kept, eye) {
+            for (chunk, lod) in self.ordered_where(residents, eye, keep) {
                 self.geometry.draw(
                     pass,
                     pipeline,
@@ -405,6 +422,18 @@ impl Streaming {
             }
         });
         count
+    }
+
+    fn ordered_where<'a, T>(
+        &self,
+        residents: &'a [(TerrainChunk, T)],
+        eye: Option<glam::Vec3>,
+        keep: impl Fn(&TerrainChunk) -> bool,
+    ) -> Vec<&'a (TerrainChunk, T)> {
+        self.ordered(
+            residents.iter().filter(|(chunk, _)| keep(chunk)).collect(),
+            eye,
+        )
     }
 
     /// `chunks` from the nearest to `eye` to the farthest, or unchanged without an eye.
@@ -554,11 +583,13 @@ impl SceneGpu {
         context.finish();
         Ok(())
     }
-    /// Stages terrain streamed geometry for this view and raster extent in the current submission.
-    /// Frames that replace stock scene draws can still advance a retained residency request.
+    /// Prepares the stock streamed terrain selection inside the scene's frame transaction. Stock
+    /// scene preparation already performs this step; frames that replace stock scene draws call it
+    /// so a retained residency request still advances.
     ///
     /// # Errors
-    /// Returns the preparation error if the terrain upload cannot be recorded.
+    /// Returns a frame error for a foreign transaction, a conflicting view, or a
+    /// terrain upload or preparation failure.
     pub fn prepare_terrain_geometry(
         &self,
         device: &wgpu::Device,
@@ -572,6 +603,15 @@ impl SceneGpu {
             .and_then(|terrain| terrain.streaming.as_ref())
         {
             let mut context = PrepareContext::new(device, encoder)?;
+            if !streaming
+                .authority
+                .same_authority(context.publications().authority())
+            {
+                return Err(FrameError::FeaturePreparation {
+                    feature: "streaming terrain",
+                    reason: "frame belongs to a different submission authority".into(),
+                });
+            }
             streaming.prepare(&mut context, frame, viewport)?;
             if let Some(terrain) = &self.terrain {
                 streaming.prepare_geometry(&context.publications(), terrain);

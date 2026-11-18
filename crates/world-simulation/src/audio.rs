@@ -37,6 +37,31 @@ pub struct VoiceHandle {
     generation: u64,
 }
 
+/// Whether a pause call also suspends currently eligible voices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExistingVoices {
+    Continue,
+    Suspend,
+}
+
+/// Admission and routing for one voice, independent of bus gain and clocks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlaybackOptions {
+    pub gain: f32,
+    pub bus: Option<String>,
+    pub pause_eligible: bool,
+}
+impl PlaybackOptions {
+    /// Ordinary playback is unrouted and pause-eligible.
+    pub fn new(gain: f32) -> Self {
+        Self {
+            gain,
+            bus: None,
+            pause_eligible: true,
+        }
+    }
+}
+
 /// Typed controls; clip loading accepts a bounded borrowed byte slice separately.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AudioCommand {
@@ -48,6 +73,18 @@ pub enum AudioCommand {
         clip: ClipHandle,
         gain: f32,
         bus: String,
+    },
+    PlayWithOptions {
+        clip: ClipHandle,
+        options: PlaybackOptions,
+    },
+    PauseMask,
+    Pause {
+        bits: u32,
+        existing: ExistingVoices,
+    },
+    Resume {
+        bits: u32,
     },
     ConfigureBus {
         name: String,
@@ -62,6 +99,7 @@ pub enum AudioCommand {
 pub enum AudioReply {
     Playing(VoiceHandle),
     Stopped(bool),
+    PauseMask(u32),
     Applied,
 }
 
@@ -101,6 +139,8 @@ pub enum AudioError {
     InvalidGain,
     #[error("output reconfiguration requires empty voice/completion slots")]
     OutputBusy,
+    #[error("pause-eligible playback is paused")]
+    Paused,
 }
 
 fn validate_gain(gain: f32) -> Result<(), AudioError> {

@@ -5,6 +5,7 @@ pub(crate) mod batch;
 mod contour_tests;
 pub(crate) mod fade;
 pub(crate) mod history;
+mod ready_memo;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
@@ -17,6 +18,7 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_plan::{
     RenderScene, SceneMaterial, SceneObject, SceneTransform, SceneValidationError,
 };
@@ -107,6 +109,7 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    ready: ready_memo::ReadyMemo,
     pub contours: worldrunner_render_plan::SceneContours,
     pub contour_members: BTreeMap<(BatchKey, usize), u8>,
     /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
@@ -158,6 +161,7 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            ready: ready_memo::ReadyMemo::default(),
             contours: scene
                 .effects()
                 .map(|effects| effects.contours().clone())
@@ -176,6 +180,17 @@ impl Instances {
     /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
     pub fn edits(&self) -> u64 {
         self.batches.values().map(InstanceBatch::edits).sum()
+    }
+
+    /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
+    pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
+        self.ready.check(&self.batches, owner)
+    }
+
+    /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
+    #[cfg(test)]
+    pub fn ready_scans(&self) -> usize {
+        self.ready.scans()
     }
 
     /// Whether any batch draws a skinned mesh.

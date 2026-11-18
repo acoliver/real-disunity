@@ -420,7 +420,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mesh = gpu.meshes[0].lods[0].vertices.clone();
-    let material = gpu.materials[0].clone();
+    let material = gpu.retained.material_uniforms[0].clone();
     let texture = (*gpu.retained.textures[0]).clone();
     let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
     let original = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
@@ -436,7 +436,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     assert_ne!(removed, edited);
     assert_eq!(removed, capture(&context, &source(false, true), 1));
     assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
-    assert_eq!(material, gpu.materials[0]);
+    assert_eq!(material, gpu.retained.material_uniforms[0]);
     assert_eq!(texture, *gpu.retained.textures[0]);
     assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);
 }

@@ -145,9 +145,11 @@ internal static class DeferredDestroyTests
         body.interpolation = RigidbodyInterpolation2D.Interpolate;
         body.mass = 2;
         Require(body.interpolation == RigidbodyInterpolation2D.Interpolate, "interpolation survives other body writes");
-        try { body.interpolation = RigidbodyInterpolation2D.Extrapolate; throw new Exception("extrapolation accepted"); }
-        catch (NotSupportedException) { }
-        Require(body.interpolation == RigidbodyInterpolation2D.Interpolate, "refused extrapolation keeps the setting");
+        body.interpolation = RigidbodyInterpolation2D.Extrapolate;
+        Require(body.interpolation == RigidbodyInterpolation2D.Extrapolate, "extrapolation round trip");
+        try { body.interpolation = (RigidbodyInterpolation2D)3; throw new Exception("invalid interpolation accepted"); }
+        catch (DisunityException) { }
+        Require(body.interpolation == RigidbodyInterpolation2D.Extrapolate, "refused interpolation keeps the setting");
         DisunityHost.UnloadWorld();
     }
     private static void DelayedDestruction()

@@ -30,8 +30,8 @@ pub use crate::create::TextureShape;
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::import::{
-    Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource, ImportedTexture,
-    ImportedVertexInput,
+    BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,
+    ImportedTexture, ImportedVertexInput,
 };
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};

@@ -47,6 +47,10 @@ pub enum ProgramError {
     #[error("the program has no fragment stage, and the pass has {colors} colour attachments")]
     NoFragmentForColors { colors: usize },
     #[error(
+        "the state has a depth bias, which applies to triangles only, and the draw's topology is {topology:?}"
+    )]
+    DepthBiasWithoutTriangles { topology: wgpu::PrimitiveTopology },
+    #[error(
         "colour attachment {location} is written (its write mask is not empty), and the fragment stage has no output at that location"
     )]
     TargetWithoutFragmentOutput { location: u32 },

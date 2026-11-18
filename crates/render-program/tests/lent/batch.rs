@@ -205,6 +205,7 @@ impl Shared {
                     bindings: &[],
                     imports: &[],
                     sets: &[set],
+                    topology: wgpu::PrimitiveTopology::TriangleList,
                     geometry: &self.indexed(),
                     instances,
                     owners: &[],

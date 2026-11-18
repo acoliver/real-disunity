@@ -120,3 +120,70 @@ fn terrain_pixels_are_identical_after_different_completion_schedules() {
     );
     wait(&context);
 }
+
+#[test]
+fn lender_reports_camera_order_and_keeps_offscreen_geometric_neighbors() {
+    use crate::draw::TerrainChunkEdge::{East, North, South, West};
+
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let source = source();
+    let gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    settle(&context, &gpu, 0);
+    let frame = frame();
+    let residents = keys(&gpu);
+    let ordered = visible_nearest_first(source.terrain().unwrap(), &frame, &residents);
+    assert!(ordered.len() > 1 && ordered.len() < residents.len());
+    assert!(
+        !ordered.is_sorted(),
+        "fixture distinguishes draw order from key order"
+    );
+    let prepared = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            gpu.prepare_terrain_geometry(context.device(), encoder, &frame, [SIZE; 2])?;
+            let draws = gpu
+                .prepared_terrain_chunks(&frame, [SIZE; 2])
+                .unwrap()
+                .unwrap();
+            assert_eq!(draws.iter().map(|d| d.chunk).collect::<Vec<_>>(), ordered);
+            assert!(
+                draws
+                    .iter()
+                    .flat_map(|draw| [West, East, South, North]
+                        .into_iter()
+                        .flat_map(move |edge| draw.neighbors(edge)))
+                    .any(|neighbor| residents.contains(&neighbor.chunk)
+                        && !ordered.contains(&neighbor.chunk))
+            );
+            Ok::<_, worldrunner_render_post::FrameError>(())
+        })
+        .unwrap();
+    prepared.cancel();
+}
+
+fn visible_nearest_first(
+    terrain: &worldrunner_render_plan::SceneTerrain,
+    frame: &FrameUniform,
+    residents: &[TerrainChunk],
+) -> Vec<TerrainChunk> {
+    let frustum = Frustum::new(frame.view_projection);
+    let bounds = TerrainHeightBounds::new(terrain);
+    let mut visible: Vec<_> = residents
+        .iter()
+        .copied()
+        .filter(|&chunk| {
+            let [min, max] = bounds.chunk_bounds(terrain, chunk);
+            frustum.intersects(Bounds { min, max }.outward_rounded())
+        })
+        .map(|chunk| {
+            let [min, max] = crate::terrain::streaming::chunk_bounds(terrain, chunk);
+            let eye = frame.camera_position;
+            (chunk, eye.clamp(min, max).distance_squared(eye))
+        })
+        .collect();
+    visible.sort_by(|a, b| a.1.total_cmp(&b.1));
+    visible.into_iter().map(|(chunk, _)| chunk).collect()
+}

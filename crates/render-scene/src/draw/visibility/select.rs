@@ -128,8 +128,8 @@ impl Selection {
         self.stats.culled = self.stats.considered - self.stats.drawn_per_lod.iter().sum::<usize>();
     }
 
-    /// Collects the slots of `batch` that are visible, cast when only casters count, and
-    /// whose bounds the view admits, skipping groups no placement of which it can admit.
+    /// Collects the slots of `batch` that are visible, cast when only casters count, are not
+    /// shadow-only when the view is a camera, and whose bounds the view admits, skipping groups no placement of which it can admit.
     fn admit(
         &self,
         batch: &IndexedBatch<'_>,
@@ -159,7 +159,11 @@ impl Selection {
                         let (object, visible) =
                             batch.placements[slot as usize].expect("live instance");
                         visible
-                            && (!self.casters_only || object.casts_shadow())
+                            && if self.casters_only {
+                                object.casts_shadow()
+                            } else {
+                                !object.shadow_only()
+                            }
                             && self.admits(frustum, matrix, passed, || {
                                 placement::placement(
                                     batch.bounds.boxes(slot as usize),

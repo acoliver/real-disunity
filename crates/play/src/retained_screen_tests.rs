@@ -144,6 +144,52 @@ fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
 }
 
 #[test]
+fn first_update_after_resize_flushes_into_resized_screen() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let prepared = PreparedPlayer {
+        config: fixture_config(),
+        request: root.join("csharp/PortableFixture/resize-flush.fixture"),
+        data: data.path().to_owned(),
+    };
+    let mut source = HeadlessViewer::new([SIZE, SIZE]);
+    let gpu = window_gpu(GpuWork::Auto, &prepared.data, &mut source);
+    assert!(gpu.is_some(), "the test needs a GPU adapter");
+    let (mut viewer, mut driver) =
+        start_window(&prepared, window(GpuWork::Auto, &[]), gpu).unwrap();
+
+    let resized = [SIZE * 2, SIZE];
+    viewer.input(RetainedInput::Resized(resized));
+    driver
+        .step(
+            &mut viewer,
+            &RetainedTick {
+                frame: 0,
+                elapsed: Duration::ZERO,
+                dt: Duration::from_millis(16),
+            },
+        )
+        .unwrap();
+
+    let screen = driver
+        .gpu
+        .as_ref()
+        .unwrap()
+        .game_screen()
+        .expect("the first update's readback flush must write the resized screen");
+    assert_eq!(
+        (screen.texture().width(), screen.texture().height()),
+        (resized[0], resized[1]),
+        "the first update after resize must offer a screen at the current window size"
+    );
+    assert!(
+        screen.submitted(),
+        "the managed readback flushed the screen write"
+    );
+}
+
+#[test]
 fn without_gpu_work_the_window_has_no_image_of_the_screen() {
     let _turn = fixture_turn();
     let (driver, _) = play_screen_fixture(GpuWork::Off);

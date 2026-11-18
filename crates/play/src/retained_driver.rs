@@ -310,9 +310,9 @@ impl PlayerRetainedDriver {
         });
         let nanos = u64::try_from(dt.as_nanos())
             .map_err(|_| PlayError::Invalid("frame delta too long".into()))?;
+        self.resize_screen(viewer.size());
         self.host.advance(nanos, 1_000_000_000)?;
         self.simulated += dt;
-        self.resize_screen(viewer.size());
         let presentation = self
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;

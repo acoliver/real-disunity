@@ -418,6 +418,69 @@ fn each_camera_names_the_channels_and_textures_its_left_out_draws_lacked() {
 }
 
 #[test]
+fn a_member_only_a_draw_left_out_for_want_of_a_channel_lacked_is_not_listed() {
+    let mut rig = Rig::new();
+    let mut frame = left_without_a_channel(&mut rig);
+    // The left renderer's draw alone has no `_Place`. It is left out, so the member is the
+    // frame's only when a draw that was kept lacked it, and the right one has every member.
+    frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw = PropertyLayer::default();
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 1));
+    assert_eq!(
+        operations.missing_channel_draws(),
+        vec![MissingChannelDraws {
+            channel: 0,
+            input: 0,
+            draws: 1
+        }]
+    );
+    assert!(
+        operations.missing().is_empty(),
+        "{:?}",
+        operations.missing()
+    );
+}
+
+#[test]
+fn a_state_property_only_a_draw_left_out_for_want_of_a_texture_lacked_is_not_listed() {
+    use worldrunner_render_program::unity::synthetic::named;
+    use worldrunner_render_program::unity::synthetic::shaders::{
+        POSITION_AND_UV, camera_pass_with_table,
+    };
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    // Shader 1's `Gamma` pass takes its cull from `_Cull`, which no layer sets, and samples
+    // `_Albedo`, which none names; shader 2 has only an `Alpha` pass, which needs neither.
+    let mut culled = camera_passes();
+    culled.shader.parsed.sub_shaders[0].passes[1]
+        .state
+        .depth
+        .cull = named(2.0, "_Cull");
+    rig.state.add_shader(
+        SHADER,
+        ProgramShader::new(culled.shader, culled.chunks).unwrap(),
+    );
+    let plain = camera_pass_with_table(&POSITION_AND_UV);
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(plain.shader, plain.chunks).unwrap(),
+    );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Gamma".to_owned(), "Alpha".to_owned()],
+    };
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 1, 0));
+    assert_eq!(operations.missing_texture_draws().len(), 1);
+    assert!(
+        operations.missing().is_empty(),
+        "{:?}",
+        operations.missing()
+    );
+}
+
+#[test]
 fn the_program_two_draws_share_is_built_once_and_found_by_the_next_frame() {
     let mut rig = Rig::new();
     let frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));

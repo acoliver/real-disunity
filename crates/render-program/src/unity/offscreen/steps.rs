@@ -451,6 +451,7 @@ pub(super) fn counted(
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
             svc.counts.note_undeclared(&draw.plan.undeclared);
+            svc.keep_unset(&draw.plan);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -739,6 +740,7 @@ fn blit_step(
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
     svc.counts.note_undeclared(&plan.undeclared);
+    svc.keep_unset(&plan);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

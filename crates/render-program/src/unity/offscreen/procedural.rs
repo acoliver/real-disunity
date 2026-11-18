@@ -91,16 +91,16 @@ fn generated(
 ) -> Result<CameraDraw, OffscreenError> {
     // The vertex stage is checked before any constant or texture is planned, so a pass that reads
     // vertex inputs is refused by that cause even when it also lacks a texture.
-    let (entry, state) = svc.choose(spec)?;
-    let inputs = entry.vertex_input_count();
+    let chosen = svc.choose(spec)?;
+    let inputs = chosen.entry.vertex_input_count();
     if inputs > 0 {
         return Err(OffscreenError::ProceduralVertexInputs {
             shader: spec.shader,
-            pass: entry.pass,
+            pass: chosen.entry.pass,
             inputs,
         });
     }
-    let plan = svc.plan_chosen(spec, entry, state)?;
+    let plan = svc.plan_chosen(spec, chosen)?;
     Ok(CameraDraw {
         shader: spec.shader,
         mesh: None,

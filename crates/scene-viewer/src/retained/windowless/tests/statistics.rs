@@ -1,3 +1,5 @@
+mod configuration;
+
 use super::*;
 
 #[test]

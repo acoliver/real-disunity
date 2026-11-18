@@ -80,17 +80,33 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
         return new DisunityTargetRef { kind = KindRender, render = texture.WorldId };
     }
 
-    /// <summary>Returns this target when a blit, copy or global texture can name it: a render texture, a texture asset or nothing
-    /// has a world form as a texture, and any other target throws <see cref="NotSupportedException"/> naming <paramref name="member"/>.</summary>
-    internal CommandTarget AsTexture(string member) => Kind is KindRender or KindNone or KindAsset
+    /// <summary>Returns this target when a blit, copy or global texture can name it: a render texture, a temporary render texture,
+    /// a texture asset or nothing has a world form as a texture, and the camera target throws <see cref="NotSupportedException"/>
+    /// naming <paramref name="member"/>.</summary>
+    internal CommandTarget AsTexture(string member) => Kind is KindRender or KindTemporary or KindNone or KindAsset
         ? this
-        : throw new NotSupportedException($"{member}: a {(Kind == KindTemporary ? "temporary render texture" : "camera target")} as a texture is not supported yet");
+        : throw new NotSupportedException($"{member}: a camera target as a texture is not supported yet");
 
-    /// <summary>The texture kind and identity the world records: none, a texture asset by its renderer identity, or a render
-    /// texture. A texture destroyed since the command was recorded throws <see cref="InvalidOperationException"/>.</summary>
+    /// <summary>Returns this target when a blit or a copy can write it: a render texture or a temporary render texture. Any other
+    /// target throws <see cref="NotSupportedException"/> naming <paramref name="member"/>.</summary>
+    internal CommandTarget AsWorkTarget(string member) => Kind is KindRender or KindTemporary
+        ? this
+        : throw new NotSupportedException($"{member}: the destination must be a render texture or a temporary render texture");
+
+    /// <summary>The target kind and identity a blit or a copy records: a temporary render texture by its property name id, or a
+    /// render texture by its world id. A render texture destroyed since the command was recorded throws
+    /// <see cref="InvalidOperationException"/>.</summary>
+    internal (uint Kind, ulong Target) ToWorkTarget() => Kind == KindTemporary
+        ? (WorldGraphics.TargetTemporary, (uint)NameId)
+        : (WorldGraphics.TargetRender, ToNative().render);
+
+    /// <summary>The texture kind and identity the world records: none, a texture asset by its renderer identity, a render
+    /// texture, or a temporary render texture by its property name id. A texture destroyed since the command was recorded throws
+    /// <see cref="InvalidOperationException"/>.</summary>
     internal (uint Kind, ulong Texture) ToTexture() => Kind switch
     {
         KindNone => (0u, 0UL),
+        KindTemporary => (WorldGraphics.TextureTemporary, (uint)NameId),
         KindAsset => Texture is { } texture && texture
             ? WorldGraphics.TextureOf(texture)
             : throw new InvalidOperationException("a texture was destroyed after the command was recorded"),

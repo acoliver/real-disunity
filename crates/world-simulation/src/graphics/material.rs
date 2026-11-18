@@ -157,10 +157,21 @@ impl World {
     pub(crate) fn check_texture(&self, texture: &TextureRef) -> Result<(), WorldError> {
         match texture {
             TextureRef::Render(id) => self.render_texture(*id).map(drop),
-            TextureRef::Asset(0) | TextureRef::Global(_) => {
+            TextureRef::Asset(0) | TextureRef::Global(_) | TextureRef::Temporary(_) => {
                 Err(GraphicsError::InvalidTexture.into())
             }
             TextureRef::Asset(_) | TextureRef::None => Ok(()),
+        }
+    }
+
+    /// Checks a texture that recorded offscreen work reads: what [`World::check_texture`]
+    /// accepts, and a temporary render texture under any name id. Whether the temporary is
+    /// allocated when the host reaches the record is the host's to check, as it is for a
+    /// temporary target.
+    pub(crate) fn check_work_texture(&self, texture: &TextureRef) -> Result<(), WorldError> {
+        match texture {
+            TextureRef::Temporary(_) => Ok(()),
+            other => self.check_texture(other),
         }
     }
 

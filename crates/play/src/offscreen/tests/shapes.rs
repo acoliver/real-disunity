@@ -10,7 +10,7 @@ use worldrunner_render_program::unity::synthetic::{
     FRAGMENT, PassSpec, SyntheticShader, binding, shader as synthetic_shader, slot,
 };
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
-use worldrunner_world_simulation::graphics::{OffscreenWork, TextureRef, dimension};
+use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef, dimension};
 
 use super::super::adapter::build;
 use super::super::ids;
@@ -260,7 +260,7 @@ fn a_kernel_writes_the_faces_of_a_cube_and_a_blit_samples_the_face_it_looks_alon
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(cube),
-            target: out,
+            target: TargetRef::Render(out),
             material: Some(blit),
             pass: 0,
         })

@@ -81,7 +81,7 @@ fn vertex(position: [i64; 3]) -> SceneVertex {
 }
 
 /// A box-shaped level of `size` millimetres standing on its origin.
-fn level(index: u8, size: [i64; 3]) -> SceneMeshLod {
+pub(super) fn level(index: u8, size: [i64; 3]) -> SceneMeshLod {
     let [x, y, z] = size;
     SceneMeshLod::new(
         index,
@@ -92,7 +92,7 @@ fn level(index: u8, size: [i64; 3]) -> SceneMeshLod {
     .unwrap()
 }
 
-fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
+pub(super) fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
     SceneLodMaterialSlot::new(MaterialHandle::from_raw(material), indices).unwrap()
 }
 
@@ -130,7 +130,7 @@ fn mesh(index: u32, rng: &mut Rng) -> SceneMesh {
     SceneMesh::with_distances(vec![near, middle, far], vec![first, second, second * 4]).unwrap()
 }
 
-fn band(start_meters: u32, width_meters: u32, terminal: bool) -> SceneFadeBand {
+pub(super) fn band(start_meters: u32, width_meters: u32, terminal: bool) -> SceneFadeBand {
     let band =
         SceneFadeBand::new(start_meters * 1000, (start_meters + width_meters) * 1000).unwrap();
     if terminal {
@@ -140,7 +140,7 @@ fn band(start_meters: u32, width_meters: u32, terminal: bool) -> SceneFadeBand {
     }
 }
 
-fn atlas(band: SceneFadeBand) -> SceneImpostor {
+pub(super) fn atlas(band: SceneFadeBand) -> SceneImpostor {
     SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
         .unwrap()
         .with_fade(band)
@@ -165,7 +165,7 @@ fn threshold(texture: u32) -> SceneFadeCoverage {
     }
 }
 
-fn reference(offset: [i32; 3], clamp: Option<u32>) -> SceneFadeReference {
+pub(super) fn reference(offset: [i32; 3], clamp: Option<u32>) -> SceneFadeReference {
     let reference = SceneFadeReference::new(offset);
     clamp.map_or(reference, |clamp| {
         reference.with_eye_vertical_clamp(clamp).unwrap()

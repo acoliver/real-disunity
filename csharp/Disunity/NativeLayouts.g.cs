@@ -600,7 +600,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityOffscreenWork>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityOffscreenWork.kind offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("camera").ToInt32() != 8) throw new InvalidOperationException("DisunityOffscreenWork.camera offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("target").ToInt32() != 16) throw new InvalidOperationException("DisunityOffscreenWork.target offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("source_kind").ToInt32() != 24) throw new InvalidOperationException("DisunityOffscreenWork.source_kind offset");
+        if (Marshal.OffsetOf<DisunityOffscreenWork>("target_kind").ToInt32() != 24) throw new InvalidOperationException("DisunityOffscreenWork.target_kind offset");
+        if (Marshal.OffsetOf<DisunityOffscreenWork>("source_kind").ToInt32() != 28) throw new InvalidOperationException("DisunityOffscreenWork.source_kind offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("source").ToInt32() != 32) throw new InvalidOperationException("DisunityOffscreenWork.source offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("material").ToInt32() != 40) throw new InvalidOperationException("DisunityOffscreenWork.material offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("pass").ToInt32() != 48) throw new InvalidOperationException("DisunityOffscreenWork.pass offset");
@@ -614,7 +615,7 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityOffscreenWork>("groups_y").ToInt32() != 88) throw new InvalidOperationException("DisunityOffscreenWork.groups_y offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("groups_z").ToInt32() != 92) throw new InvalidOperationException("DisunityOffscreenWork.groups_z offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("bindings").ToInt32() != 96) throw new InvalidOperationException("DisunityOffscreenWork.bindings offset");
-        if (Marshal.SizeOf<DisunityOffscreenWork>() != 104 || typeof(DisunityOffscreenWork).GetFields().Length != 17) throw new InvalidOperationException("DisunityOffscreenWork layout");
+        if (Marshal.SizeOf<DisunityOffscreenWork>() != 104 || typeof(DisunityOffscreenWork).GetFields().Length != 18) throw new InvalidOperationException("DisunityOffscreenWork layout");
         if (Marshal.OffsetOf<DisunityTextureSlot>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTextureSlot.kind offset");
         if (Marshal.OffsetOf<DisunityTextureSlot>("texture").ToInt32() != 8) throw new InvalidOperationException("DisunityTextureSlot.texture offset");
         if (Marshal.OffsetOf<DisunityTextureSlot>("scale_x").ToInt32() != 16) throw new InvalidOperationException("DisunityTextureSlot.scale_x offset");
@@ -701,7 +702,7 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 12;
+    internal const uint Version = 14;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

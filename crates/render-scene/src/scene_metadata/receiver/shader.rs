@@ -309,6 +309,56 @@ fn loaded(function: &str, side: u32) -> String {
     }
     loaded
 }
+fn prepare_consumer_pixel(mut source: String, terrain: bool) -> String {
+    if terrain {
+        for name in ["fs_terrain", "shaded_terrain"] {
+            if source.contains(&format!("fn {name}(")) {
+                let body = function(&source, name).to_owned();
+                source = source.anchored(
+                    "scene_metadata::receiver::shader::consumer",
+                    1,
+                    &body,
+                    &body.replacen(
+                        '{',
+                        "{ scene_receiver_pixel = vec2<i32>(input.clip_position.xy);",
+                        1,
+                    ),
+                );
+            }
+        }
+        return source;
+    }
+    source = source
+        .anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            "sunlight_visibility(input.world_position, -normal)",
+            "scene_receiver_back_visibility(input.world_position, -normal)",
+        )
+        .anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            "scene_prepare_card_shadow(input.world_position, -projected.normal)",
+            "scene_receiver_back_card(input.world_position, -projected.normal)",
+        );
+    for name in ["shade", "scene_card_shade"] {
+        let body = function(&source, name).to_owned();
+        let prepared = body.anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            "var input = original;",
+            "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;",
+        );
+        source = source.anchored(
+            "scene_metadata::receiver::shader::consumer",
+            1,
+            &body,
+            &prepared,
+        );
+    }
+    super::cards::source(&source)
+}
+
 pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> String {
     let back = u32::from(layout == ReceiverLayout::Opposing);
     let cascaded = function(source, "cascaded_sunlight_visibility");
@@ -339,7 +389,7 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
         "scene_prepare_card_shadow",
         "scene_receiver_back_card",
     );
-    let mut source = source
+    let source = source
         .anchored(
             "scene_metadata::receiver::shader::consumer",
             1,
@@ -352,48 +402,7 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
             card,
             &loaded(card, 0),
         );
-    if !terrain {
-        // Only object surfaces shade a back side.
-        source = source
-            .anchored(
-                "scene_metadata::receiver::shader::consumer",
-                1,
-                "sunlight_visibility(input.world_position, -normal)",
-                "scene_receiver_back_visibility(input.world_position, -normal)",
-            )
-            .anchored(
-                "scene_metadata::receiver::shader::consumer",
-                1,
-                "scene_prepare_card_shadow(input.world_position, -projected.normal)",
-                "scene_receiver_back_card(input.world_position, -projected.normal)",
-            );
-    }
-    if terrain {
-        for name in ["fs_terrain", "shaded_terrain"] {
-            if source.contains(&format!("fn {name}(")) {
-                let body = function(&source, name).to_owned();
-                source = source.anchored(
-                    "scene_metadata::receiver::shader::consumer",
-                    1,
-                    &body,
-                    &body.replacen(
-                        '{',
-                        "{ scene_receiver_pixel = vec2<i32>(input.clip_position.xy);",
-                        1,
-                    ),
-                );
-            }
-        }
-    } else {
-        // shade, shade_material (the G-buffer producers' material entry) and the forward card
-        // entry each start from the original vertex output.
-        source = source.anchored("scene_metadata::receiver::shader::consumer", 3, "var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
-    }
-    let source = if terrain {
-        source
-    } else {
-        super::cards::source(&source)
-    };
+    let source = prepare_consumer_pixel(source, terrain);
     format!(
         "{source}\n{back_cascaded}\n{back_raw}\n{back_card}\n{}",
         include_str!("consumer.wgsl")

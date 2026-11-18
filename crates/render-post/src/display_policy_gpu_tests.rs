@@ -24,18 +24,17 @@ fn render(
         .unwrap();
     let chain = PostChain::new(device, config, Resources::default(), factory).unwrap();
     let target = output(device, config.size);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    // Paint the post-resolve input directly, independent of implementation-defined MSAA positions.
-    paint(device, &mut encoder, chain.targets().resolved(), body);
-    chain
-        .factory()
-        .prepare_effects(&mut encoder, 0, 0.0, true)
-        .unwrap();
-    chain.encode(
-        &mut encoder,
-        &target.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(device, queue, |encoder| {
+        // Paint the post-resolve input directly, independent of implementation-defined MSAA
+        // positions.
+        paint(device, encoder, chain.targets().resolved(), body);
+        chain.factory().prepare_effects(encoder, 0, 0.0, true)?;
+        chain.encode(
+            encoder,
+            &target.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, PostError>(())
+    });
     let ids = chain.configured[0].stages.iter().map(|s| s.id).collect();
     (pixels(device, queue, &target), ids)
 }

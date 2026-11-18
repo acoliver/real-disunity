@@ -1,6 +1,7 @@
 //! Caller-owned frame decisions for the adapter selected at startup.
 use std::sync::Arc;
 
+pub use worldrunner_render_gpu::adapter_memory::{AdapterMemory, AdapterMemorySource};
 pub use worldrunner_render_scene::device::{AdapterClass, AdapterIdentity};
 
 /// CPU frame settings already owned by `ViewerOptions`.

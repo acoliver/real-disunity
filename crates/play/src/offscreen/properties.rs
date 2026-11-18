@@ -66,7 +66,7 @@ impl<'a> Textures<'a> {
     /// texture's sampler is the one it was uploaded with.
     pub fn resolve(&mut self, texture: &TextureRef) -> Option<(TextureId, Option<SamplerState>)> {
         match *texture {
-            TextureRef::None | TextureRef::Global(_) => None,
+            TextureRef::None | TextureRef::Global(_) | TextureRef::Temporary(_) => None,
             TextureRef::Render(id) => self.render.get(&id).map(|description| {
                 self.used.insert(id);
                 (
@@ -88,6 +88,7 @@ impl<'a> Textures<'a> {
         match texture {
             TextureRef::None => "no texture set",
             TextureRef::Global(_) => "a global the host does not resolve",
+            TextureRef::Temporary(_) => "a temporary render texture outside recorded work",
             TextureRef::Render(_) => "a render texture that no longer exists",
             TextureRef::Asset(identity) if ids::stored_texture(*identity).is_none() => {
                 "an identity a render texture would share"

@@ -305,6 +305,20 @@ pub enum GpuWork {
     Off,
 }
 
+/// The device and offscreen host a run does its GPU work on, or `None` for [`GpuWork::Off`] and
+/// when the machine has no adapter, which is reported on standard error. Shaders are loaded
+/// from the player's `data` directory.
+pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<PlayerGpu> {
+    match work {
+        GpuWork::Off => None,
+        GpuWork::Auto => PlayerGpu::headless(&prepared.data, prepared.depth, &prepared.globals)
+            .inspect_err(|reason| {
+                eprintln!("[gpu] {reason}; the offscreen work does not run");
+            })
+            .ok(),
+    }
+}
+
 /// The environment variable that makes a headless run print the GPU report after every frame, not
 /// only at the end.
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
@@ -324,14 +338,7 @@ pub fn run_player_with(
     gpu: GpuWork,
 ) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
-    let gpu = match gpu {
-        GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::headless(&prepared.data, prepared.depth, &prepared.globals)
-            .inspect_err(|reason| {
-                eprintln!("[gpu] {reason}; the offscreen work does not run");
-            })
-            .ok(),
-    };
+    let gpu = player_gpu(gpu, prepared);
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     if let Some(gpu) = &gpu {
         gpu.install(&mut host)?;

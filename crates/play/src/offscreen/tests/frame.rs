@@ -48,7 +48,7 @@ pub(super) fn blit(
     world
         .record_offscreen(OffscreenWork::Blit {
             source,
-            target,
+            target: TargetRef::Render(target),
             material,
             pass,
         })
@@ -130,7 +130,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: a,
+            target: TargetRef::Render(a),
             target_element: 0,
             target_mip: 0,
         })

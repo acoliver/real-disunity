@@ -46,7 +46,7 @@ pub(crate) fn compile(
         let uses = features
             .iter()
             .flat_map(|feature| &feature.passes)
-            .filter(|feature| feature.slot == pass.slot)
+            .filter(|feature| feature.entry() == pass.entry())
             .flat_map(|feature| &feature.reads)
             .map(|resource| {
                 checked_view(registry, &keys, *resource, versions[resource])

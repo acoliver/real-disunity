@@ -3,6 +3,9 @@
 
 use naga::{Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
 
+#[path = "early_tests.rs"]
+mod early;
+
 fn module(label: &str, source: &str) -> naga::Module {
     let module = naga::front::wgsl::parse_str(source)
         .unwrap_or_else(|error| panic!("{label}: {}", error.emit_to_string(source)));
@@ -309,4 +312,25 @@ fn object_gbuffer_normalizes_the_folded_normal_at_storage() {
         source.contains("select(evaluated.geometric_normal, normalize(evaluated.surface.normal),")
     );
     assert!(source.contains("length(evaluated.surface.normal) > 0.000001"));
+}
+
+/// A stock terrain source whose forward entry was reworded must fail by name, not compose a
+/// G-buffer source that still holds the forward entry.
+#[test]
+#[should_panic(expected = "shader rewrite of gbuffer_writes forward entry")]
+fn a_reworded_forward_terrain_entry_fails_by_name() {
+    let stock = crate::shader::TERRAIN_WGSL.replace("fn fs_terrain(", "fn fs_terrain_renamed(");
+    super::terrain_source(&stock);
+}
+
+/// A frozen card shading whose statements were reworded must fail by name, not derive a card
+/// material that still lights.
+#[test]
+#[should_panic(expected = "shader rewrite of gbuffer_writes card material")]
+fn a_reworded_card_shading_fails_by_name() {
+    let stock = crate::shader::ENVIRONMENT_WGSL.replace(
+        "let front_shadow = scene_prepare_card_shadow(",
+        "let front = scene_prepare_card_shadow(",
+    );
+    super::object_source(&stock);
 }

@@ -79,7 +79,7 @@ pub(crate) fn expected(frames: u32, uploads: u32) -> Vec<u8> {
     bytes
 }
 
-fn noop() -> (wgpu::Device, wgpu::Queue, SubmissionAuthority) {
+pub(crate) fn noop() -> (wgpu::Device, wgpu::Queue, SubmissionAuthority) {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let authority = SubmissionAuthority::new(queue.clone());
     (device, queue, authority)
@@ -130,7 +130,10 @@ fn a_cancelled_frame_never_copies_its_staged_bytes_and_frees_its_staging() {
         let mut context = PrepareContext::new(&device, encoder)?;
         context.upload_buffer(&target, 0, &[0xCD; 64]);
         context.finish();
-        Err(crate::FrameError::SlotOrder)
+        Err(crate::FrameError::StockOrder {
+            pass: crate::PassEntry::new(crate::PassSlot::Opaque),
+            needs: crate::PassEntry::new(crate::PassSlot::OpaqueLighting),
+        })
     });
     assert!(failed.is_err());
     assert_eq!(read(&device, &queue, &target), before);

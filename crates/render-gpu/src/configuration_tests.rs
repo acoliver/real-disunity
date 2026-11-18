@@ -355,3 +355,44 @@ fn an_uncounted_configuration_leaves_the_census_alone() {
     assert_eq!(authority.census().snapshot().total(), 0);
     drop(config);
 }
+
+/// A retired generation's frame is complete on the GPU, but a held poller has not run its
+/// completion bookkeeping (hub issue 4d2b47c55165). Its bytes still count, so the next
+/// replacement fails the budget; collecting settled waits for the bookkeeping and frees them.
+#[test]
+fn collecting_settled_frees_a_generation_whose_bookkeeping_a_held_poller_holds() {
+    let (device, authority) = fresh_context();
+    let mut config = Configuration::new(
+        &authority,
+        1_u32,
+        bytes(16),
+        &device.limits(),
+        AllocationBudget(40),
+    )
+    .unwrap();
+    let _flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    config
+        .replace(&device.limits(), bytes(16), || Ok::<_, ()>(2))
+        .unwrap();
+    let held = crate::test_support::HeldPoller::start(&device);
+    assert!(
+        matches!(
+            config.replace(&device.limits(), bytes(16), || Ok::<_, ()>(3)),
+            Err(ConfigurationError::Budget { .. })
+        ),
+        "the retired generation still counts before its completion is recorded"
+    );
+    let releaser = held.release_after(std::time::Duration::from_millis(200));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    config.collect_settled(&device, deadline).unwrap();
+    assert_eq!(config.retired_count(), 0);
+    config
+        .replace(&device.limits(), bytes(16), || Ok::<_, ()>(3))
+        .expect("the freed generation no longer counts");
+    releaser.join().unwrap();
+    held.join();
+}

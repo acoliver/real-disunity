@@ -5,7 +5,6 @@ mod contours;
 pub mod opaque;
 #[cfg(test)]
 mod overlay_tests;
-mod planning;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
@@ -14,27 +13,36 @@ mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
+pub(crate) mod forward_order;
+mod frozen;
+#[cfg(test)]
+mod frozen_tests;
+mod hdr;
 mod offscreen;
 mod output;
 mod overlay;
 mod overlay_depth;
+#[cfg(test)]
+pub(crate) mod plan_trace;
 mod programs;
 pub(crate) mod publication;
 mod snapshots;
+mod stock_plan;
 mod temporal;
 mod validation;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-use crate::ssao::passes::ScreenFeature;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
 pub use output::FrameProfile;
-use validation::{validate_clear, validate_hdr_effects, validate_reflection_extent};
+pub use stock_plan::StockPlanStatistics;
+pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
+use validation::{validate_clear, validate_reflection_extent};
 
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
     CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
-    PostResolve, Resources, ToneMapOutput,
+    PostResolve, Resources,
 };
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
@@ -70,6 +78,9 @@ pub struct FrameRenderer {
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
     /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
     pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
+    producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
+    /// The stock plans of this renderer and the ones it replaces on reconfiguration.
+    plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -90,6 +101,11 @@ impl FrameRenderer {
         let mut declaration = attachment(resource, view, false);
         declaration.load = AttachmentLoad::ClearColor(self.clear_color);
         declaration
+    }
+    /// What the stock frame plan cache did: schedules rebuilt, binding tables resolved and
+    /// frames that reused both.
+    pub fn stock_plan_statistics(&self) -> StockPlanStatistics {
+        self.plan_cache.borrow().statistics()
     }
     /// Select the host's admitted frame slot before preparing any features.
     pub fn select_frame_slot(&mut self, slot: usize) {
@@ -121,6 +137,8 @@ impl FrameRenderer {
             ssao_requested: None,
             ssr_requested: None,
             gbuffer: None,
+            producer_draw: std::rc::Rc::default(),
+            plan_cache: std::rc::Rc::default(),
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -187,92 +205,14 @@ impl FrameRenderer {
         tone_map: worldrunner_render_post::ToneMap,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, PostError> {
-        antialiasing.validate()?;
-        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
-        validate_hdr_effects(effects)?;
-        let config = antialiasing.frame_config(size, wgpu::TextureFormat::Rgba16Float);
-        config.validate_adapter(context.adapter())?;
-        validate_reflection_extent(
-            context.device(),
-            config,
-            effects.and_then(|effects| effects.ssr()),
-        )?;
-        let exposure = effects.map_or(1.0, |effects| {
-            f64::from(effects.grading().exposure_micro) / 1_000_000.0
-        });
-        post.validate_frame_with_jitter(config, antialiasing.jitter)?;
-        let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
-            .with_effects(context.device(), post)?;
-        let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
-        let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
-        let metadata = depth_reuse::prepass_metadata(
-            ssao_requested,
-            ssr_requested.as_ref(),
-            effects.is_some_and(|effects| effects.depth_fitting().is_some()),
-        );
-        let gbuffer = opaque::allocate_path(
-            context.device(),
-            effects.map_or_else(
-                Default::default,
-                worldrunner_render_plan::SceneEffects::opaque_path,
-            ),
-            config,
-            ssr_requested.is_some_and(|ssr| ssr.enabled),
-        )?;
-        let mut renderer = Self {
-            contours: crate::contours::Targets::default(),
-            contour_format: context
-                .adapter()
-                .get_texture_format_features(crate::contours::FORMAT),
-            overlay: overlay::OverlayStage::default(),
+        hdr::build(
+            context,
+            size,
             output_format,
-            environment_conventions: [None; 2],
-            ssao_requested,
-            ssr_requested,
-            gbuffer,
-            ssr: None,
-            water: None,
-            water_state: std::rc::Rc::default(),
-            snapshots: None,
-            snapshot_ready: std::rc::Rc::default(),
-            frame_slot: 0,
-            clear_color: wgpu::Color::BLACK,
-            post_requested: post,
-            elapsed_seconds: 0.0,
-            selected_time: None,
-            receiver_gradients: ReceiverGradientReservation::Opposing,
-            #[cfg(test)]
-            receiver_reference: None,
-            animation_time: None,
-            frame_delta: 0.0,
-            post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
-            exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
-            temporal: std::rc::Rc::default(),
-            ssao: metadata
-                .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
-                })
-                .transpose()?,
-            chain: PostChain::with_scene_depth(
-                context.device(),
-                config,
-                Resources::default(),
-                FrameOutput::Hdr(factory),
-                depth_reuse::allocation(context.device().features(), config, metadata.is_some()),
-            )?,
-        };
-        renderer.install_reflections(context.device())?;
-        renderer.install_gbuffer_producer(context.device());
-        renderer.share_metadata_depth(context.device());
-        renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
-        if let Some(effects) = effects {
-            renderer.install_water_bodies(
-                context.device(),
-                context.submission(),
-                effects.water_bodies().to_vec(),
-            )?;
-        }
-        Ok(renderer)
+            antialiasing,
+            tone_map,
+            effects,
+        )
     }
 
     fn install_reflections(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
@@ -430,7 +370,7 @@ impl FrameRenderer {
             .ssao
             .as_ref()
             .filter(|ssao| ssao.size != size)
-            .map(|ssao| crate::scene_metadata::SceneMetadata::new(device, size, ssao.settings))
+            .map(|ssao| ssao.rebuilt(device, size))
             .transpose()?;
         let water = self
             .water
@@ -598,6 +538,152 @@ impl FrameRenderer {
         self.water_state.borrow_mut().feature = feature;
         Ok(())
     }
+    /// Camera-aware composition for stock and external features, including
+    /// declaration-requested snapshots. The optional binding supplies shared shadows.
+    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
+    /// take it and forward it through [`Self::encode_frame_with`] instead.
+    pub fn encode_frame(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+        features: &mut [BorrowedFeature<'_>],
+        input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
+    ) -> Result<(), FrameError> {
+        self.encode_frame_with(device, encoder, plan, None, features, &input)
+    }
+    /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
+    /// by the executor immediately before the first pass of the ordered frame.
+    /// A `None` head supplies no work; it does not discover operations retained by borrowed
+    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
+    ///
+    /// # Errors
+    /// The validation and preparation errors of [`Self::encode_frame`], or an error returned
+    /// while recording `head`. Abandon the frame on failure.
+    pub fn encode_frame_with(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+        head: Option<&dyn worldrunner_render_post::FrameOperations>,
+        features: &mut [BorrowedFeature<'_>],
+        input: &(crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
+    ) -> Result<(), FrameError> {
+        let config = self.targets().config();
+        let (frame, shadow) = *input;
+        self.validate_environment_conventions(frame.specular_convention)?;
+        let (passes, views) = plan;
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        let depth_mode = if passes
+            .iter()
+            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref())
+            .is_some_and(|depth| depth.format.has_stencil_aspect())
+        {
+            crate::renderer::depth::DepthMode::Shared
+        } else {
+            crate::renderer::depth::DepthMode::Independent
+        };
+        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
+        let declarations: Vec<_> = features
+            .iter()
+            .map(|feature| feature.declaration.clone())
+            .collect();
+        let environment = stock_plan::Environment {
+            config,
+            frame,
+            slot: self.frame_slot,
+            ssao: self.ssao.as_ref(),
+            ssr: self.ssr.as_ref(),
+            water: self.water.as_ref(),
+            gbuffer: self.gbuffer.as_ref(),
+            velocity: self.chain.targets().velocity_texture().cloned(),
+            temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
+            requested: (self.ssao_requested, self.ssr_requested),
+            overlay_depth: self.overlay.needs_depth(),
+            shadow: shadow.is_some(),
+        };
+        let authored = stock_plan::Authored {
+            passes,
+            views,
+            features: &declarations,
+        };
+        let parts = stock_plan::Parts {
+            cache: &self.plan_cache,
+            chain: &mut self.chain,
+            snapshots: &mut self.snapshots,
+            overlay: &mut self.overlay,
+        };
+        let mut planned = stock_plan::plan_frame(device, parts, &environment, &authored)?;
+        let (schedule, views) = (planned.schedule.clone(), planned.views.clone());
+        let views = views.as_slice();
+        let head = head.map(|work| worldrunner_render_post::OperationsGroup {
+            before: schedule.first,
+            work,
+        });
+        {
+            let mut combined = planned.features(features);
+            frozen::encode_frozen_plan(
+                &mut self.chain,
+                device,
+                encoder,
+                &worldrunner_render_post::FramePlan {
+                    passes: &schedule.passes,
+                    views,
+                    requested: &[],
+                    operations: head.as_slice(),
+                },
+                &mut combined,
+            )?;
+        }
+        self.publish_snapshots(encoder, schedule.request);
+        self.stage_temporal_history(encoder, &frame)
+    }
+    fn publish_snapshots(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        request: crate::water::planning::SnapshotRequest,
+    ) {
+        let ready = self.snapshot_ready.clone();
+        let slot = self.frame_slot;
+        publication::encode(encoder, &ready.clone(), move || {
+            ready.borrow_mut()[slot] = request;
+        })
+        .expect("checked transaction encoder");
+    }
+    pub fn encode(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        passes: &[PassDeclaration],
+        views: &[AttachmentView],
+        features: &mut [BorrowedFeature<'_>],
+    ) -> Result<(), FrameError> {
+        worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
+        self.remember_taa_block(None);
+        if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "SSAO requires stock geometry composition",
+            ));
+        }
+        if self.gbuffer.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "the opaque G-buffer requires stock geometry composition",
+            ));
+        }
+        self.chain.encode_geometry(
+            device,
+            encoder,
+            &worldrunner_render_post::FramePlan {
+                passes,
+                views,
+                requested: &[],
+                operations: &[],
+            },
+            features,
+        )
+    }
 }
 
 pub(crate) fn attachment_resource(
@@ -632,10 +718,15 @@ pub(crate) fn attachment(
     }
 }
 
-pub use scene::encode_scene;
+pub use depth_prefix::StockDepthPrefix;
 pub(crate) use scene::{SceneFeature, declare_velocity};
+pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
 mod scene;
 
 #[cfg(test)]
 #[path = "compositor_post_tests.rs"]
 mod post_tests;
+
+#[cfg(test)]
+#[path = "compositor_repeated_opaque_tests.rs"]
+mod repeated_opaque_tests;

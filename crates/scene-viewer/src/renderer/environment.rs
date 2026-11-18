@@ -36,8 +36,10 @@ pub(super) fn new_resident(
     shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     profile: crate::FrameProfile,
     presentation: &mut Presentation,
+    tiers: &mut super::texture_tiers::TextureTiers,
 ) -> Result<Resident, ViewerError> {
-    let prepared = worldrunner_render_scene::draw::PreparedScene::new(scene)?;
+    let mut prepared = worldrunner_render_scene::draw::PreparedScene::new(scene)?;
+    let chosen = tiers.apply(context, &mut prepared);
     let reservation = presentation.prepare_scene(context, &prepared)?;
     let mut resident = Resident::from_prepared(context, prepared, shadows, profile)?;
     resident
@@ -45,5 +47,6 @@ pub(super) fn new_resident(
         .retain_resource_reservation(reservation.resident);
     install(context, &mut resident, presentation, scene.effects(), false)?;
     drop(reservation.transient);
+    tiers.chosen = chosen;
     Ok(resident)
 }

@@ -77,6 +77,7 @@ impl Budgeted {
             None,
             crate::FrameProfile::Legacy,
             &mut presentation,
+            &mut crate::renderer::texture_tiers::TextureTiers::default(),
         )
         .unwrap();
         Self {

@@ -1,8 +1,10 @@
 //! Queue-wide preparation exclusion and the only command submission boundary.
 pub mod capture;
 mod lease;
+mod pass;
 mod staging;
 pub use lease::{FrameLease, FrameOwner, LeaseError};
+pub use pass::RecordingRenderPass;
 pub use staging::StagingStatistics;
 use std::{
     cell::{Cell, RefCell},
@@ -59,15 +61,18 @@ thread_local! {
 /// Infallible CPU publications. Dropping the set discards all edits.
 type PublicationList = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
-#[derive(Clone, Default)]
+/// The write set of one recording frame. Only [`SubmissionAuthority`] creates one, when a frame
+/// begins recording, so every set and every clone handed to a caller belongs to that frame's
+/// authority and transaction.
+#[derive(Clone)]
 pub struct Publications {
     edits: PublicationList,
     status: Rc<Cell<TransactionStatus>>,
     encoder: Rc<Cell<u64>>,
     scope: Option<Rc<capture::WriteScope>>,
     leases: Rc<RefCell<Vec<lease::LeaseUse>>>,
-    authority: Option<SubmissionAuthority>,
-    /// Identifies the recording frame's staging; zero outside a recording.
+    authority: SubmissionAuthority,
+    /// Identifies the recording frame's staging; nonzero.
     transaction: u64,
 }
 impl std::fmt::Debug for Publications {
@@ -101,7 +106,7 @@ impl Publications {
             .iter()
             .any(|usage| usage.same_owner(lease))
         {
-            let usage = lease.acquire(current.authority.as_ref().expect("recording authority"))?;
+            let usage = lease.acquire(&current.authority)?;
             current.leases.borrow_mut().push(usage);
         }
         Ok(())
@@ -148,8 +153,8 @@ impl Publications {
     }
     /// The authority the transaction's frame was begun from, so work that must follow the frame
     /// (a timestamp resolve, for one) can go through the same exclusion and read its serials.
-    pub fn authority(&self) -> Option<&SubmissionAuthority> {
-        self.authority.as_ref()
+    pub fn authority(&self) -> &SubmissionAuthority {
+        &self.authority
     }
     /// Copies `bytes` into the authority's reusable upload staging and returns the buffer and
     /// offset a copy recorded in this transaction's encoder reads them from. The staging stays
@@ -158,18 +163,18 @@ impl Publications {
     ///
     /// # Panics
     ///
-    /// Outside a recording transaction, or after it was submitted or cancelled.
+    /// After the transaction was submitted or cancelled, or when `bytes` is longer than the
+    /// device's `max_buffer_size`.
     pub fn stage_upload(&self, device: &wgpu::Device, bytes: &[u8]) -> (wgpu::Buffer, u64) {
         assert_eq!(
             self.status(),
             TransactionStatus::Preparing,
             "uploads are staged only while their frame records"
         );
-        let authority = self.authority.as_ref().expect("recording authority");
+        let authority = &self.authority.0;
         authority
-            .0
             .staging
-            .stage(device, &authority.0.census, self.transaction, bytes)
+            .stage(device, &authority.census, self.transaction, bytes)
     }
     /// Submitted capture slots may be reused only after the lease's final ticket retires.
     pub fn capture_retired(&self) -> bool {
@@ -192,12 +197,6 @@ impl Publications {
                 (&self.scope, &other.scope),
                 (Some(left), Some(right)) if left.same_capture(right)
             )
-    }
-
-    fn commit(self) {
-        for publish in self.edits.take() {
-            publish();
-        }
     }
 }
 
@@ -330,16 +329,24 @@ impl SubmissionAuthority {
             }
             state.preparing = true;
         }
-        Ok(self.record(device, Publications::default(), true))
+        Ok(self.record(device, None, true))
     }
+    /// Begins recording a frame with a new transaction's write set, the only place one is made.
     fn record(
         &self,
         device: &wgpu::Device,
-        mut publications: Publications,
+        scope: Option<Rc<capture::WriteScope>>,
         reserved: bool,
     ) -> RecordingFrame {
-        publications.authority = Some(self.clone());
-        publications.transaction = self.0.transactions.fetch_add(1, Ordering::AcqRel) + 1;
+        let publications = Publications {
+            edits: PublicationList::default(),
+            status: Rc::default(),
+            encoder: Rc::default(),
+            scope,
+            leases: Rc::default(),
+            authority: self.clone(),
+            transaction: self.0.transactions.fetch_add(1, Ordering::AcqRel) + 1,
+        };
         let frame = PreparedFrame {
             authority: self.clone(),
             commands: None,
@@ -371,7 +378,7 @@ impl SubmissionAuthority {
                 unreachable!("begin does not accept an encoder or lease")
             }
         })?;
-        let mut publications = recording.frame.as_ref().unwrap().publications.clone();
+        let mut publications = recording.publications();
         prepare(&mut recording, &mut publications).map_err(PrepareError::Preparation)?;
         Ok(recording.finish())
     }
@@ -474,7 +481,9 @@ impl PreparedFrame {
     }
     fn commit(&mut self) {
         self.publications.status.set(TransactionStatus::Submitted);
-        std::mem::take(&mut self.publications).commit();
+        for publish in self.publications.edits.take() {
+            publish();
+        }
     }
 }
 impl Drop for PreparedFrame {
@@ -484,9 +493,8 @@ impl Drop for PreparedFrame {
         }
         self.publications.edits.borrow_mut().clear();
         self.publications.leases.borrow_mut().clear();
-        // A submitted frame's publications were taken by commit, so this returns only the
-        // still-mapped staging of a frame that never reached the queue.
-        if self.publications.transaction != 0 {
+        // Only a frame that never reached the queue still holds mapped, recording staging.
+        if self.publications.status() == TransactionStatus::Cancelled {
             self.authority
                 .0
                 .staging
@@ -530,6 +538,10 @@ pub struct RecordingFrame {
     previous: Option<Publications>,
 }
 impl RecordingFrame {
+    /// The frame's write set, for the callback that records it.
+    fn publications(&self) -> Publications {
+        self.frame.as_ref().unwrap().publications.clone()
+    }
     pub fn finish(mut self) -> PreparedFrame {
         let mut frame = self.frame.take().unwrap();
         let encoder = self.encoder.take().unwrap();

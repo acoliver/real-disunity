@@ -1,5 +1,7 @@
 use super::*;
-use worldrunner_render_gpu::submission::{PrepareError, PreparedFrame, SubmitError};
+use worldrunner_render_gpu::submission::{
+    PrepareError, PreparedFrame, SubmitError, TransactionError,
+};
 
 fn prepare(
     context: &GpuContext,
@@ -268,16 +270,31 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
     let mut encoder = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    record_scene(
-        &mut encoder,
-        target.color_view(),
-        target.depth_view(),
-        &gpu,
-        &pipelines,
+    assert_eq!(
+        record_scene(
+            &mut encoder,
+            target.color_view(),
+            target.depth_view(),
+            &gpu,
+            &pipelines,
+        ),
+        Err(TransactionError::Missing)
     );
     assert_eq!(gpu.view_stats(), before);
     assert!(gpu.views[0].published.borrow().ranges.is_empty());
     drop(encoder);
+    let unrelated = context
+        .submission()
+        .begin(context.device())
+        .unwrap()
+        .finish();
+    submit_wait(&context, unrelated);
+    assert!(
+        gpu.instances
+            .batches
+            .values()
+            .all(|batch| batch.history.has_pending())
+    );
     assert_eq!(gpu.view_stats(), before);
     assert_eq!(gpu.shadow_view_stats().considered, 0);
     target.render(&context, &gpu, &pipelines).unwrap();
@@ -296,24 +313,49 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
     gpu.set_frame(context.queue(), frame_from(pose()));
     let mut target = retained_target(&context);
     let before = gpu.view_stats();
+    assert!(
+        gpu.instances
+            .batches
+            .values()
+            .all(|batch| batch.history.has_pending())
+    );
     let mut foreign = context
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     let prepared = context
         .submission()
         .prepare(context.device(), |_, _| {
-            record_scene(
-                &mut foreign,
-                target.color_view(),
-                target.depth_view(),
-                &gpu,
-                &pipelines,
+            assert_eq!(
+                record_scene(
+                    &mut foreign,
+                    target.color_view(),
+                    target.depth_view(),
+                    &gpu,
+                    &pipelines,
+                ),
+                Err(TransactionError::ForeignEncoder)
             );
             Ok::<_, ()>(())
         })
         .unwrap();
     assert_eq!(gpu.view_stats(), before);
     drop(foreign);
+    submit_wait(&context, prepared);
+    assert_eq!(gpu.view_stats(), before);
+    assert!(gpu.views[0].published.borrow().ranges.is_empty());
+    assert_eq!(gpu.shadow_view_stats().considered, 0);
+    assert!(
+        gpu.instances
+            .batches
+            .values()
+            .all(|batch| batch.history.has_pending())
+    );
+    target.render(&context, &gpu, &pipelines).unwrap();
+    assert_eq!(gpu.view_stats().considered, 2);
+    assert!(!gpu.views[0].published.borrow().ranges.is_empty());
+}
+
+fn submit_wait(context: &GpuContext, prepared: PreparedFrame) {
     let submission = prepared.submit().unwrap();
     context
         .device()
@@ -322,10 +364,4 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
             timeout: None,
         })
         .unwrap();
-    assert_eq!(gpu.view_stats(), before);
-    assert!(gpu.views[0].published.borrow().ranges.is_empty());
-    assert_eq!(gpu.shadow_view_stats().considered, 0);
-    target.render(&context, &gpu, &pipelines).unwrap();
-    assert_eq!(gpu.view_stats().considered, 2);
-    assert!(!gpu.views[0].published.borrow().ranges.is_empty());
 }

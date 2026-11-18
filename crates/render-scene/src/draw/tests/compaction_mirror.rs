@@ -62,3 +62,51 @@ fn a_cancelled_transaction_leaves_the_committed_mirror_exact() {
         assert_eq!(change.is_some(), rig.gpu.committed_mirror() != committed);
     }
 }
+
+#[test]
+fn a_moving_view_over_unchanged_placements_checks_the_mirror_ranges_once() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::over(&cards(), false);
+    rig.render(&unlit(pose_at(0)));
+    let settled = rig.gpu.mirror_scans();
+    assert!(settled > 0, "the first frame filled the mirror");
+    for x in [1_000, 2_000, -1_500, 0] {
+        rig.render(&unlit(pose_at(x)));
+        assert_eq!(rig.gpu.mirror_scans(), settled, "the moved view rechecked");
+    }
+}
+
+#[test]
+fn an_edit_makes_the_next_frame_check_and_copy_the_mirror_ranges_again() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::over(&cards(), false);
+    rig.render(&unlit(pose_at(0)));
+    rig.render(&unlit(pose_at(1_000)));
+    let (committed, settled) = (rig.gpu.committed_mirror(), rig.gpu.mirror_scans());
+    edited(&mut rig);
+    rig.render(&unlit(pose_at(1_000)));
+    let rechecked = rig.gpu.mirror_scans();
+    assert!(rechecked > settled, "the edit went unnoticed");
+    assert_ne!(rig.gpu.committed_mirror(), committed);
+    rig.render(&unlit(pose_at(2_000)));
+    assert_eq!(rig.gpu.mirror_scans(), rechecked);
+}
+
+#[test]
+fn a_cancelled_edit_leaves_the_next_frame_to_check_the_mirror_ranges_again() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::over(&cards(), false);
+    rig.render(&unlit(pose_at(0)));
+    rig.render(&unlit(pose_at(1_000)));
+    let committed = rig.gpu.committed_mirror();
+    edited(&mut rig);
+    rig.prepare(&unlit(pose_at(1_000))).cancel();
+    let cancelled = rig.gpu.mirror_scans();
+    assert_eq!(rig.gpu.committed_mirror(), committed);
+    rig.render(&unlit(pose_at(1_000)));
+    assert!(
+        rig.gpu.mirror_scans() > cancelled,
+        "the edit went unnoticed"
+    );
+    assert_ne!(rig.gpu.committed_mirror(), committed);
+}

@@ -129,6 +129,21 @@ fn changed_elevation_range_rebuilds_all_resident_chunks() {
 fn tight_budget_coarsens_the_previous_source_before_rebuilding() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
+    let (_pipelines, old, next) = tight_budget_pair(&context);
+    assert!(!advance(&context, &next, true));
+    assert_eq!(resident_count(&old), 1);
+    assert_eq!(resident_count(&next), 0);
+    wait(&context);
+    assert!(!advance(&context, &next, true));
+    assert_eq!(resident_count(&old) + resident_count(&next), 5);
+    assert!(next.retained_terrain_ready());
+    next.finish_retained_terrain();
+    wait(&context);
+}
+
+/// A submitted four-leaf source and its replacement under a five-chunk budget, which must
+/// coarsen the previous source before it can rebuild.
+fn tight_budget_pair(context: &GpuContext) -> (ScenePipelines, SceneGpu, SceneGpu) {
     let initial = source();
     let terrain = initial
         .terrain()
@@ -141,10 +156,10 @@ fn tight_budget_coarsens_the_previous_source_before_rebuilding() {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let old =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
-    prepare_completed(&context, &old, &frame_from(pose()), 0)
+    prepare_completed(context, &old, &frame_from(pose()), 0)
         .submit()
         .unwrap();
-    wait(&context);
+    wait(context);
     let next = SceneGpu::upload_prepared_reusing(
         context.device(),
         context.submission(),
@@ -153,13 +168,7 @@ fn tight_budget_coarsens_the_previous_source_before_rebuilding() {
         Some(&old),
     )
     .unwrap();
-    assert!(!advance(&context, &next, true));
-    assert_eq!(resident_count(&old), 1);
-    assert_eq!(resident_count(&next), 0);
-    wait(&context);
-    assert!(!advance(&context, &next, true));
-    assert_eq!(resident_count(&old) + resident_count(&next), 5);
-    assert!(next.retained_terrain_ready());
-    next.finish_retained_terrain();
-    wait(&context);
+    (pipelines, old, next)
 }
+
+mod lender;

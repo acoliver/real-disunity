@@ -2,7 +2,7 @@
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::TextureInput;
-use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
+use worldrunner_render_program::sampler::{Filter, SamplerCache, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::shader::PassSelector;
 
@@ -23,11 +23,7 @@ fn gamma() -> PassSelector {
 }
 
 fn point(wrap: Wrap) -> SamplerState {
-    SamplerState {
-        wrap_u: wrap,
-        wrap_v: wrap,
-        filter: Filter::Point,
-    }
+    SamplerState::new(wrap, wrap, Filter::Point)
 }
 
 /// A 4x1 target covered by one renderer that samples a 4x1 albedo texture (red, green, blue,
@@ -177,4 +173,58 @@ fn a_pass_that_samples_the_texture_it_renders_into_is_refused_by_the_executor() 
         "{error}"
     );
     encoder.finish().cancel();
+}
+
+fn trilinear(wrap_w: Wrap, anisotropy: u16) -> SamplerState {
+    SamplerState {
+        wrap_w,
+        anisotropy,
+        ..SamplerState::new(Wrap::Repeat, Wrap::Repeat, Filter::Trilinear)
+    }
+}
+
+#[test]
+fn states_that_differ_only_in_anisotropy_or_wrap_w_get_samplers_of_their_own() {
+    let rig = Rig::new();
+    let mut cache = SamplerCache::new(&rig.gpu.device);
+    let base = trilinear(Wrap::Clamp, 1);
+    for state in [base, trilinear(Wrap::Clamp, 8), trilinear(Wrap::Repeat, 1)] {
+        let _sampler = cache.get(Some(state));
+    }
+    assert_eq!(cache.states(), 3);
+    let _again = cache.get(Some(trilinear(Wrap::Clamp, 8)));
+    assert_eq!(cache.states(), 3);
+    let _compared = cache.comparison(trilinear(Wrap::Clamp, 8), wgpu::CompareFunction::Less);
+    let _other = cache.comparison(trilinear(Wrap::Clamp, 16), wgpu::CompareFunction::Less);
+    assert_eq!(cache.comparisons(), 2);
+}
+
+#[test]
+fn a_trilinear_sampler_with_anisotropy_sixteen_is_made_on_a_device_without_a_validation_error() {
+    let rig = Rig::new();
+    let device = &rig.gpu.device;
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut cache = SamplerCache::new(device);
+    let states = [
+        trilinear(Wrap::Mirror, 16),
+        SamplerState {
+            anisotropy: 16,
+            ..SamplerState::new(Wrap::Repeat, Wrap::Repeat, Filter::Point)
+        },
+        SamplerState {
+            anisotropy: 16,
+            ..SamplerState::new(Wrap::Repeat, Wrap::Repeat, Filter::Bilinear)
+        },
+        trilinear(Wrap::Repeat, u16::MAX),
+    ];
+    let kinds: Vec<_> = states
+        .iter()
+        .map(|&state| cache.get(Some(state)).kind())
+        .collect();
+    let compared = cache.comparison(trilinear(Wrap::Clamp, 16), wgpu::CompareFunction::LessEqual);
+    let error = pollster::block_on(scope.pop()).map(|error| error.to_string());
+    assert_eq!(error, None);
+    assert_eq!(kinds[0], wgpu::SamplerBindingType::Filtering);
+    assert_eq!(kinds[1], wgpu::SamplerBindingType::NonFiltering);
+    assert_eq!(compared.kind(), wgpu::SamplerBindingType::Comparison);
 }

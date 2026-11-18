@@ -1,6 +1,7 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
@@ -28,6 +29,9 @@ pub struct GameBuild<'a> {
     pub shadows: FrameShadowHandle,
     /// The stock ambient occlusion of the frame in flight, set as each frame begins encoding.
     pub occlusion: FrameOcclusionHandle,
+    /// The installed specular environment cube of the frame in flight, set before each frame
+    /// plans.
+    pub environment: FrameEnvironmentHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -160,6 +164,7 @@ impl GamePasses {
                 camera: renderer.game_camera.clone(),
                 shadows: renderer.game.shadows.clone(),
                 occlusion: renderer.game.occlusion.clone(),
+                environment: renderer.game.environment.clone(),
             })?;
             renderer.chain.register(
                 context.device(),
@@ -187,6 +192,8 @@ pub(crate) struct Installed {
     pub(crate) shadows: FrameShadowHandle,
     /// Where every route lends its ambient occlusion to the features of this generation.
     pub(crate) occlusion: FrameOcclusionHandle,
+    /// Where every route lends its specular environment to the features of this generation.
+    pub(crate) environment: FrameEnvironmentHandle,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the

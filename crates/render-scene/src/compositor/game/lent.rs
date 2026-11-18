@@ -70,7 +70,7 @@ impl<T: Clone> Lent<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{FrameOcclusionHandle, FrameShadowHandle};
+    use super::super::{FrameEnvironmentHandle, FrameOcclusionHandle, FrameShadowHandle};
     use super::FrameInputError;
 
     /// Outside a frame no input exists; a handle never answers with an earlier frame's value.
@@ -82,6 +82,10 @@ mod tests {
         );
         assert_eq!(
             FrameOcclusionHandle::default().current().unwrap_err(),
+            FrameInputError::OutsideFrame
+        );
+        assert_eq!(
+            FrameEnvironmentHandle::default().current().unwrap_err(),
             FrameInputError::OutsideFrame
         );
     }

@@ -18,9 +18,9 @@ use worldrunner_render_program::runtime::{
 use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
-        ColorOutput, FrameCameraHandle, FrameInputError, FrameOcclusion, FrameOcclusionHandle,
-        FrameShadowHandle, FrameShadows, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
-        OcclusionDepth, PassTarget,
+        ColorOutput, FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError,
+        FrameOcclusion, FrameOcclusionHandle, FrameShadowHandle, FrameShadows, GameBuild,
+        GameFeatureFactory, GamePassSpec, GamePasses, OcclusionDepth, PassTarget,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -49,6 +49,7 @@ const SAMPLER: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque
 struct Seen {
     shadow: Vec<Result<FrameShadows, FrameInputError>>,
     occlusion: Vec<Result<Option<FrameOcclusion>, FrameInputError>>,
+    environment: Vec<Result<Option<FrameEnvironment>, FrameInputError>>,
 }
 
 type Shared = Arc<Mutex<Seen>>;
@@ -86,6 +87,7 @@ impl GameFeatureFactory for Sampler {
             camera: context.camera.clone(),
             shadow: context.shadows.clone(),
             occlusion: context.occlusion.clone(),
+            environment: context.environment.clone(),
             parts: Arc::new(Mutex::new(Parts {
                 runtime,
                 program,
@@ -108,6 +110,7 @@ struct SamplerFeature {
     camera: FrameCameraHandle,
     shadow: FrameShadowHandle,
     occlusion: FrameOcclusionHandle,
+    environment: FrameEnvironmentHandle,
     parts: Arc<Mutex<Parts>>,
 }
 
@@ -146,6 +149,7 @@ impl FrameFeature for SamplerFeature {
             let mut seen = self.seen.lock().unwrap();
             seen.shadow.push(self.shadow.current());
             seen.occlusion.push(self.occlusion.current());
+            seen.environment.push(self.environment.current());
         }
         self.lent()?;
         let spec = GamePassSpec::new(GamePlace::BeforeOpaque, 0)
@@ -232,6 +236,10 @@ fn an_unshadowed_frame_lends_no_shadow_and_no_occlusion_it_does_not_compute() {
         Some(Err(FrameInputError::NotPrepared))
     ));
     assert!(matches!(seen.occlusion.last(), Some(Ok(None))));
+    assert!(
+        matches!(seen.environment.last(), Some(Ok(None))),
+        "every frame publishes the environment, none when no cube is installed"
+    );
 }
 
 fn ssao() -> SceneSsao {

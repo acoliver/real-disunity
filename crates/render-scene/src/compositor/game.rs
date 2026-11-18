@@ -20,9 +20,12 @@
 //! ([`FrameOcclusionHandle`]). A pass that samples the occlusion declares it with
 //! [`GamePassSpec::sampling_frame`], so that frame validation orders the pass after the filter
 //! that produces it and the frame computes it even when no stock receiver samples it.
+//! It can also sample the installed specular environment cube ([`FrameEnvironmentHandle`]), a
+//! retained texture that needs no declaration.
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
+mod environment;
 mod lent;
 mod occlusion;
 mod pass_target;
@@ -32,6 +35,7 @@ mod shadows;
 mod targets;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
 pub use pass_target::PassTarget;
@@ -44,9 +48,9 @@ pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
 
 impl super::FrameRenderer {
-    /// Lends the frame's ambient occlusion to the game's features, when the renderer has any.
-    /// Every route calls it as it begins encoding the frame.
-    pub(crate) fn publish_game_occlusion(&self) {
+    /// Lends the frame's ambient occlusion and specular environment to the game's features,
+    /// when the renderer has any. Every route calls it as it begins encoding the frame.
+    pub(crate) fn publish_game_inputs(&self) {
         if self.game.features == 0 {
             return;
         }
@@ -55,6 +59,7 @@ impl super::FrameRenderer {
                 .as_ref()
                 .map(|metadata| metadata.passes.lend_occlusion()),
         );
+        self.game.environment.publish(self.lend_environment());
     }
 }
 

@@ -412,6 +412,65 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
     );
 }
 
+#[test]
+fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_frame() {
+    use crate::compositor::TerrainDraws;
+    use worldrunner_render_shadow::RefreshReason;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = super::cascades::source_with(
+        &super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false),
+        SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 0).unwrap(),
+    );
+    let mut renderer = ShadowedScene::new(
+        &context,
+        &source,
+        DirectionalShadowSettings {
+            refresh_policy: policy(),
+            ..settings()
+        },
+    )
+    .unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let refreshed = |renderer: &ShadowedScene| {
+        renderer
+            .cascade_refresh_states()
+            .map(|state| state.last_frame())
+    };
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        refreshed(&renderer),
+        [Some(0); 4],
+        "the interval holds the maps"
+    );
+
+    // The same scene, size and light, with the terrain casters dropped from the cascades.
+    renderer
+        .scheduler
+        .force_terrain_draws(TerrainDraws::Suppressed);
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(refreshed(&renderer), [Some(2); 4], "suppressing refreshes");
+    assert_eq!(
+        renderer.cascade_refresh_states()[3].last_reason(),
+        Some(RefreshReason::Invalidated)
+    );
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        refreshed(&renderer),
+        [Some(2); 4],
+        "and then the maps are held"
+    );
+
+    renderer.scheduler.force_terrain_draws(TerrainDraws::Stock);
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        refreshed(&renderer),
+        [Some(4); 4],
+        "so does selecting them again"
+    );
+}
+
 fn translated_view(shift: i64, viewport: crate::Viewport) -> SceneView {
     SceneView::new(
         crate::CameraPose {

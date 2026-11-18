@@ -27,6 +27,9 @@ use worldrunner_render_post::PrepareContext;
 
 use super::{SKIN_STRIDE, STRIDE};
 use crate::instances::{BatchKey, InstanceBatch, Instances};
+use verified::Verified;
+
+mod verified;
 
 /// The record range of one batch in the mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +133,8 @@ pub(super) struct State {
     pub layout: Layout,
     pub buffers: Option<Buffers>,
     held: BTreeMap<BatchKey, Held>,
+    /// The batches this state was last found to hold at their current content.
+    verified: Verified,
 }
 
 impl State {
@@ -156,6 +161,9 @@ impl State {
 pub(super) struct Mirror {
     pub committed: Rc<RefCell<Rc<State>>>,
     drawing: RefCell<Option<(Publications, Rc<State>)>>,
+    /// How many times `prepare` checked every batch range of its keys one by one.
+    #[cfg(test)]
+    scans: std::cell::Cell<usize>,
 }
 
 /// What a test can compare of a mirror state: its layout, what each range holds, and which
@@ -178,6 +186,10 @@ impl Snapshot {
 
 #[cfg(test)]
 impl Mirror {
+    pub fn scans(&self) -> usize {
+        self.scans.get()
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let committed = Rc::clone(&self.committed.borrow());
         let identity = |buffer: &Rc<Tracked<Buffer>>| Rc::as_ptr(buffer) as usize;
@@ -212,27 +224,48 @@ impl Mirror {
             )
     }
 
-    /// Brings the ranges of `keys` up to their batches' content, staging the copies in
-    /// `context`, and returns the mirror state the gather reads. Every key must name a batch
-    /// with a flushed buffer, with a previous buffer when `halves.previous`, and with a flushed
-    /// skin stream when the batch is skinned.
+    /// Brings the ranges of `keys`, which the caller lists in ascending order, up to their
+    /// batches' content, staging the copies in `context`, and returns the mirror state the
+    /// gather reads. Every key must name a batch with a flushed buffer, with a previous buffer
+    /// when `halves.previous`, and with a flushed skin stream when the batch is skinned.
+    /// `generation` is `instances.content_generation()`. A state that already passed these keys at
+    /// that generation is returned without checking any batch.
     pub fn prepare(
         &self,
         context: &mut PrepareContext<'_>,
         instances: &Instances,
         keys: &[BatchKey],
-        halves: Halves,
+        (halves, generation): (Halves, u64),
     ) -> Rc<State> {
-        let batches = &instances.batches;
+        debug_assert_eq!(generation, instances.content_generation());
         let owner = context.publications();
-        let mut state = Self::laid_out(
-            context.device(),
-            self.state_in(&owner),
-            (instances, keys),
-            halves,
-        );
+        let found = self.state_in(&owner);
+        let state = if found.verified.covers(generation, halves, keys) {
+            found
+        } else {
+            #[cfg(test)]
+            self.scans.set(self.scans.get() + 1);
+            Self::brought_up_to_date(context, found, (instances, keys), (halves, generation))
+        };
+        *self.drawing.borrow_mut() = Some((owner, Rc::clone(&state)));
+        let committed = self.committed.clone();
+        let published = Rc::clone(&state);
+        crate::compositor::publication::stage(context, &committed.clone(), move || {
+            *committed.borrow_mut() = published;
+        });
+        state
+    }
+
+    /// `found` with the ranges of `keys` copied up to their batches' content.
+    fn brought_up_to_date(
+        context: &mut PrepareContext<'_>,
+        found: Rc<State>,
+        (instances, keys): (&Instances, &[BatchKey]),
+        (halves, generation): (Halves, u64),
+    ) -> Rc<State> {
+        let mut state = Self::laid_out(context.device(), found, (instances, keys), halves);
         for &key in keys {
-            let batch = &batches[&key];
+            let batch = &instances.batches[&key];
             if let Some(wanted) = state.stale(key, batch, halves) {
                 // The state is shared with the committed one and with earlier publications, so
                 // the first edit of a transaction copies it.
@@ -240,12 +273,7 @@ impl Mirror {
                 Self::refresh(context, editable, (key, batch), wanted);
             }
         }
-        *self.drawing.borrow_mut() = Some((owner, Rc::clone(&state)));
-        let committed = self.committed.clone();
-        let published = Rc::clone(&state);
-        crate::compositor::publication::stage(context, &committed.clone(), move || {
-            *committed.borrow_mut() = published;
-        });
+        state.verified.remember(generation, halves, keys);
         state
     }
 
@@ -281,6 +309,7 @@ impl Mirror {
             layout,
             buffers: state.buffers.clone(),
             held,
+            verified: Verified::default(),
         })
     }
 
@@ -333,6 +362,7 @@ impl Mirror {
                 skin: skin.then(|| create("gather skin mirror", skin_bytes)),
             }),
             held: BTreeMap::new(),
+            verified: Verified::default(),
         }
     }
 

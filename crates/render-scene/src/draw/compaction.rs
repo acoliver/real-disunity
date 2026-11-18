@@ -265,7 +265,11 @@ impl SceneGpu {
         } else if let Some(buffers) =
             Self::gather_buffers((context.device(), &self.instances.census), &latest, needs)
         {
-            self.stage_gather(context, (compaction, &plan, &keys), (&buffers, needs));
+            self.stage_gather(
+                context,
+                (compaction, &plan, &keys),
+                (&buffers, needs, key.content),
+            );
             #[cfg(test)]
             compaction
                 .observed
@@ -330,16 +334,16 @@ impl SceneGpu {
         &self,
         context: &mut PrepareContext<'_>,
         (compaction, plan, keys): (&Compaction, &Plan, &[BatchKey]),
-        (buffers, needs): (&Buffers, Needs),
+        (buffers, needs, generation): (&Buffers, Needs, u64),
     ) {
         let halves = mirror::Halves {
             previous: needs.previous,
             skin: needs.skin,
         };
-        let mirror = self
-            .gather
-            .mirror
-            .prepare(context, &self.instances, keys, halves);
+        let mirror =
+            self.gather
+                .mirror
+                .prepare(context, &self.instances, keys, (halves, generation));
         let runs = plan.runs(|key| mirror.layout.base(key));
         let bindings = gather::Bindings {
             mirror: mirror.buffers.as_ref().expect("allocated gather mirror"),
@@ -459,6 +463,11 @@ impl SceneGpu {
             runs,
             skin,
         }
+    }
+
+    /// How many times the gather mirror checked its batch ranges one by one.
+    pub(crate) fn mirror_scans(&self) -> usize {
+        self.gather.mirror.scans()
     }
 
     /// The committed gather mirror, for comparison.

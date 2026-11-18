@@ -208,6 +208,89 @@ pub enum ImportedGeometry {
     Indexed(ImportedIndices),
 }
 
+/// Which vertices a one-shot draw reads, with its index buffer borrowed rather than held.
+///
+/// It is [`ImportedGeometry`] for a caller that records a draw once and keeps nothing, so that
+/// naming the index buffer costs no reference count.
+#[derive(Clone, Copy, Debug)]
+pub enum BorrowedGeometry<'a> {
+    Vertices {
+        first: u32,
+        count: u32,
+    },
+    Indexed {
+        buffer: &'a wgpu::Buffer,
+        format: wgpu::IndexFormat,
+        first: u32,
+        count: u32,
+        base_vertex: i32,
+    },
+}
+
+impl<'a> From<&'a ImportedGeometry> for BorrowedGeometry<'a> {
+    fn from(geometry: &'a ImportedGeometry) -> Self {
+        match geometry {
+            ImportedGeometry::Vertices { first, count } => Self::Vertices {
+                first: *first,
+                count: *count,
+            },
+            ImportedGeometry::Indexed(indices) => Self::Indexed {
+                buffer: &indices.buffer,
+                format: indices.format,
+                first: indices.first,
+                count: indices.count,
+                base_vertex: indices.base_vertex,
+            },
+        }
+    }
+}
+
+impl<'a> From<&'a PreparedGeometry> for BorrowedGeometry<'a> {
+    fn from(geometry: &'a PreparedGeometry) -> Self {
+        match geometry {
+            PreparedGeometry::Vertices { first, count } => Self::Vertices {
+                first: *first,
+                count: *count,
+            },
+            PreparedGeometry::Indexed {
+                buffer,
+                format,
+                first,
+                count,
+                base_vertex,
+            } => Self::Indexed {
+                buffer,
+                format: *format,
+                first: *first,
+                count: *count,
+                base_vertex: *base_vertex,
+            },
+        }
+    }
+}
+
+impl BorrowedGeometry<'_> {
+    /// What the draw reads, for the range checks.
+    pub(crate) fn extent(self) -> Extent {
+        match self {
+            Self::Vertices { first, count } => Extent::Vertices { first, count },
+            Self::Indexed {
+                buffer,
+                format,
+                first,
+                count,
+                base_vertex,
+            } => Extent::Indexed {
+                buffer_len: buffer.size(),
+                format,
+                first,
+                count,
+                base_vertex,
+            },
+        }
+    }
+}
+
 /// One draw of triangles over resources lent to it.
 ///
 /// `imports` fill the bindings the program sources from an engine semantic, `bindings` fill the
@@ -268,8 +351,8 @@ impl ProgramRuntime {
             })
             .collect();
         check_extent(
-            &fetches,
-            extent(draw.geometry),
+            fetches.iter().copied(),
+            BorrowedGeometry::from(draw.geometry).extent(),
             instance_end(&draw.instances),
         )?;
         let layouts: Vec<_> = draw
@@ -317,22 +400,6 @@ impl ProgramRuntime {
             pins: Pins::borrowing(&self.authority, shares, held_by(draw.owners, draw.sets)),
             draw: recordable,
         })
-    }
-}
-
-pub(crate) fn extent(geometry: &ImportedGeometry) -> Extent {
-    match geometry {
-        ImportedGeometry::Vertices { first, count } => Extent::Vertices {
-            first: *first,
-            count: *count,
-        },
-        ImportedGeometry::Indexed(indices) => Extent::Indexed {
-            buffer_len: indices.buffer.size(),
-            format: indices.format,
-            first: indices.first,
-            count: indices.count,
-            base_vertex: indices.base_vertex,
-        },
     }
 }
 

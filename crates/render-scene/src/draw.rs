@@ -301,7 +301,6 @@ pub struct SceneGpu {
     frame_slots: Vec<(Buffer, BindGroup)>,
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
-    materials: Vec<BindGroup>,
     /// The lighting records the material uniforms index, for deferred lighting.
     lighting_records: crate::gbuffer::lighting::SceneRecords,
     /// What the program runtime draws objects with: the resources each material lends, and the
@@ -385,15 +384,16 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms, material_imports, lighting_records) =
-            resources::scene_materials(
-                device,
-                queue,
-                scene,
-                pipelines,
-                (&views, &placeholder_view),
-                &contact_heights,
-            );
+        let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
+            device,
+            queue,
+            scene,
+            &resources::MaterialBindings {
+                views: &views,
+                placeholder: &placeholder_view,
+                heights: &contact_heights,
+            },
+        );
         let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
@@ -437,7 +437,6 @@ impl SceneGpu {
             frame_buffer: frame_slots[0].0.clone(),
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            materials,
             lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
             meshes,

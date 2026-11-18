@@ -184,7 +184,8 @@ pub(super) fn capture(
             pass.set_bind_group(3, group, &[]);
         }
         if let Some(pipelines) = &setup.shadow {
-            let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
+            let materials = gpu.objects.material_groups(device);
+            let mut sink = FixedSink::new(&mut pass, pipelines, &materials);
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
                 .total()
         } else {

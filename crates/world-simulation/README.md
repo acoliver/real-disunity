@@ -50,6 +50,48 @@ releases a slot. `stop` removes an active voice without producing an ending.
 Handles from another mixer cannot control this one. Output rate can only change
 when all voice/completion slots are empty.
 
+### Pause reasons and voice eligibility
+
+`pause_mask()` reads this mixer's independent `u32` reason set. New mixers start
+at zero. `pause(bits, ExistingVoices::Continue)` ORs bits into it and blocks new
+pause-eligible playback without changing existing voices. `ExistingVoices::Suspend`
+also suspends every existing eligible voice whenever the resulting mask is
+nonzero. Repeated reasons have no nesting count. A zero-bit Suspend call sweeps
+when another reason is held; it does nothing with an empty mask. All 32 bits are
+available to callers; the engine assigns no reason meanings.
+
+`resume(bits)` clears those bits. Only a nonzero-to-zero transition releases
+suspension. Clearing absent or zero bits does not resume voices. Suspension
+retains each voice's exact rational source cursor and occupied capacity, emits
+silence and cannot cause a natural ending. Final clearance continues that same
+cursor without restarting. Gain, bus and mute changes never release suspension.
+An unsuspended voice still advances under master or bus mute. Stop remains
+destructive and emits no ending.
+
+`PlaybackOptions::new(gain)` is unrouted and pause-eligible. Use
+`play_with_options(clip, PlaybackOptions { gain, bus, pause_eligible })` to choose
+eligibility independently of any named bus. `bus` is `Option<String>` and must
+name an existing bus when present. Ordinary `play` and `play_on_bus` use this
+same admission path with eligibility true. Admission resolves the bus, validates
+gain, owner and capacity, then returns `AudioError::Paused` for an eligible
+start under a nonzero mask. Refusal allocates no identity or slot and queues
+nothing for later playback. Ineligible voices admit and advance normally,
+subject to the same validation and capacity limits.
+
+Typed commands expose `PlayWithOptions`, `Pause`, `Resume` and `PauseMask`;
+the query returns `AudioReply::PauseMask(u32)`. Clearing voices and accepted
+output-rate changes preserve the reason mask, including across retained service
+device cleanup. This lifetime policy lets reasons outlive individual voices;
+callers must explicitly clear their reasons.
+
+Suspended voices contribute neither Activity nor Peak detector input. Ducking
+envelopes still advance on every output frame, including silent frames, so hold
+and release continue during suspension. Unsuspended and ineligible voices retain
+the ordinary detector behavior. This detector policy and mask lifetime are
+generic engine choices; they do not establish another engine's ducking or device
+behavior. `tests/audio_pause.rs` uses synthetic PCM to check cursor retention,
+admission, mask transitions, capacity, detectors and render-block independence.
+
 ### Option buses and ducking
 
 `configure_bus(name, BusConfig { gain, muted, tier })` creates or updates a named

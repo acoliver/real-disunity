@@ -32,11 +32,7 @@ use super::resample::{program, sampled_draw};
 use super::steps::{Step, require_render_texture};
 
 /// How a level reads the one above it.
-const DOWNSAMPLE: SamplerState = SamplerState {
-    wrap_u: Wrap::Clamp,
-    wrap_v: Wrap::Clamp,
-    filter: Filter::Bilinear,
-};
+const DOWNSAMPLE: SamplerState = SamplerState::new(Wrap::Clamp, Wrap::Clamp, Filter::Bilinear);
 
 const FILTERABLE: wgpu::TextureSampleType = wgpu::TextureSampleType::Float { filterable: true };
 

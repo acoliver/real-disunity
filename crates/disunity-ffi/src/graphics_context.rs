@@ -22,6 +22,7 @@ pub const KIND_SETUP_CAMERA: u32 = 11;
 pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
 pub const KIND_DRAW_MESH: u32 = 16;
 pub const KIND_DRAW_PROCEDURAL: u32 = 17;
+pub const KIND_SET_VIEWPORT: u32 = 18;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -153,6 +154,24 @@ pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
     })
 }
 
+/// Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+/// it cover. A value that is not finite and a negative width or height are refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_set_viewport(
+    world: u64,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::SetViewport {
+            rect: [x, y, width, height],
+        })?;
+        Ok(())
+    })
+}
+
 /// Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
 /// column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
 /// pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
@@ -244,6 +263,7 @@ pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
         OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
+        OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
         OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
         OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
         other => readback_kind(other),

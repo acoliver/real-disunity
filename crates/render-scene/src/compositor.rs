@@ -90,6 +90,9 @@ pub struct FrameRenderer {
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
     /// Features the game inventory registered on this generation.
     game_features: usize,
+    /// The textures behind the game's declared targets in this generation, made from the
+    /// previous generation's and handed on to the next.
+    game_store: Option<std::sync::Arc<game::TargetStore>>,
     /// The camera of the frame being encoded, which the game's features read.
     game_camera: FrameCameraHandle,
     /// Whether the stock passes draw the scene's terrain.
@@ -153,6 +156,7 @@ impl FrameRenderer {
             producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
             game_features: 0,
+            game_store: None,
             game_camera: FrameCameraHandle::default(),
             terrain_draws: TerrainDraws::Stock,
             water: None,

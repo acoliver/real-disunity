@@ -52,6 +52,35 @@ pub const HISTORY: &str = "history";
 pub const FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 pub const LAYERS: u32 = 3;
 pub const READER: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 10);
+/// The producer of the history target's only layer, listed in `Knobs::produce` like the array's.
+pub const HISTORY_PRODUCER: u32 = 20;
+
+/// The target and layer a producer fills.
+fn produced(producer: u32) -> ResourceRef {
+    ResourceRef {
+        name: if producer == HISTORY_PRODUCER {
+            HISTORY
+        } else {
+            ARRAY
+        },
+        version: 0,
+        mip: 0,
+        layer: if producer == HISTORY_PRODUCER {
+            0
+        } else {
+            producer
+        },
+    }
+}
+
+/// The constants buffer of a producer.
+fn constants_slot(producer: u32) -> usize {
+    if producer == HISTORY_PRODUCER {
+        LAYERS as usize
+    } else {
+        producer as usize
+    }
+}
 
 fn producer(layer: u32) -> PassEntry {
     PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), layer)
@@ -63,6 +92,8 @@ pub struct Knobs {
     pub produce: Vec<(u32, [f32; 4])>,
     /// Plan the reader, which samples the whole array.
     pub read: bool,
+    /// Refuse to build the feature, as a factory whose resources cannot be made does.
+    pub refuse_build: bool,
     pub counts: Counts,
     /// The first producer's constants buffer, which the test reads back.
     pub constants: Option<wgpu::Buffer>,
@@ -98,7 +129,16 @@ impl GameFeatureFactory for LayersGame {
     }
 
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
-        self.knobs.lock().unwrap().counts.builds += 1;
+        {
+            let mut knobs = self.knobs.lock().unwrap();
+            knobs.counts.builds += 1;
+            if knobs.refuse_build {
+                return Err(FrameError::FeaturePreparation {
+                    feature: "layers",
+                    reason: "the factory refuses this generation".to_owned(),
+                });
+            }
+        }
         let device = context.context.device();
         let runtime = ProgramRuntime::new(
             device.clone(),
@@ -127,7 +167,7 @@ impl GameFeatureFactory for LayersGame {
                 constants: Vec::new(),
             },
         );
-        let constants: Vec<wgpu::Buffer> = (0..LAYERS)
+        let constants: Vec<wgpu::Buffer> = (0..=LAYERS)
             .map(|_| {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("layer fill constants"),
@@ -187,16 +227,9 @@ impl FrameFeature for Layers {
     ) -> Result<FeatureDeclaration, FrameError> {
         let knobs = self.knobs.lock().unwrap();
         let mut declared = Vec::new();
-        for (layer, _) in &knobs.produce {
-            let spec =
-                GamePassSpec::new(GamePlace::BeforeOpaque, *layer).writing([ColorOutput::Target(
-                    ResourceRef {
-                        name: ARRAY,
-                        version: 0,
-                        mip: 0,
-                        layer: *layer,
-                    },
-                )]);
+        for (producer, _) in &knobs.produce {
+            let spec = GamePassSpec::new(GamePlace::BeforeOpaque, *producer)
+                .writing([ColorOutput::Target(produced(*producer))]);
             declared.push(self.targets.plan_pass(&spec, passes, views)?);
         }
         if knobs.read {
@@ -257,7 +290,7 @@ impl LayersFrame {
             let state = target.render_state(raster);
             let imports = [Import::buffer(
                 EngineSemantic::named("layers.fill"),
-                parts.constants[layer as usize].clone(),
+                parts.constants[constants_slot(layer)].clone(),
             )];
             let draw = parts
                 .runtime
@@ -324,7 +357,7 @@ impl PreparedFeature for LayersFrame {
                 .iter()
                 .flat_map(|value| value.to_le_bytes())
                 .collect();
-            context.upload_buffer(&parts.constants[layer as usize], 0, &bytes);
+            context.upload_buffer(&parts.constants[constants_slot(layer)], 0, &bytes);
         }
         self.knobs.lock().unwrap().stats = Some(parts.runtime.stats());
         Ok(())

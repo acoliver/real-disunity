@@ -103,17 +103,6 @@ impl TargetDeclaration {
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | self.usage
     }
 
-    pub(super) fn allocate(&self, set: &mut AllocationSet, frame: [u32; 2]) {
-        let [width, height] = self.extent_in(frame);
-        set.texture(
-            self.name,
-            [width, height, self.layers],
-            self.format,
-            [1, 1],
-            1,
-        );
-    }
-
     /// The refusal of a declaration the device cannot allocate, naming the target.
     pub(super) fn validate(&self, limits: &wgpu::Limits, frame: [u32; 2]) -> Result<(), PostError> {
         let refuse = |why: &str| {
@@ -143,108 +132,192 @@ impl TargetDeclaration {
     }
 }
 
-/// One declared target and what the store holds for it.
-struct Slot {
+/// One physical texture of a declared target. It is shared by every renderer generation that
+/// keeps it, and it is the only place that knows which of its layers a submitted frame has
+/// written, so the bookkeeping can never belong to a different texture than its contents.
+pub(crate) struct Backing {
     declaration: TargetDeclaration,
-    texture: wgpu::Texture,
     extent: [u32; 2],
+    texture: wgpu::Texture,
+    /// Numbers the textures an inventory's renderer has made, which keeps this one apart from
+    /// another of the same name in the allocation budget.
+    serial: u64,
     /// Per layer: whether a submitted frame has written it.
-    written: Vec<bool>,
+    written: Mutex<Vec<bool>>,
 }
 
-#[derive(Default)]
-struct State {
-    slots: Vec<Slot>,
-    created: u64,
-}
-
-/// The textures behind every declared target, shared by every renderer generation of one
-/// inventory. Persistent textures outlive the generation that made them while their declaration
-/// is unchanged.
-#[derive(Default)]
-pub(super) struct TargetStore(Mutex<State>);
-
-impl TargetStore {
-    fn state(&self) -> MutexGuard<'_, State> {
-        // A panic while the lock was held leaves the slots as they were.
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Makes the store hold exactly `declarations` for a frame of `frame` texels. A target whose
-    /// shape is unchanged keeps its texture and its written layers; any other is recreated and
-    /// reads as unwritten. A target no longer declared is released.
-    pub(super) fn resolve(
-        &self,
+impl Backing {
+    fn create(
         device: &wgpu::Device,
-        declarations: &[TargetDeclaration],
-        frame: [u32; 2],
-    ) {
-        let mut state = self.state();
-        let mut previous = std::mem::take(&mut state.slots);
-        for declaration in declarations {
-            let extent = declaration.extent_in(frame);
-            let kept = previous
-                .iter()
-                .position(|slot| slot.declaration.name == declaration.name)
-                .map(|index| previous.swap_remove(index))
-                .filter(|slot| {
-                    slot.extent == extent
-                        && slot.declaration.format == declaration.format
-                        && slot.declaration.layers == declaration.layers
-                        && slot.declaration.usage == declaration.usage
-                });
-            let slot = if let Some(mut slot) = kept {
-                slot.declaration = declaration.clone();
-                slot
-            } else {
-                state.created += 1;
-                Slot {
-                    texture: device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(declaration.name),
-                        size: wgpu::Extent3d {
-                            width: extent[0],
-                            height: extent[1],
-                            depth_or_array_layers: declaration.layers,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: declaration.format,
-                        usage: declaration.texture_usage(),
-                        view_formats: &[],
-                    }),
-                    extent,
-                    written: vec![false; declaration.layers as usize],
-                    declaration: declaration.clone(),
-                }
-            };
-            state.slots.push(slot);
+        declaration: &TargetDeclaration,
+        extent: [u32; 2],
+        serial: u64,
+    ) -> Self {
+        Self {
+            texture: device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(declaration.name),
+                size: wgpu::Extent3d {
+                    width: extent[0],
+                    height: extent[1],
+                    depth_or_array_layers: declaration.layers,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: declaration.format,
+                usage: declaration.texture_usage(),
+                view_formats: &[],
+            }),
+            written: Mutex::new(vec![false; declaration.layers as usize]),
+            declaration: declaration.clone(),
+            extent,
+            serial,
         }
     }
 
-    pub(super) fn created(&self) -> u64 {
-        self.state().created
+    fn persistent(&self) -> bool {
+        self.declaration.lifetime == TargetLifetime::Persistent
+    }
+
+    fn layers(&self) -> MutexGuard<'_, Vec<bool>> {
+        // A panic while the lock was held leaves the flags as they were.
+        self.written.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn is_written(&self, layer: u32) -> bool {
+        self.persistent() && self.layers().get(layer as usize) == Some(&true)
+    }
+
+    /// Records that a submitted frame wrote `layer` of this persistent backing.
+    pub(super) fn mark_written(&self, layer: u32) {
+        if self.persistent()
+            && let Some(written) = self.layers().get_mut(layer as usize)
+        {
+            *written = true;
+        }
+    }
+}
+
+/// Where the backing of one declaration of a generation comes from.
+enum Source {
+    /// The previous generation's backing, whose declaration and extent are identical.
+    Kept(Arc<Backing>),
+    /// A texture this generation creates, numbered `serial` in the inventory's lineage.
+    Fresh(u64),
+}
+
+/// The textures behind every declared target of one renderer generation. A generation's store
+/// is made privately, from the store of the generation it replaces, and becomes the renderer's
+/// only once the whole generation is built, so a replacement that fails leaves the live
+/// renderer's store untouched. A backing whose declaration is unchanged is shared with the
+/// previous generation, together with what a submitted frame wrote to it.
+#[derive(Default)]
+pub(crate) struct TargetStore {
+    backings: Vec<Arc<Backing>>,
+    /// Textures created so far in the lineage this store continues.
+    created: u64,
+}
+
+impl TargetStore {
+    /// Decides which backing each declaration gets: the previous generation's when its
+    /// declaration (every field, with the extent it resolves to) is identical, a new texture
+    /// otherwise. The allocation inventory and the store are both made from this one decision.
+    fn place(
+        previous: Option<&Self>,
+        declarations: &[TargetDeclaration],
+        frame: [u32; 2],
+    ) -> Vec<(Source, [u32; 2])> {
+        let mut next = previous.map_or(0, |store| store.created);
+        declarations
+            .iter()
+            .map(|declaration| {
+                let extent = declaration.extent_in(frame);
+                let kept = previous.and_then(|store| {
+                    store.backings.iter().find(|backing| {
+                        backing.declaration == *declaration && backing.extent == extent
+                    })
+                });
+                let source = kept.map_or_else(
+                    || {
+                        next += 1;
+                        Source::Fresh(next - 1)
+                    },
+                    |backing| Source::Kept(backing.clone()),
+                );
+                (source, extent)
+            })
+            .collect()
+    }
+
+    /// Adds the storage the declarations need to `set`: each kept backing as the one it
+    /// already is, so it counts once across generations, and each new texture as storage of its
+    /// own, which counts beside the old one until that retires.
+    pub(crate) fn allocate(
+        set: &mut AllocationSet,
+        previous: Option<&Self>,
+        declarations: &[TargetDeclaration],
+        frame: [u32; 2],
+    ) {
+        let placed = Self::place(previous, declarations, frame);
+        for (declaration, (source, extent)) in declarations.iter().zip(placed) {
+            let serial = match source {
+                Source::Kept(backing) => backing.serial,
+                Source::Fresh(serial) => serial,
+            };
+            set.backing_texture(
+                declaration.name,
+                serial,
+                [extent[0], extent[1], declaration.layers],
+                declaration.format,
+                [1, 1],
+            );
+        }
+    }
+
+    /// Makes the store of a generation of `frame` texels from `previous`, creating the textures
+    /// no previous backing serves. Nothing about `previous` changes.
+    pub(crate) fn build(
+        device: &wgpu::Device,
+        previous: Option<&Self>,
+        declarations: &[TargetDeclaration],
+        frame: [u32; 2],
+    ) -> Self {
+        let placed = Self::place(previous, declarations, frame);
+        let mut created = previous.map_or(0, |store| store.created);
+        let backings = declarations
+            .iter()
+            .zip(placed)
+            .map(|(declaration, (source, extent))| match source {
+                Source::Kept(backing) => backing,
+                Source::Fresh(serial) => {
+                    created += 1;
+                    Arc::new(Backing::create(device, declaration, extent, serial))
+                }
+            })
+            .collect();
+        Self { backings, created }
+    }
+
+    pub(crate) fn created(&self) -> u64 {
+        self.created
+    }
+
+    fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
+        self.backings
+            .iter()
+            .find(|backing| backing.declaration.name == name)
     }
 
     fn texture(&self, name: &str) -> Option<wgpu::Texture> {
-        self.state()
-            .slots
-            .iter()
-            .find(|slot| slot.declaration.name == name)
-            .map(|slot| slot.texture.clone())
+        self.backing(name).map(|backing| backing.texture.clone())
     }
 
     fn view(&self, resource: ResourceRef) -> Result<AttachmentView, FrameError> {
-        let state = self.state();
-        let slot = state
-            .slots
-            .iter()
-            .find(|slot| slot.declaration.name == resource.name)
+        let backing = self
+            .backing(resource.name)
             .ok_or(FrameError::AttachmentView(resource))?;
-        let view = AttachmentView::new(resource, &slot.texture)?;
-        let kept = slot.declaration.lifetime == TargetLifetime::Persistent
-            && slot.written.get(resource.layer as usize) == Some(&true);
-        Ok(if kept {
+        let view = AttachmentView::new(resource, &backing.texture)?;
+        Ok(if backing.is_written(resource.layer) {
             view.with_retained_contents()
         } else {
             view
@@ -252,24 +325,14 @@ impl TargetStore {
     }
 
     fn written(&self, name: &str, layer: u32) -> bool {
-        self.state()
-            .slots
-            .iter()
-            .find(|slot| slot.declaration.name == name)
-            .is_some_and(|slot| slot.written.get(layer as usize) == Some(&true))
+        self.backing(name)
+            .is_some_and(|backing| backing.is_written(layer))
     }
 
     /// Records that a submitted frame wrote `layer` of the persistent target `name`.
     pub(super) fn mark_written(&self, name: &str, layer: u32) {
-        let mut state = self.state();
-        if let Some(slot) = state
-            .slots
-            .iter_mut()
-            .find(|slot| slot.declaration.name == name)
-            .filter(|slot| slot.declaration.lifetime == TargetLifetime::Persistent)
-            && let Some(written) = slot.written.get_mut(layer as usize)
-        {
-            *written = true;
+        if let Some(backing) = self.backing(name) {
+            backing.mark_written(layer);
         }
     }
 }
@@ -281,13 +344,13 @@ pub struct GameTargets {
 }
 
 impl GameTargets {
-    pub(super) fn new(store: Arc<TargetStore>) -> Self {
+    pub(crate) fn new(store: Arc<TargetStore>) -> Self {
         Self { store }
     }
 
     /// The texture of a declared target, for a sampled view or a copy. The texture is the same
-    /// object in every frame of a generation, and in later generations while the declaration is
-    /// unchanged.
+    /// object in every frame of a generation, and in later generations of the same renderer
+    /// while the declaration is unchanged.
     ///
     /// # Errors
     /// [`FrameError::AttachmentView`] for a name no declaration made.
@@ -311,8 +374,8 @@ impl GameTargets {
         self.store.written(name, layer)
     }
 
-    /// Textures the inventory has created since it was made. It stays level across steady
-    /// frames, and across renderer replacements that leave the declarations unchanged.
+    /// Textures the renderer has created for its targets since it was made. It stays level
+    /// across steady frames, and across replacements that leave the declarations unchanged.
     pub fn created(&self) -> u64 {
         self.store.created()
     }

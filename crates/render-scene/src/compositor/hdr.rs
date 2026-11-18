@@ -120,6 +120,7 @@ fn construct_renderer(
         producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
         game_features: 0,
+        game_store: None,
         game_camera: super::FrameCameraHandle::default(),
         terrain_draws: super::TerrainDraws::Stock,
         ssr: None,

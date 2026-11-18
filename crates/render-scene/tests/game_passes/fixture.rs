@@ -213,6 +213,18 @@ impl Rig {
         }
     }
 
+    /// A second renderer on this rig's device, built from `settings` as a derived configuration is.
+    pub fn build_renderer(&self, settings: RendererConfiguration) -> ConfiguredFrameRenderer {
+        ConfiguredFrameRenderer::new(&self.context, settings, AllocationBudget(1 << 28)).unwrap()
+    }
+
+    /// The allocation a renderer reports for the frames it has resident, charged to its budget.
+    pub fn resident_bytes(&self) -> u64 {
+        self.renderer
+            .resident_bytes(&self.context.device().limits())
+            .unwrap()
+    }
+
     /// Encodes one frame's geometry and resolve into `encoder`.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) -> Result<(), FrameError> {
         let targets = self.renderer.targets();

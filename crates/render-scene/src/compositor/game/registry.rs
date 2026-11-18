@@ -49,12 +49,12 @@ pub trait GameFeatureFactory: Send + Sync {
 }
 
 /// The inventoried game contributions of a renderer configuration. Empty by default, in which
-/// case frames are exactly the stock frames. Cloning shares the factories and the targets, so a
-/// configuration derived from another keeps the persistent targets of the first.
+/// case frames are exactly the stock frames. Cloning shares the factories only. The targets
+/// belong to the renderer built from the inventory: it carries its persistent targets across its
+/// own replacements, and a second renderer built from a clone makes targets of its own.
 #[derive(Clone, Default)]
 pub struct GamePasses {
     factories: Vec<Arc<dyn GameFeatureFactory>>,
-    store: Arc<TargetStore>,
 }
 
 impl std::fmt::Debug for GamePasses {
@@ -87,12 +87,6 @@ impl GamePasses {
         self.factories.len()
     }
 
-    /// The targets of every factory, as of now. The inventory resolves them when a renderer is
-    /// built; this handle reads the textures that resolution made.
-    pub fn targets(&self) -> GameTargets {
-        GameTargets::new(self.store.clone())
-    }
-
     fn declarations(&self) -> Vec<TargetDeclaration> {
         self.factories
             .iter()
@@ -100,12 +94,16 @@ impl GamePasses {
             .collect()
     }
 
-    /// The storage the declared targets add to a renderer's allocation inventory.
-    pub(crate) fn allocations(&self, frame: [u32; 2]) -> AllocationSet {
+    /// The storage the declared targets add to a renderer's allocation inventory, given the
+    /// store of the generation the renderer replaces, if any: a backing that generation keeps is
+    /// not new storage.
+    pub(crate) fn allocations(
+        &self,
+        frame: [u32; 2],
+        previous: Option<&TargetStore>,
+    ) -> AllocationSet {
         let mut set = AllocationSet::default();
-        for declaration in self.declarations() {
-            declaration.allocate(&mut set, frame);
-        }
+        TargetStore::allocate(&mut set, previous, &self.declarations(), frame);
         set
     }
 
@@ -127,35 +125,44 @@ impl GamePasses {
         Ok(())
     }
 
-    /// Resolves the declared targets and registers every factory's feature on `renderer`. This
-    /// runs for each renderer generation, so a replacement registers again.
+    /// Makes the declared targets of a new generation from `previous`, the store of the
+    /// generation `renderer` replaces, and registers every factory's feature on `renderer`. This
+    /// runs for each renderer generation, so a replacement registers again. Nothing of the live
+    /// generation is touched: the new store becomes the renderer's own, and the caller's, only
+    /// when the whole generation is built.
     pub(crate) fn install(
         &self,
         renderer: &mut FrameRenderer,
         context: &GpuContext,
+        previous: Option<&TargetStore>,
     ) -> Result<(), PostError> {
         if self.factories.is_empty() {
             return Ok(());
         }
         let frame = renderer.targets().config();
-        self.store
-            .resolve(context.device(), &self.declarations(), frame.size);
+        let store = Arc::new(TargetStore::build(
+            context.device(),
+            previous,
+            &self.declarations(),
+            frame.size,
+        ));
         for factory in &self.factories {
             let feature = factory.build(&GameBuild {
                 context,
                 frame,
-                targets: self.targets(),
+                targets: GameTargets::new(store.clone()),
                 camera: renderer.game_camera.clone(),
             })?;
             renderer.chain.register(
                 context.device(),
                 Box::new(Registered {
                     feature,
-                    store: self.store.clone(),
+                    store: store.clone(),
                 }),
             )?;
             renderer.game_features += 1;
         }
+        renderer.game_store = Some(store);
         Ok(())
     }
 }

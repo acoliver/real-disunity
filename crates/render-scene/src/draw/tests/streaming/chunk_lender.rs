@@ -97,13 +97,13 @@ fn lender_reuses_the_prefix_selection_and_neighbors_in_a_read_only_suffix() {
         .unwrap()
         .finish(device, |_, _| Ok::<_, FrameError>(()))
         .unwrap();
-    assert_unrelated_capture_has_no_selection(&context, &gpu, frame, viewport);
+    assert_unrelated_capture_has_no_selection(&context, &gpu, &frame, viewport);
 }
 
 fn assert_unrelated_capture_has_no_selection(
     context: &GpuContext,
     gpu: &SceneGpu,
-    frame: FrameUniform,
+    frame: &FrameUniform,
     viewport: [u32; 2],
 ) {
     let unrelated = context
@@ -111,7 +111,7 @@ fn assert_unrelated_capture_has_no_selection(
         .begin_capture(
             context.device(),
             CaptureWrites::new([], [], []).unwrap(),
-            frame,
+            *frame,
             |_, _, frame| {
                 assert_eq!(
                     gpu.prepared_terrain_chunks(frame, viewport),

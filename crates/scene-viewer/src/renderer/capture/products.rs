@@ -261,16 +261,17 @@ impl Products {
         encoder: &mut wgpu::CommandEncoder,
         resident: &super::super::Resident,
         scheduler: &ConfiguredFrameRenderer,
-    ) {
+    ) -> Result<(), ViewerError> {
         for term in &self.terms {
             match resident {
                 super::super::Resident::Plain(plain) => {
                     scheduler.encode_term_capture(device, encoder, term, (&plain.gpu, None));
                 }
                 super::super::Resident::Shadowed(scene) => {
-                    scene.encode_term_capture_with(device, encoder, term, scheduler);
+                    scene.encode_term_capture_with(device, encoder, term, scheduler)?;
                 }
             }
         }
+        Ok(())
     }
 }

@@ -4,6 +4,7 @@
     let pixel = vec2<i32>(position.xy);
     let size = vec2<i32>(textureDimensions(depths));
     let centre = textureLoad(depths, pixel, 0).r;
+    let anchor = textureLoad(occlusion, pixel, 0).r;
     var sum = 0.0;
     var weights = 0.0;
     for (var y = -2; y <= 2; y++) {
@@ -14,9 +15,9 @@
             let threshold = max(0.001, screen.settings.x * 0.05);
             if difference > threshold { continue; }
             let weight = f32((3 - abs(x)) * (3 - abs(y))) * exp(-difference / threshold);
-            sum += textureLoad(occlusion, p, 0).r * weight;
+            sum += (textureLoad(occlusion, p, 0).r - anchor) * weight;
             weights += weight;
         }
     }
-    return sum / weights;
+    return anchor + sum / weights;
 }

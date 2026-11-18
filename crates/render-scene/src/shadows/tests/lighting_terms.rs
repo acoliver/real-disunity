@@ -42,7 +42,7 @@ fn check_scene(context: &GpuContext, terrain: bool) {
         .prepare(context.device(), |encoder, _| {
             renderer.encode(context, &view, &color_view, &depth_view, encoder)?;
             for capture in &captures {
-                renderer.encode_term_capture(context.device(), encoder, capture);
+                renderer.encode_term_capture(context.device(), encoder, capture)?;
             }
             Ok::<_, ShadowError>(())
         })

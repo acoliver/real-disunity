@@ -170,6 +170,43 @@ impl Captures {
     }
 }
 
+pub(super) struct Encoding<'a> {
+    pub(super) device: &'a wgpu::Device,
+    pub(super) resident: &'a super::Resident,
+    pub(super) presentation: &'a crate::presentation::Presentation,
+}
+
+impl Encoding<'_> {
+    pub(super) fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+        capture: Option<&mut Capture>,
+        retained: Option<&mut Products>,
+        fitted: bool,
+    ) -> Result<(), ViewerError> {
+        if let Some(capture) = capture {
+            capture.encode(encoder, self.presentation.targets.color.texture())?;
+        }
+        if let Some(retained) = retained {
+            if !fitted {
+                retained.replay(
+                    self.device,
+                    encoder,
+                    self.resident,
+                    &self.presentation.scheduler,
+                )?;
+            }
+            retained.encode(
+                encoder,
+                output.texture(),
+                self.presentation.scheduler.targets().texture(),
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl Renderer {
     pub(crate) fn drain(&self) -> Result<(), ViewerError> {
         self.context

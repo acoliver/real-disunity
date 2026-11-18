@@ -406,9 +406,7 @@ impl ShadowedScene {
                     encoder,
                     (fit, state.settings.range),
                 )?;
-                for term in input.terms {
-                    self.encode_term_capture(context.device(), encoder, term);
-                }
+                self.encode_term_captures(context.device(), encoder, input.terms)?;
                 adopted = Some(fit);
                 Ok::<_, ShadowError>(())
             })
@@ -463,9 +461,7 @@ impl ShadowedScene {
                     encoder,
                     (None, current.map(|fit| (fit.depth, state.settings.range))),
                 )?;
-                for term in input.terms {
-                    self.encode_term_capture(context.device(), encoder, term);
-                }
+                self.encode_term_captures(context.device(), encoder, input.terms)?;
                 Ok::<_, ShadowError>(())
             })
             .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;

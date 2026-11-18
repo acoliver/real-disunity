@@ -13,12 +13,16 @@ use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
 mod cancellation;
 mod composition;
+mod gbuffer;
 use composition::check_timing;
 
+use super::DEPTH_FORMAT;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::FrameError;
 use worldrunner_render_post::{
     FrameOperations, OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingMode,
 };
+use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::{
     CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId,
 };
@@ -32,7 +36,8 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::runtime::{
-    BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena, ProgramRuntime, VertexInput,
+    BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena, ProgramRuntime,
+    TargetSignature, VertexInput,
 };
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 use worldrunner_render_program::unity::state::RenderState;
@@ -250,9 +255,14 @@ struct Readbacks {
 
 /// Builds the frame and appends the readbacks of every stage.
 fn build(player: &mut Player) -> (OffscreenOperations, Readbacks) {
+    build_frame(player, &frame())
+}
+
+/// Builds `frame` and appends the readbacks of the textures the standard frame writes.
+fn build_frame(player: &mut Player, frame: &OffscreenFrame) -> (OffscreenOperations, Readbacks) {
     let mut operations = player
         .state
-        .build(&mut player.runtime, &player.arena, &frame())
+        .build(&mut player.runtime, &player.arena, frame)
         .unwrap();
     let readbacks = Readbacks {
         camera: operations.read_back(A, 0, 0).unwrap(),
@@ -269,6 +279,17 @@ fn pixel(bytes: &[u8], (x, y): (usize, usize)) -> [u8; 4] {
 
 /// The scene patch as a program draw that samples element 2 of the texture array.
 fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu::CommandEncoder) {
+    let signature = fixture.signature();
+    admit_scene_draw_for(fixture, player, recording, signature);
+}
+
+/// Admits the scene patch draw prepared for `signature`, which need not be the frame's pass.
+fn admit_scene_draw_for(
+    fixture: &mut Fixture,
+    player: &mut Player,
+    recording: &wgpu::CommandEncoder,
+    signature: TargetSignature,
+) {
     let vertices = player
         .runtime
         .create_buffer("scene patch", &scene_patch())
@@ -310,7 +331,7 @@ fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu
     };
     let programs = player
         .runtime
-        .admit_draws(recording, &player.arena, fixture.signature(), &[packet])
+        .admit_draws(recording, &player.arena, signature, &[packet])
         .unwrap();
     fixture.gpu.admit_programs(programs);
 }
@@ -469,6 +490,65 @@ fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscre
             std::time::Instant::now() + std::time::Duration::from_secs(30),
         )
         .expect("the cancelled frame released the arena");
+}
+
+#[test]
+fn a_draw_prepared_for_another_target_refuses_the_frame_by_name_and_takes_its_offscreen_work() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let before = authority.submitted_serial();
+    let (operations, _) = build(&mut player);
+    let mut recording = authority.begin(fixture.context.device()).unwrap();
+    fixture
+        .gpu
+        .admit_offscreen(operations.admit(&recording).unwrap());
+    let prepared =
+        TargetSignature::new(&[TextureFormat::Rgba16Float], Some(DEPTH_FORMAT), 1).unwrap();
+    assert_ne!(prepared, fixture.signature());
+    admit_scene_draw_for(&mut fixture, &mut player, &recording, prepared);
+
+    let refused = fixture.encode(&mut recording).unwrap_err();
+    let FrameError::FeaturePreparation {
+        feature: "player programs",
+        reason,
+    } = refused
+    else {
+        panic!("expected a refusal by the player programs, got {refused:?}");
+    };
+    assert_eq!(
+        reason,
+        ProgramError::TargetMismatch {
+            prepared: Box::new(prepared),
+            pass: Box::new(fixture.signature()),
+        }
+        .to_string()
+    );
+    // The refused frame took both admissions, so no later frame can run the offscreen work or
+    // the draw for a frame they were not encoded in.
+    assert!(!fixture.gpu.has_programs(), "the draw is not left waiting");
+    assert!(
+        !fixture.gpu.has_offscreen(),
+        "the offscreen work is not left waiting"
+    );
+    recording.finish().cancel();
+    assert_eq!(authority.submitted_serial(), before);
+
+    let mut next = authority.begin(fixture.context.device()).unwrap();
+    fixture.encode(&mut next).unwrap();
+    let readback = fixture.output_copy(&mut next);
+    next.finish().submit().unwrap();
+    assert_eq!(authority.submitted_serial(), before + 1);
+    let image = fixture.read(&readback);
+    assert_eq!(image.pixel(30, 20), RED, "the stock scene drew");
+    assert_eq!(image.pixel(42, 32), RED, "no patch: the engine card shows");
+    player
+        .arena
+        .retire_settled(
+            fixture.context.device(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
+        .expect("the refused frame released the arena");
 }
 
 #[test]

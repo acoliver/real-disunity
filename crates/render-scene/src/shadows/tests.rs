@@ -1,6 +1,9 @@
 mod bias;
 mod cascades;
 mod caster_route;
+mod census_capture;
+mod census_capture_errors;
+mod census_tests;
 mod compaction;
 mod culling;
 mod deferred;
@@ -566,3 +569,40 @@ fn unsupported_water_body() -> SceneWaterBody {
 mod impostor;
 
 mod water_integrated;
+
+/// The cascade depth array counts under `ResourceClass::ShadowMap` in the scene's authority (a
+/// fresh one per test context), follows a resolution change and is released when the scene
+/// drops.
+#[test]
+fn shadow_depth_arrays_count_in_the_census_through_a_resolution_change() {
+    use worldrunner_render_gpu::census::ResourceClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let census = context.submission().census().clone();
+    let source = scene(&[[0, 0, 1_000]], 600_000, None);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let texel_bytes = 4; // Depth32Float
+    let layer_bytes = |resolution: u32| u64::from(resolution).pow(2) * texel_bytes;
+    let first = census.snapshot().get(ResourceClass::ShadowMap);
+    let layers = first / layer_bytes(settings().resolution);
+    assert!(
+        (1..=4).contains(&layers),
+        "{first} bytes is not whole cascade layers"
+    );
+    assert_eq!(first, layers * layer_bytes(settings().resolution));
+    renderer
+        .set_settings(
+            &context,
+            DirectionalShadowSettings {
+                resolution: 1024,
+                ..settings()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        census.snapshot().get(ResourceClass::ShadowMap),
+        layers * layer_bytes(1024)
+    );
+    drop(renderer);
+    assert_eq!(census.snapshot().get(ResourceClass::ShadowMap), 0);
+}

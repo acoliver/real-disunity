@@ -121,6 +121,7 @@ fn construct_renderer(
         plan_cache: std::rc::Rc::default(),
         game_features: 0,
         game_camera: super::FrameCameraHandle::default(),
+        game_terrain: super::FrameTerrainHandle::default(),
         terrain_draws: super::TerrainDraws::Stock,
         ssr: None,
         water: None,

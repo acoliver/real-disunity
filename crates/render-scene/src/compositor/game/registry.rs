@@ -2,6 +2,7 @@
 //! generation.
 use super::camera::FrameCameraHandle;
 use super::targets::{GameTargets, TargetDeclaration, TargetStore};
+use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -22,6 +23,9 @@ pub struct GameBuild<'a> {
     pub targets: GameTargets,
     /// The camera of the frame in flight, set as each frame plans.
     pub camera: FrameCameraHandle,
+    /// The streamed terrain chunks of the frame in flight, set as each frame prepares its
+    /// terrain.
+    pub terrain: FrameTerrainHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -146,6 +150,7 @@ impl GamePasses {
                 frame,
                 targets: self.targets(),
                 camera: renderer.game_camera.clone(),
+                terrain: renderer.game_terrain.clone(),
             })?;
             renderer.chain.register(
                 context.device(),

@@ -22,14 +22,33 @@ pub struct TerrainChunkNeighbor {
     pub overlap: [u32; 2],
 }
 
-/// CPU geometry metadata for one chunk submitted by a streamed camera view.
-#[derive(Debug, PartialEq, Eq)]
+/// The resident GPU mesh of a chunk, as the stock camera draw binds it.
+///
+/// Vertices use the stock layout, [`crate::geometry::VERTEX_STRIDE`] bytes each and described by
+/// [`crate::geometry::vertex_attributes`], with positions in scene metres. Indices are `u32`
+/// triangle lists including the skirts. The buffers are the renderer's own: read them in the
+/// frame that lent them and do not write them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerrainChunkBuffers {
+    pub vertices: wgpu::Buffer,
+    pub indices: wgpu::Buffer,
+    pub index_count: u32,
+}
+
+/// Geometry metadata and the resident mesh of one chunk submitted by a streamed camera view.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerrainChunkDraw {
     pub chunk: TerrainChunk,
     neighbors: [Vec<TerrainChunkNeighbor>; 4],
+    buffers: TerrainChunkBuffers,
 }
 
 impl TerrainChunkDraw {
+    /// The chunk's resident vertex and index buffers.
+    pub fn buffers(&self) -> &TerrainChunkBuffers {
+        &self.buffers
+    }
+
     /// Adjacent residents sorted by the start of their overlap along this edge.
     /// A chunk outside the raster frustum can still border this one. Corner-only
     /// contacts are excluded. An outer edge has no neighbors.
@@ -109,9 +128,14 @@ impl Streaming {
                 self.camera_keep(frame),
             )
             .into_iter()
-            .map(|&(chunk, _)| TerrainChunkDraw {
-                chunk,
-                neighbors: std::array::from_fn(|i| topology.edge(chunk, i / 2, i % 2)),
+            .map(|(chunk, lod)| TerrainChunkDraw {
+                chunk: *chunk,
+                neighbors: std::array::from_fn(|i| topology.edge(*chunk, i / 2, i % 2)),
+                buffers: TerrainChunkBuffers {
+                    vertices: lod.vertices.clone(),
+                    indices: lod.indices.clone(),
+                    index_count: lod.index_count,
+                },
             })
             .collect()
         }))

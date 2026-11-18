@@ -17,3 +17,5 @@ mod refusals;
 mod strip;
 #[path = "game_passes/terrain.rs"]
 mod terrain;
+#[path = "game_passes/terrain_lender.rs"]
+mod terrain_lender;

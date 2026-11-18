@@ -21,6 +21,7 @@ mod pass_target;
 mod plan;
 mod registry;
 mod targets;
+mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use pass_target::PassTarget;
@@ -28,6 +29,7 @@ pub(crate) use plan::reconcile_loads;
 pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass};
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
+pub use terrain::FrameTerrainHandle;
 
 #[cfg(test)]
 mod tests;

@@ -1,7 +1,8 @@
 pub(crate) mod casters;
 mod chunk_view;
 pub use chunk_view::{
-    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
+    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
+    TerrainChunkViewError,
 };
 mod culling;
 mod meshes;

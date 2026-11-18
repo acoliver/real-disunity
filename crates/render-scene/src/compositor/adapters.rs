@@ -76,6 +76,7 @@ pub fn encode_resident(
     scene.retain_dynamic(encoder, pipelines)?;
     let (color, depth) = attachments;
     scene.prepare_terrain_geometry(device, encoder, &scene.resident_frame(), color.size())?;
+    renderer.publish_game_terrain(scene, &scene.resident_frame(), color.size())?;
     scene.prepare_sky(device, encoder, &scene.resident_frame())?;
     if scene.has_terrain_pages() {
         scene.prepare_terrain_pages(device, encoder, &scene.resident_frame(), color.size())?;

@@ -29,6 +29,26 @@ come from the shared CPU mixer. Audio playback commands do not cross the C ABI;
 there is no ABI record or revision change. See the
 [bus and envelope contract](../world-simulation/README.md#option-buses-and-ducking).
 
+`pause_mask`, `pause(bits, ExistingVoices::{Continue, Suspend})` and `resume(bits)`
+forward to the same mixer under its existing lock. These controls and their
+`AudioCommand::{PauseMask, Pause, Resume}` forms work before startup and reject
+`Closed`; no second reason mask lives in the service. Device cleanup and null-device
+setup cancel voices while preserving held reasons. Accepted output-rate changes
+also preserve reasons but require empty voice and completion slots.
+The read-only query returns `Result<u32, AudioServiceError>`; its typed command
+returns `AudioReply::PauseMask`.
+
+`play_with_options` and `AudioCommand::PlayWithOptions` use the same status and
+pending-completion capacity checks as ordinary playback. `PlaybackOptions::new(gain)`
+is pause-eligible; setting `pause_eligible: false` admits independent UI, music or
+other caller-selected sounds on any existing bus. Eligibility is never inferred
+from a bus name or the host clock. Suspended voices retain capacity and cursor
+and cannot finish until resumed; ineligible voices continue under explicit null
+host-time advancement. The mixer defines the [reason and detector semantics](../world-simulation/README.md#pause-reasons-and-voice-eligibility).
+Pause and resume affect subsequent mixing only. They cannot withdraw samples
+already queued in the physical output ring; no instantaneous speaker silence is
+promised.
+
 `status()` distinguishes `Ready`, `Closed` and `Unavailable` reasons: not started,
 null device, no device, open failure, unsupported configuration and device loss.
 Transitions deliver `AudioStatusChanged`; startup failures also provide
@@ -441,6 +461,35 @@ A derived plan describes startup sizing with the supplied effects. When planning
 replacement effects for an existing host, pass `CapturePoolPolicy::Fixed` with
 that host's `capture_pool_bytes` statistic to preserve its lifetime capacity.
 
+## Texture residency tiers
+
+Set `ViewerOptions::texture_tiers` to `Some(TextureTierPolicy { budget_fraction_micro,
+max_dropped_levels })` to reduce declared scene textures at upload. `None` preserves
+the authored chains. The fraction is in millionths of the selected adapter's
+device-local memory. Unknown adapter memory preserves the authored chains.
+
+Only handles in `SceneResources::reducible_textures()` participate. The scene
+validates that these handles have no fixed-level or authored-size consumers.
+The uploader chooses one global count of top mip levels to drop, using the
+smallest count that fits the budget. Each texture retains a base of at least
+4x4; cubes retain their authored chains. The remaining authored mip data uploads
+directly, without resampling. If the maximum reduction still exceeds the budget,
+the maximum is used and the reported choice has `fits: false`.
+
+The choice includes incoming fixed-size scene textures and the device census at
+preparation time. During replacement, previous textures remain counted until their
+resident generation retires. This is a texture sizing policy, separate from
+presentation allocation admission. Allocations created after the choice and driver
+overhead are outside its estimate. With a policy enabled, retained texture
+replacements and appends containing textures prepare a complete replacement scene,
+so the global tier and its byte totals are recalculated together. Other resource
+edits keep their in-place upload path.
+
+`RetainedFrameStatistics::texture_tier` reports the resident scene's choice:
+`dropped_levels`, `authored_bytes`, `kept_bytes`, and `saved_bytes()`. Byte counts
+cover the declared reducible textures. The field is `None` without a policy.
+Queued scene preparation does not replace the current resident's choice.
+
 ## Selected adapter
 
 Set `adapter_callback: Some(AdapterCallback::new(...))` to observe an
@@ -609,6 +658,28 @@ report the first rendered sample after any warmup frames, including that sample'
 readiness. Recipe products use owned boxed storage. Cancellation carries no frame
 observation. Timing retains its typed disabled, pending, unavailable or complete
 status; unavailable durations are never represented as zero.
+
+## Moving-frame CPU measurement
+
+The `moving_frame_cpu` example renders a synthetic outdoor scene (terrain, 3000 props over
+41 materials, a shadowed sun with three camera-split cascades and the HDR bloom and FXAA
+chain) through a windowless retained host while the camera walks a circle and moves every
+frame. It reports the median, 90th percentile, minimum and maximum of the time inside host
+calls for each frame, from the driver's camera update to submit, and of the timed thread's
+on-CPU time. The wait for the GPU happens between frames, outside both figures. Shadow view
+selection runs on short-lived worker threads, whose CPU time is in neither figure. Build it in
+release mode, because debug assertions add work that a release build does not do. On Linux
+without a GPU, select lavapipe; its GPU time means nothing, and the CPU figures stay valid:
+
+```text
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
+  cargo run --locked --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
+  --frames 300 --warmup 60 --objects 3000 --in-flight 1 --size 1280x720
+```
+
+`--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
+after the previous one has finished, so the software rasterizer does not compete with the timed
+thread. The example uses no game assets.
 
 ## GPU pass timing
 

@@ -671,3 +671,52 @@ fn a_group_that_produces_nothing_changes_nothing() {
     // A retained view alone is the pre-existing contract: its contents exist from the start.
     assert_eq!(rig.validate(first, &[]), Ok(()));
 }
+
+fn transparent(entry: PassEntry) -> FeatureDeclaration {
+    let mut feature = FeatureDeclaration::new(entry.slot());
+    feature.passes[0] = FeaturePass::nth(entry.slot(), entry.occurrence());
+    feature
+}
+
+#[test]
+fn transparent_writers_in_distinct_entries_run_in_the_order_the_frame_lists_them() {
+    let water = [0, 1].map(|occurrence| PassEntry::nth(PassSlot::TransparentWater, occurrence));
+    let alpha = PassEntry::new(PassSlot::TransparentAlpha);
+    let passes = [
+        writing(PassSlot::TransparentWater, 0, "first water"),
+        writing(PassSlot::TransparentWater, 1, "second water"),
+        writing(PassSlot::TransparentAlpha, 0, "alpha"),
+    ];
+    let features = [
+        transparent(water[0]),
+        transparent(water[1]),
+        transparent(alpha),
+    ];
+    assert_eq!(validate_frame(&passes, &features, &[]), Ok(()));
+    let alpha_first = [passes[2].clone(), passes[0].clone(), passes[1].clone()];
+    assert_eq!(
+        validate_frame(&alpha_first, &features, &[]),
+        Ok(()),
+        "alpha listed before the water runs before it"
+    );
+}
+
+#[test]
+fn two_transparent_features_in_one_entry_are_refused_by_that_entry() {
+    let water = PassEntry::new(PassSlot::TransparentWater);
+    let alpha = PassEntry::nth(PassSlot::TransparentAlpha, 1);
+    let passes = [
+        writing(PassSlot::TransparentWater, 0, "water"),
+        writing(PassSlot::TransparentAlpha, 0, "alpha"),
+        writing(PassSlot::TransparentAlpha, 1, "second alpha"),
+    ];
+    assert_eq!(
+        validate_frame(&passes, &[transparent(water), transparent(water)], &[]),
+        Err(FrameError::TransparentOrdering(water))
+    );
+    assert_eq!(
+        validate_frame(&passes, &[transparent(alpha), transparent(alpha)], &[]),
+        Err(FrameError::TransparentOrdering(alpha)),
+        "the refusal names the occurrence, not just the role"
+    );
+}

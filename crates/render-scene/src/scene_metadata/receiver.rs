@@ -5,6 +5,7 @@ mod arithmetic_reference;
 #[cfg(test)]
 pub(crate) use arithmetic_reference::positions as main_receiver_positions;
 mod cards;
+pub(crate) use cards::normal_inputs as prepared_normal_source;
 #[cfg(test)]
 pub(crate) use cards::reference as late_card_source;
 mod backing;

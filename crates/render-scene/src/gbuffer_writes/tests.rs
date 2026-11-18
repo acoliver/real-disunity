@@ -169,7 +169,7 @@ fn every_object_entry_writes_the_four_gbuffer_targets() {
 fn object_gbuffer_entries_store_the_forward_material_without_lighting_it() {
     let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
     let entries = &source[source.find("fn scene_gbuffer_object(").unwrap()..];
-    assert_eq!(entries.matches("shade_material(").count(), 4);
+    assert_eq!(entries.matches("scene_object_gbuffer_material(").count(), 4);
     for lighting in ["scene_finish_shading(", "scene_surface_lighting("] {
         assert!(
             !entries.contains(lighting),
@@ -303,6 +303,65 @@ fn velocity_producers_write_the_four_targets_and_the_residual() {
         );
     }
     assert!(terrain.contains("SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, vec2<f32>(0.0))"));
+}
+
+/// Object G-buffer material rejects before any optional material term. The derivative operands
+/// and the base alpha are prepared first, geometry and mask discard, and only survivors sample
+/// the surface, AO, emission and normal or evaluate contact and decals. The naga validator
+/// accepts a derivative placed after the discard, so this source order is the guard.
+#[test]
+fn object_gbuffer_material_rejects_before_optional_work() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    module("object G-buffer material", &source);
+    let body =
+        crate::scene_metadata::receiver::function_source(&source, "scene_object_gbuffer_material");
+    let alpha = body
+        .find("var albedo_sample = scene_albedo(")
+        .expect("the base alpha");
+    let rejection = body
+        .find("if !visible || !scene_geometry_covered(input)")
+        .expect("the geometry, mask and visibility rejection");
+    assert!(alpha < rejection);
+    assert!(body.contains("(masked && !scene_alpha_covered(albedo_sample.a, input))"));
+    for name in [
+        "scene_atlas_footprint(albedo_texture",
+        "scene_prepare_surface_channels(",
+        "scene_prepare_normal(",
+        "scene_prepare_decals(",
+        "scene_prepare_card_occlusion(",
+        "scene_prepare_card_emission(",
+    ] {
+        assert!(body.find(name).expect(name) < alpha, "{name}");
+    }
+    for name in [
+        "scene_surface_channels_prepared(",
+        "scene_occlusion_sample_prepared(",
+        "scene_emission_sample_prepared(",
+        "sample_normal_prepared(",
+        "scene_contact(",
+        "scene_gbuffer_projected_material(",
+    ] {
+        assert!(body.find(name).expect(name) > rejection, "{name}");
+    }
+    for name in [
+        "scene_project_decals(",
+        "sample_normal(",
+        "scene_surface_channels(",
+        "scene_auxiliary_samples(",
+        "scene_object_material(",
+    ] {
+        assert!(!body.contains(name), "{name}");
+    }
+}
+
+/// The object entries no longer call the forward `shade_material` or the separate coverage
+/// discard after it: their rejection is inside the G-buffer material.
+#[test]
+fn object_gbuffer_entries_evaluate_through_the_rejecting_material() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    let entries = &source[source.find("fn scene_gbuffer_object(").unwrap()..];
+    assert!(!entries.contains("shade_material("));
+    assert!(!entries.contains("scene_apply_coverage("));
 }
 
 #[test]

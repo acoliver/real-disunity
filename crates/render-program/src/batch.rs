@@ -1,9 +1,10 @@
 //! One pipeline recorded over many geometries.
 
+use std::borrow::Borrow;
 use std::ops::Range;
 
 use crate::error::ProgramError;
-use crate::import::{Import, ImportedGeometry, extent, prepared_geometry};
+use crate::import::{BorrowedGeometry, Import, ImportedGeometry, prepared_geometry};
 use crate::packet::{
     Bound, PipelineRequest, PreparedGeometry, TargetSignature, VertexLayout, instance_end,
 };
@@ -116,7 +117,8 @@ impl VertexLayoutSpec {
 /// instances, with the layout the buffers were checked against.
 ///
 /// It is plain data with no pipeline, runtime or device behind it, so a renderer makes one when
-/// it uploads a mesh and keeps it as long as the mesh.
+/// it uploads a mesh and keeps it as long as the mesh. A renderer that draws something once, and
+/// would make one only to record it, calls [`PreparedPipeline::draw_borrowed`] instead.
 #[derive(Clone, Debug)]
 pub struct GeometryDraw {
     layout: VertexLayoutId,
@@ -140,30 +142,7 @@ impl GeometryDraw {
         geometry: &ImportedGeometry,
         instances: Range<u32>,
     ) -> Result<Self, ProgramError> {
-        if vertex.len() != layout.buffers.len() {
-            return Err(ProgramError::VertexBufferCount {
-                expected: layout.buffers.len(),
-                found: vertex.len(),
-            });
-        }
-        if instances.start > instances.end {
-            return Err(ProgramError::InstanceRange {
-                start: instances.start,
-                end: instances.end,
-            });
-        }
-        let fetches: Vec<_> = layout
-            .buffers
-            .iter()
-            .zip(vertex)
-            .map(|(spec, buffer)| Fetch {
-                stride: spec.stride,
-                step: spec.step,
-                attributes: &spec.attributes,
-                len: buffer.size(),
-            })
-            .collect();
-        check_extent(&fetches, extent(geometry), instance_end(&instances))?;
+        check_draw(layout, vertex, BorrowedGeometry::from(geometry), &instances)?;
         Ok(Self::from_parts(
             layout.id,
             vertex.to_vec(),
@@ -188,27 +167,73 @@ impl GeometryDraw {
     }
 
     pub(crate) fn record<P: PassCommands + ?Sized>(&self, pass: &mut P) {
-        for (slot, buffer) in (0..).zip(&self.vertex_buffers) {
-            pass.set_vertex_buffer(slot, buffer);
+        record_draw(
+            pass,
+            &self.vertex_buffers,
+            BorrowedGeometry::from(&self.geometry),
+            self.instances.clone(),
+        );
+    }
+}
+
+/// The checks that a draw of `geometry` over `vertex`, which `layout` describes buffer by buffer,
+/// is well formed and fits its buffers. A [`GeometryDraw`] makes them once and
+/// [`PreparedPipeline::draw_borrowed`] makes them for each draw, so the two refuse the same draws
+/// with the same errors. It allocates nothing.
+fn check_draw<B: Borrow<wgpu::Buffer>>(
+    layout: &VertexLayoutSpec,
+    vertex: &[B],
+    geometry: BorrowedGeometry<'_>,
+    instances: &Range<u32>,
+) -> Result<(), ProgramError> {
+    if vertex.len() != layout.buffers.len() {
+        return Err(ProgramError::VertexBufferCount {
+            expected: layout.buffers.len(),
+            found: vertex.len(),
+        });
+    }
+    if instances.start > instances.end {
+        return Err(ProgramError::InstanceRange {
+            start: instances.start,
+            end: instances.end,
+        });
+    }
+    let fetches = layout
+        .buffers
+        .iter()
+        .zip(vertex)
+        .map(|(spec, buffer)| Fetch {
+            stride: spec.stride,
+            step: spec.step,
+            attributes: &spec.attributes,
+            len: buffer.borrow().size(),
+        });
+    check_extent(fetches, geometry.extent(), instance_end(instances))
+}
+
+/// Sets the vertex buffers in slot order, then the index buffer of indexed geometry, and draws.
+fn record_draw<'b, P: PassCommands + ?Sized>(
+    pass: &mut P,
+    vertex: impl IntoIterator<Item = &'b wgpu::Buffer>,
+    geometry: BorrowedGeometry<'_>,
+    instances: Range<u32>,
+) {
+    for (slot, buffer) in (0..).zip(vertex) {
+        pass.set_vertex_buffer(slot, buffer);
+    }
+    match geometry {
+        BorrowedGeometry::Vertices { first, count } => {
+            pass.draw(first..first + count, instances);
         }
-        match &self.geometry {
-            PreparedGeometry::Vertices { first, count } => {
-                pass.draw(*first..*first + *count, self.instances.clone());
-            }
-            PreparedGeometry::Indexed {
-                buffer,
-                format,
-                first,
-                count,
-                base_vertex,
-            } => {
-                pass.set_index_buffer(buffer, *format);
-                pass.draw_indexed(
-                    *first..*first + *count,
-                    *base_vertex,
-                    self.instances.clone(),
-                );
-            }
+        BorrowedGeometry::Indexed {
+            buffer,
+            format,
+            first,
+            count,
+            base_vertex,
+        } => {
+            pass.set_index_buffer(buffer, format);
+            pass.draw_indexed(first..first + count, base_vertex, instances);
         }
     }
 }
@@ -279,11 +304,44 @@ impl PreparedPipeline {
         pass: &mut P,
         geometry: &GeometryDraw,
     ) -> Result<(), ProgramError> {
-        if geometry.layout != self.layout {
-            return Err(ProgramError::GeometryLayoutMismatch);
-        }
+        self.check_layout(geometry.layout)?;
         geometry.record(pass);
         Ok(())
+    }
+
+    /// Checks and records one draw that is made and forgotten in this call, with the pipeline
+    /// bound: what [`GeometryDraw::new`] and [`draw`](Self::draw) do for a geometry that is kept,
+    /// with the buffers and the index buffer borrowed. It allocates nothing and clones no
+    /// buffer, so a renderer that draws each object once pays nothing for the draw but its checks.
+    ///
+    /// `vertex` holds one buffer for each buffer of `layout`, which must be the layout the
+    /// pipeline reads.
+    ///
+    /// # Errors
+    /// Fails as [`GeometryDraw::new`] does on a count of buffers other than the layout's, an
+    /// instance range that ends before it starts and geometry or instances that run past a
+    /// buffer, and then as [`draw`](Self::draw) does with `GeometryLayoutMismatch` on a layout
+    /// other than the pipeline's. Nothing is recorded when it fails.
+    pub fn draw_borrowed<P: PassCommands + ?Sized>(
+        &self,
+        pass: &mut P,
+        layout: &VertexLayoutSpec,
+        vertex: &[&wgpu::Buffer],
+        geometry: BorrowedGeometry<'_>,
+        instances: Range<u32>,
+    ) -> Result<(), ProgramError> {
+        check_draw(layout, vertex, geometry, &instances)?;
+        self.check_layout(layout.id)?;
+        record_draw(pass, vertex.iter().copied(), geometry, instances);
+        Ok(())
+    }
+
+    fn check_layout(&self, layout: VertexLayoutId) -> Result<(), ProgramError> {
+        if layout == self.layout {
+            Ok(())
+        } else {
+            Err(ProgramError::GeometryLayoutMismatch)
+        }
     }
 
     /// Makes the frame `encoder` records hold the pipeline's owners and its sets' until the

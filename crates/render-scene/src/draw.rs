@@ -61,9 +61,12 @@ mod terrain_draws;
 mod terrain_runtime;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
-pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
+pub use streaming::{
+    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
+    TerrainGeometryRequest,
+};
 pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;

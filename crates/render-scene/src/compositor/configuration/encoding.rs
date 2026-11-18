@@ -16,6 +16,10 @@ use worldrunner_render_post::{AttachmentView, FrameError, PostError};
 /// ```
 pub struct FrameEncoding<'a>(&'a mut FrameRenderer);
 impl FrameRenderer {
+    /// The game's declared targets of this generation; none are declared without an inventory.
+    pub(crate) fn game_targets(&self) -> crate::compositor::GameTargets {
+        crate::compositor::GameTargets::new(self.game.store.clone().unwrap_or_default())
+    }
     pub(crate) fn timing_state(&self) -> worldrunner_render_post::TimingState {
         self.chain.timing_state()
     }
@@ -119,6 +123,11 @@ impl ConfiguredFrameRenderer {
     }
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.state.current().targets()
+    }
+    /// The targets the game's factories declared, as the live generation holds them. A
+    /// renderer built from a clone of the inventory has targets of its own.
+    pub fn game_targets(&self) -> crate::compositor::GameTargets {
+        self.state.current().game_targets()
     }
     /// The projection jitter the configuration selected, `None` when the scene passes render
     /// unjittered. Derived from the settings on construction and on every reconfiguration.

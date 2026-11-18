@@ -17,6 +17,12 @@ pub(super) struct OverlayStage {
     depth: Option<wgpu::BindGroup>,
 }
 impl super::FrameRenderer {
+    /// Selects the terrain draws without a configuration, for tests that switch them between
+    /// frames of one renderer.
+    #[cfg(test)]
+    pub(crate) fn force_terrain_draws(&mut self, draws: crate::draw::TerrainDraws) {
+        self.terrain_draws = draws;
+    }
     pub(crate) fn prepare_scene_inputs(&mut self, device: &wgpu::Device, scene: &SceneGpu) {
         self.prepare_metadata_depth(device, scene);
         scene.set_terrain_draws(self.terrain_draws);

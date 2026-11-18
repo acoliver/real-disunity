@@ -1,7 +1,7 @@
 //! Persistent targets: kept across frames, left alone by cancelled frames, kept across renderer
 //! replacement, and steady frames that build nothing.
 use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
-use super::layers::{self, ARRAY, HISTORY, LAYERS, LayersGame, READER, Shared};
+use super::layers::{self, ARRAY, HISTORY, HISTORY_PRODUCER, LAYERS, LayersGame, READER, Shared};
 use std::sync::Arc;
 use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
 use worldrunner_render_scene::{
@@ -10,29 +10,34 @@ use worldrunner_render_scene::{
     wgpu,
 };
 
-const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
-const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-const HALF_BLUE: [f32; 4] = [0.0, 0.0, 128.0 / 255.0, 1.0];
+pub const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+pub const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+pub const HALF_BLUE: [f32; 4] = [0.0, 0.0, 128.0 / 255.0, 1.0];
 
-fn rig() -> (Rig, Shared, GamePasses) {
+pub fn rig() -> (Rig, Shared) {
     let knobs = layers::knobs();
-    let passes = GamePasses::new().with(Arc::new(LayersGame {
+    let inventory = GamePasses::new().with(Arc::new(LayersGame {
         knobs: knobs.clone(),
     }));
-    let inventory = passes.clone();
     let rig = Rig::new(&quad_scene(), SIZE, |settings| {
         settings.game_passes = inventory;
     });
-    (rig, knobs, passes)
+    (rig, knobs)
 }
 
-fn fill_all(knobs: &Shared) {
-    knobs.lock().unwrap().produce = vec![(0, RED), (1, GREEN), (2, HALF_BLUE)];
+/// Every layer of the array and the history target, written in one frame.
+pub fn fill_all(knobs: &Shared) {
+    knobs.lock().unwrap().produce = vec![
+        (0, RED),
+        (1, GREEN),
+        (2, HALF_BLUE),
+        (HISTORY_PRODUCER, RED),
+    ];
 }
 
 /// The reader writes the red of layer 0, the green of layer 1 and the blue of layer 2 over the
 /// whole frame; a pixel outside the stock quad shows exactly that.
-fn assert_filled(image: &[[u8; 4]], context: &str) {
+pub fn assert_filled(image: &[[u8; 4]], context: &str) {
     let pixel = Rig::pixel(image, 3, 20);
     assert_code_within(
         pixel[0],
@@ -58,10 +63,10 @@ fn assert_filled(image: &[[u8; 4]], context: &str) {
 #[test]
 fn a_persistent_array_filled_in_one_frame_reads_unchanged_in_the_next_without_being_rewritten() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (mut rig, knobs, passes) = rig();
+    let (mut rig, knobs) = rig();
     fill_all(&knobs);
     assert_filled(&rig.render().unwrap(), "frame 1");
-    assert!(passes.targets().is_written(ARRAY, 2));
+    assert!(rig.renderer.game_targets().is_written(ARRAY, 2));
     {
         let mut knobs = knobs.lock().unwrap();
         knobs.produce.clear();
@@ -78,7 +83,7 @@ fn a_persistent_array_filled_in_one_frame_reads_unchanged_in_the_next_without_be
 #[test]
 fn a_cancelled_frame_copies_no_constants_and_leaves_persistent_targets_unchanged() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (mut rig, knobs, passes) = rig();
+    let (mut rig, knobs) = rig();
     // A cancelled first frame writes nothing the targets or their bookkeeping keep.
     fill_all(&knobs);
     rig.render_cancelled().unwrap();
@@ -88,7 +93,7 @@ fn a_cancelled_frame_copies_no_constants_and_leaves_persistent_targets_unchanged
         vec![0; 16],
         "no constants were copied"
     );
-    assert!(!passes.targets().is_written(ARRAY, 0));
+    assert!(!rig.renderer.game_targets().is_written(ARRAY, 0));
     knobs.lock().unwrap().produce.clear();
     assert!(
         matches!(rig.render(), Err(FrameError::MissingProducer(resource)) if resource.name == ARRAY),
@@ -112,11 +117,15 @@ fn a_cancelled_frame_copies_no_constants_and_leaves_persistent_targets_unchanged
 #[test]
 fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_targets() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (mut rig, knobs, passes) = rig();
+    let (mut rig, knobs) = rig();
     fill_all(&knobs);
     assert_filled(&rig.render().unwrap(), "before replacement");
-    let array = passes.targets().texture(ARRAY).unwrap();
-    let created = passes.targets().created();
+    let array = rig.renderer.game_targets().texture(ARRAY).unwrap();
+    let created = rig.renderer.game_targets().created();
+    assert!(
+        rig.renderer.game_targets().is_written(HISTORY, 0),
+        "the frame wrote the history target"
+    );
     assert_eq!(knobs.lock().unwrap().counts.builds, 1);
 
     let mut settings = rig.renderer.configuration().clone();
@@ -135,11 +144,11 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
         "the factory built again"
     );
     assert_eq!(
-        passes.targets().created(),
+        rig.renderer.game_targets().created(),
         created,
         "no target was recreated"
     );
-    assert_eq!(passes.targets().texture(ARRAY).unwrap(), array);
+    assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
     knobs.lock().unwrap().produce.clear();
     assert_filled(&rig.render().unwrap(), "after replacement");
 
@@ -148,25 +157,25 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     settings.frame = FrameConfig::new([32, 24], FORMAT, 1);
     rig.renderer.reconfigure(&rig.context, settings).unwrap();
     assert_eq!(
-        passes.targets().created(),
+        rig.renderer.game_targets().created(),
         created + 1,
         "only the history target"
     );
-    assert_eq!(passes.targets().texture(ARRAY).unwrap(), array);
-    assert!(passes.targets().is_written(ARRAY, LAYERS - 1));
-    assert!(!passes.targets().is_written(HISTORY, 0));
+    assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
+    assert!(rig.renderer.game_targets().is_written(ARRAY, LAYERS - 1));
+    assert!(!rig.renderer.game_targets().is_written(HISTORY, 0));
 }
 
 #[test]
 fn steady_state_frames_build_nothing_new() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (mut rig, knobs, passes) = rig();
+    let (mut rig, knobs) = rig();
     fill_all(&knobs);
     for _ in 0..3 {
         rig.render().unwrap();
     }
     let stats = knobs.lock().unwrap().stats.unwrap();
-    let created = passes.targets().created();
+    let created = rig.renderer.game_targets().created();
     for _ in 0..3 {
         assert_filled(&rig.render().unwrap(), "steady");
     }
@@ -176,7 +185,7 @@ fn steady_state_frames_build_nothing_new() {
         "program runtime built nothing"
     );
     assert_eq!(
-        passes.targets().created(),
+        rig.renderer.game_targets().created(),
         created,
         "no target was allocated"
     );

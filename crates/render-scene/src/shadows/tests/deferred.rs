@@ -78,7 +78,7 @@ pub(super) fn ssao() -> SceneSsao {
 }
 
 /// `source` with the depth prepass when `prepass`.
-fn with_prepass(source: &RenderScene, prepass: bool) -> RenderScene {
+pub(super) fn with_prepass(source: &RenderScene, prepass: bool) -> RenderScene {
     let mut parts = fixture::effects_parts(600_000);
     if prepass {
         parts.ssao = Some(ssao());
@@ -100,6 +100,8 @@ pub(super) struct Captured {
     pub(super) lit: Option<Vec<f32>>,
     /// G3 as stored, present with a G-buffer path.
     pub(super) g3: Option<Vec<u16>>,
+    /// The metadata prepass depth in view-space metres, present with the depth prepass.
+    pub(super) depth: Option<Vec<f32>>,
 }
 
 pub(super) fn capture(
@@ -165,6 +167,19 @@ fn capture_frame(
     Ok(captured(context, frame))
 }
 
+/// One shadowed frame of `source` through `path`, with the stock terrain draws `draws`.
+pub(super) fn capture_drawing(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+    (draws, shadows): (crate::compositor::TerrainDraws, DirectionalShadowSettings),
+) -> Result<Captured, ShadowError> {
+    let mut frame = frame(context, source, view, path);
+    frame.force_terrain_draws(draws);
+    capture_frame(context, source, view, shadows, &mut frame)
+}
+
 pub(super) fn frame(
     context: &GpuContext,
     source: &RenderScene,
@@ -202,6 +217,12 @@ pub(super) fn captured(context: &GpuContext, frame: &FrameRenderer) -> Captured 
                     .map(|code| u16::from_le_bytes([code[0], code[1]]))
                     .collect()
             }),
+        depth: frame.feature_target(FeatureTarget::Depth).map(|texture| {
+            read(context, texture)
+                .chunks_exact(4)
+                .map(|value| f32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+                .collect()
+        }),
     }
 }
 

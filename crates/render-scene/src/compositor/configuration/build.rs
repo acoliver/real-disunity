@@ -1,17 +1,26 @@
 //! Allocation of a complete stock renderer generation.
 use super::{RendererConfiguration, install_jitter};
+use crate::compositor::game::TargetStore;
 use crate::compositor::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
 use worldrunner_render_post::{PostChain, PostError, Resources, ToneMapOutput};
 
+/// What a generation takes over from the one it replaces: the effect history, the timing state
+/// and the store of the game's targets. None of it is changed by building the replacement.
+#[derive(Default)]
+pub(super) struct Carried<'a> {
+    pub history: Option<&'a ToneMapOutput>,
+    pub timing: Option<worldrunner_render_post::TimingState>,
+    pub game: Option<&'a TargetStore>,
+}
+
 pub(super) fn allocate(
     context: &GpuContext,
     settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
+    carried: Carried<'_>,
 ) -> Result<FrameRenderer, PostError> {
     let scope = worldrunner_render_gpu::configuration::AllocationScope::new(context.device());
-    let result = build(context, settings, history, timing);
+    let result = build(context, settings, carried);
     scope.finish()?;
     result
 }
@@ -19,12 +28,11 @@ pub(super) fn allocate(
 fn build(
     context: &GpuContext,
     settings: &RendererConfiguration,
-    history: Option<&ToneMapOutput>,
-    timing: Option<worldrunner_render_post::TimingState>,
+    carried: Carried<'_>,
 ) -> Result<FrameRenderer, PostError> {
-    let factory = output(context, settings, history)?;
+    let factory = output(context, settings, carried.history)?;
     let mut renderer = new_renderer(context, settings, factory)?;
-    finish_renderer(&mut renderer, context, settings, timing)?;
+    finish_renderer(&mut renderer, context, settings, carried)?;
     Ok(renderer)
 }
 
@@ -66,7 +74,7 @@ fn new_renderer(
         output_format: settings.output_format,
         producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
-        game_features: 0,
+        game: crate::compositor::game::Installed::default(),
         game_camera: super::super::FrameCameraHandle::default(),
         game_terrain: super::super::FrameTerrainHandle::default(),
         terrain_draws: settings.terrain_draws,
@@ -127,7 +135,7 @@ fn finish_renderer(
     renderer: &mut FrameRenderer,
     context: &GpuContext,
     settings: &RendererConfiguration,
-    timing: Option<worldrunner_render_post::TimingState>,
+    carried: Carried<'_>,
 ) -> Result<(), PostError> {
     let device = context.device();
     renderer.install_reflections(device)?;
@@ -136,8 +144,10 @@ fn finish_renderer(
     install_jitter(renderer, settings)?;
     renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
     ensure_snapshots(renderer, device, settings);
-    settings.game_passes.install(renderer, context)?;
-    restore_timing(renderer, context, settings.timing, timing)?;
+    settings
+        .game_passes
+        .install(renderer, context, carried.game)?;
+    restore_timing(renderer, context, settings.timing, carried.timing)?;
     Ok(())
 }
 

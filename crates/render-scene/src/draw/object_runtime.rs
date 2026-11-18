@@ -3,16 +3,15 @@
 //! The walk over a view's selection is shared with the test-only fixed sink and key sink
 //! ([`DrawSink`]); only how a draw reaches the pass differs. A change of pipeline or material
 //! binds the prepared pipeline of the pair (the pipeline and the material's set), and every draw
-//! is one [`GeometryDraw`] over the buffers the walk named. The pass records a buffer when the
-//! walk names it, a pipeline when it differs from the one set, and the material's group when the
-//! material changes.
+//! is recorded once over the buffers the walk named, borrowed for the call. The pass records a
+//! buffer when the walk names it, a pipeline when it differs from the one set, and the material's
+//! group when the material changes.
 
 use std::rc::Rc;
 
 use wgpu::{Buffer, RenderPipeline};
 use worldrunner_render_program::runtime::{
-    GeometryDraw, ImportedGeometry, ImportedIndices, PassCommands, PreparedPipeline,
-    VertexLayoutSpec,
+    BorrowedGeometry, PassCommands, PreparedPipeline, VertexLayoutSpec,
 };
 
 use super::lod_material::{BoundState, Draw, DrawSink};
@@ -206,45 +205,48 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
         }
         let pipeline = self.current.as_ref().expect("a draw binds its pipeline");
         let instances = self.instances.as_ref().expect("a draw names its instances");
-        let mut buffers = vec![
-            self.vertices.clone().expect("a draw names its vertices"),
-            instances.current.clone(),
-        ];
-        if draw.geometry.is_skinned() {
-            buffers.push(
-                instances
-                    .skin
-                    .clone()
-                    .expect("a skinned level has a skin stream"),
-            );
+        let vertices = self.vertices.as_ref().expect("a draw names its vertices");
+        let skinned = draw.geometry.is_skinned();
+        let stream = if skinned {
             // A compacted view names its instances once for groups of both layouts, and a
             // static group before this one never set the skin slot.
             self.pass.named.instances = true;
+            Some(
+                instances
+                    .skin
+                    .as_ref()
+                    .expect("a skinned level has a skin stream"),
+            )
         } else if self.context.previous_transforms() {
-            buffers.push(
+            Some(
                 instances
                     .previous
-                    .clone()
+                    .as_ref()
                     .expect("a pass that writes velocity tracks previous transforms"),
-            );
-        }
-        let layout = &self.layouts[usize::from(draw.geometry.is_skinned())];
-        let geometry = GeometryDraw::new(
-            layout,
-            &buffers,
-            &ImportedGeometry::Indexed(ImportedIndices {
-                buffer: self.indices.clone().expect("a draw names its indices"),
-                format: wgpu::IndexFormat::Uint32,
-                first: draw.indices.start,
-                count: draw.indices.end - draw.indices.start,
-                base_vertex: 0,
-            }),
-            draw.instances,
-        )
-        .expect("the buffers of a selected range hold what it draws");
+            )
+        } else {
+            None
+        };
+        let buffers: &[&Buffer] = match stream {
+            Some(stream) => &[vertices, &instances.current, stream],
+            None => &[vertices, &instances.current],
+        };
+        let indices = BorrowedGeometry::Indexed {
+            buffer: self.indices.as_ref().expect("a draw names its indices"),
+            format: wgpu::IndexFormat::Uint32,
+            first: draw.indices.start,
+            count: draw.indices.end - draw.indices.start,
+            base_vertex: 0,
+        };
         pipeline
-            .draw(&mut self.pass, &geometry)
-            .expect("the geometry was made for the objects' vertex layout");
+            .draw_borrowed(
+                &mut self.pass,
+                &self.layouts[usize::from(skinned)],
+                buffers,
+                indices,
+                draw.instances,
+            )
+            .expect("a selected range fits the buffers of the objects' vertex layout");
         self.pass.named = Named::default();
     }
 }

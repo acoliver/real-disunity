@@ -88,8 +88,10 @@ impl GameTargets {
     ///
     /// # Errors
     /// [`FrameError::MissingPass`] when the frame has no Opaque pass to take the frame's
-    /// attachments from, [`FrameError::AttachmentContract`] for a pass with no attachment, and
-    /// [`FrameError::AttachmentView`] for a target or layer that is not declared.
+    /// attachments from, [`FrameError::AttachmentContract`] for a pass with no attachment,
+    /// [`FrameError::AttachmentView`] for a target or layer that is not declared, and
+    /// [`FrameError::AttachmentHazard`] for a target that shares its name with another
+    /// attachment of the frame.
     pub fn plan_pass(
         &self,
         spec: &GamePassSpec,
@@ -157,20 +159,39 @@ impl GameTargets {
             added.push(self.view(*resource)?);
         }
         let feature = feature_pass(&pass)?;
-        for view in added {
-            if !views
-                .iter()
-                .any(|known| known.resource() == view.resource())
-            {
-                views.push(view);
-            }
-        }
+        let fresh = new_views(views, added)?;
+        views.extend(fresh);
         passes.push(pass);
         Ok(FeaturePass {
             reads: spec.reads.clone(),
             ..feature
         })
     }
+}
+
+/// The views of `added` the table lacks. A view the table already holds for the same resource is
+/// left out when it is the same texture, and refused when it is not: a game's target that shares
+/// a name with another attachment of the frame, such as a stock one, would otherwise stand in
+/// for it and the pass would use the wrong texture.
+fn new_views(
+    views: &[AttachmentView],
+    added: Vec<AttachmentView>,
+) -> Result<Vec<AttachmentView>, FrameError> {
+    let mut fresh: Vec<AttachmentView> = Vec::new();
+    for view in added {
+        match views
+            .iter()
+            .chain(&fresh)
+            .find(|known| known.resource() == view.resource())
+        {
+            Some(known) if known.texture() != view.texture() => {
+                return Err(FrameError::AttachmentHazard(view.resource()));
+            }
+            Some(_) => {}
+            None => fresh.push(view),
+        }
+    }
+    Ok(fresh)
 }
 
 /// The declaration of a feature that draws in `entry` of a planned pass list, taking the formats

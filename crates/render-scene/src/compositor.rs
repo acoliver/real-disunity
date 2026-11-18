@@ -88,8 +88,8 @@ pub struct FrameRenderer {
     producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
     /// The stock plans of this renderer and the ones it replaces on reconfiguration.
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
-    /// Features the game inventory registered on this generation.
-    game_features: usize,
+    /// What the game inventory installed on this generation.
+    game: game::Installed,
     /// The camera of the frame being encoded, which the game's features read.
     game_camera: FrameCameraHandle,
     /// The streamed terrain of the frame being encoded, which the game's features read.
@@ -154,7 +154,7 @@ impl FrameRenderer {
             gbuffer: None,
             producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
-            game_features: 0,
+            game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
             terrain_draws: TerrainDraws::Stock,

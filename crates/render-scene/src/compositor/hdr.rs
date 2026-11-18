@@ -119,7 +119,7 @@ fn construct_renderer(
         gbuffer: setup.gbuffer,
         producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
-        game_features: 0,
+        game: super::game::Installed::default(),
         game_camera: super::FrameCameraHandle::default(),
         game_terrain: super::FrameTerrainHandle::default(),
         terrain_draws: super::TerrainDraws::Stock,

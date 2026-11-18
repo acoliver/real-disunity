@@ -1,11 +1,13 @@
 //! Complete stock configuration replacement, including effect bindings and history.
 mod build;
 mod encoding;
-use build::allocate;
+use build::{Carried, allocate};
+mod retained;
 mod snapshots;
 use super::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
 pub use encoding::FrameEncoding;
+use retained::{ReflectionInputs, retain_reflection_inputs, retain_water_inputs};
 use worldrunner_render_gpu::configuration::{
     AllocationBudget, AllocationBudgetPolicy, AllocationSet, Configuration, ConfigurationError,
 };
@@ -78,6 +80,10 @@ impl RendererConfiguration {
         }
     }
     pub fn allocations(&self) -> AllocationSet {
+        self.allocations_after(None)
+    }
+    /// The inventory of one generation when it replaces the one whose game targets are `previous`.
+    fn allocations_after(&self, previous: Option<&super::game::TargetStore>) -> AllocationSet {
         let mut set = worldrunner_render_post::allocation::target_allocations(self.frame);
         set.extend(worldrunner_render_post::allocation::post_allocations(
             self.frame, self.post,
@@ -104,13 +110,20 @@ impl RendererConfiguration {
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
-        set.extend(self.game_passes.allocations(self.frame.size));
+        set.extend(self.game_passes.allocations(self.frame.size, previous));
         set.extend(self.additional.clone());
         set
     }
     /// Includes exposure storage preserved by an earlier post-processing generation.
     pub fn allocations_with_history(&self, retained_effect_history: bool) -> AllocationSet {
-        let mut allocations = self.allocations();
+        self.inventory_after(retained_effect_history, None)
+    }
+    fn inventory_after(
+        &self,
+        retained_effect_history: bool,
+        previous: Option<&super::game::TargetStore>,
+    ) -> AllocationSet {
+        let mut allocations = self.allocations_after(previous);
         if retained_effect_history && !self.post.enabled() {
             allocations.extend(worldrunner_render_post::allocation::exposure_allocations());
             if self.hdr.is_some() {
@@ -123,6 +136,7 @@ impl RendererConfiguration {
         &self,
         context: &GpuContext,
         retained_effect_history: bool,
+        previous: Option<&super::game::TargetStore>,
     ) -> AllocationSet {
         if self.timing == TimingMode::Optional
             && !context
@@ -132,9 +146,9 @@ impl RendererConfiguration {
         {
             let mut effective = self.clone();
             effective.timing = TimingMode::Disabled;
-            effective.allocations_with_history(retained_effect_history)
+            effective.inventory_after(retained_effect_history, previous)
         } else {
-            self.allocations_with_history(retained_effect_history)
+            self.inventory_after(retained_effect_history, previous)
         }
     }
     fn prepass_metadata(&self) -> Option<super::depth_reuse::Prepass> {
@@ -494,7 +508,7 @@ impl ConfiguredFrameRenderer {
         budget: AllocationBudgetPolicy,
     ) -> Result<Self, ConfigurationError<PostError>> {
         Self::new_with(context, settings, budget, |settings| {
-            allocate(context, settings, None, None)
+            allocate(context, settings, Carried::default())
         })
     }
     fn new_with(
@@ -507,7 +521,7 @@ impl ConfiguredFrameRenderer {
         settings
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
-        let allocations = settings.allocation_plan(context, false);
+        let allocations = settings.allocation_plan(context, false, None);
         let required = allocations
             .validate(&context.device().limits())
             .map_err(ConfigurationError::Invalid)?;
@@ -613,10 +627,12 @@ impl ConfiguredFrameRenderer {
         settings
             .validate(context)
             .map_err(ConfigurationError::Allocation)?;
-        let allocations = settings.allocation_plan(context, self.has_effect_history());
         let previous = self.state.current();
+        let game = previous.game.store.clone();
+        let allocations =
+            settings.allocation_plan(context, self.has_effect_history(), game.as_deref());
         if previous.chain.registered_feature_count()
-            != usize::from(previous.water.is_some()) + previous.game_features
+            != usize::from(previous.water.is_some()) + previous.game.features
         {
             return Err(ConfigurationError::Invalid(
                 "custom registrations require a custom replacement builder",
@@ -635,7 +651,12 @@ impl ConfiguredFrameRenderer {
         let reflection = previous.ssr.as_ref().map(ReflectionInputs::new);
         self.state
             .replace(&context.device().limits(), allocations, || {
-                let mut next = allocate(context, &settings, history_bank, Some(timing))?;
+                let carried = Carried {
+                    history: history_bank,
+                    timing: Some(timing),
+                    game: game.as_deref(),
+                };
+                let mut next = allocate(context, &settings, carried)?;
                 retain_water_inputs(&mut next, water.as_ref());
                 retain_reflection_inputs(context.device(), &mut next, reflection.as_ref());
                 next.retain_environment_conventions(environment_conventions);
@@ -679,55 +700,3 @@ fn install_jitter(
 #[cfg(test)]
 #[path = "configuration_tests.rs"]
 mod tests;
-
-fn retain_water_inputs(next: &mut FrameRenderer, previous: Option<&crate::water::Water>) {
-    if let (Some(next), Some(previous)) = (&mut next.water, previous) {
-        next.environment.clone_from(&previous.environment);
-        next.environment_intensity_micro = previous.environment_intensity_micro;
-        if next.settings == previous.settings {
-            next.surface_inputs.clone_from(&previous.surface_inputs);
-        }
-    }
-}
-
-struct ReflectionInputs {
-    intensity_micro: u32,
-    environment: [wgpu::TextureView; 2],
-    composition: worldrunner_render_lighting::reflections::Composition,
-    selected: worldrunner_render_plan::SceneSsrComposition,
-}
-impl ReflectionInputs {
-    fn new(ssr: &crate::ssr::Ssr) -> Self {
-        Self {
-            environment: ssr.environment.clone(),
-            intensity_micro: ssr.environment_intensity_micro,
-            composition: ssr.composition,
-            selected: ssr.settings.composition,
-        }
-    }
-}
-fn retain_reflection_inputs(
-    device: &wgpu::Device,
-    next: &mut FrameRenderer,
-    previous: Option<&ReflectionInputs>,
-) {
-    if let (Some(ssr), Some(screen), Some(previous)) = (&mut next.ssr, &mut next.ssao, previous) {
-        ssr.environment.clone_from(&previous.environment);
-        ssr.environment_intensity_micro = previous.intensity_micro;
-        if ssr.settings.composition == previous.selected {
-            ssr.composition = previous.composition;
-        }
-        let group = crate::ssr::forward::group(
-            device,
-            screen,
-            &previous.environment,
-            previous.intensity_micro,
-        );
-        screen
-            .geometry
-            .forward
-            .as_mut()
-            .expect("forward reflection metadata")
-            .1 = group;
-    }
-}

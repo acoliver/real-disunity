@@ -230,9 +230,12 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 submit. Call it inside the scene's frame transaction after stock scene preparation
 or `SceneGpu::prepare_terrain_geometry`, with the same selection projection and
 viewport. The supplied raster projection and camera position give the same
-frustum culling and nearest-first order as the stock pass. A cancelled or unrelated
-frame cannot read that preparation. A scene without streamed terrain returns
-`None`.
+frustum culling and nearest-first order as the stock pass. In an owned capture,
+declare `SceneGpu::capture_write_keys` for the prefix if it prepares terrain.
+After the prefix submits, its continuation may read the published selection
+with the same view without re-preparing terrain or declaring suffix writes for
+that read. A cancelled or unrelated frame cannot read that preparation.
+A scene without streamed terrain returns `None`.
 
 Each draw carries its inclusive height-sample bounds and sampling stride. Edge
 neighbors come from the entire admitted cover, including culled leaves. Their

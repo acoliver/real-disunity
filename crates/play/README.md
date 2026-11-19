@@ -185,6 +185,19 @@ engine's choices:
   intensity, at most 10. The scene sun has no colour, so the light's colour is not used.
 - The ambient light is white, 0.3 from above and 0.15 from below. The scene asks for no
   atmosphere, so the game's clear colour stays the background.
+- Offscreen draws (camera renders, renderer lists, command-buffer draws) start from an ambient
+  default the engine supplies: `unity_SHAr`, `unity_SHAg` and `unity_SHAb` are `(0, 0, 0, 0.3)`,
+  `unity_SHBr`, `unity_SHBg`, `unity_SHBb` and `unity_SHC` are zero, and `unity_SpecCube0_HDR` is
+  `(1, 1, 0, 0)`. The 0.3 is the same constant as the retained scene's ambient from above
+  (`AMBIENT_SKY_IRRADIANCE`). This is an engine default for a frame in which nothing sets
+  these names, and nothing more. The scene's authored ambient (RenderSettings, which
+  `unity-serialized` decodes) does not reach the plan, the C# world or the host yet, and the
+  repository has no measured convention for packing a probe into spherical harmonics, so the
+  default is flat. `(1, 1, 0, 0)` for `unity_SpecCube0_HDR` is a neutral decode chosen without a
+  measured convention. Like the main light, the values sit in the globals the frame starts from,
+  so a world global or a `SetGlobalVector` of the same name replaces them; without them the
+  scene shaders of Old World's RomeTurn42 camera output black, because every one of these names
+  packed as zero.
 - Shadows exist only when the first frame's main light casts them, because the viewer chooses
   its shadow resources when it starts. They use three cascades split 10 m, 40 m and 150 m from
   the camera, a 2048-texel map, a depth bias of 0.0005 and a normal bias of 2 cm. The light's

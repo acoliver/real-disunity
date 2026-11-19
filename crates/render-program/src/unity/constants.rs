@@ -84,7 +84,7 @@ impl From<neutral::ConstantError> for ConstantError {
                 buffer,
             },
             // Every member the adapter builds is one the packer writes, so this repeats the
-            // declaration check as Unity names it.
+            // declaration check with the error this engine names it by.
             Neutral::UnsupportedMember { name } => Self::UnsupportedValue { name, kind: -1 },
             Neutral::ArrayTooLong {
                 property,
@@ -303,7 +303,7 @@ fn written(member: &BufferMember, in_struct: bool) -> Option<(ScalarKind, u8)> {
 }
 
 /// The neutral member for a buffer member, placed in the struct array `within` when it belongs
-/// to one, or the error Unity names for a declaration the packer cannot write or place.
+/// to one, or the error for a declaration the packer cannot write or place.
 fn member(
     member: &BufferMember,
     within: Option<StructPlacement>,

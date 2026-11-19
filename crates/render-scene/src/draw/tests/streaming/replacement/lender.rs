@@ -8,7 +8,7 @@ use worldrunner_render_post::{FrameError, PrepareContext};
 const VIEWPORT: [u32; 2] = [TARGET; 2];
 
 #[test]
-fn continuation_refuses_a_cover_its_prefix_replaced() {
+fn continuation_keeps_the_prefix_cover_after_its_prefix_replaced_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (_pipelines, old, next) = tight_budget_pair(&context);
@@ -17,6 +17,7 @@ fn continuation_refuses_a_cover_its_prefix_replaced() {
     keys.extend(next.capture_write_keys(device).unwrap());
     let writes = CaptureWrites::new(keys, [], []).unwrap();
     let mut prefix_draws = Vec::new();
+    let mut prefix_cover = Vec::new();
     wait(&context);
     let prefix = context
         .submission()
@@ -26,6 +27,7 @@ fn continuation_refuses_a_cover_its_prefix_replaced() {
                 .prepared_terrain_chunks(frame, VIEWPORT)
                 .unwrap()
                 .unwrap();
+            prefix_cover = streaming(&old).drawn_chunks();
             let mut upload = PrepareContext::new(device, encoder)?;
             assert!(!next.prepare_retained_terrain(&mut upload)?);
             upload.finish();
@@ -45,9 +47,13 @@ fn continuation_refuses_a_cover_its_prefix_replaced() {
             device,
             |_, _| Ok::<_, FrameError>(()),
             |_, _, frame, ()| {
+                // Both segments of the frame draw and lend the cover the prefix prepared.
+                assert_eq!(streaming(&old).drawn_chunks(), prefix_cover);
                 assert_eq!(
-                    old.prepared_terrain_chunks(frame, VIEWPORT),
-                    Err(TerrainChunkViewError::Replaced)
+                    old.prepared_terrain_chunks(frame, VIEWPORT)
+                        .unwrap()
+                        .unwrap(),
+                    prefix_draws
                 );
                 // A route lends the refusal to the game without failing the frame.
                 let lent = FrameTerrainHandle::default();

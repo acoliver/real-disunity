@@ -7,8 +7,11 @@ use super::{
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
-/// Most records one frame holds.
-pub const MAX_OFFSCREEN_WORK: usize = 1 << 16;
+/// Most records the world holds between two takes of its offscreen work. A take, not a frame, empties
+/// them, so one take can hold all the rendering a script does while a level or save loads: loading
+/// Old World's `RomeTurn42` save records 106,943 between two takes, with 684 camera renders. The bound
+/// keeps a script that records without end from growing the list without limit.
+pub const MAX_OFFSCREEN_WORK: usize = 1 << 20;
 
 /// One piece of offscreen work, in the order the script called it.
 #[derive(Clone, Debug, PartialEq)]

@@ -31,8 +31,8 @@ impl RenderState {
     /// The neutral state of a draw into a pass whose depth attachment has no stencil aspect,
     /// that treats `front_face` as the front winding: one colour target, depth tested and
     /// written as resolved, and no stencil, depth bias or alpha to coverage, which
-    /// `resolve_state` has already refused. Unity ignores stencil state when the target has no
-    /// stencil buffer, so the resolved stencil is dropped.
+    /// `resolve_state` has already refused. A target with no stencil aspect has nothing to test or
+    /// write, so this engine drops the resolved stencil.
     #[must_use]
     pub fn neutral(&self, front_face: wgpu::FrontFace) -> crate::state::RenderState {
         self.neutral_with_stencil(front_face, false)
@@ -193,7 +193,8 @@ pub fn resolve_state(
     })
 }
 
-/// Unity's `CompareFunction` in order; `Disabled` is no test, which is `Always`.
+/// The values the serialized state carries for a comparison, in order, as wgpu's; `Disabled` is
+/// no test, which is `Always`.
 const COMPARE: [wgpu::CompareFunction; 9] = [
     wgpu::CompareFunction::Always,
     wgpu::CompareFunction::Never,
@@ -221,7 +222,7 @@ const FACTORS: [wgpu::BlendFactor; 11] = [
     wgpu::BlendFactor::OneMinusSrcAlpha,
 ];
 
-/// Unity's `StencilOp` in order.
+/// The values the serialized state carries for a stencil operation, 0 to 7, as wgpu's.
 const STENCIL_OPERATIONS: [wgpu::StencilOperation; 8] = [
     wgpu::StencilOperation::Keep,
     wgpu::StencilOperation::Zero,

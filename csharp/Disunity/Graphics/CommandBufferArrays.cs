@@ -4,9 +4,11 @@ namespace UnityEngine.Rendering;
 /// Global array bindings on a command buffer. A vector or matrix array is checked and copied when it is recorded: a null, empty or
 /// oversized (over 1023 elements) array, a component that is not finite, a name that is not 1 to 256 UTF-8 bytes and a property id
 /// that no name was registered for all throw before the buffer records anything. The copy is the record, so changing the array
-/// or list afterwards, or clearing, re-recording or releasing the buffer after it was sent, never changes what was sent. The
-/// values go to the world's offscreen list in order, at <see cref="Graphics.ExecuteCommandBuffer"/> or a context's
-/// <see cref="ScriptableRenderContext.Submit"/>, and do not change the shaders' global state. A matrix is sent column by column. A
+/// or list afterwards, or clearing, re-recording or releasing the buffer after it was sent, never changes what was sent. At
+/// <see cref="Graphics.ExecuteCommandBuffer"/> or a context's <see cref="ScriptableRenderContext.Submit"/> the copy is set as
+/// <see cref="Shader.SetGlobalVectorArray(string, Vector4[])"/> and <see cref="Shader.SetGlobalMatrixArray(string, Matrix4x4[])"/>
+/// set it: in the managed global store and in the world's global state, where it outlives the buffer, and the world orders it in
+/// front of the next offscreen record. A matrix is sent column by column. A
 /// released buffer throws <see cref="ObjectDisposedException"/> before any other check. The float array forms have no host to
 /// receive them and throw <see cref="NotSupportedException"/> naming the member, whatever the array holds.
 /// </summary>
@@ -32,7 +34,7 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray));
-        Record(() => WorldGraphics.RecordGlobalVectorArray(name, copy));
+        Record(() => Shader.SetGlobalVectorArray(name, copy));
     }
 
     private void RecordVectors(string name, List<Vector4>? values)
@@ -40,7 +42,7 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray));
-        Record(() => WorldGraphics.RecordGlobalVectorArray(name, copy));
+        Record(() => Shader.SetGlobalVectorArray(name, copy));
     }
 
     private void RecordMatrices(string name, Matrix4x4[]? values)
@@ -48,7 +50,7 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray));
-        Record(() => WorldGraphics.RecordGlobalMatrixArray(name, copy));
+        Record(() => Shader.SetGlobalMatrixArray(name, copy));
     }
 
     private void RecordMatrices(string name, List<Matrix4x4>? values)
@@ -56,7 +58,7 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray));
-        Record(() => WorldGraphics.RecordGlobalMatrixArray(name, copy));
+        Record(() => Shader.SetGlobalMatrixArray(name, copy));
     }
 
     /// <summary>The name of a property id; a released buffer throws before an unknown id does.</summary>

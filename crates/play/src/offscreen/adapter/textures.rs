@@ -12,7 +12,9 @@ use worldrunner_render_program::unity::offscreen::OffscreenState;
 use super::super::assets::{Assets, sampler_of_stored, texture_of};
 use super::super::frame::Report;
 use super::super::ids;
+use super::super::stand_ins::StandInReason;
 use super::{OffscreenAdapter, Settling, Stored, is_over_budget};
+use crate::textures::PlayerTextureError;
 
 /// What uploading a texture the engine stored came to.
 #[derive(Clone, Copy)]
@@ -20,8 +22,9 @@ enum TextureUpload {
     /// It is in the state.
     Held,
     /// It cannot be uploaded for a reason that is its own or the device's, which stays so until
-    /// the engine stores a new generation of it.
-    Unusable,
+    /// the engine stores a new generation of it. The reason is what a draw that stands in for it
+    /// says.
+    Unusable(StandInReason),
     /// The storage budget refused it, which a later snapshot may find otherwise.
     OverBudget,
 }
@@ -108,7 +111,10 @@ impl OffscreenAdapter {
                     stored.height,
                     stored.bytes.len()
                 ));
-                return TextureUpload::Unusable;
+                return TextureUpload::Unusable(match error {
+                    PlayerTextureError::Unsupported { .. } => StandInReason::UnsupportedFormat,
+                    _ => StandInReason::ExistsNotLoaded,
+                });
             }
         };
         let uploaded = self.with_room(state, runtime, notes, settling, |state, runtime| {
@@ -132,7 +138,7 @@ impl OffscreenAdapter {
                 if is_over_budget(&error) {
                     TextureUpload::OverBudget
                 } else {
-                    TextureUpload::Unusable
+                    TextureUpload::Unusable(StandInReason::ExistsNotLoaded)
                 }
             }
         }
@@ -148,10 +154,12 @@ impl OffscreenAdapter {
         upload: TextureUpload,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
     ) {
+        self.refused.remove(&identity);
         let usable = match upload {
             TextureUpload::Held => true,
-            TextureUpload::Unusable => {
+            TextureUpload::Unusable(reason) => {
                 state.release_source_texture(runtime, id);
+                self.refused.insert(identity, reason);
                 false
             }
             TextureUpload::OverBudget => {

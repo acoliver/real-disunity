@@ -248,6 +248,17 @@ impl Words {
     }
 }
 
+/// The normal bias and the shadow strength the stock receivers apply, from the uniform's words.
+fn assert_receiver_terms(lent: &FrameShadows, stock: &Words) {
+    assert_eq!(bits(lent.normal_bias_meters), bits(stock.0[65]));
+    assert_eq!(
+        bits(lent.normal_bias_meters),
+        bits(settings().normal_bias_meters)
+    );
+    // The receivers apply `1 - ` the reduction the uniform stores.
+    assert_eq!(bits(lent.strength), bits(1.0 - stock.0[67]));
+}
+
 #[test]
 fn gpu_a_game_feature_reads_the_cascades_the_stock_receivers_use() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -306,11 +317,7 @@ fn gpu_a_game_feature_reads_the_cascades_the_stock_receivers_use() {
     assert!(lent.blend > 0.0, "the fixture blends");
     assert_eq!(bits(lent.multiplier), bits(stock.0[64]));
     assert_eq!(bits(lent.fade_out), bits(stock.0[84]));
-    assert_eq!(bits(lent.normal_bias_meters), bits(stock.0[65]));
-    assert_eq!(
-        bits(lent.normal_bias_meters),
-        bits(settings().normal_bias_meters)
-    );
+    assert_receiver_terms(lent, &stock);
     assert_eq!(lent.resolution, settings().resolution);
     assert_eq!(lent.depth, *renderer.map.depth.receiver_view());
     assert_eq!(lent.sampler, renderer.map.sampler);

@@ -79,6 +79,9 @@ pub struct FrameShadows {
     /// Distance in metres the stock receivers move a point along its normal before projecting it
     /// into a cascade.
     pub normal_bias_meters: f32,
+    /// How much of the shadow the stock receivers apply: their direct light is multiplied by
+    /// `mix(1, visibility, strength)`. The receiver uniform stores `1 - strength`.
+    pub strength: f32,
 }
 
 /// Where a game reads the stock shadow cascades of the frame in flight. The shadowed route

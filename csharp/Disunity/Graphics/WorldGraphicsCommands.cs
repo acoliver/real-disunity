@@ -1,4 +1,5 @@
 using System.Text;
+using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine.Rendering;
 
@@ -27,7 +28,7 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordGlobalFloat(string name, float value)
     {
-        var floats = stackalloc float[] { value };
+        var floats = stackalloc float[] { Finite(value) };
         RecordGlobal(GlobalFloat, name, floats, 0, null);
     }
 
@@ -35,7 +36,7 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordGlobalVector(string name, Vector4 value)
     {
-        var floats = stackalloc float[] { value.x, value.y, value.z, value.w };
+        var floats = stackalloc float[] { Finite(value.x), Finite(value.y), Finite(value.z), Finite(value.w) };
         RecordGlobal(GlobalVector, name, floats, 0, null);
     }
 
@@ -44,7 +45,8 @@ internal static unsafe partial class WorldGraphics
     {
         var floats = stackalloc float[]
         {
-            m.m00, m.m10, m.m20, m.m30, m.m01, m.m11, m.m21, m.m31, m.m02, m.m12, m.m22, m.m32, m.m03, m.m13, m.m23, m.m33,
+            Finite(m.m00), Finite(m.m10), Finite(m.m20), Finite(m.m30), Finite(m.m01), Finite(m.m11), Finite(m.m21), Finite(m.m31),
+            Finite(m.m02), Finite(m.m12), Finite(m.m22), Finite(m.m32), Finite(m.m03), Finite(m.m13), Finite(m.m23), Finite(m.m33),
         };
         RecordGlobal(GlobalMatrix, name, floats, 0, null);
     }
@@ -59,7 +61,8 @@ internal static unsafe partial class WorldGraphics
     {
         var bytes = Encoding.UTF8.GetBytes(name);
         fixed (byte* pointer = bytes)
-            Check(NativeBindings.disunity_offscreen_set_global(World, kind, pointer, (uint)bytes.Length, floats, intValue, slot));
+            DisunityHost.ThrowIfError(
+                NativeBindings.disunity_offscreen_set_global(World, kind, pointer, (uint)bytes.Length, floats, intValue, slot), $"global '{name}'");
     }
 
     internal static void RecordGlobalKeyword(string name, bool enabled)

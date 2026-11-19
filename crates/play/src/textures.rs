@@ -85,6 +85,14 @@ pub enum PlayerTextureError {
     Unaligned { format: &'static str, height: u32 },
     #[error("a texture of {depth} layers holds {actual} bytes, which are not {depth} equal layers")]
     Layers { depth: u32, actual: usize },
+    #[error("{mips} mip levels are more than a {width}x{height} texture has")]
+    Mips { mips: u32, width: u32, height: u32 },
+    #[error("a layer of {mips} mip levels holds {actual} bytes but the levels take {needed}")]
+    Levels {
+        mips: u32,
+        needed: usize,
+        actual: usize,
+    },
 }
 
 /// How a block-compressed texture reaches the renderer.

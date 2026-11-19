@@ -509,16 +509,73 @@ fn a_layer_count_of_zero_or_one_is_a_plain_texture() {
 }
 
 #[test]
-fn an_array_whose_layers_hold_a_mip_chain_takes_the_base_level_of_each() {
+fn an_array_whose_layers_hold_a_mip_chain_keeps_every_level_of_each_layer() {
     // Two layers of 2x1 RGBA32 texels, each followed by its 1x1 second level.
-    let layer = |texel: u8| [vec![texel; 8], vec![9; 4]].concat();
+    let layer = |texel: u8| [vec![texel; 8], vec![texel + 10; 4]].concat();
     let stored = PlayerTexture {
         mips: 2,
         ..array(4, 2, [layer(1), layer(2)].concat())
     };
     let made = texture_of(TextureId(1), &stored, None, false).unwrap();
     assert_eq!(made.dimension, SourceDimension::D2Array(2));
-    assert_eq!(made.bytes, [vec![1; 8], vec![2; 8]].concat());
+    assert_eq!(made.mips, 2);
+    assert_eq!(made.bytes, [layer(1), layer(2)].concat());
+}
+
+#[test]
+fn every_level_of_a_narrower_format_is_read_as_rgba8_with_its_own_size() {
+    // RGB24 layers of 2x1 texels (6 bytes) and a 1x1 second level (3 bytes), then a second layer.
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(3, 2, (1..=18).collect())
+    };
+    let made = texture_of(TextureId(1), &stored, None, false).unwrap();
+    let expected = [
+        [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255],
+        [10, 11, 12, 255, 13, 14, 15, 255, 16, 17, 18, 255],
+    ];
+    assert_eq!(made.bytes, expected.concat());
+    assert_eq!(made.mips, 2);
+}
+
+#[test]
+fn an_array_with_more_levels_than_its_size_has_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::Mips;
+    // A 2x1 texture has two levels, 2x1 and 1x1.
+    for mips in [3, u32::MAX] {
+        let stored = PlayerTexture {
+            mips,
+            ..array(4, 2, vec![0; 64])
+        };
+        let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
+        assert_eq!(
+            error,
+            Mips {
+                mips,
+                width: 2,
+                height: 1
+            }
+        );
+    }
+}
+
+#[test]
+fn an_array_whose_layers_are_longer_than_their_chain_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::Levels;
+    // The chain of 2x1 RGBA32 texels with two levels is 12 bytes; each layer holds 16.
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(4, 2, vec![0; 32])
+    };
+    let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
+    assert_eq!(
+        error,
+        Levels {
+            mips: 2,
+            needed: 12,
+            actual: 16
+        }
+    );
 }
 
 #[test]

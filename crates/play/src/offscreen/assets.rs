@@ -383,6 +383,7 @@ pub fn texture_of(
             size: [stored.width, stored.height],
             graphics_format: BC6H_UFLOAT,
             bytes: block_base_level(stored, "BC6H", 16)?,
+            mips: 1,
             sampler,
         });
     }
@@ -397,6 +398,7 @@ pub fn texture_of(
             size: [stored.width, stored.height],
             graphics_format,
             bytes: block_base_level(stored, name, block_bytes)?,
+            mips: 1,
             sampler,
         });
     }
@@ -410,14 +412,15 @@ pub fn texture_of(
             RGBA8_SRGB
         },
         bytes: player_rgba8(stored)?,
+        mips: 1,
         sampler,
     })
 }
 
 /// A stored 2D array as a source array. The byte string holds `depth` layers of one length, each
-/// as a 2D texture of `format` is stored, so a layer's base level starts where the layer does and
-/// its further levels are not carried. Each layer is read as RGBA8 as a plain texture is, which
-/// leaves the layers in the order the engine stored them. Block-compressed arrays are refused.
+/// holding the `mips` levels of a 2D texture of `format` one after the other, base level first, as
+/// the engine stores them. Each level is read as RGBA8 as a plain texture is, which leaves the
+/// layers and levels in the order the engine stored them. Block-compressed arrays are refused.
 fn array_of(
     id: TextureId,
     stored: &PlayerTexture,
@@ -436,14 +439,11 @@ fn array_of(
             actual: length,
         });
     }
+    let mips = stored.mips.max(1);
+    check_levels(stored, mips)?;
     let mut bytes = Vec::new();
     for layer in stored.bytes.chunks_exact(length / layers) {
-        let plain = PlayerTexture {
-            bytes: layer.to_vec(),
-            depth: 0,
-            ..*stored
-        };
-        bytes.extend(player_rgba8(&plain)?);
+        bytes.extend(layer_rgba8(stored, layer, mips)?);
     }
     Ok(SourceTexture {
         id,
@@ -454,8 +454,80 @@ fn array_of(
         } else {
             RGBA8_SRGB
         },
+        mips,
         bytes,
         sampler,
+    })
+}
+
+/// Refuses more levels than the base size has, before anything is sized by the level count.
+fn check_levels(stored: &PlayerTexture, mips: u32) -> Result<(), PlayerTextureError> {
+    let most = u32::BITS - stored.width.max(stored.height).leading_zeros();
+    if mips > most {
+        return Err(PlayerTextureError::Mips {
+            mips,
+            width: stored.width,
+            height: stored.height,
+        });
+    }
+    Ok(())
+}
+
+/// One layer's `mips` levels as RGBA8, base level first. A level is as wide and as high as the
+/// base level shifted down, and at least one texel. A layer too short for its base level is the
+/// plain texture's short error; any other length that is not the whole chain is a level error.
+fn layer_rgba8(
+    stored: &PlayerTexture,
+    layer: &[u8],
+    mips: u32,
+) -> Result<Vec<u8>, PlayerTextureError> {
+    let per_texel = match stored.format {
+        1 => 1,
+        3 => 3,
+        _ => 4,
+    };
+    let side = |side: u32, level: u32| side.checked_shr(level).unwrap_or(0).max(1);
+    let sizes: Vec<[u32; 2]> = (0..mips)
+        .map(|level| [side(stored.width, level), side(stored.height, level)])
+        .collect();
+    let lengths: Vec<usize> = sizes
+        .iter()
+        .map(|[width, height]| *width as usize * *height as usize * per_texel)
+        .collect();
+    let needed = lengths.iter().sum();
+    if layer.len() < lengths[0] {
+        return level_rgba8(stored, sizes[0], layer);
+    }
+    if layer.len() != needed {
+        return Err(PlayerTextureError::Levels {
+            mips,
+            needed,
+            actual: layer.len(),
+        });
+    }
+    let mut rgba = Vec::new();
+    let mut rest = layer;
+    for (size, length) in sizes.into_iter().zip(lengths) {
+        let (level, tail) = rest.split_at(length);
+        rgba.extend(level_rgba8(stored, size, level)?);
+        rest = tail;
+    }
+    Ok(rgba)
+}
+
+/// One level of `stored`, of `size` texels, as RGBA8.
+fn level_rgba8(
+    stored: &PlayerTexture,
+    [width, height]: [u32; 2],
+    bytes: &[u8],
+) -> Result<Vec<u8>, PlayerTextureError> {
+    player_rgba8(&PlayerTexture {
+        width,
+        height,
+        mips: 1,
+        depth: 0,
+        bytes: bytes.to_vec(),
+        ..*stored
     })
 }
 

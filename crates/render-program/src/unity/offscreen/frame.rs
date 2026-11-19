@@ -391,7 +391,8 @@ pub enum SourceDimension {
     /// +Z, -Z, each as a 2D level is.
     Cube,
     /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
-    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    /// one layer and `bytes` holds the layers one after the other, each holding its
+    /// [`SourceTexture::mips`] levels from the base level down, every level as a 2D level is.
     D2Array(u32),
     /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
     /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
@@ -399,13 +400,17 @@ pub enum SourceDimension {
     D3,
 }
 
-/// A texture the host uploads once: uncompressed, one mip.
+/// A texture the host uploads once.
 #[derive(Clone, Debug)]
 pub struct SourceTexture {
     pub id: TextureId,
     pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
+    /// The mip levels each layer of a [`SourceDimension::D2Array`] holds, whose `bytes` have each
+    /// layer's whole chain, base level first, one layer after the other. Every other dimension
+    /// has one level.
+    pub mips: u32,
     pub bytes: Vec<u8>,
     /// The state the texture is read with unless a property overrides it.
     pub sampler: Option<SamplerState>,

@@ -152,7 +152,12 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D2, size, 1, format, bytes)
+        self.create_source_texture(
+            label,
+            SourceShape::flat(TextureKind::D2, size, 1),
+            format,
+            bytes,
+        )
     }
 
     /// Uploads the base level of a cube of six `edge` by `edge` faces, sampled through a cube
@@ -169,25 +174,36 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Cube, [edge, edge], 6, format, bytes)
+        let shape = SourceShape::flat(TextureKind::Cube, [edge, edge], 6);
+        self.create_source_texture(label, shape, format, bytes)
     }
 
-    /// Uploads the base level of a 2D array of `layers` layers of `size`, sampled through an
+    /// Uploads a 2D array of `layers` layers of `size`, each with `mips` levels, sampled through an
     /// array view even when there is one layer. `bytes` holds the layers one after the other,
-    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    /// each holding its levels from the base level down, every level tightly packed as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. All levels are counted against
+    /// the budget.
     ///
     /// # Errors
-    /// Fails when `bytes` is not exactly the `layers` layers, `layers` is zero, or the upload plan
-    /// or device refuses the texture, as for a 2D texture.
+    /// Fails when `bytes` is not exactly the `layers` layers of `mips` levels, `layers` is zero,
+    /// `mips` is zero or more than the size has, or the upload plan or device refuses the
+    /// texture, as for a 2D texture.
     pub fn create_texture_array(
         &mut self,
         label: &str,
         size: [u32; 2],
         layers: u32,
+        mips: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Array, size, layers, format, bytes)
+        let shape = SourceShape {
+            kind: TextureKind::Array,
+            size,
+            faces: layers,
+            mips,
+        };
+        self.create_source_texture(label, shape, format, bytes)
     }
 
     /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
@@ -203,29 +219,35 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D3, size, 1, format, bytes)
+        self.create_source_texture(
+            label,
+            SourceShape::flat(TextureKind::D3, size, 1),
+            format,
+            bytes,
+        )
     }
 
     /// The upload of a 2D texture (one layer), a one-slice 3D texture, a cube (six) or an array
-    /// (`faces`), `size` being one face.
+    /// (`faces`), each face holding `mips` levels, `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,
-        kind: TextureKind,
-        size: [u32; 2],
-        faces: u32,
+        shape: SourceShape,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
+        let SourceShape {
+            kind,
+            size,
+            faces,
+            mips: levels,
+        } = shape;
         self.authority.check_device()?;
         let block = format
             .block_copy_size(None)
             .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
             .ok_or_else(|| ProgramError::Gpu(format!("{format:?} is not a color format")))?;
-        let (block_width, block_height) = format.block_dimensions();
-        let face_len = size[0].div_ceil(block_width) as usize
-            * size[1].div_ceil(block_height) as usize
-            * block as usize;
+        let face_len = chain_len(format, shape, block);
         let needed = face_len * faces as usize;
         if bytes.len() != needed {
             return Err(ProgramError::TextureData {
@@ -241,7 +263,7 @@ impl ProgramRuntime {
                     format,
                     size[0],
                     size[1],
-                    1,
+                    levels,
                     &bytes[face * face_len..(face + 1) * face_len],
                 )
             })
@@ -261,7 +283,7 @@ impl ProgramRuntime {
             "render-program texture",
             [size[0], size[1], faces],
             format,
-            [1, 1],
+            [levels, 1],
             1,
         );
         let note = Note::new(label, format!("{}x{} {format:?}", size[0], size[1]));
@@ -583,4 +605,40 @@ fn padded(bytes: &[u8]) -> Cow<'_, [u8]> {
     let mut owned = bytes.to_vec();
     owned.resize(bytes.len().next_multiple_of(4), 0);
     Cow::Owned(owned)
+}
+
+/// What an upload of a source texture holds: `faces` layers, cube faces or the one slice of a
+/// 3D texture, each of `size` with `mips` levels.
+#[derive(Clone, Copy)]
+struct SourceShape {
+    kind: TextureKind,
+    size: [u32; 2],
+    faces: u32,
+    mips: u32,
+}
+
+impl SourceShape {
+    /// A texture whose faces have the base level alone.
+    fn flat(kind: TextureKind, size: [u32; 2], faces: u32) -> Self {
+        Self {
+            kind,
+            size,
+            faces,
+            mips: 1,
+        }
+    }
+}
+
+/// The bytes of one face's levels, base level first, each tightly packed in blocks of `block`
+/// bytes. Levels are as wide as the base level shifted down, and at least one texel.
+fn chain_len(format: wgpu::TextureFormat, shape: SourceShape, block: u32) -> usize {
+    let (block_width, block_height) = format.block_dimensions();
+    let level = |side: u32, level: u32| side.checked_shr(level).unwrap_or(0).max(1);
+    (0..shape.mips)
+        .map(|mip| {
+            level(shape.size[0], mip).div_ceil(block_width) as usize
+                * level(shape.size[1], mip).div_ceil(block_height) as usize
+                * block as usize
+        })
+        .sum()
 }

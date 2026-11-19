@@ -262,6 +262,7 @@ impl DefaultTexture {
             size: [1, 1],
             graphics_format: RGBA8_LINEAR,
             bytes: colour.texel().repeat(texels),
+            mips: 1,
             sampler: None,
         }
     }

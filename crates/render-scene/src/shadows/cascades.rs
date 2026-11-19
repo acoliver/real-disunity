@@ -27,6 +27,19 @@ pub(super) struct CascadeViews {
 const SLICE_SAFETY_TEXELS: f32 = 2.0;
 
 impl CascadeViews {
+    /// How the receivers pick among these cascades: the one rule the receiver uniform encodes and
+    /// the cascades lent to a game describe.
+    pub fn selection(&self) -> crate::compositor::CascadeSelection {
+        use crate::compositor::CascadeSelection;
+        if self.recurrence.is_some() {
+            CascadeSelection::Recurrence
+        } else if self.camera_splits {
+            CascadeSelection::ByCameraDistance
+        } else {
+            CascadeSelection::ByCoverage
+        }
+    }
+
     /// Cascades for the declared splits, with casters fitted to them.
     pub fn new(
         gpu: &SceneGpu,

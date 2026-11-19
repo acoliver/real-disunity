@@ -36,7 +36,10 @@ namespace Unity.IO.LowLevel.Unsafe
 {
     public enum ReadStatus
     {
+        InProgress = 0,
+        Complete = 1,
         Failed = 2,
+        Canceled = 3,
     }
 
     public enum FileState

@@ -42,12 +42,7 @@ impl Streaming {
         let current = worldrunner_render_gpu::submission::Publications::current()
             .expect("owning composition transaction");
         assert!(current.same_frame(&prepared.owner));
-        let committed = self.committed.borrow();
-        let residents = if current.same_transaction(&prepared.owner) {
-            &prepared.residents
-        } else {
-            &*committed
-        };
+        let residents = &prepared.residents;
         let keys: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
         let drawn: Vec<_> = if submitted {
             super::culling::visible(

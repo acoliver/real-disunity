@@ -245,21 +245,26 @@ impl PreparedFeature for RegisteredPrepared {
 }
 
 impl FrameRenderer {
-    /// The writes the game's targets add to a capture's contract: each target's texture, which
-    /// the frame's passes attach, and the bookkeeping of each persistent one, which the frame
-    /// publishes on submission. A capture whose suffix is the full frame lists them with the
-    /// stock targets', or the frame's own writes are refused as undeclared.
-    ///
-    /// # Errors
-    /// [`FrameError`] when the renderer's registry refuses a texture.
-    pub(crate) fn capture_game_keys(
-        &mut self,
-    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
-        let Some(store) = self.game.store.clone() else {
-            return Ok(Vec::new());
-        };
-        let mut keys = self.capture_texture_keys(&store.textures())?;
-        keys.extend(store.write_keys());
-        Ok(keys)
+    /// The textures the game's targets add to a capture's write contract, each with the initial
+    /// version the frame imports it at: the targets the frame's passes attach.
+    pub(crate) fn game_capture_imports(&self) -> Vec<(wgpu::Texture, Option<u32>)> {
+        self.game.store.as_ref().map_or_else(Vec::new, |store| {
+            store
+                .imports()
+                .into_iter()
+                .map(|(texture, initial)| (texture.clone(), initial))
+                .collect()
+        })
+    }
+
+    /// The keys of the retained-state bookkeeping the game's frames publish on submission, one
+    /// for each persistent target.
+    pub(crate) fn game_capture_publications(
+        &self,
+    ) -> Vec<worldrunner_render_gpu::submission::capture::WriteKey> {
+        self.game
+            .store
+            .as_ref()
+            .map_or_else(Vec::new, |store| store.write_keys())
     }
 }

@@ -181,6 +181,12 @@ impl Backing {
         self.declaration.lifetime == TargetLifetime::Persistent
     }
 
+    /// Whether a submitted frame has left contents in any layer of this persistent backing, so
+    /// the allocation a frame imports is no longer fresh whichever layers the frame attaches.
+    fn initialized(&self) -> bool {
+        self.persistent() && self.layers().contains(&true)
+    }
+
     fn layers(&self) -> MutexGuard<'_, Vec<bool>> {
         // A panic while the lock was held leaves the flags as they were.
         self.written.lock().unwrap_or_else(PoisonError::into_inner)
@@ -311,11 +317,13 @@ impl TargetStore {
         self.created
     }
 
-    /// Every texture of the store, which the frame's passes may write.
-    pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
+    /// Every texture of the store, which the frame's passes may write, with the initial version
+    /// the frame imports it at: the one [`Self::view`] declares to the stock compile, which is
+    /// `Some(0)` for a persistent backing a submitted frame has written and `None` otherwise.
+    pub(crate) fn imports(&self) -> Vec<(&wgpu::Texture, Option<u32>)> {
         self.backings
             .iter()
-            .map(|backing| &backing.texture)
+            .map(|backing| (&backing.texture, backing.initialized().then_some(0)))
             .collect()
     }
 
@@ -345,6 +353,8 @@ impl TargetStore {
         let view = AttachmentView::new(resource, &backing.texture)?;
         Ok(if backing.is_written(resource.layer) {
             view.with_retained_contents()
+        } else if backing.initialized() {
+            view.with_initialized_allocation()
         } else {
             view
         })

@@ -272,16 +272,32 @@ impl<F: StageFactory> PostChain<F> {
         Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
         crate::contracts::ContractError,
     > {
+        let textures: Vec<_> = textures.iter().map(|texture| (*texture, None)).collect();
+        self.capture_write_keys_initial(&textures)
+    }
+
+    /// As [`Self::capture_write_keys`], for textures whose allocation the frame imports with an
+    /// initial version: `Some(0)` for a texture that holds contents an earlier submission left,
+    /// as the stock compile imports it when any of its views declares them. A capture and the
+    /// frame it submits must import a texture the same way, or the frame's own import conflicts
+    /// with the capture's.
+    pub fn capture_write_keys_initial(
+        &mut self,
+        textures: &[(&wgpu::Texture, Option<u32>)],
+    ) -> Result<
+        Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+        crate::contracts::ContractError,
+    > {
         use crate::contracts::{ResourceLifetime, Semantic};
         let registry = self.capture_resources.get_or_insert_with(Default::default);
         textures
             .iter()
-            .map(|texture| {
+            .map(|(texture, initial)| {
                 let key = registry.import(
                     texture,
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
-                    None,
+                    *initial,
                 )?;
                 Ok(
                     worldrunner_render_gpu::submission::capture::WriteKey::Resource {

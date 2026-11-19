@@ -492,6 +492,7 @@ PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
+CommandBufferPersistentGlobalTests.Run();
 CommandBufferMeshRefreshTests.Run();
 CommandBufferMeshLifecycleTests.Run();
 CommandBufferMeshFailureTests.Run();

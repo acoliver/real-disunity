@@ -22,6 +22,30 @@ internal static unsafe class CommandWireReader
         return work.Take((int)count).Select(record => record.kind >= 4 ? Describe(Detail(world, record.bindings)) : Flat(record)).ToArray();
     }
 
+    /// <summary>The name id of the record <see cref="TakeOrdered"/> appends to the work.</summary>
+    private static readonly int MarkerId = UnityEngine.Shader.PropertyToID("_CommandWireReaderMarker");
+
+    /// <summary>Drains the work after appending a record of its own. A direct global write is ordered in front of the next record
+    /// and has none to precede when the work ends, so a test that reads the ordered writes of a command buffer asks for them
+    /// with a record after it. The marker is not part of the result.</summary>
+    internal static string[] TakeOrdered()
+    {
+        AppendMarker();
+        var lines = Take();
+        var last = $"Release {MarkerId}";
+        if (lines.Length == 0 || lines[^1] != last) throw new InvalidOperationException($"the marker record is missing from the work: {string.Join(" | ", lines)}");
+        return lines[..^1];
+    }
+
+    /// <summary>Appends one record to the work, so the frame has work and a snapshot of it carries the global state.</summary>
+    internal static void AppendMarker()
+    {
+        var marker = new UnityEngine.Rendering.CommandBuffer();
+        marker.ReleaseTemporaryRT(MarkerId);
+        UnityEngine.Graphics.ExecuteCommandBuffer(marker);
+        marker.Release();
+    }
+
     private static string Flat(DisunityOffscreenWork r) => r.kind switch
     {
         1 => $"Blit source={r.source_kind}:{r.source} target={WorkTarget(r)} material={r.material} pass={r.pass}",

@@ -320,16 +320,15 @@ impl Harness {
             })
             .unwrap();
         let ticket = self.flight.submit_prepared(admission, prepared).unwrap();
+        let completion = crate::retained::CaptureCompletion {
+            frame: self.streaming.captures.next_frame(),
+            time: std::time::Duration::ZERO,
+            scene: self.resident.scene_mut().statistics(),
+            temporal_history_reset: crate::TemporalHistoryReset::None,
+        };
         self.streaming
             .captures
-            .submitted(
-                &mut self.host,
-                capture,
-                ticket.clone(),
-                std::time::Duration::ZERO,
-                &self.resident.scene_mut().statistics(),
-                crate::TemporalHistoryReset::None,
-            )
+            .submitted(&mut self.host, capture, ticket.clone(), &completion)
             .unwrap();
         ticket
     }

@@ -247,6 +247,13 @@ impl Streaming {
             *destination.borrow_mut() = residents;
         });
     }
+    /// The chunks a stock draw recorded now would submit, before culling.
+    #[cfg(test)]
+    pub(super) fn drawn_chunks(&self) -> Vec<TerrainChunk> {
+        self.with_residents(Publications::current().as_ref(), |residents, _| {
+            residents.iter().map(|(chunk, _)| *chunk).collect()
+        })
+    }
     #[cfg(test)]
     pub(super) fn prepared_buffers(&self) -> Vec<wgpu::Buffer> {
         self.drawing
@@ -332,8 +339,10 @@ impl Streaming {
                 ) <= threshold
         }))
     }
-    /// The chunks a draw in the transaction `owner` records: the ones that transaction prepared,
-    /// or the committed ones. `read` also gets the committed ones.
+    /// The chunks a draw in the transaction `owner` records: the ones prepared in its frame,
+    /// including an earlier segment of the same capture, or the committed ones. Every segment of
+    /// a frame draws one cover even if an earlier segment's publications replaced the committed
+    /// one. `read` also gets the committed ones.
     fn with_residents<R>(
         &self,
         owner: Option<&Publications>,
@@ -343,7 +352,7 @@ impl Streaming {
         let committed = self.committed.borrow();
         let residents = drawing
             .as_ref()
-            .filter(|prepared| owner.is_some_and(|owner| owner.same_transaction(&prepared.owner)))
+            .filter(|prepared| owner.is_some_and(|owner| owner.same_frame(&prepared.owner)))
             .map_or(&*committed, |prepared| &prepared.residents);
         read(residents, &committed)
     }
@@ -583,8 +592,9 @@ impl SceneGpu {
         context.finish();
         Ok(())
     }
-    /// Prepares the stock streamed terrain selection inside the scene's frame transaction.
-    /// Stock scene preparation already performs this step.
+    /// Prepares the stock streamed terrain selection inside the scene's frame transaction. Stock
+    /// scene preparation already performs this step; frames that replace stock scene draws call it
+    /// so a retained residency request still advances.
     ///
     /// # Errors
     /// Returns a frame error for a foreign transaction, a conflicting view, or a

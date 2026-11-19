@@ -133,6 +133,7 @@ fn material(shader: ShaderId, tint: [f32; 4]) -> Material {
         keywords: Vec::new(),
         properties: layer(&[("_Tint", tint)]),
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }

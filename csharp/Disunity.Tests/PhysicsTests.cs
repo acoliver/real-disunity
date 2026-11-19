@@ -21,6 +21,8 @@ internal static class PhysicsTests
         RunContacts(false);
         RunContacts(true);
         Console.WriteLine("PASS: native collision/trigger order, identity and physics queries");
+        RunInterpolationModes();
+        RunImportedInterpolationModes();
     }
     private static void RunContacts(bool trigger)
     {
@@ -60,6 +62,61 @@ internal static class PhysicsTests
         DisunityHost.Step(0.02f);
         DisunityHost.UnloadWorld();
     }
+    public static void RunInterpolationModes()
+    {
+        DisunityHost.LoadWorld();
+        try
+        {
+            var body = DisunityHost.CreateGameObject().AddComponent<Rigidbody2D>();
+            Require(body.interpolation == RigidbodyInterpolation2D.None, "default presentation mode");
+            body.interpolation = RigidbodyInterpolation2D.Extrapolate;
+            Require(body.interpolation == RigidbodyInterpolation2D.Extrapolate, "extrapolation enum round-trip");
+            body.velocity = new Vector2(10, 0);
+            body.gravityScale = 0;
+            Require(body.interpolation == RigidbodyInterpolation2D.Extrapolate, "body writes preserve extrapolation");
+            var clone = UnityEngine.Object.Instantiate(body.gameObject).GetComponent<Rigidbody2D>()!;
+            Require(clone.interpolation == RigidbodyInterpolation2D.Extrapolate, "cloning preserves native extrapolation");
+            foreach (var invalid in new[] { (RigidbodyInterpolation2D)3, (RigidbodyInterpolation2D)(-1) })
+            {
+                try { body.interpolation = invalid; throw new InvalidOperationException("invalid interpolation accepted"); }
+                catch (DisunityException) { }
+                Require(body.interpolation == RigidbodyInterpolation2D.Extrapolate, "invalid mode does not mutate the body");
+            }
+            DisunityHost.Step(0.03f);
+            Require(MathF.Abs(body.position.x - 0.2f) < 0.000001f, "scripts keep the fixed-step physics pose");
+            foreach (var mode in Enum.GetValues<RigidbodyInterpolation2D>())
+            {
+                body.interpolation = mode;
+                Require(body.interpolation == mode, "all presentation modes round-trip");
+            }
+        }
+        finally { DisunityHost.UnloadWorld(); }
+        Console.WriteLine("PASS: native Rigidbody2D presentation modes, clone and invalid-tag atomicity");
+    }
+
+    public static void RunImportedInterpolationModes()
+    {
+        foreach (var mode in Enum.GetValues<RigidbodyInterpolation2D>())
+        {
+            DisunityHost.LoadWorld();
+            try
+            {
+                var plan = """
+                    {"scene":"physics","sprites":[],"textures":[],"fonts":[],"axes":[],"assets":[],"differences":[],
+                     "objects":[{"name":"body","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,
+                     "position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,
+                     "components":[{"type":"Rigidbody2D","body_type":"Dynamic","mass":1,"gravity_scale":0,
+                     "constraints":0,"material":null,"simulated":true,"interpolation":"MODE"}]}]}
+                    """.Replace("MODE", mode.ToString());
+                using var scene = DisunityHost.LoadScene(plan, new SceneLoadOptions(typeof(PhysicsTests).Assembly, _ => []));
+                Require(scene.Differences.Count == 0, "supported imported presentation mode has no difference");
+                Require(scene.Objects[0].GetComponent<Rigidbody2D>()!.interpolation == mode, "imported interpolation enum round-trip");
+            }
+            finally { DisunityHost.UnloadWorld(); }
+        }
+        Console.WriteLine("PASS: imported Rigidbody2D None, Interpolate and Extrapolate modes");
+    }
+
     private static void Require(bool value, string message)
     {
         if (!value) throw new InvalidOperationException(message);

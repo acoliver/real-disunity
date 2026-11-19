@@ -28,6 +28,10 @@
 //! * Matrices are column-major, as the world stores them.
 //! * The view, the projection and the camera position follow the engine layer's camera
 //!   ([`camera`]), mapped to the clip space render-program's conventions tests measured.
+//! * Depth runs as the run's [`DepthRange`] says, reversed (near 1, far 0) for a built player
+//!   unless the run chooses forward. The one value reaches the render-program state, the clip
+//!   space of every camera and the managed side's request; see [`DepthRange`] for the setting,
+//!   its default and the run that is the evidence.
 //! * The built-in values and the evidence for each name are in [`builtins`].
 //! * Texture rows are bottom first, as the engine stores them, which is the orientation of a
 //!   render texture's rows.
@@ -52,6 +56,7 @@ mod camera;
 mod census;
 mod compute;
 mod defaults;
+mod depth_range;
 mod flush;
 mod frame;
 mod holdings;
@@ -69,6 +74,7 @@ mod screen;
 mod script;
 mod shaders;
 mod sink;
+mod supplied;
 mod trace;
 
 #[cfg(test)]
@@ -93,6 +99,7 @@ pub use compute::{
     SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
+pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
 pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
@@ -107,4 +114,5 @@ pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use sink::BufferSink;
+pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

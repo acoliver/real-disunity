@@ -46,6 +46,39 @@ fn there_is_no_missing_texture_line_without_missing_textures() {
     assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
 }
 
+fn names(entries: &[&str]) -> BTreeSet<String> {
+    entries.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[test]
+fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
+    assert_eq!(
+        unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
+        Some("constants or state properties no layer set: _A, _B, _C")
+    );
+    assert_eq!(
+        unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
+        Some("constants or state properties no layer set: _A, _B, and 3 more")
+    );
+    assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
+}
+
+#[test]
+fn the_run_report_keeps_each_unset_constant_once_over_every_piece_of_work() {
+    let mut report = GpuWorkReport::default();
+    let first = Report {
+        unset_constants: names(&["_B", "_A"]),
+        ..Report::default()
+    };
+    let second = Report {
+        unset_constants: names(&["_A", "_C"]),
+        ..Report::default()
+    };
+    report.add(&first, "frame");
+    report.add(&second, "flush");
+    assert_eq!(report.unset_constants, names(&["_A", "_B", "_C"]));
+}
+
 fn listing(names: &[&str]) -> Report {
     let mut report = Report::default();
     for name in names {
@@ -131,9 +164,54 @@ fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
 }
 
 #[test]
+fn the_headless_host_draws_with_the_depth_range_it_is_given() {
+    let directory = tempfile::tempdir().unwrap();
+    for depth in [DepthRange::Forward, DepthRange::Reversed] {
+        let gpu = PlayerGpu::headless(directory.path(), depth, &[]).unwrap();
+        assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
+    }
+}
+
+#[test]
+fn the_window_host_draws_with_the_depth_range_it_is_given() {
+    let directory = tempfile::tempdir().unwrap();
+    for depth in [DepthRange::Forward, DepthRange::Reversed] {
+        let mut viewer = HeadlessViewer::new([8, 4]);
+        let gpu = PlayerGpu::shared(&mut viewer, directory.path(), depth, &[]).unwrap();
+        assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
+    }
+}
+
+#[test]
+fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_supplied_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let none = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
+    assert_eq!(none.report().supplied_globals, None);
+    let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
+    let some = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[value]).unwrap();
+    assert_eq!(
+        some.report().supplied_globals.as_deref(),
+        Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
+    );
+}
+
+#[test]
+fn the_window_report_says_which_globals_the_run_supplied() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut viewer = HeadlessViewer::new([8, 4]);
+    let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
+    let gpu =
+        PlayerGpu::shared(&mut viewer, directory.path(), DepthRange::Forward, &[value]).unwrap();
+    assert_eq!(
+        gpu.report().supplied_globals.as_deref(),
+        Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
+    );
+}
+
+#[test]
 fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
     let directory = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(directory.path()).unwrap();
+    let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
     assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
     assert!(
         gpu.report().device.contains("runtime budget"),
@@ -159,7 +237,7 @@ fn play_screen_fixture(gpu: &PlayerGpu, frames: u64) {
 fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_image_alone() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     assert!(gpu.screen().is_none(), "nothing drew yet");
 
@@ -190,7 +268,7 @@ fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_
 fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
 
     play_screen_fixture(&gpu, 2);
 
@@ -210,7 +288,7 @@ fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
 fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     let mut host = booted_fixture_host();
     gpu.install(&mut host).unwrap();
@@ -280,7 +358,7 @@ fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
 fn window_player(size: [u32; 2]) -> (HeadlessViewer, PlayerGpu, tempfile::TempDir) {
     let data = tempfile::tempdir().unwrap();
     let mut viewer = HeadlessViewer::new(size);
-    let gpu = PlayerGpu::shared(&mut viewer, data.path()).unwrap();
+    let gpu = PlayerGpu::shared(&mut viewer, data.path(), DepthRange::Forward, &[]).unwrap();
     gpu.set_screen(Some(size));
     (viewer, gpu, data)
 }
@@ -311,8 +389,12 @@ fn the_window_and_the_headless_player_ask_for_the_same_device() {
     let mut viewer = HeadlessViewer::new([8, 4]);
     let adapter = viewer.adapter().unwrap();
     let inputs = PlayerStartupInputs::from_snapshot(None, Some(6 << 30));
-    let shared = PlayerGpu::shared_on_adapter(&mut viewer, &adapter, data.path(), &inputs).unwrap();
-    let headless = PlayerGpu::headless_on_adapter(&adapter, data.path(), &inputs).unwrap();
+    let settings = Settings::cameras;
+    let shared =
+        PlayerGpu::shared_on_adapter(&mut viewer, &adapter, data.path(), &inputs, settings())
+            .unwrap();
+    let headless =
+        PlayerGpu::headless_on_adapter(&adapter, data.path(), &inputs, settings()).unwrap();
     let (window, alone) = (shared.device.limits(), headless.device.limits());
     assert_eq!(
         window.max_storage_textures_per_shader_stage,
@@ -354,7 +436,16 @@ impl DeviceSource for NoAdapter {
 fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
     let data = tempfile::tempdir().unwrap();
     let mut source = NoAdapter::default();
-    assert!(window_gpu(GpuWork::Off, data.path(), &mut source).is_none());
+    assert!(
+        window_gpu(
+            GpuWork::Off,
+            data.path(),
+            DepthRange::Forward,
+            &[],
+            &mut source
+        )
+        .is_none()
+    );
     assert_eq!(source.asked, 0, "no adapter and no device was asked for");
 }
 
@@ -362,7 +453,16 @@ fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
 fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
     let data = tempfile::tempdir().unwrap();
     let mut source = NoAdapter::default();
-    assert!(window_gpu(GpuWork::Auto, data.path(), &mut source).is_none());
+    assert!(
+        window_gpu(
+            GpuWork::Auto,
+            data.path(),
+            DepthRange::Forward,
+            &[],
+            &mut source
+        )
+        .is_none()
+    );
     assert!(source.asked > 0);
 }
 
@@ -472,7 +572,7 @@ fn a_screen_of_another_size_than_the_window_is_not_offered() {
 fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     let mut host = booted_fixture_host();
     gpu.install(&mut host).unwrap();

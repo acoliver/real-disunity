@@ -43,6 +43,7 @@ const MESH: u64 = (1 << 41) + 5;
 const OTHER_MESH: u64 = (1 << 41) + 6;
 
 mod block;
+mod declared;
 mod persistent;
 mod screen;
 
@@ -114,6 +115,7 @@ fn synthetic(file: &str) -> SyntheticShader {
             layers
         }
         "sampled" => block::sampled_passes(),
+        name if name.starts_with("declared_") => declared::passes(name),
         other => panic!("no synthetic shader {other}"),
     }
 }

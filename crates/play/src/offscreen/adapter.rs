@@ -26,6 +26,7 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
+use super::depth_range::DepthRange;
 use super::frame::{
     Adapted, Available, BLIT_MESH, PASS_TAG, Report, Settings, ShaderInfo, adapt_probing,
     textures_of,
@@ -108,6 +109,13 @@ impl OffscreenAdapter {
             epoch: 0,
             targets: BTreeMap::new(),
         }
+    }
+
+    /// How depth runs in the camera renders this adapter maps: the [`Settings::depth`] it was
+    /// made with.
+    #[must_use]
+    pub fn depth(&self) -> DepthRange {
+        self.settings.depth
     }
 
     /// Chooses whether block-compressed textures go up as blocks (the default, on a device that

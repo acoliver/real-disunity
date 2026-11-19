@@ -294,7 +294,7 @@ fn source_of(resource_kind: &ResourceKind, at: BindingAddress, kind: StageKind) 
 /// Unity's classes name a kind of resource but not a sample type, access or comparison
 /// sampler, so each class that matches what the module declares at its address takes the
 /// module's own full kind. Every resource the module uses is checked here, in the module's
-/// order, as Unity names the failure: a resource no parameter declares, one that the
+/// order, and each failure is named: a resource no parameter declares, one that the
 /// parameters bind for other stages only, and one whose class is not the module's kind.
 ///
 /// A declaration is visible to the stage and to the stages its bits name. One that names other

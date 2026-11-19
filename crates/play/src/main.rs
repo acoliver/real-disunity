@@ -6,8 +6,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
-    key_code, play_player_window, prepare, prepare_player, run_player_screens,
+    Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
+    ScheduledKey, ScreenOutput, SuppliedGlobal, key_code, play_player_window, prepare,
+    prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -20,7 +21,8 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--gpu-work on|off]
+            [--screen FRAME:FILE.png]... [--gpu-work on|off] [--depth reversed|forward]
+            [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -41,6 +43,11 @@ struct Arguments {
     scene: Option<String>,
     /// Whether a player run, headless or in a window, does its offscreen work on a device.
     gpu_work: GpuWork,
+    /// The depth range `--depth` names; without it the environment and then the player's default
+    /// choose (see `DepthRange::choose`).
+    depth: Option<DepthRange>,
+    /// The globals `--global` supplies for the run, in the order given.
+    globals: Vec<SuppliedGlobal>,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -120,6 +127,27 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 _ => return Err(format!("--gpu-work `{value}` is on or off")),
             };
         }
+        "--depth" => {
+            arguments.depth = Some(
+                DepthRange::from_name(value)
+                    .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
+            );
+        }
+        "--global" => {
+            let global = SuppliedGlobal::parse(value)
+                .map_err(|reason| format!("--global `{value}`: {reason}"))?;
+            if arguments
+                .globals
+                .iter()
+                .any(|held| held.name() == global.name())
+            {
+                return Err(format!(
+                    "--global `{value}`: {} is given twice",
+                    global.name()
+                ));
+            }
+            arguments.globals.push(global);
+        }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
@@ -160,10 +188,17 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     // The window opens at `--size`, else at the size the live loop defaults to; a headless run
     // that writes the screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
+    // The one place the environment is read: the request and the GPU work get this value.
+    let depth = DepthRange::choose(
+        arguments.depth,
+        std::env::var(REVERSED_DEPTH_ENV).ok().as_deref(),
+    )?;
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
         screen: (windowed || screens).then_some(size),
         plugins: &arguments.plugins,
+        depth,
+        globals: &arguments.globals,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -270,9 +305,28 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
     Ok(())
 }
 
+/// `--global` values start the offscreen work of a player's frames, in a window and headless
+/// alike, so it needs a player and a run that does that work.
+fn check_globals(arguments: &Arguments) -> Result<(), String> {
+    if arguments.globals.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--global applies only to --player".into());
+    }
+    if matches!(arguments.gpu_work, GpuWork::Off) {
+        return Err(
+            "--global needs the offscreen work of a player: --gpu-work on, which is the default"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
     check_screens(&arguments)?;
+    check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -409,6 +463,151 @@ mod tests {
             GpuWork::Auto
         );
         assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
+    }
+
+    #[test]
+    fn depth_is_named_by_the_option_or_left_to_the_environment_and_the_player_default() {
+        use worldrunner_play::DepthRange;
+        assert_eq!(
+            parsed(&["--player", "Game_Data"]).expect("parses").depth,
+            None
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "forward"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Forward)
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "reversed"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Reversed)
+        );
+        assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
+    }
+
+    #[test]
+    fn global_options_supply_named_values_in_the_order_given() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--global",
+            "unity_LightData=1,1,1,1",
+            "--global",
+            "_Other=0.5,2",
+        ])
+        .expect("parses");
+        let names: Vec<_> = arguments
+            .globals
+            .iter()
+            .map(worldrunner_play::SuppliedGlobal::name)
+            .collect();
+        assert_eq!(names, ["unity_LightData", "_Other"]);
+        let bits = |index: usize| arguments.globals[index].value().map(f32::to_bits);
+        assert_eq!(bits(0), [1.0_f32; 4].map(f32::to_bits));
+        assert_eq!(bits(1), [0.5_f32, 2.0, 0.0, 0.0].map(f32::to_bits));
+        let none = parsed(&["--player", "Game_Data"]).expect("parses");
+        assert!(none.globals.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_global_option_is_refused_naming_the_option_and_the_value() {
+        for value in [
+            "unity_LightData",
+            "unity_LightData=",
+            "unity_LightData=1,2,3,4,5",
+            "unity_LightData=1,x",
+            "9name=1",
+            "a b=1",
+            "a=nan",
+        ] {
+            let error = parsed(&["--player", "Game_Data", "--global", value])
+                .err()
+                .unwrap_or_else(|| panic!("`{value}` parsed"));
+            assert!(error.starts_with(&format!("--global `{value}`")), "{error}");
+        }
+        let twice = parsed(&["--global", "a=1", "--global", "a=2"])
+            .err()
+            .unwrap();
+        assert!(
+            twice.contains("`a=2`") && twice.contains("given twice"),
+            "{twice}"
+        );
+        assert!(parsed(&["--player", "Game_Data", "--global"]).is_err());
+    }
+
+    #[test]
+    fn a_global_reaches_a_player_that_does_its_offscreen_work_headless_or_in_a_window() {
+        for extra in [
+            &[][..],
+            &["--size", "64x64"][..],
+            &["--key", "1:w:down"][..],
+            &["--capture", "1:out.png"][..],
+            &["--gpu-work", "on", "--size", "64x64"][..],
+        ] {
+            let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            assert_eq!(super::check_globals(&arguments), Ok(()), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn a_windowed_player_with_a_global_is_not_refused_for_it() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--size",
+            "64x64",
+            "--global",
+            "a=1",
+        ])
+        .expect("parses");
+        // The run goes on to read the player's data, which does not exist here; the refusal of
+        // `--global` is not what stops it.
+        let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
+        assert!(!error.contains("--global"), "{error}");
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_with_no_gpu_work() {
+        for extra in [&[][..], &["--size", "64x64"][..]] {
+            let mut args = vec![
+                "--player",
+                "Game_Data",
+                "--global",
+                "a=1",
+                "--gpu-work",
+                "off",
+            ];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert!(
+                error.starts_with("--global needs") && error.contains("--gpu-work on"),
+                "{error}"
+            );
+            let error = super::play(parsed(&args).expect("parses")).unwrap_err();
+            assert!(error.starts_with("--global needs"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_that_is_not_a_player() {
+        for args in [
+            &["snake", "--global", "a=1"][..],
+            &["--global", "a=1"][..],
+            &["pong", "--size", "64x64", "--global", "a=1"][..],
+        ] {
+            let arguments = parsed(args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+            let error = super::play(parsed(args).expect("parses")).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+        }
+        let plain = parsed(&["snake", "--size", "64x64"]).expect("parses");
+        assert_eq!(super::check_globals(&plain), Ok(()));
     }
 
     #[test]

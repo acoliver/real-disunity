@@ -242,7 +242,8 @@ retained replacement has not finished, and a second view in one recording is a
 unrelated frame cannot read that preparation. A scene without streamed terrain
 returns `None`.
 
-Each draw carries its inclusive height-sample bounds and sampling stride. Edge
+Each draw carries its inclusive height-sample bounds and sampling stride, and its
+resident vertex and index buffers (`TerrainChunkDraw::buffers`). Edge
 neighbors come from the entire admitted cover, including culled leaves. Their
 positive-length overlaps are sorted along the edge and can describe multiple
 strides. The caller owns material nodes, material page slots and index-map
@@ -1465,6 +1466,7 @@ let state = target.render_state(raster);   // reuses DepthMode::render_state
 let draw = runtime.prepare_imported_draw(&imported, target.signature()?)?;
 target.admit("my program", &draw)?;         // a mismatch is refused by name before recording
 let camera = frame_camera.current()?;        // the matrices the stock passes use
+let chunks = frame_terrain.current()?;       // the streamed chunks this frame admitted
 ```
 
 `GamePlace::BeforeOpaque` passes run after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterOpaqueSnapshots` after the opaque snapshot passes and before the water and every other transparent pass, `AfterTransparent` before the reflection and screen-space tail. The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
@@ -1512,6 +1514,8 @@ let scene_depth = snapshots.device_depth.expect("declared").view;
 Tests: `tests/game_passes/snapshots.rs` (colour that equals the stock opaque frame and is unreached by later draws into the frame, the `AfterOpaque` draws it includes, exact device and linear depth values at a covered and an uncovered pixel, allocation statistics with and without a reading game, the typed refusals), `tests/game_passes/snapshot_capture.rs` (three same-frame shadowed captures with a reading game give the unshadowed frame's pixels and run the readers before the transparent passes), `src/water/device_depth_tests.rs` (the nearest sample of a multisampled pixel) and the forward-order tests in `src/compositor/forward_order.rs`.
 
 `RendererConfiguration::terrain_draws = TerrainDraws::Suppressed` keeps the scene's terrain resident, streamed and updated but skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata and shadow casters. The default `Stock` is byte-identical to a build without the option. A frame with game features is planned without the stock plan cache. Switching the choice between frames refreshes every retained shadow cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs`, `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` and the forward-order tests.
+
+A game that draws the terrain itself reads `GameBuild::terrain`, a `FrameTerrainHandle`. Each stock route (unshadowed, shadowed and resident, including the suffix of a same-frame capture) publishes it after it prepares the frame's terrain, with the finalized frame and raster extent, so `current()` in a feature's `prepare` returns the chunks the stock camera draw would submit, in its order, as `TerrainChunkDraw`s with their geometric neighbours and resident buffers (`TerrainChunkDraw::buffers`, in the stock vertex layout of `geometry::vertex_attributes`). It returns `None` when the scene has no terrain. Otherwise it refuses with a `FrameTerrainError`: `OutsideFrame`, `NotPrepared` when the frame's route prepared no terrain, `NotStreamed` for terrain without a streaming policy, or `View` with the lender's `TerrainChunkViewError` (for example `Unprepared` or `ViewMismatch`). The route records a refusal instead of failing the frame, so a feature that does not read the terrain is unaffected. It never returns an earlier frame's chunks. The lent buffers are the renderer's own: record draws from them in the frame that lent them, and do not keep, write or destroy them. Lending works the same with `TerrainDraws::Stock`. `tests/game_passes/terrain_lender.rs` suppresses the stock draws and draws the lent chunks with an imported program draw. `src/shadows/tests/game_terrain.rs` and `src/draw/tests/streaming/game_lending.rs` read the lent chunks on the shadowed route, in a same-frame capture and on the resident route.
 
 ## Native-resolution RCAS
 

@@ -140,6 +140,12 @@ impl OffscreenState {
         self.constants_total_limit = Some(bytes);
     }
 
+    /// The name the source of shader `id` declares, if the state holds it.
+    #[must_use]
+    pub fn shader_name(&self, id: ShaderId) -> Option<&str> {
+        self.shaders.get(&id).map(ProgramShader::name)
+    }
+
     pub fn add_shader(&mut self, id: ShaderId, shader: ProgramShader) {
         self.shaders.insert(id, shader);
         self.programs.retain(|(shader, _, _), _| *shader != id);

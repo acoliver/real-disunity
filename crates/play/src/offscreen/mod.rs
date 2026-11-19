@@ -70,6 +70,7 @@ mod pixels;
 mod probe;
 mod procedural_draw;
 mod properties;
+mod record_names;
 mod records;
 mod report;
 mod screen;

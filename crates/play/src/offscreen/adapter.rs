@@ -33,6 +33,7 @@ use super::frame::{
 };
 use super::holdings;
 use super::ids;
+use super::record_names;
 use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use super::stand_ins::StandInReason;
@@ -456,9 +457,9 @@ pub(super) fn blit_mesh() -> Mesh {
 }
 
 /// Builds the frame's operations. When the frame as a whole is refused, the parts the state
-/// refuses are left out and counted in the report by the name of their error: first each render
-/// texture (with the records that name it), then each record on its own. What is left is built
-/// together.
+/// refuses are left out and counted in the report by the name of their error (a record also by its
+/// kind): first each render texture (with the records that name it), then each record on its own.
+/// What is left is built together.
 ///
 /// # Errors
 /// Fails with the error of the frame that is left, which holds only parts that build alone, when
@@ -642,7 +643,9 @@ fn drop_unusable_records(
         match state.build(runtime, arena, &alone) {
             Ok(_) => kept.push(record),
             Err(error) => {
-                adapted.report.fail("record", &error);
+                let kind = format!("record:{}", record_names::kind(&record));
+                let note = record_names::drawn_with(&record, &adapted.frame, state);
+                adapted.report.fail_with(&kind, note.as_deref(), &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

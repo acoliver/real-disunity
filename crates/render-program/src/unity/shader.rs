@@ -130,6 +130,12 @@ impl ProgramShader {
         })
     }
 
+    /// The name the shader source declares.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.shader.parsed.name
+    }
+
     /// The passes of the first sub-shader.
     #[must_use]
     pub fn pass_count(&self) -> usize {

@@ -14,6 +14,7 @@ mod bc7_tables;
 mod bc7_tests;
 mod block_texture;
 mod camera_start;
+mod counts_line;
 mod driver;
 #[cfg(test)]
 mod gpu_flush_tests;

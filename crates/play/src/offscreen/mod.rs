@@ -72,6 +72,7 @@ mod properties;
 mod report;
 mod script;
 mod shaders;
+mod stand_ins;
 mod supplied;
 mod trace;
 
@@ -95,7 +96,7 @@ pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
-pub use defaults::DefaultTexture;
+pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
 pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
@@ -109,5 +110,6 @@ pub use pixels::{
 };
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use stand_ins::{StandInCounts, StandInReason};
 pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

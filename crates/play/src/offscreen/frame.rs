@@ -25,7 +25,7 @@ use super::bounds::Bounds;
 use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
-use super::defaults::{DefaultTexture, ShaderFill};
+use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
 use super::ids;
 use super::pixels::{self, Wanted};
@@ -33,6 +33,7 @@ use super::properties::{
     Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
 };
 use super::script::{Script, kind};
+use super::stand_ins::StandInReason;
 use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
@@ -77,6 +78,8 @@ pub struct Settings {
     pub depth: DepthRange,
     /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
     pub supplied: Vec<SuppliedGlobal>,
+    /// How the stand-in textures the host supplies look: their declared colours, or magenta.
+    pub stand_in_look: StandInLook,
 }
 
 impl Settings {
@@ -96,6 +99,13 @@ impl Settings {
     #[must_use]
     pub fn with_depth(mut self, depth: DepthRange) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// These settings with the stand-in textures looking as `look` says.
+    #[must_use]
+    pub fn with_stand_in_look(mut self, look: StandInLook) -> Self {
+        self.stand_in_look = look;
         self
     }
 
@@ -140,6 +150,9 @@ pub struct Available {
     pub shaders: BTreeMap<WorldShaderId, ShaderInfo>,
     pub meshes: BTreeSet<u64>,
     pub textures: BTreeSet<u64>,
+    /// The stored textures the host holds no usable texture of because it could not upload them,
+    /// by why. A texture the engine stored nothing of is in neither set.
+    pub refused_textures: BTreeMap<u64, StandInReason>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
     /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
@@ -343,7 +356,8 @@ impl<'a> Mapper<'a> {
         available: &'a Available,
         settings: &'a Settings,
     ) -> Self {
-        let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
+        let mut textures = Textures::new(&snapshot.render_textures, &available.textures)
+            .with_refused(&available.refused_textures);
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
             // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot

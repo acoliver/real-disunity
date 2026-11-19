@@ -106,6 +106,31 @@ The program runtime holds all GPU storage the host makes (stored textures and me
 
 The `[gpu] adapter` report line names the budget and which rule chose it. When an allocation would not fit, the host gives back what the snapshot being mapped does not name, least recently named first: stored meshes, stored textures and render textures. A snapshot names a render texture when a record reads or draws into it, or a property of a material, a renderer or the globals holds it. A render texture given back is made again, empty, by the next frame that names it. The host does this before it builds a frame's render textures, when an upload is refused and before the frame that copies the texture for a pixel read begins, so the staging fits. The report counts what was given back as `given back to make room`, and a pixel read the budget still has no room for as `pixel reads refused: no copy of the texture could be made: over the storage budget`. A stored mesh or texture whose upload the budget still refuses is counted as a failure of that snapshot and is asked for again, whole, by the next snapshot that names it, so it is uploaded once room exists even though the engine stores no newer generation of it. One the host cannot upload for its own sake (a mesh with no position channel, a texture whose bytes are shorter than its base level, a format the host does not decode) is counted once and not read again until the engine stores a new generation. In both cases the storage of the generation it replaced is given back, so a failed replacement leaves neither old geometry nor old texels to draw from; `tests/mesh_cache.rs` and `tests/texture_cache.rs` (in `offscreen/tests`) hold these claims.
 
+### Seeing the stand-ins a run draws with
+
+A draw that binds a texture the host supplied in place of a real one is a draw with a stand-in: a shader's declared default (`white`, `black`, `grey`, `bump`, in 2D, cube, array or 3D) and the grey that a slot nothing sets and no shader declares reads. Such a draw is not an error and not a missing texture, so a run can report no failures while many of its draws read stand-ins. Each recorded draw that binds one is counted, and the report prints two lines (also after every frame when `PLAY_REPORT_EACH_FRAME` is set):
+
+```
+[gpu] draws with stand-ins N
+[gpu] stand-ins by property: <property> <reason> <count>, ...
+```
+
+`N` is the number of draws that bound at least one stand-in. The second line names the properties with the most draws, one entry per property and reason. A draw that binds stand-ins for two properties is counted once in `N` and once under each property. The reasons are the host's account of why the slot has no real texture:
+
+| Reason | Meaning |
+| --- | --- |
+| `unset` | The shader declares a default for the property and the material lists no slot for it. |
+| `unset-or-not-loaded` | The slot names no texture. The world cannot tell a material that names none from one whose texture the importer did not build or the managed engine could not carry as a texture, so the report does not call it `unset`. |
+| `exists-not-loaded` | The slot names a texture the engine knows of and the host holds no pixels of: the engine stored none, the upload failed or went over the storage budget, or the render texture no longer exists. |
+| `unsupported-format` | The slot names a stored texture whose format the host does not decode. |
+| `undeclared` | The shader reflects a slot it does not declare and no layer sets it, so the grey of the slot's dimension is read. |
+
+A draw whose declared property has no texture and no default the host supplies is left out and counted as `draw:MissingTexture`, as before.
+
+`unsupported-dimension` (a cube, 3D or array texture the engine cannot carry yet) is not reported yet, because the information is lost before the host sees it: the importer plans a texture it does not build (a `Cubemap`, a `Texture3D`, a `Texture2D` it rejects) as a `null` slot with only a line in the plan's differences (`unity-import` `player_materials.rs`, `plan_material`), and the managed engine sends a `Texture2DArray`, `Cubemap` or `Texture3D` as kind 0, no texture (`WorldGraphics.TextureOf`). Both arrive as a slot with no texture, so they are counted as `unset-or-not-loaded`. Telling them apart needs a new texture kind in the world and the native ABI.
+
+`PLAY_STAND_INS_MAGENTA=1` (or `true`) makes every stand-in texture the host supplies read as magenta, RGBA (255, 0, 255, 255), in its own dimension (2D, cube, array and 3D), so a capture shows which draws read stand-ins. Unset, `0`, `false` or any other value leaves the declared colours. The setting is read once when the run's `PlayerGpu::headless` is made; `Settings::with_stand_in_look` sets it for a library caller.
+
 ### Wiring a frame
 
 `PlayerGpu` (in `gpu_player.rs`) owns a device, the `OffscreenHost` on it and the counts of a run. `run_player` makes one when the machine has an adapter (`--gpu-work off` skips it), registers its flush handler with `DisunityHost::set_gpu_flush` before the scene loads, and after each advance calls `PlayerGpu::frame`, which takes `graphics_snapshot()`. A frame whose snapshot holds no work returns at once and leaves the device alone, so the run is the one it was before. With work, the records are adapted, built, admitted against a frame of the authority, encoded, submitted and waited for; the counts of records, dispatches, skips and failures print at the end as `[gpu]` lines.

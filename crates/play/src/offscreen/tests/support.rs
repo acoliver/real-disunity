@@ -180,6 +180,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
             .collect(),
         meshes: snapshot.renderers.iter().map(|r| r.mesh).collect(),
         textures: textures.iter().copied().collect::<BTreeSet<_>>(),
+        refused_textures: BTreeMap::new(),
         default_textures: DefaultTexture::ALL.into_iter().collect(),
         bounds: BTreeMap::new(),
         sub_meshes: BTreeMap::new(),

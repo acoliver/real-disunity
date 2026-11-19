@@ -27,9 +27,11 @@ use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
+use crate::counts_line::{top_counts_line, unset_constants_line};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
-    Reclaimed, Report, Settings, SuppliedGlobal, WorkTrace, supplied_line,
+    Reclaimed, Report, STAND_INS_MAGENTA_ENV, Settings, StandInCounts, StandInLook, SuppliedGlobal,
+    WorkTrace, supplied_line,
 };
 use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
@@ -42,47 +44,11 @@ const MAX_WORK_TRACES: usize = 64;
 /// The most textures the draw:MissingTexture line names.
 const TOP_TEXTURES: usize = 5;
 
-/// `title` and the `top` names with the largest counts, largest first and equal counts by name,
-/// as `title: name count, name count`. A count of names past `top` ends the line as `and N more`.
-/// There is no line for no counts.
-fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) -> Option<String> {
-    if counts.is_empty() {
-        return None;
-    }
-    let mut ranked: Vec<_> = counts.iter().collect();
-    // A stable sort keeps the names of equal counts in the map's order.
-    ranked.sort_by(|a, b| b.1.cmp(a.1));
-    let named: Vec<String> = ranked
-        .iter()
-        .take(top)
-        .map(|(name, count)| format!("{name} {count}"))
-        .collect();
-    let line = format!("{title}: {}", named.join(", "));
-    Some(match ranked.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
-}
-
 /// The most names the unset constants line gives.
 const TOP_UNSET: usize = 8;
 
-/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
-/// and `and N more` for those past them. There is no line for no names.
-fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
-    if unset.is_empty() {
-        return None;
-    }
-    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
-    let line = format!(
-        "constants or state properties no layer set: {}",
-        shown.join(", ")
-    );
-    Some(match unset.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
-}
+/// The most property and reason pairs the stand-ins line names.
+const TOP_STAND_INS: usize = 8;
 
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,6 +144,8 @@ pub struct GpuWorkReport {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The draws that read a stand-in texture, over every piece of work, by property and reason.
+    pub stand_ins: StandInCounts,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
     /// `Report::unset_constants`), over every piece of work.
     pub unset_constants: BTreeSet<String>,
@@ -249,17 +217,11 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
-        for (name, count) in &report.missing_textures {
-            *self.missing_textures.entry(name.clone()).or_default() += count;
-        }
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
-        }
-        for (name, count) in &report.undeclared_defaults {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
         }
         for (name, count) in report.lists.named() {
             *self.lists.entry(name).or_default() += count;
@@ -287,9 +249,7 @@ impl GpuWorkReport {
                 textures: report.global_textures.keys().cloned().collect(),
             });
         }
-        for (name, count) in &report.unresolved_textures {
-            *self.unresolved_textures.entry(name.clone()).or_default() += count;
-        }
+        self.add_texture_counts(report);
         self.unset_constants.extend(report.unset_constants.clone());
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
@@ -311,6 +271,40 @@ impl GpuWorkReport {
                 entry.texture, entry.written, entry.total, entry.key, entry.tag
             );
             *self.partial_reads.entry(name).or_default() += entry.reads;
+        }
+    }
+
+    /// Adds the counts of the draws left out for want of a texture and of the draws and
+    /// properties a stand-in served instead.
+    fn add_texture_counts(&mut self, report: &Report) {
+        for (name, count) in &report.missing_textures {
+            *self.missing_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.undeclared_defaults {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.unresolved_textures {
+            *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        self.stand_ins.add(&report.stand_ins);
+    }
+
+    /// The lines of the stand-in census, without the `[gpu] ` prefix.
+    fn stand_in_lines(&self) -> Vec<String> {
+        self.stand_ins.lines(TOP_STAND_INS)
+    }
+
+    /// The lines about the draws left out for want of a texture and the draws that read stand-ins.
+    fn print_texture_lines(&self) {
+        if let Some(line) = top_counts_line(
+            "draw:MissingTexture by texture",
+            &self.missing_textures,
+            TOP_TEXTURES,
+        ) {
+            eprintln!("[gpu] {line}");
+        }
+        for line in self.stand_in_lines() {
+            eprintln!("[gpu] {line}");
         }
     }
 
@@ -357,13 +351,7 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        if let Some(line) = top_counts_line(
-            "draw:MissingTexture by texture",
-            &self.missing_textures,
-            TOP_TEXTURES,
-        ) {
-            eprintln!("[gpu] {line}");
-        }
+        self.print_texture_lines();
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
@@ -544,9 +532,12 @@ impl PlayerGpu {
         let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
             .map_err(|error| format!("no device: {error}"))?;
         let info = adapter.get_info();
+        let look = StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref());
         let settings = Settings {
             supplied: supplied.to_vec(),
-            ..Settings::cameras().with_depth(depth)
+            ..Settings::cameras()
+                .with_depth(depth)
+                .with_stand_in_look(look)
         };
         Self::build(
             device,
@@ -773,44 +764,45 @@ mod tests {
             .collect()
     }
 
+    fn with_stand_ins(draws: usize, by_property: &[(&str, usize)]) -> Report {
+        Report {
+            stand_ins: StandInCounts {
+                draws,
+                by_property: counted(by_property),
+            },
+            ..Report::default()
+        }
+    }
+
     #[test]
-    fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
-        let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
+    fn the_summary_says_how_many_draws_read_stand_ins_and_which_properties_for_which_reason() {
+        let mut report = GpuWorkReport::default();
+        report.add(
+            &with_stand_ins(3, &[("_A unset", 3), ("_B undeclared", 1)]),
+            "frame",
+        );
+        report.add(
+            &with_stand_ins(2, &[("_A unset", 1), ("_C exists-not-loaded", 2)]),
+            "flush",
+        );
         assert_eq!(
-            top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
-            Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
+            report.stand_in_lines(),
+            [
+                "draws with stand-ins 5",
+                "stand-ins by property: _A unset 4, _C exists-not-loaded 2, _B undeclared 1",
+            ]
         );
     }
 
     #[test]
-    fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
-        let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
-        assert_eq!(
-            top_counts_line("t", &counts, 2).as_deref(),
-            Some("t: _A 4, _B 3, and 2 more")
-        );
-    }
-
-    #[test]
-    fn there_is_no_missing_texture_line_without_missing_textures() {
-        assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
+    fn a_run_with_no_stand_ins_says_zero_draws_and_names_no_property() {
+        let mut report = GpuWorkReport::default();
+        report.add(&Report::default(), "frame");
+        assert_eq!(report.stand_in_lines(), ["draws with stand-ins 0"]);
     }
 
     fn names(entries: &[&str]) -> BTreeSet<String> {
         entries.iter().map(|name| (*name).to_owned()).collect()
-    }
-
-    #[test]
-    fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
-        assert_eq!(
-            unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, _C")
-        );
-        assert_eq!(
-            unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, and 3 more")
-        );
-        assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
     }
 
     #[test]

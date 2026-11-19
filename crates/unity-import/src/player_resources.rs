@@ -5,7 +5,7 @@
 //! assets: a `TextAsset` names the byte range of its contents in the player's file, and a
 //! script asset (a `ScriptableObject`) has its decoded fields written to a file beside the
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
-//! tables of many megabytes. Textures, texture arrays (see [`crate::player_texture_arrays`]), sprites and sprite atlases are planned too, along
+//! tables of many megabytes. Textures, texture arrays (see [`crate::player_texture_arrays`]), cubemaps and 3D textures (see [`crate::player_layered_textures`]), sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
 //! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
 //! (see [`crate::player_materials`]); a `MeshFilter` plans the meshes it references, with their data in
@@ -39,6 +39,7 @@ use crate::{
     player_files::PlayerFiles,
     player_font_files::{FontRange, font_range},
     player_input::plan_player_axes,
+    player_layered_textures::{cubemap_flaw, plan_cubemap, plan_texture_3d},
     player_materials::{
         PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
     },
@@ -118,6 +119,33 @@ pub enum ResourceAsset {
     /// A stack of equally sized slices. `graphics_format` is the `GraphicsFormat` value of the
     /// pixels, `depth` the number of slices; the other fields are those of `Texture2D`.
     Texture2DArray {
+        name: String,
+        width: i32,
+        height: i32,
+        depth: i32,
+        graphics_format: i32,
+        mip_count: i32,
+        readable: bool,
+        color_space: i32,
+        filter_mode: i32,
+        wrap_u: i32,
+        wrap_v: i32,
+        wrap_w: i32,
+        aniso_level: i32,
+        mip_bias: f32,
+        data: TextureData,
+    },
+    /// A cube of six square faces, planned as a 2D texture is (see
+    /// [`player_sprites::Texture2DAsset`]): `format` is the `TextureFormat` value, and the bytes
+    /// are the six faces in the order +X, -X, +Y, -Y, +Z, -Z, each with its whole mip chain.
+    Cubemap {
+        #[serde(flatten)]
+        texture: player_sprites::Texture2DAsset,
+    },
+    /// A volume of `depth` slices. `graphics_format` is the `GraphicsFormat` value of the pixels
+    /// and the bytes are the mip levels from the base level down, each with its slices one after
+    /// the other; the other fields are those of `Texture2DArray`.
+    Texture3D {
         name: String,
         width: i32,
         height: i32,
@@ -306,6 +334,8 @@ fn buildable(class: ClassId) -> bool {
 fn referenced_on_demand(class: ClassId) -> bool {
     class == ClassId::TEXTURE_2D
         || class == ClassId::TEXTURE_2D_ARRAY
+        || class == ClassId::CUBEMAP
+        || class == ClassId::TEXTURE_3D
         || class == ClassId::SPRITE
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
@@ -406,6 +436,13 @@ impl Registry {
         }
         if class == ClassId::TEXTURE_2D
             && let Some(flaw) = player_sprites::texture_flaw(&mut self.files, key)?
+        {
+            self.notes.push(flaw);
+            self.rejected.insert(key.clone());
+            return Ok(None);
+        }
+        if class == ClassId::CUBEMAP
+            && let Some(flaw) = cubemap_flaw(&self.files.open_path(&key.0)?.decode(key.1)?)
         {
             self.notes.push(flaw);
             self.rejected.insert(key.clone());
@@ -587,6 +624,8 @@ impl ResourcePlanner {
             ClassId::TEXTURE_2D_ARRAY => {
                 plan_texture_array(&mut self.registry, key, &self.output, index)
             }
+            ClassId::CUBEMAP => plan_cubemap(&mut self.registry, key, &self.output, index),
+            ClassId::TEXTURE_3D => plan_texture_3d(&mut self.registry, key, &self.output, index),
             ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
             ClassId::GAME_OBJECT => self.prefab(key, layouts),

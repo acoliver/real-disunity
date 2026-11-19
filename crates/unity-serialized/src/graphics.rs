@@ -407,6 +407,26 @@ impl Layout for Texture2D {
     }
 }
 
+/// A cube of six square faces. It stores the fields of a 2D texture (see [`Texture2D`]), whose
+/// `image_count` is six and whose `dimension` is the cube's, with the 2D textures it was made from.
+/// The faces' pixels are in the order +X, -X, +Y, -Y, +Z, -Z, each with its whole mip chain.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cubemap {
+    pub texture: Texture2D,
+    pub source_textures: Vec<PPtr>,
+}
+
+impl Layout for Cubemap {
+    const CLASS: ClassId = ClassId::CUBEMAP;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        Ok(Self {
+            texture: Texture2D::read(r)?,
+            source_textures: r.pptrs("source texture")?,
+        })
+    }
+}
+
 /// Whether a texture ignores the quality limit on its mip levels, and its limit group.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MipLimit {
@@ -475,6 +495,64 @@ impl Layout for Texture2DArray {
                 ignore,
                 group: r.string()?,
             },
+            image_data: r.byte_range("image data byte")?,
+            stream: StreamingInfo::read(r)?,
+        })
+    }
+}
+
+/// A volume of equally sized slices that a shader samples by 3D coordinate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Texture3D {
+    pub name: String,
+    pub color_space: i32,
+    pub is_alpha_channel_optional: bool,
+    /// The `GraphicsFormat` value of every pixel, for example 88 for the four-byte format of
+    /// Old World's noise volumes.
+    pub format: i32,
+    pub width: i32,
+    pub height: i32,
+    /// The number of slices of the base level.
+    pub depth: i32,
+    pub mip_count: i32,
+    /// Bytes of image data for all levels.
+    pub data_size: u32,
+    pub settings: TextureSettings,
+    pub lightmap_format: i32,
+    pub is_readable: bool,
+    /// Byte range of inline image data within the object; empty when the data is streamed.
+    pub image_data: Range<usize>,
+    pub stream: StreamingInfo,
+}
+
+impl Layout for Texture3D {
+    const CLASS: ClassId = ClassId::TEXTURE_3D;
+
+    fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
+        let name = r.string()?;
+        let color_space = r.i32()?;
+        let is_alpha_channel_optional = r.bool()?;
+        r.align()?;
+        let [format, width, height, depth, mip_count] =
+            [r.i32()?, r.i32()?, r.i32()?, r.i32()?, r.i32()?];
+        let data_size = r.u32()?;
+        let settings = TextureSettings::read(r)?;
+        let lightmap_format = r.i32()?;
+        let is_readable = r.bool()?;
+        r.align()?;
+        Ok(Self {
+            name,
+            color_space,
+            is_alpha_channel_optional,
+            format,
+            width,
+            height,
+            depth,
+            mip_count,
+            data_size,
+            settings,
+            lightmap_format,
+            is_readable,
             image_data: r.byte_range("image data byte")?,
             stream: StreamingInfo::read(r)?,
         })

@@ -37,15 +37,16 @@ pub enum BodyType {
     Dynamic,
 }
 
-/// Unity's `RigidbodyInterpolation2D`, without extrapolation.
+/// Presentation of a 2D body's physics pose. Physics and scripts keep the step pose.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Interpolation {
     /// Drawn at the pose of the last physics step.
     #[default]
     None,
-    /// Drawn between its poses before and after the last physics step. Physics and scripts
-    /// still see the step pose.
+    /// Drawn between its poses before and after the last physics step.
     Interpolate,
+    /// Predicted from the step pose and current velocity, at most one fixed step ahead.
+    Extrapolate,
 }
 
 #[derive(Clone, Debug, PartialEq)]

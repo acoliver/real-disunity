@@ -26,10 +26,15 @@ use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill};
+use super::depth_range::DepthRange;
 use super::ids;
 use super::mips::AutoMips;
-use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
-use super::script::Script;
+use super::pixels::{self, Wanted};
+use super::properties::{
+    Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
+};
+use super::script::{Script, kind};
+use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
 pub use super::report::{Reclaimed, Report};
@@ -67,6 +72,12 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// How depth runs in the camera renders: the clip space of every camera's view-projection,
+    /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
+    /// Forward unless the caller says otherwise.
+    pub depth: DepthRange,
+    /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
+    pub supplied: Vec<SuppliedGlobal>,
 }
 
 impl Settings {
@@ -78,7 +89,15 @@ impl Settings {
         Self {
             light_modes: CAMERA_LIGHT_MODES.map(str::to_owned).to_vec(),
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
+            ..Self::default()
         }
+    }
+
+    /// These settings with depth running as `depth` says.
+    #[must_use]
+    pub fn with_depth(mut self, depth: DepthRange) -> Self {
+        self.depth = depth;
+        self
     }
 
     /// The passes a camera draws.
@@ -333,9 +352,9 @@ impl<'a> Mapper<'a> {
     ) -> Self {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
         let mut frame = OffscreenFrame {
-            // Unity binds its grey default to a texture nothing sets and the shader does not
-            // declare, command-buffer records included: a 2D one to a 2D slot, a cube to a cube
-            // slot and a 3D one to a 3D slot.
+            // A texture nothing sets and the shader does not declare reads the grey default,
+            // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot
+            // and a 3D one for a 3D slot.
             undeclared_textures: UndeclaredTextures {
                 d2: available
                     .default_textures
@@ -356,6 +375,10 @@ impl<'a> Mapper<'a> {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
         }
+        // The host's light stands in for one the world and the script never set: it sits in the
+        // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
+        add_supplied(&mut frame.globals, &settings.supplied);
+        add_main_light(&mut frame.globals, &snapshot.lights);
         let script = Script::new(frame.globals.clone(), &frame.global_keywords);
         Self {
             snapshot,
@@ -576,8 +599,7 @@ impl<'a> Mapper<'a> {
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
-        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
-        add_main_light(&mut values, &self.snapshot.lights);
+        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]), self.settings.depth);
         add_screen_size(&mut values, size);
         Camera {
             culling_mask: view.settings.culling_mask,
@@ -698,7 +720,9 @@ impl<'a> Mapper<'a> {
                 &defaults,
                 undeclared,
             );
-            let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
+            let declared = fallback_layer(&material.properties, &info.fill, &mut self.textures);
+            let (fallback, below_globals) =
+                split_below_globals(declared, &host_filled(&self.settings.supplied));
             self.frame.materials.insert(
                 named,
                 Material {
@@ -706,6 +730,7 @@ impl<'a> Mapper<'a> {
                     keywords: material.keywords.clone(),
                     properties,
                     fallback,
+                    below_globals,
                     render_queue: queue,
                 },
             );

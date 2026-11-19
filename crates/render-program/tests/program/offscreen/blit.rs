@@ -47,6 +47,7 @@ fn frame(tint: [f32; 4], pass: usize, size: [u32; 2]) -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", tint)]),
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

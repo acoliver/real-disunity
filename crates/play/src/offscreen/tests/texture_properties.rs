@@ -75,15 +75,15 @@ fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_nam
         BTreeMap::from([
             ("_NotUploaded: asset not readable by the host".to_owned(), 1),
             (
-                "_Nothing: no texture set and not declared, Unity's default grey read".to_owned(),
+                "_Nothing: no texture set and not declared, grey default read".to_owned(),
                 1
             ),
         ])
     );
 }
 
-/// Unity binds its grey default texture to a texture property that nothing sets and the shader
-/// does not declare; one the shader declares reads its declared default, and one whose default
+/// A texture property that nothing sets and the shader does not declare reads the grey default
+/// texture; one the shader declares reads its declared default, and one whose default
 /// the host does not supply stays unset, as does any when the host registered no defaults.
 #[test]
 fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
@@ -126,7 +126,7 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
         BTreeMap::from([
             ("_Declared: no texture set".to_owned(), 1),
             (
-                "_UserLut: no texture set and not declared, Unity's default grey read".to_owned(),
+                "_UserLut: no texture set and not declared, grey default read".to_owned(),
                 1
             ),
         ])

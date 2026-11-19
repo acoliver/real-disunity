@@ -152,7 +152,7 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D2, size, format, bytes)
+        self.create_source_texture(label, TextureKind::D2, size, 1, format, bytes)
     }
 
     /// Uploads the base level of a cube of six `edge` by `edge` faces, sampled through a cube
@@ -169,7 +169,25 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Cube, [edge, edge], format, bytes)
+        self.create_source_texture(label, TextureKind::Cube, [edge, edge], 6, format, bytes)
+    }
+
+    /// Uploads the base level of a 2D array of `layers` layers of `size`, sampled through an
+    /// array view even when there is one layer. `bytes` holds the layers one after the other,
+    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    ///
+    /// # Errors
+    /// Fails when `bytes` is not exactly the `layers` layers, `layers` is zero, or the upload plan
+    /// or device refuses the texture, as for a 2D texture.
+    pub fn create_texture_array(
+        &mut self,
+        label: &str,
+        size: [u32; 2],
+        layers: u32,
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::Array, size, layers, format, bytes)
     }
 
     /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
@@ -185,21 +203,21 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D3, size, format, bytes)
+        self.create_source_texture(label, TextureKind::D3, size, 1, format, bytes)
     }
 
-    /// The upload of a 2D texture (one layer), a one-slice 3D texture or a cube (six layers),
-    /// `size` being one face.
+    /// The upload of a 2D texture (one layer), a one-slice 3D texture, a cube (six) or an array
+    /// (`faces`), `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,
         kind: TextureKind,
         size: [u32; 2],
+        faces: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
         self.authority.check_device()?;
-        let faces: u32 = if kind == TextureKind::Cube { 6 } else { 1 };
         let block = format
             .block_copy_size(None)
             .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
@@ -256,10 +274,10 @@ impl ProgramRuntime {
                 wgpu::TextureUsages::COPY_SRC,
             )
         })??;
-        let entry = if kind == TextureKind::Cube {
-            entry_viewed(texture, wgpu::TextureViewDimension::Cube)
-        } else {
-            entry(texture)
+        let entry = match kind {
+            TextureKind::Cube => entry_viewed(texture, wgpu::TextureViewDimension::Cube),
+            TextureKind::Array => entry_viewed(texture, wgpu::TextureViewDimension::D2Array),
+            TextureKind::D2 | TextureKind::D3 => entry(texture),
         };
         Ok(self.store.add_texture(entry, reservation))
     }

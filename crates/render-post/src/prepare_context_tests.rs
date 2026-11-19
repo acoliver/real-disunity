@@ -193,3 +193,95 @@ fn a_context_reports_the_declaration_of_each_entry_the_frame_opens() {
         .unwrap();
     prepared.cancel();
 }
+
+/// Prepared commands that copy one buffer into another, or refuse to be retained.
+struct CopyCommands {
+    source: wgpu::Buffer,
+    destination: wgpu::Buffer,
+    refuse: bool,
+}
+
+impl crate::PreparedCommands for CopyCommands {
+    fn retain(&self, _encoder: &wgpu::CommandEncoder) -> Result<(), crate::FrameError> {
+        if self.refuse {
+            return Err(crate::FrameError::FeaturePreparation {
+                feature: "copy",
+                reason: "refused".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    fn record(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.copy_buffer_to_buffer(&self.source, 0, &self.destination, 0, self.source.size());
+    }
+}
+
+#[test]
+fn a_prepared_operation_records_after_the_uploads_staged_before_it() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let (source, destination) = (buffer(&device, 32), buffer(&device, 32));
+    let pattern: Vec<u8> = (0..32).collect();
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            context.open_preparation();
+            context.upload_buffer(&source, 0, &pattern);
+            let copy = CopyCommands {
+                source: source.clone(),
+                destination: destination.clone(),
+                refuse: false,
+            };
+            context.record_prepared("copy", crate::PreparedAccess::default(), Box::new(copy))?;
+            context.finish();
+            Ok::<_, crate::FrameError>(())
+        })
+        .unwrap();
+    prepared.submit().unwrap();
+    assert_eq!(bytes(&device, &queue, &destination), pattern);
+}
+
+#[test]
+fn a_refused_retention_and_a_context_outside_preparation_stage_nothing() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let (source, destination) = (buffer(&device, 16), buffer(&device, 16));
+    queue.write_buffer(&source, 0, &[7; 16]);
+    queue.write_buffer(&destination, 0, &[1; 16]);
+    let copy = |refuse| {
+        Box::new(CopyCommands {
+            source: source.clone(),
+            destination: destination.clone(),
+            refuse,
+        })
+    };
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            context.open_preparation();
+            let refused =
+                context.record_prepared("copy", crate::PreparedAccess::default(), copy(true));
+            assert!(
+                matches!(
+                    refused,
+                    Err(crate::FrameError::FeaturePreparation {
+                        feature: "copy",
+                        ..
+                    })
+                ),
+                "{refused:?}"
+            );
+            context.finish();
+            let mut after = PrepareContext::new(&device, encoder)?;
+            assert_eq!(
+                after.record_prepared("copy", crate::PreparedAccess::default(), copy(false)),
+                Err(crate::FrameError::PreparedOutsidePreparation)
+            );
+            after.finish();
+            Ok::<_, crate::FrameError>(())
+        })
+        .unwrap();
+    prepared.submit().unwrap();
+    assert_eq!(bytes(&device, &queue, &destination), vec![1; 16]);
+}

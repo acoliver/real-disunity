@@ -531,7 +531,7 @@ impl<F: StageFactory> PostChain<F> {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
-        plan: &crate::FramePlan<'_>,
+        (plan, raster): (&crate::FramePlan<'_>, &crate::contracts::StockRaster),
         completed: &[crate::PassEntry],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
@@ -557,9 +557,7 @@ impl<F: StageFactory> PostChain<F> {
             }
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
-        context.set_views(plan.views);
-        context.set_passes(plan.passes);
-        context.set_completed_prefix(completed);
+        context.open_preparation_of(plan, completed);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
@@ -570,6 +568,7 @@ impl<F: StageFactory> PostChain<F> {
                 .expect("validated feature build")
                 .prepare(&mut context)?;
         }
+        context.close_preparation(raster)?;
         for feature in borrowed.iter_mut() {
             feature.prepared.commit(&mut context);
         }
@@ -647,7 +646,7 @@ impl<F: StageFactory> PostChain<F> {
             .unwrap_or(&mut local_registry);
         let raster =
             crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, plan, &completed)?;
+        self.prepare_features(device, encoder, borrowed, (plan, &raster), &completed)?;
         let timing = self.timing_state();
         let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {

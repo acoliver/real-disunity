@@ -140,7 +140,12 @@ impl SceneGpu {
             .ready_for(request)
     }
 
-    pub(crate) fn prepare_terrain_pages(
+    /// Stages terrain material pages for this view and raster extent in the current submission.
+    /// Frames that replace stock scene draws can still advance a retained residency request.
+    ///
+    /// # Errors
+    /// Returns the preparation error if the terrain upload cannot be recorded.
+    pub fn prepare_terrain_pages(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,

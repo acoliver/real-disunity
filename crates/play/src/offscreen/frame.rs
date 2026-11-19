@@ -71,6 +71,9 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
+    /// names it, or `None` for a host with no screen, where such a record is left out.
+    pub screen: Option<[u32; 2]>,
     /// How depth runs in the camera renders: the clip space of every camera's view-projection,
     /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
     /// Forward unless the caller says otherwise.
@@ -378,7 +381,11 @@ impl<'a> Mapper<'a> {
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
         add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
-        let script = Script::new(frame.globals.clone(), &frame.global_keywords);
+        let script = Script::new(
+            frame.globals.clone(),
+            &frame.global_keywords,
+            settings.screen,
+        );
         Self {
             snapshot,
             available,
@@ -823,9 +830,9 @@ impl<'a> Mapper<'a> {
             .records
             .iter()
             .flat_map(textures_of)
-            .filter(|id| ids::is_temporary(*id))
+            .filter(|id| ids::is_temporary(*id) || ids::is_screen(*id))
             .collect();
-        for spec in self.temporary_specs(&temporaries) {
+        for spec in self.held_specs(&temporaries) {
             self.note_format(spec.graphics_format);
             self.frame.render_textures.push(spec);
         }

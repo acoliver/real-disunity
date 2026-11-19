@@ -74,7 +74,7 @@ use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution}
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_world_simulation::{ObjectDesc, World, WorldSettings};
 
-fn plan(color: [f32; 4]) -> UiRenderPlan {
+pub(super) fn plan(color: [f32; 4]) -> UiRenderPlan {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     UiRenderPlan {
@@ -105,14 +105,14 @@ fn plan(color: [f32; 4]) -> UiRenderPlan {
         }],
     }
 }
-fn apply(run: &mut WindowlessRetained<'_>, plan: UiRenderPlan) {
+pub(super) fn apply(run: &mut WindowlessRetained<'_>, plan: UiRenderPlan) {
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(
             UiOverlay::new(plan).unwrap(),
         )))
         .unwrap();
 }
-fn pixel(image: &RgbaImage, x: u32, y: u32) -> &[u8] {
+pub(super) fn pixel(image: &RgbaImage, x: u32, y: u32) -> &[u8] {
     let index = ((image.viewport.height - 1 - y) * image.viewport.width + x) as usize * 4;
     &image.pixels[index..index + 4]
 }
@@ -126,7 +126,7 @@ fn assert_blended_within_one(actual: &[u8], expected: [u8; 4]) {
         );
     }
 }
-fn region(image: &RgbaImage, expected: [u8; 4]) {
+pub(super) fn region(image: &RgbaImage, expected: [u8; 4]) {
     for y in 20..24 {
         for x in 8..12 {
             assert_eq!(pixel(image, x, y), expected, "pixel {x},{y}");

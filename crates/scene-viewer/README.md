@@ -518,22 +518,37 @@ and GTT totals. It is `None` elsewhere and for software adapters, so a host that
 chooses settings from it must handle the unknown case.
 `GpuContext::adapter_identity()` exposes the same identity in the scene renderer.
 
-The callback runs once per renderer startup, on the calling thread, before device
-creation and GPU scene preparation. Desktop selection accounts for surface
-compatibility. The selected adapter is then consumed to create the device; the
-host does not select a second adapter. Return `Ok(Some(FrameSettings {
-frame_profile, presentation_budget, shadows }))` to choose the initial frame profile
-(including samples and render scale) and presentation sizing policy, plus the initial directional shadow settings. These are
-the same fields and types that `ViewerOptions` carries, with no engine preset
-names. `Ok(None)` or no callback preserves the supplied options.
+The configured callback or initial content supplier runs once if startup reaches
+resolution, after desktop surface compatibility and backend census checks. The
+callback runs on the calling thread. Resolution precedes GPU scene preparation.
+The viewer creates a device afterward on owned paths and uses an existing device
+on shared paths. It does not select a second adapter.
+Return `Ok(Some(FrameSettings { frame_profile, presentation_budget, shadows }))`
+to choose the initial frame profile (including samples and render scale),
+presentation sizing policy and directional shadow settings. These fields have
+the same types as in `ViewerOptions`. `Ok(None)` or no callback preserves the
+supplied options. A callback error aborts startup as `ViewerError::Driver`.
 
 Use `RetainedHost::with_initial_content(options, supplier)` when content depends on
 that adapter or the physical surface size. The one-shot supplier receives
 `InitialContext { adapter: &AdapterIdentity, surface_extent: [u32; 2], display:
-Option<DisplayInfo> }` and returns `InitialContent { scene, settings:
-Option<FrameSettings> }`. `display` is `None` for windowless startup. Desktop startup uses
-the window's physical inner size at surface creation, regardless of the logical
-window size or render scale. Windowless startup uses the configured `options.size`.
+Option<DisplayInfo>, presentable_backends: Option<&[wgpu::Backend]> }` and returns
+`InitialContent { scene, settings: Option<FrameSettings> }`. `display` is `None` for
+windowless startup and when the platform cannot identify the monitor.
+
+Desktop startup supplies `Some` for `presentable_backends` even without monitor
+information. The list contains distinct backends under the effective instance
+backend mask, ordered by the first enumerated adapter observed to support the
+same surface for each backend. `None` means unknown, including windowless startup.
+The census guarantees neither device creation nor support for scene features.
+Before calling the supplier, the desktop census returns
+`ViewerError::SelectedBackendDisallowed { backend, enabled }` if the mask excludes
+the selected backend, or `ViewerError::SelectedBackendMissing { backend }` if the
+backend is allowed but the census observed no adapter on it supporting the surface.
+
+Desktop startup uses the window's physical inner size at surface creation,
+regardless of the logical window size or render scale. Windowless startup uses
+the configured `options.size`.
 A zero dimension is preserved for a minimized desktop surface; rendering stays
 suspended until a nonzero resize. Windowless sizes still require nonzero dimensions.
 The supplied extent initializes `RetainedHost::size()` without a separate resize
@@ -542,30 +557,32 @@ event for that same size. Later different physical sizes still deliver
 The supplier replaces `adapter_callback`; specifying both fails with
 `ViewerError::InvalidOptions`.
 The selected scene is validated and its object/decal IDs, readiness, capture
-features and capture pool are derived before negotiating device features or
-allocating presentation and resident resources. No temporary scene is uploaded.
+features and capture pool are derived before allocating presentation and resident
+resources. Owned paths then negotiate device features; shared paths check the
+existing device's features. No temporary scene is uploaded.
 Supplier errors are `ViewerError::InitialContent`; validation uses the existing
-typed scene and option errors. The supplier is consumed even when startup fails.
+typed scene and option errors. The supplier is consumed when invoked and is never
+retried, even if it or a later startup step fails.
 
 Before startup, a supplier host has no scene: object queries are empty, `view()`
 returns `Ok(None)`, and all scene edits return `InitialSceneUnavailable`.
 Generation-zero capture requests queue within the configured admission bound;
 recipe features, page dependencies and pool reservations are checked against the
-selected content and settings before device creation. Input and exit controls
-remain available. Concrete-scene construction keeps its synchronous validation
-and pre-start editing behavior.
+selected content and settings before presentation allocation, and before device
+creation on owned paths. Input and exit controls remain available. Concrete-scene
+construction keeps its synchronous validation and pre-start editing behavior.
 
 Desktop and windowless retained startup apply the decision before presentation
 target allocation, scene preparation or residency. They use the existing option,
 selected-adapter capability and presentation-budget validation, with the same
 `ViewerError::InvalidOptions` and `ViewerError::Configuration` errors. No quality
 reduction or budget fallback is performed. Every prequeued retained settings
-generation is revalidated against the resolved profile before device creation;
-incompatible effects fail as `ViewerError::UnsupportedScene`, even if a later
-generation removes them. Derived capture-pool capacity uses the resolved sample
+generation is revalidated against the resolved profile before presentation
+allocation, and before device creation on owned paths; incompatible effects fail
+as `ViewerError::UnsupportedScene`, even if a later generation removes them.
+Derived capture-pool capacity uses the resolved sample
 count and then remains fixed for the run. `RetainedHost::options()`
-exposes the effective settings from the first driver update. Returning `Err(String)`
-aborts startup as `ViewerError::Driver` before device creation.
+exposes the effective settings from the first driver update.
 
 ## Retained frame statistics
 
@@ -752,3 +769,51 @@ stops must be finite in `0..=2`. The override applies only to that recipe,
 and ordinary frames restore the profile setting. The default is off.
 See [the post contract](../render-post/README.md#native-resolution-rcas) for
 domain transfer, reciprocal and quantization behavior.
+
+## A device another user shares
+
+`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run_on(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own, as `run` does.
+
+`RetainedHost::admit_offscreen(operations)` hands the caller's format-neutral `render_program::offscreen::PendingOffscreen`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. An accumulated recipe's first admitted warmup or sample consumes the packet once; later samples do not replay it. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
+
+`RetainedHost::show_game_screen` offers a single-sample `Rgba8UnormSrgb` texture
+on the shared device. Export that same texture as `GAME_SCREEN` from the operations
+that write it. An export of another texture under that name does not write the
+offered screen: the frame drops the export, runs the operations and leaves the
+offered screen as it was; the same holds while no screen is offered. The
+viewer samples it in the same frame and draws the UI over it. With no current
+writer, the viewer uses the last submitted contents of that allocation. A host
+that filled the texture in an earlier submission can declare that when it calls
+`GameScreen::new`. An unwritten or withdrawn screen selects the stock scene.
+
+Accumulated capture samples (supersampling, temporal samples, jitter or native
+RCAS) offer the screen and carry the queued operations like an ordinary frame.
+The first admitted warm-up or sample runs the operations once. Later samples
+show the submitted screen contents. When the requested view needs a terrain page
+or geometry upload, the screen frame records it in the same submission. A warm-up
+records no capture sample. A frame that shows the screen can supply its display
+colour and, when configured, linear HDR. Depth, normals, ambient occlusion, SSR
+confidence and the specular plane require the stock scene. Albedo, sun visibility,
+and diffuse and specular lighting terms also require the stock scene, even when
+requested on their own. A capture request containing any of these outputs returns
+`ViewerError::UnsupportedScene("capture of frame attachments while the game screen replaces the stock scene")`
+before the frame submits or takes the queued operations, while a screen with
+contents is offered or the queued operations export the offered screen. The
+submission serial, the request and the queued operations stay as they were.
+
+Offscreen work cannot accompany shadow depth fitting. The viewer rejects it
+whenever shadow depth fitting is configured, including interactive
+`QuantizedPerBound` fitting, and returns
+`ViewerError::UnsupportedScene("player offscreen work with same-frame depth fitting")`
+before the fitted path renders or submits work. This refusal leaves the submission
+serial unchanged. Plain frames and shadowed frames without depth fitting accept
+offscreen work through the frame's recording.
+
+The check uses the published generation after ready retained updates have been
+applied, respecting capture holds and readiness dependencies. A refusal preserves
+the pending offscreen operations. A later ready settings update that disables
+fitting lets a compatible frame consume those operations without readmission.
+If preparing an update submits GPU work, the call returns pending without taking
+the operations; a later call checks compatibility before rendering.
+
+`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

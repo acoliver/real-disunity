@@ -36,6 +36,7 @@ pub(super) struct Tracker {
     pub(super) registry: ResourceRegistry,
     lease: FrameLease,
     textures: HashMap<TextureId, Imported>,
+    primaries: HashMap<TextureId, wgpu::Texture>,
     cells: BTreeMap<(AllocationKey, u32, u32), u32>,
     counters: BTreeMap<AllocationKey, u32>,
     buffers: HashMap<wgpu::Buffer, AllocationKey>,
@@ -47,6 +48,7 @@ impl Tracker {
             registry: ResourceRegistry::default(),
             lease,
             textures: HashMap::new(),
+            primaries: HashMap::new(),
             cells: BTreeMap::new(),
             counters: BTreeMap::new(),
             buffers: HashMap::new(),
@@ -55,6 +57,11 @@ impl Tracker {
 
     pub(super) fn imported(&self, id: TextureId) -> Option<Imported> {
         self.textures.get(&id).copied()
+    }
+
+    /// The texture of the runtime that `imported(id).primary` stands for.
+    pub(super) fn primary_texture(&self, id: TextureId) -> Option<&wgpu::Texture> {
+        self.primaries.get(&id)
     }
 
     /// Imports a texture the first time the frame uses it.
@@ -86,6 +93,7 @@ impl Tracker {
             format: texture.format(),
         };
         self.textures.insert(id, imported);
+        self.primaries.insert(id, texture.clone());
         Ok(imported)
     }
 

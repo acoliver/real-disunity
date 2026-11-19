@@ -113,6 +113,7 @@ fn edge_host() -> RetainedHost {
                 tone_map: crate::ToneMap::Reinhard,
             },
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             ..crate::tests::options()
         },
     )

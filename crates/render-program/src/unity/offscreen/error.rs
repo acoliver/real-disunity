@@ -157,7 +157,7 @@ pub enum OffscreenError {
     },
     #[error(
         "the shader reads {name} as {} and texture {texture:?} is {stored}",
-        slot_dimension::view_name(.declared)
+        slot_dimension::view_name(*.declared)
     )]
     SlotDimensionMismatch {
         name: String,

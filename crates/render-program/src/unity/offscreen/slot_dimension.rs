@@ -67,7 +67,7 @@ pub(super) fn refuse(
 }
 
 /// The declared view dimension as a shader author names it.
-pub(super) const fn view_name(view: &View) -> &'static str {
+pub(super) const fn view_name(view: View) -> &'static str {
     match view {
         View::D1 => "a 1D texture",
         View::D2 => "a 2D texture",

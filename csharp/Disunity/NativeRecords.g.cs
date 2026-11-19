@@ -699,11 +699,13 @@ namespace Disunity.Native
     ///  `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
     ///  of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
     ///  after another, each as long as the others and each holding its own mip chain, so `length` is a
-    ///  whole multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
+    ///  whole multiple of `depth`. A 3D texture's `bytes` are its mip levels one after another, each
+    ///  level holding its slices one after another and having half the width, height and depth of the
+    ///  one before (at least one), so only a 3D texture of one level has a `length` that is a whole
+    ///  multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
     ///  `graphics_format`, the engine's `GraphicsFormat` value, because its layers need not have a
-    ///  `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. Only 2D and
-    ///  2D-array textures are drawn today; a cube or 3D record is stored and read back unchanged for
-    ///  the host to take up. `reserved` is zero.
+    ///  `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. The host draws
+    ///  all four shapes. `reserved` is zero.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureInfo

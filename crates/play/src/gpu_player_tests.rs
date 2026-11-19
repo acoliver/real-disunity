@@ -16,51 +16,9 @@ fn trace(records: usize, error: Option<&str>) -> WorkTrace {
         ..WorkTrace::default()
     }
 }
-fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-    entries
-        .iter()
-        .map(|(name, count)| ((*name).to_owned(), *count))
-        .collect()
-}
-
-#[test]
-fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
-    let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
-    assert_eq!(
-        top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
-        Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
-    );
-}
-
-#[test]
-fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
-    let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
-    assert_eq!(
-        top_counts_line("t", &counts, 2).as_deref(),
-        Some("t: _A 4, _B 3, and 2 more")
-    );
-}
-
-#[test]
-fn there_is_no_missing_texture_line_without_missing_textures() {
-    assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
-}
 
 fn names(entries: &[&str]) -> BTreeSet<String> {
     entries.iter().map(|name| (*name).to_owned()).collect()
-}
-
-#[test]
-fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
-    assert_eq!(
-        unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
-        Some("constants or state properties no layer set: _A, _B, _C")
-    );
-    assert_eq!(
-        unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
-        Some("constants or state properties no layer set: _A, _B, and 3 more")
-    );
-    assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
 }
 
 #[test]

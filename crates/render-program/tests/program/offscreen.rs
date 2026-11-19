@@ -26,6 +26,7 @@ mod rig;
 mod sampler;
 mod shapes;
 mod source_array;
+mod stand_ins;
 mod stencil;
 mod storage;
 mod undeclared;

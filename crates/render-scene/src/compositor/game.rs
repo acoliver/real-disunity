@@ -22,6 +22,7 @@ mod plan;
 mod registry;
 mod shadows;
 mod targets;
+mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use pass_target::PassTarget;
@@ -34,6 +35,9 @@ pub use shadows::{
 };
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
+#[cfg(test)]
+pub(crate) use terrain::probe as terrain_probe;
+pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
 #[cfg(test)]
 mod tests;

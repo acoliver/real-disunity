@@ -389,6 +389,8 @@ impl OffscreenState {
             constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
+        // Counted when the frame is built, since the host runs a frame it builds.
+        self.textures.mark_written(tracker.written_textures());
         Ok(OffscreenOperations {
             device: runtime.device().clone(),
             authority: runtime.authority().clone(),
@@ -655,6 +657,15 @@ pub struct UndeclaredDefaultDraws {
     pub draws: usize,
 }
 
+/// Draws that read a stand-in texture for one texture property, by the reason the host gave for
+/// the stand-in. A draw that reads stand-ins for several properties is counted once for each.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandInDraws {
+    pub texture: String,
+    pub reason: String,
+    pub draws: usize,
+}
+
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
 /// counted for one source channel, the shader input it feeds and the format the input was given.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -746,6 +757,27 @@ impl OffscreenOperations {
                 draws: *draws,
             })
             .collect()
+    }
+
+    /// The draws that read a stand-in texture, by texture property and the reason the layer that
+    /// supplied it gave, or `undeclared` for a slot nothing explains. Only recorded draws count.
+    #[must_use]
+    pub fn stand_in_draws(&self) -> Vec<StandInDraws> {
+        self.counts
+            .stand_ins
+            .iter()
+            .map(|((texture, reason), draws)| StandInDraws {
+                texture: texture.clone(),
+                reason: reason.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The recorded draws that read at least one stand-in texture.
+    #[must_use]
+    pub fn draws_with_stand_ins(&self) -> usize {
+        self.counts.stand_in_draws
     }
 
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by the

@@ -13,6 +13,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
+use super::super::defaults::StandInLook;
 use super::super::depth_range::DepthRange;
 use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
@@ -30,6 +31,7 @@ pub(super) fn settings() -> Settings {
         screen: None,
         depth: DepthRange::Forward,
         supplied: Vec::new(),
+        stand_in_look: StandInLook::Declared,
     }
 }
 

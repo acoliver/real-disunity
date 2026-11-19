@@ -36,6 +36,7 @@ use super::holdings;
 use super::ids;
 use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
+use super::stand_ins::StandInReason;
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 mod meshes;
@@ -55,6 +56,8 @@ pub struct OffscreenAdapter {
     /// The index count of each sub-mesh of each uploaded mesh, by range number.
     sub_meshes: BTreeMap<u64, Vec<u32>>,
     textures: BTreeMap<u64, Stored>,
+    /// The stored textures that could not be uploaded, by why.
+    refused: BTreeMap<u64, StandInReason>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
     /// The default textures to register: all of them, unless a test holds some back.
@@ -102,6 +105,7 @@ impl OffscreenAdapter {
             bounds: BTreeMap::new(),
             sub_meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
+            refused: BTreeMap::new(),
             defaults: BTreeSet::new(),
             wanted_defaults: DefaultTexture::ALL.into_iter().collect(),
             blit_mesh: false,
@@ -269,6 +273,12 @@ impl OffscreenAdapter {
             .map(|(identity, _)| *identity)
             .collect();
         available.textures = usable(&self.textures);
+        available.refused_textures = self
+            .refused
+            .iter()
+            .filter(|(identity, _)| wanted.contains(identity))
+            .map(|(identity, reason)| (*identity, *reason))
+            .collect();
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
         available.buffers.clone_from(buffers);
@@ -344,7 +354,8 @@ impl OffscreenAdapter {
             if self.defaults.contains(&texture) {
                 continue;
             }
-            match state.set_texture(runtime, &texture.texture()) {
+            let look = self.settings.stand_in_look;
+            match state.set_texture(runtime, &texture.texture_in(look)) {
                 Ok(()) => {
                     self.defaults.insert(texture);
                 }

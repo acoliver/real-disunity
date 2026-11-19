@@ -8,7 +8,7 @@ use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 use crate::binding::ResourceLayout;
 use crate::constants::BoundConstantLayout;
 pub use crate::reflect::{Reflected, StorageImageUse};
-use crate::reflect::{SamplingPair, reflect, sampling_pairs};
+use crate::reflect::{SamplingPair, narrow_store_only_images, reflect, sampling_pairs};
 
 /// A pipeline stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,16 +460,26 @@ fn guarded<T>(work: impl FnOnce() -> Result<T, ModuleError>) -> Result<T, Module
         .map_err(|payload| ModuleError::Panicked(panic_text(payload.as_ref())))?
 }
 
+/// Parses and validates the source. A storage image no entry point loads from is declared for
+/// stores alone, and the module is validated again with that declaration, so the module wgpu
+/// compiles declares the access its layout binds.
 fn parse(source: &StageSource) -> Result<Parsed, ModuleError> {
-    let module = match source {
+    let mut module = match source {
         StageSource::SpirV(words) => parse_spirv(words)?,
         StageSource::Wgsl(text) => naga::front::wgsl::parse_str(text)
             .map_err(|error| ModuleError::Parse(error.emit_to_string(text)))?,
     };
-    let info: ModuleInfo = Validator::new(ValidationFlags::all(), Capabilities::all())
-        .validate(&module)
-        .map_err(|error| ModuleError::Validate(format!("{:?}", error.into_inner())))?;
+    let mut info = validate(&module)?;
+    if narrow_store_only_images(&mut module, &info) {
+        info = validate(&module)?;
+    }
     Ok(Parsed { module, info })
+}
+
+fn validate(module: &naga::Module) -> Result<ModuleInfo, ModuleError> {
+    Validator::new(ValidationFlags::all(), Capabilities::all())
+        .validate(module)
+        .map_err(|error| ModuleError::Validate(format!("{:?}", error.into_inner())))
 }
 
 /// The resources the `kind` entry point `entry_point` of `parsed` uses.

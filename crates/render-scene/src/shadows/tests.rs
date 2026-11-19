@@ -11,6 +11,7 @@ mod depth_reuse;
 mod fade;
 mod fixture;
 mod forward_split;
+mod game_shadows;
 mod geometry;
 mod hdr;
 mod independent;

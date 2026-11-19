@@ -94,6 +94,7 @@ wire_struct!(WorldMaterial {
     keywords,
     disabled_passes,
     properties,
+    buffers,
     generation
 });
 wire_struct!(GlobalShaderState {
@@ -118,6 +119,7 @@ wire_struct!(WorldRenderTexture {
     srgb,
     dimension,
     volume_depth,
+    auto_generate_mips,
     sampler,
     generation
 });

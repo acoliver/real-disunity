@@ -40,7 +40,7 @@ public sealed partial class CommandBuffer
         var mesh = renderer.BoundsMesh;
         if (!mesh) throw new ArgumentException($"{DrawRendererMember}: the renderer has no mesh to draw", nameof(renderer));
         var block = BlockOf(renderer);
-        DrawMeshNow(DrawRendererMember, (mesh!, renderer.localToWorldMatrix), material, submeshIndex, shaderPass, block);
+        DrawNow(mesh!, renderer.localToWorldMatrix, material, (submeshIndex, shaderPass), block, DrawRendererMember, () => 1);
     }
 
     /// <summary>A copy of the property block set on the renderer, or null when it has none or an empty one.</summary>
@@ -50,7 +50,7 @@ public sealed partial class CommandBuffer
         var held = new MaterialPropertyBlock();
         renderer.GetPropertyBlock(held);
         if (held.isEmpty) return null;
-        ThrowIfUnsent(DrawRendererMember, held.Properties);
+        ThrowIfUnsent(held.Properties, DrawRendererMember);
         return CopyOf(held.Properties);
     }
 }

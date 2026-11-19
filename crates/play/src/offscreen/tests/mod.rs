@@ -35,6 +35,7 @@ mod script;
 mod script_targets;
 mod shaders;
 mod shapes;
+mod stand_ins;
 mod storage;
 mod supplied_gpu;
 mod support;

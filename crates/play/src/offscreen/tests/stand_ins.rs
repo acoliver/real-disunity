@@ -175,3 +175,72 @@ fn a_texture_the_engine_names_and_the_host_holds_no_pixels_of_is_not_called_unse
     );
     assert_eq!(undecodable.stand_ins.draws, 1);
 }
+
+/// A camera render as `camera_scene`, with a property block of the renderer that also sets
+/// `_Albedo` to `block_albedo`.
+fn block_scene(world: &mut World, shader_file: &str, block_albedo: TextureRef) {
+    let heights = target(world, HEIGHT);
+    let camera = camera(world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    let shader = shader(world, shader_file);
+    let material = material(world, shader);
+    vector(world, material, "_Tint", [0.5, 0.0, 0.0, 1.0]);
+    let mut block = ShaderProperties::default();
+    block
+        .set(WorldValue::Vector("_Place".into(), [0.5, 1.0, -0.5, 0.0]))
+        .unwrap();
+    block
+        .set(WorldValue::Texture(
+            "_Albedo".into(),
+            texture_slot(block_albedo),
+        ))
+        .unwrap();
+    let placed = MeshRenderer {
+        material_count: 1,
+        slot_materials: vec![Some(material)],
+        property_block: Some(block),
+        ..MeshRenderer::default()
+    };
+    renderer_with(world, (0, true), MESH, placed);
+    world
+        .record_offscreen(OffscreenWork::CameraRender {
+            camera,
+            target: heights,
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_property_block_that_names_a_texture_the_host_does_not_hold_is_exists_not_loaded() {
+    let mut rig = gamma_rig();
+    let mut world = world();
+    // The material lists no `_Albedo`, so the draw reads the shader's declared white while the
+    // renderer's block names a stored texture the engine holds no pixels of.
+    block_scene(&mut world, "default_white", TextureRef::Asset(STORED));
+    let (adapted, _operations, _reads) = rig.frame_with(&Quad, &mut world, &[]);
+    assert_eq!(adapted.report.missing_textures, BTreeMap::new());
+    assert_eq!(drawn(&adapted.report), 1, "the camera draws the quad");
+    assert_eq!(adapted.report.stand_ins.draws, 1);
+    assert_eq!(
+        adapted.report.stand_ins.by_property,
+        by_property(&[("_Albedo exists-not-loaded", 1)]),
+        "the block names a texture the host does not hold, so it is not 'unset'"
+    );
+}
+
+#[test]
+fn a_draw_that_reads_a_render_texture_nothing_has_written_is_counted_as_a_stand_in() {
+    let mut rig = gamma_rig();
+    let mut world = world();
+    let unwritten = target(&mut world, 8);
+    camera_scene(
+        &mut world,
+        "default_white",
+        Some(TextureRef::Render(unwritten)),
+    );
+    let (adapted, _operations, _reads) = rig.frame(&mut world, &[]);
+    assert_eq!(drawn(&adapted.report), 1, "the camera draws the quad");
+    assert_eq!(
+        adapted.report.stand_ins.draws, 1,
+        "the draw samples texels no draw wrote"
+    );
+}

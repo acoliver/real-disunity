@@ -49,5 +49,6 @@ pub fn options() -> ViewerOptions {
         cadence: worldrunner_scene_viewer::PresentationCadence::default(),
         ssr: None,
         render_clock: worldrunner_scene_viewer::RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
     }
 }

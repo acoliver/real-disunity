@@ -1,4 +1,5 @@
 mod depth_reuse;
+mod game_targets;
 mod gaps;
 mod history;
 mod observation;

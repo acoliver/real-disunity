@@ -4,7 +4,7 @@
 //! celestial meshes, snapshots, water, reflections), so the frame is collected first and
 //! ordered here. The render-post executor runs the list it is given in the order it is
 //! given; nothing downstream sorts.
-use worldrunner_render_post::{PassDeclaration, PassSlot};
+use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 
 /// Where a role sits in the forward frame, as `(stage, layer)`.
 ///
@@ -19,14 +19,20 @@ use worldrunner_render_post::{PassDeclaration, PassSlot};
 /// 6. celestial radiance
 /// 7. the opaque G-buffer (present only when the scene selects the G-buffer opaque path)
 /// 8. opaque lighting of the G-buffer (present with the G-buffer)
-/// 9. opaque
-/// 10. visible contour IDs, then the opaque colour and depth snapshots
-/// 11. water, then the water mask
-/// 12. transparent alpha (rejected by validation today)
-/// 13. the post-water depth
-/// 14. the reflection depth pyramid, by level
-/// 15. the reflection trace, then reflection mips by level
-/// 16. the screen-space pass after transparency
+/// 9. the game's passes before Opaque
+/// 10. opaque
+/// 11. the game's passes after Opaque
+/// 12. visible contour IDs, then the opaque colour and depth snapshots
+/// 13. water, then the water mask
+/// 14. transparent alpha (rejected by validation today)
+/// 15. the post-water depth
+/// 16. the game's passes after the transparent passes
+/// 17. the reflection depth pyramid, by level
+/// 18. the reflection trace, then reflection mips by level
+/// 19. the screen-space pass after transparency
+///
+/// The game's passes are the only roles whose place is not their position in the `PassSlot`
+/// enum; within one place they keep the order of their entries' occurrences.
 pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
     match slot {
         PassSlot::ShadowCasters(layer) => (0, layer),
@@ -39,18 +45,21 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::Celestial => (7, 0),
         PassSlot::OpaqueGbuffer => (8, 0),
         PassSlot::OpaqueLighting => (9, 0),
-        PassSlot::Opaque => (10, 0),
-        PassSlot::ContourIds => (11, 0),
-        PassSlot::AfterOpaqueSnapshot => (11, 1),
-        PassSlot::AfterOpaqueDepth => (12, 0),
-        PassSlot::TransparentWater => (13, 0),
-        PassSlot::TransparentWaterMask => (14, 0),
-        PassSlot::TransparentAlpha => (15, 0),
-        PassSlot::AfterWaterDepth => (16, 0),
-        PassSlot::ReflectionDepthPyramid(level) => (17, level),
-        PassSlot::ReflectionTrace => (18, 0),
-        PassSlot::ReflectionMip(level) => (19, level),
-        PassSlot::ScreenSpaceAfterTransparent => (20, 0),
+        PassSlot::Game(GamePlace::BeforeOpaque) => (10, 0),
+        PassSlot::Opaque => (11, 0),
+        PassSlot::Game(GamePlace::AfterOpaque) => (12, 0),
+        PassSlot::ContourIds => (13, 0),
+        PassSlot::AfterOpaqueSnapshot => (13, 1),
+        PassSlot::AfterOpaqueDepth => (14, 0),
+        PassSlot::TransparentWater => (15, 0),
+        PassSlot::TransparentWaterMask => (16, 0),
+        PassSlot::TransparentAlpha => (17, 0),
+        PassSlot::AfterWaterDepth => (18, 0),
+        PassSlot::Game(GamePlace::AfterTransparent) => (19, 0),
+        PassSlot::ReflectionDepthPyramid(level) => (20, level),
+        PassSlot::ReflectionTrace => (21, 0),
+        PassSlot::ReflectionMip(level) => (22, level),
+        PassSlot::ScreenSpaceAfterTransparent => (23, 0),
     }
 }
 
@@ -195,6 +204,49 @@ mod tests {
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 0),
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 1),
                 worldrunner_render_post::PassEntry::new(PassSlot::TransparentWater),
+            ]
+        );
+    }
+
+    /// The game's places are not where the enum puts them: they sit around Opaque, after the
+    /// transparent passes and before the screen-space tail, and keep occurrence order.
+    #[test]
+    fn the_games_places_sit_around_opaque_the_transparent_passes_and_the_screen_space_tail() {
+        use worldrunner_render_post::PassEntry;
+        let game = |place, occurrence| PassEntry::nth(PassSlot::Game(place), occurrence);
+        let stock = |slot| PassEntry::new(slot);
+        let mut passes: Vec<_> = [
+            game(GamePlace::AfterTransparent, 0),
+            stock(PassSlot::ScreenSpaceAfterTransparent),
+            game(GamePlace::AfterOpaque, 0),
+            stock(PassSlot::ContourIds),
+            stock(PassSlot::Opaque),
+            game(GamePlace::BeforeOpaque, 1),
+            stock(PassSlot::ReflectionDepthPyramid(0)),
+            game(GamePlace::BeforeOpaque, 0),
+            stock(PassSlot::OpaqueLighting),
+            stock(PassSlot::AfterWaterDepth),
+        ]
+        .into_iter()
+        .map(|entry| PassDeclaration::nth(entry.slot(), entry.occurrence()))
+        .collect();
+        forward_order(&mut passes);
+        assert_eq!(
+            passes
+                .iter()
+                .map(PassDeclaration::entry)
+                .collect::<Vec<_>>(),
+            [
+                stock(PassSlot::OpaqueLighting),
+                game(GamePlace::BeforeOpaque, 0),
+                game(GamePlace::BeforeOpaque, 1),
+                stock(PassSlot::Opaque),
+                game(GamePlace::AfterOpaque, 0),
+                stock(PassSlot::ContourIds),
+                stock(PassSlot::AfterWaterDepth),
+                game(GamePlace::AfterTransparent, 0),
+                stock(PassSlot::ReflectionDepthPyramid(0)),
+                stock(PassSlot::ScreenSpaceAfterTransparent),
             ]
         );
     }

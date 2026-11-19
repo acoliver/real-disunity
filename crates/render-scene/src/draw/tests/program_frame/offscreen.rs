@@ -635,3 +635,6 @@ fn a_render_texture_with_a_depth_buffer_exports_its_colour() {
     );
     recording.finish().cancel();
 }
+
+mod game_screen;
+mod shadowed;

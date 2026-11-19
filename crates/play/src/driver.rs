@@ -52,21 +52,26 @@ impl Capture {
     /// Writes the frame as an RGB PNG. The window is opaque, so the alpha the GPU wrote
     /// (zero where a camera's background colour has zero alpha) is not part of the picture.
     pub fn write_png(&self, path: &Path) -> Result<(), PlayError> {
-        let io = |error| PlayError::Io(path.to_owned(), error);
-        let file = std::fs::File::create(path).map_err(io)?;
-        let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), self.width, self.height);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        let rgb: Vec<u8> = self
-            .pixels
-            .chunks_exact(4)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
-            .collect();
-        encoder
-            .write_header()
-            .and_then(|mut writer| writer.write_image_data(&rgb))
-            .map_err(|error| PlayError::Invalid(format!("{}: {error}", path.display())))
+        write_rgb_png(path, [self.width, self.height], &self.pixels)
     }
+}
+
+/// Writes `rgba`, tightly packed rows of four 8-bit channels, top row first, as an RGB PNG of
+/// `size`: the alpha is not part of the picture.
+pub(crate) fn write_rgb_png(path: &Path, size: [u32; 2], rgba: &[u8]) -> Result<(), PlayError> {
+    let io = |error| PlayError::Io(path.to_owned(), error);
+    let file = std::fs::File::create(path).map_err(io)?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size[0], size[1]);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+    let rgb: Vec<u8> = rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&rgb))
+        .map_err(|error| PlayError::Invalid(format!("{}: {error}", path.display())))
 }
 
 /// A booted game. Window keys reach the game's `Input` at the simulated time they arrive;

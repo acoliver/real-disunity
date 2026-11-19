@@ -18,6 +18,7 @@ impl App<'_> {
             event_loop.owned_display_handle(),
             window,
             self.content.source(),
+            self.shared.take(),
         ))?);
         Ok(())
     }

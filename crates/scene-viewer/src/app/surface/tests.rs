@@ -71,6 +71,7 @@ fn supplied_content(extent: [u32; 2]) -> TestContent {
         adapter: &adapter,
         surface_extent: extent,
         display: None,
+        presentable_backends: None,
     })
     .unwrap();
     TestContent {

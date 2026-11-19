@@ -28,6 +28,7 @@ pub(super) fn settings() -> Settings {
     Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
         untagged_light_mode: None,
+        screen: None,
         depth: DepthRange::Forward,
         supplied: Vec::new(),
         stand_in_look: StandInLook::Declared,

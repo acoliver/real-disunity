@@ -152,28 +152,30 @@ internal static unsafe partial class WorldGraphics
     /// <summary>The most bytes the host stores for one texture, which its store call refuses to exceed.</summary>
     private const long MaxStoredTextureBytes = 1L << 29;
 
-    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels or a
-    /// <see cref="Texture2DArray"/> by the identity the host draws it by, a <see cref="RenderTexture"/> by its world id,
-    /// anything else, including null and a destroyed texture, as no texture.</summary>
+    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels, a
+    /// <see cref="Texture2DArray"/>, a <see cref="Cubemap"/> or a <see cref="Texture3D"/> by the identity the host draws it by, a
+    /// <see cref="RenderTexture"/> by its world id, anything else, including null and a destroyed texture, as no texture.</summary>
     internal static (uint Kind, ulong Texture) TextureOf(Texture? texture) => texture switch
     {
         Texture2D { width: > 0, height: > 0 } plain when plain => (TextureAsset, plain.RendererIdentity),
-        Texture2DArray array when array => ArrayOf(array),
+        Texture2DArray array when array => StoredOf(array, array.ByteLength, array.depth, () => array.RendererIdentity),
+        Cubemap cube when cube => StoredOf(cube, cube.ByteLength, 6, () => cube.RendererIdentity),
+        Texture3D volume when volume => StoredOf(volume, volume.ByteLength, volume.mipmapCount == 1 ? volume.depth : 1, () => volume.RendererIdentity),
         RenderTexture target when target => (TextureRender, target.WorldId),
         _ => (TextureNone, 0UL),
     };
 
-    /// <summary>An array the host can store by its identity, or no texture for one it cannot: no bytes, bytes that are not whole
-    /// layers (a plan's raw size may not be) or more than the host stores, which would otherwise make the property write
-    /// throw. The first such array is named in a warning.</summary>
-    private static (uint Kind, ulong Texture) ArrayOf(Texture2DArray array)
+    /// <summary>A texture of layers (the layers of an array, the faces of a cube or the slices of a volume) the host can store by its
+    /// identity, or no texture for one it cannot: no bytes, bytes that are not whole <paramref name="layers"/> (a plan's raw size
+    /// may not be; a volume with a mip chain is not made of equal slices, so it passes one layer) or more than the host stores,
+    /// which would otherwise make the property write throw. The first such texture is named in a warning.</summary>
+    private static (uint Kind, ulong Texture) StoredOf(Texture texture, int bytes, int layers, Func<ulong> identity)
     {
-        var bytes = array.ByteLength;
         var problem = bytes == 0 ? "holds no bytes"
             : bytes > MaxStoredTextureBytes ? $"holds {bytes} bytes, more than the host stores"
-            : bytes % array.depth != 0 ? $"holds {bytes} bytes, which are not {array.depth} equal layers" : null;
-        if (problem is null) return (TextureAsset, array.RendererIdentity);
-        UndrawnCalls.NoteTextureUnstored(array.name, problem);
+            : bytes % layers != 0 ? $"holds {bytes} bytes, which are not {layers} equal layers" : null;
+        if (problem is null) return (TextureAsset, identity());
+        UndrawnCalls.NoteTextureUnstored(texture.name, problem);
         return (TextureNone, 0UL);
     }
 

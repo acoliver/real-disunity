@@ -201,6 +201,18 @@ internal static class GraphicsFormats
         throw new NotSupportedException($"TextureFormat.{format} has no GraphicsFormat mapping yet");
     }
 
+    /// <summary>The <see cref="TextureFormat"/> whose layout a player's texture in <paramref name="graphics"/> uses, or <c>null</c>
+    /// when the format has none the engine can allocate, in which case the texture keeps its planned size as raw bytes.</summary>
+    internal static TextureFormat? LayoutOf(GraphicsFormat graphics)
+    {
+        try
+        {
+            var format = ToTextureFormat(graphics);
+            return TexelFormats.CanAllocate(format) && !TexelFormats.IsCrunched(format) ? format : null;
+        }
+        catch (NotSupportedException) { return null; }
+    }
+
     /// <summary>The texture format that stores a graphics format.</summary>
     internal static TextureFormat ToTextureFormat(GraphicsFormat format)
     {

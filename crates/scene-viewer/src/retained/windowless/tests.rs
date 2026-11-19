@@ -4,11 +4,13 @@ mod celestial;
 mod convention;
 mod environment;
 mod errors;
+mod game_screen;
 mod lifecycle;
 mod overlay;
 pub(crate) mod pages;
 mod picking;
 mod shadow_policy;
+mod shared_device;
 mod terrain;
 mod timers;
 mod timing;
@@ -224,12 +226,23 @@ fn capture(
     run: &mut WindowlessRetained<'_>,
     events: &RefCell<Vec<RetainedEvent>>,
 ) -> (Duration, RgbaImage) {
+    capture_with(run, events, |run| {
+        run.frame().unwrap();
+    })
+}
+
+/// Some capture tests must submit exactly one frame and only poll it until its image arrives.
+fn capture_with(
+    run: &mut WindowlessRetained<'_>,
+    events: &RefCell<Vec<RetainedEvent>>,
+    mut advance: impl FnMut(&mut WindowlessRetained<'_>),
+) -> (Duration, RgbaImage) {
     let generation = run.host().accepted_generation();
     let request = run.host_mut().request_capture(generation).unwrap();
     let mut watchdog =
         CaptureWatchdog::new(run, format!("capture {request} generation {generation}"));
     loop {
-        run.frame().unwrap();
+        advance(run);
         run.poll().unwrap();
         let result = events.borrow().iter().find_map(|event| match event {
             RetainedEvent::Capture {

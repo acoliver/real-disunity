@@ -430,11 +430,7 @@ pub(super) fn uniform_bytes_with_sampling(
             f32::from(u16::try_from(cascades.matrices.len()).expect("four cascades"))
         },
         cascades.blend,
-        if cascades.recurrence.is_some() {
-            2.0
-        } else {
-            f32::from(u8::from(cascades.camera_splits))
-        },
+        cascades.selection().uniform_word(),
         cascades.near,
     ]);
     values.extend(cascades.splits);

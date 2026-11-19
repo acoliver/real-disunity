@@ -20,7 +20,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
-use super::super::defaults::DefaultTexture;
+use super::super::defaults::{DefaultTexture, StandInLook};
 use super::super::depth_range::DepthRange;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
@@ -649,12 +649,18 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
 /// left half, so `white` gives 0.5 and `black` gives 0, each scaled by 2, over a clear color of
 /// 0.25 scaled to 0.5.
 fn heights_with_default(file: &str) -> (FlushOutcome, Vec<f32>) {
+    heights_with_look(file, StandInLook::Declared)
+}
+
+/// As `heights_with_default`, with the host's default textures made in `look`.
+fn heights_with_look(file: &str, look: StandInLook) -> (FlushOutcome, Vec<f32>) {
     let directory = tempfile::tempdir().unwrap();
     write_compute(directory.path(), "heights", vec![(1, copy_object())]);
     let settings = Settings {
         light_modes: vec!["Gamma".to_owned()],
         ..Settings::default()
-    };
+    }
+    .with_stand_in_look(look);
     let mut host = host_with(directory.path(), settings);
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
@@ -705,6 +711,21 @@ fn an_unset_texture_reads_the_black_its_shader_declares() {
         })
         .collect();
     assert_eq!(heights, predicted);
+}
+
+#[test]
+fn the_magenta_look_reaches_the_texture_a_draw_reads_for_an_unset_property() {
+    let (_, declared) = heights_with_default("default_black");
+    let (outcome, magenta) = heights_with_look("default_black", StandInLook::Magenta);
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    // The pass paints the red of the albedo: the declared black gives 0 where the magenta, whose
+    // red is 255, gives the 1 that white does.
+    assert_ne!(declared, magenta, "the setting changed the bound texture");
+    assert_eq!(magenta, expected());
 }
 
 #[test]

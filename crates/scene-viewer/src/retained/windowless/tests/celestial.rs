@@ -34,6 +34,7 @@ fn configured_host(taa: bool, meshes: bool) -> RetainedHost {
             size: [8, 8],
             shadows: Some(crate::renderer::retained_tests::shadow_settings()),
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,
@@ -134,6 +135,7 @@ fn celestial_free_same_frame_capture_is_byte_identical() {
             size: [8, 8],
             shadows: Some(crate::renderer::retained_tests::shadow_settings()),
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,

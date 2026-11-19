@@ -32,6 +32,7 @@ pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
 mod shadow;
 pub(super) mod streaming;
+mod suppressed;
 mod terms;
 mod variants;
 

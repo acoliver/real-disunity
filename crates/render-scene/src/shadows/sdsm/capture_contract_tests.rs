@@ -125,3 +125,31 @@ fn contour_capture_keeps_physical_target_and_publication_in_suffix_only() {
         assert_eq!(writes.suffix_keys().any(|key| key == target), active);
     }
 }
+
+#[test]
+fn game_target_writes_and_publications_belong_to_the_capture_suffix_only() {
+    let scene = WriteKey::Resident(1);
+    let texture = WriteKey::Resource {
+        id: 2,
+        generation: 0,
+    };
+    let kept = WriteKey::Resident(3);
+    let depth = WriteKey::Resource {
+        id: 4,
+        generation: 0,
+    };
+    let reduction = WriteKey::Readback(5);
+    let writes = capture_writes(
+        vec![scene],
+        vec![scene, depth, texture, kept],
+        vec![depth],
+        depth,
+        reduction,
+    )
+    .unwrap();
+    for key in [texture, kept] {
+        assert!(writes.suffix_keys().any(|suffix| suffix == key));
+        assert!(!writes.prefix_keys().any(|prefix| prefix == key));
+    }
+    CaptureWrites::new(writes.prefix_keys(), writes.suffix_keys(), [scene, depth]).unwrap();
+}

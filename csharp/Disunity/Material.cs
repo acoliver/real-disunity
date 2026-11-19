@@ -10,7 +10,7 @@ public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 /// the world's material is what a host draws a mesh renderer, a blit or a camera's offscreen work with. A material
 /// has a world material once something needs one (a mesh renderer slot, <see cref="Graphics.Blit(Texture, RenderTexture, Material, int)"/>),
 /// is sent whole then, and every later change to its shader, queue, keywords, passes and float, integer, vector, color, matrix
-/// and texture properties is sent as it is made. Array and buffer properties stay in managed memory. The two
+/// and texture properties is sent as it is made. A compute buffer set with <see cref="SetBuffer(string, ComputeBuffer)"/> is bound to the property name in the world's material; array, constant buffer and graphics buffer properties stay in managed memory. The two
 /// built-in sprite materials are drawn by the native 2D pipeline; a sprite renderer with any other material draws
 /// as the unlit sprite material. A material made from a <see cref="Shader"/>
 /// or another material has no shader declarations to consult, so it knows only what was set on it: see
@@ -108,6 +108,7 @@ public partial class Material : Object
         _passEnabled.Clear();
         foreach (var (pass, enabled) in source._passEnabled) _passEnabled[pass] = enabled;
         if (!_world.IsCurrent) return;
+        SendBuffers(_world);
         foreach (var pass in passesBefore.Union(_passEnabled.Keys)) WorldGraphics.WritePass(_world, pass, GetShaderPassEnabled(pass));
     }
 
@@ -372,6 +373,7 @@ public partial class Material : Object
                 foreach (var (pass, enabled) in _passEnabled)
                     if (!enabled) WorldGraphics.WritePass(link, pass, false);
                 WorldGraphics.SendAll(WorldGraphics.ScopeMaterial, link, _properties);
+                SendBuffers(link);
             }
             catch
             {

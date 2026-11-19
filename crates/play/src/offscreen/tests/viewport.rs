@@ -91,6 +91,7 @@ impl Rig {
             submesh: 0,
             pass: -1,
             block: None,
+            instances: 1,
         });
     }
 

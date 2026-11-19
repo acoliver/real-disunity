@@ -1,6 +1,6 @@
 //! The terrain lender while a retained replacement freezes the previous source.
 use super::*;
-use crate::compositor::{FrameTerrainError, FrameTerrainHandle};
+use crate::compositor::FrameTerrainHandle;
 use crate::draw::TerrainChunkViewError;
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
 use worldrunner_render_post::{FrameError, PrepareContext};
@@ -55,12 +55,12 @@ fn continuation_keeps_the_prefix_cover_after_its_prefix_replaced_it() {
                         .unwrap(),
                     prefix_draws
                 );
-                // A route lends the refusal to the game without failing the frame.
+                // A route lends the game the same cover in the suffix.
                 let lent = FrameTerrainHandle::default();
                 lent.publish(&old, frame, VIEWPORT);
                 assert_eq!(
-                    lent.current().unwrap_err(),
-                    FrameTerrainError::View(TerrainChunkViewError::Replaced)
+                    lent.current().unwrap().unwrap().as_ref(),
+                    prefix_draws.as_slice()
                 );
                 Ok::<_, FrameError>(())
             },

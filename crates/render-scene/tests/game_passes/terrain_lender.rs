@@ -195,6 +195,7 @@ impl GameFrame {
                         count: buffers.index_count,
                         base_vertex: 0,
                     }),
+                    topology: wgpu::PrimitiveTopology::TriangleList,
                     instances: 0..1,
                     owners: &[],
                 },

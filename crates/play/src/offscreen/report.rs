@@ -80,6 +80,10 @@ pub struct Report {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The names of the constant buffer members and fixed-state properties that no layer set for
+    /// a draw the frame built, camera draws and renderer-list draws alike. The draw keeps the
+    /// packer's value, zero, or the pass's own state. The names are not counted per draw.
+    pub unset_constants: BTreeSet<String>,
     /// Where building the frame spent its time.
     pub phases: Phases,
     /// The records of the world's list the adapter ran or built, by the kind of work. A command
@@ -167,6 +171,8 @@ impl Report {
         self.camera_draws.extend(operations.camera_draws());
         self.list_draws.extend(operations.list_draws());
         self.camera_passes.extend(operations.camera_passes());
+        self.unset_constants
+            .extend(operations.missing().iter().cloned());
         for entry in operations.unmatched_passes() {
             self.add_unmatched(entry);
         }
@@ -279,6 +285,7 @@ impl Report {
         self.camera_draws.extend(other.camera_draws);
         self.list_draws.extend(other.list_draws);
         self.camera_passes.extend(other.camera_passes);
+        self.unset_constants.extend(other.unset_constants);
         self.phases.add(&other.phases);
         for (name, count) in other.global_textures {
             *self.global_textures.entry(name).or_default() += count;

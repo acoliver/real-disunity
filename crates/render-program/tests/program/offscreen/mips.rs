@@ -45,6 +45,7 @@ fn camera_then_blit(rig: &mut Rig, mips: u32) -> OffscreenFrame {
             keywords: Vec::new(),
             properties: layer(&[("_Tint", [1.0; 4])]),
             fallback: PropertyLayer::default(),
+            below_globals: PropertyLayer::default(),
             render_queue: 2000,
         },
     );

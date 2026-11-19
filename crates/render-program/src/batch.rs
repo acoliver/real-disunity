@@ -9,6 +9,7 @@ use crate::packet::{
     Bound, PipelineRequest, PreparedGeometry, TargetSignature, VertexLayout, instance_end,
 };
 use crate::pipeline_key::Key;
+use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
 use crate::range::{Fetch, check_extent};
 use crate::resources::{BoundResource, Keepalive, Pins};
@@ -384,7 +385,7 @@ impl ProgramRuntime {
             layouts: &layouts,
             signature,
             colors: &colors,
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: Primitive::TRIANGLE_LIST,
         })?;
         let groups = self.bind_groups_sharing(
             &draw.program.gpu,

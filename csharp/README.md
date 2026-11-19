@@ -18,6 +18,49 @@ normal builds never update the checked file. All ABI source files and the
 checked bindings are Cargo rerun inputs. Keep LF line endings as required by the
 repository attributes.
 
+## Owned asynchronous file reads
+
+The native `DisunityHost` installs one bounded file reader before managed execution
+and removes it on host disposal. `Unity.IO.LowLevel.Unsafe.AsyncReadManager.Read(path,
+offset, size)` submits a regular-file region without borrowing a target pointer.
+The worker owns its buffer through completion; `ReadHandle.GetData()` copies the
+terminal bytes into a new managed array. No world, device or frame pump is required.
+Submission outside an installed native runtime host throws.
+
+The reader admits at most 64 retained requests and 64 MiB of reserved native result
+storage, with at most 16 MiB per read and 4096 UTF-8 bytes per path. Completed results
+keep their reservation until disposed. Disposing an in-progress read invalidates
+all copies of its handle and requests cancellation; its reservation remains held
+until the worker returns. Admission failures throw without creating a handle.
+Offsets and sizes are bytes. Negative arguments and overflowing ranges fail.
+
+`Identity` names a request within its host session. `Status` reports `InProgress`,
+`Complete`, `Failed` or `Canceled`; `Complete()` waits for a terminal state.
+`GetBytesRead()` is zero while pending and the actual transfer count afterward.
+A short region is `Failed` with its transferred prefix and `Error` diagnostic;
+a missing file fails with zero bytes. A zero-byte read still checks that the file
+can be opened. `GetData()` rejects pending reads. Invalid or disposed handles have
+failed status, zero readable bytes and an explanatory error.
+
+Cancellation is best effort at worker checkpoints between reads of at most 64 KiB.
+It does not interrupt a blocking OS open/read. Status remains pending until the
+worker acknowledges cancellation. A fully transferred range or an I/O error wins
+over late cancellation. Native host disposal detaches callbacks, drains borrowed
+calls, cancels remaining work and joins the worker. Old session handles cannot
+access a later host's requests. Serialize disposal against other operations on the
+same handle; `Cancel` can run while another thread waits in `Complete`.
+
+Raw `ReadCommand` submission throws `NotSupportedException`: those descriptors
+specify neither capacity nor asynchronous buffer ownership. `ReadHandle.JobHandle`
+also throws, because the current synchronous job scheduler cannot represent pending
+native I/O. Use `ReadHandle.Complete()` and owned results. Persistent `FileHandle`
+opening is unsupported; a default file remains absent.
+
+The focused `file_reads` tests in `worldrunner-disunity-runtime` exercise a real
+fixture region, channel-controlled pending and cancellation states, bounded
+admission, partial EOF results and native-to-managed Release execution. They do
+not use sleeps or timing thresholds.
+
 ## Explicit binding maintenance
 
 After an intentional ABI change:

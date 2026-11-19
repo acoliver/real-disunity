@@ -34,8 +34,11 @@
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
-//!   `render-program`'s conventions tests measured. Whether the player expects a reversed depth
-//!   range is not known, so depth is not reversed.
+//!   `render-program`'s conventions tests measured, with depth running the way the run's
+//!   [`DepthRange`](super::DepthRange) says: forward (near 0, far w), or reversed (near w, far 0),
+//!   which is the player's default (see that type for the evidence). The projection builtins
+//!   `glstate_matrix_projection` and `_ZBufferParams` are not supplied (see "Left missing"), so
+//!   a shader that reads them gets zero whichever range the run uses.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
 //! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the
@@ -50,6 +53,8 @@
 //!   vector, so the direction is a unit vector from the surface toward the light; it multiplies
 //!   the diffuse and specular terms by `color.xyz` with no other intensity, so the colour holds the
 //!   light's colour times its intensity. No stage reads either fourth component, which is 0 here.
+//!   They are the fallback in the frame's starting globals: a value the world's globals hold, or
+//!   that a command buffer sets later with `SetGlobalVector`, replaces them from that place on.
 //!   The light's colour temperature is not applied: nothing here says how the player converts it.
 //! * `unity_OrthoParams` (2,766 variants) carries 1 in its fourth component for a view whose
 //!   projection has no perspective divide and 0 for one that has it ([`view_layer`]). In the same
@@ -114,6 +119,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
+use super::depth_range::DepthRange;
 use crate::scene_light::main_light_index;
 use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
@@ -158,17 +164,22 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     layer
 }
 
-/// The values of a camera that draws into a target `aspect` wide over high.
+/// The values of a camera that draws into a target `aspect` wide over high, with depth running as
+/// `depth` says.
 #[must_use]
-pub fn camera_layer(view: &CameraView, aspect: f32) -> PropertyLayer {
-    view_layer(&world_to_camera(view), &projection(&view.settings, aspect))
+pub fn camera_layer(view: &CameraView, aspect: f32, depth: DepthRange) -> PropertyLayer {
+    view_layer(
+        &world_to_camera(view),
+        &projection(&view.settings, aspect),
+        depth,
+    )
 }
 
 /// The values of a view from the world to the camera `world_to_camera` and the OpenGL projection
-/// `projection`, which a script sets as they are.
+/// `projection`, which a script sets as they are, with depth running as `depth` says.
 #[must_use]
-pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
-    let view_projection = clip_from_gl() * *projection * *world_to_camera;
+pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) -> PropertyLayer {
+    let view_projection = clip_from_gl(depth) * *projection * *world_to_camera;
     let position: Vec4 = world_to_camera.inverse().w_axis;
     let mut layer = PropertyLayer::default();
     layer
@@ -198,11 +209,17 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
 /// A light's forward axis shorter than this points in no direction.
 const SHORTEST_AXIS: f32 = 1.0e-6;
 
-/// Adds the main light of `lights` to a camera's values: `_MainLightPosition` is the unit
+/// Adds the main light of `lights` to a layer as its fallback: `_MainLightPosition` is the unit
 /// direction from a surface toward the light and `_MainLightColor` the light's colour times its
 /// intensity, each with 0 in the fourth component. The main light is the one the retained scene
 /// follows ([`main_light_index`]). With no directional light, or one whose forward axis has no
-/// length, both stay missing.
+/// length, both stay missing. A name the layer already holds keeps its value.
+///
+/// A frame adds its light to the globals the script starts from, below every global the world or
+/// the script sets, so a light the game's own pipeline sets as a global replaces the host's at
+/// the place in the frame where it sets it (see `Mapper::new`).
+/// A default a shader declares for either name sits below the globals too (see
+/// `split_below_globals`), so the host's light is not hidden by it.
 pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let Some(index) = main_light_index(lights.iter().map(|light| &light.settings)) else {
         return;
@@ -216,14 +233,18 @@ pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let toward = -forward / length;
     let [r, g, b, _] = light.settings.color;
     let intensity = light.settings.intensity;
-    layer.values.set(
-        MAIN_LIGHT_POSITION,
-        PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
-    );
-    layer.values.set(
-        MAIN_LIGHT_COLOR,
-        PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
-    );
+    if layer.values.get(MAIN_LIGHT_POSITION).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_POSITION,
+            PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
+        );
+    }
+    if layer.values.get(MAIN_LIGHT_COLOR).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_COLOR,
+            PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
+        );
+    }
 }
 
 /// Adds the size in pixels of the target a view draws into: `_ScreenParams` holds the width and

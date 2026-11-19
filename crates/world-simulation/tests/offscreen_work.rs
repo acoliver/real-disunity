@@ -246,15 +246,32 @@ fn work_recorded_during_a_frame_survives_until_it_is_taken() {
 }
 
 #[test]
-fn one_frame_holds_at_most_65536_records() {
+fn one_take_holds_the_records_a_save_load_makes() {
+    // Loading Old World's RomeTurn42 save recorded 106,943 records between two takes, mostly
+    // camera renders and the blits, copies and globals around them.
     let mut world = world();
     let target = world.create_render_texture(texture(1)).unwrap();
-    for _ in 0..65536 {
+    for index in 0..106_943 {
+        let work = if index % 2 == 0 {
+            blit(TextureRef::None, target)
+        } else {
+            OffscreenWork::ReleaseTemporary { name_id: 1 }
+        };
+        world.record_offscreen(work).unwrap();
+    }
+    assert_eq!(world.take_offscreen().len(), 106_943);
+}
+
+#[test]
+fn one_take_holds_at_most_1048576_records() {
+    let mut world = world();
+    let target = world.create_render_texture(texture(1)).unwrap();
+    for _ in 0..1_048_576 {
         world
             .record_offscreen(blit(TextureRef::None, target))
             .unwrap();
     }
     let full = world.record_offscreen(blit(TextureRef::None, target));
     assert!(matches!(full, Err(WorldError::CapacityExceeded(_))));
-    assert_eq!(world.take_offscreen().len(), 65536);
+    assert_eq!(world.take_offscreen().len(), 1_048_576);
 }

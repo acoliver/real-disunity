@@ -29,11 +29,11 @@ use super::ids;
 
 /// Why a texture property is counted that was given its shader's default.
 const DEFAULT_READ: &str = "no texture set, the shader's default read";
-/// Why a texture property is counted that was given Unity's default texture: nothing set it and
-/// the shader does not declare it. Unity binds its grey default 2D texture (`UnityDefault2D`) to
-/// such a property, as frame-debugger reports of unset `_CameraDepthTexture` and
-/// `_MotionVectorTexture` show.
-const UNDECLARED_READ: &str = "no texture set and not declared, Unity's default grey read";
+/// Why a texture property is counted that was given the host's grey default: nothing set it and
+/// the shader does not declare it. Old World's shader programs reflect such slots (a cube slot
+/// beside the 2D source of the URP blit program, for one) and no layer sets them. The wording of
+/// the reason is the report text that the tests assert.
+const UNDECLARED_READ: &str = "no texture set and not declared, grey default read";
 
 /// Which textures a frame can name, and which render textures its properties did.
 pub struct Textures<'a> {
@@ -196,8 +196,8 @@ pub fn bind_buffers(
     }
 }
 
-/// The texture a property that no layer sets and the shader does not declare reads: Unity's
-/// default grey texture, when the host registered it, and the names the shader declares.
+/// The texture a property that no layer sets and the shader does not declare reads: the grey
+/// default texture, when the host registered it, and the names the shader declares.
 #[derive(Clone, Copy, Debug)]
 pub struct Undeclared<'a> {
     pub texture: TextureId,
@@ -341,4 +341,28 @@ pub fn fallback_layer(
         });
     }
     layer
+}
+
+/// Splits the values of `fallback` named in `host_filled` out into a layer of their own, and
+/// gives back the rest of `fallback` first. The frame's globals hold what the host fills for
+/// those names, so their declared defaults belong below the globals and not above them.
+#[must_use]
+pub fn split_below_globals(
+    fallback: PropertyLayer,
+    host_filled: &[&str],
+) -> (PropertyLayer, PropertyLayer) {
+    let mut above = PropertyLayer {
+        textures: fallback.textures,
+        ..PropertyLayer::default()
+    };
+    let mut below = PropertyLayer::default();
+    for (name, value) in fallback.values.iter() {
+        let target = if host_filled.contains(&name) {
+            &mut below
+        } else {
+            &mut above
+        };
+        target.values.set(name, value.clone());
+    }
+    (above, below)
 }

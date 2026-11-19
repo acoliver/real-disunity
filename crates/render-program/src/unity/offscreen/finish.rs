@@ -11,6 +11,7 @@ use worldrunner_render_post::contracts::{
 
 use crate::draw::VertexInput;
 use crate::packet::{PipelineRequest, TargetSignature, VertexLayout, with_pipeline_descriptor};
+use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, RenderState};
@@ -171,7 +172,8 @@ impl Finish<'_> {
             layouts: &layouts,
             signature: draw.signature,
             colors: &colors,
-            topology: draw.topology,
+            // Only a procedural draw names a topology other than a list, and it reads no indices.
+            primitive: Primitive::new(draw.topology, None),
         };
         request.check_color_outputs()?;
         let key = request.key();
@@ -252,7 +254,7 @@ impl Finish<'_> {
             layouts: &layouts,
             signature,
             colors: &colors,
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: Primitive::TRIANGLE_LIST,
         };
         request.check_color_outputs()?;
         let modules = self.runtime.program_modules(program)?;

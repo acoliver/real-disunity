@@ -96,6 +96,8 @@ pub struct Knobs {
     /// Layers the reader declares it samples.
     pub read: Vec<u32>,
     pub fault: Fault,
+    /// Whether the reader's pass is planned before the preparation's layers.
+    pub reader_first: bool,
     /// Whether the kernel writes each layer the other layer's red, so a rewrite shows.
     pub swapped: bool,
     pub prepares: u32,
@@ -113,6 +115,7 @@ pub fn knobs(compress: &[u32], read: &[u32]) -> Shared {
         compress: compress.to_vec(),
         read: read.to_vec(),
         fault: Fault::None,
+        reader_first: false,
         swapped: false,
         prepares: 0,
         dispatches: 0,
@@ -300,17 +303,22 @@ impl FrameFeature for BlockFeature {
             Fault::PreparedRead => reads.push(target.layer(0)),
             _ => {}
         }
-        self.targets.plan_prepared(&reads, &writes, views)?;
+        let reader = GamePassSpec::new(GamePlace::BeforeOpaque, 0)
+            .writing([ColorOutput::Frame])
+            .reading(knobs.read.iter().map(|layer| target.layer(*layer)));
         let mut declared = Vec::new();
+        if knobs.reader_first {
+            declared.push(self.targets.plan_pass(&reader, passes, views)?);
+        }
+        self.targets.plan_prepared(&reads, &writes, views)?;
         if knobs.fault == Fault::ColorOutput {
             let spec = GamePassSpec::new(GamePlace::BeforeOpaque, 1)
                 .writing([ColorOutput::Target(target.layer(0))]);
             declared.push(self.targets.plan_pass(&spec, passes, views)?);
         }
-        let spec = GamePassSpec::new(GamePlace::BeforeOpaque, 0)
-            .writing([ColorOutput::Frame])
-            .reading(knobs.read.iter().map(|layer| target.layer(*layer)));
-        declared.push(self.targets.plan_pass(&spec, passes, views)?);
+        if !knobs.reader_first {
+            declared.push(self.targets.plan_pass(&reader, passes, views)?);
+        }
         Ok(FeatureDeclaration {
             passes: declared,
             effects: Vec::new(),
@@ -587,4 +595,25 @@ fn a_layer_compressed_again_in_every_frame_shows_each_rewrite() {
         );
     }
     assert_eq!(knobs.lock().unwrap().transfers, 8, "compressed every frame");
+}
+
+#[test]
+fn a_reader_planned_before_the_layers_it_reads_sees_them_compressed() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = knobs(&[0, 1], &[0, 1]);
+    knobs.lock().unwrap().reader_first = true;
+    let mut rig = rig(&knobs);
+    assert_blocks(&rig.render().unwrap(), true, "frame 1");
+    for layer in 0..2 {
+        assert!(rig.renderer.game_targets().is_written(BLOCKS, layer));
+    }
+    next(&knobs, &[1], &[0, 1]);
+    knobs.lock().unwrap().swapped = true;
+    assert_layers(
+        &rig.render().unwrap(),
+        [Some(VALUES[0]), Some(VALUES[0])],
+        "frame 2: layer 0 kept, layer 1 compressed again over its read view",
+    );
+    let knobs = knobs.lock().unwrap();
+    assert_eq!((knobs.dispatches, knobs.transfers), (3, 3));
 }

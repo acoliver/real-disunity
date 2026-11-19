@@ -194,3 +194,19 @@ fn staging_prepared_commands_after_preparation_is_refused() {
     let answer = knobs.lock().unwrap().finish_draws.clone();
     assert_eq!(answer, Some(Err(FrameError::PreparedOutsidePreparation)));
 }
+
+#[test]
+fn a_transfer_into_another_layer_than_its_declared_write_is_refused_by_name() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let (error, knobs) = block_refusal(prepared::Fault::WrongLayer, &[0]);
+    let target = prepared::declaration();
+    assert_eq!(
+        error,
+        FrameError::PreparedWriteMismatch {
+            label: "blocks transfer",
+            declared: vec![target.layer(0)],
+            written: vec![target.layer(1)],
+        }
+    );
+    assert_eq!(knobs.lock().unwrap().transfers, 0, "nothing staged");
+}

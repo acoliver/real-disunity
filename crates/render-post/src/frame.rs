@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod finish;
 mod frozen;
 mod game;
 mod operations;
@@ -11,7 +12,7 @@ pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
-pub use prepared::{PreparedAccess, PreparedCommands};
+pub use prepared::{PreparedAccess, PreparedCommands, PreparedRefusal, PreparedWrite};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -269,6 +270,19 @@ pub enum FrameError {
     /// what its preparations write.
     #[error("prepared commands may be staged only while features prepare")]
     PreparedOutsidePreparation,
+    /// Prepared commands write other views of the frame than their access declares.
+    #[error("prepared commands {label} write {written:?} and declare writes of {declared:?}")]
+    PreparedWriteMismatch {
+        label: &'static str,
+        declared: Vec<ResourceRef>,
+        written: Vec<ResourceRef>,
+    },
+    /// The owner of prepared commands refused to retain or record them, with its own error.
+    #[error("prepared commands {label} were refused: {refusal}")]
+    PreparedRefused {
+        label: &'static str,
+        refusal: PreparedRefusal,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -647,6 +661,11 @@ impl<'a> PrepareContext<'a> {
     }
     /// Stages one compute dispatch, encoded in its own compute pass after the copies and
     /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    ///
+    /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
+    /// owns over its own buffers and textures. Work that writes or reads views of the frame, or
+    /// whose resources the frame must hold until it completes, is staged with
+    /// [`Self::record_prepared`].
     pub fn dispatch(
         &mut self,
         label: &'static str,
@@ -685,51 +704,6 @@ impl<'a> PrepareContext<'a> {
             destination: (destination.clone(), offset),
             bytes: size,
         });
-    }
-    /// Publishes staged copies, dispatches and prepared commands only after all fallible
-    /// preparations succeed.
-    pub fn finish(self) -> Vec<wgpu::Buffer> {
-        let mut retained = Vec::with_capacity(self.staged.len());
-        for staged in self.staged {
-            match staged {
-                Staged::Copy {
-                    source,
-                    destination,
-                    bytes,
-                } => {
-                    self.encoder.copy_buffer_to_buffer(
-                        &source.0,
-                        source.1,
-                        &destination.0,
-                        destination.1,
-                        bytes,
-                    );
-                    retained.push(source.0);
-                }
-                Staged::Dispatch {
-                    label,
-                    pipeline,
-                    group,
-                    workgroups,
-                } => {
-                    let mut pass = self
-                        .encoder
-                        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some(label),
-                            timestamp_writes: None,
-                        });
-                    pass.set_pipeline(&pipeline);
-                    pass.set_bind_group(0, &group, &[]);
-                    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-                }
-                Staged::Prepared { label, commands } => {
-                    self.encoder.push_debug_group(label);
-                    commands.record(self.encoder);
-                    self.encoder.pop_debug_group();
-                }
-            }
-        }
-        retained
     }
 }
 /// Later geometry slices will add view identifiers/bindings and validated

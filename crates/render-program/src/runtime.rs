@@ -315,32 +315,42 @@ impl ProgramRuntime {
     /// Runs `work` and reports a GPU validation error it caused as a named error instead of
     /// letting wgpu's default handler panic.
     pub(crate) fn guarded<T>(&self, work: impl FnOnce() -> T) -> Result<T, ProgramError> {
-        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let value = work();
-        let mut pending = pin!(scope.pop());
-        let mut context = Context::from_waker(Waker::noop());
-        // Native backends resolve the scope when it is popped; the poll covers a backend that
-        // needs the device to make progress first.
-        for _ in 0..PENDING_POLLS {
-            if let Poll::Ready(error) = pending.as_mut().poll(&mut context) {
-                return error.map_or(Ok(value), |error| Err(ProgramError::Gpu(error.to_string())));
-            }
-            self.poll_device()?;
-        }
-        Err(ProgramError::Gpu(
-            "the error scope did not resolve".to_owned(),
-        ))
+        guarded(&self.device, work)
     }
+}
 
-    pub(crate) fn poll_device(&self) -> Result<(), ProgramError> {
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            })
-            .map(|_| ())
-            .map_err(|error| ProgramError::Gpu(error.to_string()))
+/// Runs `work` on `device` and reports a GPU validation error it caused as a named error instead
+/// of letting wgpu's default handler panic. What the runtime prepares guards its recording with
+/// this, so a dispatch recorded now and one recorded later by a frame fail alike.
+pub(crate) fn guarded<T>(
+    device: &wgpu::Device,
+    work: impl FnOnce() -> T,
+) -> Result<T, ProgramError> {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let value = work();
+    let mut pending = pin!(scope.pop());
+    let mut context = Context::from_waker(Waker::noop());
+    // Native backends resolve the scope when it is popped; the poll covers a backend that
+    // needs the device to make progress first.
+    for _ in 0..PENDING_POLLS {
+        if let Poll::Ready(error) = pending.as_mut().poll(&mut context) {
+            return error.map_or(Ok(value), |error| Err(ProgramError::Gpu(error.to_string())));
+        }
+        poll_device(device)?;
     }
+    Err(ProgramError::Gpu(
+        "the error scope did not resolve".to_owned(),
+    ))
+}
+
+fn poll_device(device: &wgpu::Device) -> Result<(), ProgramError> {
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .map(|_| ())
+        .map_err(|error| ProgramError::Gpu(error.to_string()))
 }
 
 /// Times a pending error scope is polled, with the device polled between.

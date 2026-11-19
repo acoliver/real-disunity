@@ -6,21 +6,94 @@
 //! so the frame's validation counts it as produced before the first pass, the stock compile
 //! versions its write like an attachment's output, and a capture that submits the frame checks it
 //! owns the written allocation. Staging then has to agree with the plan: every write it stages was
-//! planned, and every planned write is staged exactly once.
+//! planned, every planned write is staged exactly once, and the views staged commands declare
+//! they write are the views they report writing.
+use std::ops::Range;
+use std::sync::Arc;
+
 use super::{AttachmentView, FrameError, PrepareContext, ResourceRef, Staged};
 
 /// Commands a feature prepared in full: everything that can fail was checked when the value was
 /// made, so recording them can only record.
+///
+/// Stage them with [`PrepareContext::record_prepared`]. A pipeline and bind group the feature
+/// built itself, over resources that are not views of the frame and that it keeps alive itself,
+/// can instead be staged with [`PrepareContext::dispatch`], which checks and retains nothing.
 pub trait PreparedCommands {
+    /// The subresources the commands write, among every texture they write. The frame compares
+    /// the ones that are its views with the access the commands were staged with.
+    fn writes(&self) -> Vec<PreparedWrite>;
     /// Makes the frame `encoder` records hold what the commands use until the frame is cancelled,
     /// dropped or completed. The frame calls it once, when the commands are staged.
     ///
     /// # Errors
-    /// Whatever refuses the retention; nothing is staged then.
-    fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), FrameError>;
-    /// Records the commands. Called by [`PrepareContext::finish`], in staging order.
-    fn record(&self, encoder: &mut wgpu::CommandEncoder);
+    /// The owner's refusal of the retention; nothing is staged then.
+    fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), PreparedRefusal>;
+    /// Records the commands. Called when the frame's preparation finishes, in staging order.
+    ///
+    /// # Errors
+    /// The owner's refusal to record them, such as a GPU validation error it guards against;
+    /// the frame then fails with it.
+    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), PreparedRefusal>;
 }
+
+/// Mips and array layers of one texture that prepared commands write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedWrite {
+    pub texture: wgpu::Texture,
+    pub mips: Range<u32>,
+    pub layers: Range<u32>,
+}
+
+impl PreparedWrite {
+    /// One mip of one layer of `texture`.
+    #[must_use]
+    pub fn layer(texture: &wgpu::Texture, mip: u32, layer: u32) -> Self {
+        Self {
+            texture: texture.clone(),
+            mips: mip..mip + 1,
+            layers: layer..layer + 1,
+        }
+    }
+}
+
+/// The refusal of the owner of prepared commands to retain or record them, kept as the owner's
+/// own error: [`downcast_ref`](Self::downcast_ref) recovers it, such as a program runtime's
+/// `ProgramError`. Two refusals are equal when they are the same refusal.
+#[derive(Clone, Debug)]
+pub struct PreparedRefusal(Arc<dyn std::error::Error + Send + Sync>);
+
+impl PreparedRefusal {
+    #[must_use]
+    pub fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Arc::new(error))
+    }
+
+    /// The owner's error, when it is an `E`.
+    pub fn downcast_ref<E: std::error::Error + 'static>(&self) -> Option<&E> {
+        self.0.downcast_ref()
+    }
+}
+
+impl std::fmt::Display for PreparedRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl std::error::Error for PreparedRefusal {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+impl PartialEq for PreparedRefusal {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PreparedRefusal {}
 
 /// What one staged operation reads and writes among the frame's views. Resources the operation
 /// owns itself, such as a runtime's scratch images and staging buffers, are not views of the frame
@@ -29,7 +102,8 @@ pub trait PreparedCommands {
 pub struct PreparedAccess<'a> {
     /// Views whose contents an earlier submitted frame left (retained views).
     pub reads: &'a [ResourceRef],
-    /// Views the plan declared written in preparation.
+    /// Views the plan declared written in preparation: exactly the views of the frame the
+    /// commands report writing ([`PreparedCommands::writes`]).
     pub writes: &'a [ResourceRef],
 }
 
@@ -54,6 +128,13 @@ impl PrepareContext<'_> {
     /// Stages `commands`, recorded after the copies, dispatches and commands staged before it and
     /// inside a debug group named `label`. Calls `commands.retain` first.
     ///
+    /// Use this for work that writes or reads views of the frame, and for work whose resources
+    /// the frame must hold until it completes, such as a program runtime's prepared dispatch or
+    /// block transfer: the frame checks `access` against the plan and against what the commands
+    /// report writing, and versions their writes. [`Self::dispatch`] stages a pipeline and bind
+    /// group as they are, with no access, checks or retention, so it is only for a feature's own
+    /// resources that are not views of the frame.
+    ///
     /// # Errors
     /// [`FrameError::PreparedOutsidePreparation`] outside the features' `prepare`;
     /// [`FrameError::AttachmentView`] for a read or write the frame's views lack;
@@ -61,8 +142,10 @@ impl PrepareContext<'_> {
     /// [`FrameError::RepeatedPreparedWrite`] for a view the frame's preparation already wrote or
     /// that `writes` names twice; [`FrameError::MissingProducer`] for a read whose view holds no
     /// retained contents; [`FrameError::AttachmentHazard`] for a read of a view the preparation
-    /// writes and for a view a pass of the frame's completed geometry prefix attaches; whatever
-    /// `retain` returns. Nothing is staged on any refusal.
+    /// writes and for a view a pass of the frame's completed geometry prefix attaches;
+    /// [`FrameError::PreparedWriteMismatch`] when the views of the frame `commands` write are not
+    /// the views `writes` names; [`FrameError::PreparedRefused`] with the owner's refusal of the
+    /// retention. Nothing is staged on any refusal.
     pub fn record_prepared(
         &mut self,
         label: &'static str,
@@ -73,7 +156,10 @@ impl PrepareContext<'_> {
             return Err(FrameError::PreparedOutsidePreparation);
         }
         self.check_access(access)?;
-        commands.retain(self.encoder)?;
+        self.check_writes(label, access.writes, &commands.writes())?;
+        commands
+            .retain(self.encoder)
+            .map_err(|refusal| FrameError::PreparedRefused { label, refusal })?;
         self.prepared_written.extend_from_slice(access.writes);
         self.staged.push(Staged::Prepared { label, commands });
         Ok(())
@@ -105,6 +191,54 @@ impl PrepareContext<'_> {
                 return Err(FrameError::MissingProducer(resource));
             }
             self.refuse_prefix(resource)?;
+        }
+        Ok(())
+    }
+
+    /// Refuses commands whose writes of the frame's views are not `declared`. A write of a
+    /// texture none of the frame's views show is the commands' owner's own and is not compared; a
+    /// write of a subresource of a frame texture that no view shows is named as the frame names
+    /// that texture's views, with the written mip and layer.
+    fn check_writes(
+        &self,
+        label: &'static str,
+        declared: &[ResourceRef],
+        writes: &[PreparedWrite],
+    ) -> Result<(), FrameError> {
+        let mut written = Vec::new();
+        for write in writes {
+            let on_texture: Vec<ResourceRef> = self
+                .views
+                .iter()
+                .filter(|view| *view.texture() == write.texture)
+                .map(AttachmentView::resource)
+                .collect();
+            let Some(&named) = on_texture.first() else {
+                continue;
+            };
+            for mip in write.mips.clone() {
+                for layer in write.layers.clone() {
+                    let shown = on_texture
+                        .iter()
+                        .find(|view| view.mip == mip && view.layer == layer);
+                    written.push(shown.copied().unwrap_or(ResourceRef {
+                        mip,
+                        layer,
+                        ..named
+                    }));
+                }
+            }
+        }
+        written.sort_unstable();
+        written.dedup();
+        let mut expected = declared.to_vec();
+        expected.sort_unstable();
+        if written != expected {
+            return Err(FrameError::PreparedWriteMismatch {
+                label,
+                declared: declared.to_vec(),
+                written,
+            });
         }
         Ok(())
     }
@@ -167,4 +301,16 @@ impl PrepareContext<'_> {
         raster.validate_prepared_writes(self.encoder)?;
         Ok(())
     }
+}
+
+/// Records staged prepared commands inside a debug group named `label`.
+pub(super) fn record(
+    encoder: &mut wgpu::CommandEncoder,
+    label: &'static str,
+    commands: &dyn PreparedCommands,
+) -> Result<(), FrameError> {
+    encoder.push_debug_group(label);
+    let recorded = commands.record(encoder);
+    encoder.pop_debug_group();
+    recorded.map_err(|refusal| FrameError::PreparedRefused { label, refusal })
 }

@@ -13,6 +13,7 @@ mod tests;
 use std::sync::{Arc, PoisonError};
 
 use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_post::PreparedWrite;
 
 use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
@@ -124,6 +125,13 @@ impl PreparedBlockTransfer {
     /// the runtime's and when `encoder` is not a frame being recorded.
     pub fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
         self.pins.retain(encoder)
+    }
+
+    /// The destination mip and layer, the one subresource the transfer writes besides its
+    /// staging buffer.
+    pub fn writes(&self) -> PreparedWrite {
+        let (texture, region) = &self.destination;
+        PreparedWrite::layer(texture, region.mip, region.layer)
     }
 
     /// Records the copy of the source region into the staging buffer and the copy of the staging

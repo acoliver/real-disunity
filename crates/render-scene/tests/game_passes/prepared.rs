@@ -86,6 +86,8 @@ pub enum Fault {
     ColorOutput,
     /// Stages a dispatch from `finish_draws` instead of `prepare`.
     FinishDraws,
+    /// Transfers each planned layer's blocks into layer 1 and declares the planned layer written.
+    WrongLayer,
 }
 
 pub struct Knobs {
@@ -411,13 +413,19 @@ impl BlockFrame {
         )
     }
 
-    /// Stages the transfer of the scratch blocks into `resource`.
+    /// Stages the transfer of the scratch blocks into `resource`, or into layer 1 when the fault
+    /// is `WrongLayer`, declaring `resource` written.
     fn stage_transfer(
         &self,
         context: &mut PrepareContext<'_>,
-        parts: &Parts,
+        (parts, fault): (&Parts, Fault),
         resource: ResourceRef,
     ) -> Result<(), FrameError> {
+        let layer = if fault == Fault::WrongLayer {
+            1
+        } else {
+            resource.layer
+        };
         let transfer = parts
             .runtime
             .prepare_lent_block_transfer(
@@ -431,7 +439,7 @@ impl BlockFrame {
                 &LentBlockDestination {
                     texture: self.targets.texture(BLOCKS)?,
                     mip: 0,
-                    layer: resource.layer,
+                    layer,
                     extent: EXTENT,
                 },
                 &[],
@@ -471,7 +479,7 @@ impl PreparedFeature for BlockFrame {
             let value = resource.layer.min(1) ^ u32::from(knobs.swapped);
             Self::stage_dispatch(context, &mut parts, value)?;
             knobs.dispatches += 1;
-            self.stage_transfer(context, &parts, resource)?;
+            self.stage_transfer(context, (&parts, knobs.fault), resource)?;
             knobs.transfers += 1;
         }
         Ok(())

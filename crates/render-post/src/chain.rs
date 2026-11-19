@@ -579,7 +579,7 @@ impl<F: StageFactory> PostChain<F> {
                 .expect("validated feature build")
                 .commit(&mut context);
         }
-        self.upload_slots[self.frame_slot] = context.finish();
+        self.upload_slots[self.frame_slot] = context.finish_preparation()?;
         Ok(())
     }
 

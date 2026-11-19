@@ -239,7 +239,7 @@ pub use frame::{
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
     FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
     PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedFeature,
-    ResourceRef, validate_frame,
+    PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;

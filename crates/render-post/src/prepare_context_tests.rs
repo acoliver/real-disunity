@@ -194,27 +194,63 @@ fn a_context_reports_the_declaration_of_each_entry_the_frame_opens() {
     prepared.cancel();
 }
 
-/// Prepared commands that copy one buffer into another, or refuse to be retained.
+/// Why test commands refuse, as their owner's own error type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+enum Refusal {
+    #[error("the owner refused to retain the commands")]
+    Retain,
+    #[error("the owner refused to record the commands")]
+    Record,
+}
+
+/// Prepared commands that copy one buffer into another, report `writes` as the frame textures
+/// they write, and refuse to be retained or recorded when `refuse` says so.
 struct CopyCommands {
     source: wgpu::Buffer,
     destination: wgpu::Buffer,
-    refuse: bool,
+    writes: Vec<crate::PreparedWrite>,
+    refuse: Option<Refusal>,
+}
+
+impl CopyCommands {
+    fn new(source: &wgpu::Buffer, destination: &wgpu::Buffer, refuse: Option<Refusal>) -> Self {
+        Self {
+            source: source.clone(),
+            destination: destination.clone(),
+            writes: Vec::new(),
+            refuse,
+        }
+    }
 }
 
 impl crate::PreparedCommands for CopyCommands {
-    fn retain(&self, _encoder: &wgpu::CommandEncoder) -> Result<(), crate::FrameError> {
-        if self.refuse {
-            return Err(crate::FrameError::FeaturePreparation {
-                feature: "copy",
-                reason: "refused".to_owned(),
-            });
-        }
-        Ok(())
+    fn writes(&self) -> Vec<crate::PreparedWrite> {
+        self.writes.clone()
     }
 
-    fn record(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.copy_buffer_to_buffer(&self.source, 0, &self.destination, 0, self.source.size());
+    fn retain(&self, _encoder: &wgpu::CommandEncoder) -> Result<(), crate::PreparedRefusal> {
+        match self.refuse {
+            Some(Refusal::Retain) => Err(crate::PreparedRefusal::new(Refusal::Retain)),
+            _ => Ok(()),
+        }
     }
+
+    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), crate::PreparedRefusal> {
+        if self.refuse == Some(Refusal::Record) {
+            return Err(crate::PreparedRefusal::new(Refusal::Record));
+        }
+        encoder.copy_buffer_to_buffer(&self.source, 0, &self.destination, 0, self.source.size());
+        Ok(())
+    }
+}
+
+/// Whether `error` is the owner's `refusal` of the commands staged as `label`, kept typed.
+fn refused_as(error: &crate::FrameError, label: &str, refusal: Refusal) -> bool {
+    matches!(
+        error,
+        crate::FrameError::PreparedRefused { label: found, refusal: kept }
+            if *found == label && kept.downcast_ref::<Refusal>() == Some(&refusal)
+    )
 }
 
 #[test]
@@ -228,13 +264,9 @@ fn a_prepared_operation_records_after_the_uploads_staged_before_it() {
             let mut context = PrepareContext::new(&device, encoder)?;
             context.open_preparation();
             context.upload_buffer(&source, 0, &pattern);
-            let copy = CopyCommands {
-                source: source.clone(),
-                destination: destination.clone(),
-                refuse: false,
-            };
+            let copy = CopyCommands::new(&source, &destination, None);
             context.record_prepared("copy", crate::PreparedAccess::default(), Box::new(copy))?;
-            context.finish();
+            context.finish_preparation()?;
             Ok::<_, crate::FrameError>(())
         })
         .unwrap();
@@ -249,33 +281,23 @@ fn a_refused_retention_and_a_context_outside_preparation_stage_nothing() {
     let (source, destination) = (buffer(&device, 16), buffer(&device, 16));
     queue.write_buffer(&source, 0, &[7; 16]);
     queue.write_buffer(&destination, 0, &[1; 16]);
-    let copy = |refuse| {
-        Box::new(CopyCommands {
-            source: source.clone(),
-            destination: destination.clone(),
-            refuse,
-        })
-    };
+    let copy = |refuse| Box::new(CopyCommands::new(&source, &destination, refuse));
     let prepared = authority
         .prepare(&device, |encoder, _| {
             let mut context = PrepareContext::new(&device, encoder)?;
             context.open_preparation();
-            let refused =
-                context.record_prepared("copy", crate::PreparedAccess::default(), copy(true));
-            assert!(
-                matches!(
-                    refused,
-                    Err(crate::FrameError::FeaturePreparation {
-                        feature: "copy",
-                        ..
-                    })
-                ),
-                "{refused:?}"
-            );
-            context.finish();
+            let refused = context
+                .record_prepared(
+                    "copy",
+                    crate::PreparedAccess::default(),
+                    copy(Some(Refusal::Retain)),
+                )
+                .unwrap_err();
+            assert!(refused_as(&refused, "copy", Refusal::Retain), "{refused:?}");
+            context.finish_preparation()?;
             let mut after = PrepareContext::new(&device, encoder)?;
             assert_eq!(
-                after.record_prepared("copy", crate::PreparedAccess::default(), copy(false)),
+                after.record_prepared("copy", crate::PreparedAccess::default(), copy(None)),
                 Err(crate::FrameError::PreparedOutsidePreparation)
             );
             after.finish();
@@ -284,4 +306,170 @@ fn a_refused_retention_and_a_context_outside_preparation_stage_nothing() {
         .unwrap();
     prepared.submit().unwrap();
     assert_eq!(bytes(&device, &queue, &destination), vec![1; 16]);
+}
+
+#[test]
+fn a_refused_recording_reaches_the_frame_as_the_owners_error() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let (source, destination) = (buffer(&device, 16), buffer(&device, 16));
+    let refused = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            context.open_preparation();
+            let copy = CopyCommands::new(&source, &destination, Some(Refusal::Record));
+            context.record_prepared("copy", crate::PreparedAccess::default(), Box::new(copy))?;
+            context.finish_preparation()?;
+            Ok::<_, crate::FrameError>(())
+        })
+        .expect_err("the frame was prepared");
+    let worldrunner_render_gpu::submission::PrepareError::Preparation(error) = refused else {
+        panic!("expected the preparation's refusal, found {refused:?}");
+    };
+    assert!(refused_as(&error, "copy", Refusal::Record), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "prepared commands copy were refused: the owner refused to record the commands"
+    );
+}
+
+/// Two layers of one texture, as the frame names them.
+const LAYERS: [crate::ResourceRef; 2] = [
+    crate::ResourceRef {
+        name: "blocks",
+        version: 0,
+        mip: 0,
+        layer: 0,
+    },
+    crate::ResourceRef {
+        name: "blocks",
+        version: 0,
+        mip: 0,
+        layer: 1,
+    },
+];
+
+fn layered(device: &wgpu::Device, label: &str) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 2,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    })
+}
+
+/// The access of commands that read nothing and write `writes`.
+fn declared(writes: &[crate::ResourceRef]) -> crate::PreparedAccess<'_> {
+    crate::PreparedAccess { reads: &[], writes }
+}
+
+#[test]
+fn prepared_commands_that_write_other_views_than_they_declare_are_refused_by_name() {
+    use crate::{AttachmentView, FrameError, PreparedWrite};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let blocks = layered(&device, "blocks");
+    let scratch = layered(&device, "scratch");
+    let (source, destination) = (buffer(&device, 16), buffer(&device, 16));
+    let view = |layer: usize| {
+        AttachmentView::new(LAYERS[layer], &blocks)
+            .unwrap()
+            .with_prepared_contents()
+    };
+    let writing = |writes: Vec<PreparedWrite>| {
+        let mut copy = CopyCommands::new(&source, &destination, None);
+        copy.writes = writes;
+        Box::new(copy)
+    };
+    let layer = |texture: &wgpu::Texture, layer: u32| PreparedWrite::layer(texture, 0, layer);
+    let mismatch = |declared: &[crate::ResourceRef],
+                    written: &[crate::ResourceRef]|
+     -> Result<(), FrameError> {
+        Err(FrameError::PreparedWriteMismatch {
+            label: "transfer",
+            declared: declared.to_vec(),
+            written: written.to_vec(),
+        })
+    };
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            context.set_views(&[view(0), view(1)]);
+            context.open_preparation();
+            let into_layer_1 = writing(vec![layer(&blocks, 1)]);
+            assert_eq!(
+                context.record_prepared("transfer", declared(&LAYERS[..1]), into_layer_1),
+                mismatch(&LAYERS[..1], &LAYERS[1..]),
+                "a transfer into layer 1 declared as layer 0"
+            );
+            assert_eq!(
+                context.record_prepared("transfer", declared(&LAYERS[..1]), writing(Vec::new())),
+                mismatch(&LAYERS[..1], &[]),
+                "a declared write the commands do not make"
+            );
+            let both = writing(vec![PreparedWrite {
+                texture: blocks.clone(),
+                mips: 0..1,
+                layers: 0..2,
+            }]);
+            assert_eq!(
+                context.record_prepared("transfer", declared(&LAYERS[..1]), both),
+                mismatch(&LAYERS[..1], &LAYERS),
+                "a write of both layers declared as one"
+            );
+            let runtime_owned = writing(vec![layer(&scratch, 0), layer(&blocks, 0)]);
+            context.record_prepared("transfer", declared(&LAYERS[..1]), runtime_owned)?;
+            context.record_prepared(
+                "transfer",
+                declared(&LAYERS[1..]),
+                writing(vec![layer(&blocks, 1)]),
+            )?;
+            context.finish_preparation()?;
+            Ok::<_, FrameError>(())
+        })
+        .unwrap();
+    prepared.cancel();
+}
+
+#[test]
+fn a_prepared_write_of_a_layer_the_frame_has_no_view_of_is_refused_by_the_frames_name() {
+    use crate::{AttachmentView, FrameError, PreparedAccess, PreparedWrite};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let blocks = layered(&device, "blocks");
+    let (source, destination) = (buffer(&device, 16), buffer(&device, 16));
+    let mut copy = CopyCommands::new(&source, &destination, None);
+    copy.writes = vec![PreparedWrite::layer(&blocks, 0, 1)];
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            let planned = AttachmentView::new(LAYERS[0], &blocks)
+                .unwrap()
+                .with_prepared_contents();
+            context.set_views(&[planned]);
+            context.open_preparation();
+            let access = PreparedAccess {
+                reads: &[],
+                writes: &LAYERS[..1],
+            };
+            assert_eq!(
+                context.record_prepared("transfer", access, Box::new(copy)),
+                Err(FrameError::PreparedWriteMismatch {
+                    label: "transfer",
+                    declared: LAYERS[..1].to_vec(),
+                    written: LAYERS[1..].to_vec(),
+                })
+            );
+            Ok::<_, FrameError>(())
+        })
+        .unwrap();
+    prepared.cancel();
 }

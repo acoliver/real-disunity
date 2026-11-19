@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use wgpu::TextureFormat;
+use worldrunner_render_post::{PreparedCommands, PreparedWrite};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -83,7 +84,7 @@ fn a_prepared_dispatch_and_transfer_fill_the_blocks_their_recorded_forms_fill() 
         ))?;
         dispatch.retain(encoder)?;
         moved.retain(encoder)?;
-        dispatch.record(encoder);
+        dispatch.record(encoder)?;
         moved.record(encoder);
         Ok((
             read_blocks(runtime, encoder, direct, (0, 0), GRID),
@@ -150,6 +151,45 @@ const IMPORTED_WGSL: &str = "
     textureStore(blocks, vec2<i32>(id.xy), 0, vec4<u32>(red, 0u, 0u, 0u));
 }";
 
+/// The kernel of `IMPORTED_WGSL`, sampling the imported `page` and writing blocks to the image
+/// `blocks` names.
+fn imported_kernel(blocks: BindingSource) -> worldrunner_render_program::module::StageProgram {
+    let binding = |binding, source, kind| ResourceBinding {
+        at: BindingAddress { set: 0, binding },
+        source,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        kind,
+    };
+    stage(
+        IMPORTED_WGSL,
+        "main",
+        StageKind::Compute,
+        StageDeclarations {
+            resources: ResourceLayout::new(vec![
+                binding(
+                    0,
+                    BindingSource::Engine(EngineSemantic::named("page")),
+                    ResourceKind::Texture {
+                        dimension: wgpu::TextureViewDimension::D2,
+                        sample: wgpu::TextureSampleType::Float { filterable: true },
+                        multisampled: false,
+                    },
+                ),
+                binding(
+                    1,
+                    blocks,
+                    ResourceKind::StorageImage {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: TextureFormat::Rg32Uint,
+                        dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                ),
+            ]),
+            constants: Vec::new(),
+        },
+    )
+}
+
 #[test]
 fn an_imported_dispatch_reads_a_lent_texture() {
     let Some(gpu) = Gpu::new() else { return };
@@ -180,40 +220,7 @@ fn an_imported_dispatch_reads_a_lent_texture() {
         },
         page.size(),
     );
-    let binding = |binding, source, kind| ResourceBinding {
-        at: BindingAddress { set: 0, binding },
-        source,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        kind,
-    };
-    let kernel = stage(
-        IMPORTED_WGSL,
-        "main",
-        StageKind::Compute,
-        StageDeclarations {
-            resources: ResourceLayout::new(vec![
-                binding(
-                    0,
-                    BindingSource::Engine(EngineSemantic::named("page")),
-                    ResourceKind::Texture {
-                        dimension: wgpu::TextureViewDimension::D2,
-                        sample: wgpu::TextureSampleType::Float { filterable: true },
-                        multisampled: false,
-                    },
-                ),
-                binding(
-                    1,
-                    BindingSource::Unnamed,
-                    ResourceKind::StorageImage {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: TextureFormat::Rg32Uint,
-                        dimension: wgpu::TextureViewDimension::D2Array,
-                    },
-                ),
-            ]),
-            constants: Vec::new(),
-        },
-    );
+    let kernel = imported_kernel(BindingSource::Unnamed);
     let program = runtime.compute_program(&kernel).unwrap();
     let scratch = texture(&mut runtime, TextureFormat::Rg32Uint, GRID, 1, 1);
     let destination = texture(&mut runtime, TextureFormat::Bc4RUnorm, EXTENT, 1, 1);
@@ -232,7 +239,7 @@ fn an_imported_dispatch_reads_a_lent_texture() {
             owners: &[],
         })?;
         dispatch.retain(encoder)?;
-        dispatch.record(encoder);
+        dispatch.record(encoder)?;
         runtime.transfer_block_image(
             encoder,
             &transfer((scratch, 0, 0, [0, 0], GRID), (destination, 0, 0, EXTENT)),
@@ -303,4 +310,181 @@ fn preparation_refuses_by_name_before_anything_is_recorded_or_counted() {
     );
     assert_eq!(runtime.stats().transfer_buffers_built, 0);
     assert_eq!(runtime.live_bytes(), before);
+}
+
+#[test]
+fn prepared_commands_report_the_layers_and_storage_images_they_write() {
+    let Some(gpu) = Gpu::new() else { return };
+    let blocks = encoded();
+    let mut runtime = gpu.runtime();
+    let scratch = texture(&mut runtime, TextureFormat::Rg32Uint, GRID, 1, 1);
+    let held = texture(&mut runtime, TextureFormat::Bc4RUnorm, EXTENT, 2, 1);
+    let destination = lent(&gpu, TextureFormat::Bc4RUnorm);
+    let lent_transfer = runtime
+        .prepare_lent_block_transfer(
+            &source(scratch),
+            &LentBlockDestination {
+                texture: destination.clone(),
+                mip: 0,
+                layer: 1,
+                extent: EXTENT,
+            },
+            &[],
+        )
+        .unwrap();
+    assert_eq!(
+        PreparedCommands::writes(&lent_transfer),
+        [PreparedWrite::layer(&destination, 0, 1)],
+        "a lent transfer writes its destination layer"
+    );
+    let held_transfer = runtime
+        .prepare_block_transfer(&transfer(
+            (scratch, 0, 0, [0, 0], GRID),
+            (held, 0, 1, EXTENT),
+        ))
+        .unwrap();
+    let held_texture = runtime.gpu_texture(held).unwrap();
+    assert_eq!(
+        PreparedCommands::writes(&held_transfer),
+        [PreparedWrite::layer(&held_texture, 0, 1)]
+    );
+    let program = writer_program(&runtime, GRID, &blocks).unwrap();
+    let bindings = [BoundResource::texture(0, 0, scratch)];
+    let dispatch = runtime
+        .prepare_dispatch(&writer_dispatch(&program, &bindings, GRID, &blocks))
+        .unwrap();
+    let scratch_texture = runtime.gpu_texture(scratch).unwrap();
+    assert_eq!(
+        PreparedCommands::writes(&dispatch),
+        [PreparedWrite::layer(&scratch_texture, 0, 0)],
+        "a dispatch writes the base mip of its storage image"
+    );
+}
+
+#[test]
+fn an_imported_storage_image_counts_its_whole_texture_written_and_a_sampled_one_nothing() {
+    let Some(gpu) = Gpu::new() else { return };
+    let mut runtime = gpu.runtime();
+    let page = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lent page"),
+        size: wgpu::Extent3d {
+            width: GRID[0],
+            height: GRID[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let blocks = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lent blocks image"),
+        size: wgpu::Extent3d {
+            width: GRID[0],
+            height: GRID[1],
+            depth_or_array_layers: 2,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Rg32Uint,
+        usage: wgpu::TextureUsages::STORAGE_BINDING,
+        view_formats: &[],
+    });
+    let program = runtime
+        .compute_program(&imported_kernel(BindingSource::Engine(
+            EngineSemantic::named("blocks"),
+        )))
+        .unwrap();
+    let view =
+        |texture: &wgpu::Texture| texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let dispatch = runtime
+        .prepare_imported_dispatch(&ImportedDispatch {
+            program: &program,
+            bindings: &[],
+            imports: &[
+                Import::texture(EngineSemantic::named("page"), page.clone(), view(&page)),
+                Import::texture_array(
+                    EngineSemantic::named("blocks"),
+                    blocks.clone(),
+                    view(&blocks),
+                ),
+            ],
+            groups: [GRID[0], GRID[1], 1],
+            owners: &[],
+        })
+        .unwrap();
+    assert_eq!(
+        PreparedCommands::writes(&dispatch),
+        [PreparedWrite {
+            texture: blocks,
+            mips: 0..1,
+            layers: 0..2,
+        }]
+    );
+}
+
+#[test]
+fn a_refused_retention_keeps_the_runtime_error_typed() {
+    let Some(gpu) = Gpu::new() else { return };
+    let blocks = encoded();
+    let mut runtime = gpu.runtime();
+    let scratch = texture(&mut runtime, TextureFormat::Rg32Uint, GRID, 1, 1);
+    let program = writer_program(&runtime, GRID, &blocks).unwrap();
+    let bindings = [BoundResource::texture(0, 0, scratch)];
+    let dispatch = runtime
+        .prepare_dispatch(&writer_dispatch(&program, &bindings, GRID, &blocks))
+        .unwrap();
+    let not_a_frame = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    let refusal = PreparedCommands::retain(&dispatch, &not_a_frame).unwrap_err();
+    assert!(
+        matches!(
+            refusal.downcast_ref::<ProgramError>(),
+            Some(ProgramError::Transaction(_))
+        ),
+        "{refusal:?}"
+    );
+}
+
+#[test]
+fn a_prepared_dispatch_recorded_while_a_pass_holds_the_encoder_is_a_named_gpu_error() {
+    let Some(gpu) = Gpu::new() else { return };
+    let blocks = encoded();
+    let mut runtime = gpu.runtime();
+    let scratch = texture(&mut runtime, TextureFormat::Rg32Uint, GRID, 1, 1);
+    let program = writer_program(&runtime, GRID, &blocks).unwrap();
+    let bindings = [BoundResource::texture(0, 0, scratch)];
+    let dispatch = runtime
+        .prepare_dispatch(&writer_dispatch(&program, &bindings, GRID, &blocks))
+        .unwrap();
+    let locked = || {
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let open = encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor::default())
+            .forget_lifetime();
+        (encoder, open)
+    };
+    let (mut encoder, open) = locked();
+    let recorded = dispatch.record(&mut encoder);
+    assert!(
+        matches!(recorded, Err(ProgramError::Gpu(_))),
+        "{recorded:?}"
+    );
+    drop(open);
+    let (mut encoder, open) = locked();
+    let refusal = PreparedCommands::record(&dispatch, &mut encoder).unwrap_err();
+    assert!(
+        matches!(
+            refusal.downcast_ref::<ProgramError>(),
+            Some(ProgramError::Gpu(_))
+        ),
+        "{refusal:?}"
+    );
+    drop(open);
 }

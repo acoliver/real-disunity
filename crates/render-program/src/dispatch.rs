@@ -1,11 +1,13 @@
 //! Compute dispatches.
 
+use worldrunner_render_post::PreparedWrite;
+
 use crate::error::ProgramError;
 use crate::import::Import;
 use crate::pipeline_key::Key;
 use crate::program::ComputeProgram;
 use crate::resources::{BoundResource, Keepalive, Pins};
-use crate::runtime::ProgramRuntime;
+use crate::runtime::{ProgramRuntime, guarded};
 
 /// One dispatch of a compute kernel.
 #[derive(Clone, Copy)]
@@ -33,16 +35,19 @@ pub struct ImportedDispatch<'a> {
 }
 
 /// A dispatch whose pipeline and bind groups are built and whose bindings and workgroup counts
-/// were checked. Recording it touches no runtime state.
+/// were checked. Recording it touches no runtime state, and is guarded like
+/// [`ProgramRuntime::dispatch`]'s: a GPU validation error it causes is `ProgramError::Gpu`.
 ///
 /// It holds shares of the runtime's reservations of the resources it binds, and the owners of the
 /// resources it imports, for as long as it is held and then for every frame that
 /// [`retain`](Self::retain)ed it, until that frame is cancelled, dropped or completed on the GPU.
 pub struct PreparedDispatch {
     pins: Pins,
+    device: wgpu::Device,
     pipeline: wgpu::ComputePipeline,
     groups: Vec<(u32, wgpu::BindGroup)>,
     workgroups: [u32; 3],
+    writes: Vec<PreparedWrite>,
 }
 
 impl std::fmt::Debug for PreparedDispatch {
@@ -66,14 +71,26 @@ impl PreparedDispatch {
     }
 
     /// Records the dispatch in a compute pass of its own.
-    pub fn record(&self, encoder: &mut wgpu::CommandEncoder) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-        pass.set_pipeline(&self.pipeline);
-        for (set, group) in &self.groups {
-            pass.set_bind_group(*set, group, &[]);
-        }
-        let [x, y, z] = self.workgroups;
-        pass.dispatch_workgroups(x, y, z);
+    ///
+    /// # Errors
+    /// Fails with `Gpu` on a GPU validation error recording it causes, such as an encoder another
+    /// pass holds.
+    pub fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        guarded(&self.device, || {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&self.pipeline);
+            for (set, group) in &self.groups {
+                pass.set_bind_group(*set, group, &[]);
+            }
+            let [x, y, z] = self.workgroups;
+            pass.dispatch_workgroups(x, y, z);
+        })
+    }
+
+    /// The textures the dispatch writes through its storage images: the base mip of every layer
+    /// of a runtime texture, and the whole of a lent one.
+    pub fn writes(&self) -> &[PreparedWrite] {
+        &self.writes
     }
 }
 
@@ -94,7 +111,7 @@ impl ProgramRuntime {
         self.recording(encoder)?;
         let prepared = self.prepare_dispatch(request)?;
         prepared.retain(encoder)?;
-        self.guarded(|| prepared.record(encoder))
+        prepared.record(encoder)
     }
 
     /// Prepares the kernel's dispatch for a frame that records it later, as
@@ -140,11 +157,15 @@ impl ProgramRuntime {
             &[],
         )?;
         let shares = self.binding_shares(request.bindings)?;
+        let writes =
+            self.storage_writes(&request.program.gpu, request.bindings, request.imports)?;
         Ok(PreparedDispatch {
             pins: Pins::borrowing(&self.authority, shares, request.owners.to_vec()),
+            device: self.device.clone(),
             pipeline,
             groups,
             workgroups: request.groups,
+            writes,
         })
     }
 

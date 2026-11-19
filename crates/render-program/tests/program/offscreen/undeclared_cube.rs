@@ -1,6 +1,6 @@
 //! A cube slot no layer sets: the URP blit program reflects `_BlitCubeTexture` beside its 2D
-//! source, nothing sets it and the shader does not declare it. Unity binds its grey default cube
-//! there, which the frame names as `undeclared_textures.cube`.
+//! source, nothing sets it and the shader does not declare it. This engine reads a grey default
+//! cube there, which the frame names as `undeclared_textures.cube`.
 
 use std::collections::BTreeMap;
 
@@ -92,6 +92,7 @@ fn frame(undeclared_textures: UndeclaredTextures) -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties: PropertyLayer::default(),
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

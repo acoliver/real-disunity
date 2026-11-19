@@ -92,6 +92,7 @@ pub fn blit_frame(red: f32, format: u32, size: [u32; 2]) -> OffscreenFrame {
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", [red, 1.0, 1.0, 1.0])]),
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

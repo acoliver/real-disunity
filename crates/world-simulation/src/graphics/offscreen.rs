@@ -240,13 +240,20 @@ impl World {
         self.push_offscreen(work)
     }
 
-    /// Checks a record and appends it to the frame's list.
+    /// Checks a record and appends it to the frame's list, after a record for each global value
+    /// or keyword written directly since the previous record. This is the one place every record
+    /// is appended, so a host that replays the list in order sees a global at the value the
+    /// script had set when it recorded the work, whatever the state holds by the flush. A record
+    /// the frame has no room for, with its globals, is refused whole and leaves them noted.
     pub(super) fn push_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
-        if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
+        let ordered = self.ordered_global_records();
+        if self.graphics.offscreen.len() + ordered.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
         }
         self.note_handle(&work);
+        self.graphics.direct_writes.clear();
+        self.graphics.offscreen.extend(ordered);
         self.graphics.offscreen.push(work);
         Ok(())
     }
@@ -258,7 +265,12 @@ impl World {
 
     /// Drains the frame's offscreen work, in call order. A frame that starts with work nobody
     /// took drops it, so a host that never draws offscreen does not accumulate records.
+    ///
+    /// A global written after the frame's last record has no record to precede. It is in the
+    /// state the snapshot starts from, so the frame's earlier records see it too; the next frame
+    /// starts from that state, and the write is not noted again.
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
+        self.graphics.direct_writes.clear();
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();

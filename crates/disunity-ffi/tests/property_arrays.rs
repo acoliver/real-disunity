@@ -296,9 +296,16 @@ fn the_input_is_copied_before_the_call_returns() {
     let state = snapshot(world);
     let global = state.global.unwrap().properties;
     assert_eq!(global.vector_array("_V"), Some(expected_vectors));
-    let OffscreenWork::SetGlobal(PropertyValue::MatrixArray(_, held)) = &state.work[0] else {
-        panic!("expected the ordered matrix array, got {:?}", state.work[0]);
-    };
+    // The direct vector array is ordered ahead of the matrix array the ordered setter records,
+    // and the blit that took the snapshot comes last.
+    let held = state
+        .work
+        .iter()
+        .find_map(|work| match work {
+            OffscreenWork::SetGlobal(PropertyValue::MatrixArray(_, held)) => Some(held),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected the ordered matrix array in {:?}", state.work));
     assert_eq!(*held, expected_matrices);
 }
 

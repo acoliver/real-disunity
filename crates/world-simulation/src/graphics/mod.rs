@@ -18,6 +18,7 @@ mod compute;
 mod context;
 mod material;
 mod offscreen;
+mod ordered_globals;
 mod properties;
 mod readback;
 mod render_texture;
@@ -210,6 +211,9 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The global values and keywords written directly since the last record, which the next
+    /// record is preceded by as ordered records.
+    direct_writes: ordered_globals::DirectWrites,
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
@@ -231,6 +235,7 @@ impl GraphicsState {
     /// Drops the offscreen work of the previous frame that nobody took.
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
+        self.direct_writes.clear();
         self.handles.clear();
         self.lists.clear();
         self.readbacks.clear();
@@ -246,6 +251,7 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            direct_writes: ordered_globals::DirectWrites::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
             lists: std::collections::BTreeSet::new(),

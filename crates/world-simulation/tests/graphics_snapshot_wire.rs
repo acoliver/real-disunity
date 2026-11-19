@@ -189,7 +189,9 @@ fn record_work(
 #[test]
 fn a_snapshot_with_every_variant_and_field_round_trips_exactly() {
     let snapshot = full_snapshot();
-    assert_eq!(snapshot.work.len(), 5);
+    // Five records, and the direct writes of every property kind and one keyword ordered ahead of them.
+    let direct_writes = every_property(TextureRef::None).len() + 1;
+    assert_eq!(snapshot.work.len(), 5 + direct_writes);
     assert!(snapshot.global.is_some() && !snapshot.cameras.is_empty());
     assert!(!snapshot.renderers.is_empty() && !snapshot.compute_buffers.is_empty());
     let bytes = encode(&snapshot).unwrap();

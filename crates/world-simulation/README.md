@@ -176,3 +176,9 @@ Put all buses using a preset in that preset rule's source set, and enumerate the
 intended target buses. Convert the game's priority ordering explicitly to higher
 numeric engine tiers. The caller owns authored strength-unit conversion and the
 choice of activity or peak detection; interpolation mode is a separate choice.
+
+## Graphics: the global shader state and the offscreen work list
+
+The world keeps one global shader state (`global_shader_state`) and one list of offscreen work for each frame. A direct write (`set_global_property`, `set_global_keyword`) changes the state at once, so reads and the snapshot's starting state see it. A host replays the frame's work in order from that starting state, so a draw would see only the last value of a global that a script changed between two records. The world therefore keeps the names written directly since the previous record. When any record is appended (`record_offscreen`, a readback or renderer list request, or a command), the world first appends an `OffscreenWork::SetGlobal` for each noted value and an `OffscreenWork::SetGlobalKeyword` for each noted keyword, holding the state's value at that point; several writes to one name between two records give one record with the last value. A name set as two kinds, such as a float and a vector, is two values. A record refused for any reason leaves the noted names for the next one, and a frame's names are dropped when its work is taken or a new frame begins, because the next snapshot starts from the state that holds them.
+
+Two limits remain. A write after the frame's last record has no record to precede, so the records before it also see it through the snapshot's starting state. A `clear_global_properties` removes values from the state, and the work list has no record that removes one, so a cleared name is not ordered and a host reads its absence from the starting state only.

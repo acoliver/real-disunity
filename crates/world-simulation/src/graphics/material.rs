@@ -1,4 +1,5 @@
 //! Materials and the global shader state.
+use super::ordered_globals::ValueKey;
 use super::properties::{check_name, upsert};
 use super::{
     ComputeBufferId, GraphicsError, MaterialId, PropertyValue, ShaderId, ShaderProperties,
@@ -246,8 +247,10 @@ impl World {
     /// Stores a global shader value, replacing the one of the same kind and name.
     pub fn set_global_property(&mut self, value: PropertyValue) -> Result<(), WorldError> {
         self.check_property(&value)?;
+        let key = ValueKey::of(&value);
         self.graphics.global.properties.set(value)?;
         self.graphics.global.generation += 1;
+        self.graphics.direct_writes.note_value(key);
         Ok(())
     }
 
@@ -261,6 +264,7 @@ impl World {
     pub fn set_global_keyword(&mut self, name: &str, enabled: bool) -> Result<(), WorldError> {
         switch_name(&mut self.graphics.global.keywords, name, enabled)?;
         self.graphics.global.generation += 1;
+        self.graphics.direct_writes.note_keyword(name);
         Ok(())
     }
 

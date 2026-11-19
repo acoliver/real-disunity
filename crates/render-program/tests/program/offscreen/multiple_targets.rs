@@ -55,6 +55,7 @@ fn item(renderer: u64) -> ListDraw {
         slot: 0,
         material: None,
         pass: alpha(),
+        instances: 1,
     }
 }
 

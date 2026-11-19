@@ -146,6 +146,8 @@ pub enum OffscreenWork {
     /// that the identity is nonzero and leaves an identity nothing stored to the host. `block` is
     /// the draw's own property block, read between its per-draw values and the material, as a
     /// renderer's block is; the world checks that the render textures it names are alive.
+    /// `instances` is how many instances the draw makes (1 for a plain draw). Zero is a draw of
+    /// nothing that keeps its place among the records, as a procedural draw of a zero count does.
     DrawMesh {
         mesh: u64,
         matrix: [f32; 16],
@@ -153,6 +155,7 @@ pub enum OffscreenWork {
         submesh: u32,
         pass: i32,
         block: Option<Box<ShaderProperties>>,
+        instances: u32,
     },
     /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
     /// (column-major) and the material's pass into the bound targets, with the current view and
@@ -167,6 +170,9 @@ pub enum OffscreenWork {
         vertex_count: u32,
         instance_count: u32,
     },
+    /// Fills mip levels 1 and up of `texture` from level 0, as a script's explicit request for the
+    /// texture's mips. The texture must have more than one mip level.
+    GenerateMips { texture: RenderTextureId },
 }
 
 /// How a procedural draw joins its generated vertices.
@@ -209,7 +215,7 @@ impl OffscreenWork {
                 buffers,
                 ..
             } => target(named) || buffers.is_some_and(|buffers| buffers.names(id)),
-            Self::ReadPixels { texture, .. } => *texture == id,
+            Self::ReadPixels { texture, .. } | Self::GenerateMips { texture } => *texture == id,
             _ => false,
         }
     }
@@ -324,6 +330,7 @@ impl World {
                     },
                 )
                 .map(drop),
+            OffscreenWork::GenerateMips { texture } => self.check_mip(*texture, 1),
             OffscreenWork::CreateRendererList { .. } | OffscreenWork::DrawRendererList { .. } => {
                 self.check_renderer_list(work)
             }

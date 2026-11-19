@@ -94,6 +94,8 @@ pub struct Knobs {
     /// Layers the reader declares it samples.
     pub read: Vec<u32>,
     pub fault: Fault,
+    /// Whether the kernel writes each layer the other layer's red, so a rewrite shows.
+    pub swapped: bool,
     pub prepares: u32,
     /// Dispatches and transfers staged so far.
     pub dispatches: u32,
@@ -109,6 +111,7 @@ pub fn knobs(compress: &[u32], read: &[u32]) -> Shared {
         compress: compress.to_vec(),
         read: read.to_vec(),
         fault: Fault::None,
+        swapped: false,
         prepares: 0,
         dispatches: 0,
         transfers: 0,
@@ -465,7 +468,8 @@ impl PreparedFeature for BlockFrame {
         let mut parts = self.parts.lock().unwrap();
         self.prepare_reader(context, &mut parts)?;
         for resource in Self::staged(&knobs) {
-            Self::stage_dispatch(context, &mut parts, resource.layer.min(1))?;
+            let value = resource.layer.min(1) ^ u32::from(knobs.swapped);
+            Self::stage_dispatch(context, &mut parts, value)?;
             knobs.dispatches += 1;
             self.stage_transfer(context, &parts, resource)?;
             knobs.transfers += 1;
@@ -510,6 +514,22 @@ pub fn assert_blocks(image: &[[u8; 4]], both: bool, context: &str) {
     assert_eq!(pixel[3], 255, "{context} alpha");
 }
 
+/// A pixel outside the stock quad shows each layer's red, in red and green, for the layers the
+/// frame holds contents of: the value of `layers[layer]`.
+pub fn assert_layers(image: &[[u8; 4]], layers: [Option<u32>; 2], context: &str) {
+    let pixel = Rig::pixel(image, 3, 20);
+    for (channel, value) in layers.into_iter().enumerate() {
+        if let Some(value) = value {
+            assert_code_within(
+                pixel[channel],
+                encoded_steps(f64::from(value) / 255.0, true),
+                0.0,
+                &format!("{context} layer {channel}"),
+            );
+        }
+    }
+}
+
 #[test]
 fn a_feature_compresses_blocks_in_prepare_and_a_later_pass_reads_them() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
@@ -541,4 +561,22 @@ fn a_compressed_layer_is_read_in_later_frames_without_compressing_again() {
         "later frames staged nothing"
     );
     assert_eq!(knobs.prepares, 3);
+}
+
+#[test]
+fn a_layer_compressed_again_in_every_frame_shows_each_rewrite() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = knobs(&[0, 1], &[0, 1]);
+    let mut rig = rig(&knobs);
+    for frame in 0..4_usize {
+        let swapped = frame % 2 == 1;
+        knobs.lock().unwrap().swapped = swapped;
+        let value = |layer: usize| Some(VALUES[layer ^ usize::from(swapped)]);
+        assert_layers(
+            &rig.render().unwrap(),
+            [value(0), value(1)],
+            &format!("frame {frame}"),
+        );
+    }
+    assert_eq!(knobs.lock().unwrap().transfers, 8, "compressed every frame");
 }

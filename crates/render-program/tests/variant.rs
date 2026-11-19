@@ -1,4 +1,4 @@
-//! Variant selection: the variant Unity would pick for a set of enabled keywords.
+//! Variant selection: the variant this engine selects for a set of enabled keywords.
 
 use std::collections::BTreeSet;
 

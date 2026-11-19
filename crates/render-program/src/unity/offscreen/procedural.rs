@@ -36,7 +36,7 @@ pub(super) fn procedural_step(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(draw.material))?;
-    // The same six places a list item's values come from; a procedural draw has no property block.
+    // The same seven places a list item's values come from; a procedural draw has no property block.
     let block = PropertyLayer::default();
     let layers = [
         &draw.per_draw,
@@ -45,6 +45,7 @@ pub(super) fn procedural_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let cells = list_steps::written(svc, &target)?;
     let mut draws = Vec::new();
@@ -92,16 +93,16 @@ fn generated(
 ) -> Result<CameraDraw, OffscreenError> {
     // The vertex stage is checked before any constant or texture is planned, so a pass that reads
     // vertex inputs is refused by that cause even when it also lacks a texture.
-    let (entry, state) = svc.choose(spec)?;
-    let inputs = entry.vertex_input_count();
+    let chosen = svc.choose(spec)?;
+    let inputs = chosen.entry.vertex_input_count();
     if inputs > 0 {
         return Err(OffscreenError::ProceduralVertexInputs {
             shader: spec.shader,
-            pass: entry.pass,
+            pass: chosen.entry.pass,
             inputs,
         });
     }
-    let plan = svc.plan_chosen(spec, entry, state)?;
+    let plan = svc.plan_chosen(spec, chosen)?;
     Ok(CameraDraw {
         shader: spec.shader,
         mesh: None,

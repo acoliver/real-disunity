@@ -16,6 +16,7 @@ use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads, Written};
@@ -276,7 +277,10 @@ fn pass_report(
             },
             depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
                 (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), true) => format!(
+                    "clear {:?}",
+                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
+                ),
                 (Some(_), false) => "load".to_owned(),
             },
         },
@@ -286,13 +290,14 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 6] = [
+pub const DRAW_LAYERS: [&str; 7] = [
     "per-draw",
     "camera",
     "property block",
     "material",
     "material fallback",
     "globals",
+    "declared default below globals",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -411,6 +416,7 @@ pub(super) fn planned_draw(
         &material.properties,
         &material.fallback,
         look.globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -452,6 +458,7 @@ pub(super) fn counted(
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
             svc.counts.note_undeclared(&draw.plan.undeclared);
+            svc.keep_unset(&draw.plan);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -735,6 +742,7 @@ fn blit_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -746,6 +754,7 @@ fn blit_step(
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
     svc.counts.note_undeclared(&plan.undeclared);
+    svc.keep_unset(&plan);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

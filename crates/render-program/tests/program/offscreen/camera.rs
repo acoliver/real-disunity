@@ -35,6 +35,7 @@ pub fn material(tint: [f32; 4], queue: i32) -> Material {
         keywords: Vec::new(),
         properties: layer(&[("_Tint", tint)]),
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: queue,
     }
 }
@@ -417,6 +418,69 @@ fn each_camera_names_the_channels_and_textures_its_left_out_draws_lacked() {
 }
 
 #[test]
+fn a_member_only_a_draw_left_out_for_want_of_a_channel_lacked_is_not_listed() {
+    let mut rig = Rig::new();
+    let mut frame = left_without_a_channel(&mut rig);
+    // The left renderer's draw alone has no `_Place`. It is left out, so the member is the
+    // frame's only when a draw that was kept lacked it, and the right one has every member.
+    frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw = PropertyLayer::default();
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 1));
+    assert_eq!(
+        operations.missing_channel_draws(),
+        vec![MissingChannelDraws {
+            channel: 0,
+            input: 0,
+            draws: 1
+        }]
+    );
+    assert!(
+        operations.missing().is_empty(),
+        "{:?}",
+        operations.missing()
+    );
+}
+
+#[test]
+fn a_state_property_only_a_draw_left_out_for_want_of_a_texture_lacked_is_not_listed() {
+    use worldrunner_render_program::unity::synthetic::named;
+    use worldrunner_render_program::unity::synthetic::shaders::{
+        POSITION_AND_UV, camera_pass_with_table,
+    };
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    // Shader 1's `Gamma` pass takes its cull from `_Cull`, which no layer sets, and samples
+    // `_Albedo`, which none names; shader 2 has only an `Alpha` pass, which needs neither.
+    let mut culled = camera_passes();
+    culled.shader.parsed.sub_shaders[0].passes[1]
+        .state
+        .depth
+        .cull = named(2.0, "_Cull");
+    rig.state.add_shader(
+        SHADER,
+        ProgramShader::new(culled.shader, culled.chunks).unwrap(),
+    );
+    let plain = camera_pass_with_table(&POSITION_AND_UV);
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(plain.shader, plain.chunks).unwrap(),
+    );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Gamma".to_owned(), "Alpha".to_owned()],
+    };
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 1, 0));
+    assert_eq!(operations.missing_texture_draws().len(), 1);
+    assert!(
+        operations.missing().is_empty(),
+        "{:?}",
+        operations.missing()
+    );
+}
+
+#[test]
 fn the_program_two_draws_share_is_built_once_and_found_by_the_next_frame() {
     let mut rig = Rig::new();
     let frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
@@ -608,4 +672,46 @@ fn a_pass_without_the_tag_counts_as_the_value_the_camera_gives_untagged_passes()
     // A value the camera does not select leaves the untagged passes out again.
     frame.cameras.get_mut(&CAMERA).unwrap().pass = counting_untagged_as(&["Other"], "Alpha");
     assert_eq!(rig.build(&frame).unwrap().unmatched_draws(), 2);
+}
+
+#[test]
+fn with_reversed_depth_the_larger_depth_is_nearer_and_the_clear_is_the_far_value() {
+    let mut rig = Rig::new();
+    rig.state.set_reversed_depth(true);
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    frame.render_textures[0].depth_bits = 32;
+    // Both cover the target. The red one is at depth 0.8, which is the nearer when near is 1,
+    // and the blue one at 0.2. The pass's `LEqual` test is `GreaterEqual` and the clear is 0, so
+    // a quad that is drawn at all passed against the far value.
+    rig.state
+        .set_mesh(&mut rig.runtime, QUAD, &quad(0.8))
+        .unwrap();
+    rig.state
+        .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &quad(0.2))
+        .unwrap();
+    for id in [RendererId(1), RendererId(2)] {
+        frame.renderers.get_mut(&id).unwrap().per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    }
+    frame.renderers.get_mut(&RendererId(2)).unwrap().mesh = super::rig::NEAR_QUAD;
+    // The farther blue quad is drawn after the nearer red one: the depth test rejects it.
+    frame
+        .materials
+        .get_mut(&MaterialId(1))
+        .unwrap()
+        .render_queue = 2000;
+    frame
+        .materials
+        .get_mut(&MaterialId(2))
+        .unwrap()
+        .render_queue = 3000;
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (4, 4)), RED, "far quad drawn second");
+    // Drawn first, the far quad is covered by the near one.
+    frame
+        .materials
+        .get_mut(&MaterialId(2))
+        .unwrap()
+        .render_queue = 1000;
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (4, 4)), RED, "far quad drawn first");
 }

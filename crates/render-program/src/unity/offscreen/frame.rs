@@ -126,6 +126,10 @@ pub struct Material {
     /// The values of properties the material does not set, which the host derives from what its
     /// shader declares and the material's textures. They sit below the material's own.
     pub fallback: PropertyLayer,
+    /// The declared defaults of the names the host fills in the globals, such as the main light.
+    /// They sit below every global, so a value the world, the script or the host puts in the
+    /// globals wins over the default the shader declares.
+    pub below_globals: PropertyLayer,
     pub render_queue: i32,
 }
 
@@ -320,8 +324,10 @@ pub struct OffscreenFrame {
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
     /// The textures a texture slot reads when no layer sets it and the shader does not declare
-    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
-    /// each as it does any source texture. A draw that reads one is counted by property in
+    /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
+    /// the Old World player makes with such a slot is drawn and counted instead of left out. The
+    /// host uploads each as it does any source texture. A draw that reads one is counted by
+    /// property in
     /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
@@ -333,8 +339,7 @@ pub struct OffscreenFrame {
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UndeclaredTextures {
-    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
-    /// 0.5 0.5 0.5 1.
+    /// For a slot that samples a 2D texture. The host's grey 2D default is RGBA 0.5 0.5 0.5 1.
     pub d2: Option<TextureId>,
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
@@ -385,6 +390,9 @@ pub enum SourceDimension {
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
     /// +Z, -Z, each as a 2D level is.
     Cube,
+    /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
+    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    D2Array(u32),
     /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
     /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
     /// volume is not an upload.

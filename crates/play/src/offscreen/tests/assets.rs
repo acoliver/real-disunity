@@ -525,22 +525,6 @@ fn a_one_layer_array_stays_an_array() {
 }
 
 #[test]
-fn a_cube_and_a_3d_texture_are_refused_by_name_and_not_read_as_an_array() {
-    use crate::textures::PlayerTextureError::Dimension;
-    for (dimension, name) in [
-        (TextureDimension::Cube, "cube"),
-        (TextureDimension::D3, "3D"),
-    ] {
-        let stored = PlayerTexture {
-            dimension,
-            ..array(4, 6, vec![0; 48])
-        };
-        let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
-        assert_eq!(error, Dimension(name));
-    }
-}
-
-#[test]
 fn an_array_whose_layers_hold_a_mip_chain_keeps_every_level_of_each_layer() {
     // Two layers of 2x1 RGBA32 texels, each followed by its 1x1 second level.
     let layer = |texel: u8| [vec![texel; 8], vec![texel + 10; 4]].concat();

@@ -73,6 +73,10 @@ impl ShaderSupply for Synthetic {
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "arrayslices" => super::array_gpu::array_slices_passes(),
             "arraylevels" => super::array_gpu::array_levels_passes(),
+            "cubebase" => super::cube_volume_gpu::cube_base_passes(),
+            "cubetop" => super::cube_volume_gpu::cube_top_passes(),
+            "volumeslices" => super::cube_volume_gpu::volume_slices_passes(),
+            "volumelevels" => super::cube_volume_gpu::volume_levels_passes(),
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
             // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property

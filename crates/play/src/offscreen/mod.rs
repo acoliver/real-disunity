@@ -62,6 +62,7 @@ mod frame;
 mod holdings;
 mod ids;
 mod kernels;
+mod layer_assets;
 mod lists;
 mod mesh_draw;
 mod pass_notes;
@@ -74,6 +75,7 @@ mod script;
 mod shaders;
 mod supplied;
 mod trace;
+mod volume_assets;
 
 #[cfg(test)]
 mod tests;

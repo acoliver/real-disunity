@@ -9,6 +9,8 @@ mod builtins;
 mod camera;
 mod causes;
 mod compute_census;
+mod cube_volume_assets;
+mod cube_volume_gpu;
 mod declared_light;
 mod defaults;
 mod draw_mesh;

@@ -1,4 +1,4 @@
-use worldrunner_render_gpu::{device::*, texture::*};
+use worldrunner_render_gpu::{device::*, texture::*, volume::*};
 
 #[test]
 fn required_limits_and_features_are_never_lowered() {
@@ -88,25 +88,54 @@ fn malformed_mips_and_layers_fail_before_gpu_allocation() {
 }
 
 #[test]
-fn a_volume_upload_is_one_slice_deep() {
-    let data = [0; 16];
-    let mip = MipLevel {
-        width: 2,
-        height: 2,
-        bytes_per_row: 8,
-        rows: 2,
-        bytes: &data,
-    };
-    let layer = TextureLayer {
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        width: 2,
-        height: 2,
-        mips: &[mip],
-    };
-    assert!(TextureUpload::new(&[layer], 0, TextureKind::D3).is_ok());
+fn a_volume_chain_is_levels_that_each_halve_the_width_height_and_depth() {
+    // 4x2x4 texels of four bytes, then 2x1x2 and 1x1x1: 128, 16 and 4 bytes.
+    let data = [0; 148];
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let levels = packed_volume_levels(format, [4, 2, 4], 3, &data).unwrap();
+    let shapes: Vec<_> = levels
+        .iter()
+        .map(|level| ([level.width, level.height, level.depth], level.bytes.len()))
+        .collect();
+    assert_eq!(shapes, [([4, 2, 4], 128), ([2, 1, 2], 16), ([1, 1, 1], 4)]);
+    assert_eq!(
+        (
+            levels[0].bytes_per_row,
+            levels[0].rows,
+            levels[1].bytes_per_row
+        ),
+        (16, 2, 8)
+    );
+    assert!(VolumeUpload::new(format, &levels).is_ok());
+}
+
+#[test]
+fn a_volume_chain_that_does_not_fit_its_bytes_or_its_size_or_its_format_is_refused() {
+    let format = wgpu::TextureFormat::Rgba8Unorm;
     assert!(matches!(
-        TextureUpload::new(&[layer, layer], 0, TextureKind::D3),
-        Err(UploadError::LayerMismatch { .. })
+        packed_volume_levels(format, [4, 2, 4], 3, &[0; 147]),
+        Err(UploadError::Payload { level: 2, .. })
+    ));
+    // Four levels need a side of at least 8.
+    assert!(matches!(
+        packed_volume_levels(format, [4, 2, 4], 4, &[0; 200]),
+        Err(UploadError::MipCount { count: 4, .. })
+    ));
+    assert!(matches!(
+        packed_volume_levels(format, [4, 0, 4], 1, &[]),
+        Err(UploadError::Empty)
+    ));
+    assert!(matches!(
+        packed_volume_levels(wgpu::TextureFormat::Bc1RgbaUnorm, [4, 4, 2], 1, &[0; 16]),
+        Err(UploadError::Format(_))
+    ));
+    // A level that is not the next one in the chain does not validate.
+    let data = [0; 148];
+    let mut levels = packed_volume_levels(format, [4, 2, 4], 3, &data).unwrap();
+    levels[1].depth = 4;
+    assert!(matches!(
+        VolumeUpload::new(format, &levels),
+        Err(UploadError::MipLayout { level: 1, .. })
     ));
 }
 

@@ -80,7 +80,12 @@ impl Tracker {
             primary,
             color: color_key,
             depth: depth_key,
-            layers: texture.depth_or_array_layers(),
+            // A volume is one cell however deep it is: its levels are bound whole, in a 3D view.
+            layers: if texture.dimension() == wgpu::TextureDimension::D3 {
+                1
+            } else {
+                texture.depth_or_array_layers()
+            },
             mips: texture.mip_level_count(),
             size: [texture.width(), texture.height()],
             format: texture.format(),

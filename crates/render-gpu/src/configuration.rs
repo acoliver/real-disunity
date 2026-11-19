@@ -40,6 +40,12 @@ enum Storage {
         mips: u32,
         samples: u32,
     },
+    /// A 3D texture, whose levels each halve the depth as well as the width and height.
+    Volume {
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mips: u32,
+    },
     Buffer(u64),
     Readback {
         size: [u32; 2],
@@ -77,6 +83,25 @@ impl AllocationSet {
                 samples,
             },
             count,
+            shared: false,
+        });
+    }
+    /// Declares a 3D texture of `extent` (width, height, depth) with `mips` levels.
+    pub fn volume(
+        &mut self,
+        name: &'static str,
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mips: u32,
+    ) {
+        self.0.push(Allocation {
+            name,
+            storage: Storage::Volume {
+                extent,
+                format,
+                mips,
+            },
+            count: 1,
             shared: false,
         });
     }
@@ -207,6 +232,11 @@ fn allocation_bytes(entry: &Allocation, limits: &wgpu::Limits) -> Result<u64, &'
             mips,
             samples,
         } => texture_bytes(extent, format, mips, samples, limits)?,
+        Storage::Volume {
+            extent,
+            format,
+            mips,
+        } => volume_bytes(extent, format, mips, limits)?,
     };
     mul(bytes, u64::from(entry.count))
 }
@@ -242,6 +272,37 @@ fn texture_bytes(
         bytes = add(bytes, mul(blocks, u64::from(block))?)?;
     }
     mul(mul(bytes, u64::from(extent[2]))?, u64::from(samples))
+}
+fn volume_bytes(
+    extent: [u32; 3],
+    format: wgpu::TextureFormat,
+    mips: u32,
+    limits: &wgpu::Limits,
+) -> Result<u64, &'static str> {
+    if extent.contains(&0)
+        || extent
+            .iter()
+            .any(|&side| side > limits.max_texture_dimension_3d)
+    {
+        return Err("volume extent limit");
+    }
+    if mips == 0 || mips > 32 - extent.into_iter().max().unwrap_or(1).leading_zeros() {
+        return Err("volume mip count");
+    }
+    let (bw, bh) = format.block_dimensions();
+    let block = backing_block_bytes(format).ok_or("unsupported texture byte size")?;
+    let mut bytes = 0;
+    for mip in 0..mips {
+        let blocks = mul(
+            mul(
+                u64::from((extent[0] >> mip).max(1).div_ceil(bw)),
+                u64::from((extent[1] >> mip).max(1).div_ceil(bh)),
+            )?,
+            u64::from((extent[2] >> mip).max(1)),
+        )?;
+        bytes = add(bytes, mul(blocks, u64::from(block))?)?;
+    }
+    Ok(bytes)
 }
 /// Bytes per texel block of the storage a backend allocates for `format`.
 ///

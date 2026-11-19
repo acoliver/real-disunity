@@ -345,7 +345,7 @@ pub struct UndeclaredTextures {
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
     /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
-    /// a [`SourceDimension::D3`] source.
+    /// a [`SourceDimension::D3`] source of one slice.
     pub d3: Option<TextureId>,
 }
 
@@ -388,16 +388,19 @@ pub enum SourceDimension {
     D2,
     /// A cube of six square faces, sampled through a cube view. `size` is one face, which must be
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
-    /// +Z, -Z, each as a 2D level is.
+    /// +Z, -Z, each holding its [`SourceTexture::mips`] levels from the base level down, every
+    /// level as a 2D level is.
     Cube,
     /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
     /// one layer and `bytes` holds the layers one after the other, each holding its
     /// [`SourceTexture::mips`] levels from the base level down, every level as a 2D level is.
     D2Array(u32),
-    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
-    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
-    /// volume is not an upload.
-    D3,
+    /// A 3D texture of this many slices, which may be one, sampled through a 3D view. `size` is
+    /// one slice and `bytes` holds the [`SourceTexture::mips`] levels from the base level down,
+    /// each holding its slices one after the other, and a level has the base level's width,
+    /// height and depth shifted down (at least one). The graph tracks one cell per volume, so
+    /// all its levels are read together.
+    D3(u32),
 }
 
 /// A texture the host uploads once.
@@ -407,9 +410,10 @@ pub struct SourceTexture {
     pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
-    /// The mip levels each layer of a [`SourceDimension::D2Array`] holds, whose `bytes` have each
-    /// layer's whole chain, base level first, one layer after the other. Every other dimension
-    /// has one level.
+    /// The mip levels of the texture. For a [`SourceDimension::D2Array`] or a
+    /// [`SourceDimension::Cube`], `bytes` has each layer's or face's whole chain, base level
+    /// first, one layer or face after the other. For a [`SourceDimension::D3`] it has the chain
+    /// of levels, each with its slices. A [`SourceDimension::D2`] has one level.
     pub mips: u32,
     pub bytes: Vec<u8>,
     /// The state the texture is read with unless a property overrides it.

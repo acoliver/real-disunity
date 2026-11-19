@@ -153,7 +153,7 @@ impl Shape {
             Self::D2 => (SourceDimension::D2, 1),
             Self::Cube => (SourceDimension::Cube, 6),
             Self::D2Array => (SourceDimension::D2Array(1), 1),
-            Self::D3 => (SourceDimension::D3, 1),
+            Self::D3 => (SourceDimension::D3(1), 1),
         }
     }
 }

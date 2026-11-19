@@ -86,7 +86,7 @@ fn the_grey_volume_is_one_grey_texel_one_slice_deep_and_a_volume_named_grey_gets
     let volume = DefaultTexture::Grey3d.texture();
     assert_eq!(
         (volume.dimension, volume.size),
-        (SourceDimension::D3, [1, 1])
+        (SourceDimension::D3(1), [1, 1])
     );
     assert_eq!(volume.bytes, DefaultTexture::Grey.texture().bytes);
     assert_eq!(
@@ -116,7 +116,7 @@ fn every_recognised_name_gives_its_texel_in_each_dimension_a_draw_can_sample() {
             (2, SourceDimension::D2, 1),
             (4, SourceDimension::Cube, 6),
             (5, SourceDimension::D2Array(1), 1),
-            (3, SourceDimension::D3, 1),
+            (3, SourceDimension::D3(1), 1),
         ] {
             let texture = DefaultTexture::named(name, dimension)
                 .unwrap_or_else(|| panic!("{name} at dimension {dimension} is a default"))

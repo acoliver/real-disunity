@@ -31,7 +31,7 @@ const GREY_TEXEL: [u8; 4] = [128, 128, 128, 255];
 fn volume(id: TextureId, texel: [u8; 4]) -> SourceTexture {
     SourceTexture {
         id,
-        dimension: SourceDimension::D3,
+        dimension: SourceDimension::D3(1),
         size: [1, 1],
         graphics_format: RGBA8,
         bytes: texel.to_vec(),

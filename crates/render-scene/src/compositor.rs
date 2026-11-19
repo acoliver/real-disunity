@@ -44,9 +44,10 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameTerrainError,
-    FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
-    PassTarget, TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
+    CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
+    FrameShadowHandle, FrameShadows, FrameTerrainError, FrameTerrainHandle, GameBuild,
+    GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, ShadowCascade,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

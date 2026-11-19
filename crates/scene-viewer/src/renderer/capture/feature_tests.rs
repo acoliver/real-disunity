@@ -7,7 +7,7 @@ use worldrunner_render_scene::{
     offscreen::{LinearRgbaImage, ScalarImage},
 };
 
-fn setup(samples: u32, half_resolution: bool) -> (RetainedHost, Renderer) {
+pub(super) fn setup(samples: u32, half_resolution: bool) -> (RetainedHost, Renderer) {
     setup_policy(samples, half_resolution, false)
 }
 fn setup_policy(samples: u32, half_resolution: bool, full: bool) -> (RetainedHost, Renderer) {

@@ -2,7 +2,7 @@ use super::FrameRenderer;
 use std::borrow::Cow;
 use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, GamePlace,
-    PassDeclaration, PassSlot,
+    PassDeclaration, PassEntry, PassSlot,
 };
 
 /// A frame's pass list and the views it attaches.
@@ -269,6 +269,11 @@ impl FrameRenderer {
     /// prepass and before the depth levels that read it, with the camera of the frame the prefix
     /// belongs to, and with the loads the frame that completes the prefix plans them with. A
     /// renderer whose game has no depth-prefix feature plans nothing.
+    ///
+    /// # Errors
+    /// [`FrameError`] when a depth-prefix feature refuses to plan, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when it planned passes into a prefix
+    /// that has none.
     fn plan_game_prefix(
         &mut self,
         frame: &crate::frame::FrameUniform,
@@ -282,8 +287,7 @@ impl FrameRenderer {
             .set(&super::FrameCamera::of(frame, self.frame_slot));
         let stock = passes.len();
         self.chain.plan_prefix_features(passes, views)?;
-        super::game::place_after_prepass(passes, stock);
-        Ok(())
+        super::game::place_after_prepass(passes, stock)
     }
 
     /// The caller's passes and views for the rest of a frame whose depth prefix, encoded
@@ -295,7 +299,9 @@ impl FrameRenderer {
     /// prepass itself. `None` leaves `plan` as it is.
     ///
     /// # Errors
-    /// [`FrameError`] when `encoder` is not a checked transaction encoder.
+    /// [`FrameError`] when `encoder` is not a checked transaction encoder, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when the prefix ran game passes without
+    /// one.
     pub(super) fn with_prefix_prepass(
         &self,
         encoder: &wgpu::CommandEncoder,
@@ -316,7 +322,9 @@ impl FrameRenderer {
             .passes
             .iter()
             .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("a game pass of the prefix follows its prepass");
+            .ok_or(FrameError::MissingPass(PassEntry::new(
+                PassSlot::DepthNormalPrepass,
+            )))?;
         let mut views = views.to_vec();
         for attachment in prepass
             .color

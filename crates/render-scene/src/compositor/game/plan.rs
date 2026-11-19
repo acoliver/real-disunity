@@ -359,19 +359,28 @@ fn feature_pass(pass: &PassDeclaration) -> Result<FeaturePass, FrameError> {
 /// levels that read it, then reconciles the loads of the whole prefix as a frame drawn whole
 /// does. A later pass that writes what an earlier one wrote loads it, so the prefix's game
 /// passes declare the same attachments as the frame that lists them as completed.
-pub(crate) fn place_after_prepass(passes: &mut Vec<PassDeclaration>, stock: usize) {
-    let mut game: Vec<_> = passes.drain(stock..).collect();
-    if game.is_empty() {
-        return;
+///
+/// # Errors
+/// [`FrameError::MissingPass`] naming the depth prepass when the game planned passes into a
+/// prefix whose stock passes, before index `stock`, list none. `passes` is then left as it was.
+pub(crate) fn place_after_prepass(
+    passes: &mut Vec<PassDeclaration>,
+    stock: usize,
+) -> Result<(), FrameError> {
+    if passes.len() == stock {
+        return Ok(());
     }
-    crate::compositor::forward_order::forward_order(&mut game);
-    // A game pass after the prepass is refused at planning when the list has no prepass.
-    let after = 1 + passes
+    let after = 1 + passes[..stock]
         .iter()
         .rposition(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-        .expect("a planned game prefix pass follows the prepass");
+        .ok_or(FrameError::MissingPass(PassEntry::new(
+            PassSlot::DepthNormalPrepass,
+        )))?;
+    let mut game: Vec<_> = passes.drain(stock..).collect();
+    crate::compositor::forward_order::forward_order(&mut game);
     passes.splice(after..after, game);
     reconcile_loads(passes);
+    Ok(())
 }
 
 fn is_game(pass: &PassDeclaration) -> bool {

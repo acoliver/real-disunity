@@ -151,7 +151,7 @@ fn target_writer(occurrence: u32) -> worldrunner_render_post::PassDeclaration {
 fn a_later_prefix_game_pass_loads_a_target_an_earlier_one_wrote() {
     // The prefix's own passes, then the game's in planning order, which is not forward order.
     let mut passes = vec![prepass(), target_writer(1), target_writer(0)];
-    super::super::place_after_prepass(&mut passes, 1);
+    super::super::place_after_prepass(&mut passes, 1).unwrap();
     let entries: Vec<_> = passes
         .iter()
         .map(worldrunner_render_post::PassDeclaration::entry)
@@ -177,5 +177,29 @@ fn a_later_prefix_game_pass_loads_a_target_an_earlier_one_wrote() {
         loads[2],
         [AttachmentLoad::Load, AttachmentLoad::Load],
         "the second writer keeps what the first wrote"
+    );
+}
+
+#[test]
+fn prefix_game_passes_without_a_prepass_to_follow_are_refused_by_name() {
+    // A feature that declares its own passes can place them without `plan_pass`, which refuses
+    // the place when the list has no prepass.
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0)), target_writer(0)];
+    let planned = passes.clone();
+    assert_eq!(
+        super::super::place_after_prepass(&mut passes, 1),
+        Err(FrameError::MissingPass(PassEntry::new(
+            PassSlot::DepthNormalPrepass
+        )))
+    );
+    assert_eq!(
+        passes, planned,
+        "a refused prefix is left as it was planned"
+    );
+    let mut stock_only = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    assert_eq!(
+        super::super::place_after_prepass(&mut stock_only, 1),
+        Ok(()),
+        "a prefix without game passes needs no prepass"
     );
 }

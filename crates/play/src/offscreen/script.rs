@@ -90,6 +90,7 @@ impl Screen {
             format: SCREEN_COLOR_FORMAT,
             depth_bits: SCREEN_DEPTH_BITS,
             mip_count: 1,
+            auto_generate_mips: false,
             srgb: true,
             dimension: dimension::TEX_2D,
             volume_depth: 1,
@@ -211,6 +212,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::SetViewport { .. } => "SetViewport",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
+        OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
 }
 
@@ -251,11 +253,12 @@ impl Mapper<'_> {
                 submesh,
                 pass,
                 block,
+                instances,
             } => self.draw_mesh(
                 (*mesh, *submesh),
                 matrix,
                 (*material, *pass),
-                block.as_deref(),
+                (block.as_deref(), *instances),
             ),
             OffscreenWork::DrawProcedural {
                 matrix,
@@ -270,6 +273,7 @@ impl Mapper<'_> {
                 *topology,
                 (*vertex_count, *instance_count),
             ),
+            OffscreenWork::GenerateMips { texture } => self.generate_mips(*texture),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -486,7 +490,7 @@ impl Mapper<'_> {
 
     /// What a texture of the frame is: a temporary the commands allocated, the screen or a render
     /// texture of the snapshot.
-    fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
+    pub(super) fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
         self.held(texture).or_else(|| {
             ids::render_texture_of(texture).and_then(|id| self.snapshot.render_textures.get(&id))
         })

@@ -240,12 +240,12 @@ impl OffscreenHost {
             left_out: report
                 .camera_draws
                 .iter()
-                .map(|c| c.unmatched + c.missing_texture + c.missing_channel)
+                .map(|c| c.unmatched + c.missing_texture + c.missing_channel + c.feedback_loop)
                 .sum::<usize>()
                 + report
                     .list_draws
                     .iter()
-                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel)
+                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
                     .sum::<usize>(),
             live_before,
             live_after: self.runtime.live_bytes(),

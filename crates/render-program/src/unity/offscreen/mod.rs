@@ -577,6 +577,8 @@ pub struct CameraDraws {
     pub unmatched: usize,
     /// The draws left out because a texture the pass samples is named by no layer.
     pub missing_texture: usize,
+    /// The draws left out because the pass samples a texture it draws into.
+    pub feedback_loop: usize,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channel: usize,
 }
@@ -590,6 +592,7 @@ pub struct ListDraws {
     pub unmatched: usize,
     pub missing_texture: usize,
     pub missing_channel: usize,
+    pub feedback_loop: usize,
 }
 
 /// Why one camera render left draws out: the texture properties no layer named and the
@@ -598,6 +601,14 @@ pub struct ListDraws {
 pub struct CameraCauses {
     pub textures: std::collections::BTreeMap<String, usize>,
     pub channels: std::collections::BTreeMap<(i8, i8), usize>,
+}
+
+/// Draws left out because their pass samples a texture it also draws into, counted for that
+/// texture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeedbackLoopDraws {
+    pub texture: TextureId,
+    pub draws: usize,
 }
 
 /// Camera draws left out because the mesh lacks a vertex channel the pass reads, counted for one
@@ -718,6 +729,18 @@ impl OffscreenOperations {
                 input,
                 draws,
             })
+            .collect()
+    }
+
+    /// The draws left out because their pass samples a texture it draws into, at levels it
+    /// writes, by that texture, sorted. A camera render, a list or a procedural draw keeps its
+    /// other draws; the contract would refuse the whole frame for the one.
+    #[must_use]
+    pub fn feedback_loop_draws(&self) -> Vec<FeedbackLoopDraws> {
+        self.counts
+            .feedback_loops
+            .iter()
+            .map(|(&texture, &draws)| FeedbackLoopDraws { texture, draws })
             .collect()
     }
 

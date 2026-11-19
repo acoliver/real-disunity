@@ -489,6 +489,7 @@ pub fn drawn(
         unmatched,
         missing_texture,
         missing_channel,
+        feedback_loop: 0,
     }]
 }
 

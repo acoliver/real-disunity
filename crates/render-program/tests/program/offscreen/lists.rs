@@ -4,13 +4,15 @@
 use std::sync::Arc;
 
 use worldrunner_render_program::ids::{MaterialId, RendererId, TextureId};
-use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, DrawList, GlobalState, ListDraw, OffscreenFrame, Record,
 };
+use worldrunner_render_program::unity::offscreen::{FeedbackLoopDraws, ListDraws};
+use worldrunner_render_program::unity::shader::PassSelector;
 
 use super::camera::{TARGET, alpha, fixture, material, renderer};
-use super::rig::{BLUE, CLEAR, GREEN, RED, Rig, ZERO, layer, pixel, quad, texture};
+use super::rig::{BLUE, CLEAR, GREEN, RED, Rig, ZERO, layer, pixel, quad, source, texture};
 
 const NEAR: TextureId = TextureId(11);
 
@@ -234,4 +236,157 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
         .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
         .collect();
     assert!(depths.iter().all(|d| d.to_bits() == 0.2_f32.to_bits()));
+}
+
+const ALBEDO: TextureId = TextureId(7);
+
+fn gamma() -> PassSelector {
+    PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Gamma".to_owned()],
+    }
+}
+
+fn sampling(id: TextureId) -> TextureInput {
+    TextureInput {
+        texture: id,
+        sampler: None,
+    }
+}
+
+/// The camera fixture over a 16 by 16 `TARGET` of `mips` levels with no records. Renderer 1's
+/// material samples `TARGET` itself, so a list or camera render into it reads what it writes.
+/// Renderer 2's material samples a white texture of its own, so it draws blue over the right
+/// half of its target through the `Gamma` pass.
+fn self_sampling(rig: &mut Rig, mips: u32) -> OffscreenFrame {
+    let mut frame = frame_of(rig, Vec::new());
+    frame.render_textures[0] = texture(10, [16, 16]);
+    frame.render_textures[0].mips = mips;
+    let white = source(7, [4, 1], super::rig::image([4, 1], |_, _| [255; 4]));
+    rig.state.set_texture(&mut rig.runtime, &white).unwrap();
+    for (material, sampled) in [(1, TARGET), (2, ALBEDO)] {
+        frame
+            .materials
+            .get_mut(&MaterialId(material))
+            .unwrap()
+            .properties
+            .textures
+            .insert("_Albedo".to_owned(), sampling(sampled));
+    }
+    frame
+}
+
+fn gamma_item(renderer: u64) -> ListDraw {
+    ListDraw {
+        pass: gamma(),
+        ..item(renderer, None)
+    }
+}
+
+fn clear_mip(mip: u32) -> Record {
+    Record::Clear {
+        target: Attachments::single(
+            Some(Attachment {
+                texture: TARGET,
+                mip,
+            }),
+            None,
+        ),
+        clear: clear_to([1.0, 1.0, 0.0, 1.0]),
+    }
+}
+
+fn into_mip(mip: u32) -> Attachments {
+    Attachments::single(
+        Some(Attachment {
+            texture: TARGET,
+            mip,
+        }),
+        None,
+    )
+}
+
+/// A frame whose list into level 1 of a two-level `TARGET` draws renderer 1, which samples
+/// `TARGET`, then renderer 2. Level 0 is cleared first, and level 1 as well when `both_levels`.
+fn mip_chain_list(rig: &mut Rig, both_levels: bool) -> OffscreenFrame {
+    let mut frame = self_sampling(rig, 2);
+    frame.records = vec![clear_mip(0)];
+    if both_levels {
+        frame.records.push(clear_mip(1));
+    }
+    frame
+        .records
+        .push(list(into_mip(1), vec![gamma_item(1), gamma_item(2)]));
+    frame
+}
+
+fn list_counts(drawn: usize, feedback_loop: usize) -> Vec<ListDraws> {
+    vec![ListDraws {
+        target: TARGET,
+        drawn,
+        unmatched: 0,
+        missing_texture: 0,
+        missing_channel: 0,
+        feedback_loop,
+    }]
+}
+
+#[test]
+fn a_list_draw_that_samples_the_level_it_draws_into_is_refused_and_the_other_draws_run() {
+    let mut rig = Rig::new();
+    let frame = mip_chain_list(&mut rig, true);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.list_draws(), list_counts(1, 1));
+    assert_eq!(
+        operations.feedback_loop_draws(),
+        vec![FeedbackLoopDraws {
+            texture: TARGET,
+            draws: 1
+        }]
+    );
+    drop(operations);
+    // The contract admits the list without the refused draw: renderer 2's blue is over the right
+    // half of level 1, and the left half holds the clear color.
+    let image = rig.run(&frame, &[(TARGET, 1, 0)]).unwrap().remove(0);
+    assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: the refused draw");
+    assert_eq!(pixel(&image, 8, (6, 3)), BLUE, "right: renderer 2");
+}
+
+#[test]
+fn a_list_draw_that_samples_only_levels_other_than_the_one_it_draws_into_is_recorded() {
+    let mut rig = Rig::new();
+    // Level 1 was never written, so the draw reads level 0 alone and writes level 1.
+    let frame = mip_chain_list(&mut rig, false);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.list_draws(), list_counts(2, 0));
+    assert!(operations.feedback_loop_draws().is_empty());
+    drop(operations);
+    let image = rig.run(&frame, &[(TARGET, 1, 0)]).unwrap().remove(0);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        RED,
+        "left: level 0's clear color times red"
+    );
+    assert_eq!(pixel(&image, 8, (6, 3)), BLUE, "right: renderer 2");
+}
+
+#[test]
+fn a_camera_draw_that_samples_its_own_target_is_refused_and_the_other_draws_run() {
+    let mut rig = Rig::new();
+    let mut frame = self_sampling(&mut rig, 1);
+    let camera = frame.cameras.get_mut(&super::camera::CAMERA).unwrap();
+    camera.pass = gamma();
+    camera.culling_mask = (1 << super::camera::LEFT) | (1 << 2);
+    frame.records = vec![Record::CameraRender {
+        camera: super::camera::CAMERA,
+        target: TARGET,
+    }];
+    let operations = rig.build(&frame).unwrap();
+    let draws = operations.camera_draws();
+    assert_eq!((draws[0].drawn, draws[0].feedback_loop), (1, 1));
+    assert_eq!(operations.feedback_loop_draws().len(), 1);
+    drop(operations);
+    let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
+    assert_eq!(pixel(&image, 16, (3, 6)), CLEAR, "left: the refused draw");
+    assert_eq!(pixel(&image, 16, (12, 6)), BLUE, "right: renderer 2");
 }

@@ -244,7 +244,7 @@ impl GpuWorkReport {
         self.list_unmatched += report
             .list_draws
             .iter()
-            .map(|l| l.unmatched + l.missing_texture + l.missing_channel)
+            .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
             .sum::<usize>();
         for (name, count) in &report.built_by_kind {
             *self.built_by_kind.entry(name.clone()).or_default() += count;

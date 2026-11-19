@@ -18,7 +18,7 @@ use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
-use super::list_steps::{self, Loads};
+use super::list_steps::{self, Loads, Written};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::resample::{ResampleStep, resample_step};
@@ -78,6 +78,8 @@ pub(super) struct Look<'a> {
     pub(super) front_face: wgpu::FrontFace,
     pub(super) globals: Globals<'a>,
     pub(super) signature: TargetSignature,
+    /// What the pass writes, which its draws may not sample.
+    pub(super) written: &'a [Written],
 }
 
 pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
@@ -152,6 +154,7 @@ fn camera_step(
         .ok_or_else(|| OffscreenError::Unknown(format!("camera {camera_id:?}")))?;
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
+    let cells = list_steps::written(svc, &whole_target(target))?;
     let mut draws = Vec::new();
     let counted_before = frame
         .probe
@@ -161,6 +164,7 @@ fn camera_step(
     let unmatched_before = svc.counts.unmatched;
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
+    let feedback_before = svc.counts.feedback_loop;
     svc.counts.current = CameraCauses::default();
     let outer_missing = std::mem::take(svc.missing);
     svc.probing = frame.probe.targets.contains(&target);
@@ -172,6 +176,7 @@ fn camera_step(
         front_face: camera.front_face,
         globals,
         signature,
+        written: &cells,
     };
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
@@ -190,6 +195,7 @@ fn camera_step(
         unmatched: svc.counts.unmatched - unmatched_before,
         missing_texture: svc.counts.missing_texture - missing_before,
         missing_channel: svc.counts.missing_channel - channel_before,
+        feedback_loop: svc.counts.feedback_loop - feedback_before,
     });
     let causes = std::mem::take(&mut svc.counts.current);
     svc.counts.camera_causes.push(causes);
@@ -426,7 +432,8 @@ pub(super) fn planned_draw(
         renderer.mesh,
         sub,
         (look.signature, look.front_face),
-    );
+    )
+    .and_then(|draw| list_steps::refuse_feedback(draw, look.written));
     if planned.is_err() {
         svc.constants.rollback(constants_mark);
     }
@@ -434,8 +441,8 @@ pub(super) fn planned_draw(
 }
 
 /// The draw `planned` made, or `None` when it was left out for a cause the report counts: no
-/// pass the selector picks, a texture no layer names or a mesh channel the pass reads. Other
-/// errors fail the frame.
+/// pass the selector picks, a texture no layer names, a mesh channel the pass reads or a texture
+/// the pass samples and draws into. Other errors fail the frame.
 pub(super) fn counted(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
@@ -469,6 +476,11 @@ pub(super) fn counted(
                 .missing_channels
                 .entry((channel, input))
                 .or_default() += 1;
+            Ok(None)
+        }
+        Err(OffscreenError::FeedbackLoop(texture)) => {
+            svc.counts.feedback_loop += 1;
+            *svc.counts.feedback_loops.entry(texture).or_default() += 1;
             Ok(None)
         }
         Err(error) => Err(error),
@@ -610,15 +622,17 @@ fn camera_pass(
     target: TextureId,
     draws: &[CameraDraw],
 ) -> Result<RasterPass, OffscreenError> {
-    let whole = Some(Attachment {
-        texture: target,
-        mip: 0,
-    });
     let loads = Loads {
         color: camera.clear_color,
         depth: camera.clear_depth.then_some(DEPTH_CLEAR),
     };
-    list_steps::attachments_pass(svc, id, &Attachments::single(whole, whole), &loads, draws)
+    list_steps::attachments_pass(svc, id, &whole_target(target), &loads, draws)
+}
+
+/// The color and depth of a render texture at its base level: what a camera renders into.
+fn whole_target(texture: TextureId) -> Attachments {
+    let whole = Some(Attachment { texture, mip: 0 });
+    Attachments::single(whole, whole)
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {

@@ -1,6 +1,6 @@
 use super::*;
 
-fn multilevel_source() -> RenderScene {
+pub(super) fn multilevel_source() -> RenderScene {
     let source = super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
     let mut heights = vec![0; 81];
     heights[20] = 3_000;

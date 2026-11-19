@@ -12,6 +12,7 @@ mod fade;
 mod fixture;
 mod forward_split;
 mod game_shadows;
+mod game_terrain;
 mod geometry;
 mod hdr;
 mod independent;

@@ -76,6 +76,7 @@ fn new_renderer(
         plan_cache: std::rc::Rc::default(),
         game: crate::compositor::game::Installed::default(),
         game_camera: super::super::FrameCameraHandle::default(),
+        game_terrain: super::super::FrameTerrainHandle::default(),
         terrain_draws: settings.terrain_draws,
         water_draws: settings.water_draws,
         chain: scene_chain(context, settings, factory)?,

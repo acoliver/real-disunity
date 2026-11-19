@@ -13,7 +13,7 @@ use super::declare::Class;
 use super::layout::LayoutError;
 use super::module::StageParameters;
 
-/// Where Unity's module binds a resource: a binding, and the descriptor set when the
+/// Where a player shader module binds a resource: a binding, and the descriptor set when the
 /// parameters name one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct At {

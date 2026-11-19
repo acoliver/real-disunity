@@ -103,6 +103,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 keywords: Vec::new(),
                 properties,
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

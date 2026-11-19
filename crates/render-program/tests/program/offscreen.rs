@@ -24,6 +24,7 @@ mod resolve;
 mod rig;
 mod sampler;
 mod shapes;
+mod source_array;
 mod stencil;
 mod storage;
 mod undeclared;

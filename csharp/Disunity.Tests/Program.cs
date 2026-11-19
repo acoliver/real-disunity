@@ -452,6 +452,7 @@ PlayerAnimatorTests.Run();
 PlayerRenderTextureTests.Run();
 Texture2DArrayTests.Run();
 PlayerTextureArrayTests.Run();
+PlayerLayeredTextureTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
 TouchScreenKeyboardTests.Run();

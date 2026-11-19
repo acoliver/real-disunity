@@ -30,6 +30,8 @@ internal static unsafe class Texture3DWorldTests
             Console.WriteLine("PASS: a destroyed volume is sent as no texture");
             AVolumeInAFormatWithNoTextureFormatStoresItsRawBytesAndFormat();
             Console.WriteLine("PASS: a volume in a format with no TextureFormat stores its raw bytes and its graphics format");
+            AVolumeTheHostCannotStoreIsNoTextureAndIsNamed();
+            Console.WriteLine("PASS: a volume larger than the host stores is sent as no texture and named in a warning");
             AVolumeFromAPlayerCarriesItsPlanAndBytes();
             Console.WriteLine("PASS: a planned volume keeps its size, depth, format and bytes, and a plan that disagrees with them fails by name");
         }
@@ -92,20 +94,20 @@ internal static unsafe class Texture3DWorldTests
     {
         var volume = FourSlices();
         var material = NewMaterial("Test/Volume/Slot");
-        material.SetTexture("_3DNoiseTexture", volume);
-        var identity = IdentityOnMaterial(material, "_3DNoiseTexture");
+        material.SetTexture("_VolumeTex", volume);
+        var identity = IdentityOnMaterial(material, "_VolumeTex");
         Expect.That(identity >= DisunityHost.FirstPlayerTextureIdentity, "the identity is in the player range");
 
         var renderer = DisunityHost.CreateGameObject().AddComponent<MeshRenderer>();
         var block = new MaterialPropertyBlock();
-        block.SetTexture("_3DNoiseTexture", volume);
+        block.SetTexture("_VolumeTex", volume);
         renderer.SetPropertyBlock(block);
-        var inBlock = ReadProperty(Block, renderer.Handle, "_3DNoiseTexture");
+        var inBlock = ReadProperty(Block, renderer.Handle, "_VolumeTex");
         Expect.That(inBlock.texture_kind == Asset && inBlock.texture == identity, "a property block names the same identity as the material, got " + inBlock.texture);
 
         material.SetTexture("_Other", FourSlices());
         Expect.That(IdentityOnMaterial(material, "_Other") != identity, "a second volume has its own identity");
-        Expect.That(IdentityOnMaterial(material, "_3DNoiseTexture") == identity, "the volume keeps its identity");
+        Expect.That(IdentityOnMaterial(material, "_VolumeTex") == identity, "the volume keeps its identity");
     }
 
     private static void TheHostReadsBackTheDepthDimensionFormatAndBytes()
@@ -186,16 +188,29 @@ internal static unsafe class Texture3DWorldTests
         Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 0, "a destroyed volume sent to a slot is no texture");
     }
 
+    private static void AVolumeTheHostCannotStoreIsNoTextureAndIsNamed()
+    {
+        // 1024 x 1024 x 513 Alpha8 texels hold 513 MiB, above the 512 MiB the host stores.
+        var huge = new Texture3D(1024, 1024, 513, TextureFormat.Alpha8, false) { name = "Huge" };
+        using var log = new LogRecorder();
+        var material = NewMaterial("Test/Volume/Huge");
+        var probe = new Texture2D(1, 1).RendererIdentity;
+        material.SetTexture("_VolumeTex", huge);
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_VolumeTex").texture_kind == 0, "a volume beyond the host's limit is no texture");
+        Expect.That(new Texture2D(1, 1).RendererIdentity == probe + 1, "it takes no identity");
+        Expect.That(log.Messages.Any(m => m.Contains("'Huge'") && m.Contains("more than the host stores")), "the warning names the volume");
+    }
+
     private static void AVolumeInAFormatWithNoTextureFormatStoresItsRawBytesAndFormat()
     {
-        // As Old World's noise volumes are planned: four bytes a voxel in GraphicsFormat 88, which has no TextureFormat.
+        // As a four-byte data volume is planned: four bytes a voxel in GraphicsFormat 88, which has no TextureFormat.
         var noise = Texture3D.FromPlayer("Noise", new PlayerTexture3D(2, 2, 2, 88, 1, true, 32));
         for (var i = 0; i < noise.PixelBytes.Length; i++) noise.PixelBytes[i] = (byte)(i + 1);
         Expect.Throws<NotSupportedException>(() => _ = noise.format, "a format without a TextureFormat");
         Expect.Throws<NotSupportedException>(() => noise.GetPixels(), "pixel access without a codec");
         var material = NewMaterial("Test/Volume/Raw");
-        material.SetTexture("_3DNoiseTexture", noise);
-        var (info, bytes) = ReadStored(IdentityOnMaterial(material, "_3DNoiseTexture"));
+        material.SetTexture("_VolumeTex", noise);
+        var (info, bytes) = ReadStored(IdentityOnMaterial(material, "_VolumeTex"));
         Expect.That(info.format == 0 && info.graphics_format == 88, $"no TextureFormat and graphics format 88, got {info.format} and {info.graphics_format}");
         Expect.That(info.depth == 2 && info.dimension == Tex3D && info.length == 32 && info.linear == 1, "the shape, length and colour space");
         Expect.Sequence(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray(), bytes, "the raw bytes are stored as they are");

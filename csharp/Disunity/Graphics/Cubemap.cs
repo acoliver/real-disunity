@@ -9,7 +9,7 @@ namespace UnityEngine;
 /// for a format it can lay out. A material or a property block that holds the cubemap sends it to the host as an asset
 /// texture under a renderer identity (see <see cref="RendererIdentity"/>), and the host draws from the bytes stored under it,
 /// in the colour space of its <see cref="Texture.graphicsFormat"/>. A cubemap whose bytes the host cannot store (a format with
-/// no layout, which has no bytes, or more than the host stores) is sent as no texture. Every pixel member throws
+/// no layout, which has no bytes unless a player's plan gives the cubemap its raw size, or more than the host stores) is sent as no texture. Every pixel member throws
 /// <see cref="NotSupportedException"/> naming it. The mip count is clamped to the full chain of the size.
 /// </summary>
 public partial class Cubemap : Texture

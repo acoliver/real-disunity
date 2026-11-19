@@ -23,6 +23,7 @@ mod gpu_player;
 mod keys;
 mod navigation;
 pub mod offscreen;
+mod plan_differences;
 mod player;
 mod player_meshes;
 mod player_textures;

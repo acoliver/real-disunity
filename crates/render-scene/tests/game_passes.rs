@@ -19,6 +19,8 @@ mod prepared;
 mod refusals;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
+#[path = "game_passes/shadow_cascades.rs"]
+mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]
 mod shadowed;
 #[path = "game_passes/stores.rs"]

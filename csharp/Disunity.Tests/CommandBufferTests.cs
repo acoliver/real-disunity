@@ -49,7 +49,7 @@ internal static class CommandBufferTests
         var material = new Material(Material.SpriteLit);
         var probes = new (string Member, Action Call)[]
         {
-            ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
+            ("DrawProcedural", () => buffer.DrawProcedural(new GraphicsBuffer(GraphicsBuffer.Target.Index, 3, 4), Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3)),
         };
         foreach (var (member, call) in probes)
             Throws<NotSupportedException>(call, member, $"CommandBuffer.{member}", "cannot record this member yet");

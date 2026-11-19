@@ -399,6 +399,7 @@ SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
 PlayerTextureStoreTests.Run();
+Texture2DArrayWorldTests.Run();
 PlayerMeshStoreTests.Run();
 PlayerMeshChannelTests.Run();
 PlayerSamplerTests.Run();

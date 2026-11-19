@@ -315,6 +315,9 @@ fn assert_presentation_cameras(host: &mut DisunityHost, root: &Path) {
     host.unload_slice().unwrap();
 }
 
+#[path = "managed/array.rs"]
+mod array;
+
 fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
     use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
     const FIRST: u64 = 1 << 40;
@@ -343,6 +346,7 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
     assert_eq!(host.player_texture(identity, 1).unwrap(), None);
     assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
     assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
+    array::assert_player_array(host);
     host.unload_slice().unwrap();
 }
 

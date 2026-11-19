@@ -109,6 +109,7 @@ public sealed class ComputeShader : Object
         Kernel(kernelIndex, nameof(SetBuffer));
         ArgumentNullException.ThrowIfNull(buffer);
         WorldCompute.BindBuffer(WorldLink, (uint)kernelIndex, name, buffer.WorldLink);
+        buffer.NoteKernelBinding();
     }
 
     public void SetBuffer(int kernelIndex, int nameID, ComputeBuffer buffer) => SetBuffer(kernelIndex, NameOf(nameID), buffer);

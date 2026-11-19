@@ -72,16 +72,16 @@ pub struct GraphicsSnapshot {
     pub renderers: Vec<RendererView>,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
-    /// The live compute buffers that the frame's dispatches bind, with the contents they hold
-    /// when the snapshot is taken.
+    /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
+    /// each once, with the contents they hold when the snapshot is taken.
     pub compute_buffers: BTreeMap<ComputeBufferId, WorldComputeBuffer>,
 }
 
 impl GraphicsSnapshot {
     /// Drains the world's offscreen work and copies what that work can reach: the cameras it
     /// names, the renderers they may draw, the materials and shaders of those renderers and of
-    /// the blits, and the compute shaders and buffers of the dispatches. A frame with no work
-    /// copies nothing else.
+    /// the blits, the buffers those materials bind, and the compute shaders and buffers of the
+    /// dispatches. A frame with no work copies nothing else.
     ///
     /// # Errors
     /// Fails when the world refuses to describe an object it listed.
@@ -115,6 +115,7 @@ impl GraphicsSnapshot {
             snapshot.renderers = renderer_views(world, mask)?;
         }
         snapshot.copy_materials(world);
+        snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
         Ok(snapshot)
     }
@@ -162,11 +163,37 @@ impl GraphicsSnapshot {
                 self.compute_shaders.insert(*shader, held.clone());
             }
             for (_, buffer) in &bindings.buffers {
-                if let Ok(held) = world.compute_buffer(*buffer) {
-                    self.compute_buffers.insert(*buffer, held.clone());
-                }
+                copy_buffer(&mut self.compute_buffers, world, *buffer);
             }
         }
+    }
+
+    /// The buffers the copied materials bind. A destroyed buffer is left out; the material keeps
+    /// its binding for the host to skip.
+    fn copy_material_buffers(&mut self, world: &World) {
+        let bound: Vec<ComputeBufferId> = self
+            .materials
+            .values()
+            .flat_map(|material| material.buffers.iter().map(|(_, buffer)| *buffer))
+            .collect();
+        for buffer in bound {
+            copy_buffer(&mut self.compute_buffers, world, buffer);
+        }
+    }
+}
+
+/// Copies a buffer into `copied` once, whichever kind of record names it. A destroyed buffer is
+/// left out.
+fn copy_buffer(
+    copied: &mut BTreeMap<ComputeBufferId, WorldComputeBuffer>,
+    world: &World,
+    id: ComputeBufferId,
+) {
+    if copied.contains_key(&id) {
+        return;
+    }
+    if let Ok(held) = world.compute_buffer(id) {
+        copied.insert(id, held.clone());
     }
 }
 

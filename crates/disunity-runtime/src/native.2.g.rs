@@ -154,12 +154,14 @@ pub struct DisunityRenderTexture {
     pub srgb: u32,
     pub dimension: u32,
     pub volume_depth: u32,
+    pub auto_generate_mips: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
     pub filter: u32,
     pub aniso_level: u32,
     pub mip_bias: f32,
+    pub padding: u32,
     pub generation: u64,
 }
 #[repr(C)]

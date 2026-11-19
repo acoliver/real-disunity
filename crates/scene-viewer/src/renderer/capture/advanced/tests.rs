@@ -106,6 +106,7 @@ fn setup() -> (RetainedHost, Renderer) {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             ..crate::tests::options()
         },
     )
@@ -373,6 +374,7 @@ fn advancing_clock_matches_rendered_subframe_times_and_changes_wind() {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             ..crate::tests::options()
         },
     )

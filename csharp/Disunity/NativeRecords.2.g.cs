@@ -364,8 +364,12 @@ namespace Disunity.Native
     /// <summary>
     ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
     ///  `GraphicsFormat` value. `dimension` is its `TextureDimension` (2D, 3D, cube, 2D array or cube
-    ///  array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube). `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
-    ///  with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
+    ///  array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube).
+    ///  `auto_generate_mips` is 1 when the host regenerates the smaller mip levels whenever the texture
+    ///  is drawn into and 0 when only a generate-mips record fills them. `wrap_*`, `filter`,
+    ///  `aniso_level` and `mip_bias` are the sampler, with the values of `DisunitySampler`.
+    ///  `padding` keeps `generation` 8-byte aligned and is ignored. `generation` is ignored on input
+    ///  and starts at 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityRenderTexture
@@ -378,12 +382,14 @@ namespace Disunity.Native
         public uint srgb;
         public uint dimension;
         public uint volume_depth;
+        public uint auto_generate_mips;
         public uint wrap_u;
         public uint wrap_v;
         public uint wrap_w;
         public uint filter;
         public uint aniso_level;
         public float mip_bias;
+        public uint padding;
         public ulong generation;
     }
 

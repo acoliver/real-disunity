@@ -511,6 +511,7 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
                 submesh: 0,
                 pass: 0,
                 block: None,
+                instances: 1,
             })
             .unwrap();
         let drawing = snapshot(&mut world);

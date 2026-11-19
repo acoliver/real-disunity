@@ -30,7 +30,7 @@ thiserror.workspace = true
 [dev-dependencies]
 worldrunner-unity-serialized = { path = "../unity-serialized" }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
-naga = { version = "30.0.0", features = ["spv-in", "spv-out", "wgsl-in"] }
+naga = { version = "30.0.0", features = ["spv-in", "spv-out", "wgsl-in", "msl-out"] }
 pollster.workspace = true
 
 [lints]

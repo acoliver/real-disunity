@@ -58,14 +58,18 @@ internal static unsafe class CommandWireReader
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
             15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
-            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()} block=[{input.Optional(input.Block)}]",
+            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()}{Instances(input.U32())} block=[{input.Optional(input.Block)}]",
             17 => $"DrawProcedural matrix={input.Floats(16)} material={input.U64()} pass={input.I32()} topology={input.U8()} vertices={input.U32()} instances={input.U32()}",
             18 => $"Viewport rect={input.Floats(4)}",
+            19 => $"GenerateMips texture={input.U64()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
         return text;
     }
+
+    /// <summary>A mesh draw's instance count, written only when it is not the one instance of a plain draw.</summary>
+    private static string Instances(uint count) => count == 1 ? "" : $" instances={count}";
 
     private sealed class Cursor(byte[] bytes)
     {
@@ -175,10 +179,11 @@ internal static unsafe class CommandWireReader
             var (w, h, format, depth, mips) = (U32(), U32(), U32(), U32(), U32());
             var srgb = Bool();
             var (dimension, volumeDepth) = (U32(), U32());
+            var autoMips = Bool() ? " automips" : "";
             var (wu, wv, ww, filter, aniso, bias) = (U32(), U32(), U32(), U32(), U32(), F32());
             U64();
             var shape = dimension == 2 && volumeDepth == 1 ? "" : $" shape={dimension}x{volumeDepth}";
-            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
+            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape}{autoMips} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
         }
     }
 }

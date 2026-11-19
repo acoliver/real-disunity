@@ -180,10 +180,10 @@ impl Tracker {
 
     /// The version of each level, from the base, a draw binds of a texture. A level is bound when
     /// its layers agree and it holds what the frame last wrote to it: the base level's version,
-    /// or a write of its own (a mip chain written one level at a time, as a depth pyramid is).
-    /// The first level never written while the base was is where the binding stops: the engine
-    /// writes the base level of a render texture and generates no other, so that level holds
-    /// nothing the frame made.
+    /// or a write of its own (a mip chain written one level at a time, as a depth pyramid is, or
+    /// generated from a base an earlier frame wrote). The first level never written while the
+    /// base was is where the binding stops: the engine writes the base level of a render texture
+    /// and generates no other, so that level holds nothing the frame made.
     ///
     /// # Errors
     /// Fails with `MixedVersions` when the layers of the base level differ, since no level can be
@@ -203,13 +203,26 @@ impl Tracker {
         let mut versions = vec![base];
         for mip in 1..imported.mips {
             match level(mip) {
-                Some(version) if version == base || (version != 0 && base != 0) => {
+                Some(version) if version == base || version != 0 => {
                     versions.push(version);
                 }
                 _ => break,
             }
         }
         Ok(versions)
+    }
+
+    /// Takes one new version for every layer of `mip`, for passes that write a level together,
+    /// and returns it. A level whose layers were written at one point is one a sampled read can
+    /// bind whole.
+    pub(super) fn write_level(&mut self, key: AllocationKey, mip: u32, layers: u32) -> u32 {
+        let counter = self.counters.entry(key).or_insert(0);
+        *counter += 1;
+        let after = *counter;
+        for layer in 0..layers {
+            self.cells.insert((key, mip, layer), after);
+        }
+        after
     }
 
     /// Takes the next version of a cell, and returns the one it had.

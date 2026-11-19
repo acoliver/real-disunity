@@ -147,6 +147,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             Record::CameraRender { .. } => "camera",
             Record::Blit { .. } => "blit",
             Record::CopyTexture { .. } => "copy",
+            Record::GenerateMips { .. } => "mips",
             Record::Clear { .. } => "clear",
             Record::Draws(_) => "draws",
             Record::Globals(_) => "globals",
@@ -256,6 +257,7 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
         srgb: false,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     };
@@ -437,6 +439,7 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         srgb: true,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     };

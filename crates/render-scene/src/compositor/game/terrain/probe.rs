@@ -7,8 +7,23 @@ use worldrunner_render_post::{
     PassDeclaration, PrepareContext, PreparedFeature,
 };
 
+/// Answers shared between the probe and the test that installed it.
+type Shared<T> = Arc<Mutex<Vec<T>>>;
+
 /// What each prepared frame lent: the number of chunks, `None` without terrain, or the refusal.
-pub(crate) type Lent = Arc<Mutex<Vec<Result<Option<usize>, FrameTerrainError>>>>;
+#[derive(Clone, Default)]
+pub(crate) struct Lent(Shared<Result<Option<usize>, FrameTerrainError>>);
+
+impl Lent {
+    /// The answers recorded so far, in frame order.
+    pub(crate) fn answers(&self) -> Vec<Result<Option<usize>, FrameTerrainError>> {
+        self.0.lock().unwrap().clone()
+    }
+
+    fn record(&self, answer: Result<Option<usize>, FrameTerrainError>) {
+        self.0.lock().unwrap().push(answer);
+    }
+}
 
 /// Installs the probe on `renderer` and returns what it will record.
 pub(crate) fn install(renderer: &mut FrameRenderer, context: &crate::device::GpuContext) -> Lent {
@@ -70,7 +85,7 @@ impl PreparedFeature for ProbeFeature {
             .terrain
             .current()
             .map(|lent| lent.map(|chunks| chunks.len()));
-        self.lent.lock().unwrap().push(answer);
+        self.lent.record(answer);
         Ok(())
     }
 

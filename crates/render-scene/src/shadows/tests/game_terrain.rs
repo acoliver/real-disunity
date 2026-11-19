@@ -13,7 +13,7 @@ fn shadowed_frames_lend_their_streamed_terrain_to_game_features() {
     for _ in 0..2 {
         render_target(&mut renderer, &context, &view(), &target).unwrap();
     }
-    let lent = lent.lock().unwrap();
+    let lent = lent.answers();
     assert_eq!(lent.len(), 2, "the probe prepared in both frames");
     assert!(lent[0].is_ok_and(|count| count.is_some_and(|count| count > 0)));
     assert!(
@@ -57,7 +57,7 @@ fn a_same_frame_capture_lends_its_streamed_terrain_to_game_features() {
         )
         .unwrap()
         .unwrap();
-    let lent = lent.lock().unwrap();
+    let lent = lent.answers();
     assert!(!lent.is_empty(), "the probe prepared in the captured frame");
     assert!(
         lent.iter()

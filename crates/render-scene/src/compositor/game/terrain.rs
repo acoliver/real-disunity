@@ -30,14 +30,12 @@ impl From<FrameTerrainError> for FrameError {
     }
 }
 
-/// What one frame's route lends: its chunks, `None` without terrain, or why it cannot.
-type Lent = Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>;
-
-/// The lent terrain of one frame and the transaction that prepared it.
+/// The lent terrain of one frame and the transaction that prepared it: its chunks, `None`
+/// without terrain, or why it cannot lend them.
 #[derive(Debug)]
 struct FrameTerrain {
     owner: Publications,
-    lent: Lent,
+    lent: Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>,
 }
 
 /// Where a game reads the streamed terrain of the frame in flight.
@@ -60,7 +58,7 @@ impl FrameTerrainHandle {
     /// [`FrameTerrainError`] outside a frame, in a frame whose route prepared no terrain, for a
     /// terrain that is not streamed, or when the frame's selection cannot be read. A previous
     /// frame's chunks are never returned.
-    pub fn current(&self) -> Lent {
+    pub fn current(&self) -> Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError> {
         let owner = Publications::current().ok_or(FrameTerrainError::OutsideFrame)?;
         self.0
             .borrow()
@@ -85,7 +83,11 @@ impl FrameTerrainHandle {
     }
 }
 
-fn lend(gpu: &SceneGpu, frame: &crate::frame::FrameUniform, viewport: [u32; 2]) -> Lent {
+fn lend(
+    gpu: &SceneGpu,
+    frame: &crate::frame::FrameUniform,
+    viewport: [u32; 2],
+) -> Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError> {
     match gpu.prepared_terrain_chunks(frame, viewport)? {
         Some(chunks) => Ok(Some(Rc::from(chunks))),
         None if gpu.has_terrain() => Err(FrameTerrainError::NotStreamed),

@@ -30,7 +30,7 @@ fn resident_frames_lend_their_streamed_terrain_to_game_features() {
         })
         .unwrap();
     prepared.cancel();
-    let lent = lent.lock().unwrap();
+    let lent = lent.answers();
     assert_eq!(lent.len(), 1);
     assert!(
         lent[0].is_ok_and(|count| count.is_some_and(|count| count > 0)),

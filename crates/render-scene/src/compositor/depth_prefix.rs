@@ -218,6 +218,7 @@ impl FrameRenderer {
         let mut requested = Vec::new();
         let mut operations = Vec::new();
         let mut extra = None;
+        self.plan_game_prefix(frame, &mut passes, &mut views)?;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);
             views.extend_from_slice(plan.views);
@@ -258,6 +259,36 @@ impl FrameRenderer {
             },
             &mut features,
         )
+    }
+
+    /// Plans the game's passes after the depth prepass into the prefix, immediately after the
+    /// prepass and before the depth levels that read it, with the camera of the frame the prefix
+    /// belongs to. A renderer whose game has no depth-prefix feature plans nothing.
+    fn plan_game_prefix(
+        &mut self,
+        frame: &crate::frame::FrameUniform,
+        passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(), FrameError> {
+        if !self.chain.has_prefix_features() {
+            return Ok(());
+        }
+        self.game_camera
+            .set(&super::FrameCamera::of(frame, self.frame_slot));
+        let stock = passes.len();
+        self.chain.plan_prefix_features(passes, views)?;
+        let mut game: Vec<_> = passes.drain(stock..).collect();
+        if game.is_empty() {
+            return Ok(());
+        }
+        super::forward_order::forward_order(&mut game);
+        // A game pass after the prepass is refused at planning when the list has no prepass.
+        let after = 1 + passes
+            .iter()
+            .rposition(|pass| pass.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass)
+            .expect("a planned game prefix pass follows the prepass");
+        passes.splice(after..after, game);
+        Ok(())
     }
 
     fn encode_prefix_plan(

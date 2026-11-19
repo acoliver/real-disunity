@@ -15,6 +15,8 @@ mod layers;
 mod lighting;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/prefix.rs"]
+mod prefix;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
 #[path = "game_passes/replacement.rs"]

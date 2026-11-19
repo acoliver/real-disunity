@@ -192,7 +192,7 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::with_pipelines(scene, size, configure, |device| {
+        Self::with_pipelines(scene, (size, view(size)), configure, |device| {
             ScenePipelines::new(device, FORMAT)
         })
     }
@@ -205,10 +205,20 @@ impl Rig {
         ssao: worldrunner_render_plan::SceneSsao,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
+        Self::with_ssao_view(scene, (size, view(size)), ssao, configure)
+    }
+
+    /// [`Self::with_ssao`] seen from `camera` rather than the straight-down orthographic view.
+    pub fn with_ssao_view(
+        scene: &RenderScene,
+        (size, camera): ([u32; 2], SceneView),
+        ssao: worldrunner_render_plan::SceneSsao,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
         let hdr = wgpu::TextureFormat::Rgba16Float;
         Self::with_pipelines(
             scene,
-            size,
+            (size, camera),
             |settings| {
                 settings.frame = FrameConfig::new(size, hdr, 1);
                 settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
@@ -221,7 +231,7 @@ impl Rig {
 
     fn with_pipelines(
         scene: &RenderScene,
-        size: [u32; 2],
+        (size, camera): ([u32; 2], SceneView),
         configure: impl FnOnce(&mut RendererConfiguration),
         pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
     ) -> Self {
@@ -234,8 +244,7 @@ impl Rig {
         let pipelines = pipelines(context.device());
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
-        let view = view(size);
-        let frame = FrameUniform::unlit(&view);
+        let frame = FrameUniform::unlit(&camera);
         gpu.set_frame(context.queue(), frame);
         Self {
             context,

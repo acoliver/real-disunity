@@ -86,8 +86,11 @@ pub struct FrameShadows {
 /// feature reads them in `prepare` and `draw` of the same frame. A route without shadows
 /// publishes nothing.
 ///
-/// A game pass that samples [`FrameShadows::depth`] declares no read of it. Every game place sits
-/// after the shadow casters in the forward frame, and the device orders the casters' writes
+/// A game pass that samples [`FrameShadows::depth`] declares no read of it. Every game place
+/// whose feature may read the cascades sits after the shadow casters in the forward frame (the
+/// depth-prefix feature reads no lent input; see
+/// [`GameFeatureFactory::build_depth_prefix`](super::GameFeatureFactory::build_depth_prefix)),
+/// and the device orders the casters' writes
 /// before the pass's samples within the frame's encoder.
 /// [`GamePassSpec::reading`](super::GamePassSpec::reading) resolves names against the game's own
 /// targets and refuses a stock resource.

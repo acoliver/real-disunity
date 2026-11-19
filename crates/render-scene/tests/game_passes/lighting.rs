@@ -242,7 +242,7 @@ fn an_unshadowed_frame_lends_no_shadow_and_no_occlusion_it_does_not_compute() {
     );
 }
 
-fn ssao() -> SceneSsao {
+pub(super) fn ssao() -> SceneSsao {
     SceneSsao {
         receiver: SceneSsaoReceiver::Nearest,
         depth_footprint: SceneSsaoDepthFootprint::default(),

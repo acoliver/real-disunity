@@ -64,7 +64,7 @@ A group may also leave textures for the passes after it. `FrameOperations::produ
 
 ### Game places in the pass list
 
-`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::BeforeOpaque`, `AfterOpaque` and `AfterTransparent` name where a producer of the stock forward frame places them; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
+`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::AfterDepthPrepass`, `BeforeOpaque`, `AfterOpaque` and `AfterTransparent` name where a producer of the stock forward frame places them; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
 
 ```rust,ignore
 // In a feature's `plan`: one pass before Opaque that writes `target a`, one that samples it.
@@ -74,7 +74,11 @@ let reader = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
 let declaration = context.pass(writer)?;
 ```
 
-`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens` and the forward-order test in `render-scene`.
+`GamePlace::AfterDepthPrepass` passes belong to the depth prefix: they load and write the prepass's depth and colour products, so the depth pyramid, the occlusion metadata, SSAO and Opaque read what they added. A frozen plan is held to that. Such a pass must follow the `DepthNormalPrepass` entry, and the `DepthPyramid`, `OcclusionMetadata`, `Ssao` stages, `OpaqueGbuffer` and `Opaque` must follow it (`FrameError::StockOrder`). The last prefix entry (prepass or game pass after it) that writes a depth completes it: a read of Opaque's depth before that entry is `FrameError::IncompleteDepth`, and an `OpaqueGbuffer` producer that tests depth before it is `FrameError::AttachmentContract`.
+
+A route that submits the depth prefix ahead of the frame (`PostChain::encode_geometry_prefix`) runs these passes inside it. The chain holds the features that draw them as prefix participants, registered with `PostChain::register_prefix`. Before encoding a prefix, the caller plans them into the prefix's pass list with `PostChain::plan_prefix_features` and orders the list. `encode_geometry_prefix` then prepares and draws only those participants beside the borrowed prefix features, parks every other retained feature, and restores them in registration order. In the frame that completes the prefix, a participant whose declared entries the prefix completed is neither prepared, committed nor drawn again. A participant whose entries the prefix did not complete runs as usual, as it does in every frame drawn whole.
+
+`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens`, `frame/frozen_prefix_tests.rs` and the forward-order test in `render-scene`.
 
 ## Typed operations
 

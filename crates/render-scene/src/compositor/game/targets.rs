@@ -422,11 +422,30 @@ pub(super) struct FrameEffect {
 #[derive(Clone)]
 pub struct GameTargets {
     store: Arc<TargetStore>,
+    /// Plans the passes after the depth prepass, and only those.
+    depth_prefix: bool,
 }
 
 impl GameTargets {
     pub(crate) fn new(store: Arc<TargetStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            depth_prefix: false,
+        }
+    }
+
+    /// The targets as a factory's depth-prefix feature plans with them.
+    pub(crate) fn for_depth_prefix(store: Arc<TargetStore>) -> Self {
+        Self {
+            store,
+            depth_prefix: true,
+        }
+    }
+
+    /// Whether these targets plan the passes after the depth prepass, the only place a
+    /// depth-prefix feature draws in.
+    pub fn depth_prefix(&self) -> bool {
+        self.depth_prefix
     }
 
     /// The texture of a declared target, for a sampled view or a copy. The texture is the same

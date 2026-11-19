@@ -28,7 +28,7 @@ use worldrunner_render_scene::{
     },
     shadows::{
         DirectionalShadowSettings, ShadowedScene,
-        sdsm::{AdoptionPolicy, RangeFit, SdsmSettings},
+        sdsm::{AdoptedFit, AdoptionPolicy, RangeFit, SdsmSettings},
     },
     wgpu,
 };
@@ -407,7 +407,7 @@ fn lit_scene() -> RenderScene {
 }
 
 /// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
-fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
+pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
     let rig = Rig::new(&quad_scene(), SIZE, |settings| {
         settings.game_passes = inventory;
     });
@@ -449,6 +449,19 @@ fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
 
 /// Captures one frame with the rig's renderer and returns its colour.
 fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+    capture_fit(rig, scene, frame);
+    let mut encoder = rig
+        .context
+        .submission()
+        .begin(rig.context.device())
+        .unwrap();
+    rig.renderer.targets().encode_resolve(&mut encoder);
+    encoder.finish().submit().unwrap();
+    rig.read(rig.renderer.targets().texture())
+}
+
+/// Captures one frame with the rig's renderer and returns the fit it adopted.
+pub(super) fn capture_fit(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> AdoptedFit {
     let targets = rig.renderer.targets();
     let color =
         AttachmentView::new(ResourceRef::new("scene color"), targets.scene().texture()).unwrap();
@@ -465,15 +478,7 @@ fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]>
             scene,
         )
         .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));
-    assert!(fit.is_some(), "frame {frame} adopted its own fit");
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
+    fit.unwrap_or_else(|| panic!("frame {frame} adopted its own fit"))
 }
 
 #[test]

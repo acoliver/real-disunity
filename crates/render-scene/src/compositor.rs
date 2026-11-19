@@ -40,7 +40,7 @@ pub use game::{
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
     FrameOcclusionHandle, FrameShadowHandle, FrameShadows, GameBuild, GameFeatureFactory,
     GamePassSpec, GamePasses, GameTargets, OcclusionDepth, PassTarget, ShadowCascade,
-    TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

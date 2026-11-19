@@ -40,7 +40,7 @@ pub use lent::FrameInputError;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
 pub use pass_target::PassTarget;
 pub(crate) use plan::reconcile_loads;
-pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass};
+pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes_frame_depth};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};

@@ -5,7 +5,7 @@ use worldrunner_render_program::unity::offscreen::frame::SourceDimension;
 use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 use worldrunner_unity_serialized::shader::{Shader, ShaderProperty};
 
-use super::super::defaults::{DefaultTexture, declared, declared_names};
+use super::super::defaults::{DefaultTexture, StandInLook, declared, declared_names};
 use super::super::ids;
 
 fn property(name: &str, kind: i32, default: &str, dimension: i32) -> ShaderProperty {
@@ -244,4 +244,60 @@ fn a_shader_lists_the_default_name_of_every_2d_texture_property_whether_or_not_t
             ("_Plain".to_owned(), String::new()),
         ]
     );
+}
+
+const MAGENTA: [u8; 4] = [255, 0, 255, 255];
+
+#[test]
+fn the_magenta_look_makes_every_default_magenta_in_its_own_dimension() {
+    for texture in DefaultTexture::ALL {
+        let plain = texture.texture_in(StandInLook::Declared);
+        let magenta = texture.texture_in(StandInLook::Magenta);
+        let texels = plain.bytes.len() / 4;
+        assert_eq!(magenta.bytes, MAGENTA.repeat(texels), "{texture:?}");
+        assert_eq!(
+            (
+                magenta.id,
+                magenta.dimension,
+                magenta.size,
+                magenta.graphics_format
+            ),
+            (plain.id, plain.dimension, plain.size, plain.graphics_format),
+            "{texture:?} keeps its name, dimension and format"
+        );
+    }
+    let dimensions: Vec<_> = DefaultTexture::ALL
+        .iter()
+        .map(|texture| texture.texture_in(StandInLook::Magenta).dimension)
+        .collect();
+    for wanted in [
+        SourceDimension::D2,
+        SourceDimension::Cube,
+        SourceDimension::D2Array(1),
+        SourceDimension::D3,
+    ] {
+        assert!(dimensions.contains(&wanted), "{wanted:?}");
+    }
+}
+
+#[test]
+fn the_declared_look_is_the_texture_the_table_names() {
+    for texture in DefaultTexture::ALL {
+        assert_eq!(
+            texture.texture_in(StandInLook::Declared).bytes,
+            texture.texture().bytes,
+            "{texture:?}"
+        );
+    }
+    assert_eq!(StandInLook::default(), StandInLook::Declared);
+}
+
+#[test]
+fn the_setting_turns_the_magenta_look_on_by_one_or_true_and_nothing_else_does() {
+    for on in ["1", "true", " 1\n"] {
+        assert_eq!(StandInLook::from_setting(Some(on)), StandInLook::Magenta);
+    }
+    for off in [None, Some("0"), Some("false"), Some(""), Some("yes")] {
+        assert_eq!(StandInLook::from_setting(off), StandInLook::Declared);
+    }
 }

@@ -160,6 +160,31 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Device features
+
+`GpuContext` builds every scene device, production and test, from one request
+(`device.rs` `requirements`). It requires the caller's features (block compression
+from `GpuContext::request`, timestamps under `TimingMode::Required`) and refuses an
+adapter without them by name. It enables these optional features wherever the
+adapter offers them, and leaves them off elsewhere:
+
+- `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`, so frame validation uses the
+  adapter's own sample counts (2x and 8x) and format capabilities.
+- `DEPTH32FLOAT_STENCIL8`, the combined depth-stencil frame depth.
+- `FLOAT32_FILTERABLE`. wgpu treats `R32Float`, `Rg32Float` and `Rgba32Float` as
+  unfilterable on a device without it, whatever the adapter's format flags say,
+  so a pass that samples a 32-bit float texture through a linear sampler (for
+  example a game pass reading an `R32Float` copy of device depth) binds only on a
+  device that enabled it. Such a pass should test
+  `device.features().contains(FLOAT32_FILTERABLE)`, not the adapter's flags, and
+  refuse by name without it.
+- `TIMESTAMP_QUERY` under `TimingMode::Optional`.
+
+`GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
+request. Tests: `src/device/tests.rs` (the request negotiated against adapters with
+and without `FLOAT32_FILTERABLE`, and an `R32Float` view bound to a filterable
+binding with a linear sampler on the engine device).
+
 ## Texture upload tiers
 
 `PreparedScene::apply_texture_tier` accepts a `TextureTierPolicy`, known adapter

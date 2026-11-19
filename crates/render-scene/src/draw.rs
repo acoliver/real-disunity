@@ -59,6 +59,7 @@ pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_draws;
 mod terrain_runtime;
+mod water_draws;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 #[cfg(test)]
@@ -70,6 +71,7 @@ pub use streaming::{
 pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
+pub use water_draws::WaterDraws;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;

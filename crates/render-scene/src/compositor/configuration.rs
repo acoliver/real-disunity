@@ -50,6 +50,10 @@ pub struct RendererConfiguration {
     /// Whether the stock passes draw the scene's terrain. A game that draws it with its own
     /// passes suppresses the stock draws; the terrain stays resident and updated either way.
     pub terrain_draws: super::TerrainDraws,
+    /// Whether the stock passes draw the scene's water. A game that draws it with its own
+    /// passes suppresses the stock draws; the water stays resident, with its environment and
+    /// surface inputs kept up to date, either way.
+    pub water_draws: super::WaterDraws,
 }
 impl RendererConfiguration {
     /// Request-owned replay targets, charged to the host capture reservation.
@@ -77,6 +81,7 @@ impl RendererConfiguration {
             additional: AllocationSet::default(),
             game_passes: super::GamePasses::default(),
             terrain_draws: super::TerrainDraws::Stock,
+            water_draws: super::WaterDraws::Stock,
         }
     }
     pub fn allocations(&self) -> AllocationSet {

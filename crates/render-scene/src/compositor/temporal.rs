@@ -247,6 +247,10 @@ mod temporal_water_tests;
 mod temporal_water_producer_tests;
 
 #[cfg(test)]
+#[path = "temporal_water_draws_tests.rs"]
+mod temporal_water_draws_tests;
+
+#[cfg(test)]
 #[path = "temporal_mip_bias_tests.rs"]
 mod temporal_mip_bias_tests;
 

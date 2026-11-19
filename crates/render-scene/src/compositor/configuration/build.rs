@@ -77,6 +77,7 @@ fn new_renderer(
         game: crate::compositor::game::Installed::default(),
         game_camera: super::super::FrameCameraHandle::default(),
         terrain_draws: settings.terrain_draws,
+        water_draws: settings.water_draws,
         chain: scene_chain(context, settings, factory)?,
         environment_conventions: [None; 2],
         water: None,

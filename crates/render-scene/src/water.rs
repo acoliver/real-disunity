@@ -32,9 +32,16 @@ use worldrunner_render_post::{
     PassSlot, PreparedFeature, ResourceRef,
 };
 
+/// What the registered water feature draws in the current frame. `feature` is the frame's prepared
+/// water when the stock passes draw it; with the draws suppressed there is none and the feature
+/// plans no pass.
 #[derive(Default)]
 pub(crate) struct WaterState {
     pub feature: Option<WaterFeature>,
+    pub draws: crate::draw::WaterDraws,
+    /// Whether a frame that drew the stock water may have left water in the reactive mask, which
+    /// the next frame that draws none has to clear.
+    pub mask_written: bool,
 }
 
 pub(crate) struct WaterRegistration {
@@ -59,8 +66,14 @@ impl worldrunner_render_post::FrameFeature for WaterRegistration {
         passes: &mut Vec<PassDeclaration>,
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
-        self.state
-            .borrow()
+        let state = self.state.borrow();
+        if state.draws == crate::draw::WaterDraws::Suppressed {
+            return Ok(FeatureDeclaration {
+                passes: Vec::new(),
+                effects: Vec::new(),
+            });
+        }
+        state
             .feature
             .as_ref()
             .ok_or(FrameError::WaterSettings("missing frame input"))?
@@ -79,16 +92,22 @@ impl PreparedFeature for WaterPrepared {
         &mut self,
         context: &mut worldrunner_render_post::PrepareContext<'_>,
     ) -> Result<(), FrameError> {
-        self.0
-            .borrow_mut()
+        let mut state = self.0.borrow_mut();
+        if state.draws == crate::draw::WaterDraws::Suppressed {
+            return Ok(());
+        }
+        state
             .feature
             .as_mut()
             .expect("validated water input")
             .prepare(context)
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.0
-            .borrow_mut()
+        let mut state = self.0.borrow_mut();
+        if state.draws == crate::draw::WaterDraws::Suppressed {
+            return;
+        }
+        state
             .feature
             .as_mut()
             .expect("validated water input")
@@ -506,6 +525,11 @@ pub(crate) struct WaterFeature {
     mask: Option<reactive::MaskDraw>,
 }
 impl WaterFeature {
+    /// Whether the frame draws the water's reactive mask pass.
+    pub(crate) fn writes_mask(&self) -> bool {
+        self.mask.is_some()
+    }
+
     pub fn schedule(
         &self,
         passes: &mut Vec<PassDeclaration>,

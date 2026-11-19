@@ -106,7 +106,7 @@ fn water(normal: u32) -> SceneWaterBody {
 /// Terrain in place of the ground quad, the caster mesh and an impostor card under a drawn sky,
 /// with SSAO for the depth prepass when `prepass` and, with `with_water`, water over the east
 /// half.
-fn source(with_water: bool, prepass: bool) -> RenderScene {
+pub(super) fn source(with_water: bool, prepass: bool) -> RenderScene {
     let base = super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
     let mut textures = base.resources().textures().to_vec();
     let normal = u32::try_from(textures.len()).unwrap();

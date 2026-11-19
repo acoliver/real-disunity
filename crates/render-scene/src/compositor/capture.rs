@@ -83,7 +83,7 @@ impl FrameRenderer {
                 .ssr
                 .as_ref()
                 .filter(|ssr| {
-                    self.water.is_some()
+                    self.stock_water().is_some()
                         && ssr.settings.hit_facing
                             == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
                 })
@@ -105,7 +105,7 @@ impl FrameRenderer {
                 .ssr
                 .as_ref()
                 .filter(|ssr| {
-                    self.water.is_some()
+                    self.stock_water().is_some()
                         && ssr.settings.hit_facing
                             == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
                 })

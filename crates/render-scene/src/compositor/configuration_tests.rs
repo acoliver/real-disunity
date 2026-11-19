@@ -131,7 +131,7 @@ fn initial_allocation_reports_loss_before_success_or_validation_failure() {
             settings,
             AllocationBudget(4096),
             |settings| {
-                let renderer = allocate(&context, settings, None, None);
+                let renderer = allocate(&context, settings, Carried::default());
                 context
                     .submission()
                     .report_device_loss("injected allocation loss".into());

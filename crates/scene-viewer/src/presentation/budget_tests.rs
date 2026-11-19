@@ -38,6 +38,7 @@ fn receiver_inventory_reserves_only_the_configured_shadow_bias_domain() {
         let reservation = receiver_reservation(shadows);
         assert_eq!(reservation, expected);
         let policy = PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients: reservation,
             budget: crate::PresentationBudget::default().into(),
             capture_pool: crate::CapturePoolPolicy::default(),
@@ -144,6 +145,7 @@ fn synthetic_inventory(size: Viewport, options: &crate::ViewerOptions) -> Result
     )?;
     let startup = crate::renderer::Startup::from(options);
     let policy = PresentationPolicy {
+        game: crate::GameRendering::default(),
         receiver_gradients:
             worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: startup.presentation_budget,
@@ -187,6 +189,7 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(300 * 1024 * 1024).into(),
@@ -224,6 +227,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         height: 8,
     };
     let policy = PresentationPolicy {
+        game: crate::GameRendering::default(),
         receiver_gradients:
             worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: crate::PresentationBudget(1).into(),
@@ -243,6 +247,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(50_000).into(),

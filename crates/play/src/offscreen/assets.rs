@@ -7,7 +7,7 @@
 //! are not inputs of this renderer and are left out.
 
 use worldrunner_disunity_runtime::{
-    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureSampler,
+    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureDimension, TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
@@ -39,6 +39,11 @@ const ARRAY_FORMATS: [u32; 3] = [1, 3, 4];
 /// `TextureFormat` and stores four bytes a texel; it goes to the device as the sRGB RGBA8 whose
 /// layout those bytes have.
 const FOUR_BYTE_ARRAY: u32 = 87;
+/// The `GraphicsFormat`s of DXT1 and DXT5 blocks, in sRGB and in linear.
+const DXT1_SRGB: u32 = 96;
+const DXT1_LINEAR: u32 = 97;
+const DXT5_SRGB: u32 = 100;
+const DXT5_LINEAR: u32 = 101;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -348,8 +353,8 @@ const MAX_ANISO_LEVEL: u32 = 16;
 /// because it is always sent as blocks.
 fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
     let (srgb, linear, bytes, name) = match stored.format {
-        10 => (96, 97, 8, "DXT1"),
-        12 => (100, 101, 16, "DXT5"),
+        10 => (DXT1_SRGB, DXT1_LINEAR, 8, "DXT1"),
+        12 => (DXT5_SRGB, DXT5_LINEAR, 16, "DXT5"),
         25 => (108, 109, 16, "BC7"),
         26 if stored.linear => (102, 102, 8, "BC4"),
         _ => return None,
@@ -357,10 +362,11 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
     Some((if stored.linear { linear } else { srgb }, bytes, name))
 }
 
-/// A stored texture's base level as a source texture, or for a stored 2D array (`depth` above one)
-/// every level of each layer as a source array. Rows stay bottom first, as the engine stores
-/// them, which is the orientation of a render texture's rows (see `camera::clip_from_gl`). It is
-/// read with `sampler`, or the fixed sampler without one.
+/// A stored texture's base level as a source texture, or for a stored 2D array (dimension
+/// [`TextureDimension::D2Array`], of one layer or more) every level of each layer as a source
+/// array. Rows stay bottom first, as the engine stores them, which is the orientation of a render
+/// texture's rows (see `camera::clip_from_gl`). It is read with `sampler`, or the fixed sampler
+/// without one.
 ///
 /// With `blocks`, a DXT1, DXT5, BC4 or BC7 texture whose sides are multiples of four goes to the
 /// device as the blocks it was stored in, which sample to the texels the decoder here produces
@@ -371,15 +377,20 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
 /// are shorter than its base level. A stored array fails when its bytes are not `depth` equal
 /// layers of whole mip chains, when it is in a format it has no layout for, and when it is DXT1 or
-/// DXT5 and `blocks` is false or its base level is not whole blocks: arrays are not decoded.
+/// DXT5 and `blocks` is false or its base level is not whole blocks: arrays are not decoded. A cube
+/// or a 3D texture fails by name, as neither is drawn yet and reading one as a 2D texture or an
+/// array would show the wrong texels.
 pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
     blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
-    if stored.depth > 1 {
-        return array_of(id, stored, sampler, blocks);
+    match stored.dimension {
+        TextureDimension::D2 => {}
+        TextureDimension::D2Array => return array_of(id, stored, sampler, blocks),
+        TextureDimension::Cube => return Err(PlayerTextureError::Dimension("cube")),
+        TextureDimension::D3 => return Err(PlayerTextureError::Dimension("3D")),
     }
     if stored.format == BC6H {
         return Ok(SourceTexture {
@@ -436,15 +447,23 @@ struct Verbatim {
 }
 
 impl Verbatim {
-    /// The layout of an array of `stored`, when its layers are uploaded as they are: DXT1 and DXT5
-    /// by `format`, and the four-byte `graphics_format` the engine has no `TextureFormat` for.
+    /// The layout of an array of `stored`, when its layers are uploaded as they are. The record's
+    /// `graphics_format` decides when it names one: DXT1 and DXT5 in either colour space, and the
+    /// four-byte 87 the engine has no `TextureFormat` for. A record without one, or with another,
+    /// falls back to its `TextureFormat`: DXT1 and DXT5 follow `linear`.
     fn of(stored: &PlayerTexture) -> Option<Self> {
-        if stored.graphics_format == FOUR_BYTE_ARRAY {
+        let by_graphics_format = match stored.graphics_format {
+            FOUR_BYTE_ARRAY => Some((RGBA8_SRGB, 1, 4, "GraphicsFormat 87")),
+            format @ (DXT1_SRGB | DXT1_LINEAR) => Some((format, BLOCK_SIDE, 8, "DXT1")),
+            format @ (DXT5_SRGB | DXT5_LINEAR) => Some((format, BLOCK_SIDE, 16, "DXT5")),
+            _ => None,
+        };
+        if let Some((graphics_format, side, bytes, name)) = by_graphics_format {
             return Some(Self {
-                graphics_format: RGBA8_SRGB,
-                side: 1,
-                bytes: 4,
-                name: "GraphicsFormat 87",
+                graphics_format,
+                side,
+                bytes,
+                name,
             });
         }
         let (graphics_format, bytes, name) = block_upload(stored)?;
@@ -638,6 +657,7 @@ fn level_rgba8(
         height,
         mips: 1,
         depth: 0,
+        dimension: TextureDimension::D2,
         bytes: bytes.to_vec(),
         ..*stored
     })

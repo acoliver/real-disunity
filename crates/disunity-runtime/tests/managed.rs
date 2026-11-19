@@ -316,7 +316,7 @@ fn assert_presentation_cameras(host: &mut DisunityHost, root: &Path) {
 }
 
 fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
-    use worldrunner_disunity_runtime::PlayerTexture;
+    use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
     const FIRST: u64 = 1 << 40;
     host.run_slice(&root.join("csharp/PortableFixture/texture.fixture"))
         .unwrap();
@@ -334,6 +334,7 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
             generation: 1,
             distance_spread: 0,
             depth: 0,
+            dimension: TextureDimension::D2,
             graphics_format: 0,
             bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
         }

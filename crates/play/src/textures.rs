@@ -83,6 +83,8 @@ pub enum PlayerTextureError {
         "a {format} texture of height {height} cannot be turned over, as its height is not a multiple of 4"
     )]
     Unaligned { format: &'static str, height: u32 },
+    #[error("a {0} texture is not drawn yet, only 2D and 2D array textures are")]
+    Dimension(&'static str),
     #[error("a texture of {depth} layers holds {actual} bytes, which are not {depth} equal layers")]
     Layers { depth: u32, actual: usize },
     #[error("{mips} mip levels are more than a {width}x{height} texture has")]

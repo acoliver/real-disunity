@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureDimension, TextureSampler};
 use worldrunner_render_program::unity::synthetic::shaders::{
     array_patch_parameters, no_cull, variant,
 };
@@ -111,6 +111,7 @@ fn array(format: u32, side: u32, (depth, mips): (u32, u32), bytes: Vec<u8>) -> P
         generation: 1,
         distance_spread: 0,
         depth,
+        dimension: TextureDimension::D2Array,
         graphics_format: 0,
         bytes,
     }
@@ -188,6 +189,26 @@ fn a_stored_array_with_a_mip_chain_uploads_every_level_of_every_layer() {
     let bytes = [layer(RED, BLUE), layer(CYAN, YELLOW)].concat();
     let stored = array(RGBA32, 2, (2, 2), bytes);
     // Column c shows level c % 2 of layer c / 2.
+    assert_eq!(
+        blitted("arraylevels", stored),
+        columns([RED, BLUE, CYAN, YELLOW])
+    );
+}
+
+#[test]
+fn an_array_the_engine_has_no_texture_format_for_reaches_the_device_by_its_graphics_format() {
+    // As the managed engine stores GraphicsFormat 87: `format` zero, four bytes a texel, and two
+    // layers of 2x2 texels each followed by its 1x1 second level.
+    let layer = |base: [u8; 4], next: [u8; 4]| [base.repeat(4), next.to_vec()].concat();
+    let stored = PlayerTexture {
+        graphics_format: 87,
+        ..array(
+            0,
+            2,
+            (2, 2),
+            [layer(RED, BLUE), layer(CYAN, YELLOW)].concat(),
+        )
+    };
     assert_eq!(
         blitted("arraylevels", stored),
         columns([RED, BLUE, CYAN, YELLOW])

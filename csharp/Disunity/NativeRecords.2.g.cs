@@ -12,6 +12,31 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
+    ///  2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
+    ///  `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
+    ///  read, `generation` is the generation the caller already holds; the call fills in everything,
+    ///  `present` is zero when the identity has no stored texture, and `changed` is nonzero when the
+    ///  stored sampler is newer than the generation passed.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunitySampler
+    {
+        /// <summary>
+        ///  Starts at 1 when the texture is first stored and rises each time a write changes a value.
+        /// </summary>
+        public ulong generation;
+        public uint wrap_u;
+        public uint wrap_v;
+        public uint wrap_w;
+        public uint filter;
+        public uint aniso_level;
+        public uint present;
+        public uint changed;
+        public float mip_bias;
+    }
+
+    /// <summary>
     ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
     ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
     ///  caller already holds and the three counts are the capacities of the buffers passed (all zero

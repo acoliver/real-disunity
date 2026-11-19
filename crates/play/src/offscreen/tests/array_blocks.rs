@@ -2,7 +2,7 @@
 //! the blocks and texels go up as they are stored, every level of every layer, and what the host
 //! cannot draw is refused by name.
 
-use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::unity::offscreen::frame::SourceDimension;
 
@@ -21,6 +21,7 @@ fn block_array(format: u32, side: u32, (depth, mips): (u32, u32), linear: bool) 
         height: side,
         mips,
         depth,
+        dimension: TextureDimension::D2Array,
         bytes: (0..=u8::MAX).cycle().take(layer * depth as usize).collect(),
         ..texture(format, linear, Vec::new())
     }
@@ -117,6 +118,7 @@ fn an_array_in_a_four_byte_graphics_format_with_no_texture_format_goes_up_as_it_
         height: 2,
         mips: 2,
         depth: 2,
+        dimension: TextureDimension::D2Array,
         bytes: (0..40).collect(),
         ..texture(0, false, Vec::new())
     };
@@ -131,4 +133,18 @@ fn an_array_in_a_four_byte_graphics_format_with_no_texture_format_goes_up_as_it_
             .bytes,
         stored.bytes
     );
+}
+
+#[test]
+fn a_block_array_takes_its_colour_space_from_the_graphics_format_when_the_record_names_one() {
+    // The record says linear DXT1 (97) and DXT5 (101) where `linear` says sRGB.
+    for (format, graphics_format) in [(10, 97), (12, 101)] {
+        let stored = PlayerTexture {
+            graphics_format,
+            ..block_array(format, 4, (2, 1), false)
+        };
+        let made = texture_of(TextureId(1), &stored, None, true).unwrap();
+        assert_eq!(made.graphics_format, graphics_format, "format {format}");
+        assert_eq!(made.bytes, stored.bytes);
+    }
 }

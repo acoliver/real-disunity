@@ -182,6 +182,269 @@ fn a_texture_stored_without_a_spread_reads_back_with_none() {
     assert_eq!(read(world, FIRST + 1, 0).1.distance_spread, 0);
 }
 
+const TEX_2D: u32 = 2;
+const TEX_3D: u32 = 3;
+const CUBE: u32 = 4;
+const TEX_2D_ARRAY: u32 = 5;
+/// `GraphicsFormat` of 8-bit RGBA in linear colour.
+const RGBA8_LINEAR: u32 = 8;
+
+/// A record of a texture of `dimension` with `depth` layers of 2x2 RGBA texels.
+fn layered(identity: u64, dimension: u32, depth: u32) -> DisunityTextureInfo {
+    DisunityTextureInfo {
+        width: 2,
+        height: 2,
+        dimension,
+        depth,
+        graphics_format: RGBA8_LINEAR,
+        ..info(identity, 16 * depth)
+    }
+}
+
+fn store_described(world: u64, description: &DisunityTextureInfo, bytes: &[u8]) -> DisunityResult {
+    let identity = description.identity;
+    unsafe {
+        disunity_texture_store(
+            world,
+            identity,
+            description,
+            bytes.as_ptr(),
+            bytes.len() as u32,
+        )
+    }
+}
+
+#[test]
+fn a_stored_array_reads_back_with_its_layers_dimension_and_format() {
+    let world = new_world();
+    let bytes: Vec<u8> = (0..64).collect();
+    let array = layered(FIRST + 1, TEX_2D_ARRAY, 4);
+    assert_eq!(store_described(world, &array, &bytes).code, 0);
+    let (result, out, read_back) = read(world, FIRST + 1, 64);
+    assert_eq!(result.code, 0);
+    assert_eq!(read_back, bytes);
+    assert_eq!(
+        (out.depth, out.dimension, out.graphics_format),
+        (4, TEX_2D_ARRAY, RGBA8_LINEAR)
+    );
+    assert_eq!(
+        (out.width, out.height, out.length, out.present),
+        (2, 2, 64, 1)
+    );
+}
+
+#[test]
+fn a_one_layer_array_is_an_array_and_storing_it_again_replaces_the_layers() {
+    let world = new_world();
+    let one = layered(FIRST, TEX_2D_ARRAY, 1);
+    assert_eq!(store_described(world, &one, &[1; 16]).code, 0);
+    let three = layered(FIRST, TEX_2D_ARRAY, 3);
+    assert_eq!(store_described(world, &three, &[2; 48]).code, 0);
+    let (_, out, bytes) = read(world, FIRST, 48);
+    assert_eq!(
+        (out.depth, out.dimension, out.generation),
+        (3, TEX_2D_ARRAY, 2)
+    );
+    assert_eq!(bytes, vec![2; 48]);
+}
+
+#[test]
+fn an_array_whose_length_is_not_a_whole_number_of_layers_is_refused() {
+    let world = new_world();
+    let array = layered(FIRST, TEX_2D_ARRAY, 4);
+    for length in [0usize, 1, 63, 65] {
+        let bytes = vec![0; length];
+        let described = DisunityTextureInfo {
+            length: length as u32,
+            ..array
+        };
+        assert_ne!(
+            store_described(world, &described, &bytes).code,
+            0,
+            "{length} bytes"
+        );
+    }
+    assert_eq!(read(world, FIRST, 0).1.present, 0);
+}
+
+#[test]
+fn an_array_without_a_graphics_format_is_refused() {
+    let world = new_world();
+    let array = DisunityTextureInfo {
+        graphics_format: 0,
+        ..layered(FIRST, TEX_2D_ARRAY, 2)
+    };
+    assert_ne!(store_described(world, &array, &[0; 32]).code, 0);
+    assert_eq!(read(world, FIRST, 0).1.present, 0);
+}
+
+#[test]
+fn an_array_needs_between_one_layer_and_the_depth_limit() {
+    let world = new_world();
+    let top = DisunityTextureInfo {
+        width: 1,
+        height: 1,
+        graphics_format: RGBA8_LINEAR,
+        dimension: TEX_2D_ARRAY,
+        ..info(FIRST, 2048)
+    };
+    let described = |depth, length| DisunityTextureInfo {
+        depth,
+        length,
+        ..top
+    };
+    assert_eq!(
+        store_described(world, &described(2048, 2048), &[0; 2048]).code,
+        0
+    );
+    assert_ne!(
+        store_described(world, &described(2049, 2049), &[0; 2049]).code,
+        0
+    );
+    assert_ne!(store_described(world, &described(0, 4), &[0; 4]).code, 0);
+}
+
+#[test]
+fn a_texture_with_no_depth_reads_back_as_it_did() {
+    let world = new_world();
+    assert_eq!(store(world, FIRST, &[1, 2, 3, 4, 5, 6, 7, 8]).code, 0);
+    let (_, plain, _) = read(world, FIRST, 8);
+    assert_eq!(
+        (
+            plain.depth,
+            plain.dimension,
+            plain.graphics_format,
+            plain.reserved
+        ),
+        (0, 0, 0, 0)
+    );
+    for (identity, dimension, depth) in [(FIRST + 1, TEX_2D, 0), (FIRST + 2, TEX_2D, 1)] {
+        let described = DisunityTextureInfo {
+            dimension,
+            depth,
+            ..info(identity, 8)
+        };
+        assert_eq!(store_described(world, &described, &[0; 8]).code, 0);
+        let (_, out, _) = read(world, identity, 0);
+        assert_eq!((out.dimension, out.depth), (dimension, depth));
+    }
+}
+
+#[test]
+fn a_cube_and_a_3d_record_read_back_unchanged() {
+    let world = new_world();
+    let cube = layered(FIRST, CUBE, 6);
+    let volume = DisunityTextureInfo {
+        height: 1,
+        ..layered(FIRST + 1, TEX_3D, 5)
+    };
+    let volume = DisunityTextureInfo {
+        length: 40,
+        ..volume
+    };
+    assert_eq!(store_described(world, &cube, &[7; 96]).code, 0);
+    assert_eq!(store_described(world, &volume, &[9; 40]).code, 0);
+    let (_, out, bytes) = read(world, FIRST, 96);
+    assert_eq!(
+        (out.dimension, out.depth, out.graphics_format),
+        (CUBE, 6, RGBA8_LINEAR)
+    );
+    assert_eq!(bytes, vec![7; 96]);
+    let (_, out, bytes) = read(world, FIRST + 1, 40);
+    assert_eq!((out.dimension, out.depth, out.height), (TEX_3D, 5, 1));
+    assert_eq!(bytes, vec![9; 40]);
+}
+
+#[test]
+fn a_cube_needs_six_square_faces_and_a_format() {
+    let world = new_world();
+    let cube = layered(FIRST, CUBE, 6);
+    let bad = [
+        DisunityTextureInfo {
+            depth: 5,
+            length: 80,
+            ..cube
+        },
+        DisunityTextureInfo {
+            height: 4,
+            length: 96,
+            ..cube
+        },
+        DisunityTextureInfo {
+            graphics_format: 0,
+            ..cube
+        },
+    ];
+    for described in bad {
+        let bytes = vec![0; described.length as usize];
+        assert_ne!(
+            store_described(world, &described, &bytes).code,
+            0,
+            "{described:?}"
+        );
+    }
+    assert_eq!(read(world, FIRST, 0).1.present, 0);
+}
+
+#[test]
+fn a_3d_texture_needs_a_format_and_whole_slices() {
+    let world = new_world();
+    let volume = layered(FIRST, TEX_3D, 4);
+    let bad = [
+        DisunityTextureInfo {
+            graphics_format: 0,
+            ..volume
+        },
+        DisunityTextureInfo {
+            length: 63,
+            ..volume
+        },
+        DisunityTextureInfo {
+            depth: 0,
+            length: 64,
+            ..volume
+        },
+    ];
+    for described in bad {
+        let bytes = vec![0; described.length as usize];
+        assert_ne!(
+            store_described(world, &described, &bytes).code,
+            0,
+            "{described:?}"
+        );
+    }
+    assert_eq!(read(world, FIRST, 0).1.present, 0);
+}
+
+#[test]
+fn a_dimension_the_engine_does_not_define_or_a_2d_texture_with_layers_is_refused() {
+    let world = new_world();
+    let mut bad = vec![DisunityTextureInfo {
+        depth: 2,
+        length: 8,
+        ..info(FIRST, 8)
+    }];
+    for dimension in [1, 6, 7, 99] {
+        bad.push(DisunityTextureInfo {
+            dimension,
+            ..layered(FIRST, TEX_2D_ARRAY, 2)
+        });
+    }
+    bad.push(DisunityTextureInfo {
+        reserved: 1,
+        ..info(FIRST, 8)
+    });
+    for described in bad {
+        let bytes = vec![0; described.length as usize];
+        assert_ne!(
+            store_described(world, &described, &bytes).code,
+            0,
+            "{described:?}"
+        );
+    }
+    assert_eq!(read(world, FIRST, 0).1.present, 0);
+}
+
 fn sampler_of(world: u64, identity: u64, known: u64) -> (DisunityResult, DisunitySampler) {
     let mut out = DisunitySampler {
         generation: known,

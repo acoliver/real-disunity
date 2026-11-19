@@ -1,7 +1,8 @@
 //! Stored meshes and textures as render-program's meshes and source textures.
 
 use worldrunner_disunity_runtime::{
-    MeshChannel as StoredChannel, MeshChannels, MeshRange, PlayerTexture, TextureSampler,
+    MeshChannel as StoredChannel, MeshChannels, MeshRange, PlayerTexture, TextureDimension,
+    TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
@@ -404,6 +405,7 @@ pub(super) fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTextur
         generation: 1,
         distance_spread: 0,
         depth: 0,
+        dimension: worldrunner_disunity_runtime::TextureDimension::D2,
         graphics_format: 0,
         bytes,
     }
@@ -470,6 +472,8 @@ fn a_texture_in_a_format_the_host_cannot_read_or_cut_short_is_an_error() {
 fn array(format: u32, depth: u32, bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
         depth,
+        dimension: TextureDimension::D2Array,
+        graphics_format: 8,
         ..texture(format, false, bytes)
     }
 }
@@ -501,11 +505,38 @@ fn a_stored_array_is_one_source_of_its_layers_in_the_order_the_engine_stored_the
 }
 
 #[test]
-fn a_layer_count_of_zero_or_one_is_a_plain_texture() {
+fn a_texture_of_the_2d_dimension_is_plain_whatever_layer_count_it_states() {
     for depth in [0, 1] {
-        let made = texture_of(TextureId(1), &array(4, depth, vec![5; 8]), None, false).unwrap();
+        let stored = PlayerTexture {
+            dimension: TextureDimension::D2,
+            ..array(4, depth, vec![5; 8])
+        };
+        let made = texture_of(TextureId(1), &stored, None, false).unwrap();
         assert_eq!(made.dimension, SourceDimension::D2, "depth {depth}");
         assert_eq!(made.bytes, [5; 8]);
+    }
+}
+
+#[test]
+fn a_one_layer_array_stays_an_array() {
+    let made = texture_of(TextureId(1), &array(4, 1, vec![5; 8]), None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::D2Array(1));
+    assert_eq!(made.bytes, [5; 8]);
+}
+
+#[test]
+fn a_cube_and_a_3d_texture_are_refused_by_name_and_not_read_as_an_array() {
+    use crate::textures::PlayerTextureError::Dimension;
+    for (dimension, name) in [
+        (TextureDimension::Cube, "cube"),
+        (TextureDimension::D3, "3D"),
+    ] {
+        let stored = PlayerTexture {
+            dimension,
+            ..array(4, 6, vec![0; 48])
+        };
+        let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
+        assert_eq!(error, Dimension(name));
     }
 }
 

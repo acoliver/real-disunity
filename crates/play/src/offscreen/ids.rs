@@ -25,6 +25,10 @@ const PROBE_SCRATCH: u64 = 1 << 62;
 /// Where the number of a test render's variant sits in a scratch copy's id, above any
 /// generation a world's render texture reaches. Variant 0 is the render as declared.
 const PROBE_VARIANT_SHIFT: u32 = 52;
+/// Set, with the render texture bit and without the temporary and scratch bits, in the ids of the
+/// screen's texture. A world render texture's id stays below
+/// [`PROBE_VARIANT_SHIFT`], so none shares them.
+const SCREEN: u64 = 1 << 60;
 /// Set in the id of a renderer that a mesh draw makes.
 const MESH_DRAW: u64 = 1 << 63;
 /// Set in the id of a material made from a world material and a renderer's own render queue.
@@ -61,6 +65,20 @@ pub fn temporary(name_id: i32, allocation: u32) -> TextureId {
     let name = u64::from(name_id.cast_unsigned());
     let count = u64::from(allocation) & TEMPORARY_ALLOCATIONS;
     TextureId(RENDER_TEXTURE | TEMPORARY | (count << 32) | name)
+}
+
+/// The texture of the screen, which a `CameraTarget` with no camera texture draws into. It has a
+/// colour format and depth bits, so its colour is what is shown and read back and its own depth
+/// buffer serves a draw that names it as the depth target, as a camera's render texture does.
+#[must_use]
+pub fn screen_color() -> TextureId {
+    TextureId(RENDER_TEXTURE | SCREEN)
+}
+
+/// Whether `id` names the screen's texture.
+#[must_use]
+pub fn is_screen(id: TextureId) -> bool {
+    id == screen_color()
 }
 
 /// Whether `id` names a temporary render texture.
@@ -113,10 +131,10 @@ pub fn mesh(identity: u64) -> MeshId {
     MeshId(identity)
 }
 
-/// The render texture a name stands for, or `None` for a stored texture's name, a scratch copy's
-/// and a temporary's.
+/// The render texture a name stands for, or `None` for a stored texture's name, a scratch copy's,
+/// a temporary's and the screen's.
 #[must_use]
 pub fn render_texture_of(id: TextureId) -> Option<RenderTextureId> {
-    (id.0 & RENDER_TEXTURE != 0 && id.0 & (PROBE_SCRATCH | TEMPORARY) == 0)
+    (id.0 & RENDER_TEXTURE != 0 && id.0 & (PROBE_SCRATCH | TEMPORARY | SCREEN) == 0)
         .then(|| RenderTextureId::from_bits(id.0 & !RENDER_TEXTURE))
 }

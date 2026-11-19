@@ -64,8 +64,8 @@ pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPage
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
 pub use streaming::{
-    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
-    TerrainGeometryRequest,
+    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
+    TerrainChunkViewError, TerrainGeometryRequest,
 };
 pub use terrain_draws::TerrainDraws;
 #[cfg(test)]

@@ -146,6 +146,7 @@ fn setup(
         profile,
         old.effects(),
         &crate::presentation::PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(2 * 1024 * 1024).into(),

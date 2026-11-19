@@ -4,8 +4,10 @@ use std::collections::BTreeMap;
 use crate::FrameTargets;
 
 mod frozen;
+mod game;
 mod operations;
 pub(crate) use frozen::validate_stock_order;
+pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
 
@@ -41,6 +43,10 @@ pub enum PassSlot {
     ReflectionTrace,
     ReflectionMip(u32),
     ScreenSpaceAfterTransparent,
+    /// A pass a game adds to the frame at the place `GamePlace` names. Its position in the
+    /// frame follows from that place, not from this enum's order; passes in one place run in the
+    /// order of their entries' occurrences.
+    Game(GamePlace),
 }
 
 /// Identity of one entry in an authored pass list: a role plus which appearance of
@@ -544,6 +550,7 @@ pub struct PrepareContext<'a> {
     publications: worldrunner_render_gpu::submission::Publications,
     staged: Vec<Staged>,
     views: Vec<AttachmentView>,
+    passes: Vec<PassDeclaration>,
     completed: Vec<PassEntry>,
 }
 impl<'a> PrepareContext<'a> {
@@ -558,6 +565,7 @@ impl<'a> PrepareContext<'a> {
             publications,
             staged: Vec::new(),
             views: Vec::new(),
+            passes: Vec::new(),
             completed: Vec::new(),
         })
     }
@@ -577,6 +585,9 @@ impl<'a> PrepareContext<'a> {
     }
     pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
         self.views = views.to_vec();
+    }
+    pub(crate) fn set_passes(&mut self, passes: &[PassDeclaration]) {
+        self.passes = passes.to_vec();
     }
     /// Frame-local checked inputs, available only after full plan validation.
     pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
@@ -750,6 +761,7 @@ pub struct BorrowedFeature<'a> {
 #[derive(Clone, Debug)]
 pub struct AttachmentView {
     retained: bool,
+    initialized_allocation: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -765,6 +777,23 @@ impl AttachmentView {
     /// Whether this view declares initialized contents from an earlier ordered submission.
     pub fn retained(&self) -> bool {
         self.retained
+    }
+
+    /// Declares that the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission in other layers, without claiming any for this view's own layer. Every
+    /// view of a texture whose allocation is initialized is declared the same way, so the frame
+    /// imports the texture once whichever of its layers the frame attaches. The caller must
+    /// retain the allocation and submit encoders in preparation order.
+    #[must_use]
+    pub fn with_initialized_allocation(mut self) -> Self {
+        self.initialized_allocation = true;
+        self
+    }
+
+    /// Whether the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission: this view's own, or another layer's.
+    pub fn allocation_initialized(&self) -> bool {
+        self.retained || self.initialized_allocation
     }
 
     pub const fn resource(&self) -> ResourceRef {
@@ -811,6 +840,7 @@ impl AttachmentView {
         Ok(Self {
             resource,
             retained: self.retained,
+            initialized_allocation: self.initialized_allocation,
             view: self.view.clone(),
             format: self.format,
         })
@@ -836,6 +866,7 @@ impl AttachmentView {
             resource,
             view,
             retained: false,
+            initialized_allocation: false,
             format: texture.format(),
         })
     }

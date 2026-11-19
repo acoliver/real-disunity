@@ -73,6 +73,20 @@ Transparent entries (`TransparentWater` and `TransparentAlpha`) follow the same 
 
 A group may also leave textures for the passes after it. `FrameOperations::produces` returns the `OperationsOutput`s (resource, format and size of one mip and layer) the work leaves written; the default returns none. Validation walks the passes in order and, before it validates pass `i`, adds the outputs of every group positioned at or before `i` to the resources that have a producer. A feature's declared read and a read-only depth `Load` of an output therefore validate after the group, and the same read before the group's position, after a `None` group, with no group, or at another `ResourceRef::version` is `FrameError::MissingProducer`. The edge is one way: a geometry pass that attaches an output as anything but a read-only depth (a clear, a store, a load that stores back) is `FrameError::OffscreenWrite { pass, resource }`. The host hands the executor each output as an `AttachmentView` marked `with_retained_contents`, since the geometry registry imports the texture itself; an output with no such view, or whose format or size differs from the view's, is `FrameError::AttachmentView`. A retained view that a group outputs has no producer until the group's position, where a retained view that no group outputs has one from the start. `AdmittedOffscreen` in `worldrunner-render-program` reports the textures the host exported with `OffscreenOperations::export` before admission.
 
+### Game places in the pass list
+
+`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::BeforeOpaque`, `AfterOpaque` and `AfterTransparent` name where a producer of the stock forward frame places them; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
+
+```rust,ignore
+// In a feature's `plan`: one pass before Opaque that writes `target a`, one that samples it.
+let writer = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
+let reader = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
+// In `prepare`: the exact attachments of the entry being recorded.
+let declaration = context.pass(writer)?;
+```
+
+`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens` and the forward-order test in `render-scene`.
+
 ## Typed operations
 
 `contracts::TypedOperation` lists work for the executor: raster passes with checked draw packets (`TypedWork::Draws`), fullscreen draws, compute, resolves and copies. `ResourceRegistry::compile_operations` checks the whole list before anything is encoded: every operation declares its texture and buffer uses, each write takes the next version of the subresource it writes, and each read names the version it reads. A read without a producer, a read of a stale version, overlapping incompatible access, a missing usage flag and a stale or leased-out allocation are `ContractError`s. `CompiledOperations::encode_checked` encodes the list in order and `PassId::Operation` names each operation in the frame's timing.

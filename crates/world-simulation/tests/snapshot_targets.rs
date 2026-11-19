@@ -51,6 +51,7 @@ fn render_texture(world: &mut World, [width, height]: [u32; 2]) -> RenderTexture
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

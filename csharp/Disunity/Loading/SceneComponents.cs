@@ -14,7 +14,7 @@ internal sealed partial class SceneLoader
         "GUILayer" => Toggle(owner.AddComponent<GUILayer>(), value),
         "FlareLayer" => Toggle(owner.AddComponent<FlareLayer>(), value),
         "SpriteRenderer" => SpriteRenderer(owner, value),
-        "Rigidbody2D" => Body(owner, value, where),
+        "Rigidbody2D" => Body(owner, value),
         "Collider2D" => Collider(owner, value),
         "Tilemap" => Tilemap(owner, value, where),
         "Canvas" => Canvas(owner, value, where),
@@ -102,7 +102,7 @@ internal sealed partial class SceneLoader
         return renderer;
     }
 
-    private Rigidbody2D Body(GameObject owner, JsonElement value, string where)
+    private Rigidbody2D Body(GameObject owner, JsonElement value)
     {
         var body = owner.AddComponent<Rigidbody2D>();
         body.bodyType = value.Variant<RigidbodyType2D>("body_type");
@@ -111,11 +111,7 @@ internal sealed partial class SceneLoader
         body.constraints = (RigidbodyConstraints2D)value.Int("constraints");
         if (value.Index("material") is { } material) body.sharedMaterial = (PhysicsMaterial2D)assets[material];
         body.simulated = value.Bool("simulated");
-        var interpolation = value.Variant<RigidbodyInterpolation2D>("interpolation");
-        if (interpolation == RigidbodyInterpolation2D.Extrapolate)
-            differences.Add($"{where}: Extrapolate is not applied; the body draws at its last physics step");
-        else
-            body.interpolation = interpolation;
+        body.interpolation = value.Variant<RigidbodyInterpolation2D>("interpolation");
         return body;
     }
 

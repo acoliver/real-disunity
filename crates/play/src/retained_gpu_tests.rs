@@ -12,9 +12,9 @@ use super::ui_tests::{fixture_config, fixture_turn};
 use super::*;
 use std::{path::PathBuf, time::Instant};
 
-use crate::PreparedPlayer;
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
+use crate::{DepthRange, PreparedPlayer};
 
 const SIZE: u32 = 64;
 /// The update that reads the second colour is the fourth `Update` of the script: one in the
@@ -54,10 +54,18 @@ fn play(gpu_work: GpuWork) -> Played {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/readback.fixture"),
         data: data.path().to_owned(),
+        depth: DepthRange::default(),
+        globals: Vec::new(),
     };
     let window = readback_window(gpu_work);
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(gpu_work, &prepared.data, &mut source);
+    let gpu = window_gpu(
+        gpu_work,
+        &prepared.data,
+        prepared.depth,
+        &prepared.globals,
+        &mut source,
+    );
     assert_eq!(
         gpu.is_some(),
         gpu_work == GpuWork::Auto,

@@ -14,7 +14,7 @@ use std::{path::PathBuf, time::Instant};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_scene_viewer::SharedGpu;
 
-use crate::PreparedPlayer;
+use crate::{DepthRange, PreparedPlayer};
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
 
@@ -91,9 +91,17 @@ fn play_screen_fixture(gpu_work: GpuWork) -> (PlayerRetainedDriver, Vec<u64>) {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/screen.fixture"),
         data: data.path().to_owned(),
+        depth: DepthRange::default(),
+        globals: Vec::new(),
     };
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(gpu_work, &prepared.data, &mut source);
+    let gpu = window_gpu(
+        gpu_work,
+        &prepared.data,
+        prepared.depth,
+        &prepared.globals,
+        &mut source,
+    );
     assert_eq!(
         gpu.is_some(),
         gpu_work == GpuWork::Auto,
@@ -152,9 +160,17 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/resize-flush.fixture"),
         data: data.path().to_owned(),
+        depth: DepthRange::default(),
+        globals: Vec::new(),
     };
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(GpuWork::Auto, &prepared.data, &mut source);
+    let gpu = window_gpu(
+        GpuWork::Auto,
+        &prepared.data,
+        prepared.depth,
+        &prepared.globals,
+        &mut source,
+    );
     assert!(gpu.is_some(), "the test needs a GPU adapter");
     let (mut viewer, mut driver) =
         start_window(&prepared, window(GpuWork::Auto, &[]), gpu).unwrap();

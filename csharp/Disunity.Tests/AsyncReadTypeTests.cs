@@ -15,5 +15,6 @@ internal static unsafe class AsyncReadTypeTests
         Expect.That(array.ReadCommands[0].Buffer == buffer && array.ReadCommands[0].Offset == 4 && array.ReadCommands[0].Size == 8, "the first command");
         Expect.That(default(ReadCommandArray).ReadCommands == null && default(ReadCommandArray).CommandCount == 0, "a default array holds no command");
         Console.WriteLine("PASS: ReadCommand and ReadCommandArray hold the reads they point at");
+        AsyncReadHandleAcceptanceTests.Run();
     }
 }

@@ -19,7 +19,7 @@
 //!
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -36,8 +36,8 @@ mod frame;
 use crate::PlayError;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
-    Report, ScreenImage, Settings, WorkTrace,
+    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
+    Reclaimed, Report, ScreenImage, Settings, SuppliedGlobal, WorkTrace, supplied_line,
 };
 
 /// The most dispatch traces a report keeps.
@@ -71,6 +71,35 @@ fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) ->
     })
 }
 
+/// The most names the unset constants line gives.
+const TOP_UNSET: usize = 8;
+
+/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
+/// and `and N more` for those past them. There is no line for no names.
+fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
+    if unset.is_empty() {
+        return None;
+    }
+    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
+    let line = format!(
+        "constants or state properties no layer set: {}",
+        shown.join(", ")
+    );
+    Some(match unset.len().saturating_sub(top) {
+        0 => line,
+        more => format!("{line}, and {more} more"),
+    })
+}
+
+/// The settings of a player run's offscreen work: camera renders drawing with `depth`, and
+/// `supplied` as the fallback globals every frame starts from.
+fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal]) -> Settings {
+    Settings {
+        supplied: supplied.to_vec(),
+        ..Settings::cameras().with_depth(depth)
+    }
+}
+
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalListing {
@@ -100,6 +129,8 @@ impl GlobalListing {
 pub struct GpuWorkReport {
     /// The adapter and the buffer limits of the device the work ran on.
     pub device: String,
+    /// The line saying which globals the run supplied, when it supplied any.
+    pub supplied_globals: Option<String>,
     /// Frames the player has run the frame path for, those without work included.
     pub frames: u64,
     /// The textures the globals held at each piece of work that listed any, in order.
@@ -167,6 +198,9 @@ pub struct GpuWorkReport {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The constant buffer members and fixed-state properties no layer set for a draw (see
+    /// `Report::unset_constants`), over every piece of work.
+    pub unset_constants: BTreeSet<String>,
     /// What the adapter mapped, by description (see `Report::census`).
     pub census: BTreeMap<String, usize>,
     /// What the culling records and renderer lists did, by description, and the draws the lists
@@ -276,6 +310,7 @@ impl GpuWorkReport {
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
+        self.unset_constants.extend(report.unset_constants.clone());
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
         }
@@ -318,9 +353,23 @@ impl GpuWorkReport {
         )
     }
 
+    fn print_unset_constants(&self) {
+        if let Some(line) = unset_constants_line(&self.unset_constants, TOP_UNSET) {
+            eprintln!("[gpu] {line}");
+        }
+    }
+
+    /// The lines that say what the run was given: the device and the globals it supplied.
+    fn print_run_setup(&self) {
+        eprintln!("[gpu] {}", self.device);
+        if let Some(line) = &self.supplied_globals {
+            eprintln!("[gpu] {line}");
+        }
+    }
+
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
-        eprintln!("[gpu] {}", self.device);
+        self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
             self.frames_with_work, self.flushes, self.records, self.built, self.dispatches
@@ -374,6 +423,7 @@ impl GpuWorkReport {
                 eprintln!("[gpu] {title}: {name}: {count}");
             }
         }
+        self.print_unset_constants();
         for trace in &self.traces {
             for line in trace.lines() {
                 eprintln!("[gpu] {line}");
@@ -441,29 +491,45 @@ impl PlayerGpu {
         self.offscreen.borrow().storage_budget()
     }
 
+    /// Whether the host's render-program state has depth reversed.
+    #[must_use]
+    pub fn reversed_depth(&self) -> bool {
+        self.offscreen.borrow().reversed_depth()
+    }
+
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`.
+    /// `data`, depth running as `depth` says, and the globals in `supplied` as fallbacks under
+    /// the world's own (see `SuppliedGlobal`).
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(data: &Path) -> Result<Self, String> {
+    pub fn headless(
+        data: &Path,
+        depth: DepthRange,
+        supplied: &[SuppliedGlobal],
+    ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::headless_with_inputs(data, &inputs)
+        Self::headless_with_inputs(data, &inputs, run_settings(depth, supplied))
     }
 
-    fn headless_with_inputs(data: &Path, inputs: &PlayerStartupInputs) -> Result<Self, String> {
+    fn headless_with_inputs(
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+        settings: Settings,
+    ) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        Self::headless_on_adapter(&adapter, data, inputs)
+        Self::headless_on_adapter(&adapter, data, inputs, settings)
     }
 
     fn headless_on_adapter(
         adapter: &wgpu::Adapter,
         data: &Path,
         inputs: &PlayerStartupInputs,
+        settings: Settings,
     ) -> Result<Self, String> {
         let wanted = player_device(adapter, inputs);
         let (device, queue, _) = pollster::block_on(request_device(adapter, &wanted.requirements))
@@ -476,29 +542,37 @@ impl PlayerGpu {
             data,
             &format!("adapter {} ({:?})", info.name, info.backend),
             wanted.choice.source,
+            settings,
         )
     }
 
     /// The host on the one device `source` makes for a window: the adapter's requirements and
     /// budget come from the same function the headless player uses, and the device meets the
     /// viewer's own needs as well. The window's frames and this player's work then share the
-    /// device and its submission order.
+    /// device and its submission order. `depth` and `supplied` mean what they do for
+    /// [`PlayerGpu::headless`].
     ///
     /// # Errors
     /// Fails with the reason when `source` has no adapter or cannot make the device, or the
     /// program runtime cannot reserve its arena on it.
-    pub(crate) fn shared(source: &mut dyn DeviceSource, data: &Path) -> Result<Self, String> {
+    pub(crate) fn shared(
+        source: &mut dyn DeviceSource,
+        data: &Path,
+        depth: DepthRange,
+        supplied: &[SuppliedGlobal],
+    ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::shared_with_inputs(source, data, &inputs)
+        Self::shared_with_inputs(source, data, &inputs, run_settings(depth, supplied))
     }
 
     fn shared_with_inputs(
         source: &mut dyn DeviceSource,
         data: &Path,
         inputs: &PlayerStartupInputs,
+        settings: Settings,
     ) -> Result<Self, String> {
         let adapter = source.adapter()?;
-        Self::shared_on_adapter(source, &adapter, data, inputs)
+        Self::shared_on_adapter(source, &adapter, data, inputs, settings)
     }
 
     fn shared_on_adapter(
@@ -506,6 +580,7 @@ impl PlayerGpu {
         adapter: &wgpu::Adapter,
         data: &Path,
         inputs: &PlayerStartupInputs,
+        settings: Settings,
     ) -> Result<Self, String> {
         let wanted = player_device(adapter, inputs);
         let (device, authority) = source.device(&wanted.requirements)?;
@@ -520,6 +595,7 @@ impl PlayerGpu {
                 info.name, info.backend
             ),
             wanted.choice.source,
+            settings,
         )
     }
 
@@ -527,7 +603,8 @@ impl PlayerGpu {
     /// viewer's, so the player's offscreen work and the caller's frames share one device and one
     /// submission order. The runtime may hold `budget` bytes of storage. The device keeps the
     /// limits and features it was made with: the arena fits its limits, and work it cannot run is
-    /// left out by name, as on an adapter that lacks a feature.
+    /// left out by name, as on an adapter that lacks a feature. Depth runs forward and no globals
+    /// are supplied, as for any library caller that builds [`Settings`] itself.
     ///
     /// # Errors
     /// Fails with the reason when the program runtime cannot reserve its arena on the device.
@@ -544,11 +621,12 @@ impl PlayerGpu {
             data,
             "the caller's device",
             "caller",
+            Settings::cameras(),
         )
     }
 
     /// The runtime, its arena and the host on `device`, with the report naming the device as
-    /// `origin` and the budget as coming from `source`.
+    /// `origin` and the budget as coming from `source`, drawing as `settings` say.
     fn build(
         device: wgpu::Device,
         authority: SubmissionAuthority,
@@ -556,6 +634,7 @@ impl PlayerGpu {
         data: &Path,
         origin: &str,
         source: &str,
+        settings: Settings,
     ) -> Result<Self, String> {
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
@@ -586,7 +665,7 @@ impl PlayerGpu {
             limits.min_uniform_buffer_offset_alignment,
             budget.0,
         );
-        let settings = Settings::cameras();
+        let supplied_globals = supplied_line(&settings.supplied);
         let offscreen = OffscreenHost::new(
             runtime,
             arena,
@@ -597,6 +676,7 @@ impl PlayerGpu {
             offscreen: Rc::new(RefCell::new(offscreen)),
             report: Rc::new(RefCell::new(GpuWorkReport {
                 device: device_line,
+                supplied_globals,
                 ..GpuWorkReport::default()
             })),
             authority,

@@ -11,6 +11,8 @@ fn fixture() -> PreparedPlayer {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/screen.fixture"),
         data: tempfile::tempdir().unwrap().keep(),
+        depth: DepthRange::default(),
+        globals: Vec::new(),
     }
 }
 

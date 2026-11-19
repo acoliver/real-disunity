@@ -9,6 +9,9 @@ use crate::unity::layout::LayoutError;
 use crate::unity::shader::ResolveError;
 use crate::unity::state::StateError;
 
+use super::frame::RenderDimension;
+use super::slot_dimension;
+
 #[derive(Debug, thiserror::Error)]
 pub enum OffscreenError {
     #[error(transparent)]
@@ -151,6 +154,16 @@ pub enum OffscreenError {
         name: String,
         texture: TextureId,
         layers: u32,
+    },
+    #[error(
+        "the shader reads {name} as {} and texture {texture:?} is {stored}",
+        slot_dimension::view_name(.declared)
+    )]
+    SlotDimensionMismatch {
+        name: String,
+        texture: TextureId,
+        declared: wgpu::TextureViewDimension,
+        stored: RenderDimension,
     },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },

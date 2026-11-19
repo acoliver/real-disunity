@@ -38,6 +38,19 @@ pub enum RenderDimension {
     Unknown(u32),
 }
 
+impl std::fmt::Display for RenderDimension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::D2 => f.write_str("a 2D texture"),
+            Self::D2Array(layers) => write!(f, "a 2D array of {layers} layers"),
+            Self::D3(depth) => write!(f, "a 3D texture of {depth} slices"),
+            Self::Cube => f.write_str("a cube"),
+            Self::CubeArray(cubes) => write!(f, "a cube array of {cubes} cubes"),
+            Self::Unknown(code) => write!(f, "a texture of unknown dimension {code}"),
+        }
+    }
+}
+
 impl RenderDimension {
     /// The array layers, or the slices of a volume, the storage holds: 1 for a plain texture, 6
     /// for a cube and none for a dimension the host could not map.

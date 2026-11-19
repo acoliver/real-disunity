@@ -285,3 +285,66 @@ fn a_volume_in_a_format_the_host_does_not_read_is_refused_and_counted_by_format(
         "{failures:?}"
     );
 }
+
+/// A stored plain 2D texture of one 1x1 RGBA32 texel.
+fn flat() -> PlayerTexture {
+    PlayerTexture {
+        depth: 1,
+        dimension: TextureDimension::D2,
+        ..cube(1, 1, RED.to_vec())
+    }
+}
+
+/// A stored cube of six 1x1 faces, and a stored volume of one 1x1 slice.
+fn one_cube() -> PlayerTexture {
+    cube(1, 1, BASE.concat())
+}
+
+fn one_volume() -> PlayerTexture {
+    volume(1, 1, 1, RED.to_vec())
+}
+
+/// The draw of `pass` over a property that holds a texture of another dimension than the shader
+/// declares is left out and counted under the one name that says so.
+fn assert_mismatch_is_named(pass: &str, property: &str, stored: PlayerTexture) {
+    let (pixels, failures) = blit(pass, property, [SIDE, SIDE], stored);
+    assert_eq!(
+        failures,
+        BTreeMap::from([("record:SlotDimensionMismatch".to_owned(), 1)]),
+        "{failures:?}"
+    );
+    assert!(
+        pixels.unwrap().iter().all(|&texel| texel == 0.0),
+        "the draw is left out"
+    );
+}
+
+#[test]
+fn a_cube_slot_over_a_stored_2d_texture_is_refused_by_name() {
+    assert_mismatch_is_named("cubebase", "_Cube", flat());
+}
+
+#[test]
+fn a_volume_slot_over_a_stored_2d_texture_is_refused_by_name() {
+    assert_mismatch_is_named("volumeslices", "_Volume", flat());
+}
+
+#[test]
+fn a_cube_slot_over_a_stored_volume_is_refused_by_name() {
+    assert_mismatch_is_named("cubebase", "_Cube", one_volume());
+}
+
+#[test]
+fn a_volume_slot_over_a_stored_cube_is_refused_by_name() {
+    assert_mismatch_is_named("volumeslices", "_Volume", one_cube());
+}
+
+#[test]
+fn a_2d_slot_over_a_stored_cube_is_refused_by_name() {
+    assert_mismatch_is_named("flatslot", "_FlatTex", one_cube());
+}
+
+#[test]
+fn a_2d_slot_over_a_stored_volume_is_refused_by_name() {
+    assert_mismatch_is_named("flatslot", "_FlatTex", one_volume());
+}

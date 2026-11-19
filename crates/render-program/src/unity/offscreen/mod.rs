@@ -24,6 +24,7 @@ mod procedural;
 mod readback;
 mod resample;
 mod sampling;
+mod slot_dimension;
 mod steps;
 mod textures;
 mod tracker;

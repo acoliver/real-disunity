@@ -64,6 +64,8 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A 2D slot that is not the blit source, so a property can set it.
+            "flatslot" => blit_passes("_FlatTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.

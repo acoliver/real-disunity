@@ -301,7 +301,7 @@ fn fixture(context: &GpuContext) -> (Resident, Presentation) {
     (resident, presentation)
 }
 
-pub(super) fn fitted_scene() -> worldrunner_render_plan::RenderScene {
+pub(crate) fn fitted_scene() -> worldrunner_render_plan::RenderScene {
     let base = source();
     let settings = SceneDepthFitting {
         near_step_mm: 100,

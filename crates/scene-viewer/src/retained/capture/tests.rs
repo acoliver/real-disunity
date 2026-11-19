@@ -180,8 +180,7 @@ fn recipe_pages_and_accumulation_storage_fail_admission_without_consuming_ids() 
     assert_eq!(host.request_capture(0).unwrap(), 0);
 }
 
-#[test]
-fn feature_availability_uses_requested_generation_and_counts_native_storage() {
+fn host_with_pending_ssr() -> RetainedHost {
     let mut host = host();
     host.options.frame_profile = crate::FrameProfile::Hdr {
         samples: 4,
@@ -199,6 +198,35 @@ fn feature_availability_uses_requested_generation_and_counts_native_storage() {
         .unwrap();
     host.apply(RetainedUpdate::Settings(Box::new(effects)))
         .unwrap();
+    host
+}
+
+#[test]
+fn accumulated_feature_output_is_refused_before_reserving_a_capture() {
+    let mut host = host_with_pending_ssr();
+    let recipe = |samples| {
+        RetainedCaptureRecipe::new(
+            1,
+            samples,
+            CaptureJitter::None,
+            false,
+            vec![CaptureOutput::SsrConfidence],
+            u64::MAX,
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        host.request_capture_recipe(1, recipe(2)),
+        Err(CaptureRequestError::UnsupportedRecipe)
+    );
+    assert!(host.captures.waiting.is_empty());
+    assert!(host.captures.reservations.is_empty());
+    assert_eq!(host.request_capture_recipe(1, recipe(1)), Ok(0));
+}
+
+#[test]
+fn feature_availability_uses_requested_generation_and_counts_native_storage() {
+    let mut host = host_with_pending_ssr();
     let make = |output| {
         RetainedCaptureRecipe::new(1, 1, CaptureJitter::None, false, vec![output], u64::MAX)
             .unwrap()
@@ -327,11 +355,13 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
     };
     host.captures.complete(
         id,
-        7,
-        std::time::Duration::ZERO,
+        &super::CaptureCompletion {
+            frame: 7,
+            time: std::time::Duration::ZERO,
+            scene,
+            temporal_history_reset: crate::TemporalHistoryReset::CameraCut,
+        },
         image,
-        &scene,
-        crate::TemporalHistoryReset::CameraCut,
     );
     host.readiness.published = 1;
     let RetainedEvent::Capture {

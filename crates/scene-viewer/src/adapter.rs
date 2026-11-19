@@ -14,9 +14,11 @@ pub struct FrameSettings {
     pub presentation_budget: crate::PresentationBudgetPolicy,
 }
 
-/// Called once at renderer startup, on its calling thread, before device creation
-/// or scene preparation. The identity belongs to the adapter used for the device,
-/// including surface compatibility in desktop mode. No second adapter is selected.
+/// Runs once on the calling thread if startup reaches frame settings resolution,
+/// after desktop surface compatibility and backend census checks. This precedes
+/// GPU scene preparation. Owned paths create a device afterward; shared paths use
+/// an existing device. The identity is for the adapter used by that device.
+/// No second adapter is selected.
 /// `Ok(None)` preserves the supplied options. Errors stop startup as `ViewerError::Driver`.
 #[derive(Clone)]
 pub struct AdapterCallback(Arc<dyn FrameDecision>);
@@ -121,6 +123,12 @@ pub struct InitialContext<'a> {
     /// The monitor the window opened on, for choosing render scale from output pixels.
     /// `None` for windowless hosts and when the platform cannot identify the monitor.
     pub display: Option<crate::DisplayInfo>,
+    /// Distinct backends in the order their first enumerated adapter supporting this
+    /// surface was observed, under the effective instance backend mask.
+    /// Desktop startup supplies `Some` even without monitor information. `None` means
+    /// unknown, including windowless startup. The census guarantees neither device
+    /// creation nor feature support.
+    pub presentable_backends: Option<&'a [wgpu::Backend]>,
 }
 
 /// Initial scene and optional options chosen on the selected rendering adapter.

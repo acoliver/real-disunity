@@ -1,5 +1,10 @@
 use super::{RetainedDriver, RetainedHost, Session};
-use crate::{ViewerError, app::Content, renderer::Renderer};
+use crate::{
+    ViewerError,
+    app::Content,
+    renderer::{Renderer, Shared},
+};
+use worldrunner_render_gpu::device::DeviceRequirements;
 
 /// Request-driven retained execution without a window or event loop.
 /// No frames are scheduled between calls. Call `frame` again if admission is busy,
@@ -15,10 +20,33 @@ impl RetainedHost {
         self,
         driver: &mut impl RetainedDriver,
     ) -> Result<WindowlessRetained<'_>, ViewerError> {
+        self.windowless_with(driver, None)
+    }
+
+    /// As [`Self::windowless`], on the device `gpu` made, which another user such as a player's
+    /// offscreen work may share. A `gpu` with no device yet has one made for the viewer's needs.
+    ///
+    /// # Errors
+    /// As [`Self::windowless`], and when the device cannot be made or lacks a feature the scene
+    /// needs.
+    pub fn windowless_on(
+        self,
+        driver: &mut impl RetainedDriver,
+        mut gpu: crate::SharedGpu,
+    ) -> Result<WindowlessRetained<'_>, ViewerError> {
+        gpu.device(&self.options, &DeviceRequirements::default())?;
+        self.windowless_with(driver, gpu.into_shared())
+    }
+
+    fn windowless_with(
+        self,
+        driver: &mut impl RetainedDriver,
+        shared: Option<Shared>,
+    ) -> Result<WindowlessRetained<'_>, ViewerError> {
         let ((session, renderer), activity) = self.start_windowless_with_activity(
             driver,
             crate::activity::ActivityGuard::begin,
-            initialize,
+            |host, driver| initialize(host, driver, shared),
         )?;
         Ok(WindowlessRetained {
             session,
@@ -48,11 +76,12 @@ impl RetainedHost {
 fn initialize(
     mut host: RetainedHost,
     driver: &mut dyn RetainedDriver,
+    shared: Option<Shared>,
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
     host.picking.windowless = true;
     host.timers.freeze();
     host.audio.null_device();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host));
+    let renderer = pollster::block_on(Renderer::windowless_with(&mut host, shared));
     let mut session = Session::new(host, driver);
     match renderer {
         Ok(mut renderer) => {

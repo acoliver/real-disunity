@@ -73,6 +73,7 @@ impl GpuContext {
             adapter: gpu.adapter,
             device: gpu.device,
             submission: SubmissionAuthority::new(gpu.queue),
+            unavailable_optional_limits: Vec::new(),
         })
     }
 }

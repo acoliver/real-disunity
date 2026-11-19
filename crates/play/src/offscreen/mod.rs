@@ -73,8 +73,10 @@ mod procedural_draw;
 mod properties;
 mod records;
 mod report;
+mod screen;
 mod script;
 mod shaders;
+mod sink;
 mod supplied;
 mod trace;
 mod volume_assets;
@@ -82,6 +84,7 @@ mod volume_assets;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use adapter::Settling;
 pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
     AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,
@@ -101,7 +104,7 @@ pub use compute::{
 };
 pub use defaults::DefaultTexture;
 pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
-pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
+pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
     Skip, TEST_CLEAR, adapt, adapt_probing,
@@ -111,7 +114,9 @@ pub use pixels::{
     PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
     REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
 };
+pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use sink::BufferSink;
 pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

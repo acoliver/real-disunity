@@ -509,8 +509,13 @@ impl ProgramRuntime {
     }
 
     /// The wgpu texture behind a handle, for work the runtime does not record itself, such as
-    /// reading a block-compressed texture back. The result shares wgpu's reference-counted
-    /// texture; the runtime still counts its storage in the budget until the handle is released.
+    /// sampling it after the submission that writes it or reading a block-compressed texture
+    /// back. The result shares wgpu's reference-counted texture; the runtime still counts its
+    /// storage in the budget until the handle is released. Drop the clone when the allocation
+    /// is replaced: the runtime cannot track references the caller retains.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown handle.
     pub fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }

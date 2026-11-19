@@ -12,7 +12,7 @@ use worldrunner_render_program::unity::offscreen::OffscreenState;
 use super::super::assets::{Assets, sampler_of_stored, texture_of};
 use super::super::frame::Report;
 use super::super::ids;
-use super::{OffscreenAdapter, Stored, is_over_budget};
+use super::{OffscreenAdapter, Settling, Stored, is_over_budget};
 
 /// What uploading a texture the engine stored came to.
 #[derive(Clone, Copy)]
@@ -35,6 +35,7 @@ impl OffscreenAdapter {
         assets: &dyn Assets,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
         notes: &mut Report,
+        settling: Settling,
     ) {
         for &identity in identities {
             let Some(id) = ids::stored_texture(identity) else {
@@ -72,6 +73,7 @@ impl OffscreenAdapter {
                 (&stored, stored_sampler.as_ref()),
                 (state, runtime),
                 notes,
+                settling,
             );
             let generations = (
                 stored.generation,
@@ -88,6 +90,7 @@ impl OffscreenAdapter {
         (stored, sampler): (&PlayerTexture, Option<&TextureSampler>),
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
         notes: &mut Report,
+        settling: Settling,
     ) -> TextureUpload {
         let blocks = self.block_sources
             && runtime
@@ -108,7 +111,7 @@ impl OffscreenAdapter {
                 return TextureUpload::Unusable;
             }
         };
-        let uploaded = self.with_room(state, runtime, notes, |state, runtime| {
+        let uploaded = self.with_room(state, runtime, notes, settling, |state, runtime| {
             state.set_texture(runtime, &texture)
         });
         match uploaded {

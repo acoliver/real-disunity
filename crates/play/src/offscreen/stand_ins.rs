@@ -62,6 +62,24 @@ impl StandInCounts {
         }
     }
 
+    /// The counts of the draws added since these counts were `before`.
+    #[must_use]
+    pub fn since(&self, before: &Self) -> Self {
+        let by_property = self
+            .by_property
+            .iter()
+            .filter_map(|(name, count)| {
+                let earlier = before.by_property.get(name).copied().unwrap_or(0);
+                let added = count.saturating_sub(earlier);
+                (added > 0).then(|| (name.clone(), added))
+            })
+            .collect();
+        Self {
+            draws: self.draws.saturating_sub(before.draws),
+            by_property,
+        }
+    }
+
     /// The lines of the report, without the `[gpu] ` prefix: the draws and, when any, the top
     /// `top` properties with the reason and the count.
     #[must_use]

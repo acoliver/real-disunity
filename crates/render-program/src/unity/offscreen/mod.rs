@@ -388,6 +388,8 @@ impl OffscreenState {
             constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
+        // Counted when the frame is built, since the host runs a frame it builds.
+        self.textures.mark_written(tracker.written_textures());
         Ok(OffscreenOperations {
             device: runtime.device().clone(),
             authority: runtime.authority().clone(),

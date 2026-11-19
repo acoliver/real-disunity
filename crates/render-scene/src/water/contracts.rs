@@ -4,6 +4,7 @@ fn snapshot_outputs_cannot_be_reopened_for_writing() {
     for name in [
         "opaque snapshot color",
         "opaque snapshot depth",
+        "opaque snapshot device depth",
         "post-water depth",
     ] {
         let resource = worldrunner_render_post::ResourceRef::new(name);

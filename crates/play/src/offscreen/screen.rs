@@ -107,7 +107,8 @@ fn writes_screen_colour(record: &Record) -> bool {
         Record::Clear { target, clear } => clear.color.is_some() && colour_is_screen(target),
         Record::Draws(list) => colour_is_screen(&list.target),
         Record::Procedural(draw) => colour_is_screen(&draw.target),
-        Record::Globals(_) => false,
+        // Generating mips writes the levels below the base, and the screen has only its base.
+        Record::Globals(_) | Record::GenerateMips { .. } => false,
     }
 }
 

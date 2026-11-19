@@ -90,6 +90,7 @@ impl Screen {
             format: SCREEN_COLOR_FORMAT,
             depth_bits: SCREEN_DEPTH_BITS,
             mip_count: 1,
+            auto_generate_mips: false,
             srgb: true,
             dimension: dimension::TEX_2D,
             volume_depth: 1,

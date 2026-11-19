@@ -402,7 +402,7 @@ fn lit_scene() -> RenderScene {
 }
 
 /// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
-fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
+pub fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
     let rig = Rig::new(&quad_scene(), SIZE, |settings| {
         settings.game_passes = inventory;
     });
@@ -443,7 +443,7 @@ fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
 }
 
 /// Captures one frame with the rig's renderer and returns its colour.
-fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+pub fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
     let targets = rig.renderer.targets();
     let color =
         AttachmentView::new(ResourceRef::new("scene color"), targets.scene().texture()).unwrap();

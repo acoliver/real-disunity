@@ -439,7 +439,10 @@ fn validate_attachments(
         if produced.contains_key(&attachment.resource)
             && matches!(
                 attachment.resource.name,
-                "opaque snapshot color" | "opaque snapshot depth" | "post-water depth"
+                "opaque snapshot color"
+                    | "opaque snapshot depth"
+                    | "opaque snapshot device depth"
+                    | "post-water depth"
             )
         {
             return Err(FrameError::AttachmentHazard(attachment.resource));

@@ -7,7 +7,7 @@ use super::taa_end_to_end_tests::{OUTPUT, context};
 use super::temporal_water_tests::{body, frame, scene_bytes};
 use crate::compositor::{
     ConfiguredFrameRenderer, GameBuild, GameFeatureFactory, GamePasses, RendererConfiguration,
-    WaterDraws, attachment,
+    SnapshotReads, WaterDraws, attachment,
 };
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -100,6 +100,13 @@ struct Idle;
 impl GameFeatureFactory for Reader {
     fn name(&self) -> &'static str {
         "snapshot reader"
+    }
+
+    fn snapshot_reads(&self) -> SnapshotReads {
+        SnapshotReads {
+            color: true,
+            ..SnapshotReads::NONE
+        }
     }
 
     fn build(&self, _: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {

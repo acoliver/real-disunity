@@ -603,6 +603,11 @@ impl ConfiguredFrameRenderer {
     pub fn stock_plan_statistics(&self) -> crate::compositor::StockPlanStatistics {
         self.state.current().stock_plan_statistics()
     }
+    /// How much opaque snapshot storage the live generation holds. A renderer with no water,
+    /// reflections, depth-tested overlay or game that reads snapshots holds none.
+    pub fn snapshot_statistics(&self) -> crate::compositor::SnapshotStatistics {
+        self.state.current().snapshot_statistics()
+    }
     pub fn generation(&self) -> u64 {
         self.state.generation()
     }

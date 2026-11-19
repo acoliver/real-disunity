@@ -75,7 +75,7 @@ A group may also leave textures for the passes after it. `FrameOperations::produ
 
 ### Game places in the pass list
 
-`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::BeforeOpaque`, `AfterOpaque` and `AfterTransparent` name where a producer of the stock forward frame places them; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
+`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::BeforeOpaque`, `AfterOpaque`, `AfterOpaqueSnapshots` and `AfterTransparent` name where a producer of the stock forward frame places them; `AfterOpaque` runs before the contour IDs and the opaque snapshots, so the snapshots include what it drew, and `AfterOpaqueSnapshots` runs after the snapshot passes and before the water and every other transparent pass, so a pass there samples the snapshots and draws over the opaque scene ahead of the transparents; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
 
 ```rust,ignore
 // In a feature's `plan`: one pass before Opaque that writes `target a`, one that samples it.
@@ -85,7 +85,9 @@ let reader = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
 let declaration = context.pass(writer)?;
 ```
 
-`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens` and the forward-order test in `render-scene`.
+A game pass that samples a stock snapshot declares the read in its `FeaturePass::reads` (`opaque snapshot color`, `opaque snapshot depth` and `opaque snapshot device depth`), which the frame validates like any other read: the snapshot writers must come earlier in the ordered list, so a reader at `AfterOpaqueSnapshots` validates and one at `BeforeOpaque` or `AfterOpaque` is `FrameError::MissingProducer` naming the snapshot. The depth snapshot pass writes the linear and the device depth as its two colour attachments; none of the three snapshot names may be written twice in a frame (`FrameError::AttachmentHazard`).
+
+`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens` and the forward-order tests in `render-scene`.
 
 ## Typed operations
 

@@ -157,14 +157,33 @@ internal static unsafe partial class WorldGraphics
         if (scope == ScopeGlobal) SendGlobalArrays(store);
     }
 
-    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels by the identity the host
-    /// draws it by, a <see cref="RenderTexture"/> by its world id, anything else, including null, as no texture.</summary>
+    /// <summary>The most bytes the host stores for one texture, which its store call refuses to exceed.</summary>
+    private const long MaxStoredTextureBytes = 1L << 29;
+
+    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels or a
+    /// <see cref="Texture2DArray"/> by the identity the host draws it by, a <see cref="RenderTexture"/> by its world id,
+    /// anything else, including null and a destroyed texture, as no texture.</summary>
     internal static (uint Kind, ulong Texture) TextureOf(Texture? texture) => texture switch
     {
         Texture2D { width: > 0, height: > 0 } plain when plain => (TextureAsset, plain.RendererIdentity),
+        Texture2DArray array when array => ArrayOf(array),
         RenderTexture target when target => (TextureRender, target.WorldId),
         _ => (TextureNone, 0UL),
     };
+
+    /// <summary>An array the host can store by its identity, or no texture for one it cannot: no bytes, bytes that are not whole
+    /// layers (a plan's raw size may not be) or more than the host stores, which would otherwise make the property write
+    /// throw. The first such array is named in a warning.</summary>
+    private static (uint Kind, ulong Texture) ArrayOf(Texture2DArray array)
+    {
+        var bytes = array.ByteLength;
+        var problem = bytes == 0 ? "holds no bytes"
+            : bytes > MaxStoredTextureBytes ? $"holds {bytes} bytes, more than the host stores"
+            : bytes % array.depth != 0 ? $"holds {bytes} bytes, which are not {array.depth} equal layers" : null;
+        if (problem is null) return (TextureAsset, array.RendererIdentity);
+        UndrawnCalls.NoteTextureUnstored(array.name, problem);
+        return (TextureNone, 0UL);
+    }
 
     /// <summary>The same as <see cref="TextureOf"/> for a call that cannot draw with another kind of texture: a texture the
     /// world cannot hold throws, naming <paramref name="member"/>.</summary>

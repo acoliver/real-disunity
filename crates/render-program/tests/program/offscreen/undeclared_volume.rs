@@ -35,6 +35,7 @@ fn volume(id: TextureId, texel: [u8; 4]) -> SourceTexture {
         size: [1, 1],
         graphics_format: RGBA8,
         bytes: texel.to_vec(),
+        mips: 1,
         sampler: None,
     }
 }

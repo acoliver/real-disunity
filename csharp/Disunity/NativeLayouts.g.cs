@@ -420,7 +420,11 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTextureInfo>("length").ToInt32() != 36) throw new InvalidOperationException("DisunityTextureInfo.length offset");
         if (Marshal.OffsetOf<DisunityTextureInfo>("present").ToInt32() != 40) throw new InvalidOperationException("DisunityTextureInfo.present offset");
         if (Marshal.OffsetOf<DisunityTextureInfo>("distance_spread").ToInt32() != 44) throw new InvalidOperationException("DisunityTextureInfo.distance_spread offset");
-        if (Marshal.SizeOf<DisunityTextureInfo>() != 48 || typeof(DisunityTextureInfo).GetFields().Length != 10) throw new InvalidOperationException("DisunityTextureInfo layout");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("depth").ToInt32() != 48) throw new InvalidOperationException("DisunityTextureInfo.depth offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("graphics_format").ToInt32() != 52) throw new InvalidOperationException("DisunityTextureInfo.graphics_format offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("dimension").ToInt32() != 56) throw new InvalidOperationException("DisunityTextureInfo.dimension offset");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("reserved").ToInt32() != 60) throw new InvalidOperationException("DisunityTextureInfo.reserved offset");
+        if (Marshal.SizeOf<DisunityTextureInfo>() != 64 || typeof(DisunityTextureInfo).GetFields().Length != 14) throw new InvalidOperationException("DisunityTextureInfo layout");
         if (Marshal.OffsetOf<DisunitySampler>("generation").ToInt32() != 0) throw new InvalidOperationException("DisunitySampler.generation offset");
         if (Marshal.OffsetOf<DisunitySampler>("wrap_u").ToInt32() != 8) throw new InvalidOperationException("DisunitySampler.wrap_u offset");
         if (Marshal.OffsetOf<DisunitySampler>("wrap_v").ToInt32() != 12) throw new InvalidOperationException("DisunitySampler.wrap_v offset");

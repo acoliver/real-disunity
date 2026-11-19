@@ -144,6 +144,14 @@ pub enum OffscreenError {
         mip: u32,
         element: u32,
     },
+    #[error(
+        "the shader reads {name} as a 2D texture and texture {texture:?} is a 2D array of {layers} layers"
+    )]
+    FlatSlotOverArray {
+        name: String,
+        texture: TextureId,
+        layers: u32,
+    },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },
     #[error("set {set} binding {binding} is {what}, which offscreen draws do not bind")]

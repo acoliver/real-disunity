@@ -539,6 +539,10 @@ pub struct DisunityTextureInfo {
     pub length: u32,
     pub present: u32,
     pub distance_spread: u32,
+    pub depth: u32,
+    pub graphics_format: u32,
+    pub dimension: u32,
+    pub reserved: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

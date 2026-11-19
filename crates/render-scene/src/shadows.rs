@@ -33,6 +33,7 @@
 
 mod capture;
 mod frame;
+mod lent;
 pub(crate) use capture::capture_sources;
 mod cascades;
 mod refresh;

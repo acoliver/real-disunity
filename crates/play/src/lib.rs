@@ -39,6 +39,7 @@ mod unresolved;
 pub use driver::{Capture, PlayDriver};
 pub use gpu_player::{GpuWorkReport, PlayerGpu, compute_census};
 pub use keys::key_code;
+pub use offscreen::{DepthRange, REVERSED_DEPTH_ENV, SuppliedGlobal};
 pub use player::{
     GpuWork, PlayerLaunch, PreparedPlayer, prepare_player, run_player, run_player_with,
 };

@@ -117,6 +117,7 @@ pub(crate) fn module_cause(error: &ModuleError) -> String {
         ModuleError::Panicked(_) => "naga panicked".to_owned(),
         ModuleError::EntryPointMissing { .. } => "entry point missing".to_owned(),
         ModuleError::UnsupportedResource { what, .. } => format!("unsupported resource: {what}"),
+        ModuleError::ContinuingSnapshot { what, .. } => format!("loop continuing: {what}"),
     }
 }
 

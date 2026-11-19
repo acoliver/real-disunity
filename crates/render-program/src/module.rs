@@ -95,6 +95,14 @@ pub enum ModuleError {
     EntryPointMissing { name: String, kind: StageKind },
     #[error("resource {name} is a {what}, which this renderer does not bind")]
     UnsupportedResource { name: String, what: String },
+    /// A loop's `continuing` block uses a body value that cannot be given a snapshot (see
+    /// [`StageProgram::new`]). `loop_index` counts the function's loops in the order they start.
+    #[error("function {function}, loop {loop_index}: the continuing block uses {what}")]
+    ContinuingSnapshot {
+        function: String,
+        loop_index: usize,
+        what: String,
+    },
 }
 
 /// A pipeline-overridable constant a stage cannot be given.
@@ -162,9 +170,15 @@ impl StageProgram {
     /// Use [`sibling`](Self::sibling) for another entry point of the same source, which does not
     /// parse again.
     ///
+    /// Every body value a loop's `continuing` block uses whose value depends on when it is
+    /// evaluated (a load, an image read, a derivative, a statement's result) is stored into a
+    /// local where the body computes it, and `continuing` reads the local: naga 30's Metal writer
+    /// would otherwise evaluate a load again after `continuing` stored to its variable.
+    ///
     /// # Errors
-    /// Fails with naga's parse or validation error, a missing entry point, or a resource that
-    /// cannot be bound.
+    /// Fails with naga's parse or validation error, a missing entry point, a resource that
+    /// cannot be bound, or `ContinuingSnapshot` for a `continuing` use of a value no local can
+    /// hold.
     pub fn new(module: StageModule, declarations: StageDeclarations) -> Result<Self, ModuleError> {
         let (parsed, resources) = guarded(|| {
             let parsed = parse(&module.source)?;
@@ -460,9 +474,11 @@ fn guarded<T>(work: impl FnOnce() -> Result<T, ModuleError>) -> Result<T, Module
         .map_err(|payload| ModuleError::Panicked(panic_text(payload.as_ref())))?
 }
 
-/// Parses and validates the source. A storage image no entry point loads from is declared for
-/// stores alone, and the module is validated again with that declaration, so the module wgpu
-/// compiles declares the access its layout binds.
+/// Parses and validates the source. Body values a loop's `continuing` block uses are snapshotted
+/// (`continuing`), then a storage image no entry point loads from is declared for stores alone,
+/// so the module wgpu compiles declares the access its layout binds. The module is validated
+/// again after each step that changed it; the narrowing runs second so it reads the uses of the
+/// module that is compiled.
 fn parse(source: &StageSource) -> Result<Parsed, ModuleError> {
     let mut module = match source {
         StageSource::SpirV(words) => parse_spirv(words)?,
@@ -470,6 +486,9 @@ fn parse(source: &StageSource) -> Result<Parsed, ModuleError> {
             .map_err(|error| ModuleError::Parse(error.emit_to_string(text)))?,
     };
     let mut info = validate(&module)?;
+    if crate::continuing::snapshot_continuing_uses(&mut module, &info)? {
+        info = validate(&module)?;
+    }
     if narrow_store_only_images(&mut module, &info) {
         info = validate(&module)?;
     }

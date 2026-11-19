@@ -1,0 +1,41 @@
+; Minimal loop of the TerrainCompressChunk GetIndices shape: the loop body is the continue
+; target, and the continue block computes the next value of phi %i before it uses %i in the
+; next value of phi %acc. out[0] must be 0b1111 = 15 (bits 0..3).
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
+               OpDecorate %Out Block
+               OpMemberDecorate %Out 0 Offset 0
+               OpDecorate %out DescriptorSet 0
+               OpDecorate %out Binding 0
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+       %uint = OpTypeInt 32 0
+       %bool = OpTypeBool
+        %Out = OpTypeStruct %uint
+    %ptr_Out = OpTypePointer StorageBuffer %Out
+   %ptr_uint = OpTypePointer StorageBuffer %uint
+     %uint_0 = OpConstant %uint 0
+     %uint_1 = OpConstant %uint 1
+     %uint_4 = OpConstant %uint 4
+        %out = OpVariable %ptr_Out StorageBuffer
+       %main = OpFunction %void None %fn
+      %entry = OpLabel
+               OpBranch %header
+     %header = OpLabel
+          %i = OpPhi %uint %uint_0 %entry %i_next %cont
+        %acc = OpPhi %uint %uint_0 %entry %acc_next %cont
+       %cond = OpULessThan %bool %i %uint_4
+               OpLoopMerge %merge %cont None
+               OpBranchConditional %cond %cont %merge
+       %cont = OpLabel
+     %i_next = OpIAdd %uint %i %uint_1
+        %bit = OpShiftLeftLogical %uint %uint_1 %i
+   %acc_next = OpBitwiseOr %uint %acc %bit
+               OpBranch %header
+      %merge = OpLabel
+        %dst = OpAccessChain %ptr_uint %out %uint_0
+               OpStore %dst %acc
+               OpReturn
+               OpFunctionEnd

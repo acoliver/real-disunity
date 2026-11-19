@@ -83,7 +83,7 @@ pub fn play_player_window(
     prepared: &PreparedPlayer,
     window: PlayerWindow,
 ) -> Result<Vec<Capture>, PlayError> {
-    let gpu = player_gpu(window.gpu_work, &prepared.data);
+    let gpu = player_gpu(window.gpu_work, prepared);
     let (viewer, mut driver) = start_window(prepared, window, gpu)?;
     let ran = viewer.run(&mut driver);
     driver.report_gpu();

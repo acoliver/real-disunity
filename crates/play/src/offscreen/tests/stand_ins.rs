@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use glam::{Quat, Vec3};
-use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureDimension, TextureSampler};
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef,
 };
@@ -109,6 +109,9 @@ impl Assets for Undecodable {
             linear: true,
             generation: 1,
             distance_spread: 0,
+            depth: 1,
+            dimension: TextureDimension::D2,
+            graphics_format: 0,
             bytes: vec![0; 4],
         }))
     }

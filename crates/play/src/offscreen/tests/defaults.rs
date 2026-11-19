@@ -274,7 +274,7 @@ fn the_magenta_look_makes_every_default_magenta_in_its_own_dimension() {
         SourceDimension::D2,
         SourceDimension::Cube,
         SourceDimension::D2Array(1),
-        SourceDimension::D3,
+        SourceDimension::D3(1),
     ] {
         assert!(dimensions.contains(&wanted), "{wanted:?}");
     }

@@ -23,6 +23,10 @@ use crate::player_meshes::round_to_i64;
 
 /// One in micro-units, the scale of scene directions and irradiance.
 const MICRO: f64 = 1_000_000.0;
+/// The irradiance of the even ambient light from above, in the units of a light's intensity. The
+/// retained scene's ambient and the offscreen draws' default ambient (`add_ambient`) both take it
+/// from here, so the two defaults cannot drift apart.
+pub(crate) const AMBIENT_SKY_IRRADIANCE: f32 = 0.3;
 /// A forward axis shorter than this shines in no direction.
 const SHORTEST_AXIS: f64 = 1e-6;
 
@@ -92,6 +96,9 @@ const WHITE: SceneColor = SceneColor {
 /// no SSAO, post-processing or anti-aliasing. The sky only colours the ambient light: the scene
 /// asks for no atmosphere, so the game's clear colour stays the background.
 pub(crate) fn lit_effects(sun: SceneSun, camera: SceneCamera) -> Result<SceneEffects, String> {
+    let sky_irradiance_micro = round_to_i64(f64::from(AMBIENT_SKY_IRRADIANCE) * MICRO)
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or("the ambient sky irradiance is out of range")?;
     let shadows = SceneShadowCascades::camera_splits(vec![10_000, 40_000, 150_000], 100_000)
         .map_err(|error| format!("the shadow cascades: {error}"))?;
     SceneEffects::new(SceneEffectsParts {
@@ -102,7 +109,7 @@ pub(crate) fn lit_effects(sun: SceneSun, camera: SceneCamera) -> Result<SceneEff
         },
         sun,
         ambient: SceneAmbient {
-            sky_irradiance_micro: 300_000,
+            sky_irradiance_micro,
             ground_irradiance_micro: 150_000,
         },
         shadows,

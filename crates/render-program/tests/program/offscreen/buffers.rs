@@ -142,6 +142,7 @@ fn with_buffer(buffer: BufferHandle) -> Material {
         keywords: Vec::new(),
         properties,
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }
@@ -153,6 +154,7 @@ fn bare() -> Material {
         keywords: Vec::new(),
         properties: PropertyLayer::default(),
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }

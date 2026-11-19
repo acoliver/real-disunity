@@ -70,6 +70,7 @@ fn temporary_desc(size: u32) -> WorldRenderTexture {
         srgb: false,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     }
@@ -273,6 +274,7 @@ fn a_refused_mesh_draw_is_counted_by_its_reason_and_leaves_the_running_state_alo
                 submesh: 0,
                 pass: -1,
                 block: None,
+                instances: 1,
             },
         );
     }

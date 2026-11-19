@@ -141,6 +141,7 @@ impl Scene {
                     submesh: 0,
                     pass: 0,
                     block: None,
+                    instances: 1,
                 })
                 .unwrap();
         }

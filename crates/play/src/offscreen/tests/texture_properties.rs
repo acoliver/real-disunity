@@ -203,6 +203,7 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
         srgb: false,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler {
             wrap_u: 1,
             wrap_v: 2,

@@ -101,7 +101,17 @@ public partial class RenderTexture : Texture
     public bool sRGB => _desc.sRGB;
     public int depth { get => _desc.depthBufferBits; set { Change(nameof(depth)); _desc.depthBufferBits = value; } }
     public bool useMipMap { get => _desc.useMipMap; set { Change(nameof(useMipMap)); _desc.useMipMap = value; } }
-    public bool autoGenerateMips { get => _desc.autoGenerateMips; set => _desc.autoGenerateMips = value; }
+    /// <summary>Whether the host fills the smaller mip levels itself whenever the texture is drawn into. It only means something
+    /// with <see cref="useMipMap"/>. A change on a texture the world holds is sent at once.</summary>
+    public bool autoGenerateMips
+    {
+        get => _desc.autoGenerateMips;
+        set
+        {
+            _desc.autoGenerateMips = value;
+            SamplerChanged();
+        }
+    }
     public bool enableRandomWrite { get => _desc.enableRandomWrite; set { Change(nameof(enableRandomWrite)); _desc.enableRandomWrite = value; } }
     public bool bindTextureMS { get => _desc.bindMS; set { Change(nameof(bindTextureMS)); _desc.bindMS = value; } }
     public bool useDynamicScale { get => _desc.useDynamicScale; set { Change(nameof(useDynamicScale)); _desc.useDynamicScale = value; } }
@@ -208,6 +218,7 @@ public partial class RenderTexture : Texture
         depth_bits = (uint)Math.Max(depth, 0),
         mip_count = (uint)Math.Clamp(mipmapCount, 1, 15), srgb = sRGB ? 1u : 0u,
         dimension = (uint)(int)this.dimension, volume_depth = Shaped ? (uint)Math.Max(volumeDepth, 1) : 1u,
+        auto_generate_mips = _desc.useMipMap && _desc.autoGenerateMips ? 1u : 0u,
         wrap_u = Sampler.wrap_u, wrap_v = Sampler.wrap_v, wrap_w = Sampler.wrap_w, filter = Sampler.filter,
         aniso_level = Sampler.aniso_level, mip_bias = Sampler.mip_bias,
     };
@@ -246,7 +257,10 @@ public partial class RenderTexture : Texture
 
     public void ResolveAntiAliasedSurface(RenderTexture target) => ArgumentNullException.ThrowIfNull(target);
 
-    /// <summary>Counts an update; there are no pixels to filter. Logs an error, as Unity does, unless the texture has mips it does not generate itself.</summary>
+    /// <summary>Counts an update and asks the host, through the world's offscreen list, to fill mip levels 1 and up from level 0;
+    /// the filtering is the host's. Logs an error, as Unity does, and records nothing unless the texture has mips it does not
+    /// generate itself. A texture not yet created is created first. With no world loaded or a single level there is nothing to
+    /// record.</summary>
     public void GenerateMips()
     {
         if (!_desc.useMipMap || _desc.autoGenerateMips)
@@ -255,6 +269,9 @@ public partial class RenderTexture : Texture
             return;
         }
         IncrementUpdateCount();
+        if (!DisunityHost.IsLoaded || mipmapCount < 2) return;
+        if (!_created) Create();
+        WorldGraphics.RecordGenerateMips(WorldId);
     }
 
     public void SetGlobalShaderProperty(string propertyName) => Shader.SetGlobalTexture(propertyName, this);

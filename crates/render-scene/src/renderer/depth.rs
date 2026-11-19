@@ -102,10 +102,21 @@ impl DepthMode {
         colors: usize,
         raster: worldrunner_render_program::state::RasterState,
     ) -> worldrunner_render_program::state::RenderState {
+        self.render_state_writing(true, colors, raster)
+    }
+
+    /// [`render_state`](Self::render_state) for a pass that attaches its depth without writing
+    /// it, when `write` is false. The test and the stencil are this mode's own.
+    pub(crate) fn render_state_writing(
+        self,
+        write: bool,
+        colors: usize,
+        raster: worldrunner_render_program::state::RasterState,
+    ) -> worldrunner_render_program::state::RenderState {
         use worldrunner_render_program::state::{
             ColorState, DepthState, RenderState, StencilState as ProgramStencil,
         };
-        let depth = self.state(true);
+        let depth = self.state(write);
         RenderState {
             raster,
             depth: Some(DepthState {

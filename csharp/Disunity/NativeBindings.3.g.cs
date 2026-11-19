@@ -17,6 +17,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
         /// <summary>
+        ///  Binds the compute buffer `buffer` to the property `name` of a material as a structured
+        ///  buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
+        ///  that is not alive is refused and the material is unchanged. Draws of the material read the
+        ///  buffer's contents when the host draws.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_buffer", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_buffer(ulong world, ulong material, byte* name, uint length, ulong buffer);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one record.
         /// </summary>
@@ -215,6 +226,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
         /// <summary>
+        ///  Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+        ///  sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh_instanced", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh_instanced(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass, uint instances);
+        /// <summary>
         ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
         ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound
         ///  targets with the current view and projection. `topology` is 0 for a triangle list and 1 for a
@@ -225,6 +245,13 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_procedural", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_procedural(ulong world, float* matrix, ulong material, int pass, uint topology, int vertex_count, int instance_count);
+        /// <summary>
+        ///  Records a request to fill mip levels 1 and up of the render texture `texture` from its level 0,
+        ///  after the work recorded before it. The world refuses a dead texture and one with a single mip
+        ///  level.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_generate_mips", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_generate_mips(ulong world, ulong texture);
         /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///

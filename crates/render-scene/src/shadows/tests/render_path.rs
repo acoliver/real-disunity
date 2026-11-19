@@ -12,7 +12,7 @@ use super::*;
 /// acne on about 6,500 of Forward's stored pixels, which the water test then took for water; from
 /// 0.0015 on, Forward matches the normal-biased reference except along shadow edges, so 0.002
 /// keeps a margin.
-fn front_settings() -> DirectionalShadowSettings {
+pub(super) fn front_settings() -> DirectionalShadowSettings {
     DirectionalShadowSettings {
         normal_bias_meters: 0.0,
         depth_bias: 0.002,

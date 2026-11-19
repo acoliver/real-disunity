@@ -37,6 +37,7 @@ fn draw_with(world: &mut World, at: Mat4, material: MaterialId, block: Option<Sh
             submesh: 0,
             pass: -1,
             block: block.map(Box::new),
+            instances: 1,
         },
     );
 }

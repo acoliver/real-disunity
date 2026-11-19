@@ -127,6 +127,7 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_sixteen() {
             submesh: 4,
             pass: -1,
             block: None,
+            instances: 1,
         }
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
@@ -247,6 +248,62 @@ fn a_cleared_or_refused_draw_leaves_nothing_staged() {
         block_of(&taken[2].1),
         None,
         "a draw refused for its matrix consumes it too"
+    );
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+fn draw_instanced(world: u64, material: u64, instances: u32) -> i32 {
+    let matrix = [0.0_f32; 16];
+    unsafe {
+        disunity_offscreen_draw_mesh_instanced(
+            world,
+            FIRST_PLAYER_MESH,
+            matrix.as_ptr(),
+            material,
+            0,
+            0,
+            instances,
+        )
+    }
+    .code
+}
+
+fn instances_of(record: &OffscreenWork) -> u32 {
+    match record {
+        OffscreenWork::DrawMesh { instances, .. } => *instances,
+        other => panic!("expected a mesh draw, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_instanced_draw_carries_its_count_and_a_zero_count_keeps_its_place() {
+    let world = new_world();
+    let material = material(world);
+    store_mesh(world, FIRST_PLAYER_MESH);
+    assert_eq!(draw_instanced(world, material, 7), 0);
+    assert_eq!(draw_instanced(world, material, 0), 0);
+    assert_eq!(draw(world, material, 0), 0);
+    let taken = take(world);
+    let counts: Vec<u32> = taken.iter().map(|(_, work)| instances_of(work)).collect();
+    assert_eq!(counts, vec![7, 0, 1], "a plain draw makes one instance");
+    assert!(taken.iter().all(|(flat, _)| flat.kind == KIND_DRAW_MESH));
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+#[test]
+fn an_instanced_draw_the_world_refuses_records_nothing_and_takes_the_staged_block() {
+    let world = new_world();
+    let material = material(world);
+    store_mesh(world, FIRST_PLAYER_MESH);
+    assert_eq!(stage_float(world, "_Fade", 0.5), 0);
+    assert_ne!(draw_instanced(world, material + 1_000, 3), 0);
+    assert_eq!(draw_instanced(world, material, 3), 0);
+    let taken = take(world);
+    assert_eq!(taken.len(), 1);
+    assert_eq!(
+        block_of(&taken[0].1),
+        None,
+        "the refused draw took the block"
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

@@ -241,6 +241,7 @@ fn camera_host(
             shadows,
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,

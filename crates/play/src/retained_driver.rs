@@ -199,6 +199,7 @@ pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
         adapter_callback: None,
         cadence: PresentationCadence::default(),
         render_clock: RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
     }
 }
 

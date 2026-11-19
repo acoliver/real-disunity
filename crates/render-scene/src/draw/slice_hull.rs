@@ -271,6 +271,9 @@ impl SceneGpu {
         (pipeline, frame): (&PreparedPipeline, &wgpu::BindGroup),
         (index, matrix): (u32, Mat4),
     ) -> DrawCount {
+        if !self.draws_terrain() {
+            return DrawCount::default();
+        }
         let Some(keep) = self.terrain_caster_selection(index, matrix) else {
             return DrawCount::default();
         };

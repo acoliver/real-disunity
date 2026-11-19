@@ -356,6 +356,20 @@ backend can clamp to its supported range. It is independent of
 Windowless hosts validate both presentation fields but ignore them because they
 have no surface.
 
+## Game rendering
+
+`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene` and a `TerrainDraws` choice. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. The viewer does not know what the game draws.
+
+```rust,ignore
+let mut options = ViewerOptions::default();
+options.game = GameRendering {
+    passes: GamePasses::new().with(Arc::new(MyGame::new())),
+    terrain_draws: TerrainDraws::Suppressed, // the game's own passes draw the terrain
+};
+```
+
+Tests: `presentation::game_tests` in this crate and `tests/game_passes.rs` in `render-scene`.
+
 ## Window dimensions
 
 `size` is the initial request, with each dimension in `1..=4096`.

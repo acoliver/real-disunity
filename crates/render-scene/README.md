@@ -1430,6 +1430,47 @@ Caller attachment bindings include the current view's retained-content permissio
 
 The public composition regressions in `tests/stock_composition.rs` and its `stock_composition` children cover sampled stock depth and lit colour, prefix completion and retry behavior, and retained operations. The operation test checks one callback across prefix and suffix recording, no submission before the caller submits once, and exact red RGB through a readback copied in that encoder. The retry tests retain their distinct-backing and same-backing load-contract refusal controls; `stock_camera_taa.rs` keeps the warm velocity-to-plain regression.
 
+## Game passes
+
+A game that draws with its own render-program programs adds frame features through the renderer configuration, with no second renderer or scheduler. `RendererConfiguration::game_passes` is a `GamePasses` inventory of `GameFeatureFactory` entries. The renderer calls each factory's `build` when it allocates a generation and again after every `reconfigure`, and registers the feature it returns through `FrameRenderer::register`. An empty inventory, the default, leaves every frame as the stock frame.
+
+A factory declares its targets with `TargetDeclaration`: a name, a renderable colour format, `TargetExtent::Frame` or `TargetExtent::Fixed`, array layers, and `TargetLifetime::PerFrame` or `Persistent`. A persistent layer is readable in later frames, and across renderer replacement while its declaration is unchanged, once a *submitted* frame has left contents in it; a cancelled frame leaves the contents and that bookkeeping as they were. A read of a layer nothing wrote is `FrameError::MissingProducer` naming the target at planning.
+
+The targets belong to the renderer. `ConfiguredFrameRenderer::game_targets()` gives the live generation's textures and written layers. A renderer built from a clone of the inventory makes targets of its own, so two renderers never share or rebind a texture. A replacement builds its targets privately from the live ones and keeps every backing whose declaration (every field, with the extent it resolves to) is identical; the renderer holds the new targets only when the whole generation is built, so a replacement that fails, in a factory or anywhere later, leaves the live textures, written layers, generation and budget as they were.
+
+The targets count against the allocation budget. A kept backing is charged once across generations; a backing a replacement makes anew, such as a frame-sized target after a resize, is charged beside the old one until the old generation retires (`AllocationSet::backing_texture`).
+
+A layer is recorded as written when the *last* attachment that wrote that exact texture in a submitted frame stored its contents; a last write that discarded them leaves the layer unwritten. Only the declared texture counts: a stock attachment with the same name is another texture and never marks it, and a pass or read that would stand a declared target in for a same-named attachment of the frame is refused at planning with `FrameError::AttachmentHazard`. A same-frame fitted capture lists each game target's texture and each persistent target's publication in its suffix writes, so a game's passes run inside it, and a capture that fails publishes none of the game's bookkeeping.
+
+```rust,ignore
+let passes = GamePasses::new().with(Arc::new(MyGame::new()));
+let mut settings = RendererConfiguration::legacy(size, format);
+settings.game_passes = passes;
+settings.terrain_draws = TerrainDraws::Suppressed; // optional: the game draws the terrain
+let renderer = ConfiguredFrameRenderer::new(&context, settings, budget)?;
+
+// Inside the feature's `plan`: A writes four targets and the frame depth before Opaque,
+// B samples them and writes the frame colour.
+let a = GamePassSpec::new(GamePlace::BeforeOpaque, 0)
+    .writing(names.map(|n| ColorOutput::Target(ResourceRef::new(n))))
+    .with_depth(DepthAccess::ReadWrite);
+let b = GamePassSpec::new(GamePlace::BeforeOpaque, 1)
+    .writing([ColorOutput::Frame])
+    .reading(names.map(ResourceRef::new));
+let declared = [targets.plan_pass(&a, passes, views)?, targets.plan_pass(&b, passes, views)?];
+
+// Inside `prepare`: the exact target of the entry, built from the same depth rules as the stock draws.
+let target = PassTarget::of(context, entry)?;
+let state = target.render_state(raster);   // reuses DepthMode::render_state
+let draw = runtime.prepare_imported_draw(&imported, target.signature()?)?;
+target.admit("my program", &draw)?;         // a mismatch is refused by name before recording
+let camera = frame_camera.current()?;        // the matrices the stock passes use
+```
+
+`GamePlace::BeforeOpaque` passes run after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterTransparent` before the reflection and screen-space tail. The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
+
+`RendererConfiguration::terrain_draws = TerrainDraws::Suppressed` keeps the scene's terrain resident, streamed and updated but skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata and shadow casters. The default `Stock` is byte-identical to a build without the option. A frame with game features is planned without the stock plan cache. Switching the choice between frames refreshes every retained shadow cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs`, `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` and the forward-order tests.
+
 ## Native-resolution RCAS
 
 `RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.

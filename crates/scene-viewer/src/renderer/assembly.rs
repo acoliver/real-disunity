@@ -78,6 +78,7 @@ pub(super) fn surface_presentation(
             budget: resolved.startup.presentation_budget,
             capture_pool: crate::CapturePoolPolicy::Fixed(resolved.startup.capture_pool),
             recipes: resolved.startup.recipes,
+            game: resolved.startup.game.clone(),
         },
     )
 }

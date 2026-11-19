@@ -114,6 +114,22 @@ pub struct ViewerOptions {
     pub cadence: PresentationCadence,
     /// Shader clock, wall time by default.
     pub render_clock: RenderClock,
+    /// What the game adds to the stock render: its own passes and targets, and whether the stock
+    /// passes draw the scene's terrain. The default adds nothing.
+    pub game: GameRendering,
+}
+
+/// A game's additions to the stock render of a retained scene.
+///
+/// The viewer registers the inventoried factories on every renderer it builds, at startup and
+/// after every reconfiguration, so the game's passes take part in each frame the viewer draws and
+/// its persistent targets survive replacement. The viewer itself knows nothing of what they draw.
+#[derive(Clone, Debug, Default)]
+pub struct GameRendering {
+    /// The game's feature factories and the targets they declare.
+    pub passes: worldrunner_render_scene::compositor::GamePasses,
+    /// Whether the stock passes draw the scene's terrain. The terrain stays resident either way.
+    pub terrain_draws: worldrunner_render_scene::compositor::TerrainDraws,
 }
 
 /// Presentation policy, independent of GPU submission admission.

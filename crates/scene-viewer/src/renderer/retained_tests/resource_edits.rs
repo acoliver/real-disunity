@@ -247,6 +247,7 @@ pub(super) fn budgeted_presentation(
         height: 64,
     };
     let policy = |budget: crate::PresentationBudget| crate::presentation::PresentationPolicy {
+        game: crate::GameRendering::default(),
         receiver_gradients:
             worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: budget.into(),

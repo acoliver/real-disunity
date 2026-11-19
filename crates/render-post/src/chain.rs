@@ -272,16 +272,32 @@ impl<F: StageFactory> PostChain<F> {
         Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
         crate::contracts::ContractError,
     > {
+        let textures: Vec<_> = textures.iter().map(|texture| (*texture, None)).collect();
+        self.capture_write_keys_initial(&textures)
+    }
+
+    /// As [`Self::capture_write_keys`], for textures whose allocation the frame imports with an
+    /// initial version: `Some(0)` for a texture that holds contents an earlier submission left,
+    /// as the stock compile imports it when any of its views declares them. A capture and the
+    /// frame it submits must import a texture the same way, or the frame's own import conflicts
+    /// with the capture's.
+    pub fn capture_write_keys_initial(
+        &mut self,
+        textures: &[(&wgpu::Texture, Option<u32>)],
+    ) -> Result<
+        Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+        crate::contracts::ContractError,
+    > {
         use crate::contracts::{ResourceLifetime, Semantic};
         let registry = self.capture_resources.get_or_insert_with(Default::default);
         textures
             .iter()
-            .map(|texture| {
+            .map(|(texture, initial)| {
                 let key = registry.import(
                     texture,
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
-                    None,
+                    *initial,
                 )?;
                 Ok(
                     worldrunner_render_gpu::submission::capture::WriteKey::Resource {
@@ -515,7 +531,7 @@ impl<F: StageFactory> PostChain<F> {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
-        views: &[crate::AttachmentView],
+        plan: &crate::FramePlan<'_>,
         completed: &[crate::PassEntry],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
@@ -541,7 +557,8 @@ impl<F: StageFactory> PostChain<F> {
             }
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
-        context.set_views(views);
+        context.set_views(plan.views);
+        context.set_passes(plan.passes);
         context.set_completed_prefix(completed);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
@@ -630,7 +647,7 @@ impl<F: StageFactory> PostChain<F> {
             .unwrap_or(&mut local_registry);
         let raster =
             crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, views, &completed)?;
+        self.prepare_features(device, encoder, borrowed, plan, &completed)?;
         let timing = self.timing_state();
         let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {

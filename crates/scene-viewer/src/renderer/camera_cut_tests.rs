@@ -44,6 +44,7 @@ fn setup_with_scene(
         frame_profile: profile,
         shadows,
         render_clock: crate::RenderClock::Fixed(std::time::Duration::ZERO),
+        game: crate::GameRendering::default(),
         ..crate::tests::options()
     };
     let mut host = RetainedHost::new(scene, options).unwrap();

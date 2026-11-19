@@ -1,0 +1,62 @@
+; BC4-style index packing, in the loop shape DXC gives TerrainCompressChunk's GetIndices: ten
+; 3-bit indices read from `indices` are packed into one word, index k at bit 3k. The continue
+; block computes the next value of phi %shift before it uses %shift (and the index the body
+; loaded) in the next value of phi %word.
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
+               OpDecorate %Out Block
+               OpMemberDecorate %Out 0 Offset 0
+               OpDecorate %out DescriptorSet 0
+               OpDecorate %out Binding 0
+               OpDecorate %Indices ArrayStride 4
+               OpDecorate %In Block
+               OpMemberDecorate %In 0 NonWritable
+               OpMemberDecorate %In 0 Offset 0
+               OpDecorate %in DescriptorSet 0
+               OpDecorate %in Binding 1
+               OpDecorate %in NonWritable
+       %void = OpTypeVoid
+         %fn = OpTypeFunction %void
+       %uint = OpTypeInt 32 0
+       %bool = OpTypeBool
+     %uint_0 = OpConstant %uint 0
+     %uint_1 = OpConstant %uint 1
+     %uint_3 = OpConstant %uint 3
+    %uint_10 = OpConstant %uint 10
+    %uint_31 = OpConstant %uint 31
+    %Indices = OpTypeArray %uint %uint_10
+         %In = OpTypeStruct %Indices
+        %Out = OpTypeStruct %uint
+     %ptr_In = OpTypePointer StorageBuffer %In
+    %ptr_Out = OpTypePointer StorageBuffer %Out
+   %ptr_uint = OpTypePointer StorageBuffer %uint
+         %in = OpVariable %ptr_In StorageBuffer
+        %out = OpVariable %ptr_Out StorageBuffer
+       %main = OpFunction %void None %fn
+      %entry = OpLabel
+               OpBranch %header
+     %header = OpLabel
+          %i = OpPhi %uint %uint_0 %entry %i_next %cont
+      %shift = OpPhi %uint %uint_0 %entry %shift_next %cont
+       %word = OpPhi %uint %uint_0 %entry %word_next %cont
+       %cond = OpULessThan %bool %i %uint_10
+               OpLoopMerge %merge %cont None
+               OpBranchConditional %cond %body %merge
+       %body = OpLabel
+        %src = OpAccessChain %ptr_uint %in %uint_0 %i
+      %index = OpLoad %uint %src
+               OpBranch %cont
+       %cont = OpLabel
+     %i_next = OpIAdd %uint %i %uint_1
+ %shift_next = OpIAdd %uint %shift %uint_3
+     %amount = OpBitwiseAnd %uint %shift %uint_31
+       %bits = OpShiftLeftLogical %uint %index %amount
+  %word_next = OpBitwiseOr %uint %word %bits
+               OpBranch %header
+      %merge = OpLabel
+        %dst = OpAccessChain %ptr_uint %out %uint_0
+               OpStore %dst %word
+               OpReturn
+               OpFunctionEnd

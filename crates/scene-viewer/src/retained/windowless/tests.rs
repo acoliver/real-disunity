@@ -141,6 +141,7 @@ fn fixed_clock_repeats_water_flow_and_records_the_rendered_time() {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,
@@ -215,6 +216,7 @@ fn host(scene: RenderScene) -> RetainedHost {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             ..crate::tests::options()
         },
     )

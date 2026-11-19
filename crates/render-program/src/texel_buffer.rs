@@ -9,10 +9,10 @@ mod tests;
 use std::borrow::Cow;
 
 use rspirv::binary::Assemble;
-use rspirv::dr::{Instruction, Operand};
 use rspirv::spirv::{Capability, Op};
 
 use crate::module::ModuleError;
+use crate::spirv::{id, instruction, instructions, opcode};
 
 pub(crate) fn lower(words: &[u32]) -> Result<Cow<'_, [u32]>, ModuleError> {
     if !has_buffer_image(words) {
@@ -58,29 +58,7 @@ fn without_unused_capabilities(words: &[u32]) -> Cow<'_, [u32]> {
 }
 
 fn has_buffer_image(words: &[u32]) -> bool {
-    let mut at = 5;
-    while let Some(&head) = words.get(at) {
-        let size = (head >> 16) as usize;
-        if size == 0 || size > words.len() - at {
-            return false;
-        }
-        if head & 0xffff == Op::TypeImage as u32 && size >= 9 && words[at + 3] == 5 {
-            return true;
-        }
-        at += size;
-    }
-    false
-}
-
-fn instruction(op: Op, ty: Option<u32>, id: Option<u32>, operands: Vec<Operand>) -> Instruction {
-    Instruction::new(op, ty, id, operands)
-}
-
-fn id(operand: &Operand) -> Option<u32> {
-    match operand {
-        Operand::IdRef(id) => Some(*id),
-        _ => None,
-    }
+    instructions(words).any(|i| opcode(i) == Op::TypeImage as u32 && i.len() >= 9 && i[3] == 5)
 }
 
 fn malformed(what: &str) -> ModuleError {

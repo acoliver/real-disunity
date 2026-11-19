@@ -51,6 +51,7 @@ impl ShadowedScene {
             Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         ),
     ) -> Result<(), ShadowError> {
+        let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
         let scheduler = input.0.as_deref().unwrap_or(&self.scheduler);
         scheduler.validate_opaque_depth(attachments.1)?;
         scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
@@ -88,7 +89,7 @@ impl ShadowedScene {
             (&*resources.gpu, &scene),
             map,
         )?;
-        resources.encode_schedule(context, encoder, scheduler, scene, work)?;
+        resources.encode_schedule(context, encoder, scheduler, scene, (work, offscreen))?;
         if let Some(map) = replacement {
             self.map = map;
         }
@@ -180,8 +181,12 @@ impl ShadowFrameResources<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
         scene: SceneFrame,
-        work: ShadowScheduleWork<'_>,
+        work: (
+            ShadowScheduleWork<'_>,
+            Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
+        ),
     ) -> Result<(), ShadowError> {
+        let (work, offscreen) = work;
         let ShadowScheduleWork {
             shadow,
             groups,
@@ -220,15 +225,18 @@ impl ShadowFrameResources<'_> {
             sampling: self.effects.shadows().sampling(),
             deferred,
         };
-        scheduler.encode_frame(
+        scheduler.encode_frame_with(
             context.device(),
             encoder,
             (&schedule.passes, &schedule.views),
+            offscreen
+                .as_ref()
+                .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
             &mut [BorrowedFeature {
                 declaration: schedule.declaration,
                 prepared: &mut feature,
             }],
-            (scene.frame, Some(&map.group)),
+            &(scene.frame, Some(&map.group)),
         )?;
         Ok(())
     }

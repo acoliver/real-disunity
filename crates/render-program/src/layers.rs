@@ -20,6 +20,11 @@ pub struct TextureInput {
 pub struct PropertyLayer {
     pub values: PropertySet,
     pub textures: BTreeMap<String, TextureInput>,
+    /// Why the host stands in for a texture the material, block or globals do not really hold,
+    /// by property name: the host's own label for the reason. A name listed here whose texture is
+    /// in `textures` reads a stand-in texture the host supplied. A name listed here with no
+    /// texture explains the stand-in the frame's `undeclared_textures` provide for it.
+    pub stand_ins: BTreeMap<String, String>,
 }
 
 /// The layers a draw reads, highest first. A draw reads the caller's per-draw values, the
@@ -44,6 +49,34 @@ impl<'a> Layers<'a> {
             .iter()
             .map(|layer| &layer.values)
             .collect()
+    }
+
+    /// Why the texture [`texture`](Self::texture) gives for `name` is a stand-in. `None` for a real
+    /// texture and for a name no layer sets a texture for.
+    ///
+    /// The texture is a stand-in when the layer it comes from says so. The reason is the highest
+    /// layer's that explains `name`, down to that layer: a layer above it that names a texture the
+    /// host does not hold says why the draw reads the stand-in of a lower layer.
+    #[must_use]
+    pub fn stand_in(&self, name: &str) -> Option<&'a str> {
+        let mut reason = None;
+        for layer in self.highest_first {
+            reason = reason.or_else(|| layer.stand_ins.get(name));
+            if layer.textures.contains_key(name) {
+                let stand_in = layer.stand_ins.contains_key(name);
+                return reason.filter(|_| stand_in).map(String::as_str);
+            }
+        }
+        None
+    }
+
+    /// The reason the first layer that explains `name` gives for the texture it has none of.
+    #[must_use]
+    pub fn explanation(&self, name: &str) -> Option<&'a str> {
+        self.highest_first
+            .iter()
+            .find_map(|layer| layer.stand_ins.get(name))
+            .map(String::as_str)
     }
 
     /// The texture input of the first layer that names `name`.

@@ -32,18 +32,18 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use worldrunner_render_gpu::submission::{FrameLease, SubmissionAuthority};
+use worldrunner_render_post::StageId;
 use worldrunner_render_post::contracts::{
     CheckedDraw, RasterId, ResourceUse, TypedOperation, TypedWork, UseKind,
 };
-use worldrunner_render_post::{OperationsOutput, StageId};
 
 use crate::arena::ProgramArena;
 use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
-use crate::offscreen::AdmittedOffscreen;
+use crate::offscreen::{AdmissionError, AdmittedOffscreen, Export, PendingOffscreen};
 use crate::program::GraphicsProgram;
-use crate::resources::{BufferHandle, Pins, TextureHandle};
+use crate::resources::{BufferHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
 use crate::unity::shader::ProgramShader;
@@ -388,6 +388,8 @@ impl OffscreenState {
             constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
+        // Counted when the frame is built, since the host runs a frame it builds.
+        self.textures.mark_written(tracker.written_textures());
         Ok(OffscreenOperations {
             device: runtime.device().clone(),
             authority: runtime.authority().clone(),
@@ -550,7 +552,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
-    exports: Vec<OperationsOutput>,
+    exports: Vec<Export>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -654,6 +656,15 @@ pub struct UndeclaredDefaultDraws {
     pub draws: usize,
 }
 
+/// Draws that read a stand-in texture for one texture property, by the reason the host gave for
+/// the stand-in. A draw that reads stand-ins for several properties is counted once for each.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandInDraws {
+    pub texture: String,
+    pub reason: String,
+    pub draws: usize,
+}
+
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
 /// counted for one source channel, the shader input it feeds and the format the input was given.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -723,6 +734,27 @@ impl OffscreenOperations {
                 draws: *draws,
             })
             .collect()
+    }
+
+    /// The draws that read a stand-in texture, by texture property and the reason the layer that
+    /// supplied it gave, or `undeclared` for a slot nothing explains. Only recorded draws count.
+    #[must_use]
+    pub fn stand_in_draws(&self) -> Vec<StandInDraws> {
+        self.counts
+            .stand_ins
+            .iter()
+            .map(|((texture, reason), draws)| StandInDraws {
+                texture: texture.clone(),
+                reason: reason.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The recorded draws that read at least one stand-in texture.
+    #[must_use]
+    pub fn draws_with_stand_ins(&self) -> usize {
+        self.counts.stand_in_draws
     }
 
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by the
@@ -836,6 +868,22 @@ impl OffscreenOperations {
         &self.missing
     }
 
+    /// Hands the operations and their exports to a consumer that admits them on its own frame.
+    /// Finish adapter-side reporting, readbacks and exports before handing off the packet.
+    #[must_use]
+    pub fn into_pending(self) -> PendingOffscreen {
+        PendingOffscreen {
+            device: self.device,
+            authority: self.authority,
+            lease: self.lease,
+            registry: self.tracker.registry,
+            operations: self.operations,
+            reads: self.reads,
+            exports: self.exports,
+            shares: self.shares,
+        }
+    }
+
     /// Has the contract check the whole list and the reads the scene will make after it, and has
     /// `encoder`'s frame retain the arena and the storage the operations use until the GPU has
     /// completed the frame. Nothing is retained when the check fails.
@@ -848,17 +896,11 @@ impl OffscreenOperations {
         self,
         encoder: &wgpu::CommandEncoder,
     ) -> Result<AdmittedOffscreen, OffscreenError> {
-        let registry = self.tracker.registry;
-        let compiled =
-            registry.compile_operations_with_reads(&self.device, &self.operations, &self.reads)?;
-        let admitted = AdmittedOffscreen::new(
-            compiled,
-            registry,
-            self.lease,
-            Pins::new(&self.authority, self.shares),
-            self.exports,
-        );
-        admitted.retain(encoder)?;
-        Ok(admitted)
+        self.into_pending()
+            .admit(encoder)
+            .map_err(|error| match error {
+                AdmissionError::Contract(error) => error.into(),
+                AdmissionError::Program(error) => error.into(),
+            })
     }
 }

@@ -113,6 +113,20 @@ pub(super) fn run_retained(
     run_content(Box::new(crate::retained::Session::new(host, driver)))
 }
 
+/// As [`run_retained`], on the event loop `start` made and, if it made one, its device.
+pub(super) fn run_retained_on(
+    host: crate::RetainedHost,
+    driver: &mut dyn crate::RetainedDriver,
+    start: crate::ViewerStart,
+) -> Result<(), ViewerError> {
+    let (event_loop, shared) = start.into_parts();
+    run_on(
+        Box::new(crate::retained::Session::new(host, driver)),
+        Ok(event_loop),
+        shared,
+    )
+}
+
 pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowAttributes {
     let attributes = content.window_mode().attributes(
         Window::default_attributes()
@@ -128,18 +142,29 @@ pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowA
 }
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
+    run_on(
+        content,
+        EventLoop::<UserEvent>::with_user_event().build(),
+        None,
+    )
+}
+
+fn run_on(
+    content: Box<dyn Content + '_>,
+    event_loop: Result<EventLoop<UserEvent>, winit::error::EventLoopError>,
+    shared: Option<crate::renderer::Shared>,
+) -> Result<(), ViewerError> {
     let mut app = App::new(content);
-    let result = EventLoop::<UserEvent>::with_user_event()
-        .build()
-        .and_then(|event_loop| {
-            let proxy = event_loop.create_proxy();
-            app.proxy = Some(proxy.clone());
-            app.content.set_work_waker(Arc::new(move || {
-                // A closed loop means the host is shutting down.
-                let _ = proxy.send_event(UserEvent::WorkReady);
-            }));
-            event_loop.run_app(&mut app)
-        });
+    app.shared = shared;
+    let result = event_loop.and_then(|event_loop| {
+        let proxy = event_loop.create_proxy();
+        app.proxy = Some(proxy.clone());
+        app.content.set_work_waker(Arc::new(move || {
+            // A closed loop means the host is shutting down.
+            let _ = proxy.send_event(UserEvent::WorkReady);
+        }));
+        event_loop.run_app(&mut app)
+    });
     let shutdown = app.content.shutdown();
     let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
     cleanup(&mut app.renderer);
@@ -161,6 +186,8 @@ struct App<'a> {
     renderer: Option<Renderer>,
     failure: Option<ViewerError>,
     proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
+    /// The device the first renderer draws on, when the start made one before the window.
+    shared: Option<crate::renderer::Shared>,
     occluded: bool,
     suspended: bool,
     next_frame: Instant,
@@ -173,6 +200,7 @@ impl<'a> App<'a> {
             renderer: None,
             failure: None,
             proxy: None,
+            shared: None,
             occluded: false,
             suspended: false,
             next_frame: Instant::now(),

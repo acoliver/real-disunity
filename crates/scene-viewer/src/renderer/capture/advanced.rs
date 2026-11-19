@@ -1,5 +1,6 @@
 use super::{Products, accumulation::Accumulation};
-use crate::renderer::Renderer;
+use crate::renderer::{Renderer, game_screen::ViewMisses};
+use crate::retained::CaptureCompletion;
 use crate::{RetainedCaptureRecipe, RetainedHost, ViewerError};
 use std::time::Duration;
 use worldrunner_render_gpu::flight::CompletionTicket;
@@ -48,11 +49,13 @@ impl Active {
         host.present_captured_pick(self.view.resolved_view());
         host.captures.complete_recipe(
             self.id,
-            self.frame,
-            self.time,
+            &CaptureCompletion {
+                frame: self.frame,
+                time: self.time,
+                scene: self.scene.expect("submitted sample"),
+                temporal_history_reset: self.temporal_history_reset,
+            },
             self.accumulation.finish(),
-            &self.scene.expect("submitted sample"),
-            self.temporal_history_reset,
         );
     }
 }
@@ -62,61 +65,89 @@ impl Renderer {
         &mut self,
         host: &mut RetainedHost,
     ) -> Result<Option<bool>, ViewerError> {
+        if host.offscreen.is_some() && !self.admit_retained_offscreen(host)? {
+            return Ok(Some(false));
+        }
         if self.streaming.captures.active.is_none() {
-            let queued = host.captures.waiting.iter().any(|r| {
-                host.captures
-                    .recipes
-                    .get(&r.0)
-                    .is_some_and(RetainedCaptureRecipe::accumulated)
-            });
-            if !queued {
-                return Ok(None);
+            match self.start_queued_recipe(host)? {
+                Some(true) => {}
+                Some(false) => return Ok(Some(false)),
+                None => return Ok(None),
             }
-            self.publish_retained(host)?;
-            let Some(view) = host.view()? else {
-                return Ok(Some(false));
-            };
-            let pages = self.retained_pages_ready(host, &view)?;
-            let request = host
-                .captures
-                .waiting
-                .iter()
-                .find(|r| host.capture_ready(r, pages));
-            let Some(&(id, _, _)) = request else {
-                return Ok(None);
-            };
-            let Some(recipe) = host
-                .captures
-                .recipes
-                .get(&id)
-                .filter(|r| r.accumulated())
-                .cloned()
-            else {
-                return Ok(None);
-            };
-            let pool = host.capture_pool_bytes();
-            host.captures
-                .resize_reservation(id, host.size(), pool)
-                .map_err(|error| ViewerError::Driver(error.to_string()))?;
-            let size = Viewport {
-                width: host.size()[0],
-                height: host.size()[1],
-            };
-            self.streaming.captures.active = Some(Active {
-                id,
-                frame: self.streaming.captures.next_frame(),
-                scene: None,
-                temporal_history_reset: crate::TemporalHistoryReset::None,
-                time: self.clock.time(),
-                view,
-                size,
-                accumulation: Accumulation::new(size, &recipe),
-                recipe,
-                sample: 0,
-                pending: None,
-            });
         }
         self.submit_recipe_sample(host).map(Some)
+    }
+
+    fn start_queued_recipe(
+        &mut self,
+        host: &mut RetainedHost,
+    ) -> Result<Option<bool>, ViewerError> {
+        let queued = host.captures.waiting.iter().any(|r| {
+            host.captures
+                .recipes
+                .get(&r.0)
+                .is_some_and(RetainedCaptureRecipe::accumulated)
+        });
+        if !queued {
+            return Ok(None);
+        }
+        if host.offscreen.is_none() {
+            self.publish_retained(host)?;
+        }
+        let Some(view) = host.view()? else {
+            return Ok(Some(false));
+        };
+        let pages = self.retained_pages_ready(host, &view)?.pages_ready;
+        let request = host
+            .captures
+            .waiting
+            .iter()
+            .find(|r| host.capture_ready(r, pages));
+        let Some(&(id, _, _)) = request else {
+            return Ok(None);
+        };
+        let Some(recipe) = host
+            .captures
+            .recipes
+            .get(&id)
+            .filter(|r| r.accumulated())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        self.start_recipe(host, &view, id, recipe)?;
+        Ok(Some(true))
+    }
+
+    fn start_recipe(
+        &mut self,
+        host: &mut RetainedHost,
+        view: &SceneView,
+        id: u64,
+        recipe: RetainedCaptureRecipe,
+    ) -> Result<(), ViewerError> {
+        let pool = host.capture_pool_bytes();
+        host.captures
+            .resize_reservation(id, host.size(), pool)
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        let size = Viewport {
+            width: host.size()[0],
+            height: host.size()[1],
+        };
+        self.streaming.captures.active = Some(Active {
+            id,
+            frame: self.streaming.captures.next_frame(),
+            scene: None,
+            temporal_history_reset: crate::TemporalHistoryReset::None,
+            time: self.clock.time(),
+            view: *view,
+            size,
+            accumulation: Accumulation::new(size, &recipe),
+            recipe,
+            sample: 0,
+            pending: None,
+        });
+        Ok(())
     }
     fn submit_recipe_sample(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
         let active = self
@@ -152,12 +183,13 @@ impl Renderer {
             return Ok(false);
         };
         self.apply_retained_shadow_policy(host)?;
-        let pages = self.retained_pages_ready(host, &view)?;
-        let waits_pages = !pages && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
+        let readiness = self.retained_pages_ready(host, &view)?;
+        let waits_pages =
+            !readiness.pages_ready && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
         let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;
         if waits_pages || waits_geometry {
             self.prepare_camera_history(host);
-            let submitted = self.warm_recipe_pages(&view, ready)?;
+            let submitted = self.warm_recipe_pages(host, &view, ready, readiness.misses)?;
             if submitted {
                 self.submitted_camera_history(host);
             }
@@ -170,14 +202,14 @@ impl Renderer {
         self.frame_time = time;
         self.presentation.scheduler.set_frame_time_duration(time)?;
         self.prepare_camera_history(host);
-        self.encode_recipe_sample(host, &view, ready, &outputs)
+        self.encode_recipe_sample(host, &view, ready, (outputs.as_slice(), readiness.misses))
     }
     fn encode_recipe_sample(
         &mut self,
         host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
-        outputs: &[crate::CaptureOutput],
+        (outputs, misses): (&[crate::CaptureOutput], ViewMisses),
     ) -> Result<bool, ViewerError> {
         let mut image = Products::new(
             self.context.device(),
@@ -190,8 +222,12 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, None, &output, Some(&mut image))?;
+        self.game_screen.offer(host.game_screen.as_ref());
+        let offscreen = host.offscreen.take();
+        let prepared =
+            self.encode_frame(view, (None, offscreen), &output, Some(&mut image), misses)?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
+        self.game_screen.submitted();
         self.submitted_camera_history(host);
         let temporal_history_reset = self.temporal_history_reset();
         let frame = self.streaming.captures.next_frame();
@@ -219,8 +255,10 @@ impl Renderer {
     }
     fn warm_recipe_pages(
         &mut self,
+        host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
+        misses: ViewMisses,
     ) -> Result<bool, ViewerError> {
         self.resident.select_frame_slot(ready.admission.slot());
         self.presentation
@@ -230,8 +268,11 @@ impl Renderer {
             .frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let prepared = self.encode_frame(view, None, &output, None)?;
+        self.game_screen.offer(host.game_screen.as_ref());
+        let offscreen = host.offscreen.take();
+        let prepared = self.encode_frame(view, (None, offscreen), &output, None, misses)?;
         self.execution.submit_capture(ready, prepared)?;
+        self.game_screen.submitted();
         self.streaming.captures.advance_frame();
         Ok(true)
     }

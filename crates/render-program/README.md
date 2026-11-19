@@ -64,6 +64,68 @@ returned channels for the six scalar/two-component formats. Its fixtures expose
 the raw fetched vec4 with a documented post-DXC edit, because HLSL otherwise
 reconstructs or discards the missing channels.
 
+## SPIR-V non-finite constants
+
+Compilers write NaN and infinity as `OpConstant` bit patterns, alone and inside
+`OpConstantComposite`; a vertex stage that discards an instance writes a position of
+`vec4(NaN)` this way. naga turns every constant into a constant expression and its
+validator refuses a non-finite float literal in any expression, so `StageProgram::new`
+used to fail with `ConstExpression { source: Literal(NaN) }`. SPIR-V passthrough is not
+an option because the same stages must also reach Metal through naga's MSL writer.
+
+After the typed buffer pass and before naga parses the words, `StageSource::SpirV`
+removes each non-finite 32-bit `OpConstant` and each `OpConstantComposite` that
+contains one. Every function that used a removed constant builds it at the top of its
+entry block: a local `u32` variable initialised with the bit pattern, an `OpLoad` and an
+`OpBitcast` to the float, and for a composite an `OpCompositeConstruct` of its parts.
+Finite parts keep their original constants. A local variable initialised with a removed
+constant is stored to after the value exists. The bits are unchanged: quiet NaN
+payloads, signs and both infinities arrive at the GPU shader compiler as written.
+
+naga 30.0.1's SPIR-V front end appends a function's expressions without evaluating
+them, and its constant evaluator reports a bitcast as not implemented, so a bitcast
+of a constant would probably not be folded today. The rewrite does not depend on that:
+the pipeline-constant pass evaluates every function expression whose operands are
+constants, and a load of a local variable is never one, so the value stays a run-time value and is
+never turned back into the refused literal.
+
+A module that is rewritten loses its source-line markers and its debug-info records:
+every `OpLine` and `OpNoLine`, every `OpExtInst` of the `NonSemantic.Shader.DebugInfo.100`
+set, and the `OpName` of those records' results. Debug and line attribution is therefore
+not preserved for rewritten modules. naga reads none of these records, and the rewrite
+cannot keep them: rspirv moves an `OpLine` that precedes an `OpLabel` out of its
+function, and it refuses an `OpExtInst` outside a function. A marker among an entry
+block's variables would also split the run of leading variables whose initialisers the
+rewrite moves. The import, the `SPV_KHR_non_semantic_info` extension and every other
+instruction stay. Records of other `NonSemantic` sets are not touched; naga refuses
+those sets anyway.
+
+Modules without a non-finite 32-bit `OpConstant` borrow their words and are returned
+byte for byte, line markers and debug records included, and so are the modules that
+are declined below. Limits that leave the module to naga, which refuses it as before:
+
+- Specialization constants are never rewritten. `OpSpecConstant` with a non-finite
+  default stays an override with a refused literal, because a pipeline may replace its
+  value and nothing computed in a function would honour that.
+- A non-finite constant that a global variable initialiser or a specialization constant
+  instruction uses leaves the whole module unchanged.
+- A module in which an instruction that stays still reads the result of a removed
+  debug-info record is left unchanged, so no reference is left without its definition.
+- 64-bit and 16-bit constants are not touched.
+- Hardware and driver behaviour of NaN is the device's: a driver that compiles with
+  fast-math may treat NaN and infinity as undefined. The tests run on lavapipe only;
+  naga's MSL writer translates the rewritten modules, which no test runs on Metal.
+
+`src/nonfinite/tests.rs` covers admission, byte-identical pass-through, the refused
+cases and MSL translation on the CPU. `src/nonfinite/tests/debug_records.rs` covers line
+markers and debug-info records, and `src/nonfinite/tests/guards.rs` covers nested
+composites shared by functions and used by an `OpPhi`, and specialization constants.
+`tests/nonfinite.rs` runs synthetic modules on the selected GPU: a NaN position discards
+its primitives while the others draw, and scalars, mixed composites, local initialisers
+and constants shared by two functions keep their exact bits through a storage buffer. The modules are WGSL compiled to SPIR-V with
+finite sentinel constants whose words are replaced by the non-finite patterns
+(`tests/support/sentinel.rs`), because no naga module can hold such a literal.
+
 ## The native API
 
 A Rust game registers programs and makes materials without building stages, layouts and bindings by hand. The calls are on `ProgramRuntime` and take no Unity type. [Drawing with your own shader programs](../../docs/render-program-native.md) is the guide, with a complete example that `cargo run -p worldrunner-render-program --example native_material` runs and that CI compiles.
@@ -249,7 +311,7 @@ A renderer that already owns buffers, textures and samplers can have a program d
 
 ## Offscreen work through the checked operations
 
-The offscreen module is Unity's: it resolves the player's passes and variants from `unity_serialized` records, reads Unity's `GraphicsFormat` codes and maps Unity's vertex source channels. It lives in the adapter as `unity::offscreen` (with `unity::shader` for `ProgramShader`), behind the `unity` feature. The part a renderer needs, the operations after the contract accepted them, is neutral: `offscreen::AdmittedOffscreen` names no Unity type, so `render-scene` encodes it without the feature. `ids`, `layers` and `sampler` (mesh, texture and shader ids, property layers and sampler states) are neutral too.
+The offscreen module is Unity's: it resolves the player's passes and variants from `unity_serialized` records, reads Unity's `GraphicsFormat` codes and maps Unity's vertex source channels. It lives in the adapter as `unity::offscreen` (with `unity::shader` for `ProgramShader`), behind the `unity` feature. `OffscreenOperations::into_pending` hands the operations and their exports to the viewer as a format-neutral `offscreen::PendingOffscreen`. The viewer admits them on its frame's recording and `render-scene` encodes the resulting `offscreen::AdmittedOffscreen`. Neither consumer needs the adapter feature in production. `ids`, `layers` and `sampler` (mesh, texture and shader ids, property layers and sampler states) are neutral too.
 
 Unity player offscreen work is a camera rendering into a render texture, `Graphics.Blit` with a material pass and `Graphics.CopyTexture`. This crate turns a frame's records of it into `worldrunner_render_post::contracts::TypedOperation`s that run the player's own programs. It has no recorder of its own: the operations go to the one executor, which checks hazards, budgets, cancellation and timing, and the frame's timing and statistics list them. A second scheduler writing into the encoder before `encode_scene` is excluded by the one-renderer rule.
 

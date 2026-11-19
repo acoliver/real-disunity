@@ -456,10 +456,11 @@ impl ShadowedScene {
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
     }
 
-    /// Admitted player program draws are drawn by the configured compositor only.
+    /// Admitted player program draws are drawn by the configured compositor only. Admitted
+    /// offscreen operations are taken by the frame and run before its first pass.
     fn refuse_programs(&self) -> Result<(), ShadowError> {
-        if let Some(work) = self.gpu.waiting_player_work() {
-            return Err(ShadowError::UnsupportedFeature(work));
+        if self.gpu.has_programs() {
+            return Err(ShadowError::UnsupportedFeature("player programs"));
         }
         Ok(())
     }

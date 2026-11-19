@@ -124,6 +124,7 @@ fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
         adapter,
         device,
         submission: worldrunner_render_gpu::submission::SubmissionAuthority::new(queue),
+        unavailable_optional_limits: Vec::new(),
     };
     let mut bloom = post_bloom_tests::bloom();
     bloom.recipe.as_mut().unwrap().terminal = worldrunner_render_plan::SceneBloomTerminal::Reject;
@@ -238,6 +239,124 @@ fn gpu_optional_timestamp_device_enables_only_available_capability() {
         PassTimer::new(context.device(), context.queue(), TimingMode::Required).is_ok(),
         available
     );
+}
+
+#[test]
+fn a_device_shared_with_another_user_meets_its_requirements_and_the_scenes() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let available = adapter.limits();
+    // A caller that needs larger buffers than the default, and prefers more storage images.
+    let buffer = (wgpu::Limits::default().max_buffer_size * 2).min(available.max_buffer_size);
+    let caller = DeviceRequirements {
+        required_limits: wgpu::Limits {
+            max_buffer_size: buffer,
+            ..wgpu::Limits::default()
+        },
+        optional_features: Features::FLOAT32_FILTERABLE,
+        ..DeviceRequirements::default()
+    };
+    let filterable = adapter.features().contains(Features::FLOAT32_FILTERABLE);
+    let context = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ))
+    .unwrap();
+    let limits = context.device().limits();
+    assert_eq!(limits.max_buffer_size, buffer, "the caller's limit");
+    assert_eq!(
+        limits.max_texture_array_layers, available.max_texture_array_layers,
+        "the scene's limit"
+    );
+    assert_eq!(
+        context
+            .device()
+            .features()
+            .contains(Features::FLOAT32_FILTERABLE),
+        filterable,
+        "the caller's optional feature where offered"
+    );
+}
+
+#[test]
+fn a_shared_device_reports_a_preferred_profile_it_could_not_grant() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let too_large = adapter.limits().max_texture_dimension_2d + 1;
+    let caller = DeviceRequirements {
+        optional_limits: Some(wgpu::Limits {
+            max_texture_dimension_2d: too_large,
+            ..wgpu::Limits::default()
+        }),
+        ..DeviceRequirements::default()
+    };
+    let context = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ))
+    .unwrap();
+    let report = context.unavailable_optional_limits();
+    assert!(
+        report
+            .iter()
+            .any(|line| line.contains("max_texture_dimension_2d")),
+        "the refused preferred limit is named: {report:?}"
+    );
+    assert!(
+        context.device().limits().max_texture_dimension_2d < too_large,
+        "the device has the required limits"
+    );
+}
+
+#[test]
+fn a_shared_device_refuses_a_callers_missing_feature_by_name() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let name = adapter.get_info().name;
+    let flag = Features::all()
+        .difference(adapter.features())
+        .features_wgpu
+        .iter()
+        .next()
+        .expect("no adapter offers every native feature");
+    let mut absent = Features::empty();
+    absent.features_wgpu = flag;
+    let caller = DeviceRequirements {
+        required_features: absent,
+        ..DeviceRequirements::default()
+    };
+    let refused = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ));
+    match refused {
+        Err(super::DeviceError::MissingFeatures { adapter, missing }) => {
+            assert_eq!(adapter, name);
+            assert_eq!(missing, absent);
+        }
+        other => panic!("expected the caller's missing feature by name, got {other:?}"),
+    }
 }
 
 use super::{GpuContext, REQUIRED_FEATURES};

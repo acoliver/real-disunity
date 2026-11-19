@@ -6,7 +6,11 @@
 //!
 //! * Each frame, [`PlayerGpu::frame`] takes the world's graphics snapshot. A frame with no
 //!   offscreen work changes nothing: the host does not touch the device. Otherwise the records
-//!   are adapted, built and run in one submission.
+//!   are adapted, built and run in one submission, which the player waits for. A window does not
+//!   wait: it makes the player on the viewer's device (`PlayerGpu::shared`) and hands each
+//!   frame's built operations to the viewer (`PlayerGpu::frame_for_viewer`), which runs them in
+//!   its own frame's submission. The operations that draw into the screen export it, and the
+//!   window shows the screen's texture itself (`PlayerGpu::game_screen`): nothing is read back.
 //! * When a script reads a compute buffer back, the managed engine calls the flush handler
 //!   [`PlayerGpu::install`] registers. It runs the work recorded so far, dispatches included,
 //!   waits for the submission, and writes the changed buffers back before the read returns. It
@@ -14,7 +18,7 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::rc::Rc;
@@ -22,16 +26,21 @@ use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_scene_viewer::GameScreen;
+
+mod frame;
 
 use crate::PlayError;
+use crate::counts_line::{top_counts_line, unset_constants_line};
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
-    Reclaimed, Report, Settings, SuppliedGlobal, WorkTrace, supplied_line,
+    Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts, StandInLook,
+    SuppliedGlobal, WorkTrace, supplied_line,
 };
-use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -42,46 +51,27 @@ const MAX_WORK_TRACES: usize = 64;
 /// The most textures the draw:MissingTexture line names.
 const TOP_TEXTURES: usize = 5;
 
-/// `title` and the `top` names with the largest counts, largest first and equal counts by name,
-/// as `title: name count, name count`. A count of names past `top` ends the line as `and N more`.
-/// There is no line for no counts.
-fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) -> Option<String> {
-    if counts.is_empty() {
-        return None;
-    }
-    let mut ranked: Vec<_> = counts.iter().collect();
-    // A stable sort keeps the names of equal counts in the map's order.
-    ranked.sort_by(|a, b| b.1.cmp(a.1));
-    let named: Vec<String> = ranked
-        .iter()
-        .take(top)
-        .map(|(name, count)| format!("{name} {count}"))
-        .collect();
-    let line = format!("{title}: {}", named.join(", "));
-    Some(match ranked.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
-}
-
 /// The most names the unset constants line gives.
 const TOP_UNSET: usize = 8;
 
-/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
-/// and `and N more` for those past them. There is no line for no names.
-fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
-    if unset.is_empty() {
-        return None;
+/// The most property and reason pairs the stand-ins line names.
+const TOP_STAND_INS: usize = 8;
+
+/// The settings of a player run's offscreen work: camera renders drawing with `depth`, and
+/// `supplied` as the fallback globals every frame starts from, with stand-in textures drawn as
+/// `look`.
+fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
+    Settings {
+        supplied: supplied.to_vec(),
+        ..Settings::cameras()
+            .with_depth(depth)
+            .with_stand_in_look(look)
     }
-    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
-    let line = format!(
-        "constants or state properties no layer set: {}",
-        shown.join(", ")
-    );
-    Some(match unset.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
+}
+
+/// The stand-in look the environment asks for.
+fn stand_in_look_from_env() -> StandInLook {
+    StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref())
 }
 
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
@@ -141,6 +131,10 @@ pub struct GpuWorkReport {
     /// Pixel reads of render textures answered, and left unanswered by the reason.
     pub pixel_reads: usize,
     pub pixel_reads_refused: BTreeMap<String, usize>,
+    /// Images of the screen read back after work drew into it, and the readbacks refused by the
+    /// reason.
+    pub screen_reads: usize,
+    pub screen_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
     /// The most bytes the runtime held at any moment, not only after a flush.
@@ -178,6 +172,8 @@ pub struct GpuWorkReport {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The draws that read a stand-in texture, over every piece of work, by property and reason.
+    pub stand_ins: StandInCounts,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
     /// `Report::unset_constants`), over every piece of work.
     pub unset_constants: BTreeSet<String>,
@@ -249,17 +245,11 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
-        for (name, count) in &report.missing_textures {
-            *self.missing_textures.entry(name.clone()).or_default() += count;
-        }
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
-        }
-        for (name, count) in &report.undeclared_defaults {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
         }
         for (name, count) in report.lists.named() {
             *self.lists.entry(name).or_default() += count;
@@ -287,9 +277,7 @@ impl GpuWorkReport {
                 textures: report.global_textures.keys().cloned().collect(),
             });
         }
-        for (name, count) in &report.unresolved_textures {
-            *self.unresolved_textures.entry(name.clone()).or_default() += count;
-        }
+        self.add_texture_counts(report);
         self.unset_constants.extend(report.unset_constants.clone());
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
@@ -314,6 +302,65 @@ impl GpuWorkReport {
         }
     }
 
+    /// Adds the counts of the draws left out for want of a texture and of the draws and
+    /// properties a stand-in served instead.
+    fn add_texture_counts(&mut self, report: &Report) {
+        for (name, count) in &report.missing_textures {
+            *self.missing_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.undeclared_defaults {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.unresolved_textures {
+            *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        self.stand_ins.add(&report.stand_ins);
+    }
+
+    /// The lines of the stand-in census, without the `[gpu] ` prefix.
+    fn stand_in_lines(&self) -> Vec<String> {
+        self.stand_ins.lines(TOP_STAND_INS)
+    }
+
+    /// The lines of the stand-in census of the work done since the census was `before`.
+    fn frame_stand_in_lines(&self, before: &StandInCounts) -> Vec<String> {
+        self.stand_ins.since(before).lines(TOP_STAND_INS)
+    }
+
+    /// The lines about the draws left out for want of a texture and, from `stand_in_lines`, the
+    /// draws that read stand-ins.
+    fn print_texture_lines(&self, stand_in_lines: &[String]) {
+        if let Some(line) = top_counts_line(
+            "draw:MissingTexture by texture",
+            &self.missing_textures,
+            TOP_TEXTURES,
+        ) {
+            eprintln!("[gpu] {line}");
+        }
+        for line in stand_in_lines {
+            eprintln!("[gpu] {line}");
+        }
+    }
+
+    /// The line of the report about the screen's readbacks.
+    fn screen_line(&self) -> String {
+        let refused: usize = self.screen_reads_refused.values().sum();
+        let reasons: Vec<String> = self
+            .screen_reads_refused
+            .iter()
+            .map(|(reason, count)| format!("{reason}: {count}"))
+            .collect();
+        let detail = if reasons.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", reasons.join("; "))
+        };
+        format!(
+            "[gpu] screen images read back {}, refused {refused}{detail}",
+            self.screen_reads
+        )
+    }
+
     fn print_unset_constants(&self) {
         if let Some(line) = unset_constants_line(&self.unset_constants, TOP_UNSET) {
             eprintln!("[gpu] {line}");
@@ -330,6 +377,16 @@ impl GpuWorkReport {
 
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
+        self.print_with(&self.stand_in_lines());
+    }
+
+    /// As [`print`](Self::print), with the stand-in census of the work done since it was `before`
+    /// (a clone of `stand_ins` taken then) in place of the run's totals.
+    pub fn print_frame(&self, before: &StandInCounts) {
+        self.print_with(&self.frame_stand_in_lines(before));
+    }
+
+    fn print_with(&self, stand_in_lines: &[String]) {
         self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
@@ -357,13 +414,7 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        if let Some(line) = top_counts_line(
-            "draw:MissingTexture by texture",
-            &self.missing_textures,
-            TOP_TEXTURES,
-        ) {
-            eprintln!("[gpu] {line}");
-        }
+        self.print_texture_lines(stand_in_lines);
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
@@ -401,6 +452,7 @@ impl GpuWorkReport {
         for (reason, count) in &self.pixel_reads_refused {
             eprintln!("[gpu] pixel reads refused: {reason}: {count}");
         }
+        eprintln!("{}", self.screen_line());
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
@@ -432,82 +484,16 @@ impl GpuWorkReport {
     }
 }
 
-/// The storage budget for `adapter`: see [`storage_budget`].
-fn storage_choice(adapter: &wgpu::Adapter) -> Choice {
-    let env = std::env::var(STORAGE_BUDGET_ENV).ok();
-    storage_budget::choose(
-        env.as_deref(),
-        adapter.get_info().device_type,
-        host_available_bytes(),
-    )
-}
-
-/// The device the headless player asks for: the default limits and block compression where
-/// offered, with buffers as large as the storage budget allows (the adapter's own limit when that
-/// is less, since the budget does not need one buffer to hold it). It prefers eight storage images in a stage where the adapter has them, because two of the Old
-/// World's compute variants bind five and the default limit is four; an adapter that does not has
-/// the default limit and leaves those two variants out by name.
-fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
-    let default = wgpu::Limits::default();
-    let required = wgpu::Limits {
-        max_buffer_size: budget
-            .max(default.max_buffer_size)
-            .min(available.max_buffer_size),
-        ..default
-    };
-    DeviceRequirements {
-        // The player stores some textures block-compressed; a device without the feature leaves
-        // them out by name. Unity filters its 32-bit float render textures; without
-        // FLOAT32_FILTERABLE they are read at the nearest texel instead.
-        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
-            | wgpu::Features::FLOAT32_FILTERABLE,
-        optional_limits: Some(wgpu::Limits {
-            max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
-            ..required.clone()
-        }),
-        required_limits: required,
-        ..DeviceRequirements::default()
-    }
-}
-
-/// The storage images a stage may bind that the device is asked for.
-const PREFERRED_STORAGE_IMAGES: u32 = 8;
-
-/// Builds every compute kernel variant of the player in `data` as a compute program on the
-/// device the headless player asks for, and counts what the device cannot hold by cause.
-///
-/// # Errors
-/// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
-pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .map_err(|error| format!("no adapter: {error}"))?;
-    let budget = storage_choice(&adapter).bytes;
-    let requirements = device_requirements(budget, &adapter.limits());
-    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
-        .map_err(|error| format!("no device: {error}"))?;
-    let name = format!(
-        "{}, {} storage images in a stage",
-        adapter.get_info().name,
-        device.limits().max_storage_textures_per_shader_stage
-    );
-    let runtime = ProgramRuntime::new(
-        device,
-        SubmissionAuthority::new(queue),
-        AllocationBudget(budget),
-    );
-    crate::offscreen::compute_census(data, &runtime)
-        .map(|census| (name, census))
-        .map_err(|error| error.to_string())
-}
-
 /// A device and the player's offscreen host on it.
 pub struct PlayerGpu {
     offscreen: Rc<RefCell<OffscreenHost>>,
     report: Rc<RefCell<GpuWorkReport>>,
     authority: SubmissionAuthority,
     device: wgpu::Device,
+    /// The newest image of the screen read back, if work has drawn into it.
+    screen: RefCell<Option<ScreenImage>>,
+    /// The size the screen has been asked to be, which a texture of another size no longer is.
+    screen_size: Cell<Option<[u32; 2]>>,
 }
 
 impl PlayerGpu {
@@ -535,26 +521,101 @@ impl PlayerGpu {
         depth: DepthRange,
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture();
+        Self::headless_with_inputs(
+            data,
+            &inputs,
+            run_settings(depth, supplied, stand_in_look_from_env()),
+        )
+    }
+
+    fn headless_with_inputs(
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+        settings: Settings,
+    ) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        let choice = storage_choice(&adapter);
-        let requirements = device_requirements(choice.bytes, &adapter.limits());
-        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+        Self::headless_on_adapter(&adapter, data, inputs, settings)
+    }
+
+    fn headless_on_adapter(
+        adapter: &wgpu::Adapter,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+        settings: Settings,
+    ) -> Result<Self, String> {
+        let wanted = player_device(adapter, inputs);
+        let (device, queue, _) = pollster::block_on(request_device(adapter, &wanted.requirements))
             .map_err(|error| format!("no device: {error}"))?;
         let info = adapter.get_info();
-        let settings = Settings {
-            supplied: supplied.to_vec(),
-            ..Settings::cameras().with_depth(depth)
-        };
         Self::build(
             device,
             SubmissionAuthority::new(queue),
-            AllocationBudget(choice.bytes),
+            AllocationBudget(wanted.choice.bytes),
             data,
             &format!("adapter {} ({:?})", info.name, info.backend),
-            choice.source,
+            wanted.choice.source,
+            settings,
+        )
+    }
+
+    /// The host on the one device `source` makes for a window: the adapter's requirements and
+    /// budget come from the same function the headless player uses, and the device meets the
+    /// viewer's own needs as well. The window's frames and this player's work then share the
+    /// device and its submission order. `depth` and `supplied` mean what they do for
+    /// [`PlayerGpu::headless`].
+    ///
+    /// # Errors
+    /// Fails with the reason when `source` has no adapter or cannot make the device, or the
+    /// program runtime cannot reserve its arena on it.
+    pub(crate) fn shared(
+        source: &mut dyn DeviceSource,
+        data: &Path,
+        depth: DepthRange,
+        supplied: &[SuppliedGlobal],
+    ) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture();
+        Self::shared_with_inputs(
+            source,
+            data,
+            &inputs,
+            run_settings(depth, supplied, stand_in_look_from_env()),
+        )
+    }
+
+    fn shared_with_inputs(
+        source: &mut dyn DeviceSource,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+        settings: Settings,
+    ) -> Result<Self, String> {
+        let adapter = source.adapter()?;
+        Self::shared_on_adapter(source, &adapter, data, inputs, settings)
+    }
+
+    fn shared_on_adapter(
+        source: &mut dyn DeviceSource,
+        adapter: &wgpu::Adapter,
+        data: &Path,
+        inputs: &PlayerStartupInputs,
+        settings: Settings,
+    ) -> Result<Self, String> {
+        let wanted = player_device(adapter, inputs);
+        let (device, authority) = source.device(&wanted.requirements)?;
+        let info = adapter.get_info();
+        Self::build(
+            device,
+            authority,
+            AllocationBudget(wanted.choice.bytes),
+            data,
+            &format!(
+                "adapter {} ({:?}), shared with the viewer",
+                info.name, info.backend
+            ),
+            wanted.choice.source,
             settings,
         )
     }
@@ -641,7 +702,69 @@ impl PlayerGpu {
             })),
             authority,
             device,
+            screen: RefCell::new(None),
+            screen_size: Cell::new(None),
         })
+    }
+
+    /// Sets the size of the screen a `CameraTarget` with no camera texture draws into, or takes
+    /// the screen away with `None`. The next frame whose work names it makes it at that size,
+    /// empty, so a window calls this when it is resized.
+    pub fn set_screen(&self, size: Option<[u32; 2]>) {
+        self.screen_size.set(size);
+        self.offscreen.borrow_mut().set_screen(size);
+        if size.is_none() {
+            *self.screen.borrow_mut() = None;
+        }
+    }
+
+    /// The newest image of the screen: what it held after the last frame (or the flush before
+    /// it) whose work drew into it, `None` before any did. Its `frame` says which frame that was,
+    /// counting from zero, so a caller shows an image once by remembering the number.
+    #[must_use]
+    pub fn screen(&self) -> Option<std::cell::Ref<'_, ScreenImage>> {
+        std::cell::Ref::filter_map(self.screen.borrow(), Option::as_ref).ok()
+    }
+
+    /// The screen as the window shows it: the texture the offscreen work draws into, with whether
+    /// a flush the player submitted itself already wrote it. Nothing is copied. `None` while there
+    /// is no screen, before any frame made its texture, and when the texture is not the size the
+    /// screen was last asked to be: a resize makes the next frame that has work a new one, and the
+    /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
+    /// counted in the report and shows nothing.
+    pub(crate) fn game_screen(&self) -> Option<GameScreen> {
+        let host = self.offscreen.borrow();
+        let (texture, flushed) = host.screen_texture()?;
+        if self.screen_size.get() != Some([texture.width(), texture.height()]) {
+            return None;
+        }
+        GameScreen::new(texture, flushed)
+            .map_err(|error| {
+                *self
+                    .report
+                    .borrow_mut()
+                    .errors
+                    .entry(error.to_string())
+                    .or_default() += 1;
+            })
+            .ok()
+    }
+
+    /// Reads the screen back when work drew into it since the last read, and keeps the image.
+    /// A readback the host refuses is counted by its reason, and tried again by the next frame.
+    /// The image is numbered `frame`, the frame whose work drew it.
+    fn read_screen(&self, report: &mut GpuWorkReport, frame: u64) {
+        let mut host = self.offscreen.borrow_mut();
+        if !host.screen_written() {
+            return;
+        }
+        match host.read_screen(frame) {
+            Ok(image) => {
+                report.screen_reads += 1;
+                *self.screen.borrow_mut() = Some(image);
+            }
+            Err(reason) => *report.screen_reads_refused.entry(reason).or_default() += 1,
+        }
     }
 
     /// Registers the flush handler with `host`, for the world it runs now and later ones.
@@ -680,73 +803,6 @@ impl PlayerGpu {
         Ok(())
     }
 
-    /// Takes the frame's snapshot and runs its offscreen work. A frame with none returns at once
-    /// and leaves the device alone.
-    ///
-    /// # Errors
-    /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
-    /// report, not an error: the player goes on without it.
-    pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
-        let snapshot = host.graphics_snapshot()?;
-        if snapshot.work.is_empty() {
-            self.report.borrow_mut().frames += 1;
-            return Ok(());
-        }
-        let started = Instant::now();
-        let mut report = self.report.borrow_mut();
-        report.frames_with_work += 1;
-        let built = self.offscreen.borrow_mut().frame(&snapshot, &*host);
-        report.keep_traces(self.offscreen.borrow_mut().take_traces());
-        match built {
-            Ok((operations, frame_report)) => {
-                report.add(&frame_report, "frame");
-                if let Some(operations) = operations {
-                    let submitted = Instant::now();
-                    let ran = self.run(operations);
-                    self.offscreen.borrow_mut().settle();
-                    if let Some(work) = report.work.last_mut() {
-                        work.phases.submit += submitted.elapsed();
-                    }
-                    if let Err(message) = ran {
-                        *report.errors.entry(message).or_default() += 1;
-                    }
-                }
-            }
-            Err(error) => {
-                *report.errors.entry(error.to_string()).or_default() += 1;
-            }
-        }
-        report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        report.frame_time += started.elapsed();
-        report.frames += 1;
-        Ok(())
-    }
-
-    /// Records the operations into a frame of their own, submits it and waits for it.
-    fn run(
-        &self,
-        operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
-    ) -> Result<(), String> {
-        let mut frame = self
-            .authority
-            .begin(&self.device)
-            .map_err(|error| error.to_string())?;
-        let admitted = operations
-            .admit(&frame)
-            .map_err(|error| error.to_string())?;
-        admitted
-            .encode(None, &mut frame)
-            .map_err(|error| error.to_string())?;
-        let submission = frame.finish().submit().map_err(|error| error.to_string())?;
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(submission),
-                timeout: None,
-            })
-            .map_err(|error| error.to_string())?;
-        Ok(())
-    }
-
     /// What the run's offscreen work did so far.
     #[must_use]
     pub fn report(&self) -> std::cell::Ref<'_, GpuWorkReport> {
@@ -755,228 +811,8 @@ impl PlayerGpu {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod stand_in_tests;
 
-    fn trace(records: usize, error: Option<&str>) -> WorkTrace {
-        WorkTrace {
-            records,
-            error: error.map(str::to_owned),
-            ..WorkTrace::default()
-        }
-    }
-
-    fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-        entries
-            .iter()
-            .map(|(name, count)| ((*name).to_owned(), *count))
-            .collect()
-    }
-
-    #[test]
-    fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
-        let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
-        assert_eq!(
-            top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
-            Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
-        );
-    }
-
-    #[test]
-    fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
-        let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
-        assert_eq!(
-            top_counts_line("t", &counts, 2).as_deref(),
-            Some("t: _A 4, _B 3, and 2 more")
-        );
-    }
-
-    #[test]
-    fn there_is_no_missing_texture_line_without_missing_textures() {
-        assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
-    }
-
-    fn names(entries: &[&str]) -> BTreeSet<String> {
-        entries.iter().map(|name| (*name).to_owned()).collect()
-    }
-
-    #[test]
-    fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
-        assert_eq!(
-            unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, _C")
-        );
-        assert_eq!(
-            unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, and 3 more")
-        );
-        assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
-    }
-
-    #[test]
-    fn the_run_report_keeps_each_unset_constant_once_over_every_piece_of_work() {
-        let mut report = GpuWorkReport::default();
-        let first = Report {
-            unset_constants: names(&["_B", "_A"]),
-            ..Report::default()
-        };
-        let second = Report {
-            unset_constants: names(&["_A", "_C"]),
-            ..Report::default()
-        };
-        report.add(&first, "frame");
-        report.add(&second, "flush");
-        assert_eq!(report.unset_constants, names(&["_A", "_B", "_C"]));
-    }
-
-    fn listing(names: &[&str]) -> Report {
-        let mut report = Report::default();
-        for name in names {
-            report.global_textures.insert((*name).to_owned(), 1);
-        }
-        report
-    }
-
-    #[test]
-    fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs_to() {
-        let mut report = GpuWorkReport::default();
-        report.add(&listing(&["_Height: render"]), "flush");
-        report.add(&Report::default(), "flush");
-        report.frames = 3;
-        report.add(&listing(&["_Height: render", "_Last: none"]), "flush");
-        report.add(&listing(&["_Last: render"]), "frame");
-        let found: Vec<_> = report
-            .global_listings
-            .iter()
-            .map(GlobalListing::line)
-            .collect();
-        assert_eq!(
-            found,
-            [
-                "globals at a flush of frame 0: _Height: render",
-                "globals at a flush of frame 3: _Height: render, _Last: none",
-                "globals at a frame of frame 3: _Last: render",
-            ]
-        );
-    }
-
-    #[test]
-    fn work_the_gpu_refused_whole_is_counted_with_its_records_and_the_rest_is_not() {
-        let mut report = GpuWorkReport::default();
-        report.keep_traces(vec![
-            trace(2513, Some("over its budget")),
-            trace(27, None),
-            trace(30, Some("a shader")),
-        ]);
-        assert_eq!((report.refused_works, report.refused_records), (2, 2543));
-        assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
-    }
-
-    /// The limits an adapter that offers `storage_images` storage images in a stage and buffers
-    /// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
-    fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
-        let available = wgpu::Limits {
-            max_buffer_size: adapter_buffer,
-            max_storage_textures_per_shader_stage: storage_images,
-            ..wgpu::Limits::default()
-        };
-        worldrunner_render_gpu::device::negotiate(
-            wgpu::Features::empty(),
-            &available,
-            &device_requirements(budget, &available),
-        )
-        .unwrap()
-        .limits
-    }
-
-    #[test]
-    fn the_headless_device_asks_for_the_storage_images_the_old_world_kernels_bind_when_offered() {
-        let budget = storage_budget::DEFAULT_BYTES;
-        // Two Old World compute variants bind five storage images in their one stage, one more
-        // than the default limit of four.
-        let offered = negotiated(16, budget * 2, budget);
-        assert!(offered.max_storage_textures_per_shader_stage >= 5);
-        assert_eq!(offered.max_buffer_size, budget);
-        assert_eq!(
-            negotiated(4, budget * 2, budget).max_storage_textures_per_shader_stage,
-            4,
-            "an adapter at the default limit still gets a device"
-        );
-    }
-
-    #[test]
-    fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
-        // The budget is a total, not a buffer: the device takes the adapter's largest buffer.
-        let default = wgpu::Limits::default().max_buffer_size;
-        let limits = negotiated(16, default, 4 * default);
-        assert_eq!(limits.max_buffer_size, default);
-        assert!(limits.max_storage_textures_per_shader_stage >= 5);
-    }
-
-    #[test]
-    fn the_headless_host_draws_with_the_depth_range_it_is_given() {
-        let directory = tempfile::tempdir().unwrap();
-        for depth in [DepthRange::Forward, DepthRange::Reversed] {
-            let gpu = PlayerGpu::headless(directory.path(), depth, &[]).unwrap();
-            assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
-        }
-    }
-
-    #[test]
-    fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_supplied_none() {
-        let directory = tempfile::tempdir().unwrap();
-        let none = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
-        assert_eq!(none.report().supplied_globals, None);
-        let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
-        let some = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[value]).unwrap();
-        assert_eq!(
-            some.report().supplied_globals.as_deref(),
-            Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
-        );
-    }
-
-    #[test]
-    fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
-        let directory = tempfile::tempdir().unwrap();
-        let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
-        assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
-        assert!(
-            gpu.report().device.contains("runtime budget"),
-            "the report says where the budget came from"
-        );
-    }
-
-    #[test]
-    fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
-        let shared =
-            worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
-                .unwrap();
-        let authority = SubmissionAuthority::new(shared.queue.clone());
-        let directory = tempfile::tempdir().unwrap();
-        let budget = AllocationBudget(storage_budget::DEFAULT_BYTES);
-        let gpu = PlayerGpu::on(
-            shared.device.clone(),
-            authority.clone(),
-            budget,
-            directory.path(),
-        )
-        .unwrap();
-        assert!(gpu.authority.same_authority(&authority));
-        assert!(
-            gpu.offscreen
-                .borrow()
-                .authority()
-                .same_authority(&authority),
-            "the program runtime records and submits through the caller's authority"
-        );
-        assert!(
-            !gpu.offscreen
-                .borrow()
-                .authority()
-                .same_authority(&SubmissionAuthority::new(shared.queue.clone())),
-            "a second authority on the same queue is a different one"
-        );
-        assert_eq!(gpu.storage_budget(), budget.0);
-        assert!(gpu.report().device.contains("runtime budget"));
-    }
-}
+#[cfg(test)]
+#[path = "gpu_player_tests.rs"]
+mod tests;

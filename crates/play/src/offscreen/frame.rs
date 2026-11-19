@@ -25,7 +25,7 @@ use super::bounds::Bounds;
 use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
-use super::defaults::{DefaultTexture, ShaderFill};
+use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
 use super::ids;
 use super::mips::AutoMips;
@@ -33,6 +33,7 @@ use super::properties::{
     Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
 };
 use super::script::Script;
+use super::stand_ins::StandInReason;
 use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
@@ -71,12 +72,17 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
+    /// names it, or `None` for a host with no screen, where such a record is left out.
+    pub screen: Option<[u32; 2]>,
     /// How depth runs in the camera renders: the clip space of every camera's view-projection,
     /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
     /// Forward unless the caller says otherwise.
     pub depth: DepthRange,
     /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
     pub supplied: Vec<SuppliedGlobal>,
+    /// How the stand-in textures the host supplies look: their declared colours, or magenta.
+    pub stand_in_look: StandInLook,
 }
 
 impl Settings {
@@ -96,6 +102,13 @@ impl Settings {
     #[must_use]
     pub fn with_depth(mut self, depth: DepthRange) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// These settings with the stand-in textures looking as `look` says.
+    #[must_use]
+    pub fn with_stand_in_look(mut self, look: StandInLook) -> Self {
+        self.stand_in_look = look;
         self
     }
 
@@ -140,6 +153,9 @@ pub struct Available {
     pub shaders: BTreeMap<WorldShaderId, ShaderInfo>,
     pub meshes: BTreeSet<u64>,
     pub textures: BTreeSet<u64>,
+    /// The stored textures the host holds no usable texture of because it could not upload them,
+    /// by why. A texture the engine stored nothing of is in neither set.
+    pub refused_textures: BTreeMap<u64, StandInReason>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
     /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
@@ -349,7 +365,8 @@ impl<'a> Mapper<'a> {
         available: &'a Available,
         settings: &'a Settings,
     ) -> Self {
-        let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
+        let mut textures = Textures::new(&snapshot.render_textures, &available.textures)
+            .with_refused(&available.refused_textures);
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
             // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot
@@ -378,7 +395,11 @@ impl<'a> Mapper<'a> {
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
         add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
-        let script = Script::new(frame.globals.clone(), &frame.global_keywords);
+        let script = Script::new(
+            frame.globals.clone(),
+            &frame.global_keywords,
+            settings.screen,
+        );
         Self {
             snapshot,
             available,
@@ -823,9 +844,9 @@ impl<'a> Mapper<'a> {
             .records
             .iter()
             .flat_map(textures_of)
-            .filter(|id| ids::is_temporary(*id))
+            .filter(|id| ids::is_temporary(*id) || ids::is_screen(*id))
             .collect();
-        for spec in self.temporary_specs(&temporaries) {
+        for spec in self.held_specs(&temporaries) {
             self.note_format(spec.graphics_format);
             self.frame.render_textures.push(spec);
         }

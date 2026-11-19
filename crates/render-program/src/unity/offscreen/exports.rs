@@ -7,11 +7,20 @@
 use worldrunner_render_post::{OperationsOutput, ResourceRef};
 
 use crate::ids::TextureId;
+use crate::offscreen::Export;
 
 use super::OffscreenOperations;
 use super::error::OffscreenError;
 
 impl OffscreenOperations {
+    /// Whether the pending work declares a checked write to `resource` on admission.
+    #[must_use]
+    pub fn exports(&self, resource: ResourceRef) -> bool {
+        self.exports
+            .iter()
+            .any(|export| export.output.resource == resource)
+    }
+
     /// Names one mip and layer of a texture of the frame, which the operations write, as
     /// `resource` in the frame plan. The admitted work reports it as an output
     /// (`FrameOperations::produces`), so a scene pass the plan places after the work may sample it.
@@ -54,18 +63,22 @@ impl OffscreenOperations {
                 element: layer,
             });
         }
-        if self
-            .exports
-            .iter()
-            .any(|output| output.resource == resource)
-        {
+        if self.exports(resource) {
             return Err(OffscreenError::ExportedTwice(resource));
         }
-        self.exports.push(OperationsOutput::new(
-            resource,
-            imported.format,
-            imported.size.map(|side| (side >> mip).max(1)),
-        ));
+        let texture = self
+            .tracker
+            .primary_texture(texture)
+            .ok_or(OffscreenError::UnknownTexture(texture))?
+            .clone();
+        self.exports.push(Export {
+            output: OperationsOutput::new(
+                resource,
+                imported.format,
+                imported.size.map(|side| (side >> mip).max(1)),
+            ),
+            texture,
+        });
         Ok(())
     }
 }

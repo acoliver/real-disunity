@@ -394,7 +394,7 @@ fn a_render_textures_sampler_maps_like_a_stored_textures() {
     );
 }
 
-fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
+pub(super) fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
         format,
         width: 2,
@@ -404,6 +404,7 @@ fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
         generation: 1,
         distance_spread: 0,
         depth: 0,
+        graphics_format: 0,
         bytes,
     }
 }
@@ -612,16 +613,27 @@ fn an_array_that_is_not_equal_layers_of_a_format_the_host_reads_is_an_error_by_n
         ),
         "{short}"
     );
-    // Block formats are not carried for arrays, with or without block uploads.
-    for blocks in [false, true] {
-        let blocked = texture_of(id, &array(10, 2, vec![0; 16]), None, blocks).unwrap_err();
-        assert_eq!(
-            blocked,
-            Unsupported {
-                format: "DXT1 array".into()
-            }
-        );
-    }
+    // Formats the host has no layout for are refused by name, as BC7 arrays are.
+    let bc7 = texture_of(id, &array(25, 2, vec![0; 32]), None, true).unwrap_err();
+    assert_eq!(
+        bc7,
+        Unsupported {
+            format: "BC7 array".into()
+        }
+    );
+    // A format only the GraphicsFormat names is refused by that name.
+    let graphics = PlayerTexture {
+        format: 0,
+        graphics_format: 52,
+        ..array(0, 2, vec![0; 32])
+    };
+    let float = texture_of(id, &graphics, None, true).unwrap_err();
+    assert_eq!(
+        float,
+        Unsupported {
+            format: "GraphicsFormat 52 array".into()
+        }
+    );
 }
 
 #[test]

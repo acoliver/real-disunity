@@ -6,6 +6,8 @@
 //! `_Layers`, so column `c` of a four-column target shows layer `c`. Every expected texel is the
 //! color stored for that layer, not an output of the renderer.
 
+use std::collections::BTreeMap;
+
 use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
 use worldrunner_render_program::unity::synthetic::shaders::{
     array_patch_parameters, no_cull, variant,
@@ -16,7 +18,8 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_world_simulation::graphics::{OffscreenWork, PropertyValue, TargetRef, TextureRef};
 
 use super::super::assets::{AssetError, Assets};
-use super::flush::host;
+use super::super::flush::OffscreenHost;
+use super::flush::{host, host_without_blocks};
 use super::gpu::{Quad, SIDE, shader};
 use super::support::{material, render_texture, set, snapshot, texture_slot, world};
 
@@ -28,6 +31,7 @@ const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
 const CYAN: [u8; 4] = [0, 255, 255, 255];
 const YELLOW: [u8; 4] = [255, 255, 0, 255];
+const GREEN: [u8; 4] = [0, 255, 0, 255];
 
 /// The vertex stage and bindings every array pass shares.
 const ARRAY_HEAD: &str = "
@@ -95,25 +99,30 @@ impl Assets for ArrayAssets {
     }
 }
 
-/// An RGBA32 array of `depth` layers of `width` by `width` texels holding `bytes`.
-fn array(width: u32, (depth, mips): (u32, u32), bytes: Vec<u8>) -> PlayerTexture {
+/// An array of `depth` layers of `side` by `side` texels in the engine's texture `format`, each
+/// layer holding `mips` levels, whose bytes are `bytes`.
+fn array(format: u32, side: u32, (depth, mips): (u32, u32), bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
-        format: RGBA32,
-        width,
-        height: width,
+        format,
+        width: side,
+        height: side,
         mips,
         linear: false,
         generation: 1,
         distance_spread: 0,
         depth,
+        graphics_format: 0,
         bytes,
     }
 }
 
-/// The target's texels, as unit floats, after a blit of `pass` with `_Layers` set to `stored`.
-fn blitted(pass: &str, stored: PlayerTexture) -> Vec<f32> {
-    let directory = tempfile::tempdir().unwrap();
-    let mut host = host(directory.path());
+/// The target's texels, as unit floats, after a blit of `pass` with `_Layers` set to `stored`, and
+/// the failures the flush counted.
+fn blit_with(
+    mut host: OffscreenHost,
+    pass: &str,
+    stored: PlayerTexture,
+) -> (Option<Vec<f32>>, BTreeMap<String, usize>) {
     let mut world = world();
     let array = shader(&mut world, pass);
     let blit = material(&mut world, array);
@@ -139,13 +148,18 @@ fn blitted(pass: &str, stored: PlayerTexture) -> Vec<f32> {
     let snapshot = snapshot(&mut world);
     let outcome = host.flush(&snapshot, &ArrayAssets(stored)).unwrap();
     outcome.apply(&mut world).unwrap();
+    (
+        world.take_texture_pixels(request),
+        outcome.report.failures.clone(),
+    )
+}
 
-    assert!(
-        outcome.report.failures.is_empty(),
-        "{:?}",
-        outcome.report.failures
-    );
-    world.take_texture_pixels(request).unwrap()
+/// The target's texels after a blit that counts no failure.
+fn blitted(pass: &str, stored: PlayerTexture) -> Vec<f32> {
+    let directory = tempfile::tempdir().unwrap();
+    let (pixels, failures) = blit_with(host(directory.path()), pass, stored);
+    assert!(failures.is_empty(), "{failures:?}");
+    pixels.unwrap()
 }
 
 /// What a four-column target shows when column `c` is `colors[c]`.
@@ -162,7 +176,7 @@ fn columns(colors: [[u8; 4]; 4]) -> Vec<f32> {
 #[test]
 fn a_stored_array_is_uploaded_with_its_layers_and_a_draw_samples_each_one() {
     let layers = [RED, BLUE, CYAN, YELLOW];
-    let stored = array(1, (4, 1), layers.concat());
+    let stored = array(RGBA32, 1, (4, 1), layers.concat());
     // Column c shows layer c, in every row.
     assert_eq!(blitted("arrayslices", stored), columns(layers));
 }
@@ -172,10 +186,70 @@ fn a_stored_array_with_a_mip_chain_uploads_every_level_of_every_layer() {
     // Two layers of 2x2 texels, each followed by its 1x1 second level, in four colours.
     let layer = |base: [u8; 4], next: [u8; 4]| [base.repeat(4), next.to_vec()].concat();
     let bytes = [layer(RED, BLUE), layer(CYAN, YELLOW)].concat();
-    let stored = array(2, (2, 2), bytes);
+    let stored = array(RGBA32, 2, (2, 2), bytes);
     // Column c shows level c % 2 of layer c / 2.
     assert_eq!(
         blitted("arraylevels", stored),
         columns([RED, BLUE, CYAN, YELLOW])
+    );
+}
+
+/// The `TextureFormat`s DXT1 and DXT5, and the blocks of one colour (RGB565) in each: both
+/// endpoints are the colour and every index is 0, so all sixteen texels are it.
+const DXT1: u32 = 10;
+const DXT5: u32 = 12;
+const RED_565: u16 = 0xF800;
+const GREEN_565: u16 = 0x07E0;
+const BLUE_565: u16 = 0x001F;
+const CYAN_565: u16 = 0x07FF;
+const YELLOW_565: u16 = 0xFFE0;
+const MAGENTA_565: u16 = 0xF81F;
+
+/// Makes a block of one RGB565 colour.
+type Block = fn(u16) -> Vec<u8>;
+
+fn bc1_block(color: u16) -> Vec<u8> {
+    let [low, high] = color.to_le_bytes();
+    vec![low, high, low, high, 0, 0, 0, 0]
+}
+
+fn bc3_block(color: u16) -> Vec<u8> {
+    [vec![255, 255, 0, 0, 0, 0, 0, 0], bc1_block(color)].concat()
+}
+
+/// Two layers of 4x4 texels with three levels each (4x4, 2x2 and 1x1 take a block apiece), in
+/// blocks made by `block`.
+fn block_layers(block: Block) -> Vec<u8> {
+    let chain = |colors: [u16; 3]| -> Vec<u8> { colors.iter().flat_map(|c| block(*c)).collect() };
+    [
+        chain([RED_565, GREEN_565, YELLOW_565]),
+        chain([BLUE_565, CYAN_565, MAGENTA_565]),
+    ]
+    .concat()
+}
+
+#[test]
+fn a_block_compressed_array_goes_up_as_blocks_and_a_draw_samples_each_level_of_each_layer() {
+    for (format, block) in [(DXT1, bc1_block as Block), (DXT5, bc3_block)] {
+        let stored = array(format, 4, (2, 3), block_layers(block));
+        assert_eq!(
+            blitted("arraylevels", stored),
+            columns([RED, GREEN, BLUE, CYAN]),
+            "format {format}"
+        );
+    }
+}
+
+#[test]
+fn a_block_array_on_a_host_without_block_compression_is_refused_and_counted_by_format() {
+    let directory = tempfile::tempdir().unwrap();
+    let stored = array(DXT1, 4, (2, 3), block_layers(bc1_block));
+    let bytes = stored.bytes.len();
+    let (_, failures) = blit_with(host_without_blocks(directory.path()), "arraylevels", stored);
+    assert_eq!(failures.get("texture:ArrayNeedsBlocks"), Some(&1));
+    assert_eq!(
+        failures.get(&format!("textureformat:DXT1 4x4, {bytes} bytes")),
+        Some(&1),
+        "{failures:?}"
     );
 }

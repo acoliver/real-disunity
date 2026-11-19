@@ -87,6 +87,14 @@ pub enum PlayerTextureError {
     Layers { depth: u32, actual: usize },
     #[error("{mips} mip levels are more than a {width}x{height} texture has")]
     Mips { mips: u32, width: u32, height: u32 },
+    #[error("a {format} array is drawn only as blocks, and this device has no block compression")]
+    ArrayNeedsBlocks { format: &'static str },
+    #[error("a {width}x{height} {format} array is not made of whole 4x4 blocks")]
+    ArrayBlockSize {
+        format: &'static str,
+        width: u32,
+        height: u32,
+    },
     #[error("a layer of {mips} mip levels holds {actual} bytes but the levels take {needed}")]
     Levels {
         mips: u32,
@@ -120,6 +128,17 @@ pub fn format_name(format: u32) -> String {
         28 => "DXT1Crunched".into(),
         29 => "DXT5Crunched".into(),
         other => format!("TextureFormat {other}"),
+    }
+}
+
+/// The name of a stored texture's format, for logs: its engine `TextureFormat`, or for a format the
+/// engine has none for, as a 2D array may be, its `GraphicsFormat`.
+#[must_use]
+pub fn stored_format_name(texture: &PlayerTexture) -> String {
+    if texture.format == 0 && texture.graphics_format != 0 {
+        format!("GraphicsFormat {}", texture.graphics_format)
+    } else {
+        format_name(texture.format)
     }
 }
 

@@ -32,7 +32,7 @@ use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::depth_range;
 use super::error::OffscreenError;
-use super::frame::UndeclaredTextures;
+use super::frame::{RenderDimension, UndeclaredTextures};
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::sampling::{self, Sampled, read_unfilterable};
@@ -547,6 +547,7 @@ impl Services<'_> {
             facts.textures.push((name.to_owned(), input.texture));
         }
         let (imported, own) = self.import(input.texture)?;
+        self.refuse_flat_slot_over_array(name, input.texture, view_dimension)?;
         // A depth slot is read through a comparison sampler, which takes the depth aspect alone:
         // the depth of a depth-only render texture, whose format has no stencil. A colour texture,
         // and the depth buffer under one, have none to give.
@@ -609,6 +610,26 @@ impl Services<'_> {
             state,
             unfiltered: sample_type == wgpu::TextureSampleType::Float { filterable: false },
         })
+    }
+
+    /// Refuses a slot the shader declares as a plain 2D texture over an uploaded or render array
+    /// of several layers, which no 2D view can show. A one-layer array has a 2D view.
+    fn refuse_flat_slot_over_array(
+        &self,
+        name: &str,
+        texture: TextureId,
+        view_dimension: wgpu::TextureViewDimension,
+    ) -> Result<(), OffscreenError> {
+        if view_dimension == wgpu::TextureViewDimension::D2
+            && let RenderDimension::D2Array(layers @ 2..) = self.textures.get(texture)?.dimension
+        {
+            return Err(OffscreenError::FlatSlotOverArray {
+                name: name.to_owned(),
+                texture,
+                layers,
+            });
+        }
+        Ok(())
     }
 
     /// Counts a read of `texture` (property, levels bound, levels it has) by the pass that made it.

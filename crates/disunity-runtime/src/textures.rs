@@ -19,6 +19,10 @@ pub struct PlayerTexture {
     /// The layers of a 2D array texture, whose `bytes` hold them one after the other, each as
     /// long as the others. Zero or one is a plain 2D texture.
     pub depth: u32,
+    /// The engine's `GraphicsFormat` of a 2D array, which its `format` may not describe: a format
+    /// the engine has no `TextureFormat` for is stored with `format` zero. Zero for a texture that
+    /// states none.
+    pub graphics_format: u32,
     pub bytes: Vec<u8>,
 }
 
@@ -109,6 +113,7 @@ pub(crate) fn read_texture(
         generation: info.generation,
         distance_spread: info.distance_spread,
         depth: 0,
+        graphics_format: 0,
         bytes,
     }))
 }

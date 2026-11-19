@@ -88,6 +88,7 @@ fn filled(generation: u64, texel: [u8; 4]) -> PlayerTexture {
         generation,
         distance_spread: 0,
         depth: 0,
+        graphics_format: 0,
         bytes: texel.repeat(TEXTURE_LEN / 4),
     }
 }

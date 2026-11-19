@@ -33,8 +33,12 @@ const RGBA8_LINEAR: u32 = 8;
 const BC6H: u32 = 24;
 const BC6H_UFLOAT: u32 = 106;
 const RGBA8_SRGB: u32 = 4;
-/// The engine's `TextureFormat`s a 2D array is read in: Alpha8, RGB24 and RGBA32.
+/// The engine's `TextureFormat`s a 2D array is read in as texels: Alpha8, RGB24 and RGBA32.
 const ARRAY_FORMATS: [u32; 3] = [1, 3, 4];
+/// The `GraphicsFormat` of the terrain atlases' normal, metallic and roughness maps. It has no
+/// `TextureFormat` and stores four bytes a texel; it goes to the device as the sRGB RGBA8 whose
+/// layout those bytes have.
+const FOUR_BYTE_ARRAY: u32 = 87;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -354,7 +358,7 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
 }
 
 /// A stored texture's base level as a source texture, or for a stored 2D array (`depth` above one)
-/// the base level of each layer as a source array. Rows stay bottom first, as the engine stores
+/// every level of each layer as a source array. Rows stay bottom first, as the engine stores
 /// them, which is the orientation of a render texture's rows (see `camera::clip_from_gl`). It is
 /// read with `sampler`, or the fixed sampler without one.
 ///
@@ -365,8 +369,9 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
 ///
 /// # Errors
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
-/// are shorter than its base level. A stored array fails when it is block-compressed, whose
-/// layers are not carried, or when its bytes are not `depth` equal layers.
+/// are shorter than its base level. A stored array fails when its bytes are not `depth` equal
+/// layers of whole mip chains, when it is in a format it has no layout for, and when it is DXT1 or
+/// DXT5 and `blocks` is false or its base level is not whole blocks: arrays are not decoded.
 pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
@@ -374,7 +379,7 @@ pub fn texture_of(
     blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
     if stored.depth > 1 {
-        return array_of(id, stored, sampler);
+        return array_of(id, stored, sampler, blocks);
     }
     if stored.format == BC6H {
         return Ok(SourceTexture {
@@ -417,20 +422,69 @@ pub fn texture_of(
     })
 }
 
+/// How the layers of a stored array go to the device as they are stored, every level of every
+/// layer.
+struct Verbatim {
+    /// The `GraphicsFormat` they are uploaded as.
+    graphics_format: u32,
+    /// The side of a block in texels, 4 for DXT1 and DXT5 blocks and 1 for texels.
+    side: u32,
+    /// The bytes of a block or texel.
+    bytes: usize,
+    /// The name of the format, for the refusal.
+    name: &'static str,
+}
+
+impl Verbatim {
+    /// The layout of an array of `stored`, when its layers are uploaded as they are: DXT1 and DXT5
+    /// by `format`, and the four-byte `graphics_format` the engine has no `TextureFormat` for.
+    fn of(stored: &PlayerTexture) -> Option<Self> {
+        if stored.graphics_format == FOUR_BYTE_ARRAY {
+            return Some(Self {
+                graphics_format: RGBA8_SRGB,
+                side: 1,
+                bytes: 4,
+                name: "GraphicsFormat 87",
+            });
+        }
+        let (graphics_format, bytes, name) = block_upload(stored)?;
+        matches!(stored.format, 10 | 12).then_some(Self {
+            graphics_format,
+            side: BLOCK_SIDE,
+            bytes,
+            name,
+        })
+    }
+
+    /// The bytes of one layer's `mips` levels, each at least one block.
+    fn layer_bytes(&self, stored: &PlayerTexture, mips: u32) -> usize {
+        let blocks = |side: u32, level: u32| {
+            side.checked_shr(level)
+                .unwrap_or(0)
+                .max(1)
+                .div_ceil(self.side) as usize
+        };
+        (0..mips)
+            .map(|level| blocks(stored.width, level) * blocks(stored.height, level) * self.bytes)
+            .sum()
+    }
+}
+
+/// The side of a block of a block-compressed format, in texels.
+const BLOCK_SIDE: u32 = 4;
+
 /// A stored 2D array as a source array. The byte string holds `depth` layers of one length, each
-/// holding the `mips` levels of a 2D texture of `format` one after the other, base level first, as
-/// the engine stores them. Each level is read as RGBA8 as a plain texture is, which leaves the
-/// layers and levels in the order the engine stored them. Block-compressed arrays are refused.
+/// holding the `mips` levels of a 2D texture one after the other, base level first, as the engine
+/// stores them. DXT1 and DXT5 layers go up as the blocks they are, and only to a device that
+/// samples blocks, as arrays are not decoded; the four-byte `GraphicsFormat` 87 goes up as the
+/// texels it holds. Alpha8, RGB24 and RGBA32 levels are read as RGBA8 as a plain texture is. Every
+/// way leaves the layers and levels in the order the engine stored them.
 fn array_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
+    blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
-    if !ARRAY_FORMATS.contains(&stored.format) {
-        return Err(PlayerTextureError::Unsupported {
-            format: format!("{} array", crate::textures::format_name(stored.format)),
-        });
-    }
     let layers = stored.depth as usize;
     let length = stored.bytes.len();
     if length == 0 || !length.is_multiple_of(layers) {
@@ -441,19 +495,18 @@ fn array_of(
     }
     let mips = stored.mips.max(1);
     check_levels(stored, mips)?;
-    let mut bytes = Vec::new();
-    for layer in stored.bytes.chunks_exact(length / layers) {
-        bytes.extend(layer_rgba8(stored, layer, mips)?);
-    }
+    let (graphics_format, bytes) = match Verbatim::of(stored) {
+        Some(layout) => (
+            layout.graphics_format,
+            verbatim_layers(stored, &layout, blocks)?,
+        ),
+        None => (texel_format(stored)?, rgba8_layers(stored, mips)?),
+    };
     Ok(SourceTexture {
         id,
         dimension: SourceDimension::D2Array(stored.depth),
         size: [stored.width, stored.height],
-        graphics_format: if stored.linear {
-            RGBA8_LINEAR
-        } else {
-            RGBA8_SRGB
-        },
+        graphics_format,
         mips,
         bytes,
         sampler,
@@ -471,6 +524,65 @@ fn check_levels(stored: &PlayerTexture, mips: u32) -> Result<(), PlayerTextureEr
         });
     }
     Ok(())
+}
+
+/// The `GraphicsFormat` of an array read as RGBA8 texels, or the refusal of a format that is not.
+fn texel_format(stored: &PlayerTexture) -> Result<u32, PlayerTextureError> {
+    if !ARRAY_FORMATS.contains(&stored.format) {
+        return Err(PlayerTextureError::Unsupported {
+            format: format!("{} array", crate::textures::stored_format_name(stored)),
+        });
+    }
+    Ok(if stored.linear {
+        RGBA8_LINEAR
+    } else {
+        RGBA8_SRGB
+    })
+}
+
+/// The layers of `stored` as the device takes them: the stored bytes, when each layer is the whole
+/// chain of its levels in `layout`, which for blocks needs a device that samples them and a base
+/// level of whole blocks.
+fn verbatim_layers(
+    stored: &PlayerTexture,
+    layout: &Verbatim,
+    blocks: bool,
+) -> Result<Vec<u8>, PlayerTextureError> {
+    if layout.side == BLOCK_SIDE {
+        if !blocks {
+            return Err(PlayerTextureError::ArrayNeedsBlocks {
+                format: layout.name,
+            });
+        }
+        if !stored.width.is_multiple_of(BLOCK_SIDE) || !stored.height.is_multiple_of(BLOCK_SIDE) {
+            return Err(PlayerTextureError::ArrayBlockSize {
+                format: layout.name,
+                width: stored.width,
+                height: stored.height,
+            });
+        }
+    }
+    let mips = stored.mips.max(1);
+    let needed = layout.layer_bytes(stored, mips);
+    let actual = stored.bytes.len() / stored.depth as usize;
+    if actual != needed {
+        return Err(PlayerTextureError::Levels {
+            mips,
+            needed,
+            actual,
+        });
+    }
+    Ok(stored.bytes.clone())
+}
+
+/// Every layer of `stored` as RGBA8 texels, each layer's levels one after the other.
+fn rgba8_layers(stored: &PlayerTexture, mips: u32) -> Result<Vec<u8>, PlayerTextureError> {
+    let length = stored.bytes.len() / stored.depth as usize;
+    let mut bytes = Vec::new();
+    for layer in stored.bytes.chunks_exact(length) {
+        bytes.extend(layer_rgba8(stored, layer, mips)?);
+    }
+    Ok(bytes)
 }
 
 /// One layer's `mips` levels as RGBA8, base level first. A level is as wide and as high as the

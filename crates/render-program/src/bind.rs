@@ -24,21 +24,11 @@ pub(crate) struct Snapshot {
 
 impl ProgramRuntime {
     /// One bind group for each descriptor set the program uses, with the fixed sampler at
-    /// every sampler binding.
+    /// every sampler binding and `snapshots` filling the buffer bindings they are at.
     ///
     /// # Errors
     /// Fails when a binding has no resource, a resource names no binding or the wrong kind of
     /// binding, or a buffer is smaller than the shader needs.
-    pub(crate) fn bind_groups(
-        &self,
-        gpu: &GpuLayout,
-        bound: &[BoundResource],
-    ) -> Result<Vec<(u32, wgpu::BindGroup)>, ProgramError> {
-        self.bind_groups_with(gpu, bound, &[])
-    }
-
-    /// Like [`bind_groups`](Self::bind_groups), with `snapshots` filling the buffer bindings
-    /// they are at.
     pub(crate) fn bind_groups_with(
         &self,
         gpu: &GpuLayout,

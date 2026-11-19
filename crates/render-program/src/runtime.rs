@@ -24,10 +24,12 @@ pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::batch::{
     GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
 };
-pub use crate::block_transfer::{BlockDestination, BlockImageTransfer, BlockSource};
+pub use crate::block_transfer::{
+    BlockDestination, BlockImageTransfer, BlockSource, LentBlockDestination, PreparedBlockTransfer,
+};
 pub use crate::budget::Holding;
 pub use crate::create::TextureShape;
-pub use crate::dispatch::DispatchRequest;
+pub use crate::dispatch::{DispatchRequest, ImportedDispatch, PreparedDispatch};
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::import::{
     BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,

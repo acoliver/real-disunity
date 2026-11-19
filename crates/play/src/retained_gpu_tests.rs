@@ -12,7 +12,8 @@ use super::ui_tests::{fixture_config, fixture_turn};
 use super::*;
 use std::{path::PathBuf, time::Instant};
 
-use crate::player::player_gpu;
+use crate::gpu_device::headless::HeadlessViewer;
+use crate::player::window_gpu;
 use crate::{DepthRange, PreparedPlayer};
 
 const SIZE: u32 = 64;
@@ -57,14 +58,26 @@ fn play(gpu_work: GpuWork) -> Played {
         globals: Vec::new(),
     };
     let window = readback_window(gpu_work);
-    let gpu = player_gpu(gpu_work, &prepared);
+    let mut source = HeadlessViewer::new([SIZE, SIZE]);
+    let gpu = window_gpu(
+        gpu_work,
+        &prepared.data,
+        prepared.depth,
+        &prepared.globals,
+        &mut source,
+    );
     assert_eq!(
         gpu.is_some(),
         gpu_work == GpuWork::Auto,
         "the test needs a GPU adapter"
     );
+    let shared = gpu.is_some().then_some(source.gpu);
     let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
-    let mut run = viewer.windowless(&mut driver).unwrap();
+    let mut run = match shared {
+        Some(gpu) => viewer.windowless_on(&mut driver, gpu),
+        None => viewer.windowless(&mut driver),
+    }
+    .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     for _ in 0..UPDATES {
         run.frame().unwrap();

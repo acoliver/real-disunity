@@ -5143,6 +5143,7 @@ dependencies = [
  "worldrunner-render-gpu",
  "worldrunner-render-plan",
  "worldrunner-render-post",
+ "worldrunner-render-program",
  "worldrunner-render-scene",
  "worldrunner-world-simulation",
 ]

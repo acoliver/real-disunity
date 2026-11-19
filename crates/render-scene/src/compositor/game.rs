@@ -17,6 +17,7 @@
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
+mod frame_start;
 mod pass_target;
 mod plan;
 mod registry;
@@ -31,5 +32,7 @@ pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
 
+#[cfg(test)]
+mod frame_start_tests;
 #[cfg(test)]
 mod tests;

@@ -63,6 +63,7 @@ impl Assets for Textures {
             linear: false,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
             bytes: vec![200; TEXTURE_LEN],
         }))
     }

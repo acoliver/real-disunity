@@ -33,6 +33,8 @@ const RGBA8_LINEAR: u32 = 8;
 const BC6H: u32 = 24;
 const BC6H_UFLOAT: u32 = 106;
 const RGBA8_SRGB: u32 = 4;
+/// The engine's `TextureFormat`s a 2D array is read in: Alpha8, RGB24 and RGBA32.
+const ARRAY_FORMATS: [u32; 3] = [1, 3, 4];
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -351,9 +353,10 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
     Some((if stored.linear { linear } else { srgb }, bytes, name))
 }
 
-/// A stored texture's base level as a source texture. Its rows stay bottom first, as the engine
-/// stores them, which is the orientation of a render texture's rows (see
-/// `camera::clip_from_gl`). It is read with `sampler`, or the fixed sampler without one.
+/// A stored texture's base level as a source texture, or for a stored 2D array (`depth` above one)
+/// the base level of each layer as a source array. Rows stay bottom first, as the engine stores
+/// them, which is the orientation of a render texture's rows (see `camera::clip_from_gl`). It is
+/// read with `sampler`, or the fixed sampler without one.
 ///
 /// With `blocks`, a DXT1, DXT5, BC4 or BC7 texture whose sides are multiples of four goes to the
 /// device as the blocks it was stored in, which sample to the texels the decoder here produces
@@ -362,13 +365,17 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
 ///
 /// # Errors
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
-/// are shorter than its base level.
+/// are shorter than its base level. A stored array fails when it is block-compressed, whose
+/// layers are not carried, or when its bytes are not `depth` equal layers.
 pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
     blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
+    if stored.depth > 1 {
+        return array_of(id, stored, sampler);
+    }
     if stored.format == BC6H {
         return Ok(SourceTexture {
             id,
@@ -403,6 +410,51 @@ pub fn texture_of(
             RGBA8_SRGB
         },
         bytes: player_rgba8(stored)?,
+        sampler,
+    })
+}
+
+/// A stored 2D array as a source array. The byte string holds `depth` layers of one length, each
+/// as a 2D texture of `format` is stored, so a layer's base level starts where the layer does and
+/// its further levels are not carried. Each layer is read as RGBA8 as a plain texture is, which
+/// leaves the layers in the order the engine stored them. Block-compressed arrays are refused.
+fn array_of(
+    id: TextureId,
+    stored: &PlayerTexture,
+    sampler: Option<SamplerState>,
+) -> Result<SourceTexture, PlayerTextureError> {
+    if !ARRAY_FORMATS.contains(&stored.format) {
+        return Err(PlayerTextureError::Unsupported {
+            format: format!("{} array", crate::textures::format_name(stored.format)),
+        });
+    }
+    let layers = stored.depth as usize;
+    let length = stored.bytes.len();
+    if length == 0 || !length.is_multiple_of(layers) {
+        return Err(PlayerTextureError::Layers {
+            depth: stored.depth,
+            actual: length,
+        });
+    }
+    let mut bytes = Vec::new();
+    for layer in stored.bytes.chunks_exact(length / layers) {
+        let plain = PlayerTexture {
+            bytes: layer.to_vec(),
+            depth: 0,
+            ..*stored
+        };
+        bytes.extend(player_rgba8(&plain)?);
+    }
+    Ok(SourceTexture {
+        id,
+        dimension: SourceDimension::D2Array(stored.depth),
+        size: [stored.width, stored.height],
+        graphics_format: if stored.linear {
+            RGBA8_LINEAR
+        } else {
+            RGBA8_SRGB
+        },
+        bytes,
         sampler,
     })
 }

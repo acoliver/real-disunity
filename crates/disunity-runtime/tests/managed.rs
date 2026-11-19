@@ -333,6 +333,7 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
             linear: true,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
             bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
         }
     );

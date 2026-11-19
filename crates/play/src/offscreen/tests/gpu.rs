@@ -71,6 +71,7 @@ impl ShaderSupply for Synthetic {
             // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
             "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
+            "arrayslices" => super::array_gpu::array_slices_passes(),
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
             // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
@@ -651,6 +652,7 @@ impl Assets for HeldTexture {
             linear: false,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
             bytes: vec![255; 4],
         }))
     }

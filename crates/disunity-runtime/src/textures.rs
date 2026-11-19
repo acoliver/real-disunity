@@ -16,6 +16,9 @@ pub struct PlayerTexture {
     /// Zero for colour, data and coverage. For an `Alpha8` atlas holding signed distance fields,
     /// their spread in texels (see `DisunityTextureInfo`).
     pub distance_spread: u32,
+    /// The layers of a 2D array texture, whose `bytes` hold them one after the other, each as
+    /// long as the others. Zero or one is a plain 2D texture.
+    pub depth: u32,
     pub bytes: Vec<u8>,
 }
 
@@ -105,6 +108,7 @@ pub(crate) fn read_texture(
         linear: info.linear != 0,
         generation: info.generation,
         distance_spread: info.distance_spread,
+        depth: 0,
         bytes,
     }))
 }

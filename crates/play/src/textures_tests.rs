@@ -28,6 +28,7 @@ fn player(format: u32, size: [u32; 2], linear: bool, bytes: Vec<u8>) -> PlayerTe
         linear,
         generation: 1,
         distance_spread: 0,
+        depth: 0,
         bytes,
     }
 }

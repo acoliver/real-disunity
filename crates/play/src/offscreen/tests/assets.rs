@@ -5,7 +5,9 @@ use worldrunner_disunity_runtime::{
 };
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
-use worldrunner_render_program::unity::offscreen::frame::{ChannelFormat, MeshIndices};
+use worldrunner_render_program::unity::offscreen::frame::{
+    ChannelFormat, MeshIndices, SourceDimension,
+};
 use worldrunner_world_simulation::graphics::WorldSampler;
 
 use super::super::assets::{
@@ -401,6 +403,7 @@ fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
         linear,
         generation: 1,
         distance_spread: 0,
+        depth: 0,
         bytes,
     }
 }
@@ -460,6 +463,108 @@ fn rgb24_gains_an_opaque_alpha_and_alpha8_becomes_white_with_that_alpha() {
 fn a_texture_in_a_format_the_host_cannot_read_or_cut_short_is_an_error() {
     assert!(texture_of(TextureId(1), &texture(27, false, vec![0; 16]), None, false).is_err());
     assert!(texture_of(TextureId(1), &texture(4, false, vec![0; 7]), None, false).is_err());
+}
+
+/// A stored array of `depth` layers of 2x1 texels whose bytes are `bytes`.
+fn array(format: u32, depth: u32, bytes: Vec<u8>) -> PlayerTexture {
+    PlayerTexture {
+        depth,
+        ..texture(format, false, bytes)
+    }
+}
+
+#[test]
+fn a_stored_array_is_one_source_of_its_layers_in_the_order_the_engine_stored_them() {
+    let stored = array(3, 3, (1..=18).collect());
+    let made = texture_of(TextureId(9), &stored, None, true).unwrap();
+    assert_eq!(
+        (made.id, made.dimension, made.size, made.graphics_format),
+        (TextureId(9), SourceDimension::D2Array(3), [2, 1], 4)
+    );
+    let layers = [
+        [1, 2, 3, 255, 4, 5, 6, 255],
+        [7, 8, 9, 255, 10, 11, 12, 255],
+        [13, 14, 15, 255, 16, 17, 18, 255],
+    ];
+    assert_eq!(made.bytes, layers.concat());
+    let data = PlayerTexture {
+        linear: true,
+        ..stored
+    };
+    assert_eq!(
+        texture_of(TextureId(9), &data, None, true)
+            .unwrap()
+            .graphics_format,
+        8
+    );
+}
+
+#[test]
+fn a_layer_count_of_zero_or_one_is_a_plain_texture() {
+    for depth in [0, 1] {
+        let made = texture_of(TextureId(1), &array(4, depth, vec![5; 8]), None, false).unwrap();
+        assert_eq!(made.dimension, SourceDimension::D2, "depth {depth}");
+        assert_eq!(made.bytes, [5; 8]);
+    }
+}
+
+#[test]
+fn an_array_whose_layers_hold_a_mip_chain_takes_the_base_level_of_each() {
+    // Two layers of 2x1 RGBA32 texels, each followed by its 1x1 second level.
+    let layer = |texel: u8| [vec![texel; 8], vec![9; 4]].concat();
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(4, 2, [layer(1), layer(2)].concat())
+    };
+    let made = texture_of(TextureId(1), &stored, None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::D2Array(2));
+    assert_eq!(made.bytes, [vec![1; 8], vec![2; 8]].concat());
+}
+
+#[test]
+fn an_array_that_is_not_equal_layers_of_a_format_the_host_reads_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::{Layers, Short, Unsupported};
+    let id = TextureId(1);
+    // 7 bytes are not two layers, nor are none.
+    let uneven = texture_of(id, &array(4, 2, vec![0; 7]), None, false).unwrap_err();
+    assert_eq!(
+        uneven,
+        Layers {
+            depth: 2,
+            actual: 7
+        }
+    );
+    let empty = texture_of(id, &array(4, 2, Vec::new()), None, false).unwrap_err();
+    assert_eq!(
+        empty,
+        Layers {
+            depth: 2,
+            actual: 0
+        }
+    );
+    // Two layers of 7 bytes are each short of the 8 a 2x1 RGBA32 level needs.
+    let short = texture_of(id, &array(4, 2, vec![0; 14]), None, false).unwrap_err();
+    assert!(
+        matches!(
+            short,
+            Short {
+                needed: 8,
+                actual: 7,
+                ..
+            }
+        ),
+        "{short}"
+    );
+    // Block formats are not carried for arrays, with or without block uploads.
+    for blocks in [false, true] {
+        let blocked = texture_of(id, &array(10, 2, vec![0; 16]), None, blocks).unwrap_err();
+        assert_eq!(
+            blocked,
+            Unsupported {
+                format: "DXT1 array".into()
+            }
+        );
+    }
 }
 
 #[test]

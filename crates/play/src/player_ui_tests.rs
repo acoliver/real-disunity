@@ -125,6 +125,7 @@ fn stored(generation: u64) -> worldrunner_disunity_runtime::PlayerTexture {
         linear: true,
         generation,
         distance_spread: 0,
+        depth: 0,
         bytes: vec![255; 4],
     }
 }

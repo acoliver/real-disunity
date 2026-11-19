@@ -507,8 +507,8 @@ pub struct Texture3D {
     pub name: String,
     pub color_space: i32,
     pub is_alpha_channel_optional: bool,
-    /// The `GraphicsFormat` value of every pixel, for example 88 for the four-byte format of
-    /// Old World's noise volumes.
+    /// The `GraphicsFormat` value of every pixel, for example 88 for the four-byte data
+    /// format of a noise volume.
     pub format: i32,
     pub width: i32,
     pub height: i32,

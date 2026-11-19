@@ -189,7 +189,7 @@ fn a_volume_of_a_narrower_format_is_read_as_rgba8_level_by_level() {
 
 #[test]
 fn a_volume_in_the_four_byte_data_format_goes_up_as_rgba8_in_the_colour_space_it_states() {
-    // As Old World's noise volumes are stored: no TextureFormat, GraphicsFormat 88 and four bytes a
+    // As a four-byte data volume is stored: no TextureFormat, GraphicsFormat 88 and four bytes a
     // texel, here 2x1x2 texels and a 1x1x1 second level.
     let stored = PlayerTexture {
         graphics_format: 88,

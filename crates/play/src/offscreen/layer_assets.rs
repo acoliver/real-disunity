@@ -22,10 +22,9 @@ const ARRAY_FORMATS: [u32; 5] = [1, 3, 4, 5, 14];
 /// `TextureFormat` and stores four bytes a texel; it goes to the device as the sRGB RGBA8 whose
 /// layout those bytes have.
 pub(super) const FOUR_BYTE_ARRAY: u32 = 87;
-/// The `GraphicsFormat` of the player's 3D noise volumes. It has no `TextureFormat` and stores four
-/// bytes a texel, which hold the same value in each of the three volumes Old World's resources
-/// plan. It goes to the device as the RGBA8 whose layout those bytes have, in the colour space the
-/// record states: the volumes state linear, as data is.
+/// The `GraphicsFormat` of a four-byte data volume, such as a noise volume. It has no
+/// `TextureFormat` and stores four bytes a texel. It goes to the device as the RGBA8 whose layout
+/// those bytes have, in the colour space the record states: a data volume states linear.
 pub(super) const FOUR_BYTE_DATA: u32 = 88;
 
 /// How the layers of a stored array go to the device as they are stored, every level of every

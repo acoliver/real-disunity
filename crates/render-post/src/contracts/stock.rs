@@ -24,7 +24,9 @@ fn import_views(
                     Semantic::Unspecified,
                     views
                         .iter()
-                        .any(|other| other.texture() == view.texture() && other.retained())
+                        .any(|other| {
+                            other.texture() == view.texture() && other.allocation_initialized()
+                        })
                         .then_some(0),
                 )
                 .map(|key| (view.resource(), key))
@@ -104,7 +106,7 @@ fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
         .filter(|view| {
             views
                 .iter()
-                .any(|other| other.texture() == view.texture() && other.retained())
+                .any(|other| other.texture() == view.texture() && other.allocation_initialized())
         })
         .map(|view| (view.resource(), 0))
         .collect()

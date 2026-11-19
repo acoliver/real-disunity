@@ -53,6 +53,8 @@ struct Allocation {
     storage: Storage,
     count: u32,
     shared: bool,
+    /// Tells apart the retained backings that one name describes; zero for every other entry.
+    backing: u64,
 }
 /// Each entry is one physical allocation family. Cloned views are not entries.
 /// Shared entries must describe the same retained storage in every generation.
@@ -78,6 +80,7 @@ impl AllocationSet {
             },
             count,
             shared: false,
+            backing: 0,
         });
     }
     /// Declares retained texture storage, rather than cloned views or new backing.
@@ -98,7 +101,24 @@ impl AllocationSet {
             storage: Storage::Buffer(bytes),
             count,
             shared: false,
+            backing: 0,
         });
+    }
+    /// Declares one physical texture that every generation which keeps it describes the same
+    /// way. `backing` identifies the physical texture among those `name` describes over time:
+    /// entries with one name and one `backing` are the same storage and count once, whichever
+    /// generations declare them, and entries with one name and different backings are distinct
+    /// storage that both count while both are live.
+    pub fn backing_texture(
+        &mut self,
+        name: &'static str,
+        backing: u64,
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mip_samples: [u32; 2],
+    ) {
+        self.shared_texture(name, extent, format, mip_samples, 1);
+        self.0.last_mut().unwrap().backing = backing;
     }
     pub fn shared_buffer(&mut self, name: &'static str, bytes: u64, count: u32) {
         self.0.push(Allocation {
@@ -106,6 +126,7 @@ impl AllocationSet {
             storage: Storage::Buffer(bytes),
             count,
             shared: true,
+            backing: 0,
         });
     }
     pub fn readback(&mut self, name: &'static str, size: [u32; 2], texel_bytes: u32, count: u32) {
@@ -114,6 +135,7 @@ impl AllocationSet {
             storage: Storage::Readback { size, texel_bytes },
             count,
             shared: false,
+            backing: 0,
         });
     }
     pub fn cpu(&mut self, name: &'static str, bytes: u64) {
@@ -122,6 +144,7 @@ impl AllocationSet {
             storage: Storage::Cpu(bytes),
             count: 1,
             shared: false,
+            backing: 0,
         });
     }
     /// Declares one host-owned CPU reservation retained across generations.
@@ -286,7 +309,10 @@ fn total_where<'a>(
     {
         let size = allocation_bytes(entry, limits)?;
         if entry.shared {
-            if let Some(previous) = shared.iter().find(|previous| previous.name == entry.name) {
+            if let Some(previous) = shared
+                .iter()
+                .find(|previous| previous.name == entry.name && previous.backing == entry.backing)
+            {
                 if **previous != *entry {
                     return Err("shared allocation descriptor changed");
                 }

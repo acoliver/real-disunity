@@ -332,6 +332,7 @@ fn recipe_raster_override_preserves_declared_surface_pool() {
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudgetPolicy::Derived {
@@ -395,6 +396,7 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         },
         None,
         &PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudgetPolicy::Derived {

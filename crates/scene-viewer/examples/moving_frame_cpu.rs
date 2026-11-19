@@ -81,6 +81,7 @@ impl Config {
             window_mode: worldrunner_scene_viewer::WindowMode::default(),
             camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
             texture_tiers: None,
+            game: worldrunner_scene_viewer::GameRendering::default(),
             title: "Moving frame CPU".into(),
             size: self.size,
             pose: pose(0),

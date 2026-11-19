@@ -91,6 +91,17 @@ impl SceneGpu {
             .map_or((0, 0), |terrain| terrain.prepared.kept())
     }
 
+    /// Selects whether the stock passes draw the terrain. The renderer sets it from its
+    /// configuration whenever it takes the scene's inputs, so every pass of a frame agrees.
+    pub(crate) fn set_terrain_draws(&self, draws: super::TerrainDraws) {
+        self.terrain_draws.set(draws);
+    }
+
+    /// Whether the stock passes draw the terrain.
+    pub(crate) fn draws_terrain(&self) -> bool {
+        self.terrain_draws.get() == super::TerrainDraws::Stock
+    }
+
     /// The surface source the scene's terrain is drawn with.
     pub(crate) fn terrain_surface(&self) -> Option<crate::terrain::program::Surface> {
         self.terrain.as_ref().map(|terrain| {
@@ -118,7 +129,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
     ) -> (DrawCount, bool) {
-        let Some(terrain) = &self.terrain else {
+        let Some(terrain) = self.terrain.as_ref().filter(|_| self.draws_terrain()) else {
             return (DrawCount::default(), false);
         };
         let Some(pipeline) = self

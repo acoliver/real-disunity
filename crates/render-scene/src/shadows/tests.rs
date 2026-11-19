@@ -28,6 +28,7 @@ mod slice;
 mod ssao;
 mod streaming;
 mod subresources;
+mod suppressed_routes;
 mod terms;
 mod terrain;
 mod terrain_receiver_images;

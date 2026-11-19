@@ -396,3 +396,53 @@ fn collecting_settled_frees_a_generation_whose_bookkeeping_a_held_poller_holds()
     releaser.join().unwrap();
     held.join();
 }
+
+#[test]
+fn a_kept_backing_counts_once_and_a_replaced_backing_counts_beside_it_until_it_retires() {
+    let (device, authority) = fresh_context();
+    let limits = device.limits();
+    let backing = |id: u64| {
+        let mut set = AllocationSet::default();
+        set.backing_texture(
+            "history",
+            id,
+            [8, 8, 1],
+            wgpu::TextureFormat::Rgba8Unorm,
+            [1, 1],
+        );
+        set.buffer("targets", 16, 1);
+        set
+    };
+    let mut config =
+        Configuration::new(&authority, 1, backing(0), &limits, AllocationBudget(800)).unwrap();
+    let flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    // The kept backing is one storage in both generations; each generation has its own buffer.
+    config
+        .replace(&limits, backing(0), || Ok::<_, ()>(2))
+        .unwrap();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 16 + 16);
+    // A different backing under the same name, at the same size, is further storage.
+    config
+        .replace(&limits, backing(1), || Ok::<_, ()>(3))
+        .unwrap();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 256 + 3 * 16);
+    // A third distinct backing does not fit beside the two that are still live.
+    assert!(matches!(
+        config.replace(&limits, backing(2), || -> Result<i32, ()> {
+            panic!("must not allocate")
+        }),
+        Err(ConfigurationError::Budget { .. })
+    ));
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(flight),
+            timeout: None,
+        })
+        .unwrap();
+    config.collect();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 16);
+}

@@ -18,6 +18,9 @@ mod budget_tests;
 #[cfg(test)]
 mod capture_budget_tests;
 
+#[cfg(test)]
+mod game_tests;
+
 use crate::ViewerError;
 pub(crate) mod planning;
 mod setup;
@@ -34,6 +37,7 @@ pub(crate) struct PresentationPolicy {
     pub recipes: bool,
     pub capture_pool: crate::CapturePoolPolicy,
     pub receiver_gradients: worldrunner_render_scene::compositor::ReceiverGradientReservation,
+    pub game: crate::GameRendering,
 }
 
 pub(crate) fn receiver_reservation(
@@ -65,6 +69,8 @@ impl PresentationPolicy {
         limits: &wgpu::Limits,
     ) -> Result<(RendererConfiguration, Option<u64>), ViewerError> {
         settings.receiver_gradients = self.receiver_gradients;
+        settings.game_passes = self.game.passes.clone();
+        settings.terrain_draws = self.game.terrain_draws;
         let pool = self.pool_bytes(&settings)?;
         settings.additional = planning::additional(capture_size, pool);
         let required = settings
@@ -139,6 +145,7 @@ impl Presentation {
                 budget: crate::PresentationBudget::default().into(),
                 capture_pool: crate::CapturePoolPolicy::default(),
                 recipes: true,
+                game: crate::GameRendering::default(),
             },
         )
     }

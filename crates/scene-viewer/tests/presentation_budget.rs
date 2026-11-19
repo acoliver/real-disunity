@@ -76,6 +76,7 @@ fn options() -> ViewerOptions {
         cadence: PresentationCadence::default(),
         ssr: None,
         render_clock: RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
         title: "Presentation budget regression".into(),
         size: [8, 8],
         camera: SceneCamera {

@@ -33,6 +33,7 @@ mod plan;
 mod registry;
 mod shadows;
 mod targets;
+mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
@@ -46,6 +47,9 @@ pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
+#[cfg(test)]
+pub(crate) use terrain::probe as terrain_probe;
+pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
 impl super::FrameRenderer {
     /// Lends the frame's ambient occlusion and specular environment to the game's features,

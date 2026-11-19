@@ -5,8 +5,8 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TexelFormat,
-    TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
+    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
@@ -153,6 +153,27 @@ pub fn terrain_scene() -> RenderScene {
         effects: None,
     })
     .unwrap()
+}
+
+/// A flat white terrain four metres on a side whose stock selection streams it in chunks.
+pub fn streamed_terrain_scene() -> RenderScene {
+    let flat = terrain_scene();
+    let source = flat.terrain().unwrap();
+    let terrain = SceneTerrain::new(SceneTerrainParts {
+        columns: 5,
+        rows: 5,
+        origin_east_millimeters: -2000,
+        origin_north_millimeters: -2000,
+        sample_spacing_millimeters: 1000,
+        heights_millimeters: vec![0; 25],
+        surface_indices: vec![0; 25],
+        surfaces: source.surfaces().to_vec(),
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+    .with_streaming_policy(Some(TerrainStreamingPolicy::new(2, 9, 4, 1000).unwrap()));
+    flat.with_terrain(Some(std::sync::Arc::new(terrain)))
+        .unwrap()
 }
 
 /// Straight down from five metres, so depth is linear in height: the ground plane is at

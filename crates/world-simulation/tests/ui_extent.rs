@@ -4,7 +4,7 @@ use glam::{UVec2, Vec2, Vec3};
 use worldrunner_world_simulation::ui::*;
 use worldrunner_world_simulation::{
     ComponentDesc, DestroyWhen, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, World,
-    WorldSettings,
+    WorldError, WorldSettings,
 };
 
 fn world() -> World {
@@ -303,10 +303,39 @@ fn a_canvas_awaiting_destruction_no_longer_lays_out_its_children() {
 }
 
 #[test]
-fn an_object_awaiting_destruction_has_no_extent() {
+fn an_object_awaiting_destruction_keeps_its_extent_until_retirement() {
+    let mut w = world();
+    let root = screen_canvas(&mut w, None);
+    let child = rect(&mut w, Some(root), stretched(10.));
+    let before = w.ui_extent(viewport(), child).unwrap().unwrap();
+    assert_eq!(before.size, Vec2::new(780., 580.));
+    w.destroy(root, DestroyWhen::EndOfFrame).unwrap();
+    assert_eq!(w.ui_extent(viewport(), child).unwrap().unwrap(), before);
+    assert_eq!(
+        w.ui_extent(viewport(), root).unwrap().unwrap().size,
+        viewport().as_vec2()
+    );
+}
+
+#[test]
+fn a_retired_object_has_no_extent() {
     let mut w = world();
     let root = screen_canvas(&mut w, None);
     let child = rect(&mut w, Some(root), stretched(10.));
     w.destroy(root, DestroyWhen::EndOfFrame).unwrap();
-    assert!(w.ui_extent(viewport(), child).unwrap().is_none());
+    w.finish_phase();
+    assert_eq!(
+        w.ui_extent(viewport(), child),
+        Err(WorldError::StaleObject(child))
+    );
+}
+
+#[test]
+fn an_object_awaiting_destruction_is_not_drawn() {
+    let mut w = world();
+    let root = screen_canvas(&mut w, None);
+    let child = rect(&mut w, Some(root), stretched(10.));
+    assert!(w.ui_layout(viewport()).unwrap().rect(child).is_some());
+    w.destroy(root, DestroyWhen::EndOfFrame).unwrap();
+    assert!(w.ui_layout(viewport()).unwrap().rect(child).is_none());
 }

@@ -1,7 +1,7 @@
 use super::{
     AttachmentView, BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext,
     SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene,
-    cascades, light_frame, refresh, resources, sdsm, terrain_caster,
+    cascades, lent, light_frame, refresh, resources, sdsm, terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -195,6 +195,7 @@ impl ShadowFrameResources<'_> {
             contour,
             map,
         } = work;
+        scheduler.publish_game_shadows(|| lent::lend(map, &shadow.cascades, self.settings));
         let mut feature = ShadowFeature {
             publications: scheduler.draw_publications(),
             renders: scheduler

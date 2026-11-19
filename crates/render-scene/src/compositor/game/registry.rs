@@ -1,6 +1,7 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::targets::{GameTargets, TargetDeclaration, TargetStore};
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
@@ -22,6 +23,8 @@ pub struct GameBuild<'a> {
     pub targets: GameTargets,
     /// The camera of the frame in flight, set as each frame plans.
     pub camera: FrameCameraHandle,
+    /// The stock shadow cascades of the frame in flight, published by the shadowed route.
+    pub shadows: FrameShadowHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -152,6 +155,7 @@ impl GamePasses {
                 frame,
                 targets: GameTargets::new(store.clone()),
                 camera: renderer.game_camera.clone(),
+                shadows: renderer.game.shadows.clone(),
             })?;
             renderer.chain.register(
                 context.device(),
@@ -175,6 +179,8 @@ pub(crate) struct Installed {
     /// The textures behind the declared targets: made from the previous generation's, and handed
     /// on to the next one.
     pub(crate) store: Option<Arc<TargetStore>>,
+    /// Where the shadowed route lends its cascades to the features of this generation.
+    pub(crate) shadows: FrameShadowHandle,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the
@@ -237,6 +243,17 @@ impl PreparedFeature for RegisteredPrepared {
 }
 
 impl FrameRenderer {
+    /// Lends the stock shadow cascades of the frame being prepared to the game's features, when
+    /// the renderer has any. `lend` runs only then, so a renderer without game features builds
+    /// nothing.
+    pub(crate) fn publish_game_shadows(&self, lend: impl FnOnce() -> Option<FrameShadows>) {
+        if self.game.features > 0
+            && let Some(shadows) = lend()
+        {
+            self.game.shadows.publish(shadows);
+        }
+    }
+
     /// The textures the game's targets add to a capture's write contract, each with the initial
     /// version the frame imports it at: the targets the frame's passes attach.
     pub(crate) fn game_capture_imports(&self) -> Vec<(wgpu::Texture, Option<u32>)> {

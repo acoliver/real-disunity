@@ -23,7 +23,8 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
+    draw_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::depth_range::DepthRange;
@@ -381,6 +382,9 @@ impl<'a> Mapper<'a> {
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
         add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
+        // Nothing the world or the script sets is replaced: the ambient names take the engine's
+        // default only where no layer holds them.
+        add_ambient(&mut frame.globals);
         let script = Script::new(
             frame.globals.clone(),
             &frame.global_keywords,

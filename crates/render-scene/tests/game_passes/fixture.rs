@@ -13,7 +13,7 @@ use worldrunner_render_scene::{
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef},
+    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -192,13 +192,39 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
+        Self::build(scene, size, false, configure)
+    }
+
+    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
+    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    pub fn hdr(
+        scene: &RenderScene,
+        size: [u32; 2],
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::build(scene, size, true, configure)
+    }
+
+    fn build(
+        scene: &RenderScene,
+        size: [u32; 2],
+        hdr: bool,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
+        let scene_format = if hdr {
+            settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+            settings.hdr = Some((1.0, ToneMap::Reinhard));
+            wgpu::TextureFormat::Rgba16Float
+        } else {
+            FORMAT
+        };
         configure(&mut settings);
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
-        let pipelines = ScenePipelines::new(context.device(), FORMAT);
+        let pipelines = ScenePipelines::new(context.device(), scene_format);
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
         let view = view(size);

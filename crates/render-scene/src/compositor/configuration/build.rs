@@ -146,6 +146,7 @@ fn finish_renderer(
     settings
         .game_passes
         .install(renderer, context, carried.game)?;
+    renderer.ensure_game_snapshots(device);
     restore_timing(renderer, context, settings.timing, carried.timing)?;
     Ok(())
 }

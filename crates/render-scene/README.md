@@ -1467,9 +1467,49 @@ target.admit("my program", &draw)?;         // a mismatch is refused by name bef
 let camera = frame_camera.current()?;        // the matrices the stock passes use
 ```
 
-`GamePlace::BeforeOpaque` passes run after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterTransparent` before the reflection and screen-space tail. The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
+`GamePlace::BeforeOpaque` passes run after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterOpaqueSnapshots` after the opaque snapshot passes and before the water and every other transparent pass, `AfterTransparent` before the reflection and screen-space tail. The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
 
 `GameBuild::shadows`, a `FrameShadowHandle`, lends the stock shadow cascades of the frame in flight. The shadowed route publishes them when the frame's cascades are final (after any same-frame depth fit and refresh, before the features prepare), and only when the renderer has game features. `current()` returns `FrameShadows`: the cascade depth array view the stock casters wrote this frame, the comparison sampler the receivers use with it, and each cascade's `view_projection`, `split_distance` and `depth_bias`, with the selection rule, near distance, view-depth vector, blend, fade and normal bias the stock receivers apply, all from the receiver uniform the frame uploads. It refuses with `FrameShadowError::OutsideFrame` when no frame is being prepared, and with `NotPrepared` when the frame in flight published nothing (an unshadowed route, shadows off, or a fit with no receivers); a later frame never receives an earlier frame's cascades. The view and sampler belong to the frame: read them in `prepare` and `draw`, never write through them and never keep them, because the next frame writes the same texture and a renderer replacement frees it. A game pass declares no read of the view: every game place runs after the shadow casters, and `GamePassSpec::reading` refuses a stock resource such as `shadow depth` with `FrameError::AttachmentView`, so such a read cannot be declared. Tests: `src/shadows/tests/game_shadows.rs`, `tests/game_passes/shadow_cascades.rs`.
+
+### Reading the opaque snapshots from a game pass
+
+The frame already copies its lit opaque colour and depth after Opaque for the stock water, reflections and depth-tested overlay. A game that draws its own water, or any forward pass that refracts or fades with depth, samples the same copies from a pass at `GamePlace::AfterOpaqueSnapshots`, which runs after the snapshot passes and before the transparent passes. Three things are involved:
+
+- **The factory declares what it may read.** `GameFeatureFactory::snapshot_reads()` returns a `SnapshotReads { color, linear_depth, device_depth }` (default none). The renderer reserves the snapshots in its allocation budget, allocates them in all three frame slots when it is built (also after every replacement and resize) and admits their writes to a same-frame capture, whether or not the frame has water, reflections or an overlay. A renderer whose factories declare nothing allocates no snapshot of its own, and its frames are the stock frames. `ConfiguredFrameRenderer::snapshot_statistics()` reports the slots that hold snapshots and the ones that also hold the device depth copy.
+- **The pass declares what it samples.** `GamePassSpec::reading_snapshots(reads)` adds the stock resources `opaque snapshot color`, `opaque snapshot depth` and `opaque snapshot device depth` to the pass's reads, which orders it after the snapshot writers through the frame's ordinary validation and asks the frame to record them. A pass that reads more than its factory declared is refused at planning with `FrameError::FeaturePreparation` from `frame snapshots`, and a reader placed before the snapshot passes (`BeforeOpaque`, `AfterOpaque`) is `FrameError::MissingProducer` naming the snapshot. This is separate from `GamePassSpec::reading`, which names the game's own targets.
+- **`GameBuild::snapshots`, a `FrameSnapshotHandle`, lends the textures.** The renderer publishes them when the frame is planned, before any feature prepares, and only when the frame wrote one. `current()` returns `FrameSnapshots { color, linear_depth, device_depth }`, each an `Option<SnapshotImage { texture, view }>` present when the frame wrote it. It refuses with `FrameSnapshotError::OutsideFrame` when no frame is being prepared and `NotPrepared` when the frame wrote none; a later frame never receives an earlier frame's textures. Read them in `prepare` and `draw`, never write through them and never keep them: the slot's next frame writes them again.
+
+The snapshots, all at the frame's extent:
+
+| Snapshot | Format | Holds |
+| --- | --- | --- |
+| `color` | `Rgba16Float` | The lit opaque colour after Opaque and the game passes at `AfterOpaque`, with the samples of a multisampled frame averaged. Needs an HDR frame (`FrameError::UnsupportedEffect("snapshots require HDR")` otherwise). No transparent pass, water included, has drawn into it. |
+| `linear_depth` | `R32Float` | Positive view-space metres along the camera's forward axis, reconstructed from the nearest sample of each pixel. A pixel no opaque surface covers holds the far plane's distance. |
+| `device_depth` | `R32Float` | The depth buffer's own values. The engine's depth is not reversed: `0.0` is the near plane, `1.0` is the far plane and the cleared value, and nearer surfaces have smaller values. A multisampled frame keeps the smallest sample of a pixel, the nearest. |
+
+Both depth formats sample as unfilterable float (`texture_2d<f32>` with `textureLoad`, or a `filterable: false` binding). The device depth is the second colour attachment of the linear depth snapshot pass, so asking for it adds one attachment to a pass the frame already draws and no pass of its own; the other snapshot passes are untouched. Every route plans through the same forward order, so the place is ordered the same in unshadowed, shadowed, resident and same-frame-capture frames; a frozen plan authors its own order.
+
+```rust,ignore
+impl GameFeatureFactory for MyWater {
+    fn snapshot_reads(&self) -> SnapshotReads {
+        SnapshotReads { color: true, device_depth: true, ..SnapshotReads::NONE }
+    }
+    // build() keeps `context.snapshots.clone()` in its feature.
+}
+
+// Inside `plan`: draw the water after the opaque scene and before the transparents.
+let water = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+    .writing([ColorOutput::Frame])
+    .with_depth(DepthAccess::ReadOnly)
+    .reading_snapshots(SnapshotReads { color: true, device_depth: true, ..SnapshotReads::NONE });
+
+// Inside `prepare`: bind the textures of this frame's slot.
+let snapshots = self.snapshots.current()?;
+let scene_colour = snapshots.color.expect("declared").view;
+let scene_depth = snapshots.device_depth.expect("declared").view;
+```
+
+Tests: `tests/game_passes/snapshots.rs` (colour that equals the stock opaque frame and is unreached by later draws into the frame, the `AfterOpaque` draws it includes, exact device and linear depth values at a covered and an uncovered pixel, allocation statistics with and without a reading game, the typed refusals), `tests/game_passes/snapshot_capture.rs` (three same-frame shadowed captures with a reading game give the unshadowed frame's pixels and run the readers before the transparent passes), `src/water/device_depth_tests.rs` (the nearest sample of a multisampled pixel) and the forward-order tests in `src/compositor/forward_order.rs`.
 
 `RendererConfiguration::terrain_draws = TerrainDraws::Suppressed` keeps the scene's terrain resident, streamed and updated but skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata and shadow casters. The default `Stock` is byte-identical to a build without the option. A frame with game features is planned without the stock plan cache. Switching the choice between frames refreshes every retained shadow cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs`, `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` and the forward-order tests.
 

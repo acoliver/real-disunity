@@ -315,6 +315,7 @@ impl FrameRenderer {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
         }
+        self.ensure_game_snapshots(device);
         let velocity = self.targets().velocity_texture().cloned();
         let mut textures = Vec::new();
         textures.extend(velocity.as_ref());

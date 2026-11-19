@@ -162,6 +162,7 @@ impl GamePasses {
                 terrain: renderer.game_terrain.clone(),
                 shadows: renderer.game.shadows.clone(),
             })?;
+            renderer.game.snapshot_reads |= reads_snapshots(&feature.declare());
             renderer.chain.register(
                 context.device(),
                 Box::new(Registered {
@@ -176,6 +177,16 @@ impl GamePasses {
     }
 }
 
+/// Whether `declaration` reads a snapshot the stock frame writes into the snapshot banks.
+fn reads_snapshots(declaration: &FeatureDeclaration) -> bool {
+    let reads: Vec<_> = declaration
+        .passes
+        .iter()
+        .flat_map(|pass| pass.reads.iter().copied())
+        .collect();
+    crate::water::planning::snapshot_request(&reads, false).any()
+}
+
 /// What the game inventory installed on one renderer generation.
 #[derive(Default)]
 pub(crate) struct Installed {
@@ -186,6 +197,9 @@ pub(crate) struct Installed {
     pub(crate) store: Option<Arc<TargetStore>>,
     /// Where the shadowed route lends its cascades to the features of this generation.
     pub(crate) shadows: FrameShadowHandle,
+    /// Whether a feature of this generation declares a read of the opaque snapshots or of the
+    /// post-water depth, so its frames write the snapshot banks whatever the water draws.
+    pub(crate) snapshot_reads: bool,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the

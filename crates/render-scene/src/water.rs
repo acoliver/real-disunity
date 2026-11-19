@@ -48,8 +48,21 @@ pub(crate) struct WaterRegistration {
     pub state: std::rc::Rc<std::cell::RefCell<WaterState>>,
     pub samples: u32,
 }
+impl WaterRegistration {
+    /// What the registration declares while the stock passes draw no water: no pass, no read and
+    /// no effect, so a frame validates as it does without water.
+    fn no_draws() -> FeatureDeclaration {
+        FeatureDeclaration {
+            passes: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+}
 impl worldrunner_render_post::FrameFeature for WaterRegistration {
     fn declare(&self) -> FeatureDeclaration {
+        if self.state.borrow().draws == crate::draw::WaterDraws::Suppressed {
+            return Self::no_draws();
+        }
         let mut declaration = FeatureDeclaration::new(PassSlot::TransparentWater);
         declaration.passes[0].samples = self.samples;
         declaration.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
@@ -68,10 +81,7 @@ impl worldrunner_render_post::FrameFeature for WaterRegistration {
     ) -> Result<FeatureDeclaration, FrameError> {
         let state = self.state.borrow();
         if state.draws == crate::draw::WaterDraws::Suppressed {
-            return Ok(FeatureDeclaration {
-                passes: Vec::new(),
-                effects: Vec::new(),
-            });
+            return Ok(Self::no_draws());
         }
         state
             .feature

@@ -5,7 +5,8 @@
 //! the stock consumers read, so each of them sees the water only while the stock passes draw it.
 use super::FrameRenderer;
 use crate::draw::WaterDraws;
-use crate::water::{Water, WaterFeature};
+use crate::water::{Water, WaterFeature, WaterRegistration};
+use worldrunner_render_post::FrameError;
 
 impl FrameRenderer {
     /// The water the stock passes draw this frame: the installed water, unless the draws are
@@ -14,6 +15,38 @@ impl FrameRenderer {
     /// other fields of the renderer mutably reads `self.water_draws.drawn(self.water.as_ref())`.
     pub(crate) fn stock_water(&self) -> Option<&Water> {
         self.water_draws.drawn(self.water.as_ref())
+    }
+
+    /// Registers the water feature with the choice of draws the renderer was configured with, so
+    /// the declaration the chain keeps for it is the one the choice makes before any frame plans.
+    pub(super) fn register_water(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
+        self.water_state.borrow_mut().draws = self.water_draws;
+        let samples = self.targets().config().samples;
+        self.chain
+            .register(
+                device,
+                Box::new(WaterRegistration {
+                    state: self.water_state.clone(),
+                    samples,
+                }),
+            )
+            .map(|_| ())
+    }
+
+    /// Whether a frame of this renderer reads the opaque snapshot banks: the stock water draws,
+    /// reflections, depth-tested overlay geometry, or a feature of the game's inventory. Water
+    /// that the stock passes do not draw reads nothing.
+    pub(super) fn snapshot_readers(&self) -> bool {
+        self.stock_water().is_some()
+            || self.ssr.is_some()
+            || self.overlay.needs_depth()
+            || self.game.snapshot_reads
+    }
+
+    /// Whether the allocated snapshot banks are written: a reader above, or a caller feature that
+    /// asked for a snapshot in a frame this renderer has already planned.
+    pub(super) fn snapshots_written(&self) -> bool {
+        self.snapshot_readers() || self.snapshot_ready.borrow().iter().any(|ready| ready.any())
     }
 
     /// Submitted per-sample water receivers: view normal and water flag (alpha),
@@ -59,5 +92,6 @@ impl FrameRenderer {
     #[cfg(test)]
     pub(crate) fn force_water_draws(&mut self, draws: WaterDraws) {
         self.water_draws = draws;
+        self.water_state.borrow_mut().draws = draws;
     }
 }

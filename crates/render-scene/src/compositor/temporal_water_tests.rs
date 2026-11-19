@@ -43,7 +43,7 @@ pub(super) fn body(far: bool) -> SceneWaterBody {
 }
 
 /// A camera 1.7 m above the water plane looking along +y: the lower part of the image is water.
-fn frame(size: u32) -> FrameUniform {
+pub(super) fn frame(size: u32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, -10_000, 1_700],

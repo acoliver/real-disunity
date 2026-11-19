@@ -291,13 +291,7 @@ impl FrameRenderer {
         let water = crate::water::Water::new(device, authority, self.targets().config(), settings)?;
         *self.snapshot_ready.borrow_mut() = Default::default();
         self.snapshots = Some(water.snapshots.clone());
-        self.chain.register(
-            device,
-            Box::new(crate::water::WaterRegistration {
-                state: self.water_state.clone(),
-                samples: self.targets().config().samples,
-            }),
-        )?;
+        self.register_water(device)?;
         self.water = Some(water);
         Ok(())
     }
@@ -678,7 +672,7 @@ impl FrameRenderer {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.remember_taa_block(None);
-        if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
+        if self.ssao.is_some() || self.stock_water().is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
             ));

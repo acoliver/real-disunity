@@ -308,9 +308,7 @@ impl FrameRenderer {
         &mut self,
         device: &wgpu::Device,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
-        if (self.stock_water().is_some() || self.ssr.is_some() || self.overlay.needs_depth())
-            && self.snapshots.is_none()
-        {
+        if self.snapshot_readers() && self.snapshots.is_none() {
             self.snapshots = Some(std::array::from_fn(|_| {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
@@ -334,7 +332,7 @@ impl FrameRenderer {
         if let Some(gbuffer) = &self.gbuffer {
             textures.extend(gbuffer.written_textures());
         }
-        if let Some(snapshots) = &self.snapshots {
+        if let Some(snapshots) = self.snapshots.as_ref().filter(|_| self.snapshots_written()) {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
         }

@@ -57,7 +57,7 @@ pub(crate) fn opaque_source<'a>(
 }
 
 impl SnapshotRequest {
-    const fn any(self) -> bool {
+    pub(crate) const fn any(self) -> bool {
         self.color || self.depth || self.final_depth
     }
 }

@@ -93,6 +93,11 @@ impl ShaderSupply for Synthetic {
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],
             ),
+            // The fourth component of `unity_SHAr` as grey.
+            "ambient" => super::lights_gpu::per_frame_passes_named(
+                "fs_color_w",
+                [crate::offscreen::SH_AR, "_MainLightPosition"],
+            ),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default

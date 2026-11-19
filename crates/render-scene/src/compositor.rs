@@ -592,7 +592,10 @@ impl FrameRenderer {
         self.game_camera
             .set(&FrameCamera::of(&frame, self.frame_slot));
         self.validate_environment_conventions(frame.specular_convention)?;
-        let (passes, views) = plan;
+        let listed = self.with_prefix_prepass(encoder, plan)?;
+        let (passes, views) = listed.as_ref().map_or(plan, |(passes, views)| {
+            (passes.as_slice(), views.as_slice())
+        });
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_game_inputs();
         let depth_mode = if passes

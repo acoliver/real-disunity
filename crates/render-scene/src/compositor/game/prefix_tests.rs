@@ -132,3 +132,50 @@ fn the_prepass_writes_the_frame_depth_when_opaque_draws_with_it_reading_or_writi
         AttachmentLoad::ClearDepth(1.0)
     )]));
 }
+
+/// A game pass after the prepass that writes one layer of a declared target, as the planner
+/// declares it before the prefix is assembled: clearing the layer, loading the prepass depth.
+fn target_writer(occurrence: u32) -> worldrunner_render_post::PassDeclaration {
+    let mut pass = super::game(AFTER_PREPASS, occurrence);
+    pass.color = Some(super::attachment(
+        "game target",
+        wgpu::TextureFormat::Rgba8Unorm,
+        super::clear_color(),
+        false,
+    ));
+    pass.depth = Some(super::depth(AttachmentLoad::Load, false));
+    pass
+}
+
+#[test]
+fn a_later_prefix_game_pass_loads_a_target_an_earlier_one_wrote() {
+    // The prefix's own passes, then the game's in planning order, which is not forward order.
+    let mut passes = vec![prepass(), target_writer(1), target_writer(0)];
+    super::super::place_after_prepass(&mut passes, 1);
+    let entries: Vec<_> = passes
+        .iter()
+        .map(worldrunner_render_post::PassDeclaration::entry)
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            PassEntry::new(PassSlot::DepthNormalPrepass),
+            PassEntry::nth(PassSlot::Game(AFTER_PREPASS), 0),
+            PassEntry::nth(PassSlot::Game(AFTER_PREPASS), 1),
+        ]
+    );
+    assert_eq!(
+        worldrunner_render_post::validate_frame(&passes, &[], &[]),
+        Ok(())
+    );
+    let loads = super::loads(&passes);
+    assert!(
+        matches!(loads[1][0], AttachmentLoad::ClearColor(_)),
+        "the first writer clears the target"
+    );
+    assert_eq!(
+        loads[2],
+        [AttachmentLoad::Load, AttachmentLoad::Load],
+        "the second writer keeps what the first wrote"
+    );
+}

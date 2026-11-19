@@ -411,9 +411,20 @@ pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
     let rig = Rig::new(&quad_scene(), SIZE, |settings| {
         settings.game_passes = inventory;
     });
+    let scene = fitted(&rig, &lit_scene(), FORMAT);
+    (rig, scene)
+}
+
+/// The shadowed scene that captures `rig`'s frames of `source` in `format`, fitting its cascades
+/// to the depth of the same frame.
+pub(super) fn fitted(
+    rig: &Rig,
+    source: &RenderScene,
+    format: wgpu::TextureFormat,
+) -> ShadowedScene {
     let mut scene = ShadowedScene::with_target(
         &rig.context,
-        &lit_scene(),
+        source,
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -423,7 +434,7 @@ pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
         },
-        FORMAT,
+        format,
         1,
     )
     .unwrap();
@@ -444,11 +455,11 @@ pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
             }),
         )
         .unwrap();
-    (rig, scene)
+    scene
 }
 
 /// Captures one frame with the rig's renderer and returns its colour.
-fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
     capture_fit(rig, scene, frame);
     let mut encoder = rig
         .context

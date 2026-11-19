@@ -1,8 +1,12 @@
 use super::FrameRenderer;
 use std::borrow::Cow;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan,
+    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, GamePlace,
+    PassDeclaration, PassSlot,
 };
+
+/// A frame's pass list and the views it attaches.
+type ListedPlan = (Vec<PassDeclaration>, Vec<AttachmentView>);
 
 fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
     features
@@ -263,7 +267,8 @@ impl FrameRenderer {
 
     /// Plans the game's passes after the depth prepass into the prefix, immediately after the
     /// prepass and before the depth levels that read it, with the camera of the frame the prefix
-    /// belongs to. A renderer whose game has no depth-prefix feature plans nothing.
+    /// belongs to, and with the loads the frame that completes the prefix plans them with. A
+    /// renderer whose game has no depth-prefix feature plans nothing.
     fn plan_game_prefix(
         &mut self,
         frame: &crate::frame::FrameUniform,
@@ -277,18 +282,64 @@ impl FrameRenderer {
             .set(&super::FrameCamera::of(frame, self.frame_slot));
         let stock = passes.len();
         self.chain.plan_prefix_features(passes, views)?;
-        let mut game: Vec<_> = passes.drain(stock..).collect();
-        if game.is_empty() {
-            return Ok(());
-        }
-        super::forward_order::forward_order(&mut game);
-        // A game pass after the prepass is refused at planning when the list has no prepass.
-        let after = 1 + passes
-            .iter()
-            .rposition(|pass| pass.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass)
-            .expect("a planned game prefix pass follows the prepass");
-        passes.splice(after..after, game);
+        super::game::place_after_prepass(passes, stock);
         Ok(())
+    }
+
+    /// The caller's passes and views for the rest of a frame whose depth prefix, encoded
+    /// separately in `encoder`'s frame, ran game passes after the prepass while the frame's own
+    /// plan has no prepass (a renderer without screen-space metadata, whose prefix is the depth
+    /// fitting's): `plan` with the prefix's prepass and the views it attaches. The game's passes
+    /// after the prepass then plan in the frame as they planned in the prefix, so the frame lists
+    /// them as completed and its later passes load what they wrote, as in a frame that plans the
+    /// prepass itself. `None` leaves `plan` as it is.
+    ///
+    /// # Errors
+    /// [`FrameError`] when `encoder` is not a checked transaction encoder.
+    pub(super) fn with_prefix_prepass(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+    ) -> Result<Option<ListedPlan>, FrameError> {
+        let (passes, views) = plan;
+        let lists = |passes: &[PassDeclaration], slot| passes.iter().any(|pass| pass.slot == slot);
+        if self.ssao.is_some() || lists(passes, PassSlot::DepthNormalPrepass) {
+            return Ok(None);
+        }
+        let Some(prefix) = self.chain.geometry_prefix_plan(encoder)? else {
+            return Ok(None);
+        };
+        if !lists(prefix.passes, PassSlot::Game(GamePlace::AfterDepthPrepass)) {
+            return Ok(None);
+        }
+        let prepass = prefix
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .expect("a game pass of the prefix follows its prepass");
+        let mut views = views.to_vec();
+        for attachment in prepass
+            .color
+            .iter()
+            .chain(&prepass.additional_colors)
+            .chain(&prepass.depth)
+        {
+            if views
+                .iter()
+                .any(|view| view.resource() == attachment.resource)
+            {
+                continue;
+            }
+            let view = prefix
+                .views
+                .iter()
+                .find(|view| view.resource() == attachment.resource)
+                .expect("a validated prefix has a view for each attachment");
+            views.push(view.clone());
+        }
+        let mut passes = passes.to_vec();
+        passes.push(prepass.clone());
+        Ok(Some((passes, views)))
     }
 
     fn encode_prefix_plan(

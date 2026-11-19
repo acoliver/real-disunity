@@ -354,6 +354,26 @@ fn feature_pass(pass: &PassDeclaration) -> Result<FeaturePass, FrameError> {
     })
 }
 
+/// Places the game's passes of a separately encoded depth prefix, the ones `passes` lists from
+/// index `stock` on, in forward order immediately after the depth prepass and before the depth
+/// levels that read it, then reconciles the loads of the whole prefix as a frame drawn whole
+/// does. A later pass that writes what an earlier one wrote loads it, so the prefix's game
+/// passes declare the same attachments as the frame that lists them as completed.
+pub(crate) fn place_after_prepass(passes: &mut Vec<PassDeclaration>, stock: usize) {
+    let mut game: Vec<_> = passes.drain(stock..).collect();
+    if game.is_empty() {
+        return;
+    }
+    crate::compositor::forward_order::forward_order(&mut game);
+    // A game pass after the prepass is refused at planning when the list has no prepass.
+    let after = 1 + passes
+        .iter()
+        .rposition(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+        .expect("a planned game prefix pass follows the prepass");
+    passes.splice(after..after, game);
+    reconcile_loads(passes);
+}
+
 fn is_game(pass: &PassDeclaration) -> bool {
     matches!(pass.slot, PassSlot::Game(_))
 }

@@ -76,6 +76,28 @@ impl<F: super::StageFactory> super::PostChain<F> {
             .transpose()
             .map(Option::unwrap_or_default)
     }
+
+    /// The passes and views of the geometry prefix encoded in `encoder`'s frame, which the frame
+    /// completing it may list again, or `None` when no prefix of that frame is pending.
+    ///
+    /// # Errors
+    /// [`FrameError`] when `encoder` is not a checked transaction encoder.
+    pub fn geometry_prefix_plan(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+    ) -> Result<Option<FramePlan<'_>>, FrameError> {
+        let frame = Publications::for_encoder(encoder)?;
+        Ok(self
+            .geometry_prefix
+            .as_ref()
+            .filter(|prefix| prefix.frame.same_frame(&frame))
+            .map(|prefix| FramePlan {
+                passes: &prefix.passes,
+                views: &prefix.views,
+                requested: &[],
+                operations: &[],
+            }))
+    }
 }
 
 /// The retained features a geometry prefix does not run, and where each one sat.

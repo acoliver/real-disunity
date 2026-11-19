@@ -17,8 +17,8 @@ use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameEnvironmentHandle, FrameOcclusionHandle, FrameShadowHandle,
-        GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
-        TargetDeclaration, TargetExtent,
+        FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
+        PassTarget, TargetDeclaration, TargetExtent,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -161,6 +161,7 @@ impl GameFeatureFactory for Keeper {
             shadows: context.shadows.clone(),
             occlusion: context.occlusion.clone(),
             environment: context.environment.clone(),
+            terrain: context.terrain.clone(),
             parts: parts(
                 context,
                 vec![
@@ -293,6 +294,7 @@ struct Prefix {
     shadows: FrameShadowHandle,
     occlusion: FrameOcclusionHandle,
     environment: FrameEnvironmentHandle,
+    terrain: FrameTerrainHandle,
     parts: Arc<Mutex<Parts>>,
 }
 
@@ -346,7 +348,7 @@ impl PreparedFeature for Prefix {
             (seen.raise, seen.fill)
         };
         let lent = format!(
-            "shadow {:?}, occlusion {:?}, environment {:?}",
+            "shadow {:?}, occlusion {:?}, environment {:?}, terrain {:?}",
             self.shadows.current().map(|_| true),
             self.occlusion
                 .current()
@@ -354,6 +356,7 @@ impl PreparedFeature for Prefix {
             self.environment
                 .current()
                 .map(|environment| environment.is_some()),
+            self.terrain.current().map(|chunks| chunks.is_some()),
         );
         self.seen.lock().unwrap().lent.push(lent);
         let mut parts = self.parts.lock().unwrap();
@@ -471,14 +474,17 @@ fn the_prefix_feature_reads_the_lent_inputs_in_a_frame_drawn_whole_only() {
     assert_eq!(whole.len(), 1);
     assert_eq!(captured.len(), 1);
     assert_eq!(
-        whole[0], "shadow Err(NotPrepared), occlusion Ok(true), environment Ok(false)",
+        whole[0],
+        "shadow Err(NotPrepared), occlusion Ok(true), environment Ok(false), terrain Ok(false)",
         "a frame drawn whole lends its inputs to the depth-prefix feature (this unshadowed one \
-         has no cascades)"
+         has no cascades, and its scene no terrain)"
     );
     assert_eq!(
         captured[0],
-        "shadow Err(NotPrepared), occlusion Err(NotPrepared), environment Err(NotPrepared)",
-        "inside a prefix nothing is lent: the cascades are not fitted and SSAO has not run"
+        "shadow Err(NotPrepared), occlusion Err(NotPrepared), environment Err(NotPrepared), \
+         terrain Err(NotPrepared)",
+        "inside a prefix nothing is lent: the cascades are not fitted, SSAO has not run and the \
+         prefix publishes no terrain"
     );
 }
 

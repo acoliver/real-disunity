@@ -75,8 +75,9 @@ pub trait GameFeatureFactory: Send + Sync {
     /// this place, and it is prepared before it in a frame drawn whole.
     ///
     /// It reads none of the lent stock inputs (`context.shadows`, `context.occlusion`,
-    /// `context.environment`): a route that submits the prefix ahead of the frame prepares it
-    /// before the frame publishes them, and the shadow casters of a fitted frame draw after it.
+    /// `context.environment`, `context.terrain`): a route that submits the prefix ahead of the
+    /// frame prepares it before the frame publishes them, so there each refuses with
+    /// `NotPrepared`, and the shadow casters of a fitted frame draw after it.
     ///
     /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
     /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with

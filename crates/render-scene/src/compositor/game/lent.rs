@@ -4,7 +4,9 @@ use std::rc::Rc;
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::FrameError;
 
-/// Why a frame cannot lend one of its stock inputs (shadow cascades, ambient occlusion).
+/// Why a frame cannot lend one of its stock inputs (shadow cascades, ambient occlusion,
+/// specular environment). The lent terrain refuses with these two and reasons of its own
+/// ([`FrameTerrainError`](super::FrameTerrainError)).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameInputError {
     /// No frame is being prepared, so no input is current. An earlier frame's value is never
@@ -62,15 +64,23 @@ impl<T: Clone> Lent<T> {
     /// Stores `value` as the publication of the frame being prepared. A frame with no
     /// transaction in scope publishes nothing.
     pub(super) fn publish(&self, value: T) {
+        self.publish_with(|| value);
+    }
+
+    /// [`Self::publish`] for a value that is computed only when a frame is in scope.
+    pub(super) fn publish_with(&self, value: impl FnOnce() -> T) {
         if let Some(frame) = Publications::current() {
-            *self.0.borrow_mut() = Some((frame, value));
+            *self.0.borrow_mut() = Some((frame, value()));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::{FrameEnvironmentHandle, FrameOcclusionHandle, FrameShadowHandle};
+    use super::super::{
+        FrameEnvironmentHandle, FrameOcclusionHandle, FrameShadowHandle, FrameTerrainError,
+        FrameTerrainHandle,
+    };
     use super::FrameInputError;
 
     /// Outside a frame no input exists; a handle never answers with an earlier frame's value.
@@ -87,6 +97,10 @@ mod tests {
         assert_eq!(
             FrameEnvironmentHandle::default().current().unwrap_err(),
             FrameInputError::OutsideFrame
+        );
+        assert_eq!(
+            FrameTerrainHandle::default().current().unwrap_err(),
+            FrameTerrainError::OutsideFrame
         );
     }
 }

@@ -34,6 +34,7 @@ fn texture(world: &mut World) -> RenderTextureId {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -179,8 +180,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_eleven_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 11);
+fn the_wire_version_is_thirteen_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 13);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);

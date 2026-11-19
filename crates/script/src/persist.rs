@@ -2,7 +2,7 @@
 //!
 //! A game saves the values at some global paths (its roots) and restores them into a fresh
 //! state that has run the same scripts. The roots and every scheduler thread are saved by
-//! `lua-resume` as one graph (see [`crate::resume`]): tables, closures and upvalue cells that
+//! `lua-resume` as one graph (see [`GameScripts::save`]): tables, closures and upvalue cells that
 //! several roots or threads share stay shared, cycles survive, and integers stay distinct from
 //! floats. Functions and the tables that hold a game's code, such as class tables, are not
 //! copied: they are permanents, saved by name and looked up by that name when restoring, so a
@@ -16,7 +16,7 @@
 //! Finished coroutines are saved as finished, and a suspended coroutine that a thread or the
 //! data holds is saved where it stopped.
 //!
-//! Snapshots written before all state was one graph still restore (see [`crate::legacy`]).
+//! Snapshots written before all state was one graph still restore (see [`GameScripts::restore`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 

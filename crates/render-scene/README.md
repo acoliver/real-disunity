@@ -232,11 +232,11 @@ or `SceneGpu::prepare_terrain_geometry`, with the same selection projection and
 viewport. The supplied raster projection and camera position give the same
 frustum culling and nearest-first order as the stock pass. In an owned capture,
 declare `SceneGpu::capture_write_keys` for the prefix if it prepares terrain.
-After the prefix submits, its continuation may read the published selection
-with the same view without re-preparing terrain or declaring suffix writes for
-that read. If an earlier segment replaced the prepared cover, for example by
-coarsening a frozen source during retained replacement, the continuation gets
-`TerrainChunkViewError::Replaced`. Camera preparation refuses a scene whose
+After the prefix submits, its continuation reads the prefix's selection with
+the same view without re-preparing terrain or declaring suffix writes for that
+read. Every segment of a capture, stock draws included, uses the cover the
+prefix prepared, even when a later publication in the prefix replaced the
+committed cover (a retained replacement coarsening a frozen source). Camera preparation refuses a scene whose
 retained replacement has not finished, and a second view in one recording is a
 `StreamingSelectionConflict`, including for a frozen source. A cancelled or
 unrelated frame cannot read that preparation. A scene without streamed terrain

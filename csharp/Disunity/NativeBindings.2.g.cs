@@ -84,14 +84,13 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
         /// <summary>
-        ///  Sets whether the body is drawn between its poses either side of the last physics step,
-        ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
+        ///  Sets the presentation mode: None (0), Interpolate (1) or Extrapolate (2).
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_interpolation_write(ulong world, ulong handle, uint interpolate);
         /// <summary>
         ///  # Safety
-        ///  `interpolate` is writable for one flag.
+        ///  `interpolate` is writable for one presentation-mode tag.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_body_interpolation_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_body_interpolation_read(ulong world, ulong handle, uint* interpolate);

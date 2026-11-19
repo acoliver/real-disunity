@@ -225,12 +225,12 @@ impl PreparedFeature for RegisteredPrepared {
         // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
         // Each publication names the exact backing it records, which an owned capture needs to
         // admit it; a frame that writes no declared target publishes nothing.
-        for FrameEffect { backing, layers } in self.store.frame_effects(context) {
+        for FrameEffect { backing, written } in self.store.frame_effects(context) {
             let key = backing.write_key();
             // The capture records a refusal and fails before submission, as for stock state.
             let _ = context
                 .publications()
-                .stage_write(key, move || backing.record(&layers));
+                .stage_write(key, move || backing.record(&written));
         }
     }
 

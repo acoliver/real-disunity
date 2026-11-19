@@ -37,9 +37,10 @@ pub struct GamePassSpec {
     /// additional colours.
     pub colors: Vec<ColorOutput>,
     pub depth: Option<DepthAccess>,
-    /// Layers of declared targets the pass samples. Each must be written by an earlier pass of
-    /// the frame or hold kept contents; a read nothing writes is refused at planning by the
-    /// target's name.
+    /// Layers of declared targets the pass samples. A read of a layer is a read of every mip of
+    /// it, which the target's sampled view covers. Each mip must be written by an earlier pass or
+    /// the preparation of the frame, or hold kept contents; a read of a mip nothing writes is
+    /// refused at planning by the target's name and the mip.
     pub reads: Vec<ResourceRef>,
 }
 
@@ -162,26 +163,46 @@ impl GameTargets {
                 },
             });
         }
-        for resource in &spec.reads {
+        let reads = self.layer_reads(&spec.reads);
+        for resource in &reads {
             added.push(self.view(*resource)?);
         }
         let feature = feature_pass(&pass)?;
         let fresh = new_views(views, added)?;
         views.extend(fresh);
         passes.push(pass);
-        Ok(FeaturePass {
-            reads: spec.reads.clone(),
-            ..feature
-        })
+        Ok(FeaturePass { reads, ..feature })
+    }
+
+    /// The subresources a pass's reads sample: every mip of each layer read, once each, in the
+    /// order the reads name them. A read of a mip past the chain, or of a name no declaration
+    /// made, is left as it is for the view check to refuse.
+    fn layer_reads(&self, reads: &[ResourceRef]) -> Vec<ResourceRef> {
+        let mut expanded: Vec<ResourceRef> = Vec::new();
+        for resource in reads {
+            let mips = match self.mips(resource.name) {
+                Some(mips) if resource.mip < mips => 0..mips,
+                _ => resource.mip..resource.mip + 1,
+            };
+            for mip in mips {
+                let read = ResourceRef { mip, ..*resource };
+                if !expanded.contains(&read) {
+                    expanded.push(read);
+                }
+            }
+        }
+        expanded
     }
 }
 
 impl GameTargets {
-    /// Adds to the binding table the layers a preparation operation of the frame reads and
-    /// writes, and marks the written ones prepared: the frame's preparation writes them before its
-    /// first pass, so a pass of the frame may read them, and the frame counts them written when
-    /// it is submitted. A view the table already holds for a written layer is marked in place, so
-    /// a pass that reads it, planned before or after, sees the same view.
+    /// Adds to the binding table the subresources (one mip of one layer each, named with
+    /// [`TargetDeclaration::mip`](super::TargetDeclaration::mip)) a preparation operation of the
+    /// frame reads and writes, and marks the written ones prepared: the frame's preparation
+    /// writes them before its first pass, so a pass of the frame may read them, and the frame
+    /// counts them written when it is submitted. A view the table already holds for a written
+    /// subresource is marked in place, so a pass that reads it, planned before or after, sees the
+    /// same view.
     ///
     /// Call this from [`FrameFeature::plan`](worldrunner_render_post::FrameFeature::plan), then
     /// stage the operations that write the layers with
@@ -189,11 +210,12 @@ impl GameTargets {
     /// in the feature's `prepare`, each written layer exactly once.
     ///
     /// # Errors
-    /// [`FrameError::AttachmentView`] for an undeclared target or layer;
-    /// [`FrameError::MissingProducer`] for a read of a layer no submitted frame wrote;
-    /// [`FrameError::AttachmentHazard`] for a layer both read and written, and for a target that
-    /// shares its name with another view of the frame; [`FrameError::RepeatedPreparedWrite`] for
-    /// a layer the frame's preparation already writes. Nothing is added on any refusal.
+    /// [`FrameError::AttachmentView`] for an undeclared target, layer or mip;
+    /// [`FrameError::MissingProducer`] for a read of a subresource no submitted frame wrote;
+    /// [`FrameError::AttachmentHazard`] for a subresource both read and written, and for a target
+    /// that shares its name with another view of the frame;
+    /// [`FrameError::RepeatedPreparedWrite`] for a subresource the frame's preparation already
+    /// writes. Nothing is added on any refusal.
     pub fn plan_prepared(
         &self,
         reads: &[ResourceRef],

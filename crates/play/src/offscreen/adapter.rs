@@ -17,7 +17,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
     SubMesh,
 };
 use worldrunner_render_program::unity::offscreen::{
-    OffscreenError, OffscreenOperations, OffscreenState,
+    OffscreenError, OffscreenOperations, OffscreenState, Refusal,
 };
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
@@ -456,9 +456,10 @@ pub(super) fn blit_mesh() -> Mesh {
 }
 
 /// Builds the frame's operations. When the frame as a whole is refused, the parts the state
-/// refuses are left out and counted in the report by the name of their error: first each render
-/// texture (with the records that name it), then each record on its own. What is left is built
-/// together.
+/// refuses are left out and counted in the report by the name of their error. A refusal that names
+/// a record is settled by building that record alone. A refusal that names none builds first each
+/// render texture (with the records that name it), then each record on its own. What is left is
+/// built together.
 ///
 /// # Errors
 /// Fails with the error of the frame that is left, which holds only parts that build alone, when
@@ -470,7 +471,7 @@ pub fn build(
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
     let started = Instant::now();
-    let operations = match state.build(runtime, arena, &adapted.frame) {
+    let operations = match state.build_naming_record(runtime, arena, &adapted.frame) {
         Ok(operations) => operations,
         Err(first) => {
             let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, first);
@@ -519,6 +520,12 @@ pub fn build(
 
 /// Builds the frame again after `first` refused it, without the parts that do not build alone.
 ///
+/// When `first` names a record, the render textures all built with it, so that record is built
+/// alone and left out if the state refuses it alone too, and the frame is built again until it
+/// builds: one build alone and one build of the frame for each record refused. A record that
+/// builds alone was refused for what the records do together, and a refusal that names no record
+/// leaves nothing to follow, so both build each record alone, as below.
+///
 /// The render textures come first, since the state creates them before it plans a record, so
 /// `first` may be one of theirs. A refusal for the budget is retried once with the textures that
 /// did not fit gone, and the records are tried alone only if that retry fails for another reason:
@@ -529,20 +536,24 @@ fn rebuild_without_unusable_parts(
     runtime: &mut ProgramRuntime,
     arena: &ProgramArena,
     adapted: &mut Adapted,
-    first: OffscreenError,
+    first: Refusal,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
-    if is_over_budget(&first) && adapted.report.holdings.is_empty() {
+    let over_budget = is_over_budget(&first.error);
+    if over_budget && adapted.report.holdings.is_empty() {
         adapted.report.holdings = holdings::describe(runtime);
     }
     // A refusal that is the whole frame's is not found in a part, and building the parts one at a
     // time costs as much as the frame for each of them.
-    if first.is_frame_wide() {
-        return Err(first);
+    if first.error.is_frame_wide() {
+        return Err(first.error);
+    }
+    if let Some(index) = first.record.filter(|_| !over_budget) {
+        return rebuild_without_named_records(state, runtime, arena, adapted, index);
     }
     adapted.report.phases.probes += adapted.frame.render_textures.len();
     drop_unusable_textures(state, runtime, arena, adapted);
-    if is_over_budget(&first) {
+    if over_budget {
         match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
             Err(error) if is_over_budget(&error) => return Err(error),
@@ -552,6 +563,66 @@ fn rebuild_without_unusable_parts(
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
     state.build(runtime, arena, &adapted.frame)
+}
+
+/// Leaves out the record the state refused and builds the frame again, for as long as the state
+/// refuses a record that it also refuses alone. The frame the state then refuses for another
+/// reason has each of its records built alone.
+fn rebuild_without_named_records(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &mut Adapted,
+    named: usize,
+) -> Result<OffscreenOperations, OffscreenError> {
+    let mut index = named;
+    while drop_record_refused_alone(state, runtime, arena, adapted, index) {
+        match state.build_naming_record(runtime, arena, &adapted.frame) {
+            Ok(operations) => return Ok(operations),
+            Err(refusal) if refusal.error.is_frame_wide() => return Err(refusal.error),
+            Err(Refusal {
+                record: Some(next), ..
+            }) => index = next,
+            Err(_) => break,
+        }
+    }
+    adapted.report.phases.probes += adapted.frame.records.len();
+    drop_unusable_records(state, runtime, arena, adapted);
+    state.build(runtime, arena, &adapted.frame)
+}
+
+/// Builds the record at `index` alone, with the globals in force for it. When the state refuses
+/// it alone, the record is left out of the frame and counted by the error's name.
+fn drop_record_refused_alone(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &mut Adapted,
+    index: usize,
+) -> bool {
+    let Some(record) = adapted.frame.records.get(index) else {
+        return false;
+    };
+    let globals = adapted.frame.records[..index]
+        .iter()
+        .rfind(|earlier| matches!(earlier, Record::Globals(_)));
+    let alone = part(
+        &adapted.frame,
+        &adapted.frame.render_textures,
+        globals
+            .cloned()
+            .into_iter()
+            .chain([record.clone()])
+            .collect(),
+    );
+    adapted.report.phases.probes += 1;
+    let Err(error) = state.check(runtime, arena, &alone) else {
+        return false;
+    };
+    adapted.report.fail("record", &error);
+    adapted.report.built = adapted.report.built.saturating_sub(1);
+    adapted.frame.records.remove(index);
+    true
 }
 
 fn is_over_budget(error: &OffscreenError) -> bool {
@@ -585,7 +656,7 @@ fn drop_unusable_textures(
     let mut unusable = BTreeSet::new();
     for spec in &adapted.frame.render_textures {
         let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
-        if let Err(error) = state.build(runtime, arena, &alone) {
+        if let Err(error) = state.check(runtime, arena, &alone) {
             adapted.report.fail("rendertexture", &error);
             unusable.insert(spec.id);
         }
@@ -639,8 +710,8 @@ fn drop_unusable_records(
             &adapted.frame.render_textures,
             globals.iter().cloned().chain([record.clone()]).collect(),
         );
-        match state.build(runtime, arena, &alone) {
-            Ok(_) => kept.push(record),
+        match state.check(runtime, arena, &alone) {
+            Ok(()) => kept.push(record),
             Err(error) => {
                 adapted.report.fail("record", &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);

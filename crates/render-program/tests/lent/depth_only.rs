@@ -145,6 +145,7 @@ fn prepare(
             bindings: &[],
             imports: &[],
             sets: &[],
+            topology: wgpu::PrimitiveTopology::TriangleList,
             geometry: &vertices(6),
             instances: 0..1,
             owners: &[],

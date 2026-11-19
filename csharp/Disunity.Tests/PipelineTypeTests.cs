@@ -13,7 +13,7 @@ internal static class PipelineTypeTests
         Console.WriteLine("PASS: Cubemap holds a size, a format and a mip count, and refuses face pixels");
         KeywordsAreByName();
         Console.WriteLine("PASS: ShaderKeyword is a global keyword by name with a registration index");
-        HandlesAreNeverValid();
+        DefaultHandlesAreInvalid();
         Console.WriteLine("PASS: FileHandle and ReadHandle are the invalid default and VFXCameraXRSettings is plain data");
     }
 
@@ -60,12 +60,13 @@ internal static class PipelineTypeTests
         Expect.Equal("_R59_B", b.ToString(), "ToString is the name");
     }
 
-    private static void HandlesAreNeverValid()
+    internal static void DefaultHandlesAreInvalid()
     {
         var file = default(FileHandle);
         var read = default(ReadHandle);
         Expect.That(!file.IsValid() && file.Status == FileState.Absent && file.JobHandle.IsCompleted && file.Close().IsCompleted, "a file handle");
-        Expect.That(!read.IsValid() && read.Status == ReadStatus.Failed && read.GetBytesRead() == 0 && read.JobHandle.IsCompleted, "a read handle");
+        Expect.That(!read.IsValid() && read.Status == ReadStatus.Failed && read.GetBytesRead() == 0, "a default read handle");
+        Expect.Throws<NotSupportedException>(() => { _ = read.JobHandle; }, "read handles do not fabricate scheduler jobs");
         read.Cancel();
         read.Dispose();
         var settings = new VFXCameraXRSettings { viewTotal = 2, viewCount = 1, viewOffset = 1 };

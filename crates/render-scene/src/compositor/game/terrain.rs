@@ -76,10 +76,15 @@ impl FrameTerrainHandle {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
-        *self.0.borrow_mut() = Publications::current().map(|owner| FrameTerrain {
+        let published = Publications::current().map(|owner| FrameTerrain {
             owner,
             lent: lend(gpu, frame, viewport),
         });
+        #[cfg(test)]
+        if let Some(published) = &published {
+            probe::record_publication(published);
+        }
+        *self.0.borrow_mut() = published;
     }
 }
 

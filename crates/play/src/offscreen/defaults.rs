@@ -71,6 +71,41 @@ const FLOAT_PROPERTY: i32 = 2;
 const RANGE_PROPERTY: i32 = 3;
 const INT_PROPERTY: i32 = 5;
 
+/// The environment variable that makes every stand-in texture the host supplies read as magenta
+/// (255, 0, 255, 255) in its dimension, so a capture shows where stand-ins are drawn. `1` or `true`
+/// turns it on; unset, `0`, `false` or anything else leaves the declared colours.
+pub const STAND_INS_MAGENTA_ENV: &str = "PLAY_STAND_INS_MAGENTA";
+
+/// How the stand-in textures of the host look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StandInLook {
+    /// Each default has the colour its name stands for.
+    #[default]
+    Declared,
+    /// Every default is magenta, whatever its name.
+    Magenta,
+}
+
+impl StandInLook {
+    /// The look the contents of [`STAND_INS_MAGENTA_ENV`] name, or the declared one when the
+    /// variable is not set.
+    #[must_use]
+    pub fn from_setting(setting: Option<&str>) -> Self {
+        match setting.map(str::trim) {
+            Some("1" | "true") => Self::Magenta,
+            _ => Self::Declared,
+        }
+    }
+
+    /// The texel a default of `colour` holds under this look, in 8-bit RGBA.
+    fn texel(self, colour: Colour) -> [u8; 4] {
+        match self {
+            Self::Declared => colour.texel(),
+            Self::Magenta => [255, 0, 255, 255],
+        }
+    }
+}
+
 /// What a default texture holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Colour {
@@ -254,6 +289,13 @@ impl DefaultTexture {
     /// The texture to register under [`ids::default_texture`].
     #[must_use]
     pub fn texture(self) -> SourceTexture {
+        self.texture_in(StandInLook::Declared)
+    }
+
+    /// The texture to register under [`ids::default_texture`] when the host's stand-ins look as
+    /// `look` says.
+    #[must_use]
+    pub fn texture_in(self, look: StandInLook) -> SourceTexture {
         let (colour, shape) = self.parts();
         let (dimension, texels) = shape.source();
         SourceTexture {
@@ -261,7 +303,7 @@ impl DefaultTexture {
             dimension,
             size: [1, 1],
             graphics_format: RGBA8_LINEAR,
-            bytes: colour.texel().repeat(texels),
+            bytes: look.texel(colour).repeat(texels),
             mips: 1,
             sampler: None,
         }

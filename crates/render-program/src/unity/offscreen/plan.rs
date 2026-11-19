@@ -88,9 +88,21 @@ pub(super) struct DrawPlan {
     /// The texture properties that no layer set and the shader does not declare, which the draw
     /// reads from the frame's `undeclared_textures`.
     pub(super) undeclared: Vec<String>,
+    /// The texture properties the draw reads a stand-in for, with the reason the layers gave, or
+    /// [`UNDECLARED_REASON`] for a slot no layer explains. A draw left out reports none.
+    pub(super) stand_ins: Vec<(String, String)>,
     /// The constant buffer members and state properties no layer supplied. They count as the
     /// frame's only once the draw is kept (see [`Services::keep_unset`]).
     pub(super) unset: BTreeSet<String>,
+}
+
+/// The texture a slot reads and why it is not a layer's own: see `Services::texture_input`.
+struct ChosenTexture {
+    input: TextureInput,
+    /// Whether it is the frame's default for a slot no layer sets and the shader does not declare.
+    undeclared: bool,
+    /// The reason it is a stand-in, if it is one.
+    stand_in: Option<String>,
 }
 
 /// The program and render state `choose` picked for a draw, and the state properties no layer
@@ -104,6 +116,14 @@ pub(super) struct Chosen {
 /// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
 /// which no shader's blob numbers reach.
 const CONSTANT_FRAGMENT_KEY: u32 = 1 << 31;
+
+/// The reason a draw reads the frame's grey for a slot no layer sets and the shader does not
+/// declare, when no layer says why the slot has no texture.
+const UNDECLARED_REASON: &str = "undeclared";
+
+/// The reason a draw samples a render texture that no draw, copy or blit has written, so that it
+/// holds the zeros it was made with.
+const UNWRITTEN_REASON: &str = "unwritten-render-texture";
 
 /// The fragment stage of [`StateVariant::constant_fragment`](super::StateVariant): it reads
 /// nothing and binds nothing.
@@ -170,6 +190,9 @@ pub(super) struct DrawCounts {
     /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
     /// set and the shader does not declare, by the texture property.
     pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
+    /// Draws that read a stand-in texture, in all and by (texture property, reason).
+    pub(super) stand_in_draws: usize,
+    pub(super) stand_ins: std::collections::BTreeMap<(String, String), usize>,
     /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
     /// by (source channel, shader input).
     pub(super) missing_channel: usize,
@@ -213,6 +236,18 @@ impl DrawCounts {
     pub(super) fn note_undeclared(&mut self, names: &[String]) {
         for name in names {
             *self.undeclared_defaults.entry(name.clone()).or_default() += 1;
+        }
+    }
+
+    /// Counts one draw that read a stand-in texture for each of `stand_ins`, as one draw with
+    /// stand-ins however many it read.
+    pub(super) fn note_stand_ins(&mut self, stand_ins: &[(String, String)]) {
+        if stand_ins.is_empty() {
+            return;
+        }
+        self.stand_in_draws += 1;
+        for entry in stand_ins {
+            *self.stand_ins.entry(entry.clone()).or_default() += 1;
         }
     }
 
@@ -299,6 +334,7 @@ impl Services<'_> {
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
             undeclared: Vec::new(),
+            stand_ins: Vec::new(),
             unset,
         };
         let entry = Arc::clone(&plan.entry);
@@ -355,22 +391,35 @@ impl Services<'_> {
         Ok(())
     }
 
-    /// The texture a slot of property `name` reads, and whether it is the frame's default for an
-    /// undeclared property.
+    /// The texture a slot of property `name` reads, whether it is the frame's default for an
+    /// undeclared property, and the reason when it is a stand-in.
     ///
-    /// A layer's texture wins. With none, and when the shader does not declare the property,
-    /// this engine reads a grey default texture of the slot's dimension, so the frame's
-    /// `undeclared_textures` stand in, for a slot that samples a single-sampled float texture of
-    /// a dimension with a default. A declared property, a slot of another kind or dimension and a
-    /// frame without the texture leave the property missing.
+    /// A layer's texture wins. It is a stand-in when its layer says why, with the reason of the
+    /// highest layer that explains the property (see [`Layers::stand_in`]), and when it is a
+    /// render texture that nothing has written (`unwritten-render-texture`). With none, and when
+    /// the shader does not declare the property, this engine reads a grey default texture of the
+    /// slot's dimension, so the frame's `undeclared_textures` stand in, for a slot that samples a
+    /// single-sampled float texture of a dimension with a default. The reason is the one a layer
+    /// explains the missing texture with, or `undeclared`. A declared property, a slot of another
+    /// kind or dimension and a frame without the texture leave the property missing.
     fn texture_input(
         &self,
         spec: &DrawSpec<'_>,
         name: &str,
         slot: &Slot,
-    ) -> Result<(TextureInput, bool), OffscreenError> {
+    ) -> Result<ChosenTexture, OffscreenError> {
         if let Some(input) = spec.layers.texture(name) {
-            return Ok((*input, false));
+            let unwritten = self.textures.never_written(input.texture)
+                && self.tracker.is_unwritten(input.texture);
+            return Ok(ChosenTexture {
+                input: *input,
+                undeclared: false,
+                stand_in: spec
+                    .layers
+                    .stand_in(name)
+                    .or_else(|| unwritten.then_some(UNWRITTEN_REASON))
+                    .map(str::to_owned),
+            });
         }
         let default = match slot.ty {
             wgpu::BindingType::Texture {
@@ -385,13 +434,19 @@ impl Services<'_> {
             .get(&spec.shader)
             .is_some_and(|shader| shader.declares_texture(name));
         match default {
-            Some(texture) if !declared => Ok((
-                TextureInput {
+            Some(texture) if !declared => Ok(ChosenTexture {
+                input: TextureInput {
                     texture,
                     sampler: None,
                 },
-                true,
-            )),
+                undeclared: true,
+                stand_in: Some(
+                    spec.layers
+                        .explanation(name)
+                        .unwrap_or(UNDECLARED_REASON)
+                        .to_owned(),
+                ),
+            }),
             _ => Err(OffscreenError::MissingTexture {
                 name: name.to_owned(),
             }),
@@ -540,9 +595,16 @@ impl Services<'_> {
                 what: "a texture no parameter names",
             })?;
         let name = target.name.resolve(&[])?;
-        let (input, undeclared) = self.texture_input(spec, name, slot)?;
+        let ChosenTexture {
+            input,
+            undeclared,
+            stand_in,
+        } = self.texture_input(spec, name, slot)?;
         if undeclared {
             plan.undeclared.push(name.to_owned());
+        }
+        if let Some(reason) = stand_in {
+            plan.stand_ins.push((name.to_owned(), reason));
         }
         if let Some(facts) = plan.facts.as_mut() {
             facts.textures.push((name.to_owned(), input.texture));

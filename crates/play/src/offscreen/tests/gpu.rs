@@ -319,10 +319,20 @@ impl Rig {
         world: &mut World,
         reads: &[RenderTextureId],
     ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
+        self.frame_with(&Quad, world, reads)
+    }
+
+    /// As `frame`, with the meshes and textures `assets` stores.
+    pub(super) fn frame_with(
+        &mut self,
+        assets: &dyn Assets,
+        world: &mut World,
+        reads: &[RenderTextureId],
+    ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
         let snapshot = GraphicsSnapshot::take(world).unwrap();
         let mut adapted = self
             .adapter
-            .adapt(&snapshot, &Quad, &mut self.state, &mut self.runtime);
+            .adapt(&snapshot, assets, &mut self.state, &mut self.runtime);
         let mut operations = build(
             &mut self.state,
             &mut self.runtime,

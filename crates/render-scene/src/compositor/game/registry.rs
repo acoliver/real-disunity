@@ -3,6 +3,7 @@
 use super::camera::FrameCameraHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
+use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -23,6 +24,9 @@ pub struct GameBuild<'a> {
     pub targets: GameTargets,
     /// The camera of the frame in flight, set as each frame plans.
     pub camera: FrameCameraHandle,
+    /// The streamed terrain chunks of the frame in flight, set as each frame prepares its
+    /// terrain.
+    pub terrain: FrameTerrainHandle,
     /// The stock shadow cascades of the frame in flight, published by the shadowed route.
     pub shadows: FrameShadowHandle,
 }
@@ -159,6 +163,7 @@ impl GamePasses {
                 frame,
                 targets: GameTargets::new(store.clone()),
                 camera: renderer.game_camera.clone(),
+                terrain: renderer.game_terrain.clone(),
                 shadows: renderer.game.shadows.clone(),
             })?;
             renderer.chain.register(

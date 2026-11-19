@@ -36,8 +36,8 @@ impl DisunityHost {
     /// Takes the offscreen work scripts recorded since the last take, with the cameras, renderers,
     /// materials, shaders, render textures, global state and compute resources that work names,
     /// from the world of the running slice. Like `GraphicsSnapshot::take` it drains: the next call
-    /// returns only work recorded after this one, and a frame with no work gives an empty
-    /// snapshot.
+    /// returns only work recorded after this one, and a frame with no work gives a snapshot
+    /// with no records that still lists every live render texture.
     pub fn graphics_snapshot(&mut self) -> Result<GraphicsSnapshot, HostError> {
         let world = self.world.ok_or(HostError::NoWorld)?;
         let call: SnapshotCall = symbol(&self._library, b"disunity_graphics_snapshot\0")?;

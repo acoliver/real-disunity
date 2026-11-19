@@ -624,3 +624,55 @@ fn a_transfer_into_a_mip_past_the_chain_is_refused_by_name_before_staging() {
     );
     assert_eq!(knobs.lock().unwrap().transfers, 0, "nothing staged");
 }
+
+/// Runs `frames` (the mips each compresses, and whether a pass reads the layer) as shadowed
+/// same-frame captures over one renderer, checking after each which mips are written and, when
+/// it reads, that every mip is sampled at its own value.
+fn shadowed_frames(frames: &[(&[u32], bool)]) {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = knobs(frames[0].0, frames[0].1);
+    let (mut rig, mut scene) =
+        shadowed::shadowed_with(inventory(&knobs), wgpu::Features::TEXTURE_COMPRESSION_BC);
+    let mut written = [false; 3];
+    for (frame, (compress, read)) in (0_u64..).zip(frames) {
+        next(&knobs, compress, *read);
+        let image = shadowed::capture(&mut rig, &mut scene, frame);
+        for mip in *compress {
+            written[*mip as usize] = true;
+        }
+        let context = format!("frame {frame} compressing {compress:?}");
+        assert_written(&rig, written, &context);
+        if *read {
+            assert_chain(&image, &context);
+        }
+    }
+}
+
+#[test]
+fn a_shadowed_capture_fills_a_chain_over_frames_that_each_write_some_mips() {
+    shadowed_frames(&[
+        (&[0], false),
+        (&[2], false),
+        (&[1], true),
+        (&[], true),
+        (&[0, 2], true),
+        (&[1], true),
+        (&[], true),
+    ]);
+}
+
+#[test]
+fn a_shadowed_capture_fills_a_chain_from_the_smallest_mip_up() {
+    shadowed_frames(&[
+        (&[2], false),
+        (&[], false),
+        (&[1], false),
+        (&[0], true),
+        (&[2], true),
+    ]);
+}
+
+#[test]
+fn a_shadowed_capture_fills_one_mip_per_frame_and_rereads_it_in_the_frame_that_writes_it() {
+    shadowed_frames(&[(&[1], false), (&[1], false), (&[0], false), (&[2], true)]);
+}

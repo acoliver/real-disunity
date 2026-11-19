@@ -418,6 +418,14 @@ A blit with a material binds its source under the main texture property name `Of
 
 Channels 0 to 4 matter: 0, 1 and 4 are read by most variants, 2 and 3 by a third. Channel 5 is read by 159 variants and every channel from 6 on by at most 7. The shader inputs fed are 13 to 24; inputs 13 to 17 take 10,002, 8,647, 7,913, 4,037 and 3,328 variants and the rest at most 13. Tables hold 0 to 6 pairs (771 variants none, 3,876 three, 3,315 five) and 2 variants hold 12. No variant reads a source channel or feeds an input twice, and in all 10,773 the source mask is exactly the bits of the pairs' source channels, so the mask adds nothing a caller needs. The numbers are the codes the table stores; this crate maps them to mesh channels only through `MeshChannel::source`, so a host adapter decides what each code is. `tests/program/offscreen/camera.rs` draws with codes 0 and 4 and refuses a missing channel by name; the other codes take the same path.
 
+## Loop continuing blocks
+
+naga 30's Metal writer prints a loop's `continuing` block at the top of the next iteration, before the body, and prints a body expression it has not named yet inline. A body `Load` that `continuing` uses is then read again at its use, after any store `continuing` made to the variable first. DXC writes that shape whenever a continue block computes one phi's next value from another phi; terrain block compression packed every BC index three bits high on Metal because of it. The naga IR and the WGSL and SPIR-V output are correct, and naga's trunk fixes its Metal writer (gfx-rs/wgpu#4558), but no release has the fix yet.
+
+So `StageProgram::new` runs a pass (`src/continuing.rs`) after validation, for SPIR-V and WGSL alike. Each body value that `continuing` or `break_if` uses and whose value depends on when it is evaluated (a load, an image read, a derivative, a statement's result) is stored into a local named `continuing_snapshot` right after the body computes it. `continuing` starts by loading those locals and computing again, from the loads, the body's arithmetic and addresses that lead from them to its uses. Nothing writes the snapshots in `continuing`, so every backend reads the body's values however it prints them. The module is validated again when the pass changed it. A value no local can hold is `ModuleError::ContinuingSnapshot`, naming the function and the loop. Delete the pass when the engine moves to a naga release with the hoist fix.
+
+`tests/loops.rs` runs two SPIR-V fixtures of that shape (`tests/fixtures/loop_continuing/`, assembled with `spirv-as --target-env vulkan1.1` from the `.spvasm` next to them) and one WGSL kernel. It checks the IR, the Metal text naga writes with wgpu-hal's options, and the words each kernel writes on the GPU.
+
 ## Measured conventions
 
 The tests in `tests/program/conventions.rs` draw into an 8x8 target through the adapter and compare bytes. They pin what a Unity Vulkan module needs, which holds for any SPIR-V stage:

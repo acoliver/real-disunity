@@ -296,9 +296,11 @@ impl FrameRenderer {
         })
     }
 
-    /// The writes of the screen-space and snapshot targets a frame's suffix produces, for a
+    /// The writes of the screen-space, snapshot and game targets a frame's suffix produces, for a
     /// capture's write contract. Allocates the opaque snapshots a water, reflection or overlay
-    /// frame needs.
+    /// frame needs. A game's persistent targets are imported at the initial version the frame
+    /// imports them at, which is why every capture lists them here, with the publications of
+    /// [`Self::capture_write_keys`], rather than as stock textures.
     ///
     /// # Errors
     /// As [`Self::capture_texture_keys`].
@@ -336,18 +338,26 @@ impl FrameRenderer {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
         }
+        let game = self.game_capture_imports();
+        let imports: Vec<_> = textures
+            .into_iter()
+            .map(|texture| (texture, None))
+            .chain(game.iter().map(|(texture, initial)| (texture, *initial)))
+            .collect();
         self.chain
-            .capture_write_keys(&textures)
+            .capture_write_keys_initial(&imports)
             .map_err(FrameError::from)
     }
 
     pub fn capture_write_keys(&self) -> Vec<worldrunner_render_gpu::submission::capture::WriteKey> {
-        vec![
+        let mut keys = vec![
             super::publication::key(&self.snapshot_ready),
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
             super::publication::key(&self.temporal),
             super::publication::key(&self.contours.published),
-        ]
+        ];
+        keys.extend(self.game_capture_publications());
+        keys
     }
 }

@@ -148,6 +148,7 @@ fn options() -> ViewerOptions {
         cadence: worldrunner_scene_viewer::PresentationCadence::Uncapped,
         ssr: None,
         render_clock: worldrunner_scene_viewer::RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
         title: "Adapter frame regression".into(),
         size: [800, 600],
         camera: SceneCamera {

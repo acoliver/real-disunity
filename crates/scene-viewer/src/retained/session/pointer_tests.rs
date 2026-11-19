@@ -178,6 +178,7 @@ fn invalid_fixed_interval_fails_before_native_startup() {
             cadence: crate::PresentationCadence::Fixed(interval),
             ssr: None,
             render_clock: crate::RenderClock::default(),
+            game: crate::GameRendering::default(),
             ..crate::tests::options()
         };
         assert!(matches!(

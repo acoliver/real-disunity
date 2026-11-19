@@ -99,6 +99,7 @@ fn a_viewport_names_no_render_texture() {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

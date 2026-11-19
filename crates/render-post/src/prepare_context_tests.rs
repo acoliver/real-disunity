@@ -162,3 +162,34 @@ fn steady_frames_reuse_upload_staging_and_land_every_upload_on_the_gpu() {
     // No chunk was dropped for a failed mapping and replaced.
     assert_eq!(authority.upload_staging().chunks, created[31]);
 }
+
+#[test]
+fn a_context_reports_the_declaration_of_each_entry_the_frame_opens() {
+    use crate::{FrameError, GamePlace, PassDeclaration, PassEntry, PassSlot};
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let opaque = PassDeclaration::new(PassSlot::Opaque);
+    let game = PassDeclaration::nth(PassSlot::Game(GamePlace::BeforeOpaque), 2);
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            assert!(
+                context.passes().is_empty(),
+                "nothing is open before a frame plans"
+            );
+            context.set_passes(&[game.clone(), opaque.clone()]);
+            assert_eq!(context.passes(), [game.clone(), opaque.clone()]);
+            assert_eq!(context.pass(game.entry()), Ok(&game));
+            let absent = PassEntry::nth(PassSlot::Opaque, 1);
+            assert_eq!(context.pass(absent), Err(FrameError::MissingPass(absent)));
+            assert_eq!(
+                game.entry().to_string(),
+                "Game(BeforeOpaque)#2",
+                "an entry names its place and occurrence"
+            );
+            context.finish();
+            Ok::<_, FrameError>(())
+        })
+        .unwrap();
+    prepared.cancel();
+}

@@ -81,6 +81,10 @@ pub struct WorldRenderTexture {
     /// Slices of a 3D texture, layers of an array, six faces per cube of a cube array; 1 for a
     /// 2D texture or a cube.
     pub volume_depth: u32,
+    /// Whether the host regenerates the smaller mip levels itself whenever the texture is drawn
+    /// into. Only a texture with more than one mip level has levels to fill; otherwise the
+    /// script fills them with an [`crate::graphics::OffscreenWork::GenerateMips`] record.
+    pub auto_generate_mips: bool,
     pub sampler: WorldSampler,
     pub generation: u64,
 }

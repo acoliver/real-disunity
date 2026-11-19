@@ -2,7 +2,9 @@
 use super::LogicalSchedule;
 use super::cache::{Key, Lookup, PlanCache, Probe};
 use super::shape::{self, Identity, Shape};
-use crate::compositor::{FrameOutput, forward_order, overlay::OverlayStage, snapshots};
+use crate::compositor::{
+    FrameOutput, forward_order, game::reconcile_loads, overlay::OverlayStage, snapshots,
+};
 use crate::frame::FrameUniform;
 use crate::gbuffer::Gbuffer;
 use crate::scene_metadata::SceneMetadata;
@@ -337,6 +339,7 @@ fn derive<'s>(
         take_planned_colour_layout(declaration, &passes);
     }
     forward_order::forward_order(&mut passes);
+    reconcile_loads(&mut passes);
     let first = passes.first().map(PassDeclaration::entry);
     Ok(Derived {
         schedule: LogicalSchedule {

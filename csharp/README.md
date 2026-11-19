@@ -88,7 +88,11 @@ After an intentional ABI change:
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
    and all channels must be finite and in 0..=1. Revision 12 adds the camera target
    buffers calls (`disunity_camera_target_buffers_write` and `_read`) and the buffer
-   arguments of `disunity_offscreen_setup_camera`. Revision 17 adds `depth`,
+   arguments of `disunity_offscreen_setup_camera`. Revision 16 adds `auto_generate_mips`
+   and a `padding` word (which keeps `generation` 8-byte aligned) to
+   `DisunityRenderTexture`, and `disunity_offscreen_generate_mips`, which records a
+   generate-mips request for a render texture with more than one level (offscreen
+   kind 19). Revision 17 adds `depth`,
    `graphics_format`, `dimension` and a zero `reserved` word to the stored-texture
    record `DisunityTextureInfo` (48 to 64 bytes): a 2D array, a cube or a 3D texture
    states its layer count, `GraphicsFormat` and shader dimension code (2 2D, 3 3D,

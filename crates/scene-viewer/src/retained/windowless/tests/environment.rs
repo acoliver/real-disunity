@@ -22,6 +22,7 @@ fn ssr_misses_use_uploaded_environment_radiance() {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,
@@ -152,6 +153,7 @@ fn retained_environment_updates_and_removal_preserve_resident_scene() {
         crate::ViewerOptions {
             size: [64, 64],
             render_clock: RenderClock::Fixed(Duration::ZERO),
+            game: crate::GameRendering::default(),
             frame_profile: crate::FrameProfile::Hdr {
                 samples: 1,
                 tone_map: crate::ToneMap::Reinhard,

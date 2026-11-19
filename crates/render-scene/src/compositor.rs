@@ -17,6 +17,7 @@ pub(crate) mod forward_order;
 mod frozen;
 #[cfg(test)]
 mod frozen_tests;
+mod game;
 mod hdr;
 mod offscreen;
 mod output;
@@ -30,9 +31,15 @@ mod snapshots;
 mod stock_plan;
 mod temporal;
 mod validation;
+pub use crate::draw::TerrainDraws;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
+pub use game::{
+    ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, GameBuild, GameFeatureFactory,
+    GamePassSpec, GamePasses, GameTargets, PassTarget, TargetDeclaration, TargetExtent,
+    TargetLifetime, join_pass,
+};
 use output::FrameOutput;
 pub use output::FrameProfile;
 pub use stock_plan::StockPlanStatistics;
@@ -81,6 +88,12 @@ pub struct FrameRenderer {
     producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
     /// The stock plans of this renderer and the ones it replaces on reconfiguration.
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
+    /// What the game inventory installed on this generation.
+    game: game::Installed,
+    /// The camera of the frame being encoded, which the game's features read.
+    game_camera: FrameCameraHandle,
+    /// Whether the stock passes draw the scene's terrain.
+    terrain_draws: TerrainDraws,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,6 +152,9 @@ impl FrameRenderer {
             gbuffer: None,
             producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
+            game: game::Installed::default(),
+            game_camera: FrameCameraHandle::default(),
+            terrain_draws: TerrainDraws::Stock,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -571,6 +587,8 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         let config = self.targets().config();
         let (frame, shadow) = *input;
+        self.game_camera
+            .set(&FrameCamera::of(&frame, self.frame_slot));
         self.validate_environment_conventions(frame.specular_convention)?;
         let (passes, views) = plan;
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;

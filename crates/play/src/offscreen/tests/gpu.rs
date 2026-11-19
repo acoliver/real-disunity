@@ -391,6 +391,7 @@ pub(super) fn shaped_target(
             srgb: false,
             dimension,
             volume_depth,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

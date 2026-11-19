@@ -33,6 +33,7 @@ pub fn render_texture(world: &mut World, size: [u32; 2]) -> RenderTextureId {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -186,6 +187,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         sub_meshes: BTreeMap::new(),
         empty_meshes: BTreeSet::new(),
         test_variants: false,
+        float32_filterable: false,
     }
 }
 

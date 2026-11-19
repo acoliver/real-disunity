@@ -32,6 +32,7 @@ fn allocate(world: &mut World) {
                 srgb: false,
                 dimension: 2,
                 volume_depth: 1,
+                auto_generate_mips: false,
                 sampler: WorldSampler::default(),
                 generation: 0,
             },

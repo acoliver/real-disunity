@@ -899,6 +899,7 @@ fn a_draw_into_a_mip_has_the_size_of_that_mip() {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

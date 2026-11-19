@@ -120,6 +120,10 @@ const CONSTANT_FRAGMENT_KEY: u32 = 1 << 31;
 /// declare, when no layer says why the slot has no texture.
 const UNDECLARED_REASON: &str = "undeclared";
 
+/// The reason a draw samples a render texture that no draw, copy or blit has written, so that it
+/// holds the zeros it was made with.
+const UNWRITTEN_REASON: &str = "unwritten-render-texture";
+
 /// The fragment stage of [`StateVariant::constant_fragment`](super::StateVariant): it reads
 /// nothing and binds nothing.
 fn constant_fragment() -> Result<crate::module::StageProgram, ProgramError> {
@@ -389,7 +393,9 @@ impl Services<'_> {
     /// The texture a slot of property `name` reads, whether it is the frame's default for an
     /// undeclared property, and the reason when it is a stand-in.
     ///
-    /// A layer's texture wins, and it is a stand-in when its layer says why. With none, and when
+    /// A layer's texture wins. It is a stand-in when its layer says why, with the reason of the
+    /// highest layer that explains the property (see [`Layers::stand_in`]), and when it is a
+    /// render texture that nothing has written (`unwritten-render-texture`). With none, and when
     /// the shader does not declare the property, this engine reads a grey default texture of the
     /// slot's dimension, so the frame's `undeclared_textures` stand in, for a slot that samples a
     /// single-sampled float texture of a dimension with a default. The reason is the one a layer
@@ -402,10 +408,16 @@ impl Services<'_> {
         slot: &Slot,
     ) -> Result<ChosenTexture, OffscreenError> {
         if let Some(input) = spec.layers.texture(name) {
+            let unwritten = self.textures.never_written(input.texture)
+                && self.tracker.is_unwritten(input.texture);
             return Ok(ChosenTexture {
                 input: *input,
                 undeclared: false,
-                stand_in: spec.layers.stand_in(name).map(str::to_owned),
+                stand_in: spec
+                    .layers
+                    .stand_in(name)
+                    .or_else(|| unwritten.then_some(UNWRITTEN_REASON))
+                    .map(str::to_owned),
             });
         }
         let default = match slot.ty {

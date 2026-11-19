@@ -294,8 +294,14 @@ impl GpuWorkReport {
         self.stand_ins.lines(TOP_STAND_INS)
     }
 
-    /// The lines about the draws left out for want of a texture and the draws that read stand-ins.
-    fn print_texture_lines(&self) {
+    /// The lines of the stand-in census of the work done since the census was `before`.
+    fn frame_stand_in_lines(&self, before: &StandInCounts) -> Vec<String> {
+        self.stand_ins.since(before).lines(TOP_STAND_INS)
+    }
+
+    /// The lines about the draws left out for want of a texture and, from `stand_in_lines`, the
+    /// draws that read stand-ins.
+    fn print_texture_lines(&self, stand_in_lines: &[String]) {
         if let Some(line) = top_counts_line(
             "draw:MissingTexture by texture",
             &self.missing_textures,
@@ -303,7 +309,7 @@ impl GpuWorkReport {
         ) {
             eprintln!("[gpu] {line}");
         }
-        for line in self.stand_in_lines() {
+        for line in stand_in_lines {
             eprintln!("[gpu] {line}");
         }
     }
@@ -324,6 +330,16 @@ impl GpuWorkReport {
 
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
+        self.print_with(&self.stand_in_lines());
+    }
+
+    /// As [`print`](Self::print), with the stand-in census of the work done since it was `before`
+    /// (a clone of `stand_ins` taken then) in place of the run's totals.
+    pub fn print_frame(&self, before: &StandInCounts) {
+        self.print_with(&self.frame_stand_in_lines(before));
+    }
+
+    fn print_with(&self, stand_in_lines: &[String]) {
         self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
@@ -351,7 +367,7 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        self.print_texture_lines();
+        self.print_texture_lines(stand_in_lines);
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
@@ -746,6 +762,9 @@ impl PlayerGpu {
 }
 
 #[cfg(test)]
+mod stand_in_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -755,50 +774,6 @@ mod tests {
             error: error.map(str::to_owned),
             ..WorkTrace::default()
         }
-    }
-
-    fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-        entries
-            .iter()
-            .map(|(name, count)| ((*name).to_owned(), *count))
-            .collect()
-    }
-
-    fn with_stand_ins(draws: usize, by_property: &[(&str, usize)]) -> Report {
-        Report {
-            stand_ins: StandInCounts {
-                draws,
-                by_property: counted(by_property),
-            },
-            ..Report::default()
-        }
-    }
-
-    #[test]
-    fn the_summary_says_how_many_draws_read_stand_ins_and_which_properties_for_which_reason() {
-        let mut report = GpuWorkReport::default();
-        report.add(
-            &with_stand_ins(3, &[("_A unset", 3), ("_B undeclared", 1)]),
-            "frame",
-        );
-        report.add(
-            &with_stand_ins(2, &[("_A unset", 1), ("_C exists-not-loaded", 2)]),
-            "flush",
-        );
-        assert_eq!(
-            report.stand_in_lines(),
-            [
-                "draws with stand-ins 5",
-                "stand-ins by property: _A unset 4, _C exists-not-loaded 2, _B undeclared 1",
-            ]
-        );
-    }
-
-    #[test]
-    fn a_run_with_no_stand_ins_says_zero_draws_and_names_no_property() {
-        let mut report = GpuWorkReport::default();
-        report.add(&Report::default(), "frame");
-        assert_eq!(report.stand_in_lines(), ["draws with stand-ins 0"]);
     }
 
     fn names(entries: &[&str]) -> BTreeSet<String> {

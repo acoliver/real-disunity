@@ -110,26 +110,27 @@ The `[gpu] adapter` report line names the budget and which rule chose it. When a
 
 ### Seeing the stand-ins a run draws with
 
-A draw that binds a texture the host supplied in place of a real one is a draw with a stand-in: a shader's declared default (`white`, `black`, `grey`, `bump`, in 2D, cube, array or 3D) and the grey that a slot nothing sets and no shader declares reads. Such a draw is not an error and not a missing texture, so a run can report no failures while many of its draws read stand-ins. Each recorded draw that binds one is counted, and the report prints two lines (also after every frame when `PLAY_REPORT_EACH_FRAME` is set):
+A draw that binds a texture the host supplied in place of a real one is a draw with a stand-in: a shader's declared default (`white`, `black`, `grey`, `bump`, in 2D, cube, array or 3D) and the grey that a slot nothing sets and no shader declares reads. Such a draw is not an error and not a missing texture, so a run can report no failures while many of its draws read stand-ins. Each recorded draw that binds one is counted, and the report prints two lines (also after every frame when `PLAY_REPORT_EACH_FRAME` is set; that report counts the draws of the frame, including the flushes it ran, and the summary at the end of the run counts all of them):
 
 ```
 [gpu] draws with stand-ins N
 [gpu] stand-ins by property: <property> <reason> <count>, ...
 ```
 
-`N` is the number of draws that bound at least one stand-in. The second line names the properties with the most draws, one entry per property and reason. A draw that binds stand-ins for two properties is counted once in `N` and once under each property. The reasons are the host's account of why the slot has no real texture:
+`N` is the number of draws that bound at least one stand-in. The second line names the properties with the most draws, one entry per property and reason. A draw that binds stand-ins for two properties is counted once in `N` and once under each property. When a property block and a material both name the property, the reason is the highest layer's: a block that names a texture the host does not hold over a material's declared default is `exists-not-loaded`, not `unset`. The reasons are the host's account of why the slot has no real texture:
 
 | Reason | Meaning |
 | --- | --- |
 | `unset` | The shader declares a default for the property and the material lists no slot for it. |
 | `unset-or-not-loaded` | The slot names no texture. The world cannot tell a material that names none from one whose texture the importer did not build or the managed engine could not carry as a texture, so the report does not call it `unset`. |
 | `exists-not-loaded` | The slot names a texture the engine knows of and the host holds no pixels of: the engine stored none, the upload failed or went over the storage budget, or the render texture no longer exists. |
+| `unwritten-render-texture` | The slot names a render texture that nothing has written: no draw, copy or blit of a frame the host built wrote it, so it holds the zeros it was made with. A render texture bound as a storage image for a kernel is counted as written, because the host cannot see the kernel's writes. The host supplies this texture itself and `PLAY_STAND_INS_MAGENTA` leaves it alone, so it reads zeros. |
 | `unsupported-format` | The slot names a stored texture whose format the host does not decode. |
 | `undeclared` | The shader reflects a slot it does not declare and no layer sets it, so the grey of the slot's dimension is read. |
 
 A draw whose declared property has no texture and no default the host supplies is left out and counted as `draw:MissingTexture`, as before.
 
-`unsupported-dimension` (a cube, 3D or array texture the engine cannot carry yet) is not reported yet, because the information is lost before the host sees it: the importer plans a texture it does not build (a `Cubemap`, a `Texture3D`, a `Texture2D` it rejects) as a `null` slot with only a line in the plan's differences (`unity-import` `player_materials.rs`, `plan_material`), and the managed engine sends a `Texture2DArray`, `Cubemap` or `Texture3D` as kind 0, no texture (`WorldGraphics.TextureOf`). Both arrive as a slot with no texture, so they are counted as `unset-or-not-loaded`. Telling them apart needs a new texture kind in the world and the native ABI.
+`unsupported-dimension` (a cube, 3D or array texture the engine cannot carry yet) is not reported yet, because the information is lost before the host sees it: the importer plans a texture it does not build (a `Cubemap`, a `Texture3D`, a `Texture2D` it rejects) as a `null` slot with only a line in the plan's differences (`unity-import` `player_materials.rs`, `plan_material`), and the managed engine sends a `Texture2DArray`, `Cubemap` or `Texture3D` as kind 0, no texture (`WorldGraphics.TextureOf`). Both arrive as a slot with no texture. `unsupported-dimension` follows with cube, 3D and array loading through the ABI 17 stored-texture record; until then these slots are counted as `unset-or-not-loaded`.
 
 `PLAY_STAND_INS_MAGENTA=1` (or `true`) makes every stand-in texture the host supplies read as magenta, RGBA (255, 0, 255, 255), in its own dimension (2D, cube, array and 3D), so a capture shows which draws read stand-ins. Unset, `0`, `false` or any other value leaves the declared colours. The setting is read once when the run's `PlayerGpu::headless` is made; `Settings::with_stand_in_look` sets it for a library caller.
 

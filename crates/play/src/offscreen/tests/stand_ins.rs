@@ -135,17 +135,48 @@ fn a_draw_that_reads_a_declared_default_is_counted_under_its_property_and_reason
     );
 }
 
+/// A camera that draws nothing, its culling mask names no layer, and clears a new target, which
+/// writes it.
+fn written_target(world: &mut World) -> RenderTextureId {
+    let written = target(world, 8);
+    let clearing = Camera {
+        culling_mask: 0,
+        ..Camera::default()
+    };
+    let camera = camera(world, clearing, Vec3::ZERO, Quat::IDENTITY);
+    world
+        .record_offscreen(OffscreenWork::CameraRender {
+            camera,
+            target: written,
+        })
+        .unwrap();
+    written
+}
+
 #[test]
 fn a_draw_that_reads_a_real_texture_is_not_counted() {
     let mut rig = gamma_rig();
     let mut world = world();
-    let real = target(&mut world, 8);
+    let real = written_target(&mut world);
     camera_scene(&mut world, "default_white", Some(TextureRef::Render(real)));
     let (adapted, _operations, _reads) = rig.frame(&mut world, &[]);
     assert_eq!(adapted.report.missing_textures, BTreeMap::new());
     assert_eq!(drawn(&adapted.report), 1, "the camera draws the quad");
     assert_eq!(adapted.report.stand_ins.draws, 0);
     assert!(adapted.report.stand_ins.by_property.is_empty());
+}
+
+#[test]
+fn a_render_texture_an_earlier_frame_wrote_is_a_real_texture() {
+    let mut rig = gamma_rig();
+    let mut world = world();
+    let real = written_target(&mut world);
+    let (_adapted, operations, _reads) = rig.frame(&mut world, &[]);
+    rig.run(operations);
+    camera_scene(&mut world, "default_white", Some(TextureRef::Render(real)));
+    let (adapted, _operations, _reads) = rig.frame(&mut world, &[]);
+    assert_eq!(drawn(&adapted.report), 1, "the camera draws the quad");
+    assert_eq!(adapted.report.stand_ins.draws, 0);
 }
 
 #[test]

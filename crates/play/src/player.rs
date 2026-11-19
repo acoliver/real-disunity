@@ -320,7 +320,8 @@ pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<Pla
 }
 
 /// The environment variable that makes a headless run print the GPU report after every frame, not
-/// only at the end.
+/// only at the end. The counts are the run's so far, except the stand-in census, which is the
+/// frame's own.
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
@@ -350,6 +351,7 @@ pub fn run_player_with(
     let mut meshes = PlayerMeshes::default();
     let mut times = Vec::new();
     for frame in 0..frames {
+        let stand_ins_before = gpu.as_ref().map(|gpu| gpu.report().stand_ins.clone());
         let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
@@ -359,10 +361,10 @@ pub fn run_player_with(
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it.
         if std::env::var_os(REPORT_EACH_FRAME).is_some()
-            && let Some(gpu) = &gpu
+            && let (Some(gpu), Some(before)) = (&gpu, &stand_ins_before)
         {
             eprintln!("[gpu] report after frame {frame}");
-            gpu.report().print();
+            gpu.report().print_frame(before);
         }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));

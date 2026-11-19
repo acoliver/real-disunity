@@ -4,7 +4,7 @@
 //! as `CreateGameTimeThread` and `Sleep`. The engine supplies one scheduler and the game binds
 //! its functions under the game's own names, as natives granted like any other.
 //!
-//! Time is whole milliseconds. [`GameScripts::advance`] moves the clocks and resumes every thread
+//! Time is whole milliseconds. [`crate::GameScripts::advance`] moves the clocks and resumes every thread
 //! due by then, in order of wake time and then creation, each with the full instruction budget.
 //! A thread sees its clock at its wake time, so one that sleeps again inside the advanced span
 //! runs again within it. `Sleep(0)` yields to the next advance, so a loop of zero sleeps cannot
@@ -14,7 +14,7 @@
 //! fractions, negative sleeps that wait forever, zero sleeps and new threads that run within
 //! the advance, run order by clock and registration, several clocks that can be paused and set,
 //! and waits with timeouts that a wake or a timeout resumes with values.
-//! [`GameScripts::advance_clock`] advances just one named clock with the same policy ordering,
+//! [`crate::GameScripts::advance_clock`] advances just one named clock with the same policy ordering,
 //! leaving every other clock and its queued or deferred threads unchanged. This lets a host
 //! continue real-time UI work while game time stands still without changing clock pause state.
 //!

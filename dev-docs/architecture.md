@@ -70,7 +70,7 @@ and advances the mixer only with `advance_time`. See the
 
 ## Invariants
 
-- **Memory safety.** The workspace lint table sets `unsafe_code = "forbid"`. Only `disunity-ffi` (the C ABI) and `disunity-runtime` (loading the .NET runtime and resolving its entry points) contain unsafe code, and they do not inherit the workspace lints. `script` also does not inherit them; it has no unsafe code of its own but links the vendored Lua C library through `mlua`. Keep new unsafe code inside those two crates.
+- **Memory safety.** The workspace lint table sets `unsafe_code = "forbid"`. Only `disunity-ffi` (the C ABI) and `disunity-runtime` (loading .NET, resolving its entry points and reading explicit platform inputs) contain unsafe code, and they do not inherit the workspace lints. `script` also does not inherit them; it has no unsafe code of its own but links the vendored Lua C library through `mlua`. Keep new unsafe code inside those two crates.
 - **Explicit inputs.** Library code takes devices, settings, paths and budgets as arguments. There is no global state. CPU crates do not read environment variables, and `cargo xtask policy` scans them for lookups. `render-gpu` honors wgpu's diagnostic variables such as `WGPU_BACKEND` when it creates an instance.
 - **Fail explicitly.** Unsupported Unity API, unsupported content and out-of-range settings return typed errors or throw named exceptions. There are no no-op stand-ins and no silent fallbacks.
 - **No per-game code.** The engine and importer contain no per-game overlays, field aliases, substituted assets or ignored-script lists. A game that needs something gets the general behavior, tested with synthetic fixtures.

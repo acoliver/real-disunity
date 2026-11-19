@@ -7,6 +7,11 @@
 //! same cdylib the C# `DllImport`s resolve to, so C# and Rust observe one
 //! object table instead of two divergent copies.
 
+mod file_reads;
+mod file_reads_bridge;
+#[cfg(test)]
+mod file_reads_tests;
+
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +22,7 @@ mod gpu_flush;
 mod gpu_reads;
 mod graphics_snapshot;
 mod managed_entrypoints;
+pub mod monotonic;
 pub mod signal_stack;
 
 use managed_entrypoints::ManagedBridge;
@@ -25,6 +31,7 @@ use managed_entrypoints::ManagedBridge;
 pub mod native;
 pub use gpu_flush::{GpuFlush, GpuFlushHandler};
 pub use gpu_reads::{GpuComputeBuffer, GpuComputeShader, GpuKernel, GpuScope, GpuShader};
+pub use monotonic::KernelMonotonic;
 pub use native::DisunityErrorReason;
 pub use native::DisunityObjectState;
 use native::{DisunityAdvance, DisunityResult};
@@ -57,6 +64,8 @@ pub enum HostError {
     AbiRevision { expected: u32, actual: u32 },
     #[error("managed callback failed: {0}")]
     Managed(String),
+    #[error("native file reader startup failed: {0}")]
+    FileReads(#[source] std::io::Error),
     #[error("no slice world is loaded")]
     NoWorld,
     #[error("the graphics snapshot from the engine image is unreadable: {0}")]
@@ -149,6 +158,7 @@ pub struct DisunityHost {
         unsafe extern "C" fn(u64, *mut DisunityObjectState, u32, *mut u32) -> DisunityResult,
     store_statistics: unsafe extern "C" fn(*mut u64, *mut u64) -> DisunityResult,
     bridge: ManagedBridge,
+    file_reads: Option<file_reads_bridge::FileReadBridge>,
     /// The world of the in-flight slice run; cleared by [`DisunityHost::unload_slice`].
     world: Option<u64>,
     /// How many mesh renderers the last prepared frame showed.
@@ -186,6 +196,7 @@ impl DisunityHost {
         check_revision(revision)?;
         let bridge = ManagedBridge::load(config)?;
         bridge.configure(config)?;
+        let file_reads = file_reads_bridge::FileReadBridge::attach(config)?;
 
         Ok(Self {
             advance: symbol!(library, b"disunity_world_advance\0"),
@@ -199,6 +210,7 @@ impl DisunityHost {
             export_objects,
             store_statistics,
             bridge,
+            file_reads: Some(file_reads),
             world: None,
             last_mesh_objects: 0,
             gpu_flush: std::ptr::null_mut(),
@@ -406,6 +418,7 @@ impl Drop for DisunityHost {
         if self.live_token.is_some() {
             let _ = self.unload_slice();
         }
+        self.file_reads = None;
         self.free_gpu_flush();
     }
 }

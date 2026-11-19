@@ -17,6 +17,7 @@ use worldrunner_world_simulation::{
 };
 
 use super::super::bounds::Bounds;
+use super::super::depth_range::DepthRange;
 use super::super::frame::{Adapted, Available, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{available, material, render_texture, shader, snapshot, world};
@@ -148,10 +149,14 @@ fn with_modes(snapshot: &worldrunner_world_simulation::graphics::GraphicsSnapsho
 }
 
 fn run(world: &mut World, edit: impl FnOnce(&mut Available)) -> Adapted {
+    run_with(world, &Settings::default(), edit)
+}
+
+fn run_with(world: &mut World, settings: &Settings, edit: impl FnOnce(&mut Available)) -> Adapted {
     let snapshot = snapshot(world);
     let mut available = with_modes(&snapshot);
     edit(&mut available);
-    adapt(&snapshot, &available, &Settings::default())
+    adapt(&snapshot, &available, settings)
 }
 
 /// The lists the frame draws.
@@ -646,7 +651,7 @@ fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
 }
 
 #[test]
-fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_bound() {
+fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);
     placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
@@ -661,11 +666,13 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
     let listed = lists(&adapted);
     let first = listed[0];
     let values = &first.values.values;
-    // The light shines along +Z, so the direction toward it is -Z.
+    // The light shines along +Z, so the direction toward it is -Z. It is the host's fallback in
+    // the frame's starting globals, below whatever the script sets, and not in the view.
     assert_eq!(
-        values.get("_MainLightPosition"),
+        adapted.frame.globals.values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
+    assert_eq!(values.get("_MainLightPosition"), None);
     // The script's projection is the identity, which has no perspective divide and puts the
     // near plane at 1.
     assert_eq!(
@@ -698,6 +705,29 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         Some(&PropertyValue::Vector([-1.0, -2.0, -3.0, 0.0]))
     );
     assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
+}
+
+#[test]
+fn a_draw_list_takes_the_clip_depth_the_settings_say() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(
+        &mut world,
+        Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+        u32::MAX,
+    );
+    draw(&mut world, drawing(&[FORWARD]));
+    let settings = Settings::default().with_depth(DepthRange::Reversed);
+    let adapted = run_with(&mut world, &settings, |_| {});
+    let values = &lists(&adapted)[0].values.values;
+    // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
+    assert_eq!(
+        values.get("unity_MatrixVP"),
+        Some(&PropertyValue::Matrix([
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, 2.0, -1.0, 1.0
+        ]))
+    );
 }
 
 #[test]

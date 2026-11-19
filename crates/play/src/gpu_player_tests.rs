@@ -200,8 +200,8 @@ fn the_window_report_says_which_globals_the_run_supplied() {
     let directory = tempfile::tempdir().unwrap();
     let mut viewer = HeadlessViewer::new([8, 4]);
     let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
-    let gpu = PlayerGpu::shared(&mut viewer, directory.path(), DepthRange::Forward, &[value])
-        .unwrap();
+    let gpu =
+        PlayerGpu::shared(&mut viewer, directory.path(), DepthRange::Forward, &[value]).unwrap();
     assert_eq!(
         gpu.report().supplied_globals.as_deref(),
         Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
@@ -436,13 +436,16 @@ impl DeviceSource for NoAdapter {
 fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
     let data = tempfile::tempdir().unwrap();
     let mut source = NoAdapter::default();
-    assert!(window_gpu(
+    assert!(
+        window_gpu(
             GpuWork::Off,
             data.path(),
             DepthRange::Forward,
             &[],
             &mut source
-        ).is_none());
+        )
+        .is_none()
+    );
     assert_eq!(source.asked, 0, "no adapter and no device was asked for");
 }
 
@@ -450,13 +453,16 @@ fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
 fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
     let data = tempfile::tempdir().unwrap();
     let mut source = NoAdapter::default();
-    assert!(window_gpu(
+    assert!(
+        window_gpu(
             GpuWork::Auto,
             data.path(),
             DepthRange::Forward,
             &[],
             &mut source
-        ).is_none());
+        )
+        .is_none()
+    );
     assert!(source.asked > 0);
 }
 

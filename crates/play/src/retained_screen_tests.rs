@@ -14,9 +14,9 @@ use std::{path::PathBuf, time::Instant};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_scene_viewer::SharedGpu;
 
-use crate::{DepthRange, PreparedPlayer};
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
+use crate::{DepthRange, PreparedPlayer};
 
 const SIZE: u32 = 64;
 const YELLOW: [u8; 3] = [255, 255, 0];

@@ -350,8 +350,12 @@ pub unsafe extern "C" fn disunity_material_read(
 
 /// A render texture's description; booleans are 0 or 1. `format` is the engine's
 /// `GraphicsFormat` value. `dimension` is its `TextureDimension` (2D, 3D, cube, 2D array or cube
-/// array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube). `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
-/// with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
+/// array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube).
+/// `auto_generate_mips` is 1 when the host regenerates the smaller mip levels whenever the texture
+/// is drawn into and 0 when only a generate-mips record fills them. `wrap_*`, `filter`,
+/// `aniso_level` and `mip_bias` are the sampler, with the values of `DisunitySampler`.
+/// `padding` keeps `generation` 8-byte aligned and is ignored. `generation` is ignored on input
+/// and starts at 1.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityRenderTexture {
@@ -363,12 +367,14 @@ pub struct DisunityRenderTexture {
     pub srgb: u32,
     pub dimension: u32,
     pub volume_depth: u32,
+    pub auto_generate_mips: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
     pub filter: u32,
     pub aniso_level: u32,
     pub mip_bias: f32,
+    pub padding: u32,
     pub generation: u64,
 }
 
@@ -376,6 +382,9 @@ impl DisunityRenderTexture {
     pub(crate) fn to_native(self) -> Result<WorldRenderTexture, AbiError> {
         if self.srgb > 1 {
             return Err("a render texture's sRGB flag is 0 or 1".into());
+        }
+        if self.auto_generate_mips > 1 {
+            return Err("a render texture's auto-generate-mips flag is 0 or 1".into());
         }
         Ok(WorldRenderTexture {
             width: self.width,
@@ -386,6 +395,7 @@ impl DisunityRenderTexture {
             srgb: self.srgb == 1,
             dimension: self.dimension,
             volume_depth: self.volume_depth,
+            auto_generate_mips: self.auto_generate_mips == 1,
             sampler: WorldSampler {
                 wrap_u: self.wrap_u,
                 wrap_v: self.wrap_v,
@@ -466,12 +476,14 @@ pub unsafe extern "C" fn disunity_render_texture_read(
                 srgb: u32::from(held.srgb),
                 dimension: held.dimension,
                 volume_depth: held.volume_depth,
+                auto_generate_mips: u32::from(held.auto_generate_mips),
                 wrap_u: held.sampler.wrap_u,
                 wrap_v: held.sampler.wrap_v,
                 wrap_w: held.sampler.wrap_w,
                 filter: held.sampler.filter,
                 aniso_level: held.sampler.aniso_level,
                 mip_bias: held.sampler.mip_bias,
+                padding: 0,
                 generation: held.generation,
             };
         }

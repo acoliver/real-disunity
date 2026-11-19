@@ -119,6 +119,7 @@ wire_struct!(WorldRenderTexture {
     srgb,
     dimension,
     volume_depth,
+    auto_generate_mips,
     sampler,
     generation
 });

@@ -10,6 +10,7 @@ const WORK_SET_VIEW_PROJECTION: u8 = 15;
 const WORK_DRAW_MESH: u8 = 16;
 const WORK_DRAW_PROCEDURAL: u8 = 17;
 const WORK_SET_VIEWPORT: u8 = 18;
+const WORK_GENERATE_MIPS: u8 = 19;
 
 const TOPOLOGY_TRIANGLE_LIST: u8 = 0;
 const TOPOLOGY_LINE_LIST: u8 = 1;
@@ -114,6 +115,10 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             vertex_count.write(out)?;
             instance_count.write(out)
         }
+        OffscreenWork::GenerateMips { texture } => {
+            WORK_GENERATE_MIPS.write(out)?;
+            texture.write(out)
+        }
         other => write_readback(other, out),
     }
 }
@@ -168,6 +173,9 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             topology: Wire::read(input)?,
             vertex_count: Wire::read(input)?,
             instance_count: Wire::read(input)?,
+        }),
+        WORK_GENERATE_MIPS => Ok(OffscreenWork::GenerateMips {
+            texture: Wire::read(input)?,
         }),
         other => read_readback(other, input),
     }

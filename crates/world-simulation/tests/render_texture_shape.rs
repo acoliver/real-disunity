@@ -17,6 +17,7 @@ fn shaped(size: [u32; 2], dimension: u32, volume_depth: u32) -> WorldRenderTextu
         srgb: false,
         dimension,
         volume_depth,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     }

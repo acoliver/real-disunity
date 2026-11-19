@@ -286,6 +286,15 @@ pub enum Record {
         target_element: u32,
         target_mip: u32,
     },
+    /// Generates mips 1 to N of a render texture from its mip 0: each level is the 2x2 box
+    /// average of the level above it, made by a linear downsample of every layer or cube face on
+    /// its own. The texture must be a color render texture of a format the device filters; a 3D
+    /// texture and any other format are refused ([`MipsOfVolume`](super::OffscreenError::MipsOfVolume),
+    /// [`MipsOfFormat`](super::OffscreenError::MipsOfFormat)). Afterwards every level of every layer counts as written
+    /// at that point, so a later draw that samples the texture binds all of its levels.
+    GenerateMips {
+        texture: TextureId,
+    },
     /// Sets the parts of the attachments that `clear` names.
     Clear {
         target: Attachments,

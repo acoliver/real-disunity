@@ -88,7 +88,13 @@ After an intentional ABI change:
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
    and all channels must be finite and in 0..=1. Revision 12 adds the camera target
    buffers calls (`disunity_camera_target_buffers_write` and `_read`) and the buffer
-   arguments of `disunity_offscreen_setup_camera`. Native and managed hosts reject
+   arguments of `disunity_offscreen_setup_camera`. Revision 16 adds `auto_generate_mips`
+   and a `padding` word (which keeps `generation` 8-byte aligned) to
+   `DisunityRenderTexture`, and `disunity_offscreen_generate_mips`, which records a
+   generate-mips request for a render texture with more than one level (offscreen
+   kind 19). Revision 17 adds `disunity_world_advance_teardown`, an advance that runs
+   only the `OnDisable` and `OnDestroy` messages and the asset cleanup that destruction
+   queued. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

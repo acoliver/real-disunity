@@ -23,6 +23,7 @@ mod lists;
 mod lists_gpu;
 mod mesh_cache;
 mod mips;
+mod ordered_globals_gpu;
 mod pixels;
 mod policy;
 mod probe;

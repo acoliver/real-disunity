@@ -592,8 +592,9 @@ impl SceneGpu {
         context.finish();
         Ok(())
     }
-    /// Prepares the stock streamed terrain selection inside the scene's frame transaction.
-    /// Stock scene preparation already performs this step.
+    /// Prepares the stock streamed terrain selection inside the scene's frame transaction. Stock
+    /// scene preparation already performs this step; frames that replace stock scene draws call it
+    /// so a retained residency request still advances.
     ///
     /// # Errors
     /// Returns a frame error for a foreign transaction, a conflicting view, or a

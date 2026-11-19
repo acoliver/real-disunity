@@ -103,6 +103,8 @@ public static class PlayBridge
     {
         try
         {
+            // The renderers are read while they are live, before the world unloads.
+            var whiteRenderers = DisunityHost.WhiteRendererLines();
             try
             {
                 Scene?.Dispose();
@@ -113,6 +115,7 @@ public static class PlayBridge
             {
                 // Exceptions the game threw do not fail the run, as in Unity; this line keeps them visible.
                 if (DisunityHost.ScriptExceptionSummary is { } summary) Console.Error.WriteLine(summary);
+                foreach (var line in whiteRenderers) Console.Error.WriteLine($"[player] {line}");
             }
             // A player saves its preferences when it exits; the next run starts from the defaults.
             UnityEngine.PlayerPrefs.Save();

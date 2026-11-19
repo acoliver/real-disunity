@@ -16,6 +16,7 @@ public abstract partial class Renderer
     {
         var slots = new DisunityDrawnMaterial[materials.Count];
         for (var i = 0; i < slots.Length; i++) slots[i] = DrawnOf(materials[i]);
+        if (this is MeshRenderer mesh) WhiteRenderers.NoteSent(mesh, materials.Count > 0 ? materials[0] : null);
         fixed (DisunityDrawnMaterial* pointer = slots)
             DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_write(
                 DisunityHost.WorldHandle, Handle, slots.Length == 0 ? null : pointer, (uint)slots.Length));
@@ -34,13 +35,17 @@ public abstract partial class Renderer
         if (block is not null) WorldGraphics.SendAll(WorldGraphics.ScopeBlock, target, block.Properties);
     }
 
+    /// <summary>The main texture the host draws a slot with: a <see cref="Texture2D"/> with pixels, else null.</summary>
+    internal static Texture2D? DrawableMainTexture(Material material) =>
+        material.mainTexture is Texture2D { width: > 0, height: > 0 } plain ? plain : null;
+
     private static DisunityDrawnMaterial DrawnOf(Material? material)
     {
         if (material is null) return new DisunityDrawnMaterial { r = 1, g = 1, b = 1, a = 1 };
         var color = material.HasProperty("_Color") ? material.GetColor("_Color")
             : material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor")
             : Color.white;
-        var texture = material.mainTexture is Texture2D { width: > 0, height: > 0 } plain ? plain.RendererIdentity : 0UL;
+        var texture = DrawableMainTexture(material)?.RendererIdentity ?? 0UL;
         return new DisunityDrawnMaterial { r = Channel(color.r), g = Channel(color.g), b = Channel(color.b), a = Channel(color.a), texture = texture };
     }
 

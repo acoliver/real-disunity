@@ -40,6 +40,7 @@ fn two_blocks() -> SourceTexture {
         size: [8, 4],
         graphics_format: BC6H_UFLOAT,
         bytes,
+        mips: 1,
         sampler: None,
     }
 }

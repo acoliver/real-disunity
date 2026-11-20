@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -5,10 +6,11 @@ using UnityEngine.Rendering;
 namespace UnityEngine;
 
 /// <summary>
-/// The base of Texture2D and RenderTexture. The engine keeps a texture's settings and contents in managed
-/// memory and nothing draws them yet; the native texture accessors return no GPU object. The streaming
-/// and memory statistics read 0 because no texture is resident on a GPU. The global quality settings
-/// are stored and read back.
+/// The base of Texture2D, Texture2DArray, Texture3D and RenderTexture. The engine keeps a texture's settings and
+/// contents in managed memory. A Texture2D or Texture2DArray that a material, a property block or a sprite uses is
+/// also stored with the host under a renderer identity, which draws from the stored copy; the native texture
+/// accessors return no GPU object. The streaming and memory statistics read 0 because no texture is resident on a
+/// GPU. The global quality settings are stored and read back.
 /// </summary>
 public abstract class Texture : Object
 {
@@ -22,6 +24,46 @@ public abstract class Texture : Object
     private float _mipMapBias;
 
     protected Texture() { }
+
+    private ulong _identity;
+    private WorldGraphics.Link _stored;
+
+    /// <summary>The renderer identity this texture has, or zero while it has none. Only a texture the host draws from has one.</summary>
+    internal ulong StoredIdentity => _identity;
+
+    /// <summary>The identity the renderer knows this texture by: allocated the first time something needs it (a sprite, a
+    /// material slot or a property block), from <see cref="DisunityHost.FirstPlayerTextureIdentity"/> up, and kept for the
+    /// texture's lifetime. Taking it stores the texture's bytes with the host.</summary>
+    private protected ulong TakeRendererIdentity()
+    {
+        if (_identity != 0) return _identity;
+        _identity = DisunityHost.AllocatePlayerTextureIdentity(this);
+        StoreForRenderer();
+        return _identity;
+    }
+
+    /// <summary>Hands the texture's raw bytes and description to the host, which draws from them: called when the texture
+    /// takes its identity and when its contents are applied. A texture the host does not draw from has nothing to hand over.</summary>
+    internal virtual void StoreForRenderer() { }
+
+    /// <summary>Stores <paramref name="bytes"/> under the texture's identity with <paramref name="info"/>, whose identity and
+    /// length this fills in, and sends the sampler, which the host keeps across later stores.</summary>
+    private protected unsafe void StoreRecord(DisunityTextureInfo info, byte[] bytes)
+    {
+        DisunityHost.EnsureLoaded();
+        info.identity = _identity;
+        info.length = (uint)bytes.Length;
+        fixed (byte* pointer = bytes)
+            DisunityHost.ThrowIfError(NativeBindings.disunity_texture_store(DisunityHost.WorldHandle, _identity, &info, pointer, info.length));
+        _stored = new WorldGraphics.Link(DisunityHost.WorldHandle, _identity);
+        WriteSampler();
+    }
+
+    private unsafe void WriteSampler()
+    {
+        var sampler = Sampler;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_texture_sampler_write(DisunityHost.WorldHandle, _identity, &sampler));
+    }
 
     [Obsolete("Use globalMipmapLimit instead.")]
     public static int masterTextureLimit { get => _globalMipmapLimit; set => _globalMipmapLimit = value; }
@@ -105,8 +147,12 @@ public abstract class Texture : Object
     public int anisoLevel { get => _anisoLevel; set { _anisoLevel = value; SamplerChanged(); } }
     public float mipMapBias { get => _mipMapBias; set { _mipMapBias = value; SamplerChanged(); } }
 
-    /// <summary>Called after a sampling setting changes, so a texture the host holds can send it again.</summary>
-    internal virtual void SamplerChanged() { }
+    /// <summary>Called after a sampling setting changes, so a texture the host holds can send it again. A texture the host
+    /// holds in the loaded world sends the sampler to it; one it does not hold yet sends it with its bytes.</summary>
+    internal virtual void SamplerChanged()
+    {
+        if (_stored.IsCurrent) WriteSampler();
+    }
 
     /// <summary>The sampling settings in the host's terms. The engine's choice for values the host cannot hold: a wrap
     /// mode, filter or anisotropy level outside its range clamps to the nearest one, and a bias that is not a number is 0.</summary>

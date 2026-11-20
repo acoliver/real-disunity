@@ -179,8 +179,10 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
         self.validate_opaque(&context.device().limits())?;
-        self.game_passes
-            .validate(self.frame.size, &context.device().limits())?;
+        self.game_passes.validate(
+            self.frame.size,
+            (&context.device().limits(), context.device().features()),
+        )?;
         if self.contour_ids {
             crate::contours::validate_format(
                 context
@@ -597,6 +599,11 @@ impl ConfiguredFrameRenderer {
     /// What the stock frame plan cache did, across the renderers this configuration replaced.
     pub fn stock_plan_statistics(&self) -> crate::compositor::StockPlanStatistics {
         self.state.current().stock_plan_statistics()
+    }
+    /// How much opaque snapshot storage the live generation holds. A renderer with no water,
+    /// reflections, depth-tested overlay or game that reads snapshots holds none.
+    pub fn snapshot_statistics(&self) -> crate::compositor::SnapshotStatistics {
+        self.state.current().snapshot_statistics()
     }
     pub fn generation(&self) -> u64 {
         self.state.generation()

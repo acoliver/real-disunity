@@ -5,15 +5,15 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy, TexelFormat,
-    TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
+    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef},
+    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -155,6 +155,27 @@ pub fn terrain_scene() -> RenderScene {
     .unwrap()
 }
 
+/// A flat white terrain four metres on a side whose stock selection streams it in chunks.
+pub fn streamed_terrain_scene() -> RenderScene {
+    let flat = terrain_scene();
+    let source = flat.terrain().unwrap();
+    let terrain = SceneTerrain::new(SceneTerrainParts {
+        columns: 5,
+        rows: 5,
+        origin_east_millimeters: -2000,
+        origin_north_millimeters: -2000,
+        sample_spacing_millimeters: 1000,
+        heights_millimeters: vec![0; 25],
+        surface_indices: vec![0; 25],
+        surfaces: source.surfaces().to_vec(),
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+    .with_streaming_policy(Some(TerrainStreamingPolicy::new(2, 9, 4, 1000).unwrap()));
+    flat.with_terrain(Some(std::sync::Arc::new(terrain)))
+        .unwrap()
+}
+
 /// Straight down from five metres, so depth is linear in height: the ground plane is at
 /// `(5 - 0.1) / (10 - 0.1)`.
 pub fn view(size: [u32; 2]) -> SceneView {
@@ -192,13 +213,50 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        Self::build(scene, size, (false, wgpu::Features::empty()), configure)
+    }
+
+    /// A rig on the shared test device with exactly `features`, for a game whose targets need
+    /// them, such as block-compressed ones.
+    pub fn with_features(
+        scene: &RenderScene,
+        size: [u32; 2],
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::build(scene, size, (false, features), configure)
+    }
+
+    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
+    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    pub fn hdr(
+        scene: &RenderScene,
+        size: [u32; 2],
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::build(scene, size, (true, wgpu::Features::empty()), configure)
+    }
+
+    fn build(
+        scene: &RenderScene,
+        size: [u32; 2],
+        (hdr, features): (bool, wgpu::Features),
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
+        let scene_format = if hdr {
+            settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+            settings.hdr = Some((1.0, ToneMap::Reinhard));
+            wgpu::TextureFormat::Rgba16Float
+        } else {
+            FORMAT
+        };
         configure(&mut settings);
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
-        let pipelines = ScenePipelines::new(context.device(), FORMAT);
+        let pipelines = ScenePipelines::new(context.device(), scene_format);
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
         let view = view(size);

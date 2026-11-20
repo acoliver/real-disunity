@@ -94,6 +94,11 @@ impl ShaderSupply for Synthetic {
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],
             ),
+            // The fourth component of `unity_SHAr` as grey.
+            "ambient" => super::lights_gpu::per_frame_passes_named(
+                "fs_color_w",
+                [crate::offscreen::SH_AR, "_MainLightPosition"],
+            ),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
@@ -312,10 +317,20 @@ impl Rig {
         world: &mut World,
         reads: &[RenderTextureId],
     ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
+        self.frame_with(&Quad, world, reads)
+    }
+
+    /// As `frame`, with the meshes and textures `assets` stores.
+    pub(super) fn frame_with(
+        &mut self,
+        assets: &dyn Assets,
+        world: &mut World,
+        reads: &[RenderTextureId],
+    ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
         let snapshot = GraphicsSnapshot::take(world).unwrap();
         let mut adapted = self
             .adapter
-            .adapt(&snapshot, &Quad, &mut self.state, &mut self.runtime);
+            .adapt(&snapshot, assets, &mut self.state, &mut self.runtime);
         let mut operations = build(
             &mut self.state,
             &mut self.runtime,

@@ -86,6 +86,15 @@ pub enum OffscreenError {
     NotRenderTexture(TextureId),
     #[error("no layer names the texture {name}")]
     MissingTexture { name: String },
+    #[error("no layer names the structured buffer {name}")]
+    MissingBuffer { name: String },
+    #[error("the structured buffer {name} at set {set} binding {binding} {why}")]
+    UnsupportedBuffer {
+        name: String,
+        set: u32,
+        binding: u32,
+        why: String,
+    },
     #[error(
         "mesh {mesh:?} has no channel {channel} for the shader input {input}, which the shader \
          reads"
@@ -193,5 +202,35 @@ impl OffscreenError {
                 | Self::ConstantsOverBudget { .. }
                 | Self::Program(ProgramError::DeviceLost(_))
         )
+    }
+}
+
+/// A frame the state refused, with the record of the frame that caused it when one did.
+///
+/// A refusal names a record when the state met the error while planning that record, so the record
+/// is among those the frame lists. A refusal from anywhere else (a render texture, the frame's
+/// constants, a read after the records) names none.
+#[derive(Debug)]
+pub struct Refusal {
+    pub error: OffscreenError,
+    /// The index in `OffscreenFrame::records` of the record the state was planning.
+    pub record: Option<usize>,
+}
+
+impl Refusal {
+    pub(super) fn at(record: usize, error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: Some(record),
+        }
+    }
+}
+
+impl From<OffscreenError> for Refusal {
+    fn from(error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: None,
+        }
     }
 }

@@ -212,6 +212,10 @@ impl FrameRenderer {
         let (gpu, pipelines) = scene;
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
+        // Prefix features prepare after this, so they read the chunks the suffix will lend. The
+        // suffix publishes again with its colour target's extent, which must equal the metadata's
+        // or the two segments select different chunks.
+        self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();
         let mut views = prefix.views.clone();
@@ -315,6 +319,7 @@ impl FrameRenderer {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
         }
+        self.ensure_game_snapshots(device);
         let velocity = self.targets().velocity_texture().cloned();
         let mut textures = Vec::new();
         textures.extend(velocity.as_ref());
@@ -337,6 +342,7 @@ impl FrameRenderer {
         if let Some(snapshots) = &self.snapshots {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
+            textures.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
         }
         let game = self.game_capture_imports();
         let imports: Vec<_> = textures

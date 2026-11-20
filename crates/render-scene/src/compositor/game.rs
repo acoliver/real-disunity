@@ -15,12 +15,22 @@
 //! program draws against them, and in `draw` records them into the pass. The frame executor is
 //! the one that runs stock passes: nothing here schedules anything of its own.
 //!
+//! A pass that draws over the opaque scene with a copy of it, as a water surface does, is placed
+//! at [`GamePlace::AfterOpaqueSnapshots`] and declares the snapshots it samples with
+//! [`GamePassSpec::reading_snapshots`]. [`GameFeatureFactory::snapshot_reads`] reserves them and
+//! [`FrameSnapshotHandle`] lends them to the frame that wrote them.
+//!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
+//! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 mod camera;
+mod frame_start;
 mod pass_target;
 mod plan;
 mod registry;
+mod shadows;
+mod snapshots;
 mod targets;
+mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use pass_target::PassTarget;
@@ -28,8 +38,20 @@ pub(crate) use plan::reconcile_loads;
 pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
+pub use shadows::{
+    CascadeSelection, FrameShadowError, FrameShadowHandle, FrameShadows, ShadowCascade,
+};
+pub use snapshots::{
+    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
+    SnapshotStatistics,
+};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
+#[cfg(test)]
+pub(crate) use terrain::probe as terrain_probe;
+pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
+#[cfg(test)]
+mod frame_start_tests;
 #[cfg(test)]
 mod tests;

@@ -359,3 +359,67 @@ fn a_storage_image_kernel_writes_the_texture_bound_to_its_name() {
     let image = pending.resolve(index).unwrap();
     assert_eq!(image.bytes, vec![255; 4 * 4 * 4]);
 }
+
+/// A kernel that only stores to an image its module declares read-write, as DXC compiles an
+/// `RWTexture2D<uint2>`: the SPIR-V marks nothing unreadable.
+const PACK: &str = "
+@group(0) @binding(8) var image: texture_storage_2d<rg32uint, read_write>;
+@compute @workgroup_size(4, 4, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(image, vec2<i32>(id.xy), vec4<u32>(id.x + 4u * id.y, 0xb10c0000u + id.x, 0u, 0u));
+}";
+
+#[test]
+fn a_kernel_that_only_stores_to_a_read_write_rg32uint_image_builds_and_writes_it() {
+    // Metal binds Rg32Uint for writes alone, and WebGPU guarantees no device more, so the
+    // kernel builds only when its image is bound write-only.
+    use worldrunner_render_program::unity::runtime::{BoundResource, DispatchRequest};
+
+    use crate::common::{runtime, submit};
+
+    let stage = kernel_stage(&paint_variant(PACK), &[]).unwrap();
+    let mut runtime = runtime();
+    let program = runtime.compute_program(&stage).unwrap();
+    let texture = runtime
+        .create_storage_texture(
+            "blocks",
+            [4, 4, 1],
+            wgpu::TextureDimension::D2,
+            wgpu::TextureFormat::Rg32Uint,
+        )
+        .unwrap();
+    let target = &stage.image_targets().unwrap()[0];
+    let bindings = [BoundResource::texture(target.set, target.binding, texture)];
+    let (pending, index) = submit(&mut runtime, |runtime, frame| {
+        runtime.dispatch(
+            frame,
+            &DispatchRequest {
+                program: &program,
+                bindings: &bindings,
+                groups: [1, 1, 1],
+            },
+        )?;
+        runtime.read_texture(frame, texture)
+    })
+    .unwrap();
+    let image = pending.resolve(index).unwrap();
+    assert_eq!(image.format, wgpu::TextureFormat::Rg32Uint);
+    for y in 0..4 {
+        for x in 0..4 {
+            let words: Vec<u32> = image
+                .pixel(x, y)
+                .chunks_exact(4)
+                .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+                .collect();
+            assert_eq!(words, [x + 4 * y, 0xb10c_0000 + x], "texel ({x}, {y})");
+        }
+    }
+    let layout = ProgramLayout::build(&[&stage]).unwrap();
+    assert_eq!(
+        layout.slot(0, 8).unwrap().ty,
+        wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format: wgpu::TextureFormat::Rg32Uint,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        }
+    );
+}

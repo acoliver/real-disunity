@@ -2,6 +2,7 @@
 //! replacement, and steady frames that build nothing.
 use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
 use super::layers::{self, ARRAY, HISTORY, HISTORY_PRODUCER, LAYERS, LayersGame, READER, Shared};
+use super::prepared;
 use std::sync::Arc;
 use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
 use worldrunner_render_scene::{
@@ -189,4 +190,21 @@ fn steady_state_frames_build_nothing_new() {
         created,
         "no target was allocated"
     );
+}
+
+#[test]
+fn a_cancelled_frame_with_a_prepared_write_leaves_the_layer_unwritten() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = prepared::knobs(&[0, 1], &[0, 1]);
+    let mut rig = prepared::rig(&knobs);
+    rig.render_cancelled().unwrap();
+    assert!(!rig.renderer.game_targets().is_written(prepared::BLOCKS, 0));
+    prepared::next(&knobs, &[], &[0]);
+    assert!(
+        matches!(rig.render(), Err(FrameError::MissingProducer(resource)) if resource.name == prepared::BLOCKS),
+        "the cancelled frame left the blocks unwritten"
+    );
+    prepared::next(&knobs, &[0, 1], &[0, 1]);
+    prepared::assert_blocks(&rig.render().unwrap(), true, "compressed again");
+    assert!(rig.renderer.game_targets().is_written(prepared::BLOCKS, 1));
 }

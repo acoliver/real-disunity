@@ -40,7 +40,9 @@ impl Default for RendererSwitches {
 }
 
 /// What the host draws one material slot of a mesh renderer with: a colour multiplier as the material holds it
-/// and the renderer identity of a texture, 0 for none.
+/// and the renderer identity of a texture, 0 for none. The managed component sends it when the shared
+/// materials are set. Extraction draws a slot that has a live world material from that material's current
+/// values instead, and uses this record for a slot with none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawnMaterial {
     pub color: [f32; 4],
@@ -78,9 +80,12 @@ pub struct MeshRenderer {
     pub sorting_order: i32,
     /// How many materials the managed component holds, 0 through [`MAX_RENDERER_MATERIALS`].
     pub material_count: u32,
-    /// What the host draws each material slot with, at most `material_count` of them; a slot
-    /// past the end draws as [`DrawnMaterial::default`]. Only the managed component's material
-    /// update sets them, and lowering `material_count` drops the slots past it.
+    /// What the host draws each material slot with when the slot has no live world material (see
+    /// `slot_materials`), at most `material_count` of them; a slot past the end draws as
+    /// [`DrawnMaterial::default`]. Only the managed component's material update sets them, and
+    /// lowering `material_count` drops the slots past it. A slot with a live material draws with
+    /// the material's current colour and main texture, which a later material change reaches and
+    /// this record does not.
     pub drawn: Vec<DrawnMaterial>,
     /// The world material each slot draws with, at most `material_count` of them; a slot past the
     /// end or set to `None` has none, and draws as `drawn` says. A material destroyed later

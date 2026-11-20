@@ -194,6 +194,7 @@ fn every_location() -> GraphicsSnapshot {
         local_to_world: [0.0; 16],
         mesh: 5,
         layer: 0,
+        shadow_casting_mode: 1,
         materials: vec![None],
         render_queue: None,
         property_block: Some(properties.clone()),

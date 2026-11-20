@@ -27,12 +27,19 @@ const UNLIT: &str = "Unlit";
 /// The meshes the renderers draw, one for each so a test can tell them apart in the frame.
 const MESH: u64 = 100;
 
-/// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material.
-fn placed(
+/// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material, that
+/// casts shadows.
+fn placed(world: &mut World, place: (u64, u8, Vec3), materials: &[MaterialId], queue: Option<i32>) {
+    placed_casting(world, place, materials, (queue, 1));
+}
+
+/// Like [`placed`], with the render queue and the shadow casting mode (0 off, 1 on, 2 two-sided,
+/// 3 shadows only) of the renderer.
+fn placed_casting(
     world: &mut World,
     (number, layer, position): (u64, u8, Vec3),
     materials: &[MaterialId],
-    queue: Option<i32>,
+    (queue, casting): (Option<i32>, u32),
 ) {
     let desc = ObjectDesc {
         layer,
@@ -55,6 +62,7 @@ fn placed(
         material_count: u32::try_from(materials.len()).unwrap(),
         slot_materials: materials.iter().copied().map(Some).collect(),
         render_queue: queue,
+        shadow_casting_mode: casting,
         ..MeshRenderer::default()
     };
     world
@@ -122,6 +130,18 @@ fn drawing(tags: &[&str]) -> RendererListDesc {
         per_object: 0,
         override_material: None,
         override_pass: 0,
+    }
+}
+
+fn shadow_list(planes: Vec<[f32; 4]>, sphere: [f32; 4]) -> RendererListDesc {
+    RendererListDesc::Shadow {
+        cull: 5,
+        light_index: 0,
+        planes,
+        sphere,
+        objects_filter: 0,
+        projection: 2,
+        use_rendering_layer_mask_test: false,
     }
 }
 
@@ -493,6 +513,54 @@ fn a_shadow_list_draws_the_casters_inside_the_split() {
             ("no shadow caster pass", 2),
             ("outside the split's sphere", 1)
         ])
+    );
+}
+
+#[test]
+fn a_shadow_list_leaves_out_the_renderers_that_cast_no_shadow() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    for (number, mode) in [(0, 0), (1, 1), (2, 2), (3, 3)] {
+        let place = (number, 0, Vec3::new(number as f32, 0.0, 0.0));
+        placed_casting(&mut world, place, &[lit], (None, mode));
+    }
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, shadow_list(Vec::new(), [0.0; 4]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(1, 0), (2, 0), (3, 0)]);
+    assert_eq!(
+        adapted.report.lists.left_out,
+        counts(&[("casts no shadow", 1)])
+    );
+}
+
+#[test]
+fn a_split_with_planes_keeps_the_casters_toward_the_light_outside_its_sphere() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    placed(&mut world, (1, 0, Vec3::new(0.0, 30.0, 0.0)), &[lit], None);
+    placed(&mut world, (2, 0, Vec3::new(40.0, 0.0, 0.0)), &[lit], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    // The sphere wraps the receivers; the planes bound the casters: a column |x| <= 10 open
+    // toward +y, where the light is.
+    let planes = vec![[1.0, 0.0, 0.0, 10.0], [-1.0, 0.0, 0.0, 10.0]];
+    draw(&mut world, shadow_list(planes, [0.0, 0.0, 0.0, 5.0]));
+    let adapted = run(&mut world, |available| {
+        let cube = Bounds {
+            min: [-0.5; 3],
+            max: [0.5; 3],
+        };
+        for number in 0..3 {
+            available.bounds.insert(MESH + number, cube);
+        }
+    });
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0), (1, 0)]);
+    assert_eq!(
+        adapted.report.lists.left_out,
+        counts(&[("outside the split's planes", 1)])
     );
 }
 

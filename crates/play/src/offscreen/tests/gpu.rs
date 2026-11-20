@@ -69,6 +69,8 @@ impl ShaderSupply for Synthetic {
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
             "cubeslot" => cube_blit("_BlitCubeTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
+            "caster" => super::shadow_gpu::caster_passes(),
+            "receiver" => super::shadow_gpu::receiver_passes(),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default

@@ -48,8 +48,8 @@ pub use game::{
     CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
     FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
     FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
-    GameTargets, PassTarget, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
-    TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
+    GameTargets, PassTarget, PostWaterDepth, ShadowCascade, SnapshotImage, SnapshotReads,
+    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

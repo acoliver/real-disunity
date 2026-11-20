@@ -41,8 +41,8 @@ pub use shadows::{
     CascadeSelection, FrameShadowError, FrameShadowHandle, FrameShadows, ShadowCascade,
 };
 pub use snapshots::{
-    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
-    SnapshotStatistics,
+    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, PostWaterDepth, SnapshotImage,
+    SnapshotReads, SnapshotStatistics,
 };
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};

@@ -201,6 +201,7 @@ fn a_game_that_reads_snapshots_gets_them_in_a_frame_with_no_water_and_the_stock_
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 3,
+        post_water_device_depth_slots: 0,
     };
     assert_eq!(
         rig.renderer.snapshot_statistics(),
@@ -230,7 +231,8 @@ fn colour_only_readers_leave_the_device_depth_unallocated() {
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 0
+            device_depth_slots: 0,
+            post_water_device_depth_slots: 0,
         }
     );
 }
@@ -315,7 +317,8 @@ fn depth_tested_overlay_snapshots_gain_the_device_depth_a_game_reads() {
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 3
+            device_depth_slots: 3,
+            post_water_device_depth_slots: 0,
         }
     );
     assert_eq!(seen.lock().unwrap().recorded, [FRAME_PASS]);
@@ -393,6 +396,7 @@ fn a_replacement_gives_the_new_generation_its_own_snapshots() {
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 3,
+        post_water_device_depth_slots: 0,
     };
     assert_eq!(rig.renderer.snapshot_statistics(), owned);
     let mut larger = rig.renderer.configuration().clone();

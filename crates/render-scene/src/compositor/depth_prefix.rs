@@ -337,6 +337,12 @@ impl FrameRenderer {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
             textures.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
+            textures.extend(
+                snapshot
+                    .final_device_depth
+                    .as_ref()
+                    .map(|depth| &depth.texture),
+            );
         }
         let game = self.game_capture_imports();
         let imports: Vec<_> = textures

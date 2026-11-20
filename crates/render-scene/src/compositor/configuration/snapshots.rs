@@ -1,4 +1,5 @@
 use super::{AllocationSet, RendererConfiguration};
+use crate::compositor::PostWaterDepth;
 pub(super) fn allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
     let game = settings.game_passes.snapshot_reads();
     if settings.ui_depth
@@ -24,6 +25,15 @@ pub(super) fn allocations(settings: &RendererConfiguration, set: &mut Allocation
         if game.device_depth {
             set.texture(
                 "snapshot device depths",
+                [w, h, 1],
+                wgpu::TextureFormat::R32Float,
+                [1, 1],
+                3,
+            );
+        }
+        if game.post_water_depth == PostWaterDepth::LinearAndDevice {
+            set.texture(
+                "snapshot post-water device depths",
                 [w, h, 1],
                 wgpu::TextureFormat::R32Float,
                 [1, 1],

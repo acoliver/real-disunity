@@ -64,6 +64,18 @@ pub enum PropertyValue {
     MatrixArray(String, Vec<[f32; 16]>),
 }
 
+/// The colour property a material draws with. The managed `Material` stores `color` and
+/// `SetColor` under it (csharp/Disunity/Material.cs) and `Renderer.DrawnOf` reads it first
+/// (csharp/Disunity/RendererDrawn.cs).
+pub const MAIN_COLOR: &str = "_Color";
+/// The colour property a material draws with when it has no [`MAIN_COLOR`]; the managed
+/// `Renderer.DrawnOf` reads it second (csharp/Disunity/RendererDrawn.cs).
+pub const BASE_COLOR: &str = "_BaseColor";
+/// The texture property the managed `mainTexture` and `SetTexture("_MainTex")` set
+/// (csharp/Disunity/Material.cs), and the one a renderer draws its slot with
+/// (csharp/Disunity/RendererDrawn.cs).
+pub const MAIN_TEXTURE: &str = "_MainTex";
+
 /// Named shader values, one list per kind, each sorted by name. Setting a name that a list holds
 /// replaces its value. A name may appear in several kinds.
 #[derive(Clone, Debug, Default, PartialEq)]

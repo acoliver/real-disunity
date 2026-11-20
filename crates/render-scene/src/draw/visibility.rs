@@ -555,3 +555,6 @@ pub(super) fn has_relief(instances: &Instances, meshes: &[MeshSelection]) -> boo
                     }))
     })
 }
+
+#[cfg(test)]
+mod frame_cost_tests;

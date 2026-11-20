@@ -140,6 +140,12 @@ pub(super) fn is_current(
     )
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times `refresh` has run on this thread, so tests can pin how often a frame asks.
+    pub(super) static CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Fills the cached boxes and level inputs of every live placement of `batch` and regroups
 /// them.
 pub(super) fn refresh(
@@ -148,6 +154,8 @@ pub(super) fn refresh(
     material: usize,
     batch: &InstanceBatch,
 ) {
+    #[cfg(test)]
+    CHECKS.with(|checks| checks.set(checks.get() + 1));
     if is_current(mesh, instances, material, batch) {
         return;
     }
@@ -164,6 +172,20 @@ pub(super) fn refresh(
             shape.fill_levels(mesh, object, slot);
         },
     );
+}
+
+/// Refreshes every batch's cached boxes and level inputs unless the placements and tables
+/// are as they were when every batch was last found current, as in every view of a frame
+/// while the camera moves and nothing is edited.
+pub(super) fn refresh_all(instances: &Instances, meshes: &[MeshSelection]) {
+    let stamp = instances.layout_stamp(meshes.len());
+    if instances.bounds_current_at(stamp) {
+        return;
+    }
+    for (&(_, mesh, material), batch) in &instances.batches {
+        refresh(&meshes[mesh], instances, material, batch);
+    }
+    instances.set_bounds_current_at(stamp);
 }
 
 /// World bounds of a placement with stored `boxes`, one per relief scale in `reliefs`, for

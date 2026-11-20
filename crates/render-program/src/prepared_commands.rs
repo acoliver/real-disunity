@@ -17,8 +17,13 @@ impl PreparedCommands for PreparedDispatch {
         Self::retain(self, encoder).map_err(PreparedRefusal::new)
     }
 
-    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), PreparedRefusal> {
-        Self::record(self, encoder).map_err(PreparedRefusal::new)
+    fn record(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        label: &str,
+    ) -> Result<(), PreparedRefusal> {
+        self.record_labelled(encoder, Some(label))
+            .map_err(PreparedRefusal::new)
     }
 }
 
@@ -31,8 +36,14 @@ impl PreparedCommands for PreparedBlockTransfer {
         Self::retain(self, encoder).map_err(PreparedRefusal::new)
     }
 
-    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), PreparedRefusal> {
+    fn record(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        label: &str,
+    ) -> Result<(), PreparedRefusal> {
+        encoder.push_debug_group(label);
         Self::record(self, encoder);
+        encoder.pop_debug_group();
         Ok(())
     }
 }

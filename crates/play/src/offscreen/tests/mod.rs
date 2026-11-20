@@ -10,6 +10,7 @@ mod causes;
 mod compute_census;
 mod declared_light;
 mod defaults;
+mod draw_budget;
 mod draw_mesh;
 mod empty_meshes;
 mod fallback;

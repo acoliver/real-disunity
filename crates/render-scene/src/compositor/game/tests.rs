@@ -343,3 +343,66 @@ fn a_pass_that_reads_a_snapshot_its_factory_did_not_declare_is_refused_naming_bo
     assert!(reason.contains("snapshot_reads"), "{reason}");
     assert_eq!(passes.len(), 1, "nothing was planned");
 }
+
+mod resize_keeps_device_depth {
+    use super::super::{GameBuild, GameFeatureFactory, GamePasses, SnapshotReads};
+    use crate::compositor::{FrameRenderer, SnapshotStatistics};
+    use crate::device::GpuContext;
+    use std::sync::Arc;
+    use worldrunner_render_post::{
+        BuildContext, FeatureDeclaration, FrameConfig, FrameError, FrameFeature, PreparedFeature,
+    };
+
+    struct DepthReader;
+    struct Idle;
+
+    impl FrameFeature for Idle {
+        fn declare(&self) -> FeatureDeclaration {
+            FeatureDeclaration {
+                passes: Vec::new(),
+                effects: Vec::new(),
+            }
+        }
+        fn build(&self, _: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+            Err(FrameError::UnsupportedEffect("not drawn"))
+        }
+    }
+
+    impl GameFeatureFactory for DepthReader {
+        fn name(&self) -> &'static str {
+            "depth reader"
+        }
+        fn snapshot_reads(&self) -> SnapshotReads {
+            SnapshotReads {
+                device_depth: true,
+                ..SnapshotReads::NONE
+            }
+        }
+        fn build(&self, _: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+            Ok(Box::new(Idle))
+        }
+    }
+
+    #[test]
+    fn a_resize_keeps_the_device_depth_a_game_reads() {
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = GpuContext::shared_for_test().unwrap();
+        let device = context.device();
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut renderer =
+            FrameRenderer::with_output(device, FrameConfig::new([8, 8], format, 1), format)
+                .unwrap();
+        GamePasses::new()
+            .with(Arc::new(DepthReader))
+            .install(&mut renderer, &context, None)
+            .unwrap();
+        renderer.ensure_game_snapshots(device);
+        let owned = SnapshotStatistics {
+            slots: 3,
+            device_depth_slots: 3,
+        };
+        assert_eq!(renderer.snapshot_statistics(), owned);
+        assert!(renderer.resize(device, [16, 16]).unwrap());
+        assert_eq!(renderer.snapshot_statistics(), owned);
+    }
+}

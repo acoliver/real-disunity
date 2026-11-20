@@ -71,6 +71,7 @@ impl PresentationPolicy {
         settings.receiver_gradients = self.receiver_gradients;
         settings.game_passes = self.game.passes.clone();
         settings.terrain_draws = self.game.terrain_draws;
+        settings.water_draws = self.game.water_draws;
         let pool = self.pool_bytes(&settings)?;
         settings.additional = planning::additional(capture_size, pool);
         let required = settings

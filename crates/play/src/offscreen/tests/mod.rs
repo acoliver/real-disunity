@@ -1,6 +1,8 @@
 //! Tests of the offscreen adapter. Worlds, files, meshes and textures are synthetic.
 
 mod ambient_gpu;
+mod array_blocks;
+mod array_gpu;
 mod assets;
 mod bake_parts;
 mod block_sources;
@@ -9,6 +11,8 @@ mod builtins;
 mod camera;
 mod causes;
 mod compute_census;
+mod cube_volume_assets;
+mod cube_volume_gpu;
 mod declared_light;
 mod defaults;
 mod draw_budget;

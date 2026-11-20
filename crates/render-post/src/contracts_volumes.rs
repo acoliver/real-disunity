@@ -74,12 +74,21 @@ fn a_volume_is_not_viewed_as_a_2d_texture_and_a_2d_texture_not_as_a_volume() {
 }
 
 #[test]
-fn a_deeper_volume_has_no_view() {
+fn a_deeper_volume_is_one_cell_with_a_whole_3d_view() {
     let (device, _) = device();
     let mut registry = ResourceRegistry::default();
-    let key = imported(&mut registry, &volume(&device, 2));
-    assert_eq!(
-        viewed(&registry, key, wgpu::TextureViewDimension::D3).unwrap_err(),
-        ContractError::Range(key)
-    );
+    let key = imported(&mut registry, &volume(&device, 5));
+    let view = viewed(&registry, key, wgpu::TextureViewDimension::D3).unwrap();
+    assert_eq!(view.dimension(), wgpu::TextureViewDimension::D3);
+    registry.check_view(&view).unwrap();
+    for dimension in [
+        wgpu::TextureViewDimension::D2,
+        wgpu::TextureViewDimension::D2Array,
+    ] {
+        assert_eq!(
+            viewed(&registry, key, dimension).unwrap_err(),
+            ContractError::Range(key),
+            "{dimension:?}"
+        );
+    }
 }

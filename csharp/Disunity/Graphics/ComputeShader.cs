@@ -118,7 +118,7 @@ public sealed class ComputeShader : Object
     public void SetTexture(int kernelIndex, string name, Texture texture)
     {
         Kernel(kernelIndex, nameof(SetTexture));
-        WorldCompute.SetTexture(WorldLink, kernelIndex, name, WorldGraphics.TextureOf(texture));
+        WorldCompute.SetTexture(WorldLink, kernelIndex, name, WorldGraphics.TextureOf(texture, name));
     }
 
     public void SetTexture(int kernelIndex, int nameID, Texture texture) => SetTexture(kernelIndex, NameOf(nameID), texture);

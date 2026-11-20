@@ -156,9 +156,10 @@ impl Selection {
                 }
                 Node::Leaf { slots, .. } => {
                     admitted.extend(slots.iter().copied().filter(|&slot| {
-                        let (object, visible) =
-                            batch.placements[slot as usize].expect("live instance");
-                        visible
+                        let (object, visible) = batch.placements[slot as usize]
+                            .as_ref()
+                            .expect("live instance");
+                        *visible
                             && (!self.casters_only || object.casts_shadow())
                             && self.admits(frustum, matrix, passed, || {
                                 placement::placement(
@@ -192,7 +193,7 @@ impl Placements<'_> {
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
         batch.bounds.levels().get_or_compute(slot, || {
-            let (object, _) = batch.placements[slot].expect("live instance");
+            let (object, _) = batch.placements[slot].as_ref().expect("live instance");
             let inputs = batch.bounds.inputs(slot);
             let distance = distance_squared(
                 object.transform().position_millimeters,

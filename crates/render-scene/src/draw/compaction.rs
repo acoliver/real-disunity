@@ -32,7 +32,7 @@ use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
 use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
-use crate::instances::BatchKey;
+use crate::instances::{BatchKey, Stamp};
 use crate::skinning::SKIN_INSTANCE_BYTES;
 
 mod gather;
@@ -201,11 +201,21 @@ impl Compaction {
 
 impl SceneGpu {
     fn compaction_key(&self, shadow_matrix: Option<(u32, Mat4)>, frame: &FrameUniform) -> Key {
+        self.compaction_key_at(self.instances.stamp(), shadow_matrix, frame)
+    }
+
+    /// `compaction_key` for a caller that already read the placements' `stamp`.
+    fn compaction_key_at(
+        &self,
+        stamp: Stamp,
+        shadow_matrix: Option<(u32, Mat4)>,
+        frame: &FrameUniform,
+    ) -> Key {
         Key {
-            selection: self.selection_key(shadow_matrix, frame),
-            content: self.instances.content_generation(),
+            selection: self.selection_key_at(stamp.edits, shadow_matrix, frame),
+            content: stamp.content,
             previous: self.instances.track_previous,
-            skin: self.instances.has_skinned_batches(),
+            skin: stamp.skinned,
         }
     }
 
@@ -218,13 +228,14 @@ impl SceneGpu {
         frame: &FrameUniform,
     ) {
         let owner = context.publications();
+        let stamp = self.instances.stamp();
         let stale: Vec<_> = views
             .iter()
             .copied()
             .filter(|&shadow_matrix| {
                 let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
                 compaction.state_in(Some(&owner)).key
-                    != Some(self.compaction_key(shadow_matrix, frame))
+                    != Some(self.compaction_key_at(stamp, shadow_matrix, frame))
             })
             .collect();
         self.select_views(&stale, frame);
@@ -246,7 +257,7 @@ impl SceneGpu {
         if latest.key == Some(key) {
             return;
         }
-        let selection = self.select_objects(shadow_matrix, frame);
+        let selection = self.select_objects_for(shadow_matrix, frame, key.selection);
         let Some(plan) = Plan::new(&selection.ranges) else {
             return;
         };
@@ -463,6 +474,12 @@ impl SceneGpu {
             runs,
             skin,
         }
+    }
+
+    /// The key the committed gather of `view` was staged for, as text.
+    pub(crate) fn committed_compaction_key(&self, view: usize) -> Option<String> {
+        let key = self.views[view].compaction.committed.borrow().key;
+        key.map(|key| format!("{key:?}"))
     }
 
     /// How many times the gather mirror checked its batch ranges one by one.

@@ -89,6 +89,14 @@ struct Slot {
     location: Option<(BatchKey, usize)>,
 }
 
+/// What cached views of the placements and their buffers depend on, read together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    pub edits: u64,
+    pub content: u64,
+    pub skinned: bool,
+}
+
 #[derive(Debug)]
 pub(crate) struct Instances {
     scene: u64,
@@ -182,6 +190,17 @@ impl Instances {
         self.batches.values().map(InstanceBatch::edits).sum()
     }
 
+    /// `edits`, `content_generation` and `has_skinned_batches` from one pass over the batches.
+    pub fn stamp(&self) -> Stamp {
+        self.batches
+            .values()
+            .fold(Stamp::default(), |stamp, batch| Stamp {
+                edits: stamp.edits + batch.edits(),
+                content: stamp.content + batch.content(),
+                skinned: stamp.skinned || batch.skin.is_some(),
+            })
+    }
+
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
     pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
         self.ready.check(&self.batches, owner)
@@ -193,7 +212,8 @@ impl Instances {
         self.ready.scans()
     }
 
-    /// Whether any batch draws a skinned mesh.
+    /// Whether any batch draws a skinned mesh; `stamp` reads the same fact in its pass.
+    #[cfg(test)]
     pub fn has_skinned_batches(&self) -> bool {
         self.batches.values().any(|batch| batch.skin.is_some())
     }

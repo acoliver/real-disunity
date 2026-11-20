@@ -13,6 +13,8 @@ mod fixture;
 mod layers;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
+#[path = "game_passes/mips.rs"]
+mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
 #[path = "game_passes/prefix.rs"]

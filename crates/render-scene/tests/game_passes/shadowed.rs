@@ -413,7 +413,7 @@ pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
 }
 
 /// As [`shadowed`], on a device with `features`.
-fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, ShadowedScene) {
+pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, ShadowedScene) {
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });

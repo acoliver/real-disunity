@@ -34,6 +34,7 @@ mod lists_gpu;
 mod lists_tags;
 mod mesh_cache;
 mod mips;
+mod page_copy;
 mod pixels;
 mod policy;
 mod probe;

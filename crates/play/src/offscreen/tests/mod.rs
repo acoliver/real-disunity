@@ -16,6 +16,8 @@ mod declared_light;
 mod defaults;
 mod draw_mesh;
 mod empty_meshes;
+mod environment_gpu;
+mod environment_values;
 mod fallback;
 mod flush;
 mod frame;

@@ -122,14 +122,14 @@ impl Default for Reflection {
 }
 
 impl Reflection {
-    /// The texture a draw reads as the scene's reflection: the custom cube in the custom mode and
-    /// the skybox's cube in the skybox mode. The other mode's cube is not read, and a mode whose
-    /// cube is not set reads none.
+    /// The texture a draw reads as the scene's reflection: the custom cube in the custom mode
+    /// when one is set, and otherwise the cube baked from the skybox, which is none when the
+    /// scene has not one. The skybox mode never reads the custom cube.
     #[must_use]
     pub fn source(&self) -> &TextureRef {
-        match self.mode {
-            ReflectionMode::Custom => &self.custom,
-            ReflectionMode::Skybox => &self.skybox,
+        match (self.mode, &self.custom) {
+            (ReflectionMode::Custom, custom) if *custom != TextureRef::None => custom,
+            _ => &self.skybox,
         }
     }
 }

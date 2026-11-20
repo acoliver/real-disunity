@@ -80,10 +80,14 @@ fn the_environment_a_scene_wrote_reads_back_and_a_none_section_goes_back_to_unse
 }
 
 #[test]
-fn a_reflection_reads_the_cube_its_mode_names() {
+fn a_reflection_reads_the_custom_cube_when_the_mode_and_a_cube_say_so_and_the_skybox_cube_otherwise()
+ {
     let mut reflection = lit().reflection.unwrap();
     assert_eq!(reflection.source(), &TextureRef::Asset(CUBE));
     reflection.mode = ReflectionMode::Skybox;
+    assert_eq!(reflection.source(), &TextureRef::Asset(BAKED));
+    reflection.mode = ReflectionMode::Custom;
+    reflection.custom = TextureRef::None;
     assert_eq!(reflection.source(), &TextureRef::Asset(BAKED));
     reflection.skybox = TextureRef::None;
     assert_eq!(reflection.source(), &TextureRef::None);

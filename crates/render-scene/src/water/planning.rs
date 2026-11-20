@@ -1,4 +1,4 @@
-use super::snapshots::{SnapshotFeature, Snapshots};
+use super::snapshots::{COLOR, DEVICE_DEPTH, LINEAR_DEPTH, SnapshotFeature, Snapshots};
 use crate::frame::FrameUniform;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PassEntry,
@@ -10,6 +10,9 @@ pub(crate) struct SnapshotRequest {
     pub color: bool,
     pub depth: bool,
     pub final_depth: bool,
+    /// The depth buffer's own values, which only a game reads. The linear depth pass writes them
+    /// as well, so requesting them requests that pass.
+    pub device_depth: bool,
 }
 
 pub(crate) fn opaque_source<'a>(
@@ -57,21 +60,20 @@ pub(crate) fn opaque_source<'a>(
 }
 
 impl SnapshotRequest {
-    const fn any(self) -> bool {
-        self.color || self.depth || self.final_depth
+    pub(crate) const fn any(self) -> bool {
+        self.color || self.depth || self.final_depth || self.device_depth
     }
 }
 
 /// The snapshots the declared reads ask for. Water always asks for the final depth.
 pub(crate) fn snapshot_request(reads: &[ResourceRef], water: bool) -> SnapshotRequest {
+    let reads_named = |name: &str| reads.iter().any(|read| read.name == name);
+    let device_depth = reads_named(DEVICE_DEPTH);
     SnapshotRequest {
-        color: reads
-            .iter()
-            .any(|read| read.name == "opaque snapshot color"),
-        depth: reads
-            .iter()
-            .any(|read| read.name == "opaque snapshot depth"),
-        final_depth: water || reads.iter().any(|read| read.name == "post-water depth"),
+        color: reads_named(COLOR),
+        depth: reads_named(LINEAR_DEPTH) || device_depth,
+        final_depth: water || reads_named("post-water depth"),
+        device_depth,
     }
 }
 
@@ -101,10 +103,14 @@ fn executor(
     slots: &mut Option<[Snapshots; 3]>,
     input: (FrameConfig, &FrameUniform, usize),
     sources: (Option<&AttachmentView>, Option<&AttachmentView>),
+    device_depth: bool,
 ) -> SnapshotFeature {
     let (config, frame, slot) = input;
     let snapshots =
         slots.get_or_insert_with(|| std::array::from_fn(|_| Snapshots::new(device, config)));
+    if device_depth && snapshots[slot].device_depth.is_none() {
+        snapshots[slot] = snapshots[slot].with_device_depth(device);
+    }
     let snapshot = &snapshots[slot];
     SnapshotFeature {
         snapshots: snapshot.clone(),
@@ -115,6 +121,7 @@ fn executor(
         depth_source: sources
             .1
             .map(|view| snapshot.source_group(device, view, true)),
+        device_depth,
     }
 }
 
@@ -138,6 +145,7 @@ pub(crate) fn snapshot_executor(
         slots,
         input,
         (color.as_ref(), depth.as_ref()),
+        request.device_depth,
     )))
 }
 
@@ -166,7 +174,13 @@ pub(crate) fn snapshot_feature(
     }
     let (passes, views) = plan;
     let (color, depth) = sources((passes, views), input.0, request)?;
-    let feature = executor(device, slots, input, (color.as_ref(), depth.as_ref()));
+    let feature = executor(
+        device,
+        slots,
+        input,
+        (color.as_ref(), depth.as_ref()),
+        request.device_depth,
+    );
     let declaration =
         feature
             .snapshots

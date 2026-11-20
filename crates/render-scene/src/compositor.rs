@@ -45,8 +45,9 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 pub(crate) use game::terrain_probe;
 pub use game::{
     CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
-    FrameShadowHandle, FrameShadows, FrameTerrainError, FrameTerrainHandle, GameBuild,
-    GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, ShadowCascade,
+    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
+    FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
+    GameTargets, PassTarget, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
     TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
 };
 use output::FrameOutput;
@@ -440,6 +441,7 @@ impl FrameRenderer {
             }));
         }
         if changed {
+            self.ensure_game_snapshots(device);
             *self.snapshot_ready.borrow_mut() = Default::default();
             self.reset_temporal_history();
         }
@@ -647,6 +649,7 @@ impl FrameRenderer {
         let mut planned = stock_plan::plan_frame(device, parts, &environment, &authored)?;
         let (schedule, views) = (planned.schedule.clone(), planned.views.clone());
         let views = views.as_slice();
+        self.publish_game_snapshots(schedule.request);
         let head = head.map(|work| worldrunner_render_post::OperationsGroup {
             before: schedule.first,
             work,

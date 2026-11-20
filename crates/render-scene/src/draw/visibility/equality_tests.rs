@@ -64,11 +64,11 @@ fn scan(
             let bounds = placement::placement(&boxes, shape.reliefs(), stretch);
             let admitted = visible
                 && (!view.casters_only || object.casts_shadow())
-                && frustum.intersects(bounds)
+                && frustum.intersects_reference(bounds)
                 && view
                     .slice
                     .as_ref()
-                    .is_none_or(|slice| slice.overlaps(bounds, matrix));
+                    .is_none_or(|slice| slice.overlaps_reference(bounds, matrix));
             let position = object.transform().position_millimeters;
             let lod = reference_lod(
                 mesh,

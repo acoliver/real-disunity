@@ -1,15 +1,18 @@
 use std::ops::Range;
 
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 
+use super::slice_hull::LightMap;
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
 pub(super) use casters::{caster_matrix, caster_placement};
+pub(super) use frustum::{Frustum, Region};
 pub(super) use select::with_placements;
 
 mod casters;
 mod fade;
+mod frustum;
 mod placement;
 mod select;
 
@@ -70,9 +73,14 @@ impl Bounds {
         self.transformed(matrix).expanded(magnitude * GROUP_MARGIN)
     }
 
-    fn support(self, plane: Vec4) -> f32 {
-        let center = (self.min + self.max) * 0.5;
-        let half = (self.max - self.min) * 0.5;
+    /// The box's centre and half extent.
+    pub(super) fn center_half(self) -> (Vec3, Vec3) {
+        ((self.min + self.max) * 0.5, (self.max - self.min) * 0.5)
+    }
+
+    #[cfg(test)]
+    fn support(self, plane: glam::Vec4) -> f32 {
+        let (center, half) = self.center_half();
         plane.truncate().dot(center) + plane.w + plane.truncate().abs().dot(half)
     }
 }
@@ -320,57 +328,6 @@ pub(super) fn relief_ray_stretch(matrix: Mat4) -> f32 {
     stretch * 1.000_01
 }
 
-#[derive(Debug)]
-pub(super) struct Frustum {
-    planes: [Vec4; 6],
-}
-
-impl Frustum {
-    pub fn new(matrix: Mat4) -> Self {
-        let rows = matrix.transpose();
-        Self {
-            planes: [
-                rows.w_axis + rows.x_axis,
-                rows.w_axis - rows.x_axis,
-                rows.w_axis + rows.y_axis,
-                rows.w_axis - rows.y_axis,
-                rows.z_axis,
-                rows.w_axis - rows.z_axis,
-            ],
-        }
-    }
-
-    pub fn intersects(&self, bounds: Bounds) -> bool {
-        self.planes
-            .iter()
-            .all(|&plane| bounds.support(plane) >= 0.0)
-    }
-
-    /// Whether `intersects` is true for every box inside `bounds`: `bounds` lies in front of
-    /// every plane by more than the rounding of any of those tests.
-    pub fn contains(&self, bounds: Bounds) -> bool {
-        let center = (bounds.min + bounds.max) * 0.5;
-        let half = (bounds.max - bounds.min) * 0.5;
-        let reach = center.abs() + half;
-        self.planes.iter().all(|&plane| {
-            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
-            let nearest = plane.truncate().dot(center) + plane.w - plane.truncate().abs().dot(half);
-            nearest > GROUP_MARGIN * magnitude
-        })
-    }
-
-    /// Whether `intersects` is false for every box inside `bounds`: some plane leaves
-    /// `bounds` behind it by more than the rounding of any of those tests.
-    pub fn excludes(&self, bounds: Bounds) -> bool {
-        let center = (bounds.min + bounds.max) * 0.5;
-        let reach = center.abs() + (bounds.max - bounds.min) * 0.5;
-        self.planes.iter().any(|&plane| {
-            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
-            bounds.support(plane) < -GROUP_MARGIN * magnitude
-        })
-    }
-}
-
 /// Relative margin of group culling. A box test rounds by a few units in the last place of
 /// its operands, about 1e-6 of their magnitude in f32, so a group rejected by more than this
 /// margin holds no placement the exact per-placement test could keep.
@@ -428,22 +385,28 @@ impl Selection {
     fn classify(
         &self,
         frustum: &Frustum,
-        matrix: Mat4,
+        light: &LightMap,
         group: Bounds,
         passed: Passed,
     ) -> Option<Passed> {
-        if !passed.frustum && frustum.excludes(group) {
-            return None;
-        }
-        let slice = match &self.slice {
-            None => true,
-            Some(_) if passed.slice => true,
-            Some(slice) if slice.excludes(group, matrix) => return None,
-            Some(slice) => slice.covers(group, matrix),
-        };
+        let in_frustum = passed.frustum
+            || match frustum.region(group) {
+                Region::Outside => return None,
+                Region::Inside => true,
+                Region::Straddles => false,
+            };
+        let in_slice = passed.slice
+            || match &self.slice {
+                None => true,
+                Some(slice) => match slice.region(group, light) {
+                    Region::Outside => return None,
+                    Region::Inside => true,
+                    Region::Straddles => false,
+                },
+            };
         Some(Passed {
-            frustum: passed.frustum || frustum.contains(group),
-            slice,
+            frustum: in_frustum,
+            slice: in_slice,
         })
     }
 
@@ -452,7 +415,7 @@ impl Selection {
     fn admits(
         &self,
         frustum: &Frustum,
-        matrix: Mat4,
+        light: &LightMap,
         passed: Passed,
         placement: impl FnOnce() -> Bounds,
     ) -> bool {
@@ -465,7 +428,7 @@ impl Selection {
                 || self
                     .slice
                     .as_ref()
-                    .is_none_or(|slice| slice.overlaps(placement, matrix)))
+                    .is_none_or(|slice| slice.overlaps_in(placement, light)))
     }
 
     fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {

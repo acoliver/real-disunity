@@ -14,6 +14,7 @@ use super::placement::{self, largest_relief};
 use super::{
     Bounds, Frustum, MeshSelection, Passed, Selection, distance_squared, relief_ray_stretch,
 };
+use crate::draw::slice_hull::LightMap;
 use crate::instances::fade::Fade;
 use crate::instances::slot_bounds::{Level, LevelKey, Node, SlotBounds};
 use crate::instances::{BatchKey, InstanceBatch, Instances};
@@ -99,6 +100,7 @@ impl Selection {
     pub fn select(&mut self, placements: &Placements<'_>, matrix: Mat4) {
         self.reset(placements.meshes);
         let frustum = Frustum::new(matrix);
+        let light = LightMap::new(matrix);
         let stretch = if placements.relief {
             relief_ray_stretch(matrix)
         } else {
@@ -113,7 +115,7 @@ impl Selection {
             admitted.clear();
             self.admit(
                 batch,
-                (&frustum, matrix, stretch),
+                (&frustum, &light, stretch),
                 &mut stack,
                 &mut admitted,
             );
@@ -133,7 +135,7 @@ impl Selection {
     fn admit(
         &self,
         batch: &IndexedBatch<'_>,
-        (frustum, matrix, stretch): (&Frustum, Mat4, f32),
+        (frustum, light, stretch): (&Frustum, &LightMap, f32),
         stack: &mut Vec<(usize, Passed)>,
         admitted: &mut Vec<u32>,
     ) {
@@ -147,7 +149,7 @@ impl Selection {
             let node = tree.node(index);
             let [min, max] = node.bounds();
             let group = Bounds { min, max }.expanded(growth);
-            let Some(passed) = self.classify(frustum, matrix, group, passed) else {
+            let Some(passed) = self.classify(frustum, light, group, passed) else {
                 continue;
             };
             match node {
@@ -161,7 +163,7 @@ impl Selection {
                             .expect("live instance");
                         *visible
                             && (!self.casters_only || object.casts_shadow())
-                            && self.admits(frustum, matrix, passed, || {
+                            && self.admits(frustum, light, passed, || {
                                 placement::placement(
                                     batch.bounds.boxes(slot as usize),
                                     batch.bounds.reliefs(),

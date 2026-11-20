@@ -13,6 +13,9 @@ mod volumes;
 #[path = "contracts_initialized_allocation.rs"]
 mod initialized_allocation;
 
+#[path = "contracts_prepared_writes.rs"]
+mod prepared_writes;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();

@@ -221,6 +221,7 @@ wire_struct!(GraphicsSnapshot {
     materials,
     render_textures,
     global,
+    environment,
     work,
     cameras,
     lights,

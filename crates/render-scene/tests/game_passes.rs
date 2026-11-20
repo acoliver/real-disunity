@@ -21,6 +21,8 @@ mod prefix;
 mod prefix_loads;
 #[path = "game_passes/prefix_state.rs"]
 mod prefix_state;
+#[path = "game_passes/prepared.rs"]
+mod prepared;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
 #[path = "game_passes/replacement.rs"]

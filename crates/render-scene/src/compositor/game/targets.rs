@@ -28,19 +28,24 @@ pub enum TargetLifetime {
     Persistent,
 }
 
-/// A named texture a game owns: one 2D texture of one or more layers, with one render
-/// attachment view per layer and any sampled view the game makes.
+/// A named texture a game owns: one 2D texture of one or more layers and one mip, with one view
+/// per layer and any sampled view the game makes.
+///
+/// A renderable colour format makes a target passes render into. A block-compressed format makes
+/// a copy target, which only a frame's preparation writes, layer by layer, by copy
+/// ([`GameTargets::plan_prepared`]), and passes sample.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetDeclaration {
     /// Names the target in the plan, in errors and in the allocation inventory.
     pub name: &'static str,
-    /// A renderable colour format.
+    /// A renderable colour format, or a block-compressed format the device has the features of.
     pub format: wgpu::TextureFormat,
     pub extent: TargetExtent,
     /// Array layers, at least one.
     pub layers: u32,
     pub lifetime: TargetLifetime,
-    /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every declared target has.
+    /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every renderable target has, or
+    /// beyond `COPY_DST | TEXTURE_BINDING`, which every copy target has.
     pub usage: wgpu::TextureUsages,
 }
 
@@ -101,12 +106,26 @@ impl TargetDeclaration {
         }
     }
 
+    /// Whether only copies write the target: a block-compressed format cannot be rendered into.
+    fn copy_target(&self) -> bool {
+        self.format.is_compressed()
+    }
+
     fn texture_usage(&self) -> wgpu::TextureUsages {
-        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | self.usage
+        let written = if self.copy_target() {
+            wgpu::TextureUsages::COPY_DST
+        } else {
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+        };
+        written | wgpu::TextureUsages::TEXTURE_BINDING | self.usage
     }
 
     /// The refusal of a declaration the device cannot allocate, naming the target.
-    pub(super) fn validate(&self, limits: &wgpu::Limits, frame: [u32; 2]) -> Result<(), PostError> {
+    pub(super) fn validate(
+        &self,
+        (limits, features): (&wgpu::Limits, wgpu::Features),
+        frame: [u32; 2],
+    ) -> Result<(), PostError> {
         let refuse = |why: &str| {
             Err(PostError::Allocation(format!(
                 "game target {}: {why}",
@@ -120,11 +139,22 @@ impl TargetDeclaration {
         if width == 0 || height == 0 || width.max(height) > limits.max_texture_dimension_2d {
             return refuse("extent is empty or beyond max_texture_dimension_2d");
         }
-        let features = self
+        if self.copy_target() {
+            let missing = self.format.required_features().difference(features);
+            if !missing.is_empty() {
+                return refuse(&format!("format needs device features {missing:?}"));
+            }
+            let (block_width, block_height) = self.format.block_dimensions();
+            if width % block_width != 0 || height % block_height != 0 {
+                return refuse("extent is not a whole number of the format's blocks");
+            }
+            return Ok(());
+        }
+        let guaranteed = self
             .format
             .guaranteed_format_features(wgpu::Features::empty());
         if self.format.is_depth_stencil_format()
-            || !features
+            || !guaranteed
                 .allowed_usages
                 .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
         {
@@ -365,11 +395,24 @@ impl TargetStore {
             .is_some_and(|backing| backing.is_written(layer))
     }
 
+    /// The persistent backing of `texture`, by its position in the store.
+    fn persistent_index(&self, texture: &wgpu::Texture) -> Option<usize> {
+        self.backings
+            .iter()
+            .position(|backing| backing.persistent() && backing.texture == *texture)
+    }
+
     /// What the frame being prepared leaves in the persistent targets of this store, by exact
-    /// backing: for each layer, whether the last attachment that wrote it stored its contents.
+    /// backing: for each layer, whether the last write stored its contents. The frame's prepared
+    /// writes come first and always store; an attachment that writes the layer later decides.
     /// A stock attachment that shares a target's name is another texture and counts for nothing.
     pub(super) fn frame_effects(&self, context: &PrepareContext<'_>) -> Vec<FrameEffect> {
         let mut last = BTreeMap::new();
+        for view in context.prepared_views() {
+            if let Some(index) = self.persistent_index(view.texture()) {
+                last.insert((index, view.resource().layer), true);
+            }
+        }
         for attachment in context
             .passes()
             .iter()
@@ -384,11 +427,7 @@ impl TargetStore {
             let Ok(view) = context.resource(attachment.resource) else {
                 continue;
             };
-            let Some(index) = self
-                .backings
-                .iter()
-                .position(|backing| backing.persistent() && backing.texture == *view.texture())
-            else {
+            let Some(index) = self.persistent_index(view.texture()) else {
                 continue;
             };
             let stored = attachment.store == wgpu::StoreOp::Store;

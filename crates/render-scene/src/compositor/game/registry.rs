@@ -153,10 +153,14 @@ impl GamePasses {
     }
 
     /// Refuses a declaration the device cannot allocate and a name declared twice.
-    pub(crate) fn validate(&self, frame: [u32; 2], limits: &wgpu::Limits) -> Result<(), PostError> {
+    pub(crate) fn validate(
+        &self,
+        frame: [u32; 2],
+        device: (&wgpu::Limits, wgpu::Features),
+    ) -> Result<(), PostError> {
         let declarations = self.declarations();
         for (index, declaration) in declarations.iter().enumerate() {
-            declaration.validate(limits, frame)?;
+            declaration.validate(device, frame)?;
             if declarations[..index]
                 .iter()
                 .any(|other| other.name == declaration.name)

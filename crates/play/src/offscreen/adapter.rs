@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{BufferHandle, ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
     SubMesh,
@@ -20,7 +20,8 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState, Refusal,
 };
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
+    ComputeBufferId, OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource,
+    TextureRef,
 };
 
 use super::assets::Assets;
@@ -165,11 +166,18 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
-        self.adapt_with(snapshot, assets, (state, runtime), false, Settling::Wait)
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (false, &BTreeMap::new()),
+            Settling::Wait,
+        )
     }
 
     /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
-    /// to finish with the storage they give back.
+    /// to finish with the storage they give back, and with `buffers`, the compute buffers the host
+    /// uploaded for the materials that bind them.
     pub(crate) fn adapt_settling(
         &mut self,
         snapshot: &GraphicsSnapshot,
@@ -177,21 +185,35 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         settling: Settling,
+        buffers: &BTreeMap<ComputeBufferId, BufferHandle>,
     ) -> Adapted {
-        self.adapt_with(snapshot, assets, (state, runtime), false, settling)
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (false, buffers),
+            settling,
+        )
     }
 
     /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]).
+    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
+    /// uploaded for the materials that bind them, which the frame's materials name by handle.
     pub fn adapt_probing(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
-        probe: bool,
+        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
     ) -> Adapted {
-        self.adapt_with(snapshot, assets, (state, runtime), probe, Settling::Wait)
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (probe, buffers),
+            Settling::Wait,
+        )
     }
 
     fn adapt_with(
@@ -199,7 +221,7 @@ impl OffscreenAdapter {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        probe: bool,
+        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
         settling: Settling,
     ) -> Adapted {
         self.epoch += 1;
@@ -259,6 +281,7 @@ impl OffscreenAdapter {
             .collect();
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
+        available.buffers.clone_from(buffers);
         available.float32_filterable = runtime
             .device()
             .features()

@@ -148,6 +148,7 @@ impl Room {
             &mut self.state,
             &mut self.runtime,
             Settling::Poll,
+            &std::collections::BTreeMap::new(),
         )
     }
 

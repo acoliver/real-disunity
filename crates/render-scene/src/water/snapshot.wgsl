@@ -16,11 +16,23 @@ struct WaterFrame {
     for (var sample_index = 0; sample_index < SAMPLE_COUNT; sample_index += 1) { color += COLOR_LOAD; }
     return color / f32(SAMPLE_COUNT);
 }
-@fragment fn fs_depth(@builtin(position) p: vec4<f32>) -> @location(0) f32 {
-    let pixel = vec2<i32>(p.xy);
+// The frame's depth is not reversed: 0 is the near plane and 1 the far plane and the cleared
+// value, so the nearest sample of a pixel is the smallest.
+fn nearest_depth(pixel: vec2<i32>) -> f32 {
     var depth = 1.0;
     for (var sample_index = 0; sample_index < SAMPLE_COUNT; sample_index += 1) { depth = min(depth, DEPTH_LOAD); }
+    return depth;
+}
+fn view_metres(p: vec4<f32>, depth: f32) -> f32 {
     let uv = p.xy / vec2<f32>(textureDimensions(source_depth));
     let world = water.inverse_clip * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), depth, 1.0);
     return -(water.view * (world / world.w)).z;
+}
+@fragment fn fs_depth(@builtin(position) p: vec4<f32>) -> @location(0) f32 {
+    return view_metres(p, nearest_depth(vec2<i32>(p.xy)));
+}
+struct DepthPair { @location(0) metres: f32, @location(1) device: f32 }
+@fragment fn fs_depth_device(@builtin(position) p: vec4<f32>) -> DepthPair {
+    let depth = nearest_depth(vec2<i32>(p.xy));
+    return DepthPair(view_metres(p, depth), depth);
 }

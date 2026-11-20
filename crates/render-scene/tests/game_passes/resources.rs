@@ -149,6 +149,7 @@ fn declare(resources: &GameResources) -> Result<Handles, GameResourceError> {
             format: wgpu::TextureFormat::Rgba8Unorm,
             size: [1, 1, 1],
             dimension: wgpu::TextureViewDimension::D2,
+            mip_levels: 1,
             texels: Some(&[0, DECLARED_GREEN, 0, 255]),
         })?,
         point: resources.declare_sampler(&wgpu::SamplerDescriptor::default()),

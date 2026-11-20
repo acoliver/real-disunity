@@ -185,6 +185,7 @@ fn declared_bytes_follow_format_layers_and_depth_and_an_overrun_is_refused_befor
             format,
             size,
             dimension,
+            mip_levels: 1,
             texels,
         })
     };
@@ -202,7 +203,8 @@ fn declared_bytes_follow_format_layers_and_depth_and_an_overrun_is_refused_befor
         wgpu::TextureFormat::R8Unorm,
         [2, 2, 2],
         wgpu::TextureViewDimension::D3,
-        Some(&[0; 8]),
+        // A 3D texture deeper than one slice is declared without texels.
+        None,
     )
     .unwrap();
     declare(
@@ -280,6 +282,7 @@ fn a_texture_the_device_cannot_create_is_refused_by_name_rather_than_by_a_wgpu_p
                 format,
                 size,
                 dimension,
+                mip_levels: 1,
                 texels: None,
             })
         }));
@@ -308,6 +311,7 @@ fn a_texture_of_any_byte_count_is_declared_and_held_in_the_runtimes_ledger() {
         format: wgpu::TextureFormat::R8Unorm,
         size: [3, 1, 1],
         dimension: wgpu::TextureViewDimension::D2,
+        mip_levels: 1,
         texels: Some(&[1, 2, 3]),
     });
     assert!(declared.is_ok(), "{declared:?}");

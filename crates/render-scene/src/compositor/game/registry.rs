@@ -4,7 +4,7 @@ use super::camera::FrameCameraHandle;
 use super::engine::EngineConstants;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
-use super::resources::GameResources;
+use super::resources::{GameResources, SharedTextures};
 use super::scene_meshes::FrameSceneMeshesHandle;
 use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
@@ -215,11 +215,13 @@ impl GamePasses {
         ));
         let engine = EngineConstants::new(context.device(), context.submission());
         renderer.game.engine = Some(engine.clone());
+        let shared = SharedTextures::default();
         for factory in &self.factories {
             let resources = GameResources::new(
                 context.device(),
                 context.submission(),
                 factory.resource_budget(),
+                shared.clone(),
             );
             renderer.game.resources.push(resources.clone());
             let build = |targets| GameBuild {

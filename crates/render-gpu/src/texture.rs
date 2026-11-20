@@ -96,6 +96,21 @@ fn layout(
     Ok((pitch, rows, length))
 }
 
+/// The tightly packed layout of one `width` x `height` level of `format`: bytes per row of
+/// texels or blocks, rows of texels or blocks, and the level's bytes. The layout
+/// [`packed_mips`] reads and [`TextureUpload`] checks.
+///
+/// # Errors
+/// [`UploadError::Format`] for a depth, stencil or multi-planar format and
+/// [`UploadError::Overflow`] when the level does not fit the arithmetic.
+pub fn level_layout(
+    format: TextureFormat,
+    width: u32,
+    height: u32,
+) -> Result<(u32, u32, usize), UploadError> {
+    layout(format, width, height)
+}
+
 /// Borrows tightly packed mip data, leaving any trailing container bytes untouched.
 pub fn packed_mips(
     format: TextureFormat,

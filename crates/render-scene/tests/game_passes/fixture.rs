@@ -53,6 +53,11 @@ fn material() -> SceneMaterial {
 
 /// One unlit quad, six metres on a side, lying in the ground plane.
 pub fn quad_scene() -> RenderScene {
+    quad_scene_with(texture(STOCK_TEXEL, TextureColorSpace::Srgb))
+}
+
+/// [`quad_scene`] with `albedo` as its one texture.
+pub fn quad_scene_with(albedo: SceneTexture) -> RenderScene {
     let half = 3_000;
     let corners = [
         ([-half, -half, 0], [0, 0]),
@@ -93,11 +98,7 @@ pub fn quad_scene() -> RenderScene {
         MaterialHandle::from_raw(0),
     );
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(
-            vec![texture(STOCK_TEXEL, TextureColorSpace::Srgb)],
-            vec![material()],
-        )
-        .unwrap(),
+        resources: SceneResources::new(vec![albedo], vec![material()]).unwrap(),
         geometry: SceneGeometry::new(vec![mesh], vec![object]).unwrap(),
         terrain: None,
         effects: None,
@@ -213,9 +214,22 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::with_pipelines(scene, (size, view(size)), configure, |device| {
-            ScenePipelines::new(device, FORMAT)
-        })
+        Self::with_features(scene, size, wgpu::Features::empty(), configure)
+    }
+
+    /// [`Self::new`] on a device that has `features`, such as block-compressed texture formats.
+    pub fn with_features(
+        scene: &RenderScene,
+        size: [u32; 2],
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::with_pipelines(
+            scene,
+            (size, view(size)),
+            configure,
+            (features, |device| ScenePipelines::new(device, FORMAT)),
+        )
     }
 
     /// A rig whose frames are HDR and compute screen-space ambient occlusion with `ssao`, drawn
@@ -246,7 +260,9 @@ impl Rig {
                 settings.ssao = Some(ssao);
                 configure(settings);
             },
-            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
+            (wgpu::Features::empty(), |device| {
+                ScenePipelines::with_ssao(device, hdr, 1).unwrap()
+            }),
         )
     }
 
@@ -254,9 +270,9 @@ impl Rig {
         scene: &RenderScene,
         (size, camera): ([u32; 2], SceneView),
         configure: impl FnOnce(&mut RendererConfiguration),
-        pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
+        (features, pipelines): (wgpu::Features, impl FnOnce(&wgpu::Device) -> ScenePipelines),
     ) -> Self {
-        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
         configure(&mut settings);

@@ -11,6 +11,8 @@ use worldrunner_render_program::runtime::Import;
 pub enum FrameSceneTextureError {
     #[error("scene texture {handle} is not in the resident table of {resident}")]
     Unknown { handle: u32, resident: usize },
+    #[error("scene texture {handle} is not two-dimensional, so it has no 2D array view")]
+    NotTwoDimensional { handle: u32 },
 }
 
 /// The resident textures of the scene the frame in flight draws, indexed by scene texture
@@ -93,18 +95,51 @@ impl FrameSceneTextures {
         semantic: EngineSemantic,
         handle: TextureHandle,
     ) -> Result<Import, FrameSceneTextureError> {
-        let texture = usize::try_from(handle.raw())
-            .ok()
-            .and_then(|index| self.textures.get(index))
-            .ok_or(FrameSceneTextureError::Unknown {
-                handle: handle.raw(),
-                resident: self.textures.len(),
-            })?;
+        let texture = self.texture(handle)?;
         Ok(Import::texture(
             semantic,
             texture.clone(),
             texture.create_view(&wgpu::TextureViewDescriptor::default()),
         ))
+    }
+
+    /// The texture of `handle` viewed as a 2D array of all its layers and mips, for a binding
+    /// the shader declares as a 2D texture array (HLSL `Texture2DArray`, WGSL
+    /// `texture_2d_array`). A one-layer scene texture is a one-layer array, which the program
+    /// reads as layer 0.
+    ///
+    /// # Errors
+    /// [`FrameSceneTextureError::Unknown`] for a handle beyond the resident table and
+    /// [`FrameSceneTextureError::NotTwoDimensional`] for a texture whose dimension is not 2D.
+    pub fn import_array(
+        &self,
+        semantic: EngineSemantic,
+        handle: TextureHandle,
+    ) -> Result<Import, FrameSceneTextureError> {
+        let texture = self.texture(handle)?;
+        if texture.dimension() != wgpu::TextureDimension::D2 {
+            return Err(FrameSceneTextureError::NotTwoDimensional {
+                handle: handle.raw(),
+            });
+        }
+        Ok(Import::texture_array(
+            semantic,
+            texture.clone(),
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            }),
+        ))
+    }
+
+    fn texture(&self, handle: TextureHandle) -> Result<&wgpu::Texture, FrameSceneTextureError> {
+        usize::try_from(handle.raw())
+            .ok()
+            .and_then(|index| self.textures.get(index))
+            .ok_or(FrameSceneTextureError::Unknown {
+                handle: handle.raw(),
+                resident: self.textures.len(),
+            })
     }
 
     /// Whether `other` is the same snapshot: the same table, so anything built from one binds
@@ -180,5 +215,66 @@ impl crate::compositor::FrameRenderer {
                     .collect()
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FrameSceneTextureError, FrameSceneTextures};
+    use crate::device::GpuContext;
+    use crate::test_support::SceneTestSession;
+    use worldrunner_render_plan::TextureHandle;
+    use worldrunner_render_program::binding::EngineSemantic;
+
+    fn texture(context: &GpuContext, dimension: wgpu::TextureDimension) -> wgpu::Texture {
+        context.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("scene texture test"),
+            size: wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 2,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    }
+
+    #[test]
+    fn an_array_view_needs_a_two_dimensional_texture_in_the_table() {
+        let _session = SceneTestSession::acquire();
+        let context =
+            GpuContext::shared_for_test_with_features(wgpu::Features::empty()).expect("a test GPU");
+        let textures = FrameSceneTextures::new(
+            [
+                texture(&context, wgpu::TextureDimension::D2),
+                texture(&context, wgpu::TextureDimension::D3),
+            ]
+            .into(),
+        );
+        let semantic = EngineSemantic::named("scene");
+        assert!(
+            textures
+                .import_array(semantic.clone(), TextureHandle::from_raw(0))
+                .is_ok()
+        );
+        assert_eq!(
+            textures
+                .import_array(semantic.clone(), TextureHandle::from_raw(1))
+                .err(),
+            Some(FrameSceneTextureError::NotTwoDimensional { handle: 1 })
+        );
+        assert_eq!(
+            textures
+                .import_array(semantic, TextureHandle::from_raw(2))
+                .err(),
+            Some(FrameSceneTextureError::Unknown {
+                handle: 2,
+                resident: 2
+            })
+        );
     }
 }

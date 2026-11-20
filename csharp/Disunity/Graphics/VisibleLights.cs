@@ -9,8 +9,10 @@ public enum VisibleLightFlags
 }
 
 /// <summary>
-/// A light that culling found visible. Plain data that only the engine fills in; the engine does not cull yet, so
-/// a game gets only default values (a spot light with no color) from its own code.
+/// A light that culling found visible. Plain data that only the engine fills in; a game gets only default values (a spot
+/// light with no color) from its own code. The light is held by instance ID, so the struct holds no object reference and a
+/// <see cref="Unity.Collections.NativeArray{T}"/> can hold it: <see cref="light"/> finds the object again, and is null for a
+/// default value or a destroyed light.
 /// </summary>
 public struct VisibleLight : IEquatable<VisibleLight>
 {
@@ -20,19 +22,26 @@ public struct VisibleLight : IEquatable<VisibleLight>
     public Matrix4x4 localToWorldMatrix { get; internal set; }
     public float range { get; internal set; }
     public float spotAngle { get; internal set; }
-    public Light? light { get; internal set; }
+    internal int LightId;
+
+    public Light? light
+    {
+        readonly get => LightId == 0 ? null : ObjectRegistry.Find(LightId) as Light;
+        internal set => LightId = value is null ? 0 : value.GetInstanceID();
+    }
+
     public VisibleLightFlags flags { get; internal set; }
     public int occlusionMaskChannel { get; internal set; }
 
     public readonly bool Equals(VisibleLight other) =>
         lightType == other.lightType && finalColor.Equals(other.finalColor) && screenRect.Equals(other.screenRect)
         && localToWorldMatrix.Equals(other.localToWorldMatrix) && range.Equals(other.range) && spotAngle.Equals(other.spotAngle)
-        && ReferenceEquals(light, other.light) && flags == other.flags && occlusionMaskChannel == other.occlusionMaskChannel;
+        && LightId == other.LightId && flags == other.flags && occlusionMaskChannel == other.occlusionMaskChannel;
 
     public override readonly bool Equals(object? obj) => obj is VisibleLight other && Equals(other);
 
     public override readonly int GetHashCode() =>
-        HashCode.Combine(lightType, finalColor, screenRect, range, spotAngle, light, flags, occlusionMaskChannel);
+        HashCode.Combine(lightType, finalColor, screenRect, range, spotAngle, LightId, flags, occlusionMaskChannel);
 
     public static bool operator ==(VisibleLight left, VisibleLight right) => left.Equals(right);
     public static bool operator !=(VisibleLight left, VisibleLight right) => !left.Equals(right);

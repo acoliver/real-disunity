@@ -62,7 +62,7 @@ public struct ScriptableCullingParameters : IEquatable<ScriptableCullingParamete
     public bool conservativeEnclosingSphere { get; set; }
     public int numIterationsEnclosingSphere { get; set; }
 
-    /// <summary>Stored: the engine has no light culling, so no light is ever visible whatever the limit.</summary>
+    /// <summary>Stored: <see cref="ScriptableRenderContext.Cull"/> reports every visible light whatever the limit.</summary>
     public int maximumVisibleLights { get; set; }
 
     /// <summary>How many planes are in use, from 0 to 10; a larger value throws <see cref="ArgumentException"/>.</summary>

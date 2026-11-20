@@ -40,6 +40,7 @@ fn cube(id: TextureId, edge: u32, faces: [[u8; 4]; 6]) -> SourceTexture {
         size: [edge, edge],
         graphics_format: RGBA8,
         bytes,
+        mips: 1,
         sampler: None,
     }
 }

@@ -293,6 +293,8 @@ fn a_game_pass_loads_a_depth_a_stock_prepass_completed() {
     assert_eq!(loads(&passes)[1], [AttachmentLoad::Load]);
 }
 
+#[path = "prefix_tests.rs"]
+mod prefix_tests;
 const COLOR_AND_DEVICE_DEPTH: SnapshotReads = SnapshotReads {
     color: true,
     device_depth: true,

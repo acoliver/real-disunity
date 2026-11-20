@@ -45,11 +45,13 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
-    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
-    FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
-    GameTargets, PassTarget, PostWaterDepth, ShadowCascade, SnapshotImage, SnapshotReads,
-    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
+    CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
+    FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
+    FrameOcclusionHandle, FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle,
+    FrameSnapshots, FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory,
+    GamePassSpec, GamePasses, GameTargets, OcclusionDepth, PassTarget, PostWaterDepth,
+    ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration,
+    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -582,8 +584,12 @@ impl FrameRenderer {
         self.game_camera
             .set(&FrameCamera::of(&frame, self.frame_slot));
         self.validate_environment_conventions(frame.specular_convention)?;
-        let (passes, views) = plan;
+        let listed = self.with_prefix_prepass(encoder, plan)?;
+        let (passes, views) = listed.as_ref().map_or(plan, |(passes, views)| {
+            (passes.as_slice(), views.as_slice())
+        });
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        self.publish_game_inputs();
         let depth_mode = if passes
             .iter()
             .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)

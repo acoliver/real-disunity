@@ -16,6 +16,7 @@ use super::error::OffscreenError;
 use super::frame::{OffscreenFrame, ProceduralDraw};
 use super::list_steps::{self, Loads};
 use super::plan::{DrawSpec, Services, VertexPlan};
+use super::raster::{self, PassRaster};
 use super::steps::{CameraDraw, Globals, Step, counted, keywords, raster_id};
 
 /// The raster step of a procedural draw: one draw for each pass that plans, into the draw's
@@ -29,6 +30,8 @@ pub(super) fn procedural_step(
 ) -> Result<Step, OffscreenError> {
     let target = list_steps::usable(svc, draw.target.clone())?;
     let signature = list_steps::signature(svc, &target)?;
+    let size = list_steps::target_size(svc, &target)?;
+    let raster = raster::resolve(&draw.raster, size, svc.reversed_depth);
     let material = frame
         .materials
         .get(&draw.material)
@@ -48,7 +51,9 @@ pub(super) fn procedural_step(
         &material.below_globals,
     ];
     let mut draws = Vec::new();
-    for selector in &draw.passes {
+    // A scissor with no texel in it leaves nothing to draw.
+    let passes = raster.map_or(&[][..], |_| draw.passes.as_slice());
+    for selector in passes {
         let spec = DrawSpec {
             shader,
             keywords: keywords(material, globals),
@@ -60,7 +65,8 @@ pub(super) fn procedural_step(
         if planned.is_err() {
             svc.constants.rollback(mark);
         }
-        if let Some(planned) = counted(svc, &spec, planned)? {
+        if let Some(mut planned) = counted(svc, &spec, planned)? {
+            planned.raster = raster.unwrap_or_default();
             draws.push(planned);
         }
     }
@@ -122,5 +128,6 @@ fn generated(
         signature,
         front_face: draw.front_face,
         index_use: None,
+        raster: PassRaster::default(),
     })
 }

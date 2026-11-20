@@ -11,6 +11,8 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/lighting.rs"]
+mod lighting;
 #[path = "game_passes/mips.rs"]
 mod mips;
 #[path = "game_passes/persistence.rs"]
@@ -19,6 +21,12 @@ mod persistence;
 mod post_water_depth;
 #[path = "game_passes/post_water_game.rs"]
 mod post_water_game;
+#[path = "game_passes/prefix.rs"]
+mod prefix;
+#[path = "game_passes/prefix_loads.rs"]
+mod prefix_loads;
+#[path = "game_passes/prefix_state.rs"]
+mod prefix_state;
 #[path = "game_passes/prepared.rs"]
 mod prepared;
 #[path = "game_passes/refusals.rs"]

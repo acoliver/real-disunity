@@ -62,6 +62,7 @@ mod frame;
 mod holdings;
 mod ids;
 mod kernels;
+mod layer_assets;
 mod lists;
 mod mesh_draw;
 mod mips;
@@ -80,6 +81,7 @@ mod sink;
 mod stand_ins;
 mod supplied;
 mod trace;
+mod volume_assets;
 
 #[cfg(test)]
 mod tests;

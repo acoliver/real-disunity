@@ -293,6 +293,22 @@ impl ProgramShader {
             .and_then(|entry| entry.bytes(&self.chunks))
     }
 
+    /// `parameters` with the members the pass's programs share with all their variants.
+    fn with_common(
+        &self,
+        pass: usize,
+        parameters: VariantParameters,
+    ) -> Result<VariantParameters, ResolveError> {
+        let pass = &self.passes()?[pass];
+        let programs = &pass.programs;
+        Ok([&programs.vertex, &programs.fragment].into_iter().fold(
+            parameters,
+            |parameters, program| {
+                parameters.with_common(&program.common_parameters, &pass.name_indices)
+            },
+        ))
+    }
+
     fn build(&self, pass: usize, blob: u32, parameters: u32) -> Result<Variant, ResolveError> {
         let fail = |reason: String| ResolveError::Variant { pass, blob, reason };
         let record = self
@@ -302,6 +318,7 @@ impl ProgramShader {
             .entry(parameters)
             .ok_or_else(|| fail("the table has no such parameters".to_owned()))
             .and_then(|bytes| read_parameters(bytes).map_err(|error| fail(error.to_string())))?;
+        let parameters = self.with_common(pass, parameters)?;
         let stages = stage_words(record).map_err(|error| fail(error.to_string()))?;
         let prepared = prepare_stages(&[&stages.vertex, &stages.fragment])
             .map_err(|error| fail(error.to_string()))?;

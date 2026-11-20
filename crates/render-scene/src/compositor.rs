@@ -657,6 +657,7 @@ impl FrameRenderer {
                 "the opaque G-buffer requires stock geometry composition",
             ));
         }
+        self.publish_game_inputs();
         self.chain.encode_geometry(
             device,
             encoder,

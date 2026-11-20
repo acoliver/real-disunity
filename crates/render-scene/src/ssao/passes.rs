@@ -130,6 +130,9 @@ pub(crate) struct ScreenPasses {
     /// Whether every frame runs every stage. Otherwise only level 0 of the depth hierarchy
     /// runs, plus the stages whose products another feature of the frame declares it reads.
     computes_occlusion: bool,
+    /// The view of the last filter stage's target that every frame lends the game's features,
+    /// made once with the target so lending it creates nothing.
+    occlusion_view: wgpu::TextureView,
 }
 
 /// A 1x1 texture of 1.0, bound where receivers expect ambient occlusion in frames that compute
@@ -267,7 +270,7 @@ impl ScreenPasses {
         let texture = self.occlusion();
         crate::compositor::FrameOcclusion {
             texture: texture.clone(),
-            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            view: self.occlusion_view.clone(),
             depth: super::receiver::occlusion_depth(texture.format()),
             stock_receivers: self.computes_occlusion,
         }
@@ -336,10 +339,16 @@ impl ScreenPasses {
             index += 1;
         }
         let computed = kernels::append(device, size, uniform, normals, settings, &mut stages);
+        let occlusion_view = stages
+            .last()
+            .expect("the filter stages exist")
+            .target
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Self {
             stages,
             computes_occlusion: neutral.is_none(),
             filtered: neutral.unwrap_or(computed),
+            occlusion_view,
         }
     }
     fn stage_resource(stage: &ScreenPass) -> ResourceRef {

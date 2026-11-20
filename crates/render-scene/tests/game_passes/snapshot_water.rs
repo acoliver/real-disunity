@@ -29,7 +29,7 @@ fn depth_plan() -> Plan {
 
 /// The quad scene with the water body in its effects, which the renderer must be configured with
 /// the same bodies to draw.
-fn water_scene() -> RenderScene {
+pub(super) fn water_scene() -> RenderScene {
     let source = quad_scene();
     let effects = effects().with_water_bodies(vec![water_body()]).unwrap();
     source

@@ -7,6 +7,8 @@ mod accounting;
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/environment.rs"]
+mod environment;
 #[path = "game_passes/fixture.rs"]
 mod fixture;
 #[path = "game_passes/layers.rs"]
@@ -19,6 +21,8 @@ mod mips;
 mod persistence;
 #[path = "game_passes/prefix.rs"]
 mod prefix;
+#[path = "game_passes/prefix_idle.rs"]
+mod prefix_idle;
 #[path = "game_passes/prefix_loads.rs"]
 mod prefix_loads;
 #[path = "game_passes/prefix_state.rs"]

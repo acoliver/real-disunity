@@ -318,7 +318,7 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 7] = [
+pub const DRAW_LAYERS: [&str; 8] = [
     "per-draw",
     "camera",
     "property block",
@@ -326,6 +326,7 @@ pub const DRAW_LAYERS: [&str; 7] = [
     "material fallback",
     "globals",
     "declared default below globals",
+    "size of the bound texture",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -831,7 +832,7 @@ fn source_layer(
 }
 
 /// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
-fn texels(side: u32) -> f32 {
+pub(super) fn texels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 

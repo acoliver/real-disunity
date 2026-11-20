@@ -5,8 +5,9 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, SceneWaterBody,
+    SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
@@ -103,6 +104,24 @@ pub fn quad_scene() -> RenderScene {
         effects: None,
     })
     .unwrap()
+}
+
+/// A stock water body eight metres on a side, ten centimetres below the quad, so the quad hides
+/// it where they overlap and a ring of open water shows around the quad.
+pub fn water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: SceneWaterSettings::STOCK,
+        surface: SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: -100,
+        east_min_millimeters: -4000,
+        north_min_millimeters: -4000,
+        east_extent_millimeters: 8000,
+        north_extent_millimeters: 8000,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+    }
 }
 
 /// The material of a terrain palette entry, which names all three of its maps.

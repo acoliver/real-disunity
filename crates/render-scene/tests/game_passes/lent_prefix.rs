@@ -2,14 +2,16 @@
 //! drawn whole and inside a same-frame capture's prefix.
 use super::fixture::Rig;
 use super::fixture::{SIZE, quad_scene};
-use super::lent::{ClearKept, Shared};
+use super::lent::{ClearKept, Shared, semantic};
+use super::lent_terrain_game::{Clear, layered_scene};
 use super::lighting::ssao;
 use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::Arc;
 use worldrunner_render_scene::{
     compositor::{
-        ColorOutput, FrameSceneMeshesHandle, GameBuild, GameFeatureFactory, GamePassSpec,
-        GamePasses, GameTargets, TargetDeclaration, TargetExtent,
+        ColorOutput, EngineConstants, FrameSceneMeshesHandle, GameBuild, GameFeatureFactory,
+        GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
+        TerrainMaterialChannel,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -54,6 +56,7 @@ impl GameFeatureFactory for PrefixProbe {
         Ok(Some(Box::new(Prefix {
             targets: context.targets.clone(),
             meshes: context.scene_meshes.clone(),
+            engine: context.engine.clone(),
             seen: self.seen.clone(),
         })))
     }
@@ -87,6 +90,7 @@ impl PreparedFeature for Silent {
 struct Prefix {
     targets: GameTargets,
     meshes: FrameSceneMeshesHandle,
+    engine: EngineConstants,
     seen: Shared,
 }
 
@@ -120,9 +124,17 @@ impl FrameFeature for Prefix {
 }
 
 impl PreparedFeature for Prefix {
-    fn prepare(&mut self, _context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+    fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         let lent = format!("{:?}", self.meshes.current().map(|meshes| meshes.len()));
-        self.seen.lock().unwrap().lent.push(lent);
+        let array = self.engine.material_array(
+            context,
+            semantic("lent.prefix_array"),
+            TerrainMaterialChannel::AlbedoMetallic,
+            &[0, 1],
+        );
+        let mut seen = self.seen.lock().unwrap();
+        seen.lent.push(lent);
+        seen.terrain.push(format!("{:?}", array.map(|_| ())));
         Ok(())
     }
 
@@ -162,5 +174,32 @@ fn the_depth_prefix_route_lends_the_meshes_in_a_frame_drawn_whole_and_in_a_captu
         captured.lock().unwrap().lent,
         ["Ok(1)"],
         "inside a same-frame capture's prefix the meshes are lent as the textures are"
+    );
+}
+
+#[test]
+fn a_depth_prefix_feature_reads_the_terrain_arrays() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let _terrain = Clear;
+    let seen = Shared::default();
+    let source = layered_scene(0);
+    let scene = source
+        .with_objects_and_effects(Vec::new(), Some(effects_with(Some(ssao()))))
+        .unwrap();
+    let mut rig = Rig::with_ssao(&scene, SIZE, ssao(), |settings| {
+        settings.game_passes = GamePasses::new().with(Arc::new(PrefixProbe { seen: seen.clone() }));
+    });
+    let mut encoder = rig
+        .context
+        .submission()
+        .begin(rig.context.device())
+        .unwrap();
+    rig.encode(&mut encoder).unwrap();
+    encoder.finish().submit().unwrap();
+    assert_eq!(
+        seen.lock().unwrap().terrain,
+        ["Ok(())"],
+        "the prefix is lent the scene terrain as the frame is"
     );
 }

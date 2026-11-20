@@ -4,6 +4,7 @@ use super::fixture::{Rig, SIZE, quad_scene};
 use super::lent::{ClearKept, KEPT, Scenario, WATER_NORMAL, inventory, near, output};
 use super::lighting::ssao;
 use super::shadowed::effects_with;
+use worldrunner_render_gpu::census::ResourceClass;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{
     RenderScene, SceneAppend, SceneSpecularConvention, SceneTexture, SceneWaterSettings,
@@ -107,6 +108,73 @@ fn a_game_pass_samples_the_engine_constants_and_the_triangle_covers_the_frame() 
     assert!(
         stock.iter().any(|texel| texel[0] > 0.0 && texel[1] > 0.0),
         "the table holds split-sum coefficients"
+    );
+}
+
+#[test]
+fn the_zero_placeholders_are_one_texel_textures_a_game_pass_samples() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let (game_passes, _) = inventory(Scenario::Zeros);
+    let mut rig = Rig::new(&quad_scene(), SIZE, |settings| {
+        settings.game_passes = game_passes;
+    });
+    let census = rig.context.submission().census().clone();
+    let before = census.snapshot().get(ResourceClass::Texture);
+    rig.render().unwrap();
+    rig.render().unwrap();
+    let image = output(&rig);
+    for (band, green) in [(0, 64), (1, 128), (2, 191), (3, 255)] {
+        let found = Rig::pixel(&image, band * 16 + 8, 24);
+        assert!(
+            near(found, [128, green, 0, 255], 1),
+            "band {band} reads a zero texel: {found:?}"
+        );
+    }
+    KEPT.with_borrow(|kept| {
+        let [first, second] = kept.zeros.as_slice() else {
+            panic!("two frames lent the placeholders: {}", kept.zeros.len());
+        };
+        assert_eq!(first, second, "the placeholders are made once and shared");
+        let found: Vec<_> = first
+            .iter()
+            .map(|texture| (texture.format(), texture.dimension(), texture.size()))
+            .collect();
+        let one = |depth| wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: depth,
+        };
+        assert_eq!(
+            found,
+            [
+                (
+                    wgpu::TextureFormat::R16Float,
+                    wgpu::TextureDimension::D2,
+                    one(1)
+                ),
+                (
+                    wgpu::TextureFormat::R8Unorm,
+                    wgpu::TextureDimension::D2,
+                    one(1)
+                ),
+                (
+                    wgpu::TextureFormat::Rg8Unorm,
+                    wgpu::TextureDimension::D2,
+                    one(1)
+                ),
+                (
+                    wgpu::TextureFormat::Rg8Unorm,
+                    wgpu::TextureDimension::D3,
+                    one(1)
+                ),
+            ]
+        );
+    });
+    let resident = census.snapshot().get(ResourceClass::Texture) - before;
+    assert!(
+        resident >= 2 + 1 + 2 + 2,
+        "the four placeholders are counted in the census: {resident}"
     );
 }
 

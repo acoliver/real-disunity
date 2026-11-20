@@ -85,11 +85,33 @@ const CONSTANTS_FRAGMENT: &str = "
     return vec4<f32>(table.r, table.g, 0.0, 1.0);
 }";
 
+/// Four vertical bands, 16 pixels each, of the zero placeholders: `R16Float`, `R8Unorm`,
+/// `Rg8Unorm` and the 3D `Rg8Unorm`. Each band is `(0.5 + texel.r + texel.g, G, 0, 1)` with a
+/// green `G` that tells the bands apart, so a texel that is not zero moves the red channel.
+const ZEROS_FRAGMENT: &str = "
+@group(0) @binding(0) var half_zero: texture_2d<f32>;
+@group(0) @binding(1) var mask_zero: texture_2d<f32>;
+@group(0) @binding(2) var pair_zero: texture_2d<f32>;
+@group(0) @binding(3) var volume_zero: texture_3d<f32>;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    return fullscreen_position(i);
+}
+@fragment fn fs(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let band = u32(at.x) / 16u;
+    var texel = textureLoad(half_zero, vec2<i32>(0, 0), 0);
+    var green = 0.25;
+    if band == 1u { texel = textureLoad(mask_zero, vec2<i32>(0, 0), 0); green = 0.5; }
+    if band == 2u { texel = textureLoad(pair_zero, vec2<i32>(0, 0), 0); green = 0.75; }
+    if band == 3u { texel = textureLoad(volume_zero, vec3<i32>(0, 0, 0), 0); green = 1.0; }
+    return vec4<f32>(0.5 + texel.r + texel.g, green, 0.0, 1.0);
+}";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scenario {
     Mesh,
     Constants,
     Water,
+    Zeros,
 }
 
 /// What the games saw that crosses threads.
@@ -99,6 +121,8 @@ pub(super) struct Seen {
     /// Per frame and body, whether the lent water normal map is the resident texture.
     pub(super) water: Vec<Result<bool, FrameWaterNormalError>>,
     pub(super) lent: Vec<String>,
+    /// What a depth-prefix feature was answered for a terrain material array.
+    pub(super) terrain: Vec<String>,
 }
 
 pub(super) type Shared = Arc<Mutex<Seen>>;
@@ -110,6 +134,8 @@ pub(super) struct Kept {
     pub(super) meshes: Option<FrameSceneMeshesHandle>,
     pub(super) textures: Option<FrameSceneTexturesHandle>,
     pub(super) brdf: Option<wgpu::Texture>,
+    /// The zero placeholders each frame was lent, in the order of the bands.
+    pub(super) zeros: Vec<[wgpu::Texture; 4]>,
 }
 
 thread_local! {
@@ -151,6 +177,26 @@ fn constants_layout() -> ResourceLayout {
     ])
 }
 
+fn zeros_layout() -> ResourceLayout {
+    let filterable = wgpu::TextureSampleType::Float { filterable: true };
+    let volume = ResourceBinding {
+        at: BindingAddress { set: 0, binding: 3 },
+        source: BindingSource::Engine(semantic("lent.zero_volume")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Texture {
+            dimension: wgpu::TextureViewDimension::D3,
+            sample: filterable,
+            multisampled: false,
+        },
+    };
+    ResourceLayout::new(vec![
+        texture_binding(0, "lent.zero_half", filterable),
+        texture_binding(1, "lent.zero_mask", filterable),
+        texture_binding(2, "lent.zero_pair", filterable),
+        volume,
+    ])
+}
+
 fn program(resources: &GameResources, scenario: Scenario) -> GraphicsProgram {
     let runtime = resources.runtime();
     match scenario {
@@ -161,6 +207,17 @@ fn program(resources: &GameResources, scenario: Scenario) -> GraphicsProgram {
             "fs",
             StageDeclarations::default(),
             StageDeclarations::default(),
+        ),
+        Scenario::Zeros => common::graphics(
+            &runtime,
+            &format!("{FULLSCREEN_TRIANGLE_WGSL}{ZEROS_FRAGMENT}"),
+            "vs",
+            "fs",
+            StageDeclarations::default(),
+            StageDeclarations {
+                resources: zeros_layout(),
+                constants: Vec::new(),
+            },
         ),
         Scenario::Constants | Scenario::Water => common::graphics(
             &runtime,
@@ -320,6 +377,30 @@ impl Game {
         })
     }
 
+    fn zeros_inputs(&self) -> DrawInputs {
+        let engine = &self.0.engine;
+        let imports = vec![
+            engine.placeholder(semantic("lent.zero_half"), EnginePlaceholder::ZeroR16Float),
+            engine.placeholder(semantic("lent.zero_mask"), EnginePlaceholder::ZeroR8),
+            engine.placeholder(semantic("lent.zero_pair"), EnginePlaceholder::ZeroRg8),
+            engine.placeholder(
+                semantic("lent.zero_volume"),
+                EnginePlaceholder::ZeroRg8Volume,
+            ),
+        ];
+        let textures = imports.iter().map(|import| match &import.resource {
+            ImportedResource::Texture(texture) => texture.texture.clone(),
+            _ => panic!("a texture import"),
+        });
+        let textures: [wgpu::Texture; 4] = textures.collect::<Vec<_>>().try_into().unwrap();
+        KEPT.with_borrow_mut(|kept| kept.zeros.push(textures));
+        DrawInputs {
+            imports,
+            vertex_inputs: Vec::new(),
+            geometry: EngineConstants::fullscreen_triangle(),
+        }
+    }
+
     fn record_water(&self) -> Result<(), FrameError> {
         let parts = &self.0;
         let textures = parts.textures.current()?;
@@ -388,6 +469,7 @@ impl PreparedFeature for Game {
         let inputs = match self.0.scenario {
             Scenario::Mesh => self.mesh_inputs()?,
             Scenario::Constants => self.constants_inputs(context)?,
+            Scenario::Zeros => self.zeros_inputs(),
             Scenario::Water => return self.record_water(),
         };
         let draw = self.prepare_draw(context, &inputs)?;

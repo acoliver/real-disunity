@@ -214,6 +214,7 @@ impl GamePasses {
             frame.size,
         ));
         let engine = EngineConstants::new(context.device(), context.submission());
+        renderer.game.engine = Some(engine.clone());
         for factory in &self.factories {
             let resources = GameResources::new(
                 context.device(),
@@ -272,6 +273,9 @@ pub(crate) struct Installed {
     pub(crate) environment: FrameEnvironmentHandle,
     /// Where every route lends the scene's resident meshes to the features of this generation.
     pub(crate) meshes: FrameSceneMeshesHandle,
+    /// The engine constants of this generation, which every route lends the scene's textures
+    /// and terrain to.
+    pub(crate) engine: Option<EngineConstants>,
     /// Each factory's declared resources, released with this generation.
     pub(crate) resources: Vec<GameResources>,
 }

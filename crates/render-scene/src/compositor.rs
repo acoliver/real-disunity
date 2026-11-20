@@ -52,15 +52,15 @@ pub use game::{
     FrameShadows, FrameTerrainError, FrameTerrainHandle, FrameWaterNormalError, GameBuffer,
     GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GamePassSpec,
     GamePasses, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
-    GameTextureDeclaration, OcclusionDepth, PassTarget, SceneMeshSlot, ShadowCascade,
-    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    GameTextureDeclaration, LayerShape, OcclusionDepth, PassTarget, SceneMeshSlot, ShadowCascade,
+    TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
+    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
 pub use stock_plan::StockPlanStatistics;
 pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
 use validation::{validate_clear, validate_reflection_extent};
-
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
     CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,

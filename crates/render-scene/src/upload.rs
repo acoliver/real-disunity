@@ -238,11 +238,13 @@ pub fn upload_texture(
     if let Some(cube) = prepared.cube() {
         return upload_cube(device, queue, cube);
     }
+    // The engine copies resident textures into the terrain material arrays it lends a game, so
+    // none is uploaded twice.
     TextureUpload::new(&[texture_layer(prepared)], 0, TextureKind::D2)?.upload(
         device,
         queue,
         "material-texture",
-        TextureUsages::empty(),
+        TextureUsages::COPY_SRC,
     )
 }
 

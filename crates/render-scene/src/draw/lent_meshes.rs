@@ -23,6 +23,16 @@ pub(crate) struct LentMesh {
 }
 
 impl SceneGpu {
+    /// The scene's terrain, shared with the scene that was uploaded, so its identity changes
+    /// only when the terrain does.
+    pub(crate) fn lent_terrain(
+        &self,
+    ) -> Option<std::sync::Arc<worldrunner_render_plan::SceneTerrain>> {
+        self.terrain
+            .as_ref()
+            .map(|terrain| terrain.resources.scene.clone())
+    }
+
     /// Every resident scene mesh by table index, as one shared snapshot that stays the same
     /// object until an append or a mesh replacement changes the table.
     pub(crate) fn lent_meshes(&self) -> Rc<[LentMesh]> {

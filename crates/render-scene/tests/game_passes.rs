@@ -17,6 +17,10 @@ mod lent;
 mod lent_engine;
 #[path = "game_passes/lent_prefix.rs"]
 mod lent_prefix;
+#[path = "game_passes/lent_terrain.rs"]
+mod lent_terrain;
+#[path = "game_passes/lent_terrain_game.rs"]
+mod lent_terrain_game;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
 #[path = "game_passes/persistence.rs"]

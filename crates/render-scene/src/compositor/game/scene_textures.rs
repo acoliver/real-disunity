@@ -159,6 +159,12 @@ impl crate::compositor::FrameRenderer {
             self.game
                 .meshes
                 .publish(|| super::FrameSceneMeshes::new(gpu.lent_meshes()));
+            if let Some(engine) = &self.game.engine {
+                engine.publish_scene(super::SceneSources {
+                    textures: gpu.lent_textures(),
+                    terrain: gpu.lent_terrain(),
+                });
+            }
         }
     }
 

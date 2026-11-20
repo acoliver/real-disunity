@@ -1,6 +1,11 @@
 //! The constants of one renderer generation that a game's passes use: neutral one-texel
 //! textures, the split-sum BRDF table and the full-screen triangle. The engine owns them, so a
 //! game declares none of them, and they are the same for every frame.
+mod placeholders;
+mod scene_sources;
+mod terrain_arrays;
+
+use super::lent::Lent;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use worldrunner_render_gpu::census::{ResourceClass, Tracked};
@@ -9,6 +14,9 @@ use worldrunner_render_plan::SceneSpecularConvention;
 use worldrunner_render_post::PrepareContext;
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::{Import, ImportedGeometry};
+
+pub(crate) use scene_sources::SceneSources;
+pub use terrain_arrays::{LayerShape, TerrainMaterialArrayError, TerrainMaterialChannel};
 
 /// The vertex stage helpers of the full-screen triangle, to put in front of a program's source:
 /// `fullscreen_position(index)` is the clip position and `fullscreen_uv(index)` the texture
@@ -32,7 +40,10 @@ pub const BRDF_TABLE_SIZE: u32 = 64;
 /// Importance samples the engine integrates each texel of the table with.
 pub const BRDF_TABLE_SAMPLES: u32 = 256;
 
-/// A neutral one-texel texture, `Rgba8Unorm` and linear.
+/// A neutral one-texel texture. The first three are `Rgba8Unorm` and linear. The stock renderer
+/// has a neutral only for a missing material map (white), so the zero placeholders hold zero,
+/// which reads as no coverage, no height, no motion or no density in the formats a game binds
+/// them as. A signed pair stored in `Rg8Unorm` reads (0, 0), not its midpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnginePlaceholder {
     /// (1, 1, 1, 1): the texel the stock renderer binds where a material omits a map.
@@ -41,24 +52,32 @@ pub enum EnginePlaceholder {
     Black,
     /// A tangent-space normal pointing straight out of the surface, (0.5, 0.5, 1, 1).
     FlatNormal,
+    /// A one-texel `R16Float` texture holding 0.
+    ZeroR16Float,
+    /// A one-texel `R8Unorm` texture holding 0.
+    ZeroR8,
+    /// A one-texel `Rg8Unorm` texture holding (0, 0).
+    ZeroRg8,
+    /// A 1x1x1 `Rg8Unorm` 3D texture holding (0, 0).
+    ZeroRg8Volume,
 }
 
 impl EnginePlaceholder {
-    const ALL: [Self; 3] = [Self::White, Self::Black, Self::FlatNormal];
+    const ALL: [Self; 7] = [
+        Self::White,
+        Self::Black,
+        Self::FlatNormal,
+        Self::ZeroR16Float,
+        Self::ZeroR8,
+        Self::ZeroRg8,
+        Self::ZeroRg8Volume,
+    ];
 
     fn slot(self) -> usize {
         Self::ALL
             .iter()
             .position(|placeholder| *placeholder == self)
             .expect("every placeholder is listed")
-    }
-
-    fn texel(self) -> [u8; 4] {
-        match self {
-            Self::White => [255; 4],
-            Self::Black => [0, 0, 0, 255],
-            Self::FlatNormal => [128, 128, 255, 255],
-        }
     }
 }
 
@@ -75,7 +94,8 @@ struct BrdfTable {
 
 #[derive(Default)]
 struct State {
-    placeholders: [Option<Tracked<wgpu::Texture>>; 3],
+    placeholders: [Option<Tracked<wgpu::Texture>>; EnginePlaceholder::ALL.len()],
+    terrain: scene_sources::TerrainProducts,
     tables: Vec<BrdfTable>,
 }
 
@@ -86,6 +106,8 @@ pub struct EngineConstants {
     device: wgpu::Device,
     authority: SubmissionAuthority,
     state: Rc<RefCell<State>>,
+    /// The scene the frame in flight lends, which terrain products are built from.
+    scene: Lent<SceneSources>,
 }
 
 impl EngineConstants {
@@ -94,7 +116,15 @@ impl EngineConstants {
             device: device.clone(),
             authority: authority.clone(),
             state: Rc::default(),
+            scene: Lent::default(),
         }
+    }
+
+    /// Records the scene the frame in flight draws, and drops the terrain products built from a
+    /// scene that is no longer the one the renderer draws.
+    pub(crate) fn publish_scene(&self, sources: SceneSources) {
+        self.state.borrow_mut().terrain.retain_for(&sources);
+        self.scene.publish(sources);
     }
 
     /// The one-texel texture `which` names, for the binding sourced from `semantic`. It is made
@@ -103,16 +133,7 @@ impl EngineConstants {
         let mut state = self.state.borrow_mut();
         let slot = &mut state.placeholders[which.slot()];
         let texture = slot.get_or_insert_with(|| {
-            let queue = self.authority.queue();
-            let texture = match which {
-                EnginePlaceholder::White => crate::upload::placeholder_texture(&self.device, queue),
-                _ => crate::upload::texel_texture(
-                    &self.device,
-                    queue,
-                    "engine placeholder",
-                    which.texel(),
-                ),
-            };
+            let texture = which.create(&self.device, self.authority.queue());
             self.authority
                 .census()
                 .track_texture(ResourceClass::Texture, texture)

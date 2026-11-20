@@ -6,10 +6,12 @@ use crate::FrameTargets;
 mod frozen;
 mod game;
 mod operations;
+mod prepare;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+pub use prepare::PrepareContext;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -529,174 +531,6 @@ fn require_producer(
 pub struct BuildContext<'a> {
     pub device: &'a wgpu::Device,
     pub targets: &'a FrameTargets,
-}
-/// One buffer operation staged by a preparation, encoded in staging order.
-enum Staged {
-    Copy {
-        source: (wgpu::Buffer, u64),
-        destination: (wgpu::Buffer, u64),
-        bytes: u64,
-    },
-    Dispatch {
-        label: &'static str,
-        pipeline: wgpu::ComputePipeline,
-        group: wgpu::BindGroup,
-        workgroups: [u32; 3],
-    },
-}
-pub struct PrepareContext<'a> {
-    device: &'a wgpu::Device,
-    encoder: &'a mut wgpu::CommandEncoder,
-    publications: worldrunner_render_gpu::submission::Publications,
-    staged: Vec<Staged>,
-    views: Vec<AttachmentView>,
-    passes: Vec<PassDeclaration>,
-    completed: Vec<PassEntry>,
-}
-impl<'a> PrepareContext<'a> {
-    pub fn new(
-        device: &'a wgpu::Device,
-        encoder: &'a mut wgpu::CommandEncoder,
-    ) -> Result<Self, worldrunner_render_gpu::submission::TransactionError> {
-        let publications = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        Ok(Self {
-            device,
-            encoder,
-            publications,
-            staged: Vec::new(),
-            views: Vec::new(),
-            passes: Vec::new(),
-            completed: Vec::new(),
-        })
-    }
-    /// Whether a validated geometry prefix already encoded this entry in the same frame.
-    pub fn completed_in_prefix(&self, entry: PassEntry) -> bool {
-        self.completed.contains(&entry)
-    }
-    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassEntry]) {
-        self.completed = completed.to_vec();
-    }
-    pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
-        self.publications.clone()
-    }
-    /// Stages an infallible resident edit in the active prepared frame.
-    pub fn publish(&mut self, publish: impl FnOnce() + 'static) {
-        self.publications.stage(publish);
-    }
-    pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
-        self.views = views.to_vec();
-    }
-    pub(crate) fn set_passes(&mut self, passes: &[PassDeclaration]) {
-        self.passes = passes.to_vec();
-    }
-    /// Frame-local checked inputs, available only after full plan validation.
-    pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
-        self.views
-            .iter()
-            .find(|view| view.resource() == resource)
-            .ok_or(FrameError::AttachmentView(resource))
-    }
-    pub fn device(&self) -> &wgpu::Device {
-        self.device
-    }
-    pub fn copy_buffer(&mut self, source: &wgpu::Buffer, destination: &wgpu::Buffer, bytes: u64) {
-        self.copy_buffer_region((source, 0), (destination, 0), bytes);
-    }
-    /// Stages a copy of `bytes` bytes between buffer offsets, encoded after the copies staged
-    /// before it. A gather that reads bytes uploaded in this context therefore sees them.
-    /// Offsets and `bytes` must be multiples of `wgpu::COPY_BUFFER_ALIGNMENT`.
-    pub fn copy_buffer_region(
-        &mut self,
-        source: (&wgpu::Buffer, u64),
-        destination: (&wgpu::Buffer, u64),
-        bytes: u64,
-    ) {
-        self.staged.push(Staged::Copy {
-            source: (source.0.clone(), source.1),
-            destination: (destination.0.clone(), destination.1),
-            bytes,
-        });
-    }
-    /// Stages one compute dispatch, encoded in its own compute pass after the copies and
-    /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
-    pub fn dispatch(
-        &mut self,
-        label: &'static str,
-        pipeline: &wgpu::ComputePipeline,
-        group: &wgpu::BindGroup,
-        workgroups: [u32; 3],
-    ) {
-        self.staged.push(Staged::Dispatch {
-            label,
-            pipeline: pipeline.clone(),
-            group: group.clone(),
-            workgroups,
-        });
-    }
-    /// Stages `bytes` for `destination` at `offset`, copied in staging order like
-    /// [`Self::copy_buffer_region`]. The bytes are written into the frame authority's reusable
-    /// staging now; a cancelled frame never copies them. `bytes` must be a multiple of
-    /// `wgpu::COPY_BUFFER_ALIGNMENT` long and fit `destination`, which must allow `COPY_DST`.
-    /// An empty upload copies nothing and stages nothing.
-    pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
-        let size = bytes.len() as u64;
-        assert!(
-            destination.usage().contains(wgpu::BufferUsages::COPY_DST)
-                && offset.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
-                && offset
-                    .checked_add(size)
-                    .is_some_and(|end| end <= destination.size()),
-            "upload of {size} bytes at {offset} does not fit {destination:?}"
-        );
-        if bytes.is_empty() {
-            return;
-        }
-        let source = self.publications.stage_upload(self.device, bytes);
-        self.staged.push(Staged::Copy {
-            source,
-            destination: (destination.clone(), offset),
-            bytes: size,
-        });
-    }
-    /// Publishes staged copies and dispatches only after all fallible preparations succeed.
-    pub fn finish(self) -> Vec<wgpu::Buffer> {
-        let mut retained = Vec::with_capacity(self.staged.len());
-        for staged in self.staged {
-            match staged {
-                Staged::Copy {
-                    source,
-                    destination,
-                    bytes,
-                } => {
-                    self.encoder.copy_buffer_to_buffer(
-                        &source.0,
-                        source.1,
-                        &destination.0,
-                        destination.1,
-                        bytes,
-                    );
-                    retained.push(source.0);
-                }
-                Staged::Dispatch {
-                    label,
-                    pipeline,
-                    group,
-                    workgroups,
-                } => {
-                    let mut pass = self
-                        .encoder
-                        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some(label),
-                            timestamp_writes: None,
-                        });
-                    pass.set_pipeline(&pipeline);
-                    pass.set_bind_group(0, &group, &[]);
-                    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-                }
-            }
-        }
-        retained
-    }
 }
 /// Later geometry slices will add view identifiers/bindings and validated
 /// inter-slot compute, copy and fullscreen operations. Those operations are not

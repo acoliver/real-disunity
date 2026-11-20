@@ -231,6 +231,8 @@ mod post_upload_staging_tests;
 #[cfg(test)]
 mod prepare_context_tests;
 #[cfg(test)]
+mod prepare_texture_copy_tests;
+#[cfg(test)]
 mod upload_staging_limit_tests;
 #[cfg(test)]
 mod upload_staging_tests;

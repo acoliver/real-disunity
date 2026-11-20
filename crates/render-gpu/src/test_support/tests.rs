@@ -202,3 +202,23 @@ fn featureful_first_request_cannot_upgrade_a_later_empty_request() {
     assert_eq!(timestamp.features, Features::TIMESTAMP_QUERY);
     assert!(empty.features.is_empty());
 }
+
+#[test]
+fn the_largest_submitting_count_is_the_one_before_the_first_refusal() {
+    let mut tried = Vec::new();
+    let found = super::largest_submitting_count(4097, |units| {
+        tried.push(units);
+        if units * 2 + 2 <= 4096 {
+            Ok(())
+        } else {
+            Err(units)
+        }
+    });
+    assert_eq!(found, (2047, Some(2048)));
+    assert!(tried.len() <= 14, "{tried:?}");
+    assert_eq!(
+        super::largest_submitting_count(10, |_| Ok::<_, ()>(())),
+        (10, None)
+    );
+    assert_eq!(super::largest_submitting_count(10, Err), (0, Some(1)));
+}

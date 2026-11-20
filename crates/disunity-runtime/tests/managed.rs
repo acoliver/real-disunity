@@ -315,8 +315,11 @@ fn assert_presentation_cameras(host: &mut DisunityHost, root: &Path) {
     host.unload_slice().unwrap();
 }
 
+#[path = "managed/array.rs"]
+mod array;
+
 fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
-    use worldrunner_disunity_runtime::PlayerTexture;
+    use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
     const FIRST: u64 = 1 << 40;
     host.run_slice(&root.join("csharp/PortableFixture/texture.fixture"))
         .unwrap();
@@ -333,6 +336,9 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
             linear: true,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
+            dimension: TextureDimension::D2,
+            graphics_format: 0,
             bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
         }
     );
@@ -340,6 +346,7 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
     assert_eq!(host.player_texture(identity, 1).unwrap(), None);
     assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
     assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
+    array::assert_player_array(host);
     host.unload_slice().unwrap();
 }
 
@@ -378,7 +385,12 @@ fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
     assert_eq!(object.slots.len(), 2);
     assert_eq!(object.slots[0].color, [0.25, 0.5, 0.75, 1.]);
     assert_eq!(object.slots[1].color, [1.; 4], "an empty slot draws white");
-    assert_eq!(object.slots[0].texture, 0);
+    let texture = object.slots[0].texture;
+    assert!(
+        texture >= 1 << 40,
+        "a main texture set after the material was assigned is the slot's texture"
+    );
+    assert_eq!(host.player_texture(texture, 0).unwrap().unwrap().width, 2);
     assert_player_mesh(host, object.mesh);
     assert_player_mesh_channels(host, object.mesh);
     assert_eq!(host.player_mesh(object.mesh, 1).unwrap(), None);

@@ -1,11 +1,13 @@
 //! Sampled textures a game declares to its [`GameResources`](super::GameResources): what a
 //! declaration may describe, the layout of the texels it carries, and their upload through the
-//! same validated plan the scene's textures use (render-gpu `TextureUpload`).
+//! same validated plans the scene's textures use (render-gpu `TextureUpload`, and `VolumeUpload`
+//! for a 3D texture).
 use super::resources::GameResourceError;
 use std::hash::{Hash, Hasher};
 use worldrunner_render_gpu::texture::{
-    MipLevel, TextureKind, TextureLayer, TextureUpload, level_layout, packed_mips,
+    MipLevel, TextureKind, TextureLayer, TextureUpload, UploadError, level_layout, packed_mips,
 };
+use worldrunner_render_gpu::volume::{VolumeUpload, packed_volume_levels};
 
 /// A sampled texture a game declares: a mip chain of one or more layers, or a 3D texture.
 #[derive(Clone, Copy, Debug)]
@@ -256,7 +258,7 @@ pub(super) fn unsampleable(
 }
 
 /// Creates the texture a validated `declaration` describes with its `texels`, through the
-/// scene textures' upload plan.
+/// scene textures' upload plan (a volume's for a 3D texture).
 pub(super) fn upload(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -264,9 +266,20 @@ pub(super) fn upload(
     texels: &[u8],
 ) -> Result<wgpu::Texture, GameResourceError> {
     let label = declaration.label;
-    let upload_error =
-        |error: worldrunner_render_gpu::texture::UploadError| refuse(label, &error.to_string());
-    let [width, height, _] = declaration.size;
+    let upload_error = |error: UploadError| refuse(label, &error.to_string());
+    let [width, height, depth] = declaration.size;
+    if declaration.dimension == wgpu::TextureViewDimension::D3 {
+        // `packed_levels` admits texels for a volume one slice deep only.
+        return packed_volume_levels(
+            declaration.format,
+            [width, height, depth],
+            declaration.mip_levels,
+            texels,
+        )
+        .and_then(|levels| VolumeUpload::new(declaration.format, &levels))
+        .and_then(|plan| plan.upload(device, queue, label, wgpu::TextureUsages::empty()))
+        .map_err(upload_error);
+    }
     let levels = declaration.packed_levels()?;
     let chain: u64 = levels
         .iter()
@@ -297,7 +310,6 @@ pub(super) fn upload(
         })
         .collect();
     let kind = match declaration.dimension {
-        wgpu::TextureViewDimension::D3 => TextureKind::D3,
         wgpu::TextureViewDimension::D2Array => TextureKind::Array,
         _ => TextureKind::D2,
     };

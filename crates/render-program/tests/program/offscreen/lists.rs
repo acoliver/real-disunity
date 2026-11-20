@@ -6,7 +6,8 @@ use std::sync::Arc;
 use worldrunner_render_program::ids::{MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, GlobalState, ListDraw, OffscreenFrame, Record,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, GlobalState, ListDraw, OffscreenFrame,
+    Record,
 };
 
 use super::camera::{TARGET, alpha, fixture, material, renderer};
@@ -14,7 +15,7 @@ use super::rig::{BLUE, CLEAR, GREEN, RED, Rig, ZERO, layer, pixel, quad, texture
 
 const NEAR: TextureId = TextureId(11);
 
-fn whole(texture: TextureId) -> Attachments {
+pub fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
     Attachments::single(attachment, attachment)
 }
@@ -27,7 +28,7 @@ fn clear_to(color: [f64; 4]) -> Clear {
     }
 }
 
-fn item(renderer: u64, material: Option<u64>) -> ListDraw {
+pub fn item(renderer: u64, material: Option<u64>) -> ListDraw {
     ListDraw {
         renderer: RendererId(renderer),
         slot: 0,
@@ -37,8 +38,9 @@ fn item(renderer: u64, material: Option<u64>) -> ListDraw {
     }
 }
 
-fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
+pub fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
     Record::Draws(Arc::new(DrawList {
+        raster: DrawRaster::default(),
         target,
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,

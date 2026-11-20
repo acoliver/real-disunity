@@ -2,6 +2,8 @@
 mod frozen_contour_tests;
 #[path = "frame/frozen_prefix_tests.rs"]
 mod frozen_prefix_tests;
+#[path = "frame/game_tests.rs"]
+mod game_place_tests;
 
 #[test]
 fn multiple_color_outputs_validate_shapes_hazards_and_producers() {

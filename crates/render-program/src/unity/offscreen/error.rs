@@ -9,6 +9,9 @@ use crate::unity::layout::LayoutError;
 use crate::unity::shader::ResolveError;
 use crate::unity::state::StateError;
 
+use super::frame::RenderDimension;
+use super::slot_dimension;
+
 #[derive(Debug, thiserror::Error)]
 pub enum OffscreenError {
     #[error(transparent)]
@@ -86,6 +89,15 @@ pub enum OffscreenError {
     NotRenderTexture(TextureId),
     #[error("no layer names the texture {name}")]
     MissingTexture { name: String },
+    #[error("no layer names the structured buffer {name}")]
+    MissingBuffer { name: String },
+    #[error("the structured buffer {name} at set {set} binding {binding} {why}")]
+    UnsupportedBuffer {
+        name: String,
+        set: u32,
+        binding: u32,
+        why: String,
+    },
     #[error(
         "mesh {mesh:?} has no channel {channel} for the shader input {input}, which the shader \
          reads"
@@ -144,6 +156,24 @@ pub enum OffscreenError {
         mip: u32,
         element: u32,
     },
+    #[error(
+        "the shader reads {name} as a 2D texture and texture {texture:?} is a 2D array of {layers} layers"
+    )]
+    FlatSlotOverArray {
+        name: String,
+        texture: TextureId,
+        layers: u32,
+    },
+    #[error(
+        "the shader reads {name} as {} and texture {texture:?} is {stored}",
+        slot_dimension::view_name(*.declared)
+    )]
+    SlotDimensionMismatch {
+        name: String,
+        texture: TextureId,
+        declared: wgpu::TextureViewDimension,
+        stored: RenderDimension,
+    },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },
     #[error("set {set} binding {binding} is {what}, which offscreen draws do not bind")]
@@ -193,5 +223,35 @@ impl OffscreenError {
                 | Self::ConstantsOverBudget { .. }
                 | Self::Program(ProgramError::DeviceLost(_))
         )
+    }
+}
+
+/// A frame the state refused, with the record of the frame that caused it when one did.
+///
+/// A refusal names a record when the state met the error while planning that record, so the record
+/// is among those the frame lists. A refusal from anywhere else (a render texture, the frame's
+/// constants, a read after the records) names none.
+#[derive(Debug)]
+pub struct Refusal {
+    pub error: OffscreenError,
+    /// The index in `OffscreenFrame::records` of the record the state was planning.
+    pub record: Option<usize>,
+}
+
+impl Refusal {
+    pub(super) fn at(record: usize, error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: Some(record),
+        }
+    }
+}
+
+impl From<OffscreenError> for Refusal {
+    fn from(error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: None,
+        }
     }
 }

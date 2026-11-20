@@ -25,7 +25,7 @@ const COPY: TextureId = TextureId(11);
 
 /// The camera fixture (red left half over the clear color on an 8x8 target of `mips` levels),
 /// then a blit of that target through the identity tint into an 8x8 target of its own.
-fn camera_then_blit(rig: &mut Rig, mips: u32) -> OffscreenFrame {
+pub fn camera_then_blit(rig: &mut Rig, mips: u32) -> OffscreenFrame {
     let mut frame = fixture(rig, 1 << 1);
     frame.render_textures[0].mips = mips;
     frame.render_textures.push(texture(11, [8, 8]));

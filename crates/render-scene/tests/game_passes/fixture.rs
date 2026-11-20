@@ -5,15 +5,16 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, SceneWaterBody,
+    SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef},
+    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -104,6 +105,24 @@ pub fn quad_scene_with(albedo: SceneTexture) -> RenderScene {
         effects: None,
     })
     .unwrap()
+}
+
+/// A stock water body eight metres on a side, ten centimetres below the quad, so the quad hides
+/// it where they overlap and a ring of open water shows around the quad.
+pub fn water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: SceneWaterSettings::STOCK,
+        surface: SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: -100,
+        east_min_millimeters: -4000,
+        north_min_millimeters: -4000,
+        east_extent_millimeters: 8000,
+        north_extent_millimeters: 8000,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+    }
 }
 
 /// The material of a terrain palette entry, which names all three of its maps.
@@ -217,18 +236,37 @@ impl Rig {
         Self::with_features(scene, size, wgpu::Features::empty(), configure)
     }
 
-    /// [`Self::new`] on a device that has `features`, such as block-compressed texture formats.
+    /// A rig on the shared test device with exactly `features`, for a game whose targets need
+    /// them, such as block-compressed ones.
     pub fn with_features(
         scene: &RenderScene,
         size: [u32; 2],
         features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
+        Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
+            ScenePipelines::new(device, FORMAT)
+        })
+    }
+
+    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
+    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    pub fn hdr(
+        scene: &RenderScene,
+        size: [u32; 2],
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let hdr = wgpu::TextureFormat::Rgba16Float;
         Self::with_pipelines(
             scene,
             (size, view(size)),
-            configure,
-            (features, |device| ScenePipelines::new(device, FORMAT)),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame.format = hdr;
+                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                configure(settings);
+            },
+            |device| ScenePipelines::new(device, hdr),
         )
     }
 
@@ -254,23 +292,23 @@ impl Rig {
         Self::with_pipelines(
             scene,
             (size, camera),
+            wgpu::Features::empty(),
             |settings| {
                 settings.frame = FrameConfig::new(size, hdr, 1);
                 settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
                 settings.ssao = Some(ssao);
                 configure(settings);
             },
-            (wgpu::Features::empty(), |device| {
-                ScenePipelines::with_ssao(device, hdr, 1).unwrap()
-            }),
+            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
         )
     }
 
     fn with_pipelines(
         scene: &RenderScene,
         (size, camera): ([u32; 2], SceneView),
+        features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
-        (features, pipelines): (wgpu::Features, impl FnOnce(&wgpu::Device) -> ScenePipelines),
+        pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
     ) -> Self {
         let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");

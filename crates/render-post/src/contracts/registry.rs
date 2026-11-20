@@ -216,17 +216,14 @@ impl ResourceRegistry {
         let height = entry.texture.height();
         let volume = entry.texture.dimension() == wgpu::TextureDimension::D3;
         let valid = match dimension {
-            wgpu::TextureViewDimension::D2 => layers == 1,
+            // A volume is tracked as one cell whatever its depth, and a view of it is whole.
+            wgpu::TextureViewDimension::D2 | wgpu::TextureViewDimension::D3 => layers == 1,
             wgpu::TextureViewDimension::D2Array => true,
             wgpu::TextureViewDimension::Cube => {
                 layers == 6 && width == height && entry.texture.sample_count() == 1
             }
             wgpu::TextureViewDimension::CubeArray => {
                 layers.is_multiple_of(6) && width == height && entry.texture.sample_count() == 1
-            }
-            // A volume is tracked as one cell, so only one slice deep has a view.
-            wgpu::TextureViewDimension::D3 => {
-                layers == 1 && entry.texture.depth_or_array_layers() == 1
             }
             wgpu::TextureViewDimension::D1 => false,
         };

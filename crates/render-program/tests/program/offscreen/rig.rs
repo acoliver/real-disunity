@@ -150,6 +150,7 @@ pub fn source(id: u64, size: [u32; 2], bytes: Vec<u8>) -> SourceTexture {
         size,
         graphics_format: RGBA8,
         bytes,
+        mips: 1,
         sampler: None,
     }
 }

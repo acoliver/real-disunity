@@ -29,12 +29,21 @@ const DEFAULT_UNLIT: &str = "SRPDefaultUnlit";
 /// The meshes the renderers draw, one for each so a test can tell them apart in the frame.
 const MESH: u64 = 100;
 
-/// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material.
-fn placed(
+mod shadow;
+
+/// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material, that
+/// casts shadows.
+fn placed(world: &mut World, place: (u64, u8, Vec3), materials: &[MaterialId], queue: Option<i32>) {
+    placed_casting(world, place, materials, (queue, 1));
+}
+
+/// Like [`placed`], with the render queue and the shadow casting mode (0 off, 1 on, 2 two-sided,
+/// 3 shadows only) of the renderer.
+fn placed_casting(
     world: &mut World,
     (number, layer, position): (u64, u8, Vec3),
     materials: &[MaterialId],
-    queue: Option<i32>,
+    (queue, casting): (Option<i32>, u32),
 ) {
     let desc = ObjectDesc {
         layer,
@@ -57,6 +66,7 @@ fn placed(
         material_count: u32::try_from(materials.len()).unwrap(),
         slot_materials: materials.iter().copied().map(Some).collect(),
         render_queue: queue,
+        shadow_casting_mode: casting,
         ..MeshRenderer::default()
     };
     world
@@ -211,15 +221,27 @@ fn untagged_shaders(world: &mut World) -> [MaterialId; 3] {
     .map(|shader| material(world, shader))
 }
 
+/// A shader whose shadow caster pass has the `LightMode` value in capitals, as the shaders of a
+/// player build spell it.
+fn shouting_caster(world: &mut World) -> MaterialId {
+    let shader = shader(world, "forward-and-shouting-caster");
+    material(world, shader)
+}
+
 /// The name of each shader, the `LightMode` values of its tagged passes and whether it has a pass
 /// with no tag.
-const MODES: [(&str, &[&str], bool); 6] = [
+const MODES: [(&str, &[&str], bool); 7] = [
     ("forward-and-caster", &[FORWARD, CASTER], false),
     ("unlit", &[UNLIT], false),
     ("forward", &[FORWARD], false),
     ("untagged", &[], true),
     ("forward-and-untagged", &[FORWARD], true),
     ("always", &["Always"], false),
+    (
+        "forward-and-shouting-caster",
+        &[FORWARD, "SHADOWCASTER"],
+        false,
+    ),
 ];
 
 #[test]
@@ -558,96 +580,6 @@ fn queue_comes_before_distance_when_both_are_asked_for() {
     // Queue 2000 holds meshes 0 (distance 3) and 3 (distance 2): the farther first. Queue 2100 holds
     // meshes 1 (distance 1) and 2 (distance 2): the farther first.
     assert_eq!(order, [(0, 0), (3, 0), (2, 0), (1, 0)]);
-}
-
-#[test]
-fn a_shadow_list_draws_the_casters_inside_the_split() {
-    let mut world = world();
-    let [lit, unlit, over] = shaders(&mut world);
-    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
-    placed(&mut world, (1, 0, Vec3::new(20.0, 0.0, 0.0)), &[lit], None);
-    placed(&mut world, (2, 0, Vec3::new(1.0, 0.0, 0.0)), &[unlit], None);
-    // The shader of the override draws forward only and casts no shadow.
-    placed(&mut world, (3, 0, Vec3::new(0.0, 1.0, 0.0)), &[over], None);
-    scene(&mut world, Mat4::IDENTITY, u32::MAX);
-    draw(
-        &mut world,
-        RendererListDesc::Shadow {
-            cull: 5,
-            light_index: 0,
-            planes: Vec::new(),
-            sphere: [0.0, 0.0, 0.0, 5.0],
-            objects_filter: 0,
-            projection: 2,
-            use_rendering_layer_mask_test: false,
-        },
-    );
-    let adapted = run(&mut world, |available| {
-        let cube = Bounds {
-            min: [-0.5; 3],
-            max: [0.5; 3],
-        };
-        for number in 0..4 {
-            available.bounds.insert(MESH + number, cube);
-        }
-    });
-    let listed = lists(&adapted);
-    assert_eq!(listed.len(), 1);
-    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
-    assert_eq!(
-        listed[0].draws[0].pass,
-        PassSelector::Tag {
-            key: "LightMode".to_owned(),
-            values: vec![CASTER.to_owned()],
-        }
-    );
-    let report = &adapted.report.lists;
-    assert_eq!(report.shadow_drawn, 1);
-    assert_eq!(report.draws_by_tag, counts(&[(CASTER, 1)]));
-    assert_eq!(
-        report.left_out,
-        counts(&[
-            ("no shadow caster pass", 2),
-            ("outside the split's sphere", 1)
-        ])
-    );
-}
-
-#[test]
-fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
-    let mut world = world();
-    let [lit, ..] = shaders(&mut world);
-    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
-    placed(&mut world, (1, 0, Vec3::new(0.0, 6.0, 0.0)), &[lit], None);
-    scene(&mut world, Mat4::IDENTITY, u32::MAX);
-    draw(
-        &mut world,
-        RendererListDesc::Shadow {
-            cull: 5,
-            light_index: 0,
-            // Inside where y <= 3: a normal along negative y and the distance 3.
-            planes: vec![[0.0, -1.0, 0.0, 3.0]],
-            sphere: [0.0; 4],
-            objects_filter: 0,
-            projection: 1,
-            use_rendering_layer_mask_test: false,
-        },
-    );
-    let adapted = run(&mut world, |available| {
-        let cube = Bounds {
-            min: [-0.5; 3],
-            max: [0.5; 3],
-        };
-        for number in 0..2 {
-            available.bounds.insert(MESH + number, cube);
-        }
-    });
-    let listed = lists(&adapted);
-    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
-    assert_eq!(
-        adapted.report.lists.left_out,
-        counts(&[("outside the split's planes", 1)])
-    );
 }
 
 #[test]

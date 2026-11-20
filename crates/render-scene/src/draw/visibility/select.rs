@@ -8,8 +8,9 @@
 use std::cell::Ref;
 
 use glam::{Mat4, Vec3};
-use worldrunner_render_plan::SceneObject;
+use worldrunner_render_plan::{MaterialHandle, SceneObject};
 
+use super::fade::FadeReach;
 use super::placement::{self, largest_relief};
 use super::{
     Bounds, Frustum, MeshSelection, Passed, Selection, distance_squared, relief_ray_stretch,
@@ -40,6 +41,8 @@ struct IndexedBatch<'a> {
     placements: &'a [Option<(SceneObject, bool)>],
     bounds: &'a SlotBounds,
     largest_relief: f32,
+    /// What can fade out a placement of the batch.
+    fade_reach: FadeReach,
 }
 
 #[cfg(test)]
@@ -83,6 +86,10 @@ pub(in crate::draw) fn with_placements<R>(
                 placements: batch.slots(),
                 bounds,
                 largest_relief: largest_relief(bounds.reliefs()),
+                fade_reach: meshes[key.1].fade_reach(
+                    &instances.fades,
+                    MaterialHandle::from_raw(u32::try_from(key.2).expect("material handle")),
+                ),
             })
             .collect(),
         meshes,
@@ -213,6 +220,7 @@ impl Placements<'_> {
             );
             let lod = MeshSelection::level(distance, inputs.ceilings);
             if !self.fade_cull_disabled
+                && batch.fade_reach.applies(inputs.fade.band)
                 && self.meshes[batch.key.1].fade_empty(
                     self.fades,
                     object.material(),

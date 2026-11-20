@@ -451,12 +451,15 @@ impl Selection {
 }
 
 fn distance_squared(position: [i64; 3], eye: [i64; 3]) -> u128 {
-    position
+    let deltas = [0, 1, 2].map(|axis| position[axis].abs_diff(eye[axis]));
+    // Squares of deltas below 2^31 sum to less than 2^64, as a placement's always do.
+    if deltas.iter().all(|&delta| delta < 1 << 31) {
+        return u128::from(deltas.iter().map(|&delta| delta * delta).sum::<u64>());
+    }
+    deltas
         .into_iter()
-        .zip(eye)
-        .try_fold(0_u128, |sum, (position, eye)| {
-            let delta = (i128::from(position) - i128::from(eye)).unsigned_abs();
-            sum.checked_add(delta * delta)
+        .try_fold(0_u128, |sum, delta| {
+            sum.checked_add(u128::from(delta) * u128::from(delta))
         })
         .expect("squared placement distance exceeds u128 millimetres")
 }

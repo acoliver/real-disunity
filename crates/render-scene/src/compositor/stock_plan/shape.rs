@@ -87,7 +87,9 @@ pub(super) fn snapshot_bank<'a>(
 ) -> Vec<&'a wgpu::Texture> {
     snapshots.map_or_else(Vec::new, |snapshots| {
         let snapshot = &snapshots[environment.slot];
-        vec![&snapshot.color, &snapshot.depth, &snapshot.final_depth]
+        let mut bank = vec![&snapshot.color, &snapshot.depth, &snapshot.final_depth];
+        bank.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
+        bank
     })
 }
 

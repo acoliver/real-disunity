@@ -317,6 +317,7 @@ impl FrameRenderer {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
         }
+        self.ensure_game_snapshots(device);
         let velocity = self.targets().velocity_texture().cloned();
         let mut textures = Vec::new();
         textures.extend(velocity.as_ref());
@@ -339,6 +340,7 @@ impl FrameRenderer {
         if let Some(snapshots) = self.snapshots.as_ref().filter(|_| self.snapshots_written()) {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
+            textures.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
         }
         let game = self.game_capture_imports();
         let imports: Vec<_> = textures

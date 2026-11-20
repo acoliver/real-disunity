@@ -1,4 +1,6 @@
 //! Planar water reads immutable opaque snapshots and writes surface depth.
+#[cfg(test)]
+mod device_depth_tests;
 mod endpoint;
 mod geometry;
 mod optics;

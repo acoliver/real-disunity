@@ -40,7 +40,7 @@ impl FrameRenderer {
         self.stock_water().is_some()
             || self.ssr.is_some()
             || self.overlay.needs_depth()
-            || self.game.snapshot_reads
+            || self.game.snapshot_reads.any()
     }
 
     /// Whether the allocated snapshot banks are written: a reader above, or a caller feature that

@@ -2,6 +2,7 @@
 
 mod ambient_gpu;
 mod assets;
+mod blit_matrices_gpu;
 mod block_sources;
 mod bounds;
 mod builtins;

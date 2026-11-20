@@ -18,6 +18,7 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::placed::placed_blit;
 use worldrunner_render_program::unity::synthetic::shaders::{
     BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
@@ -64,6 +65,8 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A blit pass that places its quad by `unity_ObjectToWorld` and `unity_MatrixVP`.
+            "placed_blit" => placed_blit("_MainTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.

@@ -324,6 +324,9 @@ pub struct OffscreenFrame {
     pub main_texture: String,
     /// The mesh a blit draws: triangles with no index buffer, in clip space.
     pub blit_mesh: Option<MeshId>,
+    /// The values the host gives every blit with a material, above the material and the
+    /// globals: what `Graphics.Blit` itself sets, such as the transform of its quad.
+    pub blit_values: PropertyLayer,
     pub globals: PropertyLayer,
     pub global_keywords: Vec<String>,
     pub render_textures: Vec<RenderTextureSpec>,
@@ -377,6 +380,7 @@ impl Default for OffscreenFrame {
         Self {
             main_texture: DEFAULT_MAIN_TEXTURE.to_owned(),
             blit_mesh: None,
+            blit_values: PropertyLayer::default(),
             globals: PropertyLayer::default(),
             global_keywords: Vec::new(),
             render_textures: Vec::new(),

@@ -298,18 +298,29 @@ impl Gpu {
 
     /// A device that also asks for `optional` where the adapter has it.
     pub fn with_optional(optional: wgpu::Features) -> Self {
+        // Block compression is optional: the tests that draw from a block-compressed source
+        // check that the device has it.
+        Self::with_requirements(&DeviceRequirements {
+            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC | optional,
+            ..DeviceRequirements::default()
+        })
+    }
+
+    /// A device whose limits are the defaults with `lower` applied, for the tests of what a
+    /// device with less than the adapter's limits refuses.
+    pub fn with_limits(lower: impl FnOnce(&mut wgpu::Limits)) -> Self {
+        let mut requirements = DeviceRequirements::default();
+        lower(&mut requirements.required_limits);
+        Self::with_requirements(&requirements)
+    }
+
+    fn with_requirements(requirements: &DeviceRequirements) -> Self {
         let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("the program tests need a GPU adapter");
         announce_adapter(&adapter);
-        // Block compression is optional: the tests that draw from a block-compressed source
-        // check that the device has it.
-        let requirements = DeviceRequirements {
-            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC | optional,
-            ..DeviceRequirements::default()
-        };
-        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, requirements))
             .expect("the adapter gives a device");
         Self {
             device,

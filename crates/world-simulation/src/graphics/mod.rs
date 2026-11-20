@@ -37,8 +37,8 @@ pub use context::MAX_CULL_PLANES;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
-    MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
-    ShaderProperties, TextureRef, TextureSlot,
+    BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND,
+    MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue, ShaderProperties, TextureRef, TextureSlot,
 };
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};

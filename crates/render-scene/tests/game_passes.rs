@@ -17,6 +17,8 @@ mod persistence;
 mod post_water_depth;
 #[path = "game_passes/post_water_game.rs"]
 mod post_water_game;
+#[path = "game_passes/prepared.rs"]
+mod prepared;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
 #[path = "game_passes/replacement.rs"]

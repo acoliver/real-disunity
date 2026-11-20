@@ -445,8 +445,8 @@ pub(super) fn planned_draw(
 }
 
 /// The draw `planned` made, or `None` when it was left out for a cause the report counts: no
-/// pass the selector picks, a texture no layer names or a mesh channel the pass reads. Other
-/// errors fail the frame.
+/// pass the selector picks, a texture or structured buffer no layer names or a mesh channel the
+/// pass reads. Other errors fail the frame.
 pub(super) fn counted(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
@@ -469,6 +469,10 @@ pub(super) fn counted(
             svc.counts.missing_texture += 1;
             *svc.counts.current.textures.entry(name.clone()).or_default() += 1;
             *svc.counts.missing_textures.entry(name).or_default() += 1;
+            Ok(None)
+        }
+        Err(OffscreenError::MissingBuffer { name }) => {
+            *svc.counts.missing_buffers.entry(name).or_default() += 1;
             Ok(None)
         }
         Err(OffscreenError::MissingChannel { channel, input, .. }) => {

@@ -105,9 +105,9 @@ impl GameTargets {
     /// # Errors
     /// [`FrameError::MissingPass`] when the frame has no Opaque pass to take the frame's
     /// attachments from, [`FrameError::AttachmentContract`] for a pass with no attachment,
-    /// [`FrameError::AttachmentView`] for a target or layer that is not declared, and
-    /// [`FrameError::AttachmentHazard`] for a target that shares its name with another
-    /// attachment of the frame.
+    /// [`FrameError::AttachmentView`] for a target or layer that is not declared and for a copy
+    /// target written as a colour output, and [`FrameError::AttachmentHazard`] for a target that
+    /// shares its name with another attachment of the frame.
     pub fn plan_pass(
         &self,
         spec: &GamePassSpec,
@@ -126,6 +126,13 @@ impl GameTargets {
             colors.push(match output {
                 ColorOutput::Target(resource) => {
                     let view = self.view(*resource)?;
+                    if !view
+                        .texture()
+                        .usage()
+                        .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+                    {
+                        return Err(FrameError::AttachmentView(*resource));
+                    }
                     let declaration = AttachmentDeclaration {
                         resource: *resource,
                         format: view.format(),
@@ -191,6 +198,81 @@ impl GameTargets {
         let mut reads = spec.reads.clone();
         reads.extend(spec.snapshots.resources());
         Ok(FeaturePass { reads, ..feature })
+    }
+}
+
+impl GameTargets {
+    /// Adds to the binding table the layers a preparation operation of the frame reads and
+    /// writes, and marks the written ones prepared: the frame's preparation writes them before its
+    /// first pass, so a pass of the frame may read them, and the frame counts them written when
+    /// it is submitted. A view the table already holds for a written layer is marked in place, so
+    /// a pass that reads it, planned before or after, sees the same view.
+    ///
+    /// Call this from [`FrameFeature::plan`](worldrunner_render_post::FrameFeature::plan), then
+    /// stage the operations that write the layers with
+    /// [`PrepareContext::record_prepared`](worldrunner_render_post::PrepareContext::record_prepared)
+    /// in the feature's `prepare`, each written layer exactly once.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentView`] for an undeclared target or layer;
+    /// [`FrameError::MissingProducer`] for a read of a layer no submitted frame wrote;
+    /// [`FrameError::AttachmentHazard`] for a layer both read and written, and for a target that
+    /// shares its name with another view of the frame; [`FrameError::RepeatedPreparedWrite`] for
+    /// a layer the frame's preparation already writes. Nothing is added on any refusal.
+    pub fn plan_prepared(
+        &self,
+        reads: &[ResourceRef],
+        writes: &[ResourceRef],
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(), FrameError> {
+        let mut added = Vec::new();
+        for resource in reads {
+            let view = self.view(*resource)?;
+            if writes.contains(resource) {
+                return Err(FrameError::AttachmentHazard(*resource));
+            }
+            if !view.retained() {
+                return Err(FrameError::MissingProducer(*resource));
+            }
+            added.push(view);
+        }
+        let written = self.prepared_views(writes, views)?;
+        views.extend(new_views(views, added)?);
+        for view in written {
+            match views
+                .iter_mut()
+                .find(|known| known.resource() == view.resource())
+            {
+                Some(known) => *known = known.clone().with_prepared_contents(),
+                None => views.push(view.with_prepared_contents()),
+            }
+        }
+        Ok(())
+    }
+
+    /// The views of `writes`, checked against each other and against the table.
+    fn prepared_views(
+        &self,
+        writes: &[ResourceRef],
+        views: &[AttachmentView],
+    ) -> Result<Vec<AttachmentView>, FrameError> {
+        let mut written = Vec::new();
+        for (index, resource) in writes.iter().enumerate() {
+            let view = self.view(*resource)?;
+            match views.iter().find(|known| known.resource() == *resource) {
+                Some(known) if known.texture() != view.texture() => {
+                    return Err(FrameError::AttachmentHazard(*resource));
+                }
+                Some(known) if known.prepared_contents() => {
+                    return Err(FrameError::RepeatedPreparedWrite(*resource));
+                }
+                _ if writes[..index].contains(resource) => {
+                    return Err(FrameError::RepeatedPreparedWrite(*resource));
+                }
+                _ => written.push(view),
+            }
+        }
+        Ok(written)
     }
 }
 

@@ -41,10 +41,13 @@ pub use crate::draw::TerrainDraws;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
+#[cfg(test)]
+pub(crate) use game::terrain_probe;
 pub use game::{
-    ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, GameBuild, GameFeatureFactory,
-    GamePassSpec, GamePasses, GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    TargetLifetime, join_pass,
+    CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
+    FrameShadowHandle, FrameShadows, FrameTerrainError, FrameTerrainHandle, GameBuild,
+    GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, ShadowCascade,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -98,6 +101,8 @@ pub struct FrameRenderer {
     game: game::Installed,
     /// The camera of the frame being encoded, which the game's features read.
     game_camera: FrameCameraHandle,
+    /// The streamed terrain of the frame being encoded, which the game's features read.
+    game_terrain: FrameTerrainHandle,
     /// Whether the stock passes draw the scene's terrain.
     terrain_draws: TerrainDraws,
 }
@@ -160,6 +165,7 @@ impl FrameRenderer {
             plan_cache: std::rc::Rc::default(),
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
+            game_terrain: FrameTerrainHandle::default(),
             terrain_draws: TerrainDraws::Stock,
             water: None,
             water_state: std::rc::Rc::default(),

@@ -10,6 +10,7 @@ use worldrunner_render_program::unity::offscreen::{
 
 use super::compute::DispatchTrace;
 use super::frame::{RendererSkip, Skip};
+use super::stand_ins::StandInCounts;
 use super::trace::Phases;
 
 /// The uploaded textures and meshes and the render textures given back to make room in the
@@ -66,6 +67,9 @@ pub struct Report {
     /// The camera draws left out because no layer names a texture the pass samples, by the
     /// texture property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a structured buffer the pass reads, by the
+    /// buffer property.
+    pub missing_buffers: BTreeMap<String, usize>,
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by
     /// `channel C for input I`.
     pub missing_channels: BTreeMap<String, usize>,
@@ -77,6 +81,8 @@ pub struct Report {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The draws that read a stand-in texture, by property and reason.
+    pub stand_ins: StandInCounts,
     /// The names of the constant buffer members and fixed-state properties that no layer set for
     /// a draw the frame built, camera draws and renderer-list draws alike. The draw keeps the
     /// packer's value, zero, or the pass's own state. The names are not counted per draw.
@@ -179,8 +185,16 @@ impl Report {
         for entry in operations.missing_texture_draws() {
             *self.missing_textures.entry(entry.texture).or_default() += entry.draws;
         }
+        for entry in operations.missing_buffer_draws() {
+            *self.missing_buffers.entry(entry.buffer).or_default() += entry.draws;
+        }
         for entry in operations.undeclared_default_draws() {
             *self.undeclared_defaults.entry(entry.texture).or_default() += entry.draws;
+        }
+        self.stand_ins.draws += operations.draws_with_stand_ins();
+        for entry in operations.stand_in_draws() {
+            let name = format!("{} {}", entry.texture, entry.reason);
+            *self.stand_ins.by_property.entry(name).or_default() += entry.draws;
         }
         for entry in operations.missing_channel_draws() {
             let name = format!("channel {} for input {}", entry.channel, entry.input);
@@ -293,6 +307,9 @@ impl Report {
         for (name, count) in other.missing_textures {
             *self.missing_textures.entry(name).or_default() += count;
         }
+        for (name, count) in other.missing_buffers {
+            *self.missing_buffers.entry(name).or_default() += count;
+        }
         for (name, count) in other.missing_channels {
             *self.missing_channels.entry(name).or_default() += count;
         }
@@ -302,6 +319,7 @@ impl Report {
         for (name, count) in other.undeclared_defaults {
             *self.undeclared_defaults.entry(name).or_default() += count;
         }
+        self.stand_ins.add(&other.stand_ins);
     }
 }
 

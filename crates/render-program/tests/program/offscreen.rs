@@ -3,6 +3,7 @@
 
 mod blit;
 mod block_sources;
+mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;
@@ -25,6 +26,7 @@ mod rig;
 mod sampler;
 mod shapes;
 mod source_array;
+mod stand_ins;
 mod stencil;
 mod storage;
 mod undeclared;

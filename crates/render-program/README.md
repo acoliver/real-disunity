@@ -64,6 +64,68 @@ returned channels for the six scalar/two-component formats. Its fixtures expose
 the raw fetched vec4 with a documented post-DXC edit, because HLSL otherwise
 reconstructs or discards the missing channels.
 
+## SPIR-V non-finite constants
+
+Compilers write NaN and infinity as `OpConstant` bit patterns, alone and inside
+`OpConstantComposite`; a vertex stage that discards an instance writes a position of
+`vec4(NaN)` this way. naga turns every constant into a constant expression and its
+validator refuses a non-finite float literal in any expression, so `StageProgram::new`
+used to fail with `ConstExpression { source: Literal(NaN) }`. SPIR-V passthrough is not
+an option because the same stages must also reach Metal through naga's MSL writer.
+
+After the typed buffer pass and before naga parses the words, `StageSource::SpirV`
+removes each non-finite 32-bit `OpConstant` and each `OpConstantComposite` that
+contains one. Every function that used a removed constant builds it at the top of its
+entry block: a local `u32` variable initialised with the bit pattern, an `OpLoad` and an
+`OpBitcast` to the float, and for a composite an `OpCompositeConstruct` of its parts.
+Finite parts keep their original constants. A local variable initialised with a removed
+constant is stored to after the value exists. The bits are unchanged: quiet NaN
+payloads, signs and both infinities arrive at the GPU shader compiler as written.
+
+naga 30.0.1's SPIR-V front end appends a function's expressions without evaluating
+them, and its constant evaluator reports a bitcast as not implemented, so a bitcast
+of a constant would probably not be folded today. The rewrite does not depend on that:
+the pipeline-constant pass evaluates every function expression whose operands are
+constants, and a load of a local variable is never one, so the value stays a run-time value and is
+never turned back into the refused literal.
+
+A module that is rewritten loses its source-line markers and its debug-info records:
+every `OpLine` and `OpNoLine`, every `OpExtInst` of the `NonSemantic.Shader.DebugInfo.100`
+set, and the `OpName` of those records' results. Debug and line attribution is therefore
+not preserved for rewritten modules. naga reads none of these records, and the rewrite
+cannot keep them: rspirv moves an `OpLine` that precedes an `OpLabel` out of its
+function, and it refuses an `OpExtInst` outside a function. A marker among an entry
+block's variables would also split the run of leading variables whose initialisers the
+rewrite moves. The import, the `SPV_KHR_non_semantic_info` extension and every other
+instruction stay. Records of other `NonSemantic` sets are not touched; naga refuses
+those sets anyway.
+
+Modules without a non-finite 32-bit `OpConstant` borrow their words and are returned
+byte for byte, line markers and debug records included, and so are the modules that
+are declined below. Limits that leave the module to naga, which refuses it as before:
+
+- Specialization constants are never rewritten. `OpSpecConstant` with a non-finite
+  default stays an override with a refused literal, because a pipeline may replace its
+  value and nothing computed in a function would honour that.
+- A non-finite constant that a global variable initialiser or a specialization constant
+  instruction uses leaves the whole module unchanged.
+- A module in which an instruction that stays still reads the result of a removed
+  debug-info record is left unchanged, so no reference is left without its definition.
+- 64-bit and 16-bit constants are not touched.
+- Hardware and driver behaviour of NaN is the device's: a driver that compiles with
+  fast-math may treat NaN and infinity as undefined. The tests run on lavapipe only;
+  naga's MSL writer translates the rewritten modules, which no test runs on Metal.
+
+`src/nonfinite/tests.rs` covers admission, byte-identical pass-through, the refused
+cases and MSL translation on the CPU. `src/nonfinite/tests/debug_records.rs` covers line
+markers and debug-info records, and `src/nonfinite/tests/guards.rs` covers nested
+composites shared by functions and used by an `OpPhi`, and specialization constants.
+`tests/nonfinite.rs` runs synthetic modules on the selected GPU: a NaN position discards
+its primitives while the others draw, and scalars, mixed composites, local initialisers
+and constants shared by two functions keep their exact bits through a storage buffer. The modules are WGSL compiled to SPIR-V with
+finite sentinel constants whose words are replaced by the non-finite patterns
+(`tests/support/sentinel.rs`), because no naga module can hold such a literal.
+
 ## The native API
 
 A Rust game registers programs and makes materials without building stages, layouts and bindings by hand. The calls are on `ProgramRuntime` and take no Unity type. [Drawing with your own shader programs](../../docs/render-program-native.md) is the guide, with a complete example that `cargo run -p worldrunner-render-program --example native_material` runs and that CI compiles.
@@ -305,6 +367,8 @@ Each has its own test in `crates/render-post`; see the [render-post README](../r
 ### Property layers and samplers
 
 A `PropertyLayer` holds numeric values and texture inputs by name. A draw reads four layers, highest first: the caller's per-draw values, the renderer's property block, the material and the globals. For a camera draw the camera's values (view and projection, which the caller names however its shaders do) sit in the per-draw layer, below the renderer's own per-draw values. This crate names no Unity built-in. A constant buffer member or texture no layer has keeps the packer's behaviour (zero) and is listed in `OffscreenOperations::missing`; a texture no layer has is `OffscreenError::MissingTexture` for a blit, and for a camera draw the draw is left out, counted in `camera_draws()` and by texture property in `missing_texture_draws()`, while the camera's other draws are kept. A camera draw whose mesh lacks a vertex channel the pass reads is handled the same way and counted by channel and shader input in `missing_channel_draws()`; a blit with such a mesh still fails with `MissingChannel`.
+
+A `PropertyLayer` also holds structured buffers: `buffers` maps a property name to the `BufferHandle` of a runtime buffer (`ProgramRuntime::create_buffer`), the handle a compute dispatch binds, so one upload serves a dispatch and a draw. A read-only storage slot of a graphics program (Unity's `StructuredBuffer<T>`, set with `Material.SetBuffer`) is named by the HLSL name its stage's parameters give it, the same name a kernel's buffer is bound under, and the draw binds the whole buffer read only to the stages the slot declares. The layers are asked in the order textures are: per-draw values, the camera's or list's values, the renderer's property block, the material, the material's fallback and the globals, and the first that names the buffer wins. A draw whose buffer no layer names is left out and counted by property in `missing_buffer_draws()` (a blit with such a material fails with `MissingBuffer`). A writable storage slot, a buffer shorter than the shader reads, and a stage the device binds fewer storage buffers to than the shader declares (a vertex stage with none, on some adapters) are refused by name as `UnsupportedBuffer`. `ListDraw::instances` is the number of instances a list item draws, as `DrawMeshInstancedIndirect` does with the instance count of its arguments; 0 draws nothing and plans nothing, and camera renders draw one.
 
 A `TextureInput` may carry a `SamplerState` (wrap along U, V and W, a filter mode and an anisotropy). `SamplerState::new(u, v, filter)` wraps W by clamping to the edge and reads without anisotropy. The anisotropy is the wgpu `anisotropy_clamp` and is applied only to a trilinear state, because wgpu refuses an anisotropy above 1 unless the texel filters and the mip filter are all linear; point and bilinear states read with 1, and a value outside 1 to 16 is clamped into that range. There is no mip bias, since wgpu samplers have none. `SamplerCache` creates one `CheckedSampler` per state. The state of a texture input overrides the state of the texture, and a texture with neither keeps the fixed sampler the crate always used, so existing tests do not change. A split combined sampler takes the state of the texture it was split from.
 

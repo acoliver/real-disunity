@@ -33,7 +33,12 @@ mod shadow;
 
 /// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material, that
 /// casts shadows.
-pub(super) fn placed(world: &mut World, place: (u64, u8, Vec3), materials: &[MaterialId], queue: Option<i32>) {
+pub(super) fn placed(
+    world: &mut World,
+    place: (u64, u8, Vec3),
+    materials: &[MaterialId],
+    queue: Option<i32>,
+) {
     placed_casting(world, place, materials, (queue, 1));
 }
 

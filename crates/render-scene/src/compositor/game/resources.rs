@@ -13,6 +13,7 @@
 use super::declared_textures::{
     GameTextureDeclaration, TextureIdentity, beyond_limits, refuse, unsampleable, upload,
 };
+use super::level_import::{LevelAccess, import_level};
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -119,6 +120,9 @@ pub enum GameResourceError {
     /// A readback of the texture or target `label` that cannot be made or delivered.
     #[error("readback of {label}: {reason}")]
     Readback { label: String, reason: String },
+    /// An import of one level of the texture or target `label` that cannot be made.
+    #[error("import of a level of {label}: {reason}")]
+    Import { label: String, reason: String },
 }
 
 impl From<GameResourceError> for FrameError {
@@ -458,6 +462,28 @@ impl GameResources {
             declared.view.clone(),
             declared.dimension,
         ))
+    }
+
+    /// Level `level.mip` of layer `level.layer` of a declared texture as a 2D view of exactly
+    /// that level, for the binding sourced from `semantic`: a `texture_2d` the shader samples
+    /// or loads at its level 0. [`GameTargets::import_level`](super::GameTargets::import_level)
+    /// does the same for a target.
+    ///
+    /// # Errors
+    /// [`GameResourceError::Foreign`] for another store's handle, and
+    /// [`GameResourceError::Import`], naming the texture, for a 3D texture, a mip or layer
+    /// outside the texture, or a texture without the usage `access` needs: a declared texture
+    /// is sampled, never a storage image.
+    pub fn import_texture_level(
+        &self,
+        semantic: EngineSemantic,
+        texture: GameTexture,
+        level: GameLevel,
+        access: LevelAccess,
+    ) -> Result<Import, GameResourceError> {
+        let store = self.store.borrow();
+        let declared = self.texture(&store, texture)?;
+        import_level(&declared.label, &declared.texture, semantic, level, access)
     }
 
     /// The sampler for the binding sourced from `semantic`.

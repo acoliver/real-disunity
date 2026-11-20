@@ -28,6 +28,7 @@ mod steps;
 mod storage_buffers;
 mod textures;
 mod tracker;
+mod views;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -66,6 +67,7 @@ pub use probe::{
 };
 pub use readback::PendingImage;
 pub use steps::DRAW_LAYERS;
+pub use views::ViewCounts;
 
 /// What offscreen work keeps between frames: shaders, meshes, textures, programs and pipelines.
 pub struct OffscreenState {
@@ -374,6 +376,7 @@ impl OffscreenState {
             blocks,
             shared: shared_blocks,
         };
+        let planned_draws = steps.iter().map(steps::Step::planned_draws).sum();
         let mut operations = Vec::new();
         let mut constants_keys = Vec::new();
         for (key, upload) in
@@ -403,6 +406,7 @@ impl OffscreenState {
             missing: missing.into_iter().collect(),
             counts,
             constants_use,
+            planned_draws,
         })
     }
 
@@ -558,6 +562,7 @@ pub struct OffscreenOperations {
     missing: Vec<String>,
     counts: DrawCounts,
     constants_use: ConstantsUse,
+    planned_draws: usize,
 }
 
 /// What a frame's constants took: the buffers they were uploaded into, their bytes, the largest
@@ -844,6 +849,18 @@ impl OffscreenOperations {
     #[must_use]
     pub fn constants_use(&self) -> ConstantsUse {
         self.constants_use
+    }
+
+    /// The draws the build planned and held at once before it made these operations.
+    #[must_use]
+    pub fn planned_draws(&self) -> usize {
+        self.planned_draws
+    }
+
+    /// The texture views the build made and the ones its draws took from the views already made.
+    #[must_use]
+    pub fn view_counts(&self) -> ViewCounts {
+        self.tracker.view_counts()
     }
 
     /// The programs this frame's draws built because the state had none for their shader, pass and

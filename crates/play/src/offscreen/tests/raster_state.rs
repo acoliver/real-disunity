@@ -53,7 +53,7 @@ impl Rig {
 fn scissored(rect: [f32; 4]) -> DrawRaster {
     DrawRaster {
         scissor: Some(rect),
-        depth_bias: [0.0; 2],
+        ..DrawRaster::default()
     }
 }
 
@@ -121,8 +121,8 @@ fn a_depth_bias_holds_across_target_changes_until_the_next_bias_record() {
     rig.bias(0.0, 0.0);
     rig.draw_mesh();
     let with = |depth_bias| DrawRaster {
-        scissor: None,
         depth_bias,
+        ..DrawRaster::default()
     };
     assert_eq!(
         rig.rasters(),

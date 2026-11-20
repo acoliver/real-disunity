@@ -15,6 +15,7 @@ pub struct CheckedDraw {
     primitive: wgpu::PrimitiveState,
     stencil_reference: Option<u32>,
     scissor: Option<[u32; 4]>,
+    viewport: Option<[f32; 4]>,
 }
 impl CheckedDraw {
     /// Retains the actual creation contract, rather than accepting caller-reported metadata.
@@ -79,6 +80,7 @@ impl CheckedDraw {
             primitive: descriptor.primitive,
             stencil_reference: None,
             scissor: None,
+            viewport: None,
         })
     }
     /// The stencil reference the draw sets on the pass before it draws. The pipeline's stencil
@@ -100,6 +102,17 @@ impl CheckedDraw {
     pub fn with_scissor(self, rect: [u32; 4]) -> Self {
         Self {
             scissor: Some(rect),
+            ..self
+        }
+    }
+    /// The rectangle the draw maps clip space to, which it sets on the pass before it draws: x, y,
+    /// width and height in texels of the pass's attachments from the top left, with depth over
+    /// 0 to 1. The rectangle must lie inside the attachments and have an area. A draw that sets
+    /// none draws with the viewport the pass holds, which is the whole attachments until one is set.
+    #[must_use]
+    pub fn with_viewport(self, rect: [f32; 4]) -> Self {
+        Self {
+            viewport: Some(rect),
             ..self
         }
     }
@@ -177,6 +190,9 @@ impl CheckedDraw {
         pass.set_pipeline(&self.pipeline);
         if let Some(reference) = self.stencil_reference {
             pass.set_stencil_reference(reference);
+        }
+        if let Some([x, y, width, height]) = self.viewport {
+            pass.set_viewport(x, y, width, height, 0.0, 1.0);
         }
         if let Some([x, y, width, height]) = self.scissor {
             pass.set_scissor_rect(x, y, width, height);

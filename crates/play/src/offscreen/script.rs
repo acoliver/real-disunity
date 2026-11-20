@@ -128,7 +128,7 @@ struct TargetSet {
 }
 
 /// Whether a viewport of `rect` (x, y, width, height in pixels) covers a target of `size`.
-fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
+pub(super) fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
     let [x, y, width, height] = rect.map(f64::from);
     let [target_width, target_height] = size.map(f64::from);
     x <= 0.0 && y <= 0.0 && x + width >= target_width && y + height >= target_height
@@ -149,7 +149,7 @@ pub(super) struct Script {
     /// The rectangle in pixels (x, y, width, height) the draws after a `SetViewport` cover on every
     /// attachment of the bound set, until a target or a camera setup binds targets again. `None` is
     /// the whole target.
-    viewport: Option<[f32; 4]>,
+    pub(super) viewport: Option<[f32; 4]>,
     /// The scissor and the depth bias of the draws that follow.
     pub(super) raster: RasterScript,
     pub(super) camera: Option<CameraSetup>,
@@ -483,8 +483,9 @@ impl Mapper<'_> {
         }
     }
 
-    /// The targets a clear or a draw goes to. A draw is refused while a recorded viewport leaves
-    /// part of them uncovered, because the offscreen host draws every pass over its whole target.
+    /// The targets a clear goes to. A clear is refused while a recorded viewport leaves part of
+    /// them uncovered, because the offscreen host clears a whole target. A draw takes
+    /// [`draw_target`](Self::draw_target), which maps a partial viewport.
     pub(super) fn bound_target(&self) -> Result<Attachments, Skip> {
         let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         match (self.script.viewport, self.target_size()) {

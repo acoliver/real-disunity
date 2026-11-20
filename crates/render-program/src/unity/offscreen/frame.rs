@@ -233,6 +233,11 @@ pub struct DrawRaster {
     /// the rectangle outside the attachments is dropped, and a rectangle with no texel left draws
     /// nothing.
     pub scissor: Option<[f32; 4]>,
+    /// The rectangle in texels of the attachments that the draws' clip space maps to: x, y, width
+    /// and height from column 0 and row 0 at the attachments' mip, the corner a script calls the
+    /// bottom left. `None` maps clip space to the whole attachments. A rectangle that is not
+    /// inside the attachments, or that has no area, draws nothing.
+    pub viewport: Option<[f32; 4]>,
     /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
     /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
     /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))

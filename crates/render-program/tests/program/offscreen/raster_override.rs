@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
+use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     DrawRaster, OffscreenFrame, ProceduralDraw, Record,
 };
@@ -23,13 +24,14 @@ use super::rig::{BLUE, CLEAR, Rig, pixel, texture};
 const TARGET: TextureId = TextureId(10);
 const SHADER: ShaderId = ShaderId(1);
 const SIZE: u32 = 8;
+const SIDE: f32 = 8.0;
 const NO_COLOR: u32 = 0;
 /// The depth the slanted triangles write at column `x`, whose centre is at `(x + 0.5) / SIZE`.
 fn slanted_depth(x: u32) -> f32 {
-    0.25 + 0.5 * (x as f32 + 0.5) / SIZE as f32
+    0.25 + 0.5 * (f32::from(u16::try_from(x).unwrap()) + 0.5) / SIDE
 }
 /// The depth slope per texel the slanted triangles have.
-const SLOPE: f32 = 0.5 / SIZE as f32;
+const SLOPE: f32 = 0.5 / SIDE;
 
 const WGSL: &str = "
 struct Material { tint: vec4<f32> }
@@ -53,8 +55,8 @@ fn draw(raster: DrawRaster, topology: wgpu::PrimitiveTopology) -> Record {
     Record::Procedural(Arc::new(ProceduralDraw {
         target: whole(TARGET),
         raster,
-        values: Default::default(),
-        per_draw: Default::default(),
+        values: PropertyLayer::default(),
+        per_draw: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,
         material: MaterialId(1),
         passes: vec![PassSelector::Index(0)],
@@ -109,8 +111,8 @@ fn depths(raster: DrawRaster, reversed: bool) -> Vec<f32> {
 
 fn biased(bias: [f32; 2]) -> DrawRaster {
     DrawRaster {
-        scissor: None,
         depth_bias: bias,
+        ..DrawRaster::default()
     }
 }
 
@@ -133,7 +135,7 @@ fn without_a_scissor_the_draw_covers_the_whole_target() {
 fn a_scissor_clips_the_draw_to_its_texels_counted_from_row_and_column_zero() {
     let image = colors(DrawRaster {
         scissor: Some([2.0, 1.0, 4.0, 3.0]),
-        depth_bias: [0.0; 2],
+        ..DrawRaster::default()
     });
     for x in 0..SIZE {
         for y in 0..SIZE {
@@ -147,7 +149,7 @@ fn a_scissor_clips_the_draw_to_its_texels_counted_from_row_and_column_zero() {
 fn the_part_of_a_scissor_outside_the_target_is_dropped() {
     let image = colors(DrawRaster {
         scissor: Some([-4.0, -4.0, 8.0, 8.0]),
-        depth_bias: [0.0; 2],
+        ..DrawRaster::default()
     });
     for x in 0..SIZE {
         for y in 0..SIZE {
@@ -156,7 +158,7 @@ fn the_part_of_a_scissor_outside_the_target_is_dropped() {
     }
     let image = colors(DrawRaster {
         scissor: Some([6.0, 6.0, 100.0, 100.0]),
-        depth_bias: [0.0; 2],
+        ..DrawRaster::default()
     });
     for x in 0..SIZE {
         for y in 0..SIZE {
@@ -175,7 +177,7 @@ fn a_scissor_with_no_pixel_left_draws_nothing() {
     ] {
         let image = colors(DrawRaster {
             scissor: Some(rect),
-            depth_bias: [0.0; 2],
+            ..DrawRaster::default()
         });
         assert!(image.chunks(4).all(|texel| texel == CLEAR), "{rect:?}");
     }
@@ -185,7 +187,7 @@ fn a_scissor_with_no_pixel_left_draws_nothing() {
 fn a_slope_bias_moves_the_depth_a_draw_writes_by_the_slope_times_the_factor() {
     let plain = depths(DrawRaster::default(), false);
     for (index, depth) in plain.iter().enumerate() {
-        let expected = slanted_depth(index as u32 % SIZE);
+        let expected = slanted_depth(u32::try_from(index).unwrap() % SIZE);
         assert!(
             (depth - expected).abs() < 0.002,
             "texel {index}: {depth} vs {expected}"
@@ -228,4 +230,50 @@ fn a_line_list_is_drawn_with_a_bias_set_and_without_it() {
     frame.records[1] = draw(biased([1.0, 1.0]), wgpu::PrimitiveTopology::LineList);
     let mut rig = rig();
     rig.run(&frame, &[(TARGET, 0, 0)]).unwrap();
+}
+
+#[test]
+fn a_viewport_maps_clip_space_to_its_rectangle_of_the_target() {
+    let image = colors(DrawRaster {
+        viewport: Some([2.0, 1.0, 4.0, 3.0]),
+        ..DrawRaster::default()
+    });
+    for x in 0..SIZE {
+        for y in 0..SIZE {
+            let inside = (2..6).contains(&x) && (1..4).contains(&y);
+            assert_eq!(drawn(&image, x, y), inside, "({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn a_scissor_clips_the_draw_inside_a_viewport() {
+    let image = colors(DrawRaster {
+        viewport: Some([2.0, 2.0, 4.0, 4.0]),
+        scissor: Some([0.0, 0.0, 4.0, 4.0]),
+        ..DrawRaster::default()
+    });
+    for x in 0..SIZE {
+        for y in 0..SIZE {
+            let inside = (2..4).contains(&x) && (2..4).contains(&y);
+            assert_eq!(drawn(&image, x, y), inside, "({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn a_viewport_that_is_not_inside_the_target_or_has_no_area_draws_nothing() {
+    for rect in [
+        [-1.0, 0.0, 4.0, 4.0],
+        [6.0, 6.0, 4.0, 4.0],
+        [0.0, 0.0, 0.0, 4.0],
+        [2.0, 2.0, 4.0, 0.0],
+        [0.0, 0.0, 9.0, 4.0],
+    ] {
+        let image = colors(DrawRaster {
+            viewport: Some(rect),
+            ..DrawRaster::default()
+        });
+        assert!(image.chunks(4).all(|texel| texel == CLEAR), "{rect:?}");
+    }
 }

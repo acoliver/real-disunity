@@ -188,6 +188,10 @@ impl Finish<'_> {
             Some(reference) => checked.with_stencil_reference(reference),
             None => checked,
         };
+        let checked = match draw.raster.viewport {
+            Some(rect) => checked.with_viewport(rect),
+            None => checked,
+        };
         Ok(match draw.raster.scissor {
             Some(rect) => checked.with_scissor(rect),
             None => checked,

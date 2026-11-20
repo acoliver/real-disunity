@@ -104,3 +104,46 @@ fn a_scissor_with_no_texel_in_it_draws_nothing() {
 
     assert_eq!(run.columns(), [GREEN; 4]);
 }
+
+#[test]
+fn a_viewport_inside_the_target_maps_the_mesh_to_its_rectangle() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let red = flat(&mut world, [1.0, 0.0, 0.0, 1.0]);
+    record(
+        &mut world,
+        OffscreenWork::SetViewport {
+            rect: [1.0, 1.0, 2.0, 2.0],
+        },
+    );
+    draw_mesh(&mut world, (MESH, Mat4::IDENTITY), red, (0, -1));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, mesh_of(&[WHOLE]))]));
+
+    expect_rectangle(&run, (1, 1, 2, 2));
+    assert!(run.outcome.report.skipped.is_empty());
+}
+
+#[test]
+fn a_scissor_clips_the_draw_inside_a_viewport_of_the_target() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let red = flat(&mut world, [1.0, 0.0, 0.0, 1.0]);
+    record(
+        &mut world,
+        OffscreenWork::SetViewport {
+            rect: [0.0, 0.0, 3.0, 3.0],
+        },
+    );
+    record(
+        &mut world,
+        OffscreenWork::EnableScissor {
+            rect: [1.0, 1.0, 3.0, 3.0],
+        },
+    );
+    draw_mesh(&mut world, (MESH, Mat4::IDENTITY), red, (0, -1));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, mesh_of(&[WHOLE]))]));
+
+    expect_rectangle(&run, (1, 1, 2, 2));
+}

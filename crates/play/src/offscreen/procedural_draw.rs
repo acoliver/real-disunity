@@ -27,7 +27,7 @@ impl Mapper<'_> {
         topology: DrawTopology,
         (vertices, instances): (u32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
             Ok(one) if one < passes => one..one + 1,
@@ -39,7 +39,7 @@ impl Mapper<'_> {
             return Ok(Vec::new());
         }
         Ok(vec![Record::Procedural(Arc::new(ProceduralDraw {
-            raster: self.raster(),
+            raster,
             target,
             values,
             per_draw: draw_layer(matrix),

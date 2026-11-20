@@ -1,5 +1,6 @@
 //! A command buffer's viewport: a draw that reaches the bound target while a recorded viewport
-//! leaves part of it uncovered is left out by reason, and a viewport that covers the target, a
+//! lies inside it carries the rectangle, one that leaves the target is left out by reason, a clear
+//! that the viewport does not cover is left out by reason, and a viewport that covers the target, a
 //! new target or a camera setup leaves drawing as it was. The worlds are synthetic.
 
 use glam::{Mat4, Quat, Vec3};
@@ -201,7 +202,7 @@ fn a_viewport_that_covers_the_target_draws_as_before() {
 }
 
 #[test]
-fn a_viewport_that_leaves_part_of_the_target_out_skips_each_kind_of_draw_by_reason() {
+fn a_viewport_inside_the_target_is_carried_by_each_kind_of_draw_and_leaves_a_clear_out() {
     let mut rig = rig();
     rig.bind();
     rig.viewport([0.0, 0.0, 4.0, SIDE]);
@@ -210,17 +211,54 @@ fn a_viewport_that_leaves_part_of_the_target_out_skips_each_kind_of_draw_by_reas
     rig.draw_procedural();
     rig.draw_list();
     let adapted = rig.run();
-    assert_eq!(kinds(&adapted), Vec::<&str>::new());
-    for kind in [
-        "ClearRenderTarget",
-        "DrawMesh",
-        "DrawProcedural",
-        "DrawRendererList",
+    assert_eq!(kinds(&adapted), ["draws", "procedural"]);
+    let carried: Vec<_> = adapted
+        .frame
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            Record::Draws(list) => Some(list.raster.viewport),
+            Record::Procedural(draw) => Some(draw.raster.viewport),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(carried, [Some([0.0, 0.0, 4.0, SIDE]); 2]);
+    assert_eq!(skipped(&adapted, "ClearRenderTarget"), 1);
+    assert_eq!(adapted.report.skipped[&Skip::PartialViewport], 1);
+    assert_eq!(adapted.report.lists.empty, 1);
+}
+
+#[test]
+fn a_viewport_that_leaves_the_target_skips_each_kind_of_draw_by_reason() {
+    for rect in [
+        [-2.0, 0.0, 4.0, SIDE],
+        [0.0, 0.0, SIDE + 1.0, 4.0],
+        [2.0, 2.0, 0.0, 4.0],
     ] {
-        assert_eq!(skipped(&adapted, kind), 1, "{kind}");
+        let mut rig = rig();
+        rig.bind();
+        rig.viewport(rect);
+        rig.clear();
+        rig.draw_mesh();
+        rig.draw_procedural();
+        rig.draw_list();
+        let adapted = rig.run();
+        assert_eq!(kinds(&adapted), Vec::<&str>::new(), "{rect:?}");
+        for kind in [
+            "ClearRenderTarget",
+            "DrawMesh",
+            "DrawProcedural",
+            "DrawRendererList",
+        ] {
+            assert_eq!(skipped(&adapted, kind), 1, "{rect:?} {kind}");
+        }
+        assert_eq!(
+            adapted.report.skipped[&Skip::PartialViewport],
+            4,
+            "{rect:?}"
+        );
+        assert_eq!(adapted.report.lists.empty, 0, "{rect:?}");
     }
-    assert_eq!(adapted.report.skipped[&Skip::PartialViewport], 4);
-    assert_eq!(adapted.report.lists.empty, 0);
 }
 
 #[test]
@@ -358,9 +396,9 @@ fn one_viewport_covers_every_color_of_the_bound_set_and_its_depth() {
     rig.clear();
     rig.draw_procedural();
     let adapted = rig.run();
-    assert_eq!(kinds(&adapted), ["clear"]);
+    assert_eq!(kinds(&adapted), ["clear", "procedural"]);
     assert_eq!(skipped(&adapted, "ClearRenderTarget"), 1);
-    assert_eq!(skipped(&adapted, "DrawProcedural"), 1);
+    assert_eq!(skipped(&adapted, "DrawProcedural"), 0);
     let Some(Record::Clear { target, .. }) = adapted
         .frame
         .records

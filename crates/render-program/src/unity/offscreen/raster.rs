@@ -3,7 +3,8 @@
 //! The scissor of a record counts texels from row 0 and column 0 of the attachments, which is the
 //! corner a script calls the bottom left: the engine draws with the position output unflipped, so
 //! the lowest part of a scene is in row 0 and the pass's rectangle, which also counts from row 0,
-//! needs no flip. The rectangle is rounded to whole texels and clipped to the attachments. The
+//! needs no flip. A scissor rectangle is rounded to whole texels and clipped to the attachments; a
+//! viewport is used as given, and one that is not inside the attachments draws nothing. The
 //! depth bias is the script's pair of constant and slope terms as the pipeline takes them, negated
 //! for a reversed buffer.
 
@@ -15,27 +16,49 @@ pub(super) struct PassRaster {
     /// The rectangle the pass clips its draws to: x, y, width and height in texels from row 0 and
     /// column 0 of the attachments. `None` leaves the whole attachments.
     pub(super) scissor: Option<[u32; 4]>,
+    /// The rectangle clip space maps to, in texels from row 0 and column 0. `None` maps it to the
+    /// whole attachments.
+    pub(super) viewport: Option<[f32; 4]>,
     /// The depth bias of the pipelines of the triangle draws.
     pub(super) bias: wgpu::DepthBiasState,
 }
 
 /// The state of the draws of `raster` over attachments of `size` texels, or `None` when its
-/// scissor leaves no texel and the draws draw nothing.
+/// scissor leaves no texel or its viewport is not inside the attachments, and the draws draw
+/// nothing.
 pub(super) fn resolve(raster: &DrawRaster, size: [u32; 2], reversed: bool) -> Option<PassRaster> {
     let scissor = match raster.scissor {
         Some(rect) => Some(clipped(rect, size)?),
+        None => None,
+    };
+    let viewport = match raster.viewport {
+        Some(rect) if viewport_inside(rect, size) => Some(rect),
+        Some(_) => return None,
         None => None,
     };
     let sign = if reversed { -1.0 } else { 1.0 };
     let [constant, slope] = raster.depth_bias;
     Some(PassRaster {
         scissor,
+        viewport,
         bias: wgpu::DepthBiasState {
             constant: round_to_i32(sign * f64::from(constant)),
             slope_scale: if reversed { -slope } else { slope },
             clamp: 0.0,
         },
     })
+}
+
+/// Whether `rect` (x, y, width and height) has an area and lies inside attachments of `size`.
+fn viewport_inside(rect: [f32; 4], size: [u32; 2]) -> bool {
+    let [x, y, width, height] = rect.map(f64::from);
+    let [target_width, target_height] = size.map(f64::from);
+    x >= 0.0
+        && y >= 0.0
+        && width > 0.0
+        && height > 0.0
+        && x + width <= target_width
+        && y + height <= target_height
 }
 
 /// `value` rounded half away from zero, held to the range of an `i32`. Found by bisection over the

@@ -165,7 +165,7 @@ impl<'a> Mapper<'a> {
             .get(cull)
             .cloned()
             .ok_or(Skip::UnknownList)?;
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
@@ -182,7 +182,7 @@ impl<'a> Mapper<'a> {
             lists.drawn += 1;
         }
         Ok(vec![Record::Draws(Arc::new(DrawList {
-            raster: self.raster(),
+            raster,
             target,
             values,
             front_face: IMAGE_FRONT_FACE,

@@ -188,7 +188,7 @@ impl Shape {
             Self::D2 => (SourceDimension::D2, 1),
             Self::Cube => (SourceDimension::Cube, 6),
             Self::D2Array => (SourceDimension::D2Array(1), 1),
-            Self::D3 => (SourceDimension::D3, 1),
+            Self::D3 => (SourceDimension::D3(1), 1),
         }
     }
 }
@@ -304,6 +304,7 @@ impl DefaultTexture {
             size: [1, 1],
             graphics_format: RGBA8_LINEAR,
             bytes: look.texel(colour).repeat(texels),
+            mips: 1,
             sampler: None,
         }
     }

@@ -1,9 +1,39 @@
 //! Texture bytes the managed engine loaded from a player's data, read from the same native image.
 use crate::{DisunityHost, HostError, native};
 
+/// The shape a stored texture has, from the `dimension` of its record. The record's codes are the
+/// ones a shader declares for a property: 2 for a 2D texture (also written as 0 by a writer that
+/// states none), 3 for a 3D texture, 4 for a cube and 5 for a 2D array.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextureDimension {
+    /// One 2D texture, whose `depth` is 0 or 1.
+    #[default]
+    D2,
+    /// A volume of `depth` slices.
+    D3,
+    /// A cube of six square faces.
+    Cube,
+    /// An array of `depth` 2D layers, which may be one.
+    D2Array,
+}
+
+impl TextureDimension {
+    /// The shape of a record's `dimension` code, or `None` for a code the ABI does not define.
+    #[must_use]
+    pub fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 | 2 => Some(Self::D2),
+            3 => Some(Self::D3),
+            4 => Some(Self::Cube),
+            5 => Some(Self::D2Array),
+            _ => None,
+        }
+    }
+}
+
 /// One texture a player's managed code gave the renderer: the engine's `TextureFormat` value, the
 /// size, the mip chain's length, the raw bytes (base level first) and the generation of this copy.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PlayerTexture {
     pub format: u32,
     pub width: u32,
@@ -16,6 +46,17 @@ pub struct PlayerTexture {
     /// Zero for colour, data and coverage. For an `Alpha8` atlas holding signed distance fields,
     /// their spread in texels (see `DisunityTextureInfo`).
     pub distance_spread: u32,
+    /// The layers of the texture: the layers of a 2D array, the six faces of a cube or the slices
+    /// of a 3D texture, whose `bytes` hold them one after the other, each as long as the others.
+    /// Zero or one for a 2D texture.
+    pub depth: u32,
+    /// The shape of the texture. Only [`TextureDimension::D2`] and [`TextureDimension::D2Array`]
+    /// are drawn; a cube or a volume is stored for the host that takes them up.
+    pub dimension: TextureDimension,
+    /// The engine's `GraphicsFormat` of a layered texture, which its `format` may not describe: a
+    /// format the engine has no `TextureFormat` for is stored with `format` zero. Zero for a
+    /// texture that states none, as a 2D texture may.
+    pub graphics_format: u32,
     pub bytes: Vec<u8>,
 }
 
@@ -95,6 +136,10 @@ pub(crate) fn read_texture(
     if info.present == 0 || info.generation == known_generation {
         return Ok(None);
     }
+    let dimension = TextureDimension::from_code(info.dimension).ok_or(HostError::TextureShape {
+        identity,
+        dimension: info.dimension,
+    })?;
     let mut bytes = vec![0; info.length as usize];
     check(unsafe { read(world, identity, &mut info, bytes.as_mut_ptr(), info.length) })?;
     Ok(Some(PlayerTexture {
@@ -105,6 +150,9 @@ pub(crate) fn read_texture(
         linear: info.linear != 0,
         generation: info.generation,
         distance_spread: info.distance_spread,
+        depth: info.depth,
+        dimension,
+        graphics_format: info.graphics_format,
         bytes,
     }))
 }

@@ -236,7 +236,7 @@ impl Resolved<'_> {
 }
 
 /// The imported resource as the binding's entry, when it is the kind of resource the binding is.
-fn imported_resource<'a>(
+pub(crate) fn imported_resource<'a>(
     device: &wgpu::Device,
     slot: &Slot,
     resource: &'a ImportedResource,
@@ -499,7 +499,13 @@ fn check_texture(
     else {
         return Ok(());
     };
-    let format_type = texture.format().sample_type(None, None);
+    let format = texture.format();
+    // A combined depth-stencil format has a sample type only per aspect; a sampled view of it
+    // reads the depth.
+    let aspect = format
+        .has_depth_aspect()
+        .then_some(wgpu::TextureAspect::DepthOnly);
+    let format_type = format.sample_type(aspect, None);
     let suits = match (sample_type, format_type) {
         (
             wgpu::TextureSampleType::Float { filterable },
@@ -507,6 +513,11 @@ fn check_texture(
                 filterable: format_filterable,
             }),
         ) => format_filterable || !filterable,
+        // wgpu binds a depth texture to an unfilterable float binding, read without comparison.
+        (
+            wgpu::TextureSampleType::Float { filterable: false },
+            Some(wgpu::TextureSampleType::Depth),
+        ) => true,
         (wanted, Some(found)) => wanted == found,
         (_, None) => false,
     };

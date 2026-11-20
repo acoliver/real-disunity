@@ -29,6 +29,7 @@ pub use crate::budget::Holding;
 pub use crate::create::TextureShape;
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::external_group::ExternalGroup;
 pub use crate::import::{
     BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,
     ImportedTexture, ImportedVertexInput,

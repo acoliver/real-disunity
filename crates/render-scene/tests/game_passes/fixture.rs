@@ -13,7 +13,7 @@ use worldrunner_render_scene::{
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef},
+    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -227,6 +227,27 @@ impl Rig {
         Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
             ScenePipelines::new(device, FORMAT)
         })
+    }
+
+    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
+    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    pub fn hdr(
+        scene: &RenderScene,
+        size: [u32; 2],
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        Self::with_pipelines(
+            scene,
+            (size, view(size)),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame.format = hdr;
+                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                configure(settings);
+            },
+            |device| ScenePipelines::new(device, hdr),
+        )
     }
 
     /// A rig whose frames are HDR and compute screen-space ambient occlusion with `ssao`, drawn

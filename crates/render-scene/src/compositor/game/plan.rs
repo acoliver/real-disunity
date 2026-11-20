@@ -1,4 +1,5 @@
 //! Placing a game's passes in the frame's pass list.
+use super::snapshots::SnapshotReads;
 use super::targets::GameTargets;
 use std::collections::BTreeSet;
 use worldrunner_render_post::{
@@ -56,6 +57,11 @@ pub struct GamePassSpec {
     /// [`FrameOcclusion::read`](super::FrameOcclusion::read). They attach nothing; frame
     /// validation refuses the frame when no earlier pass of it produces them.
     pub frame_reads: Vec<ResourceRef>,
+    /// The frame's opaque snapshots the pass samples. Each must be one the factory declared in
+    /// [`GameFeatureFactory::snapshot_reads`](super::GameFeatureFactory::snapshot_reads). The frame
+    /// records the snapshots the passes declare and orders every reader after their writers, so
+    /// a pass that samples them belongs at or after [`GamePlace::AfterOpaqueSnapshots`].
+    pub snapshots: SnapshotReads,
 }
 
 impl GamePassSpec {
@@ -67,6 +73,7 @@ impl GamePassSpec {
             depth: None,
             reads: Vec::new(),
             frame_reads: Vec::new(),
+            snapshots: SnapshotReads::NONE,
         }
     }
 
@@ -96,6 +103,13 @@ impl GamePassSpec {
     #[must_use]
     pub fn sampling_frame(mut self, reads: impl IntoIterator<Item = ResourceRef>) -> Self {
         self.frame_reads.extend(reads);
+        self
+    }
+
+    /// Declares that the pass samples the frame's opaque snapshots `reads`.
+    #[must_use]
+    pub fn reading_snapshots(mut self, reads: SnapshotReads) -> Self {
+        self.snapshots = self.snapshots.union(reads);
         self
     }
 }
@@ -148,19 +162,25 @@ impl GameTargets {
         for resource in &spec.reads {
             added.push(self.view(*resource)?);
         }
+        if !self.snapshot_reads().covers(spec.snapshots) {
+            return Err(FrameError::FeaturePreparation {
+                feature: "frame snapshots",
+                reason: format!(
+                    "pass {} reads {:?}, but its factory declared {:?} in snapshot_reads",
+                    spec.entry(),
+                    spec.snapshots,
+                    self.snapshot_reads()
+                ),
+            });
+        }
         let feature = feature_pass(&pass)?;
         let fresh = new_views(views, added)?;
         views.extend(fresh);
         passes.push(pass);
-        Ok(FeaturePass {
-            reads: spec
-                .reads
-                .iter()
-                .chain(&spec.frame_reads)
-                .copied()
-                .collect(),
-            ..feature
-        })
+        let mut reads = spec.reads.clone();
+        reads.extend(spec.frame_reads.iter().copied());
+        reads.extend(spec.snapshots.resources());
+        Ok(FeaturePass { reads, ..feature })
     }
 
     /// The stock pass whose attachments a pass in `spec`'s place takes: the depth/normal prepass

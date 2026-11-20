@@ -4,6 +4,7 @@ use super::camera::FrameCameraHandle;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
+use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
 use super::targets::{GameTargets, TargetDeclaration, TargetStore};
 use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
@@ -36,6 +37,9 @@ pub struct GameBuild<'a> {
     /// The installed specular environment cube of the frame in flight, set before each frame
     /// plans.
     pub environment: FrameEnvironmentHandle,
+    /// The opaque snapshots of the frame in flight, published once the frame is planned and only
+    /// when a pass of it declared a read of them.
+    pub snapshots: FrameSnapshotHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -52,6 +56,17 @@ pub trait GameFeatureFactory: Send + Sync {
     /// The targets this contribution owns, for the allocation budget and the store.
     fn targets(&self) -> Vec<TargetDeclaration> {
         Vec::new()
+    }
+
+    /// The frame's opaque snapshots that this contribution's passes may read. The default reads
+    /// none, and then a renderer with no water, reflection or depth-tested overlay allocates no
+    /// snapshots at all. A factory that samples them states it here so that the renderer reserves
+    /// and allocates them when it is built, and so that a same-frame capture admits their writes
+    /// before the first frame plans. Each pass then declares what it samples with
+    /// [`GamePassSpec::reading_snapshots`], and a pass that declares more than this is refused at
+    /// planning.
+    fn snapshot_reads(&self) -> SnapshotReads {
+        SnapshotReads::NONE
     }
 
     /// Builds the feature for one generation. It plans its passes with
@@ -132,6 +147,15 @@ impl GamePasses {
         self.factories.len()
     }
 
+    /// The opaque snapshots any factory of the inventory declared it reads.
+    pub(crate) fn snapshot_reads(&self) -> SnapshotReads {
+        self.factories
+            .iter()
+            .fold(SnapshotReads::NONE, |reads, factory| {
+                reads.union(factory.snapshot_reads())
+            })
+    }
+
     fn declarations(&self) -> Vec<TargetDeclaration> {
         self.factories
             .iter()
@@ -196,15 +220,16 @@ impl GamePasses {
             frame.size,
         ));
         for factory in &self.factories {
-            let build = |targets| GameBuild {
+            let build = |targets: GameTargets| GameBuild {
                 context,
                 frame,
-                targets,
+                targets: targets.with_snapshot_reads(factory.snapshot_reads()),
                 camera: renderer.game_camera.clone(),
                 terrain: renderer.game_terrain.clone(),
                 shadows: renderer.game.shadows.clone(),
                 occlusion: renderer.game.occlusion.clone(),
                 environment: renderer.game.environment.clone(),
+                snapshots: renderer.game.snapshots.clone(),
             };
             let prefix =
                 factory.build_depth_prefix(&build(GameTargets::for_depth_prefix(store.clone())))?;
@@ -223,6 +248,7 @@ impl GamePasses {
             renderer.game.features += 1;
         }
         renderer.game.store = Some(store);
+        renderer.game.snapshot_reads = self.snapshot_reads();
         Ok(())
     }
 }
@@ -241,6 +267,11 @@ pub(crate) struct Installed {
     pub(crate) occlusion: FrameOcclusionHandle,
     /// Where every route lends its specular environment to the features of this generation.
     pub(crate) environment: FrameEnvironmentHandle,
+    /// Where the renderer lends the frame's opaque snapshots to the features of this generation.
+    pub(crate) snapshots: FrameSnapshotHandle,
+    /// The snapshots the inventory's factories declared they read, which this generation
+    /// allocates and a capture admits whether or not a frame reads them.
+    pub(crate) snapshot_reads: SnapshotReads,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the

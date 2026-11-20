@@ -1,8 +1,10 @@
 use super::{AllocationSet, RendererConfiguration};
 pub(super) fn allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
+    let game = settings.game_passes.snapshot_reads();
     if settings.ui_depth
         || !settings.water.is_empty()
         || settings.ssr.is_some_and(|ssr| ssr.enabled)
+        || game.any()
     {
         let [w, h] = settings.frame.size;
         set.texture(
@@ -19,6 +21,15 @@ pub(super) fn allocations(settings: &RendererConfiguration, set: &mut Allocation
             [1, 1],
             6,
         );
+        if game.device_depth {
+            set.texture(
+                "snapshot device depths",
+                [w, h, 1],
+                wgpu::TextureFormat::R32Float,
+                [1, 1],
+                3,
+            );
+        }
         set.buffer("snapshot uniforms", 304, 3);
         set.buffer("snapshot staging", 192, 3);
         if !settings.water.is_empty() {

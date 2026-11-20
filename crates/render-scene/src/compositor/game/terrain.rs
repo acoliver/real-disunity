@@ -74,7 +74,12 @@ impl FrameTerrainHandle {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
-        self.0.publish_with(|| lend(gpu, frame, viewport));
+        self.0.publish_with(|| {
+            let lent = lend(gpu, frame, viewport);
+            #[cfg(test)]
+            probe::record_publication(&lent);
+            lent
+        });
     }
 }
 

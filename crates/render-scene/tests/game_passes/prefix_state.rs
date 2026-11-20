@@ -16,9 +16,10 @@ use worldrunner_render_program::runtime::{
 use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
-        ColorOutput, DepthAccess, FrameEnvironmentHandle, FrameOcclusionHandle, FrameShadowHandle,
-        FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
-        PassTarget, TargetDeclaration, TargetExtent,
+        ColorOutput, DepthAccess, FrameEnvironmentHandle, FrameOcclusionHandle,
+        FrameSceneTexturesHandle, FrameShadowHandle, FrameTerrainHandle, GameBuild,
+        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, TargetDeclaration,
+        TargetExtent,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -162,6 +163,7 @@ impl GameFeatureFactory for Keeper {
             occlusion: context.occlusion.clone(),
             environment: context.environment.clone(),
             terrain: context.terrain.clone(),
+            textures: context.scene_textures.clone(),
             parts: parts(
                 context,
                 vec![
@@ -295,6 +297,7 @@ struct Prefix {
     occlusion: FrameOcclusionHandle,
     environment: FrameEnvironmentHandle,
     terrain: FrameTerrainHandle,
+    textures: FrameSceneTexturesHandle,
     parts: Arc<Mutex<Parts>>,
 }
 
@@ -348,7 +351,7 @@ impl PreparedFeature for Prefix {
             (seen.raise, seen.fill)
         };
         let lent = format!(
-            "shadow {:?}, occlusion {:?}, environment {:?}, terrain {:?}",
+            "shadow {:?}, occlusion {:?}, environment {:?}, terrain {:?}, textures {:?}",
             self.shadows.current().map(|_| true),
             self.occlusion
                 .current()
@@ -357,6 +360,7 @@ impl PreparedFeature for Prefix {
                 .current()
                 .map(|environment| environment.is_some()),
             self.terrain.current().map(|chunks| chunks.is_some()),
+            self.textures.current().map(|textures| textures.len()),
         );
         self.seen.lock().unwrap().lent.push(lent);
         let mut parts = self.parts.lock().unwrap();
@@ -475,16 +479,17 @@ fn the_prefix_feature_reads_the_lent_inputs_in_a_frame_drawn_whole_only() {
     assert_eq!(captured.len(), 1);
     assert_eq!(
         whole[0],
-        "shadow Err(NotPrepared), occlusion Ok(true), environment Ok(false), terrain Ok(false)",
+        "shadow Err(NotPrepared), occlusion Ok(true), environment Ok(false), terrain Ok(false), \
+         textures Ok(1)",
         "a frame drawn whole lends its inputs to the depth-prefix feature (this unshadowed one \
          has no cascades, and its scene no terrain)"
     );
     assert_eq!(
         captured[0],
         "shadow Err(NotPrepared), occlusion Err(NotPrepared), environment Err(NotPrepared), \
-         terrain Err(NotPrepared)",
-        "inside a prefix nothing is lent: the cascades are not fitted, SSAO has not run and the \
-         prefix publishes no terrain"
+         terrain Err(NotPrepared), textures Ok(1)",
+        "inside a prefix only the resident scene textures are lent: the cascades are not \
+         fitted, SSAO has not run and the prefix publishes no terrain"
     );
 }
 

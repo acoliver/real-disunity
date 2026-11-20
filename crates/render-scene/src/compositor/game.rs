@@ -21,7 +21,12 @@
 //! [`GamePassSpec::sampling_frame`], so that frame validation orders the pass after the filter
 //! that produces it and the frame computes it even when no stock receiver samples it.
 //! It can also sample the installed specular environment cube ([`FrameEnvironmentHandle`]), a
-//! retained texture that needs no declaration.
+//! retained texture that needs no declaration, and the scene's resident textures
+//! ([`FrameSceneTexturesHandle`]).
+//!
+//! The feature owns no GPU resource. The buffers, textures and samplers its passes read are
+//! declared to [`GameResources`], which the generation creates and owns, and its programs, sets
+//! and draws are made with that store's program runtime.
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
@@ -31,6 +36,8 @@ mod occlusion;
 mod pass_target;
 mod plan;
 mod registry;
+mod resources;
+mod scene_textures;
 mod shadows;
 mod targets;
 mod terrain;
@@ -44,6 +51,11 @@ pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes
 pub(crate) use plan::{place_after_prepass, reconcile_loads};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
+pub use resources::{
+    GameBuffer, GameBufferDeclaration, GameBufferUsage, GameResourceError, GameResources,
+    GameSampler, GameTexture, GameTextureDeclaration,
+};
+pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};

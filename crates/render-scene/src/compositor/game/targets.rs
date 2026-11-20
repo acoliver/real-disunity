@@ -460,6 +460,23 @@ impl GameTargets {
             .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))
     }
 
+    /// The texture of a declared target through its default view, for the binding sourced from
+    /// `semantic` in a draw or set that samples it.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentView`] for a name no declaration made.
+    pub fn import(
+        &self,
+        name: &'static str,
+        semantic: worldrunner_render_program::binding::EngineSemantic,
+    ) -> Result<worldrunner_render_program::runtime::Import, FrameError> {
+        let texture = self.texture(name)?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Ok(worldrunner_render_program::runtime::Import::texture(
+            semantic, texture, view,
+        ))
+    }
+
     /// The checked attachment view of one layer. A persistent layer that a submitted frame has
     /// written carries retained contents, so a pass may read it without writing it first.
     ///

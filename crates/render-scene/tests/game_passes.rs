@@ -25,6 +25,8 @@ mod prefix_state;
 mod refusals;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
+#[path = "game_passes/resources.rs"]
+mod resources;
 #[path = "game_passes/shadow_cascades.rs"]
 mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]

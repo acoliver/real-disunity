@@ -22,6 +22,7 @@ mod frame;
 mod global_arrays;
 mod gpu;
 mod keep;
+mod keep_targets;
 mod kernels;
 mod lights_gpu;
 mod lists;

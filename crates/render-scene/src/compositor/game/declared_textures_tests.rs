@@ -1,4 +1,4 @@
-use super::{GameTextureDeclaration, GameTextureLevel, unsampleable};
+use super::{GameTextureDeclaration, GameTextureLevel, beyond_limits, unsampleable};
 use crate::compositor::GameResourceError;
 use wgpu::TextureFormat as Format;
 use wgpu::TextureViewDimension as View;
@@ -187,11 +187,34 @@ fn a_texture_declaration_that_cannot_be_created_is_refused_by_name() {
         refused(declaration(Format::Bc4RUnorm, [4, 4, 1], View::D3, None))
             .contains("not block-compressed")
     );
+    assert!(
+        refused(declaration(Format::Depth32Float, [2, 2, 2], View::D3, None))
+            .contains("depth texture is not 3D")
+    );
     // The layout itself is refused the same way.
     assert!(
         reason(declaration(Format::Depth32Float, [1, 1, 1], View::D2, None).levels())
             .contains("without texels")
     );
+}
+
+#[test]
+fn a_texture_past_the_device_limits_is_refused_by_name() {
+    let limits = wgpu::Limits::default();
+    let past = |size, dimension| {
+        let probe = declaration(Format::R8Unorm, size, dimension, None);
+        reason(beyond_limits(&limits, &probe.descriptor().unwrap()))
+    };
+    let wide = limits.max_texture_dimension_2d + 1;
+    assert!(past([wide, 1, 1], View::D2).contains("texture limit"));
+    let layers = limits.max_texture_array_layers + 1;
+    assert!(past([1, 1, layers], View::D2Array).contains("more layers"));
+    // A volume's depth is bounded by the 3D limit, not by the array layers.
+    let deep = limits.max_texture_dimension_3d;
+    assert!(deep > limits.max_texture_array_layers);
+    let fits = declaration(Format::R8Unorm, [1, 1, deep], View::D3, None);
+    assert!(beyond_limits(&limits, &fits.descriptor().unwrap()).is_ok());
+    assert!(past([1, 1, deep + 1], View::D3).contains("texture limit"));
 }
 
 #[test]

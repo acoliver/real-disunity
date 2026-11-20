@@ -5,6 +5,7 @@ use super::common::{self, texture_binding, uniform_binding};
 use super::fixture::{Rig, SIZE, quad_scene};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace, TextureHandle};
@@ -64,6 +65,7 @@ struct Tint { value: vec4<f32> }
 struct Kept {
     resources: Option<GameResources>,
     tint: Option<GameBuffer>,
+    scene: Option<FrameSceneTexturesHandle>,
     snapshots: Vec<FrameSceneTextures>,
 }
 
@@ -95,12 +97,24 @@ fn kept<T>(game: &'static str, read: impl FnOnce(&mut Kept) -> T) -> T {
 /// The refusals the game met, by text.
 type Seen = Arc<Mutex<Vec<String>>>;
 
+/// What the test asks a game's next frames to do.
+#[derive(Default)]
+struct Controls {
+    /// Leave the tint as the last frame wrote it.
+    skip_write: AtomicBool,
+    /// Refuse the frame after writing the tint.
+    fail_after_write: AtomicBool,
+    /// Try writes outside the tint and report how each was refused.
+    probe_writes: AtomicBool,
+}
+
 struct ResourceGame {
     /// The target it draws into, which also names the game.
     out: &'static str,
     /// The occurrence of its pass before Opaque.
     occurrence: u32,
     seen: Seen,
+    controls: Arc<Controls>,
 }
 
 struct Handles {
@@ -194,6 +208,7 @@ impl GameFeatureFactory for ResourceGame {
         kept(self.out, |kept| {
             kept.resources = Some(resources.clone());
             kept.tint = Some(handles.tint);
+            kept.scene = Some(context.scene_textures.clone());
         });
         Ok(Box::new(Game(Rc::new(Parts {
             out: self.out,
@@ -204,6 +219,7 @@ impl GameFeatureFactory for ResourceGame {
             scene: context.scene_textures.clone(),
             handles,
             seen: self.seen.clone(),
+            controls: self.controls.clone(),
             frames: RefCell::new(0),
             draw: RefCell::new(None),
         }))))
@@ -219,6 +235,7 @@ struct Parts {
     handles: Handles,
     program: GraphicsProgram,
     seen: Seen,
+    controls: Arc<Controls>,
     frames: RefCell<u32>,
     /// The draw, and the scene texture snapshot it binds.
     draw: RefCell<Option<(FrameSceneTextures, PreparedProgramDraw)>>,
@@ -320,9 +337,30 @@ impl PreparedFeature for Game {
             .iter()
             .flat_map(|value| value.to_le_bytes())
             .collect();
-        parts
-            .resources
-            .write(context, parts.handles.tint, 0, &bytes)?;
+        if !parts.controls.skip_write.load(Ordering::Relaxed) {
+            parts
+                .resources
+                .write(context, parts.handles.tint, 0, &bytes)?;
+        }
+        if parts.controls.probe_writes.load(Ordering::Relaxed) {
+            // The tint is 16 bytes: too long, too far, and an offset that wraps.
+            for (offset, len) in [(0, 20), (12, 8), (u64::MAX - 3, 4)] {
+                let refused =
+                    parts
+                        .resources
+                        .write(context, parts.handles.tint, offset, &vec![0; len]);
+                parts.seen.lock().unwrap().push(match refused {
+                    Err(refused) => refused.to_string(),
+                    Ok(()) => format!("accepted {len} bytes at {offset}"),
+                });
+            }
+        }
+        if parts.controls.fail_after_write.load(Ordering::Relaxed) {
+            return Err(FrameError::FeaturePreparation {
+                feature: "resource game",
+                reason: "refused on purpose".to_owned(),
+            });
+        }
         if frame == 1
             && let Err(refused) = parts
                 .resources
@@ -447,6 +485,7 @@ fn a_game_pass_draws_with_declared_resources_and_lent_scene_textures() {
             out,
             occurrence,
             seen: seen.clone(),
+            controls: Arc::default(),
         })
     };
     let scene = quad_scene();
@@ -510,3 +549,6 @@ fn a_game_pass_draws_with_declared_resources_and_lent_scene_textures() {
         "each game's misaligned write was refused by name"
     );
 }
+
+#[path = "resources/contracts.rs"]
+mod contracts;

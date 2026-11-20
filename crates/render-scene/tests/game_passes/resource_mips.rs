@@ -399,6 +399,17 @@ fn check_output(rig: &Rig, out: &'static str) {
     }
 }
 
+/// The bytes of each hold of the shared texture in the runtime ledger of `resources`.
+fn shared_holds(resources: &GameResources) -> Vec<u64> {
+    resources
+        .runtime()
+        .holdings()
+        .into_iter()
+        .filter(|holding| holding.label == SHARED)
+        .flat_map(|holding| std::iter::repeat_n(holding.largest, holding.count))
+        .collect()
+}
+
 /// Both stores hold the shared texture as a handle of their own and count it; another label's
 /// declaration that differs, and a format the device cannot sample, are refused by name.
 fn check_stores() {
@@ -420,6 +431,13 @@ fn check_stores() {
         first.import_texture(shared, second_shared),
         Err(GameResourceError::Foreign("game texture"))
     );
+    for resources in [&first, &second] {
+        assert_eq!(
+            shared_holds(resources),
+            vec![16],
+            "each factory's runtime ledger holds the shared texture once"
+        );
+    }
     let texels = SHARED_TEXEL.repeat(4);
     assert_eq!(
         first.declare_shared_texture(&shared_declaration(&texels)),
@@ -427,6 +445,11 @@ fn check_stores() {
         "declaring it again is the same handle"
     );
     assert_eq!(first.bytes(), DECLARED);
+    assert_eq!(
+        shared_holds(&first),
+        vec![16],
+        "declaring it again holds nothing more"
+    );
     let other = [0; 16];
     let refused = first.declare_shared_texture(&shared_declaration(&other));
     assert!(

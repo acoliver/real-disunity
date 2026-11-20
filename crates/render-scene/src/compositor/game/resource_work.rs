@@ -252,7 +252,7 @@ impl GameResources {
                     label: label.clone(),
                     reason: reason(error),
                 })?;
-        self.admit(&label, bytes)?;
+        self.fits(&label, bytes)?;
         let mut store = self.store.borrow_mut();
         let work = &mut store.work;
         let index = work.next_read;
@@ -408,7 +408,7 @@ impl GameResources {
         let state = level
             .readback_bytes(&texture)
             .map_err(reason)
-            .and_then(|bytes| self.admit(&label, bytes).map_err(|error| error.to_string()))
+            .and_then(|bytes| self.fits(&label, bytes).map_err(|error| error.to_string()))
             .and_then(|()| {
                 self.runtime
                     .borrow()

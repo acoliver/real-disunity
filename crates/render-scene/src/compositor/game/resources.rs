@@ -11,7 +11,7 @@
 //! siblings, [`GameResources::vertex_input`], [`GameResources::indices`]). It never holds the
 //! device, the queue or a resource of its own. Everything is released with the generation.
 use super::declared_textures::{
-    GameTextureDeclaration, TextureIdentity, refuse, unsampleable, upload,
+    GameTextureDeclaration, TextureIdentity, beyond_limits, refuse, unsampleable, upload,
 };
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_post::{FrameError, PrepareContext};
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::{
-    Import, ImportedIndices, ImportedVertexInput, ProgramRuntime,
+    ExternalHold, Import, ImportedIndices, ImportedVertexInput, ProgramRuntime,
 };
 
 /// What a declared buffer is bound as. Every declared buffer can also be written.
@@ -134,6 +134,8 @@ struct DeclaredBuffer {
     label: String,
     usage: GameBufferUsage,
     buffer: Tracked<wgpu::Buffer>,
+    /// Keeps the buffer's bytes counted in the program runtime's budget while it lives.
+    _hold: ExternalHold,
 }
 
 /// A declared texture; a shared one is held by every store that declared it.
@@ -153,6 +155,10 @@ struct Store {
     samplers: Vec<wgpu::Sampler>,
     /// The index in `textures` of each shared texture this store declared, by label.
     shared: HashMap<String, u32>,
+    /// Keeps the bytes of each texture in `textures` counted in this factory's runtime ledger
+    /// while the store lives. A shared texture is held once by every store that declared it,
+    /// since each factory counts it against its own budget.
+    texture_holds: Vec<ExternalHold>,
     /// Bytes of the declared buffers and textures.
     bytes: u64,
     /// The transfers and readbacks the game asked for and the frames that recorded them.
@@ -218,9 +224,21 @@ impl GameResources {
         self.store.borrow().bytes
     }
 
-    /// Admits `bytes` more against the budget, with what the runtime holds.
-    fn admit(&self, label: &str, bytes: u64) -> Result<(), GameResourceError> {
-        let held = self.store.borrow().bytes + self.runtime.borrow().live_bytes();
+    /// Admits `bytes` more against the budget, which the program runtime counts too: what the
+    /// declared resources hold is in its ledger, so one budget bounds both. The hold keeps the
+    /// bytes counted while the resource lives.
+    fn admit(&self, label: &str, bytes: u64) -> Result<ExternalHold, GameResourceError> {
+        self.fits(label, bytes)?;
+        self.runtime
+            .borrow()
+            .hold_external(label, bytes)
+            .map_err(|error| refuse(label, &error.to_string()))
+    }
+
+    /// Whether `bytes` more fit the budget with everything the runtime's ledger holds, counting
+    /// nothing: for staging the runtime admits itself when the frame records it.
+    fn fits(&self, label: &str, bytes: u64) -> Result<(), GameResourceError> {
+        let held = self.runtime.borrow().live_bytes();
         if held
             .checked_add(bytes)
             .is_none_or(|total| total > self.budget.0)
@@ -256,7 +274,7 @@ impl GameResources {
         };
         let bytes =
             (declaration.contents.len() as u64).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-        self.admit(label, bytes)?;
+        let hold = self.admit(label, bytes)?;
         let buffer = self.authority.census().create_buffer_init(
             &self.device,
             class,
@@ -272,6 +290,7 @@ impl GameResources {
             label: label.to_owned(),
             usage: declaration.usage,
             buffer,
+            _hold: hold,
         });
         Ok(GameBuffer {
             store: self.id,
@@ -284,21 +303,23 @@ impl GameResources {
     /// # Errors
     /// [`GameResourceError::Declaration`] for an empty extent, a dimension other than `D2`,
     /// `D2Array` and `D3`, more than one layer for `D2`, a mip count the extent does not have,
-    /// texels for a depth format or a 3D texture deeper than one slice, texels that are not
-    /// exactly the levels [`GameTextureDeclaration::levels`] lists, or a format the device
-    /// cannot sample; [`GameResourceError::Budget`] beyond the budget.
+    /// a depth or block-compressed 3D texture, texels for a depth format or a 3D texture deeper
+    /// than one slice, texels that are not exactly the levels [`GameTextureDeclaration::levels`]
+    /// lists, an extent or layer count past the device's limits, or a format the device cannot
+    /// sample; [`GameResourceError::Budget`] beyond the budget.
     pub fn declare_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,
     ) -> Result<GameTexture, GameResourceError> {
-        let declared = self.create_texture(declaration)?;
-        Ok(self.hold_texture(declared))
+        let (declared, hold) = self.create_texture(declaration)?;
+        Ok(self.hold_texture(declared, hold))
     }
 
     /// Declares a texture the generation's other factories may declare too, under the same
     /// label: the first declaration creates it, a later one, from this factory or another, gets
     /// the same texture as a handle of its own store. Every factory that declares it counts it
-    /// against its own budget, as it would hold it alone; the memory census counts it once.
+    /// against its own budget, as it would hold it alone, and holds it once in its runtime's
+    /// ledger however often it declares it; the memory census counts it once.
     ///
     /// # Errors
     /// As [`Self::declare_texture`], and [`GameResourceError::Declaration`] when the
@@ -318,12 +339,12 @@ impl GameResources {
         };
         let existing = self.shared.0.borrow().get(label).cloned();
         let Some((first, declared)) = existing else {
-            let declared = self.create_texture(declaration)?;
+            let (declared, hold) = self.create_texture(declaration)?;
             self.shared
                 .0
                 .borrow_mut()
                 .insert(label.to_owned(), (identity, declared.clone()));
-            let texture = self.hold_texture(declared);
+            let texture = self.hold_texture(declared, hold);
             self.store
                 .borrow_mut()
                 .shared
@@ -339,8 +360,8 @@ impl GameResources {
                 index,
             });
         }
-        self.admit(label, declared.bytes)?;
-        let texture = self.hold_texture(declared);
+        let hold = self.admit(label, declared.bytes)?;
+        let texture = self.hold_texture(declared, hold);
         self.store
             .borrow_mut()
             .shared
@@ -348,17 +369,19 @@ impl GameResources {
         Ok(texture)
     }
 
-    /// Creates a declared texture, admitted against the budget but not yet held.
+    /// Creates a declared texture, admitted against the budget, with the hold that keeps its
+    /// bytes counted, but not yet held by a store.
     fn create_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,
-    ) -> Result<DeclaredTexture, GameResourceError> {
+    ) -> Result<(DeclaredTexture, ExternalHold), GameResourceError> {
         let descriptor = declaration.descriptor()?;
+        beyond_limits(&self.device.limits(), &descriptor)?;
         if let Some(reason) = unsampleable(declaration.format, self.device.features()) {
             return Err(refuse(declaration.label, &reason));
         }
         let bytes = worldrunner_render_gpu::census::texture_backing_bytes(&descriptor);
-        self.admit(declaration.label, bytes)?;
+        let hold = self.admit(declaration.label, bytes)?;
         let census = self.authority.census();
         let texture = match declaration.texels {
             Some(texels) => census.track_texture(
@@ -371,20 +394,23 @@ impl GameResources {
             dimension: Some(declaration.dimension),
             ..wgpu::TextureViewDescriptor::default()
         });
-        Ok(DeclaredTexture {
+        let declared = DeclaredTexture {
             label: declaration.label.to_owned(),
             texture: Rc::new(texture),
             view,
             dimension: declaration.dimension,
             bytes,
-        })
+        };
+        Ok((declared, hold))
     }
 
-    /// Holds an admitted texture in this store, counting its bytes.
-    fn hold_texture(&self, declared: DeclaredTexture) -> GameTexture {
+    /// Holds an admitted texture in this store, counting its bytes, with the hold that keeps
+    /// them in the runtime's ledger.
+    fn hold_texture(&self, declared: DeclaredTexture, hold: ExternalHold) -> GameTexture {
         let mut store = self.store.borrow_mut();
         store.bytes += declared.bytes;
         store.textures.push(declared);
+        store.texture_holds.push(hold);
         GameTexture {
             store: self.id,
             index: index(store.textures.len()),

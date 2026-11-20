@@ -322,6 +322,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The pairs the batches draw, until a placement or table changes.
+    drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
@@ -452,6 +454,7 @@ impl SceneGpu {
             instance_history: std::rc::Rc::default(),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            drawn_pair_memo: RefCell::default(),
             gather: compaction::Shared::default(),
             terrain,
             terrain_draws: Cell::new(TerrainDraws::Stock),

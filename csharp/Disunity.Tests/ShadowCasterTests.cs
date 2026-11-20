@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Disunity.Hosting;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -27,6 +28,8 @@ internal static class ShadowCasterTests
         Console.WriteLine("PASS: a split outside the count, bad ratios or a tiny resolution throw ArgumentException");
         InFreshWorld(SplitDataSelectsCastersInTheShadowList);
         Console.WriteLine("PASS: a split's data goes into a shadow renderer list");
+        InFreshWorld(CullingShadowCastersTakesACullingResult);
+        Console.WriteLine("PASS: CullShadowCasters accepts the infos of a culling result and refuses a default result");
     }
 
     private static void InFreshWorld(Action test)
@@ -202,6 +205,28 @@ internal static class ShadowCasterTests
         Expect.That(InClipBox(view, projection, new Vector3(0f, 0f, 8f)), "the caster is in the +z face");
         results.ComputePointShadowMatricesAndCullingPrimitives(1, CubemapFace.NegativeZ, 0f, out view, out projection, out split);
         Expect.That(!InClipBox(view, projection, new Vector3(0f, 0f, 8f)), "and not in the -z face");
+    }
+
+    private static void CullingShadowCastersTakesACullingResult()
+    {
+        var camera = NewCamera();
+        NewSun();
+        NewCube(new Vector3(0f, 0f, 10f));
+        var results = Cull(camera);
+        var context = default(ScriptableRenderContext);
+        context.CullShadowCasters(results, default);
+        Expect.That(results.ComputeDirectionalShadowMatricesAndCullingPrimitives(0, 0, 1, default, 1024, 3f, out _, out _, out var split), "a split");
+        var infos = new ShadowCastersCullingInfos
+        {
+            splitBuffer = new NativeArray<ShadowSplitData>([split], Allocator.Temp),
+            perLightInfos = new NativeArray<LightShadowCasterCullingInfo>(
+                [new LightShadowCasterCullingInfo { splitRange = new RangeInt(0, 1), projectionType = BatchCullingProjectionType.Orthographic }], Allocator.Temp),
+        };
+        context.CullShadowCasters(results, infos);
+        Expect.That(infos.splitBuffer[0] == split && infos.perLightInfos[0].splitRange.length == 1, "the infos hold what the pipeline put in them");
+        infos.splitBuffer.Dispose();
+        infos.perLightInfos.Dispose();
+        Expect.Throws<ArgumentException>(() => context.CullShadowCasters(default, default), "a default culling result holds no casters to cull");
     }
 
     private static void BadDirectionalArgumentsThrow()

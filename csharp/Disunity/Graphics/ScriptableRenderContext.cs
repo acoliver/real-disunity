@@ -150,6 +150,12 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         };
     }
 
+    /// <summary>Accepts the shadow caster culling a pipeline asks for after it has fitted its shadow maps, and computes nothing: the
+    /// engine culls the casters of each light when <see cref="CreateShadowRendererList"/> makes its list, from the split's planes and
+    /// sphere, so the infos a pipeline passes are not read. A default culling result throws <see cref="ArgumentException"/>.</summary>
+    public void CullShadowCasters(CullingResults cullingResults, ShadowCastersCullingInfos infos) =>
+        RequireCulling(cullingResults, "cullingResults");
+
     /// <summary>Makes a list of the shadow casters a culling result kept for one light, inside the split's culling planes and
     /// sphere, and returns it. The light index is a position among the visible lights and must not be negative. A default
     /// culling result or a negative light index throws <see cref="ArgumentException"/>. As in <see cref="CreateRendererList"/>, the

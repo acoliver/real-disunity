@@ -4,6 +4,7 @@ mod cache;
 mod lazy_snapshots;
 mod pins;
 mod rebind;
+mod water_draws;
 
 use super::*;
 use crate::compositor::plan_trace::{self, SubmittedPlan, assert_pinned};

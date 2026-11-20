@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use worldrunner_render_post::PreparedWrite;
+
 use crate::binding::{BindingAddress, BindingSource, EngineSemantic};
 use crate::budget::Reservation;
 use crate::error::{ProgramError, StorageImageError};
@@ -24,21 +26,11 @@ pub(crate) struct Snapshot {
 
 impl ProgramRuntime {
     /// One bind group for each descriptor set the program uses, with the fixed sampler at
-    /// every sampler binding.
+    /// every sampler binding and `snapshots` filling the buffer bindings they are at.
     ///
     /// # Errors
     /// Fails when a binding has no resource, a resource names no binding or the wrong kind of
     /// binding, or a buffer is smaller than the shader needs.
-    pub(crate) fn bind_groups(
-        &self,
-        gpu: &GpuLayout,
-        bound: &[BoundResource],
-    ) -> Result<Vec<(u32, wgpu::BindGroup)>, ProgramError> {
-        self.bind_groups_with(gpu, bound, &[])
-    }
-
-    /// Like [`bind_groups`](Self::bind_groups), with `snapshots` filling the buffer bindings
-    /// they are at.
     pub(crate) fn bind_groups_with(
         &self,
         gpu: &GpuLayout,
@@ -523,6 +515,59 @@ fn check_texture(
             texture.format()
         ),
     })
+}
+
+impl ProgramRuntime {
+    /// The textures a dispatch over `bound` and `imports` writes through the storage images of
+    /// `gpu`: a runtime texture's base mip in every layer, which is the view the runtime makes for
+    /// the slot, and every mip and layer of a lent texture, whose view's range is its owner's.
+    ///
+    /// # Errors
+    /// On a handle the runtime does not hold.
+    pub(crate) fn storage_writes(
+        &self,
+        gpu: &GpuLayout,
+        bound: &[BoundResource],
+        imports: &[Import],
+    ) -> Result<Vec<PreparedWrite>, ProgramError> {
+        let mut written = Vec::new();
+        for item in bound {
+            if let (Some(slot), Resource::Texture(handle)) =
+                (gpu.layout.slot(item.set, item.binding), item.resource)
+                && writes(slot)
+            {
+                let texture = &self.store.texture(handle)?.texture;
+                written.push(PreparedWrite {
+                    texture: texture.clone(),
+                    mips: 0..1,
+                    layers: 0..array_layers(texture),
+                });
+            }
+        }
+        for import in imports {
+            let semantic = BindingSource::Engine(import.semantic.clone());
+            let slot = gpu.layout.slots().iter().find(|s| s.source == semantic);
+            if let (Some(slot), ImportedResource::Texture(lent)) = (slot, &import.resource)
+                && writes(slot)
+            {
+                written.push(PreparedWrite {
+                    texture: lent.texture.clone(),
+                    mips: 0..lent.texture.mip_level_count(),
+                    layers: 0..array_layers(&lent.texture),
+                });
+            }
+        }
+        Ok(written)
+    }
+}
+
+/// The array layers of a 2D texture; a texture of another dimension has one.
+fn array_layers(texture: &wgpu::Texture) -> u32 {
+    if texture.dimension() == wgpu::TextureDimension::D2 {
+        texture.depth_or_array_layers()
+    } else {
+        1
+    }
 }
 
 /// Whether the slot lets the shader write the texture.

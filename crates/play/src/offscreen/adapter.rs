@@ -507,6 +507,7 @@ pub fn build(
     }
     phases.programs += operations.program_time();
     phases.programs_built += operations.programs_built();
+    phases.note_build(operations.planned_draws(), operations.view_counts());
     let used = operations.constants_use();
     phases.constants_bytes += used.bytes;
     phases.constants_buffers += used.buffers;

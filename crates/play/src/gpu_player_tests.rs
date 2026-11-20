@@ -8,6 +8,7 @@ use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
 use worldrunner_render_gpu::device::DeviceRequirements;
 use worldrunner_render_program::offscreen::PendingOffscreen;
+use worldrunner_render_program::unity::offscreen::ViewCounts;
 
 fn trace(records: usize, error: Option<&str>) -> WorkTrace {
     WorkTrace {
@@ -65,6 +66,22 @@ fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs
             "globals at a flush of frame 3: _Height: render, _Last: none",
             "globals at a frame of frame 3: _Last: render",
         ]
+    );
+}
+
+#[test]
+fn the_run_report_totals_the_planner_counts_of_every_piece_of_work() {
+    let views = |created, reused| ViewCounts { created, reused };
+    let mut first = trace(1, None);
+    first.phases.note_build(5, views(2, 7));
+    first.phases.note_build(9, views(1, 0));
+    let mut second = trace(1, Some("over its budget"));
+    second.phases.note_build(4, views(3, 4));
+    let mut report = GpuWorkReport::default();
+    report.keep_traces(vec![first, second]);
+    assert_eq!(
+        report.planner.planner_line(),
+        "builds 3, most draws held in one build 9, texture views made 6 and reused 11"
     );
 }
 

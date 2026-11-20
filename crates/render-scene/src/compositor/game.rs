@@ -26,6 +26,7 @@
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
 mod environment;
+mod frame_start;
 mod lent;
 mod occlusion;
 mod pass_target;
@@ -67,5 +68,7 @@ impl super::FrameRenderer {
     }
 }
 
+#[cfg(test)]
+mod frame_start_tests;
 #[cfg(test)]
 mod tests;

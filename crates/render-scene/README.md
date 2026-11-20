@@ -1452,6 +1452,8 @@ The targets count against the allocation budget. A kept backing is charged once 
 
 A layer is recorded as written when the *last* attachment that wrote that exact texture in a submitted frame stored its contents; a last write that discarded them leaves the layer unwritten. Only the declared texture counts: a stock attachment with the same name is another texture and never marks it, and a pass or read that would stand a declared target in for a same-named attachment of the frame is refused at planning with `FrameError::AttachmentHazard`. A same-frame fitted capture lists each game target's texture and each persistent target's publication in its suffix writes, so a game's passes run inside it, and a capture that fails publishes none of the game's bookkeeping.
 
+`GameTargets::is_written`, `view` and the imports a capture declares answer with the state the frame started with, in every segment of that frame: both segments of one owned capture, or one transaction. A segment of a fitted capture that is submitted first records what it wrote when it is submitted, and the segment after it still plans, loads and imports as the frame's first segment did, so a feature plans the same passes in both and a completed pass keeps the declaration the executor compared it with. A later frame, and a query made outside any frame, sees the published state.
+
 ```rust,ignore
 let passes = GamePasses::new().with(Arc::new(MyGame::new()));
 let mut settings = RendererConfiguration::legacy(size, format);

@@ -263,6 +263,28 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
+    /// Whether the buffers hold every slot, the previous-transform buffer too when it is kept and
+    /// the skin stream when the batch has one, so `grow` has nothing to make.
+    fn buffers_fit(&self, track_previous: bool) -> bool {
+        let size = self.bytes.len() as u64;
+        let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
+            buffer.as_deref().is_some_and(|b| b.size() >= size)
+        };
+        fits(&self.buffer)
+            && (!track_previous || fits(&self.previous))
+            && self.skin.as_ref().is_none_or(SkinStream::fits)
+    }
+
+    /// Whether `flush_prepared` would find nothing to write, copy or allocate: no slot is
+    /// waiting for upload, the buffers are current and hold every slot, and the history has
+    /// nothing pending.
+    fn is_settled(&self, track_previous: bool) -> bool {
+        self.dirty.is_empty()
+            && self.buffer_valid.get()
+            && !self.history.has_pending()
+            && self.buffers_fit(track_previous || self.previous.is_some())
+    }
+
     /// Keeps copies needed by this encoder and edits still owed if its transaction cancels.
     fn prune_published(&mut self, owner: &Publications) {
         let pending: BTreeSet<usize> = self
@@ -335,6 +357,9 @@ pub(crate) fn flush_prepared(
     census: &MemoryCensus,
     track_previous: bool,
 ) -> (Vec<Range<u32>>, Option<super::history::Candidate>) {
+    if batch.is_settled(track_previous) {
+        return (Vec::new(), None);
+    }
     let owner = context.publications();
     batch.prune_published(&owner);
     let writes = batch.pending_ranges_for(Some(&owner));
@@ -429,17 +454,16 @@ fn grow(
     census: &MemoryCensus,
     track_previous: bool,
 ) {
-    let device = context.device().clone();
     let size = batch.bytes.len() as u64;
+    if batch.buffers_fit(track_previous) {
+        return;
+    }
+    let device = context.device().clone();
     let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
         buffer.as_deref().is_some_and(|b| b.size() >= size)
     };
     let current_fits = fits(&batch.buffer);
     let previous_fits = !track_previous || fits(&batch.previous);
-    let skin_fits = batch.skin.as_ref().is_none_or(SkinStream::fits);
-    if current_fits && previous_fits && skin_fits {
-        return;
-    }
     let capacity = size
         .checked_next_power_of_two()
         .expect("instance buffer size overflow");

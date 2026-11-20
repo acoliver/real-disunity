@@ -237,6 +237,32 @@ impl HeldPoller {
     }
 }
 
+/// The largest count in `0..=cap` for which `submits` succeeds, with its refusal of the count
+/// after it, or `None` when `cap` itself succeeds.
+///
+/// Counts the command buffers a recorded unit costs on Metal: wgpu-hal's Metal queue refuses, as
+/// a lost device, the command buffer after its 4096 created and not submitted
+/// (`MAX_COMMAND_BUFFERS`), so the largest number of units one frame of a fresh device submits
+/// falls as each unit costs more. Other backends have no such cap. `submits` must succeed for
+/// every count below one it succeeds for.
+pub fn largest_submitting_count<E>(
+    cap: usize,
+    mut submits: impl FnMut(usize) -> Result<(), E>,
+) -> (usize, Option<E>) {
+    let Err(mut refusal) = submits(cap) else {
+        return (cap, None);
+    };
+    let (mut submitted, mut refused) = (0, cap);
+    while refused - submitted > 1 {
+        let middle = usize::midpoint(submitted, refused);
+        match submits(middle) {
+            Ok(()) => submitted = middle,
+            Err(error) => (refused, refusal) = (middle, error),
+        }
+    }
+    (submitted, Some(refusal))
+}
+
 // Loss, foreign-queue and retirement tests must own their device's polling lifecycle.
 #[cfg(test)]
 pub(crate) fn fresh_device() -> (Device, Queue) {

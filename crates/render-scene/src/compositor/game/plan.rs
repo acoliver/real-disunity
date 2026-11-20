@@ -198,7 +198,7 @@ impl GameTargets {
                 },
             });
         }
-        let reads = self.pass_reads(spec);
+        let mut reads = self.pass_reads(spec);
         for resource in &reads {
             added.push(self.view(*resource)?);
         }
@@ -216,7 +216,6 @@ impl GameTargets {
         let fresh = new_views(views, added)?;
         views.extend(fresh);
         passes.push(pass);
-        let mut reads = reads;
         reads.extend(spec.snapshots.resources());
         Ok(FeaturePass { reads, ..feature })
     }

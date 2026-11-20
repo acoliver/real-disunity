@@ -29,12 +29,23 @@ pub trait PreparedCommands {
     /// # Errors
     /// The owner's refusal of the retention; nothing is staged then.
     fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), PreparedRefusal>;
-    /// Records the commands. Called when the frame's preparation finishes, in staging order.
+    /// Records the commands. Called when the frame's preparation finishes, in staging order, with
+    /// the `label` they were staged as.
+    ///
+    /// The commands name themselves with `label` in GPU captures: a compute or render pass they
+    /// open takes it as the pass label, and commands outside a pass go inside an encoder debug
+    /// group of that name. A debug group pushed on the encoder around a pass costs a command buffer
+    /// of its own when it is popped: wgpu ends the encoder's command buffer at each pass and opens
+    /// another for the next command outside one.
     ///
     /// # Errors
     /// The owner's refusal to record them, such as a GPU validation error it guards against;
     /// the frame then fails with it.
-    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), PreparedRefusal>;
+    fn record(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        label: &str,
+    ) -> Result<(), PreparedRefusal>;
 }
 
 /// Mips and array layers of one texture that prepared commands write.
@@ -126,7 +137,7 @@ impl AttachmentView {
 
 impl PrepareContext<'_> {
     /// Stages `commands`, recorded after the copies, dispatches and commands staged before it and
-    /// inside a debug group named `label`. Calls `commands.retain` first.
+    /// labelled `label` ([`PreparedCommands::record`]). Calls `commands.retain` first.
     ///
     /// Use this for work that writes or reads views of the frame, and for work whose resources
     /// the frame must hold until it completes, such as a program runtime's prepared dispatch or
@@ -303,14 +314,13 @@ impl PrepareContext<'_> {
     }
 }
 
-/// Records staged prepared commands inside a debug group named `label`.
+/// Records staged prepared commands, which label themselves `label`.
 pub(super) fn record(
     encoder: &mut wgpu::CommandEncoder,
     label: &'static str,
     commands: &dyn PreparedCommands,
 ) -> Result<(), FrameError> {
-    encoder.push_debug_group(label);
-    let recorded = commands.record(encoder);
-    encoder.pop_debug_group();
-    recorded.map_err(|refusal| FrameError::PreparedRefused { label, refusal })
+    commands
+        .record(encoder, label)
+        .map_err(|refusal| FrameError::PreparedRefused { label, refusal })
 }

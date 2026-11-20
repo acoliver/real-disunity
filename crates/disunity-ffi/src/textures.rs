@@ -2,6 +2,8 @@
 //! data. The renderer cannot see managed memory, so the host reads them from here.
 use std::collections::BTreeMap;
 
+use worldrunner_world_simulation::graphics::{MAX_VOLUME_DEPTH, dimension};
+
 use crate::{DisunityResult, callbacks::mutate};
 
 /// Player textures take renderer identities from here up; lower identities belong to the
@@ -11,7 +13,26 @@ pub const FIRST_PLAYER_TEXTURE: u64 = 1 << 40;
 /// The largest texture payload accepted, 512 MiB: an 8192 by 8192 RGBA32 image with room to spare.
 const MAX_TEXTURE_BYTES: u32 = 1 << 29;
 
-/// A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per texel), or zero.
+/// A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is
+/// zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of
+/// the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per
+/// texel), or zero.
+///
+/// `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
+/// 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
+/// writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
+/// value is refused, and the record reads back with the value it was stored with.
+///
+/// `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
+/// of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
+/// after another, each as long as the others and each holding its own mip chain, so `length` is a
+/// whole multiple of `depth`. A 3D texture's `bytes` are its mip levels one after another, each
+/// level holding its slices one after another and having half the width, height and depth of the
+/// one before (at least one), so only a 3D texture of one level has a `length` that is a whole
+/// multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
+/// `graphics_format`, the engine's `GraphicsFormat` value, because its layers need not have a
+/// `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. The host draws
+/// all four shapes. `reserved` is zero.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTextureInfo {
@@ -27,6 +48,10 @@ pub struct DisunityTextureInfo {
     pub length: u32,
     pub present: u32,
     pub distance_spread: u32,
+    pub depth: u32,
+    pub graphics_format: u32,
+    pub dimension: u32,
+    pub reserved: u32,
 }
 
 /// How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
@@ -64,6 +89,8 @@ const DEFAULT_SAMPLER: DisunitySampler = DisunitySampler {
     mip_bias: 0.0,
 };
 
+/// The faces of a cube.
+const CUBE_FACES: u32 = 6;
 /// The highest wrap mode value.
 const MAX_WRAP: u32 = 3;
 /// The highest filter mode value.
@@ -93,6 +120,55 @@ fn check_info(identity: u64, info: &DisunityTextureInfo, length: u32) -> Result<
     }
     if length > MAX_TEXTURE_BYTES {
         return Err("the texture payload is larger than the host accepts");
+    }
+    check_shape(info, length)
+}
+
+/// Checks the shape a record states: a known dimension and the layer count, graphics format and
+/// length that dimension needs. Nothing here reads the bytes; each layer holds the same chain.
+fn check_shape(info: &DisunityTextureInfo, length: u32) -> Result<(), &'static str> {
+    if info.reserved != 0 {
+        return Err("the reserved word of a stored texture is zero");
+    }
+    match info.dimension {
+        0 | dimension::TEX_2D if info.depth <= 1 => Ok(()),
+        0 | dimension::TEX_2D => Err("a 2D texture has a depth of 0 or 1"),
+        dimension::TEX_2D_ARRAY => check_layers(info, length),
+        dimension::TEX_3D => check_volume(info, length),
+        dimension::CUBE if info.depth != CUBE_FACES => Err("a cube has six faces"),
+        dimension::CUBE if info.width != info.height => Err("the faces of a cube are square"),
+        dimension::CUBE => check_layers(info, length),
+        _ => Err("a stored texture is 2D, 3D, a cube or a 2D array (dimension 2, 3, 4 or 5)"),
+    }
+}
+
+/// A texture of layers (the layers of an array, the faces of a cube or the slices of a volume)
+/// states how many there are and their `GraphicsFormat`, and holds every layer's bytes.
+fn check_layers(info: &DisunityTextureInfo, length: u32) -> Result<(), &'static str> {
+    check_depth_and_format(info)?;
+    if length == 0 || !length.is_multiple_of(info.depth) {
+        return Err("a layered texture's length is a whole number of layers");
+    }
+    Ok(())
+}
+
+/// A volume states its depth and `GraphicsFormat`. Its bytes are its mip levels one after another,
+/// each holding its own slices, and a level has half the depth of the one before, so only a volume
+/// of one level is a whole number of equal slices.
+fn check_volume(info: &DisunityTextureInfo, length: u32) -> Result<(), &'static str> {
+    check_depth_and_format(info)?;
+    if length == 0 || (info.mips == 1 && !length.is_multiple_of(info.depth)) {
+        return Err("a volume of one mip level is a whole number of slices");
+    }
+    Ok(())
+}
+
+fn check_depth_and_format(info: &DisunityTextureInfo) -> Result<(), &'static str> {
+    if !(1..=MAX_VOLUME_DEPTH).contains(&info.depth) {
+        return Err("a layered texture has 1 to 2048 layers");
+    }
+    if info.graphics_format == 0 {
+        return Err("a layered texture states its graphics format");
     }
     Ok(())
 }

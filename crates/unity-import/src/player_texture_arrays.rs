@@ -5,14 +5,14 @@
 //! keeps the array's size, slice count and `GraphicsFormat` for every format, since the managed
 //! side only needs the object and its bytes.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use worldrunner_unity_serialized::graphics::Texture2DArray;
 
 use crate::{
     PlayerError,
+    player_layered_textures::pixel_data,
     player_resources::{ObjectKey, Registry, ResourceAsset},
-    player_sprites::{TextureData, locate_stream, write_resource},
 };
 
 /// Plans the texture array, asset number `index`.
@@ -22,33 +22,14 @@ pub(crate) fn plan_texture_array(
     output: &Path,
     index: usize,
 ) -> Result<ResourceAsset, PlayerError> {
-    let (file, path_id) = key;
-    let open = registry.files.open_path(file)?;
-    let array: Texture2DArray = open.decode(*path_id)?;
-    let data = if array.stream.path.is_empty() {
-        let object = *open.file.object(*path_id).expect("decoded objects exist");
-        let bytes = open.bytes(&object)?;
-        let pixels =
-            bytes
-                .get(array.image_data.clone())
-                .ok_or_else(|| PlayerError::InvalidHierarchy {
-                    path: file.clone(),
-                    reason: format!("texture array {}: image data lies outside it", array.name),
-                })?;
-        let relative = format!("resources/{index}.bin");
-        write_resource(output, &relative, pixels)?;
-        TextureData {
-            file: PathBuf::from(relative),
-            offset: 0,
-            size: pixels.len() as u64,
-        }
-    } else {
-        locate_stream(
-            file,
-            &array.stream,
-            &format!("texture array {}", array.name),
-        )?
-    };
+    let array: Texture2DArray = registry.files.open_path(&key.0)?.decode(key.1)?;
+    let what = format!("texture array {}", array.name);
+    let data = pixel_data(
+        registry,
+        key,
+        (&array.image_data, &array.stream),
+        (&what, output, index),
+    )?;
     let settings = array.settings;
     Ok(ResourceAsset::Texture2DArray {
         name: array.name,

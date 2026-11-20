@@ -46,12 +46,12 @@ mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub(crate) use engine::SceneSources;
 pub use engine::{
     BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
     FULLSCREEN_TRIANGLE_WGSL, LayerShape, TerrainMaterialArrayError, TerrainMaterialChannel,
 };
-pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};

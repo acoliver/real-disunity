@@ -254,6 +254,7 @@ mod tests {
                 texture(&context, wgpu::TextureDimension::D3),
             ]
             .into(),
+            super::Rc::from([]),
         );
         let semantic = EngineSemantic::named("scene");
         assert!(

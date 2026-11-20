@@ -1,3 +1,5 @@
+using Disunity.Hosting;
+using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
@@ -8,7 +10,11 @@ namespace UnityEngine;
 /// one slice after another, and a level stores its rows from the bottom up. Formats with a codec (the 8-bit, 16-bit,
 /// half and float color formats and the packed 16-bit ones) support pixel access. Compressed formats keep bytes only,
 /// and so does a format with no <see cref="TextureFormat"/>, which only a player's plan can create; their pixel
-/// members throw <see cref="NotSupportedException"/>. Nothing uploads the pixels to a GPU yet.
+/// members throw <see cref="NotSupportedException"/>. A material or a property block that holds the array sends it to the
+/// host as an asset texture under a renderer identity (see <see cref="RendererIdentity"/>), and the host draws from the bytes
+/// stored under it; <see cref="Apply(bool, bool)"/> stores them again. The host reads the base level of each layer (the
+/// further mip levels travel with the bytes and are not drawn yet), in the colour space of its
+/// <see cref="Texture.graphicsFormat"/>. An array the host cannot store (more bytes than it stores, or bytes that are not whole layers) is sent as no texture.
 /// </summary>
 public sealed partial class Texture2DArray : Texture
 {
@@ -83,6 +89,24 @@ public sealed partial class Texture2DArray : Texture
 
     /// <summary>The raw bytes of every slice, which a player's pixels are read into.</summary>
     internal Span<byte> PixelBytes => _data;
+
+    /// <summary>The size in bytes of every slice with its whole mip chain.</summary>
+    internal int ByteLength => _data.Length;
+
+    /// <summary>The identity the renderer knows this array by: allocated the first time a material or a property block
+    /// sends it, from <see cref="DisunityHost.FirstPlayerTextureIdentity"/> up, and kept for the array's lifetime.</summary>
+    internal ulong RendererIdentity => TakeRendererIdentity();
+
+    /// <summary>Hands the array's raw bytes and description to the host: its layer count, its dimension (a 2D array), its
+    /// <see cref="GraphicsFormat"/> and, when it has one, its <see cref="TextureFormat"/>, which is zero for a format that has no
+    /// <see cref="TextureFormat"/> and keeps its bytes as they are. Called when the array takes its identity and on
+    /// <see cref="Apply(bool, bool)"/>.</summary>
+    internal override void StoreForRenderer() => StoreRecord(new DisunityTextureInfo
+    {
+        format = _format is { } known ? (uint)known : 0u, width = (uint)_width, height = (uint)_height, mips = (uint)_mipCount,
+        linear = GraphicsFormats.IsSrgb(_graphics) ? 0u : 1u, depth = (uint)_depth, graphics_format = (uint)_graphics,
+        dimension = (uint)TextureDimension.Tex2DArray,
+    }, _data);
 
     internal override Object CloneAsset()
     {

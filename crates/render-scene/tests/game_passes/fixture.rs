@@ -5,8 +5,9 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, SceneWaterBody,
+    SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
@@ -103,6 +104,24 @@ pub fn quad_scene() -> RenderScene {
         effects: None,
     })
     .unwrap()
+}
+
+/// A stock water body eight metres on a side, ten centimetres below the quad, so the quad hides
+/// it where they overlap and a ring of open water shows around the quad.
+pub fn water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: SceneWaterSettings::STOCK,
+        surface: SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: -100,
+        east_min_millimeters: -4000,
+        north_min_millimeters: -4000,
+        east_extent_millimeters: 8000,
+        north_extent_millimeters: 8000,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+    }
 }
 
 /// The material of a terrain palette entry, which names all three of its maps.
@@ -213,7 +232,7 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (false, wgpu::Features::empty()), configure)
+        Self::with_features(scene, size, wgpu::Features::empty(), configure)
     }
 
     /// A rig on the shared test device with exactly `features`, for a game whose targets need
@@ -224,7 +243,9 @@ impl Rig {
         features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (false, features), configure)
+        Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
+            ScenePipelines::new(device, FORMAT)
+        })
     }
 
     /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
@@ -234,33 +255,70 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (true, wgpu::Features::empty()), configure)
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        Self::with_pipelines(
+            scene,
+            (size, view(size)),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame.format = hdr;
+                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                configure(settings);
+            },
+            |device| ScenePipelines::new(device, hdr),
+        )
     }
 
-    fn build(
+    /// A rig whose frames are HDR and compute screen-space ambient occlusion with `ssao`, drawn
+    /// with the pipelines that write the prepass metadata. The output is still `FORMAT`.
+    pub fn with_ssao(
         scene: &RenderScene,
         size: [u32; 2],
-        (hdr, features): (bool, wgpu::Features),
+        ssao: worldrunner_render_plan::SceneSsao,
         configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::with_ssao_view(scene, (size, view(size)), ssao, configure)
+    }
+
+    /// [`Self::with_ssao`] seen from `camera` rather than the straight-down orthographic view.
+    pub fn with_ssao_view(
+        scene: &RenderScene,
+        (size, camera): ([u32; 2], SceneView),
+        ssao: worldrunner_render_plan::SceneSsao,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        Self::with_pipelines(
+            scene,
+            (size, camera),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame = FrameConfig::new(size, hdr, 1);
+                settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
+                settings.ssao = Some(ssao);
+                configure(settings);
+            },
+            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
+        )
+    }
+
+    fn with_pipelines(
+        scene: &RenderScene,
+        (size, camera): ([u32; 2], SceneView),
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+        pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
     ) -> Self {
         let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
-        let scene_format = if hdr {
-            settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-            settings.hdr = Some((1.0, ToneMap::Reinhard));
-            wgpu::TextureFormat::Rgba16Float
-        } else {
-            FORMAT
-        };
         configure(&mut settings);
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
-        let pipelines = ScenePipelines::new(context.device(), scene_format);
+        let pipelines = pipelines(context.device());
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
-        let view = view(size);
-        let frame = FrameUniform::unlit(&view);
+        let frame = FrameUniform::unlit(&camera);
         gpu.set_frame(context.queue(), frame);
         Self {
             context,
@@ -325,6 +383,26 @@ impl Rig {
         Ok(())
     }
 
+    /// The texels of an `Rgba16Float` texture, such as an HDR rig's frame colour.
+    pub fn read_half(&self, texture: &wgpu::Texture) -> Vec<[f32; 4]> {
+        assert_eq!(texture.format(), wgpu::TextureFormat::Rgba16Float);
+        let config = FrameConfig::new([texture.width(), texture.height()], texture.format(), 1);
+        let mut readback = Readback::new(self.context.device(), config, 1 << 22).unwrap();
+        readback
+            .read(self.context.device(), self.context.submission(), texture)
+            .unwrap()
+            .chunks_exact(8)
+            .map(|texel| {
+                std::array::from_fn(|channel| {
+                    half_to_f32(u16::from_le_bytes([
+                        texel[channel * 2],
+                        texel[channel * 2 + 1],
+                    ]))
+                })
+            })
+            .collect()
+    }
+
     pub fn read(&self, texture: &wgpu::Texture) -> Vec<[u8; 4]> {
         let config = FrameConfig::new([texture.width(), texture.height()], texture.format(), 1);
         let mut readback = Readback::new(self.context.device(), config, 1 << 22).unwrap();
@@ -366,4 +444,17 @@ impl Rig {
     pub fn pixel(image: &[[u8; 4]], column: usize, row: usize) -> [u8; 4] {
         image[row * SIZE[0] as usize + column]
     }
+}
+
+/// An IEEE half as `f32`; finite values only, which is all a frame colour test writes.
+fn half_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 10) & 0x1f);
+    let mantissa = f32::from(bits & 0x3ff);
+    let magnitude = if exponent == 0 {
+        mantissa * 2f32.powi(-24)
+    } else {
+        (1.0 + mantissa / 1024.0) * 2f32.powi(exponent - 15)
+    };
+    sign * magnitude
 }

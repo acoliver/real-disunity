@@ -141,6 +141,19 @@ pub enum OffscreenWork {
     /// setup resets it to the whole target. The world checks that every component is finite and
     /// the width and height are not negative.
     SetViewport { rect: [f32; 4] },
+    /// Clips the draws that follow to `rect`, in pixels of the bound targets: x, y, width and
+    /// height from the bottom left texel, the convention of [`SetViewport`](Self::SetViewport).
+    /// The clip holds until a [`DisableScissor`](Self::DisableScissor), a target setting or a
+    /// camera setup. The world checks that every component is finite and the width and height are
+    /// not negative.
+    EnableScissor { rect: [f32; 4] },
+    /// Ends the clip an [`EnableScissor`](Self::EnableScissor) set: the draws that follow cover
+    /// the whole target again.
+    DisableScissor,
+    /// The depth bias of the draws that follow, until the next record of this kind: `bias` is the
+    /// constant offset and `slope_bias` the factor of the triangle's depth slope, as the script
+    /// gave them. A bias of 0 and a slope bias of 0 end it. The world checks that both are finite.
+    SetDepthBias { bias: f32, slope_bias: f32 },
     /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
     /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
     /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every

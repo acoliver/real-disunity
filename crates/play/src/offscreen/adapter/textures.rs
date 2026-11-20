@@ -106,7 +106,7 @@ impl OffscreenAdapter {
                 notes.fail("texture", &error);
                 notes.count(&format!(
                     "textureformat:{} {}x{}, {} bytes",
-                    crate::textures::format_name(stored.format),
+                    crate::textures::stored_format_name(stored),
                     stored.width,
                     stored.height,
                     stored.bytes.len()
@@ -124,7 +124,7 @@ impl OffscreenAdapter {
             Ok(()) => {
                 let census = format!(
                     "stored texture {} ({}) uploaded as GraphicsFormat {}",
-                    crate::textures::format_name(stored.format),
+                    crate::textures::stored_format_name(stored),
                     if stored.linear { "linear" } else { "sRGB" },
                     texture.graphics_format
                 );

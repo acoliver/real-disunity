@@ -83,6 +83,30 @@ pub enum PlayerTextureError {
         "a {format} texture of height {height} cannot be turned over, as its height is not a multiple of 4"
     )]
     Unaligned { format: &'static str, height: u32 },
+    #[error("a cube has six square faces, and this one has {depth} layers of {width}x{height}")]
+    CubeFaces { depth: u32, width: u32, height: u32 },
+    #[error("{mips} mip levels are more than a {}x{}x{} volume has", .size[0], .size[1], .size[2])]
+    VolumeMips { mips: u32, size: [u32; 3] },
+    #[error("a texture of {depth} layers holds {actual} bytes, which are not {depth} equal layers")]
+    Layers { depth: u32, actual: usize },
+    #[error("{mips} mip levels are more than a {width}x{height} texture has")]
+    Mips { mips: u32, width: u32, height: u32 },
+    #[error(
+        "a {format} array or cube is drawn only as blocks, and this device has no block compression"
+    )]
+    ArrayNeedsBlocks { format: &'static str },
+    #[error("a {width}x{height} {format} array or cube is not made of whole 4x4 blocks")]
+    ArrayBlockSize {
+        format: &'static str,
+        width: u32,
+        height: u32,
+    },
+    #[error("a layer of {mips} mip levels holds {actual} bytes but the levels take {needed}")]
+    Levels {
+        mips: u32,
+        needed: usize,
+        actual: usize,
+    },
 }
 
 /// How a block-compressed texture reaches the renderer.
@@ -101,15 +125,28 @@ pub fn format_name(format: u32) -> String {
         1 => "Alpha8".into(),
         3 => "RGB24".into(),
         4 => "RGBA32".into(),
+        5 => "ARGB32".into(),
         10 => "DXT1".into(),
         12 => "DXT5".into(),
         24 => "BC6H".into(),
         25 => "BC7".into(),
+        14 => "BGRA32".into(),
         26 => "BC4".into(),
         27 => "BC5".into(),
         28 => "DXT1Crunched".into(),
         29 => "DXT5Crunched".into(),
         other => format!("TextureFormat {other}"),
+    }
+}
+
+/// The name of a stored texture's format, for logs: its engine `TextureFormat`, or for a format the
+/// engine has none for, as a 2D array may be, its `GraphicsFormat`.
+#[must_use]
+pub fn stored_format_name(texture: &PlayerTexture) -> String {
+    if texture.format == 0 && texture.graphics_format != 0 {
+        format!("GraphicsFormat {}", texture.graphics_format)
+    } else {
+        format_name(texture.format)
     }
 }
 
@@ -148,6 +185,8 @@ pub fn player_rgba8(texture: &PlayerTexture) -> Result<Vec<u8>, PlayerTextureErr
     match texture.format {
         4 => texels(texture, "RGBA32", 4, |t| [t[0], t[1], t[2], t[3]]),
         3 => texels(texture, "RGB24", 3, |t| [t[0], t[1], t[2], 255]),
+        5 => texels(texture, "ARGB32", 4, |t| [t[1], t[2], t[3], t[0]]),
+        14 => texels(texture, "BGRA32", 4, |t| [t[2], t[1], t[0], t[3]]),
         1 => texels(texture, "Alpha8", 1, |t| {
             [
                 255,

@@ -58,7 +58,8 @@ public sealed partial class Texture2DArray
         SetPixels(Array.ConvertAll(colors, color => (Color)color), arrayElement, miplevel);
     }
 
-    /// <summary>Regenerates the smaller mip levels of every slice when asked, counts an update and optionally drops readability.</summary>
+    /// <summary>Regenerates the smaller mip levels of every slice when asked, stores the bytes with the host again when the array
+    /// has an identity, counts an update and optionally drops readability.</summary>
     public void Apply(bool updateMipmaps = true, bool makeNoLongerReadable = false)
     {
         if (!_readable) throw new UnityException($"Texture2DArray.{nameof(Apply)}: texture '{name}' is not readable");
@@ -67,6 +68,7 @@ public sealed partial class Texture2DArray
                 for (var level = 1; level < _mipCount; level++)
                     TexelFormats.Downsample(known, LevelBytes(element, level - 1), LevelWidth(level - 1), LevelHeight(level - 1),
                         LevelBytes(element, level), LevelWidth(level), LevelHeight(level));
+        if (StoredIdentity != 0) StoreForRenderer();
         if (makeNoLongerReadable) _readable = false;
         IncrementUpdateCount();
     }

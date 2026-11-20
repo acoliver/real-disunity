@@ -24,7 +24,7 @@ fn shadow_split(sphere: [f32; 4]) -> RendererListDesc {
 #[test]
 fn a_shadow_list_draws_a_caster_whose_pass_tag_is_spelled_in_capitals() {
     let mut world = world();
-    let caster = shader(&mut world, "forward-and-upper-caster");
+    let caster = shader(&mut world, "forward-and-shouting-caster");
     let upper = material(&mut world, caster);
     placed(&mut world, (0, 0, Vec3::ZERO), &[upper], None);
     scene(&mut world, Mat4::IDENTITY, u32::MAX);

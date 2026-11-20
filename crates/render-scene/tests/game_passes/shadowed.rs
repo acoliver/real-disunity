@@ -353,7 +353,7 @@ fn assert_painted(image: &[[u8; 4]], context: &str) {
     assert_eq!(Rig::pixel(image, 3, 20), [255, 255, 0, 255], "{context}");
 }
 
-fn effects() -> SceneEffects {
+pub fn effects() -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -408,7 +408,7 @@ pub fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
 }
 
 /// As [`shadowed`], on a device with `features`.
-fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, ShadowedScene) {
+pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, ShadowedScene) {
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });

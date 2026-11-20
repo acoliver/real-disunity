@@ -48,6 +48,9 @@ pub struct RendererView {
     /// The identity of the mesh contents, the one the host reads them by.
     pub mesh: u64,
     pub layer: u32,
+    /// The renderer's shadow casting mode: 0 casts no shadow, 1 casts, 2 casts from both sides and 3
+    /// casts and is not otherwise drawn.
+    pub shadow_casting_mode: u32,
     /// The world material of each slot; a slot has none when it never had one or its material
     /// was destroyed.
     pub materials: Vec<Option<MaterialId>>,
@@ -293,6 +296,7 @@ fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldEr
             local_to_world: world.presented_matrix(component.object)?.to_cols_array(),
             mesh,
             layer,
+            shadow_casting_mode: renderer.shadow_casting_mode,
             materials: (0..slots)
                 .map(|slot| {
                     let held = renderer.slot_materials.get(slot).copied().flatten();

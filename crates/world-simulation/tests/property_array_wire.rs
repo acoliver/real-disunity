@@ -112,9 +112,9 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_fourteen_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 14);
-    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12_u32] {
+fn the_version_is_fifteen_and_older_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 15);
+    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());
         assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));
@@ -197,6 +197,7 @@ fn every_location() -> GraphicsSnapshot {
         local_to_world: [0.0; 16],
         mesh: 5,
         layer: 0,
+        shadow_casting_mode: 1,
         materials: vec![None],
         render_queue: None,
         property_block: Some(properties.clone()),

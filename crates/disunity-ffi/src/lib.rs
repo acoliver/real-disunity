@@ -59,6 +59,7 @@ pub mod presentation_lights;
 pub mod presentation_ui;
 pub mod scheduling;
 pub mod script_messages;
+pub mod shadows;
 pub mod sorting_group;
 pub mod sprites;
 mod store;

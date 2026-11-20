@@ -4,7 +4,7 @@ use super::fixture::{Rig, SIZE, quad_scene};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_scene::{
     compositor::{
-        ColorOutput, FrameShadowError, FrameShadowHandle, GameBuild, GameFeatureFactory,
+        ColorOutput, FrameInputError, FrameShadowHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets,
     },
     executor::{
@@ -14,7 +14,7 @@ use worldrunner_render_scene::{
     wgpu,
 };
 
-type Seen = Arc<Mutex<Vec<Result<usize, FrameShadowError>>>>;
+type Seen = Arc<Mutex<Vec<Result<usize, FrameInputError>>>>;
 
 /// A game that reads the lent shadows in every frame, and with `read_stock` also plans a pass
 /// that declares a read of the stock cascade layers.
@@ -117,7 +117,7 @@ fn an_unshadowed_route_lends_no_cascades_and_the_frame_still_renders() {
     }
     assert_eq!(
         seen.lock().unwrap().as_slice(),
-        [Err(FrameShadowError::NotPrepared); 2].as_slice()
+        [Err(FrameInputError::NotPrepared); 2].as_slice()
     );
 }
 

@@ -283,7 +283,7 @@ impl<'a> Integration<'a> {
             mip_level_count: Some(1),
             ..Default::default()
         });
-        let roughness = roughness(mip, settings.mip_count);
+        let roughness = level_roughness(mip, settings.mip_count);
         let bytes = [
             size,
             settings.samples,
@@ -338,8 +338,10 @@ impl<'a> Integration<'a> {
         })
     }
 }
+/// The roughness level `mip` of a `count`-level filtered cube is prefiltered for, before the
+/// convention's remap: `mip / (count - 1)`, the inverse of the consumers' `roughness * (count - 1)`.
 #[expect(clippy::cast_precision_loss, reason = "at most eleven mip levels")]
-fn roughness(mip: u32, count: u32) -> f32 {
+pub(crate) fn level_roughness(mip: u32, count: u32) -> f32 {
     if count == 1 {
         0.0
     } else {

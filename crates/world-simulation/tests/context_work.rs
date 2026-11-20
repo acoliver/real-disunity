@@ -91,6 +91,14 @@ fn every_context_record(camera: ComponentHandle, id: RenderTextureId) -> Vec<Off
         OffscreenWork::SetViewport {
             rect: [-1.5, 2.0, 640.0, 0.25],
         },
+        OffscreenWork::EnableScissor {
+            rect: [4.0, 4.0, 56.0, 56.0],
+        },
+        OffscreenWork::DisableScissor,
+        OffscreenWork::SetDepthBias {
+            bias: 1.0,
+            slope_bias: 2.5,
+        },
     ]
 }
 
@@ -180,8 +188,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_thirteen_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 13);
+fn the_wire_version_is_fourteen_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 14);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);

@@ -178,7 +178,12 @@ impl ProgramRuntime {
             }
             (wgpu::BindingType::Texture { .. }, Resource::Texture(handle)) => {
                 let entry = self.store.texture(handle)?;
-                check_texture(slot, &entry.texture, entry.dimension)?;
+                check_texture(
+                    slot,
+                    &entry.texture,
+                    entry.dimension,
+                    self.device.features(),
+                )?;
                 Ok(Resolved::Borrowed(wgpu::BindingResource::TextureView(
                     &entry.view,
                 )))
@@ -254,7 +259,7 @@ fn imported_resource<'a>(
             },
         ) => buffer_range(device, (slot, *ty), (buffer, *offset, *size)),
         (wgpu::BindingType::Texture { .. }, ImportedResource::Texture(texture)) => {
-            check_texture(slot, &texture.texture, texture.dimension)?;
+            check_texture(slot, &texture.texture, texture.dimension, device.features())?;
             Ok(wgpu::BindingResource::TextureView(&texture.view))
         }
         (wgpu::BindingType::StorageTexture { .. }, ImportedResource::Texture(texture)) => {
@@ -477,11 +482,13 @@ fn check_bound(
 }
 
 /// A bound texture suits the slot when its view has the slot's dimension, its sample count
-/// agrees with the slot's multisampling and its format suits the shader's sample type.
+/// agrees with the slot's multisampling and its format suits the shader's sample type on a
+/// device with `features`: `R32Float` is filterable with `FLOAT32_FILTERABLE`, as wgpu has it.
 fn check_texture(
     slot: &Slot,
     texture: &wgpu::Texture,
     dimension: wgpu::TextureViewDimension,
+    features: wgpu::Features,
 ) -> Result<(), ProgramError> {
     let wgpu::BindingType::Texture {
         sample_type,
@@ -491,7 +498,7 @@ fn check_texture(
     else {
         return Ok(());
     };
-    let format_type = texture.format().sample_type(None, None);
+    let format_type = texture.format().sample_type(None, Some(features));
     let suits = match (sample_type, format_type) {
         (
             wgpu::TextureSampleType::Float { filterable },

@@ -250,6 +250,57 @@ pub struct DisunityShadowRendererList {
     pub cull: u64,
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowRequest {
+    pub query: u32,
+    pub light_kind: u32,
+    pub light_range: f32,
+    pub light_spot_angle: f32,
+    pub camera_x: f32,
+    pub camera_y: f32,
+    pub camera_z: f32,
+    pub shadow_distance: f32,
+    pub culling_mask: u32,
+    pub caster_count: u32,
+    pub split_index: u32,
+    pub split_count: u32,
+    pub ratio_x: f32,
+    pub ratio_y: f32,
+    pub ratio_z: f32,
+    pub resolution: u32,
+    pub near_plane_offset: f32,
+    pub face: u32,
+    pub fov_bias: f32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowCaster {
+    pub min_x: f32,
+    pub min_y: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+    pub casting_mode: u32,
+    pub layer: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowResult {
+    pub found: u32,
+    pub plane_count: u32,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+    pub sphere_x: f32,
+    pub sphere_y: f32,
+    pub sphere_z: f32,
+    pub sphere_radius: f32,
+}
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
     /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.

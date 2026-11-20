@@ -14,6 +14,7 @@ mod command_parts;
 mod context_parts;
 mod graphics_parts;
 mod light_parts;
+mod raster_parts;
 mod readback_parts;
 mod renderer_list_parts;
 mod scene_parts;
@@ -22,7 +23,7 @@ use super::{GraphicsSnapshot, OffscreenWork};
 use codec::{Reader, Wire, Writer};
 
 /// The version of the encoding this module reads and writes.
-pub const WIRE_VERSION: u32 = 13;
+pub const WIRE_VERSION: u32 = 14;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 

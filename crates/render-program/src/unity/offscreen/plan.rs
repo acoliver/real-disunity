@@ -295,7 +295,7 @@ impl Services<'_> {
         }
         for slot in &slots {
             if let wgpu::BindingType::Sampler(kind) = slot.ty {
-                self.bind_sampler(slot, kind, (&sampler_states, any_unfiltered), &mut plan)?;
+                self.bind_sampler(slot, kind, (&sampler_states, any_unfiltered), &mut plan);
             }
         }
         Ok(plan)
@@ -599,31 +599,33 @@ impl Services<'_> {
         }
     }
 
+    /// Binds the sampler of a slot: the owner's comparison sampler for a shadow map, else one of
+    /// the states the textures it is paired with read through.
     fn bind_sampler(
         &mut self,
         slot: &Slot,
         kind: wgpu::SamplerBindingType,
         (states, any_unfiltered): (&HashMap<(u32, u32), Sampled>, bool),
         plan: &mut DrawPlan,
-    ) -> Result<(), OffscreenError> {
-        if kind == wgpu::SamplerBindingType::Comparison {
-            return Err(OffscreenError::UnsupportedBinding {
-                set: slot.set,
-                binding: slot.binding,
-                what: "a comparison sampler",
-            });
-        }
-        let state =
-            sampling::sampler_state(kind, states.get(&(slot.set, slot.binding)), any_unfiltered);
+    ) {
+        let sampler = if kind == wgpu::SamplerBindingType::Comparison {
+            self.samplers.comparison()
+        } else {
+            let state = sampling::sampler_state(
+                kind,
+                states.get(&(slot.set, slot.binding)),
+                any_unfiltered,
+            );
+            self.samplers.get(state)
+        };
         plan.samplers.push((
             slot.set,
             SamplerBinding {
                 binding: slot.binding,
                 visibility: slot.visibility,
-                sampler: self.samplers.get(state),
+                sampler,
             },
         ));
-        Ok(())
     }
 
     /// Imports a texture of the frame and returns it with its own sampler state.

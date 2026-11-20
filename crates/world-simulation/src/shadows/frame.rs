@@ -48,7 +48,7 @@ impl LightBasis {
     }
 
     /// The coordinates of a world point along the axes.
-    pub(super) fn to_light(&self, point: Vec3) -> Vec3 {
+    pub(super) fn coordinates_of(&self, point: Vec3) -> Vec3 {
         Vec3::new(
             self.right.dot(point),
             self.up.dot(point),
@@ -57,7 +57,7 @@ impl LightBasis {
     }
 
     /// The world point of coordinates along the axes.
-    pub(super) fn from_light(&self, coordinates: Vec3) -> Vec3 {
+    pub(super) fn point_at(&self, coordinates: Vec3) -> Vec3 {
         self.right * coordinates.x + self.up * coordinates.y + self.forward * coordinates.z
     }
 

@@ -209,7 +209,8 @@ fn write_request(
 /// `plugins` when there are any. `callback_cache` is where the managed side keeps the player's
 /// assemblies rewritten so the delegates they give native code stay callable. `render_formats` are
 /// the `GraphicsFormat` codes the offscreen renderer draws into and samples, which the player's
-/// device reports as supported.
+/// device reports as supported. `shadow_sampling` says the offscreen renderer reads a depth render
+/// texture through a comparison sampler, which the player's device reports as shadow support.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
@@ -233,6 +234,7 @@ fn request_body(
         "first_texture": FIRST_TEXTURE,
         "callback_cache": callback_cache,
         "render_formats": worldrunner_render_program::unity::offscreen::RENDER_FORMATS,
+        "shadow_sampling": true,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
@@ -433,6 +435,11 @@ mod tests {
             body(&[])["render_formats"],
             serde_json::json!(worldrunner_render_program::unity::offscreen::RENDER_FORMATS)
         );
+    }
+
+    #[test]
+    fn the_request_says_the_device_samples_depth_with_a_comparison() {
+        assert_eq!(body(&[])["shadow_sampling"], serde_json::json!(true));
     }
 
     #[test]

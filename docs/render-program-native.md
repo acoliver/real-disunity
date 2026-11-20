@@ -852,6 +852,6 @@ A WGSL position is used as written. Clip Y is up, so positive Y lands in the top
 - A draw writes one single-sample colour target with an optional depth target whose format has no stencil aspect. Multisampled targets, several colour targets and stencil formats are refused by name.
 - Properties set values and resources. The runtime does not yet fill object, camera or light values for you, so a game sets the matrices and times its shaders read.
 - A constant layout holds scalars, vectors and matrices, and arrays of them. Struct arrays are not represented.
-- The runtime creates two samplers, the fixed linear one and a nearest-texel one for bindings declared non-filtering. Any other sampler, including every comparison sampler, is lent by its owner through an engine-sourced binding; a comparison sampler declared any other way is refused by name.
+- The runtime creates two samplers, the fixed linear one and a nearest-texel one for bindings declared non-filtering. Any other sampler, including every comparison sampler, is lent by its owner through an engine-sourced binding; a comparison sampler declared any other way is refused by name. The Unity player path declares the comparison samplers of a shader engine-sourced, with the semantic `unity.comparison-sampler`, and the offscreen host lends the one sampler it keeps for shadow maps: linear filtering, clamped to the edge, `LessEqual`.
 
 Issues [#449](https://github.com/acoliver/real-disunity/issues/449) and [#450](https://github.com/acoliver/real-disunity/issues/450) track the remaining work.

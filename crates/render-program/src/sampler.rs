@@ -79,10 +79,25 @@ pub(crate) fn non_filtering_descriptor() -> wgpu::SamplerDescriptor<'static> {
     }
 }
 
-/// One checked sampler for the fixed state and one for each state asked for.
+/// The sampler a shadow map is read with: it compares the reference depth a shader gives with
+/// the stored depth and filters the four comparisons around the coordinate, clamped to the edge.
+/// The reference passes where it is at most the stored depth.
+pub(crate) fn comparison_descriptor() -> wgpu::SamplerDescriptor<'static> {
+    wgpu::SamplerDescriptor {
+        label: Some("render-program comparison sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        compare: Some(wgpu::CompareFunction::LessEqual),
+        ..wgpu::SamplerDescriptor::default()
+    }
+}
+
+/// One checked sampler for the fixed state, one for comparing depths and one for each state
+/// asked for.
 pub struct SamplerCache {
     device: wgpu::Device,
     fixed: CheckedSampler,
+    comparison: CheckedSampler,
     by_state: HashMap<SamplerState, CheckedSampler>,
 }
 
@@ -92,6 +107,7 @@ impl SamplerCache {
         Self {
             device: device.clone(),
             fixed: CheckedSampler::new(device, &fixed_descriptor()),
+            comparison: CheckedSampler::new(device, &comparison_descriptor()),
             by_state: HashMap::new(),
         }
     }
@@ -105,6 +121,12 @@ impl SamplerCache {
             .entry(state)
             .or_insert_with(|| CheckedSampler::new(&self.device, &state.descriptor()))
             .clone()
+    }
+
+    /// The sampler that compares a reference depth with the stored depth of a shadow map.
+    #[must_use]
+    pub fn comparison(&self) -> CheckedSampler {
+        self.comparison.clone()
     }
 
     /// The states that have a sampler of their own.

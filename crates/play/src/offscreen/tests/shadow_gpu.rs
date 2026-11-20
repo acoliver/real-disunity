@@ -21,6 +21,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
 
+use super::super::report::Report;
 use super::flush::host;
 use super::gpu::{MESH, Quad, SIDE, shader, target, vector};
 use super::support::{camera, renderer_with, snapshot, texture_slot, world};
@@ -64,6 +65,38 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     let depth = textureSample(albedo, albedo_sampler, in.uv).r;
     return vec4<f32>(depth, depth, depth, 1.0) * material.tint;
 }";
+
+/// The same pass reading the texture as a shadow map: the depth `REFERENCE` is compared with the
+/// stored depth by the sampler, which gives 1 where the stored depth is at least the reference.
+const COMPARING: &str = "
+struct Material { tint: vec4<f32> }
+struct Draw { place: vec4<f32> }
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+@group(0) @binding(2) var shadow_map: texture_depth_2d;
+@group(0) @binding(3) var shadow_sampler: sampler_comparison;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position.xy * draw.place.xy + draw.place.zw, position.z, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_compare(in: VOut) -> @location(0) vec4<f32> {
+    let lit = textureSampleCompare(shadow_map, shadow_sampler, in.uv, 0.75);
+    return vec4<f32>(lit, lit, lit, 1.0) * material.tint;
+}";
+
+/// A shader with one pass tagged `Alpha` that compares the shadow map `_Albedo` with a depth.
+pub(super) fn comparing_passes() -> SyntheticShader {
+    no_cull(synthetic_shader(
+        &[],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![variant(&[], COMPARING, "fs_compare", albedo_parameters())],
+        }],
+    ))
+}
 
 /// A shader with one pass tagged `Alpha` that reads `_Albedo`.
 pub(super) fn receiver_passes() -> SyntheticShader {
@@ -208,16 +241,15 @@ fn pipeline(world: &mut World, (map, out): (RenderTextureId, RenderTextureId)) {
         .unwrap();
 }
 
-#[test]
-fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
+/// Draws a caster over the left half of a shadow map and a receiver of the shader `receiver`
+/// over all of an output that reads the map, and returns the flush report and the output's texels.
+fn shadowed_scene(receiver: &str) -> (Report, Vec<f32>) {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(directory.path());
     let mut world = world();
     let (out, map) = (target(&mut world, ARGB32), shadow_map(&mut world));
-    // The caster covers the left half of the shadow map; the receiver covers all of the output
-    // and reads the shadow map under each texel.
     quad(&mut world, "caster", [0.5, 1.0, -0.5, 0.0]);
-    let receiver = quad(&mut world, "receiver", [1.0, 1.0, 0.0, 0.0]);
+    let receiver = quad(&mut world, receiver, [1.0, 1.0, 0.0, 0.0]);
     world
         .edit_material(
             receiver,
@@ -229,12 +261,15 @@ fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
         .unwrap();
     pipeline(&mut world, (map, out));
     let request = world.request_texture_pixels(out, 0, 0, SIDE, SIDE).unwrap();
-
     let snapshot = snapshot(&mut world);
     let outcome = host.flush(&snapshot, &Quad).unwrap();
     outcome.apply(&mut world).unwrap();
+    let read = world.take_texture_pixels(request).unwrap();
+    (outcome.report, read)
+}
 
-    let report = &outcome.report;
+/// Checks the report of a scene whose lists both drew and left no texture missing or defaulted.
+fn assert_clean(report: &Report) {
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(report.lists.shadow_drawn, 1, "{:?}", report.lists);
     assert_eq!(report.lists.drawn, 1, "{:?}", report.lists);
@@ -248,13 +283,13 @@ fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
         "{:?}",
         report.undeclared_defaults
     );
-    let read = world.take_texture_pixels(request).unwrap();
+}
+
+/// Checks that the red and green of every texel of the first two columns is `left` and of the
+/// last two `right`.
+fn assert_columns(read: &[f32], (left, right): (f32, f32)) {
     for column in 0..SIDE as usize {
-        let expected = if column < 2 {
-            CASTER_DEPTH
-        } else {
-            CLEARED_DEPTH
-        };
+        let expected = if column < 2 { left } else { right };
         for row in 0..SIDE as usize {
             let texel = &read[(row * SIDE as usize + column) * 4..][..4];
             assert!(
@@ -263,4 +298,19 @@ fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
             );
         }
     }
+}
+
+#[test]
+fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
+    let (report, read) = shadowed_scene("receiver");
+    assert_clean(&report);
+    assert_columns(&read, (CASTER_DEPTH, CLEARED_DEPTH));
+}
+
+#[test]
+fn a_forward_draw_compares_the_shadow_map_with_a_depth_through_a_comparison_sampler() {
+    let (report, read) = shadowed_scene("comparing");
+    assert_clean(&report);
+    // The reference 0.75 is behind the caster (stored 0.5) and in front of the cleared depth.
+    assert_columns(&read, (0.0, 1.0));
 }

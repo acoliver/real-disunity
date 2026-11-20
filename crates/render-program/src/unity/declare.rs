@@ -7,7 +7,9 @@ use worldrunner_unity_serialized::shader_parameters::DescriptorSlot;
 use super::layout::LayoutError;
 use super::module::{Reflected, ResourceBinding, StageKind, StageParameters, stage_bit};
 use super::source::{At, Source};
-use crate::binding::{self, BindingAddress, BindingSource, ResourceKind, StorageAccess};
+use crate::binding::{
+    self, BindingAddress, BindingSource, EngineSemantic, ResourceKind, StorageAccess,
+};
 
 /// What kind of resource a parameter declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +121,21 @@ fn placed(
         _ => (at(entry.binding, class), None),
     };
     std::iter::once(first).chain(second)
+}
+
+/// The semantic of a comparison sampler a player shader declares. The runtime makes no sampler
+/// that compares depths, so the owner of the draw binds the one it keeps for shadow maps.
+pub const COMPARISON_SAMPLER: &str = "unity.comparison-sampler";
+
+/// Where the value of a resource a shader declares comes from: the owner of the draw for a
+/// comparison sampler, the runtime for any other sampler or texture.
+fn source_of(kind: &ResourceKind) -> BindingSource {
+    match kind {
+        ResourceKind::Sampler(SamplerBindingType::Comparison) => {
+            BindingSource::Engine(EngineSemantic::named(COMPARISON_SAMPLER))
+        }
+        _ => BindingSource::Unnamed,
+    }
 }
 
 /// Every resource `parameters` declares for the stage of `kind`, with duplicates merged.
@@ -321,7 +338,7 @@ pub(crate) fn resource_layout(
                 set: item.set,
                 binding: item.binding,
             },
-            source: BindingSource::Unnamed,
+            source: source_of(&resource_kind),
             visibility: kind.visibility() | item.visibility(),
             kind: resource_kind,
         });

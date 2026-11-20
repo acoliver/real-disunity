@@ -37,7 +37,7 @@ pub enum ShadowError {
     InvalidSplit,
     #[error("the split ratios must be above 0, ascending and at most 1")]
     InvalidRatio,
-    #[error("the shadow resolution must be at least 4")]
+    #[error("the shadow resolution must be 4 to 65535")]
     InvalidResolution,
     #[error("the camera's view volume cannot be fitted")]
     InvalidCamera,

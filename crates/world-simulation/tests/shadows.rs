@@ -220,8 +220,8 @@ fn the_shadow_map_moves_by_whole_texels_when_the_camera_moves() {
     };
     let base = at(0.0);
     let texel_x = 2.0 / base.projection.x_axis.x / 1024.0;
-    for step in 1..20 {
-        let moved = at(step as f32 * 0.003);
+    for step in 1..20_u16 {
+        let moved = at(f32::from(step) * 0.003);
         // The same orientation and scale, and a world point lands a whole number of texels away.
         assert_eq!(base.projection, moved.projection);
         let point = Vec3::new(1.0, 2.0, 3.0);
@@ -260,6 +260,11 @@ fn a_split_outside_the_count_the_ratios_or_the_resolution_is_refused() {
         ..split(0, 2)
     };
     assert_eq!(run(tiny), Err(ShadowError::InvalidResolution));
+    let huge = DirectionalSplit {
+        resolution: 70_000,
+        ..split(0, 2)
+    };
+    assert_eq!(run(huge), Err(ShadowError::InvalidResolution));
 }
 
 fn spot() -> ShadowLight {
@@ -316,13 +321,14 @@ fn each_face_of_a_point_light_looks_along_its_axis() {
         .iter()
         .map(|direction| cube(centre + *direction * 6.0, 0.5, ON))
         .collect();
-    for face in 0..directions.len() {
-        let map = point_split(&point(), face as u32, 0.0, &casters(&list))
+    for face in 0..6_u32 {
+        let looking = usize::try_from(face).unwrap();
+        let map = point_split(&point(), face, 0.0, &casters(&list))
             .unwrap()
             .unwrap();
         for (other, towards) in directions.iter().enumerate() {
             let inside = inside_clip_box(&map, centre + *towards * 6.0);
-            assert_eq!(inside, other == face, "face {face} looking at {other}");
+            assert_eq!(inside, other == looking, "face {face} looking at {other}");
         }
     }
     assert_eq!(

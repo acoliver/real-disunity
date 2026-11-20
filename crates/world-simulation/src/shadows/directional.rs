@@ -40,6 +40,8 @@ struct Fit {
 
 /// Most splits a cascaded map has.
 const MAX_SPLITS: u32 = 4;
+/// The smallest shadow map, in texels along a side; the largest is what a `u16` holds.
+const MIN_RESOLUTION: u16 = 4;
 /// The radius of a split's sphere rounds up to a multiple of this fraction so that float noise
 /// does not change the scale of the map between frames.
 const RADIUS_STEP: f32 = 16.0;
@@ -49,7 +51,7 @@ const RADIUS_STEP: f32 = 16.0;
 ///
 /// # Errors
 /// Refuses a split outside its count, ratios that are not above 0, ascending and at most 1, a
-/// resolution below 4, a light with no direction and a camera whose volume cannot be fitted.
+/// resolution outside 4 to 65535, a light with no direction and a camera whose volume cannot be fitted.
 pub fn directional_split(
     light: &ShadowLight,
     camera: &ShadowCamera,
@@ -57,9 +59,10 @@ pub fn directional_split(
     split: &DirectionalSplit,
 ) -> Result<Option<ShadowSplit>, ShadowError> {
     let (start, end) = boundaries(split)?;
-    if split.resolution < 4 {
-        return Err(ShadowError::InvalidResolution);
-    }
+    let resolution = u16::try_from(split.resolution)
+        .ok()
+        .filter(|resolution| *resolution >= MIN_RESOLUTION)
+        .ok_or(ShadowError::InvalidResolution)?;
     let basis = LightBasis::of(&light.local_to_world)?;
     let frustum = Frustum::of(camera)?;
     let slice = frustum.slice(camera.shadow_distance, (start, end))?;
@@ -68,7 +71,12 @@ pub fn directional_split(
     if boxes.is_empty() {
         return Ok(None);
     }
-    Ok(Some(map(&basis, &fit, &boxes, split)))
+    Ok(Some(map(
+        &basis,
+        &fit,
+        &boxes,
+        (split, f32::from(resolution)),
+    )))
 }
 
 /// The slice boundaries of the split as fractions of the shadow distance.
@@ -185,13 +193,12 @@ fn map(
     basis: &LightBasis,
     fit: &Fit,
     boxes: &[(Vec3, Vec3)],
-    split: &DirectionalSplit,
+    (split, resolution): (&DirectionalSplit, f32),
 ) -> ShadowSplit {
     // One texel of padding on each side keeps the sphere inside the box after the snap.
-    let resolution = split.resolution as f32;
     let half = fit.radius / (1.0 - 2.0 / resolution);
     let texel = 2.0 * half / resolution;
-    let centre = basis.to_light(fit.centre);
+    let centre = basis.coordinates_of(fit.centre);
     let snapped = Vec3::new(
         (centre.x / texel).round() * texel,
         (centre.y / texel).round() * texel,
@@ -199,7 +206,7 @@ fn map(
     );
     let toward_light = toward_light_reach(basis, boxes, snapped, half).max(fit.radius);
     let near = toward_light + split.near_plane_offset.max(0.0);
-    let eye = basis.from_light(Vec3::new(snapped.x, snapped.y, snapped.z - near));
+    let eye = basis.point_at(Vec3::new(snapped.x, snapped.y, snapped.z - near));
     let view = basis.view(eye);
     let projection = orthographic(half, 0.0, near + fit.radius);
     ShadowSplit {
@@ -225,7 +232,7 @@ fn toward_light_reach(basis: &LightBasis, boxes: &[(Vec3, Vec3)], centre: Vec3, 
                     min[axis]
                 }
             };
-            let local = basis.to_light(Vec3::new(pick(0, 0), pick(1, 1), pick(2, 2)));
+            let local = basis.coordinates_of(Vec3::new(pick(0, 0), pick(1, 1), pick(2, 2)));
             low = low.min(local);
             high = high.max(local);
         }

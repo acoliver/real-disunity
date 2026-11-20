@@ -521,7 +521,11 @@ fn a_shadow_list_leaves_out_the_renderers_that_cast_no_shadow() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);
     for (number, mode) in [(0, 0), (1, 1), (2, 2), (3, 3)] {
-        let place = (number, 0, Vec3::new(number as f32, 0.0, 0.0));
+        let place = (
+            number,
+            0,
+            Vec3::new(f32::from(u8::try_from(number).unwrap()), 0.0, 0.0),
+        );
         placed_casting(&mut world, place, &[lit], (None, mode));
     }
     scene(&mut world, Mat4::IDENTITY, u32::MAX);

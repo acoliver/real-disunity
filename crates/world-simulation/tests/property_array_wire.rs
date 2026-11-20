@@ -110,9 +110,9 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_eight_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 8);
-    for old in [4, 5, 6, 7_u32] {
+fn the_version_is_nine_and_older_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 9);
+    for old in [4, 5, 6, 7, 8_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());
         assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));

@@ -11,6 +11,7 @@
 use std::ops::Range;
 
 use super::capture_tests::{Rig, Target, render, scenes};
+use super::prepared::DrawOrder;
 use crate::dynamic::capture_tests::{CONFIGS, build, context};
 
 use scenes::Spec;
@@ -62,10 +63,21 @@ impl PassCommands for Tally {
 /// The commands the runtime path records for the same scene, after preparing it as a frame does.
 /// Preparing before the pass builds the pipelines, so recording builds nothing.
 fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
+    through_runtime_in(index, scene, cards, DrawOrder::default())
+}
+
+/// [`through_runtime`] with the pass recording its draws in `order`.
+fn through_runtime_in(
+    index: usize,
+    scene: &RenderScene,
+    cards: usize,
+    order: DrawOrder,
+) -> Counted {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[index]);
     let mut rig = Rig::new(&context, &built.pipelines, scene);
+    rig.gpu.set_draw_order(order);
     // The frame flushes the scene's instance updates in its own encoder and records its draws in
     // the same transaction, as the frame renderer does: a scene that tracks previous transforms
     // has updates pending to any other recording.
@@ -92,7 +104,7 @@ fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
         "recording a prepared frame builds nothing"
     );
     println!(
-        "OBJECT-COST-RUNTIME config={} cards={} pipelines={} groups={} vertex_buffers={} index_buffers={} draws={} total={} stats={prepared:?}",
+        "OBJECT-COST-RUNTIME config={} order={order:?} cards={} pipelines={} groups={} vertex_buffers={} index_buffers={} draws={} total={} stats={prepared:?}",
         CONFIGS[index].name,
         cards,
         counted.pipelines,
@@ -340,4 +352,41 @@ fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_not
             );
         }
     }
+}
+
+/// Twelve batches of one pipeline key that differ only in mesh (three) and material (four) are
+/// recorded by the walk mesh by mesh, which binds a material's group for each of them. Grouped,
+/// the pass binds each of the four materials once and every draw still draws once with its own
+/// buffers.
+#[test]
+fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch() {
+    let scene = scenes::grid(3, 4);
+    let walk = through_runtime_in(2, &scene, 12, DrawOrder::Walk);
+    let grouped = through_runtime_in(2, &scene, 12, DrawOrder::Grouped);
+    assert_eq!(
+        walk,
+        Counted {
+            pipelines: 1,
+            groups: 1 + 12,
+            vertex_buffers: walk.vertex_buffers,
+            index_buffers: 3,
+            draws: 12,
+        },
+        "the walk binds a material's group for every batch: {walk:?}"
+    );
+    assert_eq!(
+        grouped,
+        Counted {
+            pipelines: 1,
+            groups: 1 + 4,
+            vertex_buffers: grouped.vertex_buffers,
+            index_buffers: 12,
+            draws: 12,
+        },
+        "grouped, each material binds once and each mesh binds for each material: {grouped:?}"
+    );
+    println!(
+        "OBJECT-COST-ORDER walk={walk:?} grouped={grouped:?} (a command costs what wgpu validates: \
+         a material group registers every texture it holds)"
+    );
 }

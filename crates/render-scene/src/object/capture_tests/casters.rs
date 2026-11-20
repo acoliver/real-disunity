@@ -12,6 +12,7 @@ use wgpu::TextureFormat;
 
 use super::{Rig, Target, digest, prepass, render_with_depth, scenes};
 use crate::dynamic::capture_tests::context;
+use crate::object::prepared::DrawOrder;
 use crate::shadows::DirectionalShadowSettings;
 
 /// An orthographic light frame looking along +Y at the square of `half` metres about `centre`
@@ -100,6 +101,13 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
         );
         let group = crate::draw::decals::empty_group(device, pipelines.frame_layout(), &buffer);
         let Maps { drawn, untouched } = capture(&mut rig, &live, (cascade, &group));
+        rig.gpu.set_draw_order(DrawOrder::Walk);
+        let walked = capture(&mut rig, &live, (cascade, &group)).drawn;
+        rig.gpu.set_draw_order(DrawOrder::Grouped);
+        assert!(
+            walked == drawn,
+            "caster-{name}: grouped casters wrote other depth than the walk's"
+        );
         if covers {
             assert!(drawn != untouched, "caster-{name}: no card reached the map");
         } else {

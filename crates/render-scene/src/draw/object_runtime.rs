@@ -6,6 +6,12 @@
 //! is recorded once over the buffers the walk named, borrowed for the call. The pass records a
 //! buffer when the walk names it, a pipeline when it differs from the one set, and the material's
 //! group when the material changes.
+//!
+//! The scene's colour and caster passes hold the walk's draws and record them grouped by
+//! pipeline and material (see [`DrawOrder`]): a batch is one mesh in one material, so the walk
+//! alternates materials as it moves from mesh to mesh, and each change binds a material group
+//! that wgpu validates texture by texture. Grouped, a pass binds each material once and changes
+//! vertex and index buffers between draws, which wgpu validates for one buffer each.
 
 use std::rc::Rc;
 
@@ -17,7 +23,7 @@ use worldrunner_render_program::runtime::{
 use super::lod_material::{BoundState, Draw, DrawSink};
 use super::{DrawnObjects, SceneGpu, SelectionPublication};
 use crate::object::layout::{GeometryLayout, vertex_layout};
-use crate::object::prepared::PreparedObjects;
+use crate::object::prepared::{DrawOrder, PreparedObjects};
 use crate::object::program::Context;
 
 /// The buffers the walk has named since the last draw, which the next draw must set.
@@ -26,6 +32,15 @@ struct Named {
     instances: bool,
     vertices: bool,
     indices: bool,
+}
+
+impl Named {
+    /// Every buffer named: the pass sets each one that differs from the one it holds.
+    const ALL: Self = Self {
+        instances: true,
+        vertices: true,
+        indices: true,
+    };
 }
 
 /// The buffers of the instances the walk named: placements, previous placements and skin stream.
@@ -118,16 +133,54 @@ impl<P: PassCommands + ?Sized> PassCommands for Elided<'_, P> {
 ///
 /// Pairs are prepared before the pass opens by [`SceneGpu::prepare_objects`]; a pair a draw finds
 /// unprepared is made then.
+///
+/// A sink records each draw as the walk names it, or, once told to with
+/// [`ordered`](Self::ordered), holds them until [`finish`](Self::finish) and records them
+/// grouped by pipeline, material and buffers.
 pub(super) struct PreparedSink<'a, P: ?Sized> {
+    recorder: Recorder<'a, P>,
+    names: Names,
+    /// The draws a grouped pass holds until it finishes; `None` when the pass records as named.
+    held: Option<Vec<Held>>,
+}
+
+/// What the walk has named for the draws that follow.
+#[derive(Default)]
+struct Names {
+    instances: Option<Rc<Instances>>,
+    vertices: Option<Buffer>,
+    indices: Option<Buffer>,
+}
+
+/// A draw a grouped pass holds, with the buffers the walk named for it.
+struct Held {
+    draw: Draw,
+    vertices: Buffer,
+    indices: Buffer,
+    instances: Rc<Instances>,
+}
+
+impl Held {
+    /// Draws that share a pipeline, then a material, then buffers sort together. A stable sort
+    /// leaves the walk's order among draws that tie.
+    fn grouping(&self, other: &Self) -> std::cmp::Ordering {
+        let key = |held: &Self| (held.draw.pipeline, held.draw.geometry, held.draw.material);
+        key(self)
+            .cmp(&key(other))
+            .then_with(|| self.vertices.cmp(&other.vertices))
+            .then_with(|| self.indices.cmp(&other.indices))
+            .then_with(|| self.instances.current.cmp(&other.instances.current))
+    }
+}
+
+/// The pass, the pipelines and the state a draw is recorded with.
+struct Recorder<'a, P: ?Sized> {
     pass: Elided<'a, P>,
     objects: &'a PreparedObjects,
     context: &'a Context,
     layouts: [VertexLayoutSpec; 2],
     state: BoundState,
     current: Option<Rc<PreparedPipeline>>,
-    instances: Option<Instances>,
-    vertices: Option<Buffer>,
-    indices: Option<Buffer>,
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`, as the capture tests do for
     /// the keys no material reaches.
     #[cfg(test)]
@@ -137,60 +190,78 @@ pub(super) struct PreparedSink<'a, P: ?Sized> {
 impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
     pub(super) fn new(pass: &'a mut P, objects: &'a PreparedObjects, context: &'a Context) -> Self {
         Self {
-            pass: Elided {
-                pass,
-                pipeline: None,
-                named: Named::default(),
-                vertex_slots: Vec::new(),
-                index: None,
+            recorder: Recorder {
+                pass: Elided {
+                    pass,
+                    pipeline: None,
+                    named: Named::default(),
+                    vertex_slots: Vec::new(),
+                    index: None,
+                },
+                objects,
+                context,
+                layouts: [GeometryLayout::Static, GeometryLayout::Skinned].map(|geometry| {
+                    vertex_layout(
+                        context.previous_transforms() && !geometry.is_skinned(),
+                        geometry,
+                    )
+                }),
+                state: BoundState::default(),
+                current: None,
+                #[cfg(test)]
+                mask: 0,
             },
-            objects,
-            context,
-            layouts: [GeometryLayout::Static, GeometryLayout::Skinned].map(|geometry| {
-                vertex_layout(
-                    context.previous_transforms() && !geometry.is_skinned(),
-                    geometry,
-                )
-            }),
-            state: BoundState::default(),
-            current: None,
-            instances: None,
-            vertices: None,
-            indices: None,
+            names: Names::default(),
+            held: None,
+        }
+    }
+
+    /// Records the draws in `order`. Call [`finish`](Self::finish) after the walk.
+    pub(super) fn ordered(mut self, order: DrawOrder) -> Self {
+        self.held = match order {
+            DrawOrder::Grouped => Some(Vec::new()),
             #[cfg(test)]
-            mask: 0,
+            DrawOrder::Walk => None,
+        };
+        self
+    }
+
+    /// Records the draws a grouped sink holds.
+    pub(super) fn finish(mut self) {
+        let Some(mut held) = self.held.take() else {
+            return;
+        };
+        held.sort_by(Held::grouping);
+        for draw in held {
+            // The walk's names say nothing about the order recorded here; the pass leaves out
+            // what the buffers it holds already are.
+            self.recorder.pass.named = Named::ALL;
+            self.recorder
+                .record(draw.draw, &draw.vertices, &draw.indices, &draw.instances);
         }
     }
 
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`.
     #[cfg(test)]
     pub(super) fn with_mask(mut self, mask: usize) -> Self {
-        self.mask = mask;
+        self.recorder.mask = mask;
         self
     }
 }
 
-impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
-    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>) {
-        self.instances = Some(Instances {
-            current: current.clone(),
-            previous: previous.cloned(),
-            skin: skin.cloned(),
-        });
-        self.pass.named.instances = true;
+impl<P: ?Sized> Drop for PreparedSink<'_, P> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.held.as_ref().is_none_or(Vec::is_empty) || std::thread::panicking(),
+            "a grouped sink was dropped holding draws it never recorded"
+        );
     }
+}
 
-    fn vertices(&mut self, vertices: &Buffer) {
-        self.vertices = Some(vertices.clone());
-        self.pass.named.vertices = true;
-    }
-
-    fn indices(&mut self, indices: &Buffer) {
-        self.indices = Some(indices.clone());
-        self.pass.named.indices = true;
-    }
-
-    fn draw(&mut self, draw: Draw) {
+impl<P: PassCommands + ?Sized> Recorder<'_, P> {
+    /// Records one draw: binds its pipeline and material when they changed and draws it over
+    /// the buffers, which the pass sets when they differ from the ones it holds.
+    fn record(&mut self, draw: Draw, vertices: &Buffer, indices: &Buffer, instances: &Instances) {
         let index = draw.pipeline;
         #[cfg(test)]
         let index = index ^ self.mask;
@@ -204,8 +275,6 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
             self.current = Some(pipeline);
         }
         let pipeline = self.current.as_ref().expect("a draw binds its pipeline");
-        let instances = self.instances.as_ref().expect("a draw names its instances");
-        let vertices = self.vertices.as_ref().expect("a draw names its vertices");
         let skinned = draw.geometry.is_skinned();
         let stream = if skinned {
             // A compacted view names its instances once for groups of both layouts, and a
@@ -232,7 +301,7 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
             None => &[vertices, &instances.current],
         };
         let indices = BorrowedGeometry::Indexed {
-            buffer: self.indices.as_ref().expect("a draw names its indices"),
+            buffer: indices,
             format: wgpu::IndexFormat::Uint32,
             first: draw.indices.start,
             count: draw.indices.end - draw.indices.start,
@@ -248,6 +317,54 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
             )
             .expect("a selected range fits the buffers of the objects' vertex layout");
         self.pass.named = Named::default();
+    }
+}
+
+impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>) {
+        self.names.instances = Some(Rc::new(Instances {
+            current: current.clone(),
+            previous: previous.cloned(),
+            skin: skin.cloned(),
+        }));
+        self.recorder.pass.named.instances = true;
+    }
+
+    fn vertices(&mut self, vertices: &Buffer) {
+        self.names.vertices = Some(vertices.clone());
+        self.recorder.pass.named.vertices = true;
+    }
+
+    fn indices(&mut self, indices: &Buffer) {
+        self.names.indices = Some(indices.clone());
+        self.recorder.pass.named.indices = true;
+    }
+
+    fn draw(&mut self, draw: Draw) {
+        let instances = self
+            .names
+            .instances
+            .as_ref()
+            .expect("a draw names its instances");
+        let vertices = self
+            .names
+            .vertices
+            .as_ref()
+            .expect("a draw names its vertices");
+        let indices = self
+            .names
+            .indices
+            .as_ref()
+            .expect("a draw names its indices");
+        match &mut self.held {
+            Some(held) => held.push(Held {
+                draw,
+                vertices: vertices.clone(),
+                indices: indices.clone(),
+                instances: instances.clone(),
+            }),
+            None => self.recorder.record(draw, vertices, indices, instances),
+        }
     }
 }
 
@@ -281,8 +398,10 @@ impl SceneGpu {
         context: &Context,
     ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
-        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let mut sink =
+            PreparedSink::new(pass, &self.objects, context).ordered(self.objects.order());
         let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        sink.finish();
         self.end_objects(view, None, objects)
     }
 
@@ -297,10 +416,18 @@ impl SceneGpu {
     ) -> SelectionPublication {
         let shadow = Some(cascade);
         let view = self.begin_objects(pass, frame_group, shadow);
-        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let mut sink =
+            PreparedSink::new(pass, &self.objects, context).ordered(self.objects.order());
         let objects =
             self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
+        sink.finish();
         self.end_objects(view, shadow, objects).selection
+    }
+
+    /// Makes the objects' passes record in `order`.
+    #[cfg(test)]
+    pub(crate) fn set_draw_order(&self, order: crate::object::prepared::DrawOrder) {
+        self.objects.set_order(order);
     }
 
     /// The group the object draws bind at set 0, for tests that record the objects into pass

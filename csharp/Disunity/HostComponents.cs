@@ -12,6 +12,9 @@ public static partial class DisunityHost
     internal static IEnumerable<TKind> NativeComponentsOf<TKind>() where TKind : Component =>
         NativeComponents.OfKind<TKind>().Where(value => !value.gameObject.IsDestroyed && value.Life < ComponentLife.Hidden);
 
+    /// <summary>The scripts of the world that were not destroyed, active or not.</summary>
+    internal static IEnumerable<MonoBehaviour> LiveScripts() => Scripts.Values.Where(script => !script.Destroyed);
+
     /// <summary>A number that changes whenever a <typeparamref name="TKind"/> joins or leaves the native components.</summary>
     internal static int NativeComponentVersion<TKind>() where TKind : Component => NativeComponents.VersionOfKind<TKind>();
 

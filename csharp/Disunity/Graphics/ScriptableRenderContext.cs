@@ -101,9 +101,11 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         foreach (var script in RenderObjectScripts().ToList()) Disunity.Hosting.ScriptMessages.Invoke(script, "OnRenderObject");
     }
 
+    /// <summary>The scripts that define the message are picked by type first, so a script that cannot answer costs no read of its
+    /// enabled state and the world's other objects are not visited: a pipeline asks once for each camera it renders.</summary>
     private static IEnumerable<MonoBehaviour> RenderObjectScripts() =>
-        Object.FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)
-            .Where(script => script.isActiveAndEnabled && Disunity.Hosting.ScriptMessages.Defines(script.GetType(), "OnRenderObject"));
+        Disunity.Hosting.DisunityHost.LiveScripts()
+            .Where(script => Disunity.Hosting.ScriptMessages.Defines(script.GetType(), "OnRenderObject") && script.isActiveAndEnabled);
 
     public void DrawRenderers(CullingResults cullingResults, ref DrawingSettings drawingSettings, ref FilteringSettings filteringSettings) =>
         throw Unsupported("DrawRenderers");

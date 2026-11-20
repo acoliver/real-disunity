@@ -15,11 +15,13 @@ pub(super) struct FadeReach {
 }
 
 impl FadeReach {
-    fn note(&mut self, fade: Fade) {
+    /// This reach with the material of `fade` drawn too.
+    pub fn with(mut self, fade: Fade) -> Self {
         if fade.can_empty() {
             self.capable = true;
             self.banded |= fade.has_band();
         }
+        self
     }
 
     /// Whether `fade_empty` can be true for a placement whose own fade band is `band`. When it
@@ -31,9 +33,16 @@ impl FadeReach {
 
 impl MeshSelection {
     /// What can fade out a placement drawn with `material`, from the materials it draws with.
+    #[cfg(test)]
     pub(super) fn fade_reach(&self, fades: &[Fade], material: MaterialHandle) -> FadeReach {
+        self.slot_fade_reach(fades)
+            .with(fades[material.raw() as usize])
+    }
+
+    /// What the material slots of the mesh's levels can fade out of a placement, whichever
+    /// material the placement draws with.
+    pub(super) fn slot_fade_reach(&self, fades: &[Fade]) -> FadeReach {
         let mut reach = FadeReach::default();
-        reach.note(fades[material.raw() as usize]);
         for slots in self.material_slots.iter().flatten() {
             if slots.is_empty() {
                 // A level that draws nothing is faded out at every distance.
@@ -43,7 +52,7 @@ impl MeshSelection {
                 };
             }
             for slot in slots {
-                reach.note(fades[slot.material().raw() as usize]);
+                reach = reach.with(fades[slot.material().raw() as usize]);
             }
         }
         reach

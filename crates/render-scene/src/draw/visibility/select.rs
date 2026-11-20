@@ -8,7 +8,7 @@
 use std::cell::Ref;
 
 use glam::{Mat4, Vec3};
-use worldrunner_render_plan::{MaterialHandle, SceneObject};
+use worldrunner_render_plan::SceneObject;
 
 use super::fade::FadeReach;
 use super::placement::{self, largest_relief};
@@ -78,18 +78,21 @@ pub(in crate::draw) fn with_placements<R>(
         .iter()
         .map(|(&key, batch)| (key, batch, batch.bounds.borrow()))
         .collect();
+    // A mesh's slots fade placements the same whichever material the placement draws with.
+    let mut slot_reaches: Vec<Option<FadeReach>> = vec![None; meshes.len()];
     let placements = Placements {
         batches: borrowed
             .iter()
-            .map(|(key, batch, bounds)| IndexedBatch {
-                key: *key,
-                placements: batch.slots(),
-                bounds,
-                largest_relief: largest_relief(bounds.reliefs()),
-                fade_reach: meshes[key.1].fade_reach(
-                    &instances.fades,
-                    MaterialHandle::from_raw(u32::try_from(key.2).expect("material handle")),
-                ),
+            .map(|(key, batch, bounds)| {
+                let slot_reach = *slot_reaches[key.1]
+                    .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
+                IndexedBatch {
+                    key: *key,
+                    placements: batch.slots(),
+                    bounds,
+                    largest_relief: largest_relief(bounds.reliefs()),
+                    fade_reach: slot_reach.with(instances.fades[key.2]),
+                }
             })
             .collect(),
         meshes,

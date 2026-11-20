@@ -43,7 +43,7 @@ pub(super) fn body(far: bool) -> SceneWaterBody {
 }
 
 /// A camera 1.7 m above the water plane looking along +y: the lower part of the image is water.
-fn frame(size: u32) -> FrameUniform {
+pub(super) fn frame(size: u32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, -10_000, 1_700],
@@ -232,7 +232,7 @@ pub(super) fn scene_bytes(context: &GpuContext, renderer: &FrameRenderer) -> Vec
     .unwrap()
 }
 
-fn read_mask(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[u8; 2]> {
+pub(super) fn read_mask(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[u8; 2]> {
     let device = context.device();
     let (width, height) = (texture.width(), texture.height());
     let pitch = (width * 2).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);

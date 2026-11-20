@@ -33,6 +33,7 @@ mod ssao;
 mod streaming;
 mod subresources;
 mod suppressed_routes;
+mod suppressed_water;
 mod terms;
 mod terrain;
 mod terrain_receiver_images;

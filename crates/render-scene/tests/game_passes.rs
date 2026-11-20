@@ -29,6 +29,8 @@ mod replacement;
 mod resource_mips;
 #[path = "game_passes/resources.rs"]
 mod resources;
+#[path = "game_passes/scene_arrays.rs"]
+mod scene_arrays;
 #[path = "game_passes/shadow_cascades.rs"]
 mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]

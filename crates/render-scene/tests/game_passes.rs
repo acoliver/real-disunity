@@ -11,10 +11,18 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/lighting.rs"]
+mod lighting;
 #[path = "game_passes/mips.rs"]
 mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/prefix.rs"]
+mod prefix;
+#[path = "game_passes/prefix_loads.rs"]
+mod prefix_loads;
+#[path = "game_passes/prefix_state.rs"]
+mod prefix_state;
 #[path = "game_passes/prepared.rs"]
 mod prepared;
 #[path = "game_passes/pyramid_model.rs"]

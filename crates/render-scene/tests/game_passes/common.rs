@@ -98,6 +98,23 @@ pub fn texture_array_binding(
     )
 }
 
+/// A texture of `dimension` loaded as unfilterable float.
+pub fn unfilterable_binding(
+    binding: u32,
+    name: &str,
+    dimension: wgpu::TextureViewDimension,
+) -> ResourceBinding {
+    fragment_binding(
+        binding,
+        name,
+        ResourceKind::Texture {
+            dimension,
+            sample: wgpu::TextureSampleType::Float { filterable: false },
+            multisampled: false,
+        },
+    )
+}
+
 pub fn uniform_binding(binding: u32, name: &str) -> ResourceBinding {
     fragment_binding(binding, name, ResourceKind::Uniform { min_size: 16 })
 }

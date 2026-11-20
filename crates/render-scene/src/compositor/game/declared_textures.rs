@@ -201,6 +201,41 @@ pub(super) struct TextureIdentity {
     texels: Option<(usize, u64)>,
 }
 
+/// Refuses a texture past the device's `limits` (its extent, or its layers), which wgpu would
+/// otherwise report as a validation panic. [`unsampleable`] refuses a format the device lacks.
+pub(super) fn beyond_limits(
+    limits: &wgpu::Limits,
+    descriptor: &wgpu::TextureDescriptor<'_>,
+) -> Result<(), GameResourceError> {
+    let label = descriptor.label.unwrap_or_default();
+    let wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: depth,
+    } = descriptor.size;
+    let extent = width.max(height);
+    let (extent_fits, layers_fit) = match descriptor.dimension {
+        wgpu::TextureDimension::D3 => (extent.max(depth) <= limits.max_texture_dimension_3d, true),
+        _ => (
+            extent <= limits.max_texture_dimension_2d,
+            depth <= limits.max_texture_array_layers,
+        ),
+    };
+    if !extent_fits {
+        return Err(refuse(
+            label,
+            "the extent is beyond the device's texture limit",
+        ));
+    }
+    if !layers_fit {
+        return Err(refuse(
+            label,
+            "there are more layers than the device allows",
+        ));
+    }
+    Ok(())
+}
+
 /// Why a device with `features` cannot sample `format`, if it cannot.
 pub(super) fn unsampleable(
     format: wgpu::TextureFormat,

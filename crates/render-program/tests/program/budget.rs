@@ -38,6 +38,23 @@ fn a_target_over_budget_is_refused_by_name_and_nothing_is_created() {
 }
 
 #[test]
+fn bytes_an_owner_holds_outside_the_runtime_count_against_its_budget_until_released() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime_with(AllocationBudget(32));
+    let hold = runtime.hold_external("owner", 24).unwrap();
+    assert_eq!(runtime.live_bytes(), 24);
+    assert_eq!(
+        runtime.create_buffer("big", &[0; 12]).unwrap_err(),
+        over(36, 32)
+    );
+    assert_eq!(runtime.hold_external("more", 16).unwrap_err(), over(40, 32));
+    assert_eq!(runtime.live_bytes(), 24, "a refusal reserves nothing");
+    drop(hold);
+    assert_eq!(runtime.live_bytes(), 0);
+    runtime.create_buffer("fits", &[0; 12]).unwrap();
+}
+
+#[test]
 fn a_depth_attachment_counts_against_the_budget() {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime_with(AllocationBudget(2 * TARGET_BYTES - 1));

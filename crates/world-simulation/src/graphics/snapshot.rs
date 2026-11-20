@@ -59,7 +59,8 @@ pub struct RendererView {
 pub struct GraphicsSnapshot {
     pub shaders: BTreeMap<ShaderId, WorldShader>,
     pub materials: BTreeMap<MaterialId, WorldMaterial>,
-    /// Every live render texture, and each one destroyed after a record of the frame named it.
+    /// Every live render texture, and each one destroyed after a record of the frame named it,
+    /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
     /// The scene's ambient light and default reflection, copied with the global state.
@@ -83,14 +84,23 @@ impl GraphicsSnapshot {
     /// Drains the world's offscreen work and copies what that work can reach: the cameras it
     /// names, the renderers they may draw, the materials and shaders of those renderers and of
     /// the blits, the buffers those materials bind, and the compute shaders and buffers of the
-    /// dispatches. A frame with no work copies nothing else.
+    /// dispatches. Every snapshot lists the live render textures; a frame with no work copies
+    /// nothing else.
     ///
     /// # Errors
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
         let work = world.take_offscreen();
+        // The list is whole for every snapshot: a host drops the render textures a snapshot
+        // omits, so a frame with no work must not look like a world with none.
+        let render_textures = world
+            .render_textures()
+            .map(|(id, texture)| (id, *texture))
+            .chain(retired)
+            .collect();
         let mut snapshot = Self {
+            render_textures,
             work,
             ..Self::default()
         };
@@ -99,11 +109,6 @@ impl GraphicsSnapshot {
         }
         snapshot.global = Some(world.global_shader_state().clone());
         snapshot.environment = world.live_environment();
-        snapshot.render_textures = world
-            .render_textures()
-            .map(|(id, texture)| (id, *texture))
-            .chain(retired)
-            .collect();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;

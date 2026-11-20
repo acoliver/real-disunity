@@ -140,7 +140,7 @@ internal static unsafe partial class WorldGraphics
     {
         var scale = store.Scales.GetValueOrDefault(id, Vector2.one);
         var offset = store.Offsets.GetValueOrDefault(id, Vector2.zero);
-        var (kind, texture) = store.Textures.TryGetValue(id, out var binding) ? TextureOf(binding.Texture) : (TextureNone, 0UL);
+        var (kind, texture) = store.Textures.TryGetValue(id, out var binding) ? TextureOf(binding.Texture, Shader.PropertyName(id) ?? "") : (TextureNone, 0UL);
         return new DisunityTextureSlot { kind = kind, texture = texture, scale_x = Finite(scale.x), scale_y = Finite(scale.y), offset_x = Finite(offset.x), offset_y = Finite(offset.y) };
     }
 
@@ -187,7 +187,16 @@ internal static unsafe partial class WorldGraphics
         return (TextureNone, 0UL);
     }
 
-    /// <summary>The same as <see cref="TextureOf"/> for a call that cannot draw with another kind of texture: a texture the
+    /// <summary>The same as <see cref="TextureOf(Texture?)"/>, and a texture that is not null and is sent as none is noted under
+    /// <paramref name="property"/> with the reason (see <see cref="UnsentTextures"/>).</summary>
+    internal static (uint Kind, ulong Texture) TextureOf(Texture? texture, string property)
+    {
+        var sent = TextureOf(texture);
+        if (sent.Kind == TextureNone) UnsentTextures.Note(property, texture);
+        return sent;
+    }
+
+    /// <summary>The same as <see cref="TextureOf(Texture?)"/> for a call that cannot draw with another kind of texture: a texture the
     /// world cannot hold throws, naming <paramref name="member"/>.</summary>
     internal static (uint Kind, ulong Texture) RequireTexture(Texture? texture, string member, string role)
     {

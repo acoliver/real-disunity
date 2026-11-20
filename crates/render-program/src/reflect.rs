@@ -1,9 +1,9 @@
 //! The resources a parsed module's entry point uses, read from the module itself.
 
-use naga::valid::ModuleInfo;
+use naga::valid::{GlobalUse, ModuleInfo};
 use naga::{
-    AddressSpace, GlobalVariable, ImageClass, ImageDimension, Module, ScalarKind, StorageAccess,
-    StorageFormat, TypeInner,
+    AddressSpace, GlobalVariable, ImageClass, ImageDimension, Module, ScalarKind, Span,
+    StorageAccess, StorageFormat, Type, TypeInner,
 };
 
 use crate::module::ModuleError;
@@ -120,6 +120,52 @@ pub(crate) fn sampling_pairs(
         .collect();
     pairs.sort();
     pairs
+}
+
+/// Declares stores alone for every storage image that the module declares for loads and stores
+/// and that its entry points store to and never load from, and returns whether any declaration
+/// changed. A module without an unreadable decoration on an image declares it both ways, as DXC
+/// compiles every `RWTexture2D`, and a device may bind the image's format for writes only (Metal's
+/// `Rg32Uint`); declared both ways, the binding would need read-write access the device lacks.
+///
+/// Every entry point of a module compiles from one shader module, and the pipeline layout must
+/// declare the access that module declares, so the uses of all entry points together decide. An
+/// image passed to a function counts as loaded.
+pub(crate) fn narrow_store_only_images(module: &mut Module, info: &ModuleInfo) -> bool {
+    let entries = module.entry_points.len();
+    let mut narrowed = false;
+    for (handle, global) in module.global_variables.iter_mut() {
+        let TypeInner::Image {
+            dim,
+            arrayed,
+            class: ImageClass::Storage { format, access },
+        } = module.types[global.ty].inner
+        else {
+            continue;
+        };
+        let used = (0..entries).fold(GlobalUse::empty(), |used, entry| {
+            used | info.get_entry_point(entry)[handle]
+        });
+        if access != StorageAccess::LOAD | StorageAccess::STORE
+            || !used.contains(GlobalUse::WRITE)
+            || used.intersects(GlobalUse::READ | GlobalUse::ATOMIC)
+        {
+            continue;
+        }
+        let inner = TypeInner::Image {
+            dim,
+            arrayed,
+            class: ImageClass::Storage {
+                format,
+                access: StorageAccess::STORE,
+            },
+        };
+        global.ty = module
+            .types
+            .insert(Type { name: None, inner }, Span::UNDEFINED);
+        narrowed = true;
+    }
+    narrowed
 }
 
 /// Every resource of `module` that entry point `entry` uses.

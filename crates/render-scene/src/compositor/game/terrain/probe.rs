@@ -1,11 +1,40 @@
 //! A game feature that records what the frame terrain handle lends, for the route tests.
 use super::{FrameTerrainError, FrameTerrainHandle};
 use crate::compositor::{FrameRenderer, GameBuild, GameFeatureFactory, GamePasses};
+use crate::draw::TerrainChunkDraw;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
     PassDeclaration, PrepareContext, PreparedFeature,
 };
+
+/// One publication of the frame terrain handle: the transaction that published and what it lent.
+#[derive(Debug)]
+pub(crate) struct Published {
+    pub(crate) owner: Publications,
+    pub(crate) lent: Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>,
+}
+
+thread_local! {
+    static PUBLISHED: RefCell<Vec<Published>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(super) fn record_publication(frame: &super::FrameTerrain) {
+    PUBLISHED.with(|log| {
+        log.borrow_mut().push(Published {
+            owner: frame.owner.clone(),
+            lent: frame.lent.clone(),
+        });
+    });
+}
+
+/// The publications this thread made since the last call, in order.
+pub(crate) fn take_publications() -> Vec<Published> {
+    PUBLISHED.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
 
 /// Answers shared between the probe and the test that installed it.
 type Shared<T> = Arc<Mutex<Vec<T>>>;

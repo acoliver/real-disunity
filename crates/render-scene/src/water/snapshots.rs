@@ -3,11 +3,20 @@ use crate::frame::metadata::FrameProduct;
 use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_post::{DrawContext, PrepareContext, PreparedFeature};
 
+/// The name of the opaque colour snapshot in the frame's plan.
+pub(crate) const COLOR: &str = "opaque snapshot color";
+/// The name of the linear view-space depth snapshot in the frame's plan.
+pub(crate) const LINEAR_DEPTH: &str = "opaque snapshot depth";
+/// The name of the device depth snapshot in the frame's plan.
+pub(crate) const DEVICE_DEPTH: &str = "opaque snapshot device depth";
+
 pub(crate) struct SnapshotFeature {
     pub snapshots: Snapshots,
     pub frame: FrameUniform,
     pub color_source: Option<wgpu::BindGroup>,
     pub depth_source: Option<wgpu::BindGroup>,
+    /// Whether the depth snapshot pass also writes the device depth copy.
+    pub device_depth: bool,
 }
 impl PreparedFeature for SnapshotFeature {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
@@ -26,10 +35,12 @@ impl PreparedFeature for SnapshotFeature {
         context.upload_buffer(&self.snapshots.uniform, 0, &bytes);
     }
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
-        pass.set_pipeline(if context.slot == PassSlot::AfterOpaqueSnapshot {
-            &self.snapshots.color_pipeline
-        } else {
-            &self.snapshots.depth_pipeline
+        pass.set_pipeline(match (context.slot, &self.snapshots.device_depth) {
+            (PassSlot::AfterOpaqueSnapshot, _) => &self.snapshots.color_pipeline,
+            (PassSlot::AfterOpaqueDepth, Some(device_depth)) if self.device_depth => {
+                &device_depth.pipeline
+            }
+            _ => &self.snapshots.depth_pipeline,
         });
         let source = if context.slot == PassSlot::AfterOpaqueSnapshot {
             &self.color_source
@@ -52,13 +63,48 @@ pub(crate) struct Snapshots {
     pub color: wgpu::Texture,
     pub depth: wgpu::Texture,
     pub final_depth: wgpu::Texture,
+    /// The depth buffer's own values, `R32Float`. Present only when a game reads them, so a frame
+    /// without such a game allocates none.
+    pub device_depth: Option<DeviceDepth>,
     pub uniform: wgpu::Buffer,
     pub size: [u32; 2],
     pub samples: u32,
     pub color_pipeline: wgpu::RenderPipeline,
     pub depth_pipeline: wgpu::RenderPipeline,
 }
+/// The device depth copy of one frame slot, and the pass that writes it beside the linear depth.
+#[derive(Clone, Debug)]
+pub(crate) struct DeviceDepth {
+    pub texture: wgpu::Texture,
+    pub pipeline: wgpu::RenderPipeline,
+}
+
 impl Snapshots {
+    /// These snapshots with the device depth copy, which allocates it once. The linear depth pass
+    /// then writes both, the nearest sample of each pixel in the engine's depth convention: depth
+    /// is not reversed, so the nearest is the smallest.
+    #[must_use]
+    pub fn with_device_depth(&self, device: &wgpu::Device) -> Self {
+        if self.device_depth.is_some() {
+            return self.clone();
+        }
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("opaque snapshot"),
+            source: wgpu::ShaderSource::Wgsl(snapshot_source(self.samples).into()),
+        });
+        Self {
+            device_depth: Some(DeviceDepth {
+                texture: crate::ssao::passes::texture(
+                    device,
+                    self.size,
+                    wgpu::TextureFormat::R32Float,
+                ),
+                pipeline: device_depth_pipeline(device, &module, &self.depth_pipeline),
+            }),
+            ..self.clone()
+        }
+    }
+
     pub fn new(device: &wgpu::Device, config: FrameConfig) -> Self {
         let source = snapshot_source(config.samples);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -78,6 +124,7 @@ impl Snapshots {
                 config.size,
                 wgpu::TextureFormat::R32Float,
             ),
+            device_depth: None,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("water frame"),
                 size: 304,
@@ -179,16 +226,43 @@ impl Snapshots {
             };
             let mut pass = PassDeclaration::new(slot);
             pass.color = Some(crate::compositor::attachment(resource, &view, false));
-            passes.push(pass);
             views.push(view);
             let mut feature = FeatureDeclaration::new(slot).passes.remove(0);
             feature.color_format = Some(texture.format());
             feature
                 .reads
                 .push(source.expect("requested snapshot source").resource());
+            if slot == PassSlot::AfterOpaqueDepth && request.device_depth {
+                self.write_device_depth(&mut pass, &mut feature, views)?;
+            }
+            passes.push(pass);
             declaration.passes.push(feature);
         }
         Ok(declaration)
+    }
+
+    /// Adds the device depth copy to the depth snapshot pass as its second colour attachment.
+    fn write_device_depth(
+        &self,
+        pass: &mut PassDeclaration,
+        feature: &mut worldrunner_render_post::FeaturePass,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(), FrameError> {
+        let device_depth = self
+            .device_depth
+            .as_ref()
+            .ok_or(FrameError::UnsupportedEffect(
+                "the device depth snapshot is not allocated",
+            ))?;
+        let resource = ResourceRef::new(DEVICE_DEPTH);
+        let view = AttachmentView::new(resource, &device_depth.texture)?;
+        pass.additional_colors
+            .push(crate::compositor::attachment(resource, &view, false));
+        feature
+            .additional_color_formats
+            .push(device_depth.texture.format());
+        views.push(view);
+        Ok(())
     }
 }
 fn entry(binding: u32, depth: bool, samples: u32) -> wgpu::BindGroupLayoutEntry {
@@ -251,6 +325,47 @@ fn pipelines(
         pipeline(wgpu::TextureFormat::Rgba16Float, "fs_color", false),
         pipeline(wgpu::TextureFormat::R32Float, "fs_depth", true),
     )
+}
+
+/// The depth snapshot pass that also writes the device depth, as its second colour attachment. It
+/// shares the bind group layout of `linear`, so one source group serves both pipelines.
+fn device_depth_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    linear: &wgpu::RenderPipeline,
+) -> wgpu::RenderPipeline {
+    let layout = linear.get_bind_group_layout(0);
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("snapshots with device depth"),
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
+    let target = Some(wgpu::ColorTargetState {
+        format: wgpu::TextureFormat::R32Float,
+        blend: None,
+        write_mask: wgpu::ColorWrites::ALL,
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("after opaque depth snapshot with device depth"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_snapshot"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_depth_device"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[target.clone(), target],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 fn source_layout(device: &wgpu::Device, samples: u32, depth: bool) -> wgpu::BindGroupLayout {

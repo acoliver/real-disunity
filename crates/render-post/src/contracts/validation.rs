@@ -31,7 +31,22 @@ impl ResourceRegistry {
         device: &wgpu::Device,
         passes: &[RasterPass],
     ) -> Result<(), ContractError> {
+        self.validate_raster_after(device, &[], passes)
+    }
+    /// As [`Self::validate_raster`], after `leading`: writes made before the first pass, such
+    /// as a frame's prepared copies, whose versions the passes then read.
+    pub(super) fn validate_raster_after(
+        &self,
+        device: &wgpu::Device,
+        leading: &[ResourceUse],
+        passes: &[RasterPass],
+    ) -> Result<(), ContractError> {
         let mut versions = Versions::default();
+        for usage in leading {
+            self.check_view(&usage.view)?;
+            validate_usage(self, usage)?;
+            validate_versions(self, usage, &mut versions)?;
+        }
         for (index, pass) in passes.iter().enumerate() {
             if passes[..index].iter().any(|other| other.id == pass.id) {
                 return Err(ContractError::Raster(pass.id));

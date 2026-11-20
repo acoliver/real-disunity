@@ -26,7 +26,7 @@ use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
-use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
@@ -54,14 +54,22 @@ const NO_CASTER_PASS: &str = "no shadow caster pass";
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
+    /// Whether a pass of the shader has the `LightMode` value `mode`, by the rule that selects
+    /// the pass ([`tag_values_match`]).
+    fn has_light_mode(&self, mode: &str) -> bool {
+        self.light_modes
+            .iter()
+            .any(|held| tag_values_match(held, mode))
+    }
+
     /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
     fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
-            self.light_modes.contains(tag)
-                || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
+            self.has_light_mode(tag)
+                || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
         })
     }
 }
@@ -338,7 +346,7 @@ impl<'a> Mapper<'a> {
                     self.left_out(MATERIAL_UNAVAILABLE, 1);
                     continue;
                 };
-                if !info.light_modes.iter().any(|mode| mode == SHADOW_CASTER) {
+                if !info.has_light_mode(SHADOW_CASTER) {
                     self.left_out(NO_CASTER_PASS, 1);
                     continue;
                 }

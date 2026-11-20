@@ -73,6 +73,9 @@ impl ShaderSupply for Synthetic {
             // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
             "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
+            "caster" => super::shadow_gpu::caster_passes(),
+            "receiver" => super::shadow_gpu::receiver_passes(),
+            "comparing" => super::shadow_gpu::comparing_passes(),
             "arrayslices" => super::array_gpu::array_slices_passes(),
             "arraylevels" => super::array_gpu::array_levels_passes(),
             "cubebase" => super::cube_volume_gpu::cube_base_passes(),

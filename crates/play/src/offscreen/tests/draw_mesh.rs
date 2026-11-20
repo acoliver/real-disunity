@@ -46,6 +46,7 @@ mod block;
 mod buffers;
 mod declared;
 mod persistent;
+mod raster;
 mod screen;
 
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes

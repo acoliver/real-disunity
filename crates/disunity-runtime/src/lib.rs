@@ -11,6 +11,8 @@ mod file_reads;
 mod file_reads_bridge;
 #[cfg(test)]
 mod file_reads_tests;
+#[cfg(test)]
+mod textures_tests;
 
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
@@ -60,6 +62,10 @@ pub enum HostError {
         reason: DisunityErrorReason,
         message: String,
     },
+    #[error(
+        "texture {identity} is stored with dimension code {dimension}, which this host does not know"
+    )]
+    TextureShape { identity: u64, dimension: u32 },
     #[error("ABI revision mismatch: expected {expected}, got {actual}")]
     AbiRevision { expected: u32, actual: u32 },
     #[error("managed callback failed: {0}")]
@@ -497,4 +503,4 @@ mod textures;
 pub use mesh_channels::{MeshChannel, MeshChannels, MeshRange};
 pub use meshes::{MeshObjectView, MeshRun, MeshSlot, PlayerMesh};
 pub use presentation_lights::PresentationLight;
-pub use textures::{PlayerTexture, TextureSampler};
+pub use textures::{PlayerTexture, TextureDimension, TextureSampler};

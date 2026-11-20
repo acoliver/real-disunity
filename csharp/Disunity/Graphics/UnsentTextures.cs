@@ -41,12 +41,14 @@ internal static class UnsentTextures
     }
 
     /// <summary>Why the world has no form for a texture: the texture was destroyed, a <see cref="Texture2D"/> has no pixels
-    /// (with its size), or the kind of texture, by its type name, is one the world does not hold.</summary>
+    /// (with its size), an array, cube or volume the host cannot store (see <c>WorldGraphics.TextureOf</c>), or the kind of
+    /// texture, by its type name, is one the world does not hold.</summary>
     private static string ReasonOf(Texture texture) => texture switch
     {
         RenderTexture => "destroyed-render-texture",
         Texture2D plain when !plain => "destroyed-texture2d",
         Texture2D plain => $"empty-texture2d:{plain.width}x{plain.height}",
+        Texture2DArray or Cubemap or Texture3D => $"{(texture ? "unstorable" : "destroyed")}-{texture.GetType().Name.ToLowerInvariant()}",
         _ => $"unsupported-kind:{texture.GetType().Name}",
     };
 

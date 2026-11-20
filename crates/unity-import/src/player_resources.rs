@@ -5,7 +5,7 @@
 //! assets: a `TextAsset` names the byte range of its contents in the player's file, and a
 //! script asset (a `ScriptableObject`) has its decoded fields written to a file beside the
 //! plan, with references to other planned resources as `{"$asset": i}`, since a few hold
-//! tables of many megabytes. Textures, texture arrays (see [`crate::player_texture_arrays`]), sprites and sprite atlases are planned too, along
+//! tables of many megabytes. Textures, texture arrays (see [`crate::player_texture_arrays`]), cubemaps and 3D textures (see [`crate::player_layered_textures`]), sprites and sprite atlases are planned too, along
 //! with the ones such an object references even when the container does not list them (see
 //! [`crate::player_sprites`]), and so are shaders (see [`crate::player_shader_refs`]) and materials
 //! (see [`crate::player_materials`]); a `MeshFilter` plans the meshes it references, with their data in
@@ -31,18 +31,17 @@ use worldrunner_unity_serialized::{
 use crate::{
     PlayerError,
     input::InputAxis,
-    player_animators::{PlanClipOverride, plan_animation_asset},
+    player_animators::plan_animation_asset,
     player_compute::{
-        ComputeDecl, PlanKernel, decode_compute_shader, plan_compute_shader,
+        ComputeDecl, decode_compute_shader, plan_compute_shader,
         unplanned_reference as unplanned_compute_shader,
     },
     player_files::PlayerFiles,
     player_font_files::{FontRange, font_range},
     player_input::plan_player_axes,
-    player_materials::{
-        PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
-    },
-    player_meshes::{DecodedMesh, PlanMesh, decode_mesh, plan_mesh},
+    player_layered_textures::{cubemap_flaw, plan_cubemap, plan_texture_3d},
+    player_materials::{decode_material, plan_material, unplanned_reference as unplanned_material},
+    player_meshes::{DecodedMesh, decode_mesh, plan_mesh},
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
@@ -52,7 +51,7 @@ use crate::{
     },
     player_scripts::{Referenced, referenced_script, script_fields},
     player_shader_refs::{ShaderDecl, decode_shader, unplanned_reference},
-    player_sprites::{self, AssetRef, TextureData},
+    player_sprites,
     player_texture_arrays::plan_texture_array,
     player_values::{FieldWriter, not_held},
 };
@@ -79,150 +78,7 @@ pub struct ResourceEntry {
     pub asset: Option<usize>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-pub enum ResourceAsset {
-    /// The contents are `length` bytes at `offset` in the player file `file`.
-    TextAsset {
-        name: String,
-        file: PathBuf,
-        offset: u64,
-        length: u64,
-    },
-    /// A font: its font file is `length` bytes at `offset` in the player file `file`, none when
-    /// the font has no file of its own.
-    Font {
-        name: String,
-        file: PathBuf,
-        offset: u64,
-        length: u64,
-    },
-    /// A script asset of `class` in `assembly`, with its fields in the JSON file `fields`,
-    /// relative to the plan's directory.
-    Script {
-        class: String,
-        assembly: String,
-        name: String,
-        fields: String,
-    },
-    /// A prefab: the scene plan in the JSON file `plan`, relative to the plan's directory,
-    /// holds the root game object and its descendants as template objects.
-    Prefab { name: String, plan: String },
-    /// A prefab the planner could not plan, with the reason loading it reports.
-    UnplannedPrefab { name: String, error: String },
-    /// A 2D texture (see [`player_sprites::Texture2DAsset`]).
-    Texture2D {
-        #[serde(flatten)]
-        texture: player_sprites::Texture2DAsset,
-    },
-    /// A stack of equally sized slices. `graphics_format` is the `GraphicsFormat` value of the
-    /// pixels, `depth` the number of slices; the other fields are those of `Texture2D`.
-    Texture2DArray {
-        name: String,
-        width: i32,
-        height: i32,
-        depth: i32,
-        graphics_format: i32,
-        mip_count: i32,
-        readable: bool,
-        color_space: i32,
-        filter_mode: i32,
-        wrap_u: i32,
-        wrap_v: i32,
-        wrap_w: i32,
-        aniso_level: i32,
-        mip_bias: f32,
-        data: TextureData,
-    },
-    /// A rectangle of a texture (see [`player_sprites::SpriteAsset`]).
-    Sprite {
-        #[serde(flatten)]
-        sprite: player_sprites::SpriteAsset,
-    },
-    /// Sprites packed together, in the atlas's order.
-    SpriteAtlas {
-        name: String,
-        tag: String,
-        is_variant: bool,
-        sprites: Vec<AssetRef>,
-    },
-    /// A shader, by the name its source declares, with the render queue of its first
-    /// sub-shader, the number of sub-shaders and the names of the passes in the first one
-    /// (`pass_count` of them, the empty string for an unnamed pass). The programs
-    /// are not planned; `file` and `path_id` name the serialized shader object they are read
-    /// from, `file` relative to the data directory.
-    Shader {
-        name: String,
-        render_queue: i32,
-        pass_count: usize,
-        pass_names: Vec<String>,
-        subshader_count: usize,
-        file: String,
-        path_id: i64,
-    },
-    /// A shader the planner could not decode, with the reason loading it reports.
-    UnplannedShader { error: String },
-    /// A compute shader, by the name its data declares, with the serialized file and object its
-    /// compiled kernels are read from (`file` relative to the data directory) and its kernels in
-    /// index order. A kernel's thread group size is `null` when the data states none.
-    ComputeShader {
-        name: String,
-        file: String,
-        path_id: i64,
-        kernels: Vec<PlanKernel>,
-    },
-    /// A compute shader the planner could not decode, with the reason loading it reports.
-    UnplannedComputeShader { error: String },
-    /// A material, with its shader and textures as asset indexes.
-    Material {
-        #[serde(flatten)]
-        material: PlanMaterial,
-    },
-    /// A material the planner could not decode, with the reason loading it reports.
-    UnplannedMaterial { error: String },
-    /// A mesh: its channels, sub-meshes and bounds, with the vertex and index data in the file
-    /// `resource` (see [`crate::player_meshes`]).
-    Mesh {
-        #[serde(flatten)]
-        mesh: PlanMesh,
-    },
-    /// A texture a camera or script draws into. `depth_format` is the `GraphicsFormat` of the
-    /// depth buffer (0 for none) and `color_format` that of the color buffer; `dimension`,
-    /// `filter_mode` and the wrap modes are the engine's enum values.
-    RenderTexture {
-        name: String,
-        width: i32,
-        height: i32,
-        depth_format: i32,
-        color_format: i32,
-        anti_aliasing: i32,
-        mip_maps: bool,
-        generate_mips: bool,
-        dimension: i32,
-        filter_mode: i32,
-        aniso_level: i32,
-        wrap_u: i32,
-        wrap_v: i32,
-        wrap_w: i32,
-    },
-    /// A render texture the planner could not decode, with the reason loading it reports.
-    UnplannedRenderTexture { error: String },
-    /// An animation clip, by name only: the engine plays no animation yet.
-    AnimationClip { name: String },
-    /// An animator controller and the clips it lists, as asset indexes (null where the plan
-    /// cannot hold a clip).
-    AnimatorController {
-        name: String,
-        clips: Vec<Option<usize>>,
-    },
-    /// A controller that replaces some clips of its base controller (see
-    /// [`crate::player_animators`]).
-    AnimatorOverrideController {
-        name: String,
-        base_controller: Option<usize>,
-        overrides: Vec<PlanClipOverride>,
-    },
-}
+pub use crate::player_resource_assets::ResourceAsset;
 
 /// An object of a player file, by file path and path ID.
 pub(crate) type ObjectKey = (PathBuf, i64);
@@ -306,6 +162,8 @@ fn buildable(class: ClassId) -> bool {
 fn referenced_on_demand(class: ClassId) -> bool {
     class == ClassId::TEXTURE_2D
         || class == ClassId::TEXTURE_2D_ARRAY
+        || class == ClassId::CUBEMAP
+        || class == ClassId::TEXTURE_3D
         || class == ClassId::SPRITE
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
@@ -406,6 +264,13 @@ impl Registry {
         }
         if class == ClassId::TEXTURE_2D
             && let Some(flaw) = player_sprites::texture_flaw(&mut self.files, key)?
+        {
+            self.notes.push(flaw);
+            self.rejected.insert(key.clone());
+            return Ok(None);
+        }
+        if class == ClassId::CUBEMAP
+            && let Some(flaw) = cubemap_flaw(&self.files.open_path(&key.0)?.decode(key.1)?)
         {
             self.notes.push(flaw);
             self.rejected.insert(key.clone());
@@ -587,6 +452,8 @@ impl ResourcePlanner {
             ClassId::TEXTURE_2D_ARRAY => {
                 plan_texture_array(&mut self.registry, key, &self.output, index)
             }
+            ClassId::CUBEMAP => plan_cubemap(&mut self.registry, key, &self.output, index),
+            ClassId::TEXTURE_3D => plan_texture_3d(&mut self.registry, key, &self.output, index),
             ClassId::SPRITE => player_sprites::plan_sprite(&mut self.registry, key),
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
             ClassId::GAME_OBJECT => self.prefab(key, layouts),

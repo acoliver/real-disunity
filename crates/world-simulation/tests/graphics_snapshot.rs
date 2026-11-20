@@ -32,7 +32,27 @@ fn taking_drains_the_records_and_the_next_frame_has_none() {
     assert!(first.cameras.contains_key(&camera));
     let second = snapshot(&mut world);
     assert!(second.work.is_empty());
-    assert!(second.cameras.is_empty() && second.render_textures.is_empty());
+    assert!(second.cameras.is_empty());
+}
+
+#[test]
+fn a_frame_with_no_work_still_lists_every_live_render_texture() {
+    let mut world = world();
+    let kept = render_texture(&mut world, [8, 8]);
+    let destroyed = render_texture(&mut world, [4, 4]);
+    world.destroy_render_texture(destroyed).unwrap();
+    let idle = snapshot(&mut world);
+    assert!(idle.work.is_empty());
+    assert_eq!(
+        idle.render_textures.keys().copied().collect::<Vec<_>>(),
+        [kept],
+        "a host retains what the world holds, so the list is whole whatever the work is"
+    );
+    assert_eq!(
+        idle.render_textures[&kept],
+        *world.render_texture(kept).unwrap()
+    );
+    assert_eq!(decode(&encode(&idle).unwrap()).unwrap(), idle);
 }
 
 #[test]

@@ -13,7 +13,7 @@ public sealed partial class Texture2DArray
     internal static Texture2DArray FromPlayer(string name, PlayerTextureArray plan)
     {
         var graphics = (GraphicsFormat)plan.GraphicsFormat;
-        var format = LayoutFormat(graphics);
+        var format = GraphicsFormats.LayoutOf(graphics);
         Texture2DArray array;
         try { array = new Texture2DArray(plan.Width, plan.Height, plan.Depth, format, graphics, plan.MipCount, plan.DataSize); }
         catch (ArgumentException error) { throw new InvalidDataException($"resource texture array {name}: {error.Message}", error); }
@@ -23,16 +23,5 @@ public sealed partial class Texture2DArray
         array.name = name;
         array._readable = plan.Readable;
         return array;
-    }
-
-    /// <summary>The <see cref="TextureFormat"/> whose layout the array uses, or <c>null</c> when it has none the engine can allocate.</summary>
-    private static TextureFormat? LayoutFormat(GraphicsFormat graphics)
-    {
-        try
-        {
-            var format = GraphicsFormats.ToTextureFormat(graphics);
-            return TexelFormats.CanAllocate(format) && !TexelFormats.IsCrunched(format) ? format : null;
-        }
-        catch (NotSupportedException) { return null; }
     }
 }

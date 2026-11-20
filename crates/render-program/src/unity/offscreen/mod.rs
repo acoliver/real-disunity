@@ -27,6 +27,7 @@ mod procedural;
 mod readback;
 mod resample;
 mod sampling;
+mod slot_dimension;
 mod steps;
 mod storage_buffers;
 mod textures;

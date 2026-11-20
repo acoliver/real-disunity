@@ -14,10 +14,10 @@ internal static class UnsentTextureTests
             Console.WriteLine("PASS: a destroyed RenderTexture set as a global is noted with its property and destroyed-render-texture");
             EmptyTexture2DIsNoted();
             Console.WriteLine("PASS: a Texture2D of size 0 is noted as empty-texture2d with its size");
-            UnsupportedKindsAreNotedByTypeName();
-            Console.WriteLine("PASS: a Cubemap, Texture3D and Texture2DArray are noted as unsupported-kind with the type name");
+            DestroyedLayeredTexturesAreNotedByKind();
+            Console.WriteLine("PASS: a destroyed Cubemap, Texture3D and Texture2DArray are noted as destroyed with the kind");
             SentTexturesAndNullAreSilent();
-            Console.WriteLine("PASS: null, a live RenderTexture and a Texture2D with pixels are not noted");
+            Console.WriteLine("PASS: null, a live RenderTexture, a Texture2D with pixels and a stored array, cube or volume are not noted");
             RepeatedSetsCountPerPropertyAndReason();
             Console.WriteLine("PASS: repeated sets count under one property and reason, and a property or reason of its own counts apart");
             MaterialAndBlockPathsNameTheirProperty();
@@ -64,14 +64,18 @@ internal static class UnsentTextureTests
         Forget("_EmptyWide");
     }
 
-    private static void UnsupportedKindsAreNotedByTypeName()
+    private static void DestroyedLayeredTexturesAreNotedByKind()
     {
-        Shader.SetGlobalTexture("_KindCube", new Cubemap(4, TextureFormat.RGBA32, false));
-        Shader.SetGlobalTexture("_KindVolume", new Texture3D(2, 2, 2, TextureFormat.RGBA32, false));
-        Shader.SetGlobalTexture("_KindArray", new Texture2DArray(2, 2, 2, TextureFormat.RGBA32, false));
-        Expect.Equal(1, CountOf("_KindCube", "unsupported-kind:Cubemap"), "a Cubemap");
-        Expect.Equal(1, CountOf("_KindVolume", "unsupported-kind:Texture3D"), "a Texture3D");
-        Expect.Equal(1, CountOf("_KindArray", "unsupported-kind:Texture2DArray"), "a Texture2DArray");
+        var cube = new Cubemap(4, TextureFormat.RGBA32, false);
+        var volume = new Texture3D(2, 2, 2, TextureFormat.RGBA32, false);
+        var array = new Texture2DArray(2, 2, 2, TextureFormat.RGBA32, false);
+        foreach (var texture in new Texture[] { cube, volume, array }) UnityEngine.Object.DestroyImmediate(texture);
+        Shader.SetGlobalTexture("_KindCube", cube);
+        Shader.SetGlobalTexture("_KindVolume", volume);
+        Shader.SetGlobalTexture("_KindArray", array);
+        Expect.Equal(1, CountOf("_KindCube", "destroyed-cubemap"), "a Cubemap");
+        Expect.Equal(1, CountOf("_KindVolume", "destroyed-texture3d"), "a Texture3D");
+        Expect.Equal(1, CountOf("_KindArray", "destroyed-texture2darray"), "a Texture2DArray");
         foreach (var name in new[] { "_KindCube", "_KindVolume", "_KindArray" }) Forget(name);
     }
 
@@ -80,10 +84,14 @@ internal static class UnsentTextureTests
         Shader.SetGlobalTexture("_SilentNull", (Texture)null!);
         Shader.SetGlobalTexture("_SilentLive", new RenderTexture(4, 4, 0));
         Shader.SetGlobalTexture("_SilentPixels", new Texture2D(4, 4));
-        foreach (var name in new[] { "_SilentNull", "_SilentLive", "_SilentPixels" })
+        Shader.SetGlobalTexture("_SilentCube", new Cubemap(4, TextureFormat.RGBA32, false));
+        Shader.SetGlobalTexture("_SilentVolume", new Texture3D(2, 2, 2, TextureFormat.RGBA32, false));
+        Shader.SetGlobalTexture("_SilentArray", new Texture2DArray(2, 2, 2, TextureFormat.RGBA32, false));
+        foreach (var name in new[] { "_SilentNull", "_SilentLive", "_SilentPixels", "_SilentCube", "_SilentVolume", "_SilentArray" })
             Expect.Equal(0, CountFor(name), $"{name} is sent as a texture or as the absence of one");
         Forget("_SilentLive");
         Forget("_SilentPixels");
+        foreach (var name in new[] { "_SilentCube", "_SilentVolume", "_SilentArray" }) Forget(name);
     }
 
     private static void RepeatedSetsCountPerPropertyAndReason()
@@ -110,9 +118,11 @@ internal static class UnsentTextureTests
         Expect.Equal(1, CountOf("_MainTex", "empty-texture2d:0x0"), "Material.mainTexture");
 
         var before = new Material(DisunityHost.RegisterShader("Test/Unsent/Whole"));
-        before.SetTexture("_Early", new Cubemap(4, TextureFormat.RGBA32, false));
+        var early = new Cubemap(4, TextureFormat.RGBA32, false);
+        UnityEngine.Object.DestroyImmediate(early);
+        before.SetTexture("_Early", early);
         _ = before.WorldLink;
-        Expect.Equal(1, CountOf("_Early", "unsupported-kind:Cubemap"), "a material sent whole");
+        Expect.Equal(1, CountOf("_Early", "destroyed-cubemap"), "a material sent whole");
 
         var renderer = DisunityHost.CreateGameObject().AddComponent<MeshRenderer>();
         var block = new MaterialPropertyBlock();

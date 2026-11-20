@@ -419,3 +419,23 @@ fn the_mask_pass_follows_the_water_pass_only_with_a_mask_and_the_producer() {
     let one_sample = plain(&context, true);
     assert_eq!(planned(&context, &one_sample, false), (water.to_vec(), 1));
 }
+
+#[test]
+fn a_scene_whose_water_differs_from_the_installed_water_is_refused_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let renderer = plain(&context, false);
+    renderer
+        .validate_water(&[body(false)])
+        .expect("the installed body matches");
+    for scene in [&[][..], &[body(true)][..]] {
+        assert_eq!(
+            renderer.validate_water(scene),
+            Err(FrameError::WaterSettings(
+                "the scene's water bodies differ from the water the renderer was configured with"
+            )),
+            "{} scene bodies",
+            scene.len()
+        );
+    }
+}

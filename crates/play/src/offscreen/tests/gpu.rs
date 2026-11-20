@@ -67,6 +67,8 @@ impl ShaderSupply for Synthetic {
             "blit" => blit_passes("_MainTex"),
             // A blit pass that places its quad by `unity_ObjectToWorld` and `unity_MatrixVP`.
             "placed_blit" => placed_blit("_MainTex"),
+            // The same pass sampling a texture the material sets, as a blit's own pass does.
+            "placed_primary" => placed_blit("_PrimaryTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.

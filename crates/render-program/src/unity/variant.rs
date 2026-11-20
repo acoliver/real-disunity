@@ -73,6 +73,23 @@ pub fn declared_keywords(program: &Program) -> Vec<u16> {
     used.into_iter().collect()
 }
 
+/// The keywords the player variants differ by: the ones they use.
+///
+/// The Unity 6 player stores every Vulkan variant of a pass on its vertex program, and that
+/// program's state mask names stereo keywords that no variant uses while the variants differ by
+/// fragment keywords. Declaring the mask's keywords would match every enabled keyword set against
+/// the empty one and always take the variant with no keywords.
+#[must_use]
+pub fn declared_player_keywords<'a>(
+    variants: impl IntoIterator<Item = &'a PlayerSubProgram>,
+) -> Vec<u16> {
+    let used: BTreeSet<u16> = variants
+        .into_iter()
+        .flat_map(|variant| variant.keyword_indices.iter().copied())
+        .collect();
+    used.into_iter().collect()
+}
+
 /// The [`SubProgram`] of a program for the enabled keywords.
 ///
 /// # Errors
@@ -101,7 +118,7 @@ pub fn select_player_sub_program<'a>(
     select_variant(
         &all,
         |v| &v.keyword_indices,
-        &declared_keywords(program),
+        &declared_player_keywords(all.iter().copied()),
         enabled,
     )
     .copied()

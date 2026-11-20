@@ -224,7 +224,7 @@ impl FrameRenderer {
         let mut extra = None;
         // The resident textures are scene content, not a product of the frame, so the prefix's
         // game passes may sample them.
-        self.publish_game_textures(gpu);
+        self.publish_game_scene(gpu);
         self.plan_game_prefix(frame, &mut passes, &mut views)?;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);

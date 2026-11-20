@@ -44,14 +44,16 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
+    EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
-    FrameShadowHandle, FrameShadows, FrameTerrainError, FrameTerrainHandle, GameBuffer,
+    FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
+    FrameShadows, FrameTerrainError, FrameTerrainHandle, FrameWaterNormalError, GameBuffer,
     GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GamePassSpec,
     GamePasses, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
-    GameTextureDeclaration, OcclusionDepth, PassTarget, ShadowCascade, TargetDeclaration,
-    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    GameTextureDeclaration, OcclusionDepth, PassTarget, SceneMeshSlot, ShadowCascade,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

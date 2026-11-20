@@ -103,6 +103,6 @@ impl crate::compositor::FrameRenderer {
         if self.game.features > 0 {
             self.game_terrain.publish(gpu, frame, viewport);
         }
-        self.publish_game_textures(gpu);
+        self.publish_game_scene(gpu);
     }
 }

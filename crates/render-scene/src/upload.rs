@@ -255,8 +255,18 @@ pub(crate) fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture,
 
 /// Creates the neutral texture bound where a material omits an optional map.
 pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
-    let mips = packed_mips(TextureFormat::Rgba8Unorm, 1, 1, 1, &PLACEHOLDER_TEXEL)
-        .expect("constant texel layout");
+    texel_texture(device, queue, "placeholder", PLACEHOLDER_TEXEL)
+}
+
+/// A one-texel `Rgba8Unorm` texture of `texel`.
+pub(crate) fn texel_texture(
+    device: &Device,
+    queue: &Queue,
+    label: &'static str,
+    texel: [u8; 4],
+) -> Texture {
+    let mips =
+        packed_mips(TextureFormat::Rgba8Unorm, 1, 1, 1, &texel).expect("constant texel layout");
     TextureUpload::new(
         &[TextureLayer {
             format: TextureFormat::Rgba8Unorm,
@@ -268,7 +278,7 @@ pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
         TextureKind::D2,
     )
     .expect("constant texel layout")
-    .upload(device, queue, "placeholder", TextureUsages::empty())
+    .upload(device, queue, label, TextureUsages::empty())
     .expect("constant texture supported")
 }
 

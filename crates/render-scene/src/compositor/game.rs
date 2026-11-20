@@ -30,6 +30,7 @@
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
+mod engine;
 mod environment;
 mod lent;
 mod occlusion;
@@ -37,12 +38,17 @@ mod pass_target;
 mod plan;
 mod registry;
 mod resources;
+mod scene_meshes;
 mod scene_textures;
 mod shadows;
 mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use engine::{
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
+    FULLSCREEN_TRIANGLE_WGSL,
+};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
@@ -55,7 +61,12 @@ pub use resources::{
     GameBuffer, GameBufferDeclaration, GameBufferUsage, GameResourceError, GameResources,
     GameSampler, GameTexture, GameTextureDeclaration,
 };
-pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
+pub use scene_meshes::{
+    FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle, SceneMeshSlot,
+};
+pub use scene_textures::{
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameWaterNormalError,
+};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};

@@ -1,9 +1,11 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::engine::EngineConstants;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
 use super::resources::GameResources;
+use super::scene_meshes::FrameSceneMeshesHandle;
 use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
@@ -45,6 +47,11 @@ pub struct GameBuild<'a> {
     /// The scene's resident textures, lent in every frame and in a depth prefix submitted ahead
     /// of the frame.
     pub scene_textures: FrameSceneTexturesHandle,
+    /// The scene's resident meshes, lent wherever the textures are.
+    pub scene_meshes: FrameSceneMeshesHandle,
+    /// The constants of this generation: placeholder texels, the split-sum BRDF table and the
+    /// full-screen triangle.
+    pub engine: EngineConstants,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -206,6 +213,7 @@ impl GamePasses {
             &self.declarations(),
             frame.size,
         ));
+        let engine = EngineConstants::new(context.device(), context.submission());
         for factory in &self.factories {
             let resources = GameResources::new(
                 context.device(),
@@ -224,6 +232,8 @@ impl GamePasses {
                 occlusion: renderer.game.occlusion.clone(),
                 environment: renderer.game.environment.clone(),
                 scene_textures: renderer.game_textures.clone(),
+                scene_meshes: renderer.game.meshes.clone(),
+                engine: engine.clone(),
             };
             let prefix =
                 factory.build_depth_prefix(&build(GameTargets::for_depth_prefix(store.clone())))?;
@@ -260,6 +270,8 @@ pub(crate) struct Installed {
     pub(crate) occlusion: FrameOcclusionHandle,
     /// Where every route lends its specular environment to the features of this generation.
     pub(crate) environment: FrameEnvironmentHandle,
+    /// Where every route lends the scene's resident meshes to the features of this generation.
+    pub(crate) meshes: FrameSceneMeshesHandle,
     /// Each factory's declared resources, released with this generation.
     pub(crate) resources: Vec<GameResources>,
 }

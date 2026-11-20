@@ -74,7 +74,16 @@ impl World {
                     Err(GraphicsError::NotFinite.into())
                 }
             }
-            OffscreenWork::SetViewport { rect } => check_viewport(rect),
+            OffscreenWork::SetViewport { rect } | OffscreenWork::EnableScissor { rect } => {
+                check_viewport(rect)
+            }
+            OffscreenWork::SetDepthBias { bias, slope_bias } => {
+                if bias.is_finite() && slope_bias.is_finite() {
+                    Ok(())
+                } else {
+                    Err(GraphicsError::NotFinite.into())
+                }
+            }
             OffscreenWork::DrawMesh {
                 mesh,
                 matrix,

@@ -23,6 +23,7 @@ use super::list_steps::{self, Loads};
 use super::mips;
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
+use super::raster::PassRaster;
 use super::resample::{ResampleStep, resample_step};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
@@ -43,6 +44,8 @@ pub(super) struct CameraDraw {
     pub(super) signature: TargetSignature,
     pub(super) front_face: wgpu::FrontFace,
     pub(super) index_use: Option<BufferUse>,
+    /// The scissor and depth bias the record that made the draw set.
+    pub(super) raster: PassRaster,
 }
 
 /// A blit with a material, whose bindings wait for the constants buffer.
@@ -634,6 +637,7 @@ pub(super) fn camera_draw(
         signature,
         front_face,
         index_use,
+        raster: PassRaster::default(),
     })
 }
 

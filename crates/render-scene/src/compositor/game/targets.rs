@@ -572,6 +572,8 @@ impl FrameEffect {
 #[derive(Clone)]
 pub struct GameTargets {
     store: Arc<TargetStore>,
+    /// Plans the passes after the depth prepass, and only those.
+    depth_prefix: bool,
     snapshots: SnapshotReads,
 }
 
@@ -579,8 +581,24 @@ impl GameTargets {
     pub(crate) fn new(store: Arc<TargetStore>) -> Self {
         Self {
             store,
+            depth_prefix: false,
             snapshots: SnapshotReads::NONE,
         }
+    }
+
+    /// The targets as a factory's depth-prefix feature plans with them.
+    pub(crate) fn for_depth_prefix(store: Arc<TargetStore>) -> Self {
+        Self {
+            store,
+            depth_prefix: true,
+            snapshots: SnapshotReads::NONE,
+        }
+    }
+
+    /// Whether these targets plan the passes after the depth prepass, the only place a
+    /// depth-prefix feature draws in.
+    pub fn depth_prefix(&self) -> bool {
+        self.depth_prefix
     }
 
     /// These targets for the factory that declared `reads`, which is what its passes may read of

@@ -71,6 +71,7 @@ mod pixels;
 mod probe;
 mod procedural_draw;
 mod properties;
+mod raster;
 mod record_names;
 mod records;
 mod report;

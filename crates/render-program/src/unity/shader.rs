@@ -234,18 +234,20 @@ impl ProgramShader {
         let found = match selector {
             PassSelector::Index(index) => (*index < passes.len()).then_some(*index),
             PassSelector::Tag { key, values } => values.iter().find_map(|value| {
-                passes
-                    .iter()
-                    .position(|pass| tag(pass, key) == Some(value.as_str()))
+                passes.iter().position(|pass| {
+                    tag(pass, key).is_some_and(|held| held.eq_ignore_ascii_case(value))
+                })
             }),
             PassSelector::TagWithUntagged {
                 key,
                 values,
                 untagged,
             } => values.iter().find_map(|value| {
-                passes
-                    .iter()
-                    .position(|pass| tag(pass, key).unwrap_or(untagged.as_str()) == value.as_str())
+                passes.iter().position(|pass| {
+                    tag(pass, key)
+                        .unwrap_or(untagged.as_str())
+                        .eq_ignore_ascii_case(value)
+                })
             }),
         };
         found.ok_or_else(|| ResolveError::NoPass {

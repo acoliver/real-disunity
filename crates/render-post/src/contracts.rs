@@ -38,7 +38,7 @@ pub use raster::{ColorAttachment, CompiledRaster, DepthAttachment, RasterId, Ras
 pub use registry::ResourceRegistry;
 pub use transfers::TextureCopy;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AllocationKey {
     id: u64,
     generation: u32,
@@ -72,7 +72,7 @@ pub enum Semantic {
     ViewNormal,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TextureRange {
     pub mips: Range<u32>,
     pub layers: Range<u32>,

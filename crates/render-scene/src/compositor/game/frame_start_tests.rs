@@ -51,7 +51,7 @@ impl Rig {
     fn stage_layer_zero(&self, frame: &mut Publications) {
         FrameEffect {
             backing: self.store.backing(KEPT).unwrap().clone(),
-            layers: vec![(0, true)],
+            written: vec![((0, 0), true)],
         }
         .stage(frame);
     }

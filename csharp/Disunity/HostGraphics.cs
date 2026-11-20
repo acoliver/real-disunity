@@ -103,4 +103,7 @@ public static partial class DisunityHost
     /// <summary>Adds a group of settings to the registry <see cref="GraphicsSettings.GetRenderPipelineSettings{T}"/>
     /// reads, replacing an earlier group of the same type.</summary>
     public static void RegisterPipelineSettings(IRenderPipelineGraphicsSettings settings) => GraphicsSettings.AddGraphicsSettings(settings);
+
+    /// <summary>The end-of-run line for tooling, or null when every texture a game set reached the world.</summary>
+    public static string? UnsentTextureSummary => UnsentTextures.Summary;
 }

@@ -11,6 +11,8 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/mips.rs"]
+mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
 #[path = "game_passes/prepared.rs"]
@@ -23,6 +25,12 @@ mod replacement;
 mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]
 mod shadowed;
+#[path = "game_passes/snapshot_capture.rs"]
+mod snapshot_capture;
+#[path = "game_passes/snapshot_game.rs"]
+mod snapshot_game;
+#[path = "game_passes/snapshots.rs"]
+mod snapshots;
 #[path = "game_passes/stores.rs"]
 mod stores;
 #[path = "game_passes/strip.rs"]

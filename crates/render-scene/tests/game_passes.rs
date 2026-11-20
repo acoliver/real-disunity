@@ -13,6 +13,8 @@ mod fixture;
 mod layers;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/prepared.rs"]
+mod prepared;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
 #[path = "game_passes/replacement.rs"]

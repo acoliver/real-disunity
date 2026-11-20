@@ -43,6 +43,7 @@ pub(crate) fn compile(
 ) -> Result<super::raster::StockRaster, ContractError> {
     let keys = import_views(registry, views)?;
     let mut versions = initial_versions(views);
+    let prepared = prepared_writes(registry, &keys, &mut versions, views)?;
     let mut raster = Vec::new();
     for (index, pass) in passes.iter().enumerate() {
         let uses = features
@@ -95,8 +96,32 @@ pub(crate) fn compile(
             bindings: Vec::new(),
         });
     }
-    registry.validate_raster(device, &raster)?;
-    Ok(super::raster::StockRaster { passes: raster })
+    registry.validate_raster_after(device, &prepared, &raster)?;
+    Ok(super::raster::StockRaster {
+        passes: raster,
+        prepared,
+    })
+}
+
+/// The copy writes a frame's preparation makes before its first pass, one for each view the plan
+/// declared prepared, versioned as an attachment's output is.
+fn prepared_writes(
+    registry: &ResourceRegistry,
+    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    versions: &mut BTreeMap<ResourceRef, u32>,
+    views: &[AttachmentView],
+) -> Result<Vec<ResourceUse>, ContractError> {
+    views
+        .iter()
+        .filter(|view| view.prepared_contents())
+        .map(|view| {
+            let resource = view.resource();
+            let version = versions.get(&resource).map_or(0, |version| version + 1);
+            versions.insert(resource, version);
+            checked_view(registry, keys, resource, version)
+                .map(|view| ResourceUse::write(view, UseKind::Copy))
+        })
+        .collect()
 }
 fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
     // Initialization belongs to the allocation. Newly written sibling layers

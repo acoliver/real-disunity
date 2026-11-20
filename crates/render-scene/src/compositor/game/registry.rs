@@ -3,7 +3,7 @@
 use super::camera::FrameCameraHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
-use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
+use super::targets::{GameTargets, TargetDeclaration, TargetStore};
 use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
@@ -139,10 +139,14 @@ impl GamePasses {
     }
 
     /// Refuses a declaration the device cannot allocate and a name declared twice.
-    pub(crate) fn validate(&self, frame: [u32; 2], limits: &wgpu::Limits) -> Result<(), PostError> {
+    pub(crate) fn validate(
+        &self,
+        frame: [u32; 2],
+        device: (&wgpu::Limits, wgpu::Features),
+    ) -> Result<(), PostError> {
         let declarations = self.declarations();
         for (index, declaration) in declarations.iter().enumerate() {
-            declaration.validate(limits, frame)?;
+            declaration.validate(device, frame)?;
             if declarations[..index]
                 .iter()
                 .any(|other| other.name == declaration.name)
@@ -264,12 +268,9 @@ impl PreparedFeature for RegisteredPrepared {
         // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
         // Each publication names the exact backing it records, which an owned capture needs to
         // admit it; a frame that writes no declared target publishes nothing.
-        for FrameEffect { backing, layers } in self.store.frame_effects(context) {
-            let key = backing.write_key();
-            // The capture records a refusal and fails before submission, as for stock state.
-            let _ = context
-                .publications()
-                .stage_write(key, move || backing.record(&layers));
+        let mut frame = context.publications();
+        for effect in self.store.frame_effects(context) {
+            effect.stage(&mut frame);
         }
     }
 

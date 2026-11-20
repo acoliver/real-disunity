@@ -16,8 +16,8 @@ pub struct Phases {
     pub programs: Duration,
     /// Recording the operations and the dispatches, submitting them and waiting.
     pub submit: Duration,
-    /// Times the whole frame was refused and its render textures and records were built one at a
-    /// time to find the ones the state refuses.
+    /// Times the whole frame was refused and its parts were built alone to find the ones the
+    /// state refuses: the record the refusal names, or else each render texture and each record.
     pub refusals: usize,
     /// The builds of one render texture or one record alone that followed.
     pub probes: usize,

@@ -3,8 +3,10 @@
 //! array. Every block is synthetic: its endpoints decode to exact colours, so the expected bytes
 //! and the expected sampled texels follow from how the test builds the block.
 
+mod command_buffers;
 mod common;
 mod encoded;
+mod prepared;
 mod refusals;
 mod reuse;
 mod shapes;

@@ -576,6 +576,7 @@ CullingDataTests.Run();
 VisibleLightTests.Run();
 ShadowCasterTests.Run();
 ShadowCasterCacheTests.Run();
+CommandBufferDepthBiasTests.Run();
 TransformAccessArrayTests.Run();
 RenderEntryPointTests.Run();
 SceneManagerTests.Run();

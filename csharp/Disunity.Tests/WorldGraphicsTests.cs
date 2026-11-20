@@ -33,6 +33,8 @@ internal static unsafe class WorldGraphicsTests
             Console.WriteLine("PASS: Camera.Render with a target texture records CameraRender, and without one records nothing");
             BlitAndCopyRecordInOrder();
             Console.WriteLine("PASS: Graphics.Blit and Graphics.CopyTexture record offscreen work in call order");
+            ABlitKeepsTheMaterialItSawWhenTheScriptEditsItLater();
+            Console.WriteLine("PASS: a texture set on a material after a Graphics.Blit leaves that blit with the material it saw");
             UnsupportedOverloadsThrowNamingTheMember();
             Console.WriteLine("PASS: Graphics.Blit, BlitMultiTap and CopyTexture overloads that cannot be recorded throw NotSupportedException naming the overload");
             ShaderSourceComesFromThePlan();
@@ -313,6 +315,28 @@ internal static unsafe class WorldGraphicsTests
                 $"whole copy, mip {mip}");
         }
         RenderTexture.active = null;
+    }
+
+    /// <summary>The bake pattern of a terrain: set a texture, blit, set another texture, blit. A record names the material by its
+    /// world id while the material is as the blit saw it; the first edit afterwards moves the earlier blit to a copy of that state,
+    /// an id of generation 0.</summary>
+    private static void ABlitKeepsTheMaterialItSawWhenTheScriptEditsItLater()
+    {
+        Take();
+        var first = new RenderTexture(8, 8, 0);
+        var second = new RenderTexture(8, 8, 0);
+        var target = new RenderTexture(8, 8, 0);
+        var material = new Material(DisunityHost.DeclareShader("Test/World/Bake", 2000, Unnamed(1), 1, _ => { }));
+        material.SetTexture("_PrimaryTex", first);
+        Graphics.Blit(first, target, material, 0);
+        material.SetTexture("_PrimaryTex", second);
+        Graphics.Blit(second, target, material, 0);
+        var work = Take();
+
+        Expect.That(work.Length == 2, "two blits: " + work.Length);
+        Expect.That(work[1].material == material.WorldLink.Id, "the last blit names the material itself");
+        Expect.That(work[0].material != work[1].material && work[0].material >> 32 == 0,
+            "the blit before the edit names a copy of the material (generation 0): " + work[0].material);
     }
 
     private static void UnsupportedOverloadsThrowNamingTheMember()

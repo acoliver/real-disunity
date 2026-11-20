@@ -148,6 +148,9 @@ fn stored(format: u32, linear: bool, bytes: &[u8]) -> PlayerTexture {
         linear,
         generation: GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         distance_spread: 0,
+        depth: 0,
+        dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+        graphics_format: 0,
         bytes: bytes.to_vec(),
     }
 }

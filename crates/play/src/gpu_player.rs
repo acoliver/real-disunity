@@ -38,9 +38,9 @@ use crate::counts_line::{top_counts_line, unset_constants_line};
 use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
-    Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts, StandInLook,
-    SuppliedGlobal, WorkTrace, supplied_line,
+    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
+    PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts,
+    StandInLook, SuppliedGlobal, WorkTrace, supplied_line,
 };
 use crate::scene_census::SubstitutionCensus;
 
@@ -177,6 +177,8 @@ pub struct GpuWorkReport {
     pub flush_time: Duration,
     /// Each frame's and flush's own steps, in order, up to `MAX_WORK_TRACES`.
     pub work: Vec<WorkTrace>,
+    /// The builds, the draws they held and the texture views they made, over every piece of work.
+    pub planner: Phases,
 }
 
 impl GpuWorkReport {
@@ -184,6 +186,9 @@ impl GpuWorkReport {
         for trace in traces.iter().filter(|trace| trace.error.is_some()) {
             self.refused_records += trace.records;
             self.refused_works += 1;
+        }
+        for trace in &traces {
+            self.planner.add(&trace.phases);
         }
         let room = MAX_WORK_TRACES.saturating_sub(self.work.len());
         self.work.extend(traces.into_iter().take(room));
@@ -386,6 +391,7 @@ impl GpuWorkReport {
                 self.refusal_frame
             );
         }
+        eprintln!("[gpu] planner: {}", self.planner.planner_line());
         eprintln!(
             "[gpu] time in the frame path {:?}, in flushes {:?}",
             self.frame_time, self.flush_time

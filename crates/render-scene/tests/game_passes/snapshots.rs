@@ -12,14 +12,14 @@ use worldrunner_render_scene::{
 };
 
 /// A pixel the quad covers, and one it does not.
-const COVERED: (usize, usize) = (32, 24);
-const UNCOVERED: (usize, usize) = (3, 20);
+pub const COVERED: (usize, usize) = (32, 24);
+pub const UNCOVERED: (usize, usize) = (3, 20);
 
-const COLOR: SnapshotReads = SnapshotReads {
+pub const COLOR: SnapshotReads = SnapshotReads {
     color: true,
     ..SnapshotReads::NONE
 };
-const DEPTHS: SnapshotReads = SnapshotReads {
+pub const DEPTHS: SnapshotReads = SnapshotReads {
     linear_depth: true,
     device_depth: true,
     ..SnapshotReads::NONE
@@ -27,7 +27,7 @@ const DEPTHS: SnapshotReads = SnapshotReads {
 
 /// The device depth of the ground plane five metres below the camera, whose orthographic depth
 /// runs linearly from 0 at 0.1 m to 1 at 10 m.
-fn plane_depth() -> f32 {
+pub fn plane_depth() -> f32 {
     (5.0 - 0.1) / (10.0 - 0.1)
 }
 

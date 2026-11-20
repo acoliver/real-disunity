@@ -38,6 +38,19 @@ pub enum RenderDimension {
     Unknown(u32),
 }
 
+impl std::fmt::Display for RenderDimension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::D2 => f.write_str("a 2D texture"),
+            Self::D2Array(layers) => write!(f, "a 2D array of {layers} layers"),
+            Self::D3(depth) => write!(f, "a 3D texture of {depth} slices"),
+            Self::Cube => f.write_str("a cube"),
+            Self::CubeArray(cubes) => write!(f, "a cube array of {cubes} cubes"),
+            Self::Unknown(code) => write!(f, "a texture of unknown dimension {code}"),
+        }
+    }
+}
+
 impl RenderDimension {
     /// The array layers, or the slices of a volume, the storage holds: 1 for a plain texture, 6
     /// for a cube and none for a dimension the host could not map.
@@ -356,7 +369,7 @@ pub struct UndeclaredTextures {
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
     /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
-    /// a [`SourceDimension::D3`] source.
+    /// a [`SourceDimension::D3`] source of one slice.
     pub d3: Option<TextureId>,
 }
 
@@ -391,6 +404,36 @@ impl Default for OffscreenFrame {
     }
 }
 
+impl OffscreenFrame {
+    /// The most draws building `record` plans, which a host that builds a frame in parts uses to
+    /// keep a part within a budget of planned draws before it plans any.
+    ///
+    /// A camera render is bound by the material slots of the renderers its mask selects, a list
+    /// by its items and a procedural draw by its passes. A draw left out for want of a pass, a
+    /// texture or a mesh channel is planned by none, so the bound is at least what is planned.
+    #[must_use]
+    pub fn planned_draw_bound(&self, record: &Record) -> usize {
+        match record {
+            Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
+                self.renderers
+                    .values()
+                    .filter(|renderer| {
+                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
+                    })
+                    .map(|renderer| renderer.materials.len())
+                    .sum()
+            }),
+            Record::Draws(list) => list.draws.len(),
+            Record::Procedural(draw) => draw.passes.len(),
+            Record::Blit { .. } => 1,
+            Record::CopyTexture { .. }
+            | Record::GenerateMips { .. }
+            | Record::Clear { .. }
+            | Record::Globals(_) => 0,
+        }
+    }
+}
+
 /// The shape of an uploaded source texture.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SourceDimension {
@@ -399,24 +442,33 @@ pub enum SourceDimension {
     D2,
     /// A cube of six square faces, sampled through a cube view. `size` is one face, which must be
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
-    /// +Z, -Z, each as a 2D level is.
+    /// +Z, -Z, each holding its [`SourceTexture::mips`] levels from the base level down, every
+    /// level as a 2D level is.
     Cube,
     /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
-    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    /// one layer and `bytes` holds the layers one after the other, each holding its
+    /// [`SourceTexture::mips`] levels from the base level down, every level as a 2D level is.
     D2Array(u32),
-    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
-    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
-    /// volume is not an upload.
-    D3,
+    /// A 3D texture of this many slices, which may be one, sampled through a 3D view. `size` is
+    /// one slice and `bytes` holds the [`SourceTexture::mips`] levels from the base level down,
+    /// each holding its slices one after the other, and a level has the base level's width,
+    /// height and depth shifted down (at least one). The graph tracks one cell per volume, so
+    /// all its levels are read together.
+    D3(u32),
 }
 
-/// A texture the host uploads once: uncompressed, one mip.
+/// A texture the host uploads once.
 #[derive(Clone, Debug)]
 pub struct SourceTexture {
     pub id: TextureId,
     pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
+    /// The mip levels of the texture. For a [`SourceDimension::D2Array`] or a
+    /// [`SourceDimension::Cube`], `bytes` has each layer's or face's whole chain, base level
+    /// first, one layer or face after the other. For a [`SourceDimension::D3`] it has the chain
+    /// of levels, each with its slices. A [`SourceDimension::D2`] has one level.
+    pub mips: u32,
     pub bytes: Vec<u8>,
     /// The state the texture is read with unless a property overrides it.
     pub sampler: Option<SamplerState>,

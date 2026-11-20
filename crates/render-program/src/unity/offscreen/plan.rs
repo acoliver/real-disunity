@@ -36,6 +36,7 @@ use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::sampling::{self, Sampled, read_unfilterable};
+use super::slot_dimension;
 use super::storage_buffers::{PendingStorage, check_stage_limits, require_buffers};
 use super::textures::TextureTable;
 use super::tracker::Tracker;
@@ -580,14 +581,10 @@ impl Services<'_> {
                 what: "a uniform buffer no parameter describes",
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
-        let packed = pack_layout(&target.buffer, &[], &spec.layers.values(), min_len)?;
+        let values = spec.layers.values();
+        let packed = pack_layout(&target.buffer, &[], &values, min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
-            facts.note_constants(
-                &target.buffer,
-                &packed,
-                slot.visibility,
-                &spec.layers.values(),
-            );
+            facts.note_constants(&target.buffer, &packed, slot.visibility, &values);
         }
         plan.unset.extend(packed.missing);
         let placed = self.constants.push(&packed.bytes)?;
@@ -644,6 +641,8 @@ impl Services<'_> {
             facts.textures.push((name.to_owned(), input.texture));
         }
         let (imported, own) = self.import(input.texture)?;
+        let stored = self.textures.get(input.texture)?.dimension;
+        slot_dimension::refuse(name, input.texture, stored, view_dimension)?;
         // A depth slot is read through a comparison sampler, which takes the depth aspect alone:
         // the depth of a depth-only render texture, whose format has no stencil. A colour texture,
         // and the depth buffer under one, have none to give.
@@ -788,8 +787,8 @@ impl Services<'_> {
         id: TextureId,
     ) -> Result<(super::tracker::Imported, Option<SamplerState>), OffscreenError> {
         let info = self.textures.get(id)?;
-        // A render volume is deep and only kernels touch it. An uploaded 3D source is one slice,
-        // a single cell like a 2D texture, which a draw samples through a 3D view.
+        // A render volume is deep and only kernels touch it. An uploaded 3D source of any depth is
+        // a single cell, which a draw samples through a 3D view.
         if info.dimension.is_volume() && info.spec.is_some() {
             return Err(OffscreenError::VolumeInGraph(id));
         }

@@ -235,7 +235,11 @@ impl crate::PreparedCommands for CopyCommands {
         }
     }
 
-    fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), crate::PreparedRefusal> {
+    fn record(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        _label: &str,
+    ) -> Result<(), crate::PreparedRefusal> {
         if self.refuse == Some(Refusal::Record) {
             return Err(crate::PreparedRefusal::new(Refusal::Record));
         }

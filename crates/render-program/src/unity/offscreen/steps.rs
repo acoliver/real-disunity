@@ -17,7 +17,7 @@ use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::depth_range;
-use super::error::OffscreenError;
+use super::error::{OffscreenError, Refusal};
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads};
 use super::mips;
@@ -101,59 +101,77 @@ pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
 }
 
 /// Plans each record of the frame into a step.
+///
+/// # Errors
+/// Fails with the first record the state refuses, which the refusal names.
 pub(super) fn plan_steps(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-) -> Result<Vec<Step>, OffscreenError> {
+) -> Result<Vec<Step>, Refusal> {
     let mut steps = Vec::new();
     let mut globals = Globals {
         layer: &frame.globals,
         keywords: &frame.global_keywords,
     };
     for (index, record) in frame.records.iter().enumerate() {
-        let step = match record {
-            Record::Globals(state) => {
-                globals = Globals {
-                    layer: &state.values,
-                    keywords: &state.keywords,
-                };
-                continue;
-            }
-            Record::CameraRender { camera, target } => {
-                camera_step(svc, frame, index, globals, (*camera, *target))?
-            }
-            Record::Blit {
-                source,
-                target,
-                material,
-                pass,
-            } => blit_step(
-                svc,
-                frame,
-                index,
-                globals,
-                (*source, *target),
-                (*material, *pass),
-            )?,
-            Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
-            Record::GenerateMips { texture } => {
-                steps.extend(mips::generate_steps(svc, steps.len(), *texture)?);
-                continue;
-            }
-            Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, target.clone(), clear)? {
-                    Some(step) => step,
-                    None => continue,
-                }
-            }
-            Record::Draws(list) => list_steps::list_step(svc, frame, index, globals, list)?,
-            Record::Procedural(draw) => {
-                super::procedural::procedural_step(svc, frame, index, globals, draw)?
-            }
-        };
-        steps.push(step);
+        plan_record(svc, frame, (index, record), &mut globals, &mut steps)
+            .map_err(|error| Refusal::at(index, error))?;
     }
     Ok(steps)
+}
+
+/// Plans one record into the steps it adds to `steps`: none for a record of globals or one that
+/// does nothing, which replaces `globals` for the records after it.
+fn plan_record<'a>(
+    svc: &mut Services<'_>,
+    frame: &'a OffscreenFrame,
+    (index, record): (usize, &'a Record),
+    globals: &mut Globals<'a>,
+    steps: &mut Vec<Step>,
+) -> Result<(), OffscreenError> {
+    let in_force = *globals;
+    let step = match record {
+        Record::Globals(state) => {
+            *globals = Globals {
+                layer: &state.values,
+                keywords: &state.keywords,
+            };
+            return Ok(());
+        }
+        Record::CameraRender { camera, target } => {
+            camera_step(svc, frame, index, in_force, (*camera, *target))?
+        }
+        Record::Blit {
+            source,
+            target,
+            material,
+            pass,
+        } => blit_step(
+            svc,
+            frame,
+            index,
+            in_force,
+            (*source, *target),
+            (*material, *pass),
+        )?,
+        Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
+        Record::GenerateMips { texture } => {
+            steps.extend(mips::generate_steps(svc, steps.len(), *texture)?);
+            return Ok(());
+        }
+        Record::Clear { target, clear } => {
+            match list_steps::clear_step(svc, index, target.clone(), clear)? {
+                Some(step) => step,
+                None => return Ok(()),
+            }
+        }
+        Record::Draws(list) => list_steps::list_step(svc, frame, index, in_force, list)?,
+        Record::Procedural(draw) => {
+            super::procedural::procedural_step(svc, frame, index, in_force, draw)?
+        }
+    };
+    steps.push(step);
+    Ok(())
 }
 
 fn camera_step(

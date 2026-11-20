@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 
 use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
 
+use super::totals::Totals;
 use super::{BatchKey, InstanceBatch};
 
 #[derive(Debug, Default)]
@@ -31,6 +32,14 @@ struct Stamp {
 }
 
 impl Stamp {
+    fn of_totals(totals: &Totals) -> Self {
+        Self {
+            edits: totals.edits.get(),
+            content: totals.content.get(),
+            history: totals.history.get(),
+        }
+    }
+
     fn of(batches: &BTreeMap<BatchKey, InstanceBatch>) -> Self {
         batches.values().fold(
             Self {
@@ -72,9 +81,18 @@ impl ReadyMemo {
     pub fn check(
         &self,
         batches: &BTreeMap<BatchKey, InstanceBatch>,
+        totals: Option<&Totals>,
         owner: Option<&Publications>,
     ) -> bool {
-        let stamp = Stamp::of(batches);
+        let stamp = totals.map_or_else(
+            || {
+                #[cfg(test)]
+                super::SUMS.with(|sums| sums.set(sums.get() + 1));
+                Stamp::of(batches)
+            },
+            Stamp::of_totals,
+        );
+        debug_assert!(totals.is_none() || stamp == Stamp::of(batches));
         if self
             .passed
             .borrow()

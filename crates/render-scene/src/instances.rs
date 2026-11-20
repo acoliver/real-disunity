@@ -14,7 +14,9 @@ mod staged_uploads;
 pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
+mod totals;
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -25,6 +27,12 @@ use worldrunner_render_plan::{
 
 use crate::pipeline::PipelineKey;
 pub(crate) use batch::InstanceBatch;
+
+#[cfg(test)]
+thread_local! {
+    /// How many times a counter was added up over every batch on this thread.
+    pub(crate) static SUMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// Opaque identity of one placement in one resident scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -119,6 +127,11 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    /// The sums of the counters of the batches that `add` created, which are `linked` of them.
+    totals: totals::Totals,
+    linked: usize,
+    /// How many of the linked batches draw a skinned mesh.
+    skinned: usize,
     /// Counts the changes to the material tables and mesh bounds that are not placement edits.
     tables: u64,
     /// The state in which every batch's cached bounds were last found current.
@@ -175,6 +188,9 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            totals: totals::Totals::default(),
+            linked: 0,
+            skinned: 0,
             tables: 0,
             bounds_current: std::cell::Cell::new(None),
             ready: ready_memo::ReadyMemo::default(),
@@ -195,7 +211,7 @@ impl Instances {
 
     /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
     pub fn edits(&self) -> u64 {
-        self.batches.values().map(InstanceBatch::edits).sum()
+        self.sum(&self.totals.edits, InstanceBatch::edits)
     }
 
     /// What the cached bounds of every batch and the materials and levels they draw depend on:
@@ -228,7 +244,7 @@ impl Instances {
 
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
     pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
-        self.ready.check(&self.batches, owner)
+        self.ready.check(&self.batches, self.ready_totals(), owner)
     }
 
     /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
@@ -239,12 +255,51 @@ impl Instances {
 
     /// Whether any batch draws a skinned mesh.
     pub fn has_skinned_batches(&self) -> bool {
-        self.batches.values().any(|batch| batch.skin.is_some())
+        if !self.every_batch_linked() {
+            #[cfg(test)]
+            SUMS.with(|sums| sums.set(sums.get() + 1));
+            return self.batches.values().any(|batch| batch.skin.is_some());
+        }
+        debug_assert_eq!(
+            self.skinned > 0,
+            self.batches.values().any(|batch| batch.skin.is_some())
+        );
+        self.skinned > 0
     }
 
     /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
     pub fn content_generation(&self) -> u64 {
-        self.batches.values().map(InstanceBatch::content).sum()
+        self.sum(&self.totals.content, InstanceBatch::content)
+    }
+
+    /// The sum of every batch's history version, which rises with each change `ready_for` reads
+    /// of the history.
+    #[cfg(test)]
+    pub fn history_versions(&self) -> u64 {
+        self.sum(&self.totals.history, InstanceBatch::history_version)
+    }
+
+    /// The scene's totals as the stamp of what `ready_for` reads, or `None` when a batch was
+    /// put in the map by hand and the totals do not cover it.
+    fn ready_totals(&self) -> Option<&totals::Totals> {
+        self.every_batch_linked().then_some(&self.totals)
+    }
+
+    /// Whether the totals cover every batch, as they do for all that `add` makes.
+    fn every_batch_linked(&self) -> bool {
+        self.linked == self.batches.len()
+    }
+
+    /// `tally`, which equals the sum of `counter` over the batches, or that sum itself when a
+    /// batch was put in the map by hand and the tally does not cover it.
+    fn sum(&self, tally: &totals::Tally, counter: fn(&InstanceBatch) -> u64) -> u64 {
+        if !self.every_batch_linked() {
+            #[cfg(test)]
+            SUMS.with(|sums| sums.set(sums.get() + 1));
+            return self.batches.values().map(counter).sum();
+        }
+        debug_assert_eq!(tally.get(), self.batches.values().map(counter).sum::<u64>());
+        tally.get()
     }
 
     /// Makes `materials` addressable after the ones the scene started with, and sets the mesh
@@ -328,13 +383,21 @@ impl Instances {
                 index: object.material().raw(),
             })?;
         let key = (pipeline, mesh, material);
-        let batch = self.batches.entry(key).or_insert_with(|| {
-            if self.skin.is_skinned(mesh) {
-                InstanceBatch::skinned()
-            } else {
-                InstanceBatch::default()
+        let batch = match self.batches.entry(key) {
+            Entry::Occupied(batch) => batch.into_mut(),
+            Entry::Vacant(vacant) => {
+                let skinned = self.skin.is_skinned(mesh);
+                let mut batch = if skinned {
+                    InstanceBatch::skinned()
+                } else {
+                    InstanceBatch::default()
+                };
+                batch.count_in(&self.totals);
+                self.linked += 1;
+                self.skinned += usize::from(skinned);
+                vacant.insert(batch)
             }
-        });
+        };
         let position = batch.add(object, visible);
         if let Some(descriptor) = descriptor {
             batch.set_skin(position, descriptor);

@@ -144,6 +144,7 @@ fn shadow_map(world: &mut World) -> RenderTextureId {
             srgb: false,
             dimension: dimension::TEX_2D,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -213,6 +214,7 @@ fn pipeline(world: &mut World, (map, out): (RenderTextureId, RenderTextureId)) {
                 view: Mat4::IDENTITY.to_cols_array(),
                 projection: Mat4::IDENTITY.to_cols_array(),
                 target: TargetRef::Render(into),
+                buffers: None,
             })
             .unwrap();
     };

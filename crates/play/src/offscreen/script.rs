@@ -28,6 +28,7 @@ use super::assets::sampler_of_world;
 use super::frame::{Mapper, RendererSkip, Skip};
 use super::ids;
 use super::properties::set_value;
+use super::raster::RasterScript;
 
 /// The temporary render textures of a frame: the live one under each property name id, and every
 /// allocation's description. An id is the name id and the number of allocations of that name before
@@ -127,7 +128,7 @@ struct TargetSet {
 }
 
 /// Whether a viewport of `rect` (x, y, width, height in pixels) covers a target of `size`.
-fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
+pub(super) fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
     let [x, y, width, height] = rect.map(f64::from);
     let [target_width, target_height] = size.map(f64::from);
     x <= 0.0 && y <= 0.0 && x + width >= target_width && y + height >= target_height
@@ -148,7 +149,9 @@ pub(super) struct Script {
     /// The rectangle in pixels (x, y, width, height) the draws after a `SetViewport` cover on every
     /// attachment of the bound set, until a target or a camera setup binds targets again. `None` is
     /// the whole target.
-    viewport: Option<[f32; 4]>,
+    pub(super) viewport: Option<[f32; 4]>,
+    /// The scissor and the depth bias of the draws that follow.
+    pub(super) raster: RasterScript,
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
@@ -174,6 +177,7 @@ impl Script {
         Self {
             target: None,
             viewport: None,
+            raster: RasterScript::default(),
             camera: None,
             globals: Globals {
                 layer: globals,
@@ -210,6 +214,9 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
         OffscreenWork::SetViewport { .. } => "SetViewport",
+        OffscreenWork::EnableScissor { .. } => "EnableScissor",
+        OffscreenWork::DisableScissor => "DisableScissor",
+        OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
@@ -229,7 +236,10 @@ impl Mapper<'_> {
             | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
             | OffscreenWork::SetViewProjection { .. }
-            | OffscreenWork::SetViewport { .. } => {
+            | OffscreenWork::SetViewport { .. }
+            | OffscreenWork::EnableScissor { .. }
+            | OffscreenWork::DisableScissor
+            | OffscreenWork::SetDepthBias { .. } => {
                 self.set_state(work)?;
                 Ok(Vec::new())
             }
@@ -340,6 +350,7 @@ impl Mapper<'_> {
                 self.set_view_projection(view, projection);
             }
             OffscreenWork::SetViewport { rect } => self.script.viewport = Some(*rect),
+            raster if self.script.raster.apply(raster) => {}
             _ => unreachable!("{} makes a record", kind(work)),
         }
         Ok(())
@@ -472,8 +483,9 @@ impl Mapper<'_> {
         }
     }
 
-    /// The targets a clear or a draw goes to. A draw is refused while a recorded viewport leaves
-    /// part of them uncovered, because the offscreen host draws every pass over its whole target.
+    /// The targets a clear goes to. A clear is refused while a recorded viewport leaves part of
+    /// them uncovered, because the offscreen host clears a whole target. A draw takes
+    /// [`draw_target`](Self::draw_target), which maps a partial viewport.
     pub(super) fn bound_target(&self) -> Result<Attachments, Skip> {
         let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         match (self.script.viewport, self.target_size()) {
@@ -570,6 +582,7 @@ impl Mapper<'_> {
             depth: depth_texture.map(at),
         });
         self.script.viewport = None;
+        self.script.raster.end_scissor();
         Ok(())
     }
 
@@ -638,6 +651,7 @@ impl Mapper<'_> {
             viewport,
         });
         self.script.viewport = None;
+        self.script.raster.end_scissor();
         // A target that cannot be named leaves nothing bound, so the next clear or draw is refused
         // instead of reaching the target an earlier command bound.
         let set = match self.resolve_set(&target) {

@@ -8,7 +8,7 @@ use worldrunner_render_program::ids::{MaterialId, RendererId, ShaderId, TextureI
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, ListDraw, OffscreenFrame, Record,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, ListDraw, OffscreenFrame, Record,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
@@ -61,6 +61,7 @@ fn item(renderer: u64) -> ListDraw {
 
 fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
     Record::Draws(Arc::new(DrawList {
+        raster: DrawRaster::default(),
         target,
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,

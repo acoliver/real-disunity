@@ -168,6 +168,11 @@ pub(crate) fn neutral_occlusion(device: &wgpu::Device, queue: &wgpu::Queue) -> w
 fn level(index: u32) -> ResourceRef {
     FrameProduct::linear_depth(index).resource()
 }
+
+/// The filtered ambient occlusion: the product of the last filter stage, which receivers sample.
+pub(crate) fn occlusion_resource() -> ResourceRef {
+    ResourceRef::new("ambient occlusion")
+}
 impl ScreenPasses {
     pub(crate) fn rebind_depth(
         &mut self,
@@ -249,6 +254,23 @@ impl ScreenPasses {
                 .push(Self::schedule_stage(stage, passes, views)?);
         }
         Ok(())
+    }
+
+    /// The target of the last filter stage, which holds the computed occlusion whether or not
+    /// receivers sample it.
+    pub(crate) fn occlusion(&self) -> &wgpu::Texture {
+        &self.stages.last().expect("the filter stages exist").target
+    }
+
+    /// The computed occlusion, as the game's features sample it.
+    pub(crate) fn lend_occlusion(&self) -> crate::compositor::FrameOcclusion {
+        let texture = self.occlusion();
+        crate::compositor::FrameOcclusion {
+            texture: texture.clone(),
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            depth: super::receiver::occlusion_depth(texture.format()),
+            stock_receivers: self.computes_occlusion,
+        }
     }
 
     pub(crate) fn depth_levels(&self) -> Vec<&wgpu::Texture> {
@@ -336,7 +358,7 @@ impl ScreenPasses {
             }
             PassSlot::SsaoBlurHorizontal => ResourceRef::new("horizontal ambient occlusion"),
             PassSlot::Ssao => ResourceRef::new("raw ambient occlusion"),
-            PassSlot::SsaoBlur => ResourceRef::new("ambient occlusion"),
+            PassSlot::SsaoBlur => occlusion_resource(),
             _ => unreachable!("screen slot"),
         }
     }
@@ -506,7 +528,7 @@ pub(crate) fn geometry_declaration(
             .find(|pass| pass.slot == PassSlot::Opaque)
             .expect("opaque feature")
             .reads
-            .push(ResourceRef::new("ambient occlusion"));
+            .push(occlusion_resource());
     }
 }
 

@@ -109,6 +109,17 @@ internal static unsafe partial class WorldGraphics
     internal static void RecordSetViewport(Rect pixelRect) =>
         Check(NativeBindings.disunity_offscreen_set_viewport(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
 
+    /// <summary>Records the rectangle in pixels of the bound targets that clips the draws after it.</summary>
+    internal static void RecordEnableScissor(Rect pixelRect) =>
+        Check(NativeBindings.disunity_offscreen_enable_scissor(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
+
+    /// <summary>Records the end of the clip a scissor rectangle set.</summary>
+    internal static void RecordDisableScissor() => Check(NativeBindings.disunity_offscreen_disable_scissor(World));
+
+    /// <summary>Records the constant and slope-scaled depth bias of the draws after it.</summary>
+    internal static void RecordDepthBias(float bias, float slopeBias) =>
+        Check(NativeBindings.disunity_offscreen_set_depth_bias(World, bias, slopeBias));
+
     /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
     /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
     /// of the block reaches a later draw.</summary>

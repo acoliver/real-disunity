@@ -38,6 +38,7 @@ public static partial class DisunityHost
         _faulted = false;
         ResetScriptExceptions();
         WhiteRenderers.Reset();
+        UnsentTextures.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try

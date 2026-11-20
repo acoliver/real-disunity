@@ -590,6 +590,7 @@ RendererListTests.Run();
 RenderObjectCallbackTests.Run();
 WorldGraphicsTests.Run();
 WhiteRendererTests.Run();
+UnsentTextureTests.Run();
 MaterialSetPassTests.Run();
 MaterialPassNameTests.Run();
 ComputeShaderTests.Run();

@@ -112,4 +112,7 @@ public static partial class DisunityHost
         try { return WhiteRenderers.Survey().Lines; }
         catch (Exception error) { return [$"renderers drawn without a texture could not be read: {error.Message}"]; }
     }
+
+    /// <summary>The end-of-run line for tooling, or null when every texture a game set reached the world.</summary>
+    public static string? UnsentTextureSummary => UnsentTextures.Summary;
 }

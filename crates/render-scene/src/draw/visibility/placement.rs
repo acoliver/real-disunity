@@ -178,7 +178,7 @@ pub(super) fn refresh(
 /// are as they were when every batch was last found current, as in every view of a frame
 /// while the camera moves and nothing is edited.
 pub(super) fn refresh_all(instances: &Instances, meshes: &[MeshSelection]) {
-    let stamp = instances.bounds_stamp(meshes.len());
+    let stamp = instances.layout_stamp(meshes.len());
     if instances.bounds_current_at(stamp) {
         return;
     }

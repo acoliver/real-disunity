@@ -91,3 +91,47 @@ fn caster_fits_are_reused_until_a_placement_changes() {
     assert_eq!(gpu.caster_matrix(receiver), fresh(&gpu));
     assert_eq!(gpu.caster_fits.computed.get(), 2);
 }
+
+#[test]
+fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    let fresh = |gpu: &SceneGpu| gpu.collect_drawn_pairs().into_iter().collect::<Vec<_>>();
+    let loaded = gpu.drawn_pairs().to_vec();
+    assert!(!loaded.is_empty());
+    assert_eq!(
+        (gpu.drawn_pairs().to_vec(), fresh(&gpu)),
+        (loaded.clone(), loaded.clone())
+    );
+
+    let handle = gpu.instance_handles().next().unwrap();
+    let (object, _) = gpu.instance(handle).unwrap();
+    gpu.remove_instance(handle).unwrap();
+    assert!(
+        gpu.drawn_pairs().is_empty(),
+        "a batch without placements draws nothing"
+    );
+    assert_eq!(fresh(&gpu), Vec::new());
+
+    // A placement with another material makes a batch again.
+    let other = SceneObject::new(
+        *object.transform(),
+        object.mesh(),
+        worldrunner_render_plan::MaterialHandle::from_raw(2),
+    );
+    gpu.add_instance(other, true).unwrap();
+    let changed = gpu.drawn_pairs().to_vec();
+    assert_eq!(changed, fresh(&gpu));
+    assert!(!changed.is_empty(), "the new batch draws");
+    gpu.add_instance(object, true).unwrap();
+    assert_eq!(gpu.drawn_pairs().to_vec(), fresh(&gpu));
+    assert_eq!(gpu.drawn_pairs().to_vec(), loaded);
+}

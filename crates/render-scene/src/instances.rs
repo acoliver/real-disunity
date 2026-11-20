@@ -89,10 +89,11 @@ struct Slot {
     location: Option<(BatchKey, usize)>,
 }
 
-/// The state of the placements and tables that cached batch bounds were checked in. Placement
-/// edits and table changes only raise their counters, so an equal stamp means neither moved.
+/// The state of the placements and tables that what batches draw and cached batch bounds derive
+/// from. Placement edits and table changes only raise their counters, so an equal stamp means
+/// neither moved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BoundsStamp {
+pub(crate) struct LayoutStamp {
     edits: u64,
     tables: u64,
     meshes: usize,
@@ -121,7 +122,7 @@ pub(crate) struct Instances {
     /// Counts the changes to the material tables and mesh bounds that are not placement edits.
     tables: u64,
     /// The state in which every batch's cached bounds were last found current.
-    bounds_current: std::cell::Cell<Option<BoundsStamp>>,
+    bounds_current: std::cell::Cell<Option<LayoutStamp>>,
     ready: ready_memo::ReadyMemo,
     pub contours: worldrunner_render_plan::SceneContours,
     pub contour_members: BTreeMap<(BatchKey, usize), u8>,
@@ -197,11 +198,12 @@ impl Instances {
         self.batches.values().map(InstanceBatch::edits).sum()
     }
 
-    /// What the cached bounds of every batch depend on: the placements, the material tables and
-    /// mesh bounds that `extend_resources` and `forget_mesh_bounds` change, and the selection
-    /// of every mesh, of which there are `mesh_count`.
-    pub(crate) fn bounds_stamp(&self, mesh_count: usize) -> BoundsStamp {
-        BoundsStamp {
+    /// What the cached bounds of every batch and the materials and levels they draw depend on:
+    /// the placements, the material tables and mesh bounds that `extend_resources` and
+    /// `forget_mesh_bounds` change, and the selection of every mesh, of which there are
+    /// `mesh_count`.
+    pub(crate) fn layout_stamp(&self, mesh_count: usize) -> LayoutStamp {
+        LayoutStamp {
             edits: self.edits(),
             tables: self.tables,
             meshes: mesh_count,
@@ -209,12 +211,12 @@ impl Instances {
     }
 
     /// Whether every batch's cached bounds were found current in the state `stamp` names.
-    pub(crate) fn bounds_current_at(&self, stamp: BoundsStamp) -> bool {
+    pub(crate) fn bounds_current_at(&self, stamp: LayoutStamp) -> bool {
         self.bounds_current.get() == Some(stamp)
     }
 
     /// Records that every batch's cached bounds are current in the state `stamp` names.
-    pub(crate) fn set_bounds_current_at(&self, stamp: BoundsStamp) {
+    pub(crate) fn set_bounds_current_at(&self, stamp: LayoutStamp) {
         self.bounds_current.set(Some(stamp));
     }
 

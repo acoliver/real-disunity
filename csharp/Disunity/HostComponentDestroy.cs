@@ -11,6 +11,10 @@ public static partial class DisunityHost
 {
     private static readonly List<Component> PendingComponents = new();
 
+    /// <summary>Counts the objects hidden at once by DestroyImmediate, which stay in their tables until the frame ends, so a
+    /// cache of what the world holds can tell they are gone.</summary>
+    internal static int ImmediateDestructions { get; private set; }
+
     /// <summary>
     /// Destroys a component. The native world keeps it until the frame ends and queues a script's OnDisable
     /// and OnDestroy for the frame's cleanup; with <paramref name="immediate"/> the component is also hidden
@@ -28,7 +32,11 @@ public static partial class DisunityHost
         if (component.Life == ComponentLife.Alive) RequestDestruction(component);
         if (!immediate) return;
         try { RunCleanupNow(); }
-        finally { component.Life = ComponentLife.Hidden; }
+        finally
+        {
+            component.Life = ComponentLife.Hidden;
+            ImmediateDestructions++;
+        }
     }
 
     /// <summary>
@@ -49,6 +57,7 @@ public static partial class DisunityHost
                 RemovePendingCommands(value.RawHandle);
                 value.MarkDestroyed();
             }
+            ImmediateDestructions++;
         }
     }
 

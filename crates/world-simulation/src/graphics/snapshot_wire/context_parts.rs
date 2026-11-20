@@ -1,7 +1,7 @@
 //! The encodings of the work a scriptable render context records.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
-use super::readback_parts::{read_readback, write_readback};
+use super::raster_parts::{read_raster, write_raster};
 use crate::graphics::{DrawTopology, MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
@@ -119,7 +119,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             WORK_GENERATE_MIPS.write(out)?;
             texture.write(out)
         }
-        other => write_readback(other, out),
+        other => write_raster(other, out),
     }
 }
 
@@ -177,6 +177,6 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
         WORK_GENERATE_MIPS => Ok(OffscreenWork::GenerateMips {
             texture: Wire::read(input)?,
         }),
-        other => read_readback(other, input),
+        other => read_raster(other, input),
     }
 }

@@ -22,6 +22,8 @@ mod gpu_device;
 mod gpu_flush_tests;
 mod gpu_player;
 mod keys;
+#[cfg(test)]
+mod managed_array_tests;
 mod navigation;
 pub mod offscreen;
 mod plan_differences;

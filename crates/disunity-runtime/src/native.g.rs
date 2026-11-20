@@ -539,6 +539,10 @@ pub struct DisunityTextureInfo {
     pub length: u32,
     pub present: u32,
     pub distance_spread: u32,
+    pub depth: u32,
+    pub graphics_format: u32,
+    pub dimension: u32,
+    pub reserved: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -630,7 +634,7 @@ pub struct DisunityMeshRange {
     pub topology: u32,
 }
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 16;
+pub const DISUNITY_ABI_VERSION: u32 = 17;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

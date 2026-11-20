@@ -76,8 +76,20 @@ impl PreparedDispatch {
     /// Fails with `Gpu` on a GPU validation error recording it causes, such as an encoder another
     /// pass holds.
     pub fn record(&self, encoder: &mut wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        self.record_labelled(encoder, None)
+    }
+
+    /// Records the dispatch in a compute pass of its own labelled `label`.
+    pub(crate) fn record_labelled(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        label: Option<&str>,
+    ) -> Result<(), ProgramError> {
         guarded(&self.device, || {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label,
+                timestamp_writes: None,
+            });
             pass.set_pipeline(&self.pipeline);
             for (set, group) in &self.groups {
                 pass.set_bind_group(*set, group, &[]);

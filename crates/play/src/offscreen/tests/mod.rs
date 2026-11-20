@@ -31,6 +31,7 @@ mod probe;
 mod procedural;
 mod properties;
 mod raster_state;
+mod rebuild;
 mod reclaim;
 mod refusal;
 mod screen;

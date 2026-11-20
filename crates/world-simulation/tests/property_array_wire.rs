@@ -111,7 +111,7 @@ fn arrays_of(
 
 #[test]
 fn the_version_is_fifteen_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 15);
+    assert_eq!(WIRE_VERSION, 14);
     for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());

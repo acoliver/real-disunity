@@ -231,6 +231,8 @@ mod post_upload_staging_tests;
 #[cfg(test)]
 mod prepare_context_tests;
 #[cfg(test)]
+mod prepared_command_buffers_tests;
+#[cfg(test)]
 mod upload_staging_limit_tests;
 #[cfg(test)]
 mod upload_staging_tests;
@@ -238,7 +240,8 @@ pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
     FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
-    PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedFeature,
+    PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;

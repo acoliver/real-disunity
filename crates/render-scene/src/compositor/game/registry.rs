@@ -89,10 +89,14 @@ pub trait GameFeatureFactory: Send + Sync {
     /// the same generation, from the same `context` except that `context.targets` plans only
     /// this place, and it is prepared before it in a frame drawn whole.
     ///
-    /// It reads none of the lent stock inputs (`context.shadows`, `context.occlusion`,
-    /// `context.environment`, `context.terrain`): a route that submits the prefix ahead of the
-    /// frame prepares it before the frame publishes them, so there each refuses with
-    /// `NotPrepared`, and the shadow casters of a fitted frame draw after it.
+    /// A depth-prefix feature reads the lent terrain only; shadow, occlusion and environment
+    /// inputs are `NotPrepared` there. A route that submits the prefix ahead of the frame lends
+    /// `context.terrain` inside the prefix, before this feature prepares, with the chunks the
+    /// rest of the frame lends. It prepares this feature before the frame publishes
+    /// `context.shadows`, `context.occlusion` and `context.environment`, so there each refuses
+    /// with `NotPrepared`, and the shadow casters of a fitted frame draw after it. The opaque
+    /// snapshots (`context.snapshots`) are written after Opaque, so no pass of this feature can
+    /// declare a read of them.
     ///
     /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
     /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with

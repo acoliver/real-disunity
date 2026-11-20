@@ -213,7 +213,18 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        Self::with_features(scene, size, wgpu::Features::empty(), configure)
+    }
+
+    /// A rig on the shared test device with exactly `features`, for a game whose targets need
+    /// them, such as block-compressed ones.
+    pub fn with_features(
+        scene: &RenderScene,
+        size: [u32; 2],
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
         configure(&mut settings);

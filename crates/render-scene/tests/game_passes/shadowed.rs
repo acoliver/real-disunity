@@ -353,7 +353,7 @@ fn assert_painted(image: &[[u8; 4]], context: &str) {
     assert_eq!(Rig::pixel(image, 3, 20), [255, 255, 0, 255], "{context}");
 }
 
-fn effects() -> SceneEffects {
+pub fn effects() -> SceneEffects {
     effects_with(None)
 }
 

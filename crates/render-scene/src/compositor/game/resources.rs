@@ -19,7 +19,7 @@ use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_post::{FrameError, PrepareContext};
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::{
-    Import, ImportedIndices, ImportedVertexInput, ProgramRuntime,
+    ExternalHold, Import, ImportedIndices, ImportedVertexInput, ProgramRuntime,
 };
 
 /// What a declared buffer is bound as. Every declared buffer can also be written.
@@ -138,12 +138,16 @@ struct DeclaredBuffer {
     label: String,
     usage: GameBufferUsage,
     buffer: Tracked<wgpu::Buffer>,
+    /// Keeps the buffer's bytes counted in the program runtime's budget while it lives.
+    _hold: ExternalHold,
 }
 
 struct DeclaredTexture {
     texture: Tracked<wgpu::Texture>,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
+    /// Keeps the texture's bytes counted in the program runtime's budget while it lives.
+    _hold: ExternalHold,
 }
 
 #[derive(Default)]
@@ -205,9 +209,12 @@ impl GameResources {
         self.store.borrow().bytes
     }
 
-    /// Admits `bytes` more against the budget, with what the runtime holds.
-    fn admit(&self, label: &str, bytes: u64) -> Result<(), GameResourceError> {
-        let held = self.store.borrow().bytes + self.runtime.borrow().live_bytes();
+    /// Admits `bytes` more against the budget, which the program runtime counts too: what the
+    /// declared resources hold is in its ledger, so one budget bounds both. The hold keeps the
+    /// bytes counted while the resource lives.
+    fn admit(&self, label: &str, bytes: u64) -> Result<ExternalHold, GameResourceError> {
+        let runtime = self.runtime.borrow();
+        let held = runtime.live_bytes();
         if held
             .checked_add(bytes)
             .is_none_or(|total| total > self.budget.0)
@@ -219,7 +226,9 @@ impl GameResources {
                 budget: self.budget.0,
             });
         }
-        Ok(())
+        runtime
+            .hold_external(label, bytes)
+            .map_err(|error| refuse(label, &error.to_string()))
     }
 
     /// Creates the buffer `declaration` describes, holding its contents.
@@ -243,7 +252,7 @@ impl GameResources {
         };
         let bytes =
             (declaration.contents.len() as u64).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-        self.admit(label, bytes)?;
+        let hold = self.admit(label, bytes)?;
         let buffer = self.authority.census().create_buffer_init(
             &self.device,
             class,
@@ -259,6 +268,7 @@ impl GameResources {
             label: label.to_owned(),
             usage: declaration.usage,
             buffer,
+            _hold: hold,
         });
         Ok(GameBuffer {
             store: self.id,
@@ -270,15 +280,18 @@ impl GameResources {
     ///
     /// # Errors
     /// [`GameResourceError::Declaration`] for an empty extent, a dimension other than `D2`,
-    /// `D2Array` and `D3`, more than one layer for `D2`, texels for a depth format or texels
-    /// that are not exactly the level; [`GameResourceError::Budget`] beyond the budget.
+    /// `D2Array` and `D3`, more than one layer for `D2`, a depth or block-compressed 3D texture,
+    /// texels for a depth format or texels that are not exactly the level, an extent or layer
+    /// count past the device's limits or a format it lacks the feature for;
+    /// [`GameResourceError::Budget`] beyond the budget.
     pub fn declare_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,
     ) -> Result<GameTexture, GameResourceError> {
         let descriptor = texture_descriptor(declaration)?;
+        beyond_device(&self.device, &descriptor)?;
         let bytes = worldrunner_render_gpu::census::texture_backing_bytes(&descriptor);
-        self.admit(declaration.label, bytes)?;
+        let hold = self.admit(declaration.label, bytes)?;
         let texture = match declaration.texels {
             Some(texels) => self.authority.census().track_texture(
                 ResourceClass::Texture,
@@ -305,6 +318,7 @@ impl GameResources {
             texture,
             view,
             dimension: declaration.dimension,
+            _hold: hold,
         });
         Ok(GameTexture {
             store: self.id,
@@ -535,6 +549,14 @@ fn texture_descriptor<'a>(
             "the extent is not whole blocks of the format",
         ));
     }
+    if texture_dimension == wgpu::TextureDimension::D3 {
+        if format.is_depth_stencil_format() {
+            return Err(refuse(label, "a depth texture is not 3D"));
+        }
+        if format.is_compressed() {
+            return Err(refuse(label, "a 3D texture is not block-compressed"));
+        }
+    }
     let mut usage = wgpu::TextureUsages::TEXTURE_BINDING;
     if let Some(texels) = texels {
         if format.is_depth_stencil_format() {
@@ -569,6 +591,48 @@ fn texture_descriptor<'a>(
         usage,
         view_formats: &[],
     })
+}
+
+/// Refuses a texture the device cannot create (an extent or layer count past its limits, a format
+/// it lacks the feature for), which wgpu would otherwise report as a validation panic.
+fn beyond_device(
+    device: &wgpu::Device,
+    descriptor: &wgpu::TextureDescriptor<'_>,
+) -> Result<(), GameResourceError> {
+    let label = descriptor.label.unwrap_or_default();
+    let limits = device.limits();
+    let wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: depth,
+    } = descriptor.size;
+    let extent = width.max(height);
+    let (extent_fits, layers_fit) = match descriptor.dimension {
+        wgpu::TextureDimension::D3 => (extent.max(depth) <= limits.max_texture_dimension_3d, true),
+        _ => (
+            extent <= limits.max_texture_dimension_2d,
+            depth <= limits.max_texture_array_layers,
+        ),
+    };
+    if !extent_fits {
+        return Err(refuse(
+            label,
+            "the extent is beyond the device's texture limit",
+        ));
+    }
+    if !layers_fit {
+        return Err(refuse(
+            label,
+            "there are more layers than the device allows",
+        ));
+    }
+    if !device
+        .features()
+        .contains(descriptor.format.required_features())
+    {
+        return Err(refuse(label, "the device does not support the format"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

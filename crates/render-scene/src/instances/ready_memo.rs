@@ -47,6 +47,7 @@ impl Stamp {
         }
     }
 
+    /// The same sums added up over `batches`, which `of_totals` must equal.
     fn of(batches: &BTreeMap<BatchKey, InstanceBatch>) -> Self {
         batches.values().fold(
             Self {
@@ -88,18 +89,11 @@ impl ReadyMemo {
     pub fn check(
         &self,
         batches: &BTreeMap<BatchKey, InstanceBatch>,
-        totals: Option<&Totals>,
+        totals: &Totals,
         owner: Option<&Publications>,
     ) -> bool {
-        let stamp = totals.map_or_else(
-            || {
-                #[cfg(test)]
-                super::SUMS.with(|sums| sums.set(sums.get() + 1));
-                Stamp::of(batches)
-            },
-            Stamp::of_totals,
-        );
-        debug_assert!(totals.is_none() || stamp == Stamp::of(batches));
+        let stamp = Stamp::of_totals(totals);
+        debug_assert_eq!(stamp, Stamp::of(batches));
         if self.idle.get() == Some(stamp)
             || self
                 .passed

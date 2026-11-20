@@ -33,6 +33,10 @@ impl<'a, V> Ascending<'a, V> {
     }
 
     /// The value at `key`, which is not below any key asked for before.
+    ///
+    /// Callers pass ascending keys: the gathers name the keys of `Plan::new`'s groups, which it
+    /// sorts by (batch, LOD), so a batch's key never falls between two asks. A key below an
+    /// earlier one would be missed by the walk, and debug builds assert against it.
     pub fn get(&mut self, key: &BatchKey) -> Option<&'a V> {
         #[cfg(debug_assertions)]
         {

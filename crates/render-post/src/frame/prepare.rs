@@ -1,9 +1,11 @@
 //! What a feature's preparation stages into the frame's encoder: buffer and texture copies and
 //! compute dispatches, encoded in staging order once every preparation has succeeded.
-use super::{AttachmentView, FrameError, PassDeclaration, PassEntry, ResourceRef};
+use super::{
+    AttachmentView, FrameError, PassDeclaration, PassEntry, PreparedCommands, ResourceRef,
+};
 
 /// One operation staged by a preparation, encoded in staging order.
-enum Staged {
+pub(super) enum Staged {
     Copy {
         source: (wgpu::Buffer, u64),
         destination: (wgpu::Buffer, u64),
@@ -20,6 +22,10 @@ enum Staged {
         group: wgpu::BindGroup,
         workgroups: [u32; 3],
     },
+    Prepared {
+        label: &'static str,
+        commands: Box<dyn PreparedCommands>,
+    },
 }
 fn owned(info: wgpu::TexelCopyTextureInfo<'_>) -> wgpu::TexelCopyTextureInfoBase<wgpu::Texture> {
     wgpu::TexelCopyTextureInfoBase {
@@ -30,7 +36,7 @@ fn owned(info: wgpu::TexelCopyTextureInfo<'_>) -> wgpu::TexelCopyTextureInfoBase
     }
 }
 
-fn borrowed(
+pub(super) fn borrowed(
     info: &wgpu::TexelCopyTextureInfoBase<wgpu::Texture>,
 ) -> wgpu::TexelCopyTextureInfo<'_> {
     wgpu::TexelCopyTextureInfo {
@@ -45,10 +51,14 @@ pub struct PrepareContext<'a> {
     device: &'a wgpu::Device,
     pub(super) encoder: &'a mut wgpu::CommandEncoder,
     publications: worldrunner_render_gpu::submission::Publications,
-    staged: Vec<Staged>,
-    views: Vec<AttachmentView>,
+    pub(super) staged: Vec<Staged>,
+    pub(super) views: Vec<AttachmentView>,
     pub(super) passes: Vec<PassDeclaration>,
-    completed: Vec<PassEntry>,
+    pub(super) completed: Vec<PassEntry>,
+    /// Whether features are preparing, the only time prepared commands may be staged.
+    pub(super) preparing: bool,
+    /// The views the staged prepared commands write, in staging order.
+    pub(super) prepared_written: Vec<ResourceRef>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -64,6 +74,8 @@ impl<'a> PrepareContext<'a> {
             views: Vec::new(),
             passes: Vec::new(),
             completed: Vec::new(),
+            preparing: false,
+            prepared_written: Vec::new(),
         })
     }
     /// Whether a validated geometry prefix already encoded this entry in the same frame.
@@ -116,6 +128,11 @@ impl<'a> PrepareContext<'a> {
     }
     /// Stages one compute dispatch, encoded in its own compute pass after the copies and
     /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    ///
+    /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
+    /// owns over its own buffers and textures. Work that writes or reads views of the frame, or
+    /// whose resources the frame must hold until it completes, is staged with
+    /// [`Self::record_prepared`].
     pub fn dispatch(
         &mut self,
         label: &'static str,
@@ -171,53 +188,5 @@ impl<'a> PrepareContext<'a> {
             destination: (destination.clone(), offset),
             bytes: size,
         });
-    }
-    /// Publishes staged copies and dispatches only after all fallible preparations succeed.
-    pub fn finish(self) -> Vec<wgpu::Buffer> {
-        let mut retained = Vec::with_capacity(self.staged.len());
-        for staged in self.staged {
-            match staged {
-                Staged::Copy {
-                    source,
-                    destination,
-                    bytes,
-                } => {
-                    self.encoder.copy_buffer_to_buffer(
-                        &source.0,
-                        source.1,
-                        &destination.0,
-                        destination.1,
-                        bytes,
-                    );
-                    retained.push(source.0);
-                }
-                Staged::TextureCopy {
-                    source,
-                    destination,
-                    size,
-                } => self.encoder.copy_texture_to_texture(
-                    borrowed(&source),
-                    borrowed(&destination),
-                    size,
-                ),
-                Staged::Dispatch {
-                    label,
-                    pipeline,
-                    group,
-                    workgroups,
-                } => {
-                    let mut pass = self
-                        .encoder
-                        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some(label),
-                            timestamp_writes: None,
-                        });
-                    pass.set_pipeline(&pipeline);
-                    pass.set_bind_group(0, &group, &[]);
-                    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-                }
-            }
-        }
-        retained
     }
 }

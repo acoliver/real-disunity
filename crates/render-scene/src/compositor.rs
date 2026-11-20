@@ -49,12 +49,13 @@ pub use game::{
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
     FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
     FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
-    FrameShadows, FrameTerrainError, FrameTerrainHandle, FrameWaterNormalError, GameBuffer,
-    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GamePassSpec,
-    GamePasses, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
-    GameTextureDeclaration, GameTextureLevel, LayerShape, OcclusionDepth, PassTarget,
-    SceneMeshSlot, ShadowCascade, TargetDeclaration, TargetExtent, TargetLifetime,
-    TerrainMaterialArrayError, TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
+    FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
+    FrameTerrainHandle, FrameWaterNormalError, GameBuffer, GameBufferDeclaration, GameBufferUsage,
+    GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameResourceError, GameResources,
+    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
+    OcclusionDepth, PassTarget, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads,
+    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
+    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -449,6 +450,7 @@ impl FrameRenderer {
             }));
         }
         if changed {
+            self.ensure_game_snapshots(device);
             *self.snapshot_ready.borrow_mut() = Default::default();
             self.reset_temporal_history();
         }
@@ -660,6 +662,7 @@ impl FrameRenderer {
         let mut planned = stock_plan::plan_frame(device, parts, &environment, &authored)?;
         let (schedule, views) = (planned.schedule.clone(), planned.views.clone());
         let views = views.as_slice();
+        self.publish_game_snapshots(schedule.request);
         let head = head.map(|work| worldrunner_render_post::OperationsGroup {
             before: schedule.first,
             work,

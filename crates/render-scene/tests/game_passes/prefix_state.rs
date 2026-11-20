@@ -448,7 +448,7 @@ fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() 
 }
 
 #[test]
-fn the_prefix_feature_reads_the_lent_inputs_in_a_frame_drawn_whole_only() {
+fn inside_a_separate_prefix_the_prefix_feature_reads_the_lent_terrain_only() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let (whole_game, whole_seen) = inventory(true, false, false);
     let source = quad_scene();
@@ -487,9 +487,9 @@ fn the_prefix_feature_reads_the_lent_inputs_in_a_frame_drawn_whole_only() {
     assert_eq!(
         captured[0],
         "shadow Err(NotPrepared), occlusion Err(NotPrepared), environment Err(NotPrepared), \
-         terrain Err(NotPrepared), textures Ok(1)",
-        "inside a prefix only the resident scene textures are lent: the cascades are not \
-         fitted, SSAO has not run and the prefix publishes no terrain"
+         terrain Ok(false), textures Ok(1)",
+        "inside a prefix the terrain (this scene has none) and the resident scene textures are \
+         lent: the cascades are not fitted and SSAO has not run"
     );
 }
 

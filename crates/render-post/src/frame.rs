@@ -3,15 +3,21 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod error;
+mod finish;
 mod frozen;
 mod game;
 mod operations;
 mod prepare;
+mod prepared;
+pub use error::FrameError;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
 pub use prepare::PrepareContext;
+use prepare::Staged;
+pub use prepared::{PreparedAccess, PreparedCommands, PreparedRefusal, PreparedWrite};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -202,65 +208,6 @@ impl FeatureDeclaration {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum FrameError {
-    #[error("streaming terrain already prepared for a different view in this transaction")]
-    StreamingSelectionConflict,
-    #[error("{feature} preparation failed: {reason}")]
-    FeaturePreparation {
-        feature: &'static str,
-        reason: String,
-    },
-    #[error(transparent)]
-    Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
-    #[error("invalid or unsupported SSR setting: {0}")]
-    SsrSettings(&'static str),
-    #[error("invalid or unsupported water setting: {0}")]
-    WaterSettings(&'static str),
-    /// Two transparent features draw in the same entry. Transparent entries run in the order the
-    /// frame lists them, but the executor does not sort packets across features inside one entry.
-    #[error("{0} has more than one transparent feature; list each in its own entry")]
-    TransparentOrdering(PassEntry),
-    #[error("scene exposure differs from the compiled fixed-exposure profile")]
-    FixedExposureMismatch,
-    #[error("invalid or unsupported SSAO setting: {0}")]
-    SsaoSettings(&'static str),
-    /// The list names one entry twice. A role may repeat; an entry (role and occurrence) may not.
-    #[error("pass entry appears more than once in the frame: {0}")]
-    DuplicatePass(PassEntry),
-    #[error(transparent)]
-    ResourceContract(#[from] crate::contracts::ContractError),
-    #[error("feature requests an undeclared pass entry {0}")]
-    MissingPass(PassEntry),
-    #[error("resource has no preceding producer: {0:?}")]
-    MissingProducer(ResourceRef),
-    #[error("resource is loaded or sampled after discard: {0:?}")]
-    LoadAfterDiscard(ResourceRef),
-    #[error("resource is sampled while attached or written ambiguously: {0:?}")]
-    AttachmentHazard(ResourceRef),
-    #[error("attachment or pipeline contract is incompatible in slot {0}")]
-    AttachmentContract(PassEntry),
-    #[error("frame does not support requested effect {0}")]
-    UnsupportedEffect(&'static str),
-    #[error("attachment view does not match its declared subresource: {0:?}")]
-    AttachmentView(ResourceRef),
-    /// A frozen plan lists a pass before one that the stock passes need it to follow.
-    #[error("pass {pass} is listed before {needs}, which the stock passes need it to follow")]
-    StockOrder { pass: PassEntry, needs: PassEntry },
-    /// A pass reads the depth that Opaque draws with before a prepass or Opaque has written it.
-    #[error("pass {pass} reads {resource:?} before the opaque depth is complete")]
-    IncompleteDepth {
-        pass: PassEntry,
-        resource: ResourceRef,
-    },
-    /// A geometry pass attaches a texture that operations groups write.
-    #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
-    OffscreenWrite {
-        pass: PassEntry,
-        resource: ResourceRef,
-    },
-}
-
 /// Validates the authored sequence without allocating, preparing or encoding anything.
 pub fn validate_frame(
     passes: &[PassDeclaration],
@@ -319,10 +266,17 @@ pub(crate) fn validate_frame_inputs(
         }
     }
     let outputs = GroupOutputs::new(passes, operations);
-    // A retained view a group writes has contents only from the group's position on.
+    if let Some(view) = views
+        .iter()
+        .find(|view| view.prepared && outputs.writes(view.resource()))
+    {
+        return Err(FrameError::AttachmentHazard(view.resource()));
+    }
+    // A retained view a group writes has contents only from the group's position on. A prepared
+    // view holds the contents its preparation writes before the frame's first pass.
     let mut produced: BTreeMap<_, _> = views
         .iter()
-        .filter(|view| view.retained && !outputs.writes(view.resource()))
+        .filter(|view| (view.retained || view.prepared) && !outputs.writes(view.resource()))
         .map(|view| {
             (
                 view.resource(),
@@ -441,7 +395,10 @@ fn validate_attachments(
         if produced.contains_key(&attachment.resource)
             && matches!(
                 attachment.resource.name,
-                "opaque snapshot color" | "opaque snapshot depth" | "post-water depth"
+                "opaque snapshot color"
+                    | "opaque snapshot depth"
+                    | "opaque snapshot device depth"
+                    | "post-water depth"
             )
         {
             return Err(FrameError::AttachmentHazard(attachment.resource));
@@ -611,6 +568,8 @@ pub struct BorrowedFeature<'a> {
 pub struct AttachmentView {
     retained: bool,
     initialized_allocation: bool,
+    /// Written by a staged preparation operation before the frame's first pass.
+    prepared: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -690,6 +649,7 @@ impl AttachmentView {
             resource,
             retained: self.retained,
             initialized_allocation: self.initialized_allocation,
+            prepared: self.prepared,
             view: self.view.clone(),
             format: self.format,
         })
@@ -716,6 +676,7 @@ impl AttachmentView {
             view,
             retained: false,
             initialized_allocation: false,
+            prepared: false,
             format: texture.format(),
         })
     }

@@ -3,10 +3,13 @@
 //! A host registers shaders, meshes and source textures with an [`OffscreenState`] and hands it
 //! one [`OffscreenFrame`] per frame. [`OffscreenState::build`] is the one entry point: it resolves
 //! the player's programs, packs their constants and returns the typed operation list of the frame
-//! in call order. [`OffscreenOperations::admit`] has the contract check it and the frame retain
-//! its storage. The scene encodes the admitted operations before its own, with the frame's pass
-//! timer, in the same submission.
+//! in call order. [`OffscreenState::check`] plans a frame without counting anything it would
+//! write, for a host that builds parts of a refused frame to find the one at fault.
+//! [`OffscreenOperations::admit`] has the contract check it and the frame retain its storage. The
+//! scene encodes the admitted operations before its own, with the frame's pass timer, in the same
+//! submission.
 
+mod build;
 mod constants_plan;
 mod defaults;
 mod depth_range;
@@ -25,6 +28,7 @@ mod readback;
 mod resample;
 mod sampling;
 mod steps;
+mod storage_buffers;
 mod textures;
 mod tracker;
 
@@ -57,7 +61,7 @@ use plan::{DrawCounts, ProgramEntry, Services};
 use textures::TextureTable;
 use tracker::Tracker;
 
-pub use error::OffscreenError;
+pub use error::{OffscreenError, Refusal};
 pub use format::RENDER_FORMATS;
 pub use probe::{
     CONSTANT_COLOR, CameraProbe, ClipCounts, MemberOrigin, Origin, PassSetup, ProgramProbe,
@@ -304,23 +308,17 @@ impl OffscreenState {
         self.textures.retain_render_textures(runtime, live);
     }
 
-    /// Resolves and packs one frame into the typed operations that run it, in call order.
-    ///
-    /// Nothing is recorded and nothing is submitted. Call it while no frame is being recorded,
-    /// so a render texture that changed can release its old storage at once.
-    ///
-    /// # Errors
-    /// Fails by name on a record that names something the frame or the state lacks, a pass or
-    /// variant the shader has none of, a vertex channel the mesh lacks, a copy that does not fit
-    /// and a format this renderer does not draw into. Nothing of the frame is kept.
-    pub fn build(
+    /// Plans one frame into its operations and the render textures they write, and keeps nothing of
+    /// what the frame writes: [`build`](Self::build) counts the writes once the frame is built, and
+    /// [`check`](Self::check) never does.
+    fn assemble(
         &mut self,
         runtime: &mut ProgramRuntime,
         arena: &ProgramArena,
         frame: &OffscreenFrame,
-    ) -> Result<OffscreenOperations, OffscreenError> {
+    ) -> Result<(OffscreenOperations, Vec<TextureId>), Refusal> {
         if !arena.belongs_to(runtime) {
-            return Err(ProgramError::ForeignArena.into());
+            return Err(OffscreenError::from(ProgramError::ForeignArena).into());
         }
         self.textures.sync(runtime, &frame.render_textures)?;
         let defaults = match self.defaults {
@@ -388,9 +386,8 @@ impl OffscreenState {
             constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
-        // Counted when the frame is built, since the host runs a frame it builds.
-        self.textures.mark_written(tracker.written_textures());
-        Ok(OffscreenOperations {
+        let written = tracker.written_textures();
+        let operations = OffscreenOperations {
             device: runtime.device().clone(),
             authority: runtime.authority().clone(),
             lease: arena.lease(),
@@ -402,7 +399,8 @@ impl OffscreenState {
             missing: missing.into_iter().collect(),
             counts,
             constants_use,
-        })
+        };
+        Ok((operations, written))
     }
 
     /// What the frame's constants must stay within: a block fits a uniform binding, a chunk fits a
@@ -683,6 +681,14 @@ pub struct MissingTextureDraws {
     pub draws: usize,
 }
 
+/// Draws left out because no layer names a structured buffer the pass reads, counted for one
+/// buffer property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingBufferDraws {
+    pub buffer: String,
+    pub draws: usize,
+}
+
 /// Camera draws left out for want of a pass, counted for the shaders whose passes carry the same
 /// tag values.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -716,6 +722,20 @@ impl OffscreenOperations {
             .iter()
             .map(|(texture, draws)| MissingTextureDraws {
                 texture: texture.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The draws left out because no layer names a structured buffer the pass reads, by the
+    /// buffer property, sorted by name. The rest of the pass's draws are recorded.
+    #[must_use]
+    pub fn missing_buffer_draws(&self) -> Vec<MissingBufferDraws> {
+        self.counts
+            .missing_buffers
+            .iter()
+            .map(|(buffer, draws)| MissingBufferDraws {
+                buffer: buffer.clone(),
                 draws: *draws,
             })
             .collect()

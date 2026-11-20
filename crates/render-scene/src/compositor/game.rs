@@ -28,11 +28,18 @@
 //! declared to [`GameResources`], which the generation creates and owns, and its programs, sets
 //! and draws are made with that store's program runtime.
 //!
+//! A pass that draws over the opaque scene with a copy of it, as a water surface does, is placed
+//! at [`GamePlace::AfterOpaqueSnapshots`] and declares the snapshots it samples with
+//! [`GamePassSpec::reading_snapshots`]. [`GameFeatureFactory::snapshot_reads`] reserves them and
+//! [`FrameSnapshotHandle`] lends them to the frame that wrote them.
+//!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
+//! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 mod camera;
 mod declared_textures;
 mod engine;
 mod environment;
+mod frame_start;
 mod lent;
 mod occlusion;
 mod pass_target;
@@ -42,6 +49,7 @@ mod resources;
 mod scene_meshes;
 mod scene_textures;
 mod shadows;
+mod snapshots;
 mod targets;
 mod terrain;
 
@@ -71,6 +79,10 @@ pub use scene_textures::{
     FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameWaterNormalError,
 };
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
+pub use snapshots::{
+    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
+    SnapshotStatistics,
+};
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
 #[cfg(test)]
@@ -93,5 +105,7 @@ impl super::FrameRenderer {
     }
 }
 
+#[cfg(test)]
+mod frame_start_tests;
 #[cfg(test)]
 mod tests;

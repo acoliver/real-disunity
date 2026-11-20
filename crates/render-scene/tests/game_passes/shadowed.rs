@@ -4,6 +4,7 @@
 //! ones that read persistent contents an earlier frame left.
 use super::common::{self, texture_binding};
 use super::fixture::{FORMAT, Rig, SIZE, quad_scene, view};
+use super::prepared;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{
@@ -408,7 +409,12 @@ fn lit_scene() -> RenderScene {
 
 /// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
 pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
-    let rig = Rig::new(&quad_scene(), SIZE, |settings| {
+    shadowed_with(inventory, wgpu::Features::empty())
+}
+
+/// As [`shadowed`], on a device with `features`.
+fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, ShadowedScene) {
+    let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });
     let scene = fitted(&rig, &lit_scene(), FORMAT);
@@ -531,4 +537,109 @@ fn an_unshadowed_frame_reads_the_persistent_target_an_earlier_frame_wrote() {
     for frame in 1..4 {
         assert_painted(&rig.render().unwrap(), &format!("frame {frame}"));
     }
+}
+
+/// A rig with the block game whose frames a shadowed scene captures.
+fn shadowed_blocks(knobs: &prepared::Shared) -> (Rig, ShadowedScene) {
+    shadowed_with(
+        prepared::inventory(knobs),
+        wgpu::Features::TEXTURE_COMPRESSION_BC,
+    )
+}
+
+#[test]
+fn a_shadowed_capture_accepts_a_prepared_block_write() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = prepared::knobs(&[0, 1], &[0, 1]);
+    let (mut rig, mut scene) = shadowed_blocks(&knobs);
+    prepared::assert_blocks(&capture(&mut rig, &mut scene, 0), true, "frame 0");
+    for layer in 0..2 {
+        assert!(
+            rig.renderer
+                .game_targets()
+                .is_written(prepared::BLOCKS, layer)
+        );
+    }
+    prepared::next(&knobs, &[], &[0, 1]);
+    for frame in 1..3 {
+        prepared::assert_blocks(
+            &capture(&mut rig, &mut scene, frame),
+            true,
+            &format!("frame {frame}"),
+        );
+    }
+    assert_eq!(knobs.lock().unwrap().transfers, 2, "compressed once");
+}
+
+#[test]
+fn a_shadowed_capture_compresses_one_layer_while_reading_another() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = prepared::knobs(&[0], &[0]);
+    let (mut rig, mut scene) = shadowed_blocks(&knobs);
+    prepared::assert_blocks(&capture(&mut rig, &mut scene, 0), false, "frame 0");
+    assert!(rig.renderer.game_targets().is_written(prepared::BLOCKS, 0));
+    assert!(!rig.renderer.game_targets().is_written(prepared::BLOCKS, 1));
+    // Layer 0 is kept and layer 1 is written over an allocation that already holds contents.
+    prepared::next(&knobs, &[1], &[0, 1]);
+    prepared::assert_blocks(&capture(&mut rig, &mut scene, 1), true, "frame 1");
+    assert!(rig.renderer.game_targets().is_written(prepared::BLOCKS, 1));
+    prepared::next(&knobs, &[], &[0, 1]);
+    prepared::assert_blocks(&capture(&mut rig, &mut scene, 2), true, "frame 2");
+}
+
+/// Captures a frame for each step of `schedule`, each a layer list to compress and one to read,
+/// and checks the contents every frame samples. The kernel swaps the layers' values in every
+/// odd frame, so a layer compressed again shows the rewrite and a layer kept shows it did not
+/// change.
+fn captured_schedule(schedule: &[(&[u32], &[u32])]) -> prepared::Shared {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = prepared::knobs(&[], &[]);
+    let (mut rig, mut scene) = shadowed_blocks(&knobs);
+    let mut held = [None; 2];
+    for (frame, (compress, read)) in schedule.iter().enumerate() {
+        prepared::next(&knobs, compress, read);
+        let swapped = frame % 2 == 1;
+        knobs.lock().unwrap().swapped = swapped;
+        for &layer in *compress {
+            held[layer as usize] = Some(prepared::VALUES[layer as usize ^ usize::from(swapped)]);
+        }
+        let image = capture(&mut rig, &mut scene, frame as u64);
+        prepared::assert_layers(&image, held, &format!("frame {frame}"));
+        for layer in 0..2 {
+            assert_eq!(
+                rig.renderer
+                    .game_targets()
+                    .is_written(prepared::BLOCKS, layer),
+                held[layer as usize].is_some(),
+                "frame {frame} layer {layer} written"
+            );
+        }
+    }
+    knobs
+}
+
+#[test]
+fn a_shadowed_capture_accepts_a_prepared_block_write_in_every_frame() {
+    let both: &[u32] = &[0, 1];
+    let knobs = captured_schedule(&[(both, &[]), (both, both), (both, both), (both, both)]);
+    assert_eq!(knobs.lock().unwrap().transfers, 8, "compressed every frame");
+}
+
+#[test]
+fn a_shadowed_capture_rewrites_one_layer_each_frame_over_a_kept_one() {
+    let knobs = captured_schedule(&[
+        (&[1], &[]),
+        (&[0], &[1]),
+        (&[1], &[0]),
+        (&[0], &[0, 1]),
+        (&[0], &[0, 1]),
+    ]);
+    assert_eq!(knobs.lock().unwrap().transfers, 5);
+}
+
+#[test]
+fn a_shadowed_capture_that_neither_reads_nor_writes_the_blocks_keeps_them() {
+    let both: &[u32] = &[0, 1];
+    let knobs = captured_schedule(&[(both, &[]), (&[], &[]), (&[], &[]), (&[0], &[]), (&[], &[])]);
+    assert_eq!(knobs.lock().unwrap().transfers, 3);
 }

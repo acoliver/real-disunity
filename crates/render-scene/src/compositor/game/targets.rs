@@ -1,9 +1,11 @@
 //! Targets a game declares: allocated once, shared by its passes and, when persistent, kept
 //! across frames and renderer replacements.
+use super::frame_start;
+use super::snapshots::SnapshotReads;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use worldrunner_render_gpu::configuration::AllocationSet;
-use worldrunner_render_gpu::submission::capture::WriteKey;
+use worldrunner_render_gpu::submission::{Publications, capture::WriteKey};
 use worldrunner_render_post::{AttachmentView, FrameError, PostError, PrepareContext, ResourceRef};
 
 /// How large a declared target is.
@@ -28,19 +30,24 @@ pub enum TargetLifetime {
     Persistent,
 }
 
-/// A named texture a game owns: one 2D texture of one or more layers, with one render
-/// attachment view per layer and any sampled view the game makes.
+/// A named texture a game owns: one 2D texture of one or more layers and one mip, with one view
+/// per layer and any sampled view the game makes.
+///
+/// A renderable colour format makes a target passes render into. A block-compressed format makes
+/// a copy target, which only a frame's preparation writes, layer by layer, by copy
+/// ([`GameTargets::plan_prepared`]), and passes sample.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetDeclaration {
     /// Names the target in the plan, in errors and in the allocation inventory.
     pub name: &'static str,
-    /// A renderable colour format.
+    /// A renderable colour format, or a block-compressed format the device has the features of.
     pub format: wgpu::TextureFormat,
     pub extent: TargetExtent,
     /// Array layers, at least one.
     pub layers: u32,
     pub lifetime: TargetLifetime,
-    /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every declared target has.
+    /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every renderable target has, or
+    /// beyond `COPY_DST | TEXTURE_BINDING`, which every copy target has.
     pub usage: wgpu::TextureUsages,
 }
 
@@ -101,12 +108,26 @@ impl TargetDeclaration {
         }
     }
 
+    /// Whether only copies write the target: a block-compressed format cannot be rendered into.
+    fn copy_target(&self) -> bool {
+        self.format.is_compressed()
+    }
+
     fn texture_usage(&self) -> wgpu::TextureUsages {
-        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | self.usage
+        let written = if self.copy_target() {
+            wgpu::TextureUsages::COPY_DST
+        } else {
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+        };
+        written | wgpu::TextureUsages::TEXTURE_BINDING | self.usage
     }
 
     /// The refusal of a declaration the device cannot allocate, naming the target.
-    pub(super) fn validate(&self, limits: &wgpu::Limits, frame: [u32; 2]) -> Result<(), PostError> {
+    pub(super) fn validate(
+        &self,
+        (limits, features): (&wgpu::Limits, wgpu::Features),
+        frame: [u32; 2],
+    ) -> Result<(), PostError> {
         let refuse = |why: &str| {
             Err(PostError::Allocation(format!(
                 "game target {}: {why}",
@@ -120,11 +141,22 @@ impl TargetDeclaration {
         if width == 0 || height == 0 || width.max(height) > limits.max_texture_dimension_2d {
             return refuse("extent is empty or beyond max_texture_dimension_2d");
         }
-        let features = self
+        if self.copy_target() {
+            let missing = self.format.required_features().difference(features);
+            if !missing.is_empty() {
+                return refuse(&format!("format needs device features {missing:?}"));
+            }
+            let (block_width, block_height) = self.format.block_dimensions();
+            if width % block_width != 0 || height % block_height != 0 {
+                return refuse("extent is not a whole number of the format's blocks");
+            }
+            return Ok(());
+        }
+        let guaranteed = self
             .format
             .guaranteed_format_features(wgpu::Features::empty());
         if self.format.is_depth_stencil_format()
-            || !features
+            || !guaranteed
                 .allowed_usages
                 .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
         {
@@ -144,7 +176,8 @@ pub(crate) struct Backing {
     /// Numbers the textures an inventory's renderer has made, which keeps this one apart from
     /// another of the same name in the allocation budget.
     serial: u64,
-    /// Per layer: whether a submitted frame has written it.
+    /// Per layer: whether a submitted frame has written it. This is the published state. The
+    /// queries of a frame in preparation answer through [`Self::state`] instead.
     written: Mutex<Vec<bool>>,
 }
 
@@ -181,10 +214,27 @@ impl Backing {
         self.declaration.lifetime == TargetLifetime::Persistent
     }
 
-    /// Whether a submitted frame has left contents in any layer of this persistent backing, so
-    /// the allocation a frame imports is no longer fresh whichever layers the frame attaches.
+    /// Per layer, whether a submitted frame had written it when the frame in preparation
+    /// started. Outside a frame, and in one that has staged nothing on this backing yet, that is
+    /// the published state.
+    ///
+    /// Every query of a frame in preparation uses this one state: the planning query
+    /// [`GameTargets::is_written`], the load a pass is planned with, the allocation views declare
+    /// and the initial version a capture imports the texture at. A capture submits its first
+    /// segment, which publishes what it wrote, before its second segment plans, and the two must
+    /// agree. The second segment lists the first one's completed passes with the declaration the
+    /// first one used, and the capture imported the texture once before the first segment, so a
+    /// view that already reported the first segment's writes would plan a different load and
+    /// import the texture differently from the capture.
+    fn state(&self) -> Vec<bool> {
+        frame_start::recall(self).unwrap_or_else(|| self.layers().clone())
+    }
+
+    /// Whether a submitted frame had left contents in any layer of this persistent backing when
+    /// the frame started, so the allocation a frame imports is no longer fresh whichever layers
+    /// the frame attaches.
     fn initialized(&self) -> bool {
-        self.persistent() && self.layers().contains(&true)
+        self.persistent() && self.state().contains(&true)
     }
 
     fn layers(&self) -> MutexGuard<'_, Vec<bool>> {
@@ -193,7 +243,13 @@ impl Backing {
     }
 
     fn is_written(&self, layer: u32) -> bool {
-        self.persistent() && self.layers().get(layer as usize) == Some(&true)
+        self.persistent() && self.state().get(layer as usize) == Some(&true)
+    }
+
+    /// Keeps the published state as the start of `frame`, before a segment of it stages a
+    /// record that changes it.
+    pub(super) fn note_frame_start(self: &Arc<Self>, frame: &Publications) {
+        frame_start::remember(self, frame, self.layers().clone());
     }
 
     /// Records what a submitted frame left in layers of this persistent backing: contents a
@@ -319,7 +375,8 @@ impl TargetStore {
 
     /// Every texture of the store, which the frame's passes may write, with the initial version
     /// the frame imports it at: the one [`Self::view`] declares to the stock compile, which is
-    /// `Some(0)` for a persistent backing a submitted frame has written and `None` otherwise.
+    /// `Some(0)` for a persistent backing a submitted frame had written when the frame started
+    /// and `None` otherwise.
     pub(crate) fn imports(&self) -> Vec<(&wgpu::Texture, Option<u32>)> {
         self.backings
             .iter()
@@ -336,7 +393,7 @@ impl TargetStore {
             .collect()
     }
 
-    fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
+    pub(super) fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
         self.backings
             .iter()
             .find(|backing| backing.declaration.name == name)
@@ -365,11 +422,24 @@ impl TargetStore {
             .is_some_and(|backing| backing.is_written(layer))
     }
 
+    /// The persistent backing of `texture`, by its position in the store.
+    fn persistent_index(&self, texture: &wgpu::Texture) -> Option<usize> {
+        self.backings
+            .iter()
+            .position(|backing| backing.persistent() && backing.texture == *texture)
+    }
+
     /// What the frame being prepared leaves in the persistent targets of this store, by exact
-    /// backing: for each layer, whether the last attachment that wrote it stored its contents.
+    /// backing: for each layer, whether the last write stored its contents. The frame's prepared
+    /// writes come first and always store; an attachment that writes the layer later decides.
     /// A stock attachment that shares a target's name is another texture and counts for nothing.
     pub(super) fn frame_effects(&self, context: &PrepareContext<'_>) -> Vec<FrameEffect> {
         let mut last = BTreeMap::new();
+        for view in context.prepared_views() {
+            if let Some(index) = self.persistent_index(view.texture()) {
+                last.insert((index, view.resource().layer), true);
+            }
+        }
         for attachment in context
             .passes()
             .iter()
@@ -384,11 +454,7 @@ impl TargetStore {
             let Ok(view) = context.resource(attachment.resource) else {
                 continue;
             };
-            let Some(index) = self
-                .backings
-                .iter()
-                .position(|backing| backing.persistent() && backing.texture == *view.texture())
-            else {
+            let Some(index) = self.persistent_index(view.texture()) else {
                 continue;
             };
             let stored = attachment.store == wgpu::StoreOp::Store;
@@ -418,12 +484,24 @@ pub(super) struct FrameEffect {
     pub(super) layers: Vec<(u32, bool)>,
 }
 
+impl FrameEffect {
+    /// Stages the recording of this effect, to run when `frame` is submitted. The capture records
+    /// a refusal and fails before submission, as for stock state.
+    pub(super) fn stage(self, frame: &mut Publications) {
+        let Self { backing, layers } = self;
+        backing.note_frame_start(frame);
+        let key = backing.write_key();
+        let _ = frame.stage_write(key, move || backing.record(&layers));
+    }
+}
+
 /// A game's view of its targets for one renderer generation. Cloning shares the same textures.
 #[derive(Clone)]
 pub struct GameTargets {
     store: Arc<TargetStore>,
     /// Plans the passes after the depth prepass, and only those.
     depth_prefix: bool,
+    snapshots: SnapshotReads,
 }
 
 impl GameTargets {
@@ -431,6 +509,7 @@ impl GameTargets {
         Self {
             store,
             depth_prefix: false,
+            snapshots: SnapshotReads::NONE,
         }
     }
 
@@ -439,6 +518,7 @@ impl GameTargets {
         Self {
             store,
             depth_prefix: true,
+            snapshots: SnapshotReads::NONE,
         }
     }
 
@@ -446,6 +526,19 @@ impl GameTargets {
     /// depth-prefix feature draws in.
     pub fn depth_prefix(&self) -> bool {
         self.depth_prefix
+    }
+
+    /// These targets for the factory that declared `reads`, which is what its passes may read of
+    /// the frame's opaque snapshots.
+    #[must_use]
+    pub(crate) fn with_snapshot_reads(mut self, reads: SnapshotReads) -> Self {
+        self.snapshots = reads;
+        self
+    }
+
+    /// The opaque snapshots the factory these targets belong to declared it reads.
+    pub fn snapshot_reads(&self) -> SnapshotReads {
+        self.snapshots
     }
 
     /// The texture of a declared target, for a sampled view or a copy. The texture is the same
@@ -477,8 +570,10 @@ impl GameTargets {
         ))
     }
 
-    /// The checked attachment view of one layer. A persistent layer that a submitted frame has
-    /// written carries retained contents, so a pass may read it without writing it first.
+    /// The checked attachment view of one layer. A persistent layer that a submitted frame had
+    /// written when the frame being planned started carries retained contents, so a pass may read
+    /// it without writing it first. Like [`Self::is_written`], the view reports the frame's
+    /// start in every segment of the frame.
     ///
     /// # Errors
     /// [`FrameError::AttachmentView`] for an undeclared target or a layer beyond its count.
@@ -486,7 +581,11 @@ impl GameTargets {
         self.store.view(resource)
     }
 
-    /// Whether a submitted frame has written `layer` of the persistent target `name`.
+    /// Whether a submitted frame had written `layer` of the persistent target `name` when the
+    /// frame being planned started. Every segment of one frame, both parts of an owned capture
+    /// included, gets the same answer, so a feature plans the same passes in each. A segment
+    /// that records its writes when it is submitted does not change the answer for the segments
+    /// after it. A query made between frames answers with what has been published.
     pub fn is_written(&self, name: &'static str, layer: u32) -> bool {
         self.store.written(name, layer)
     }

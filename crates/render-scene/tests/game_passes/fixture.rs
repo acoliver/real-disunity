@@ -13,7 +13,7 @@ use worldrunner_render_scene::{
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef},
+    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -217,18 +217,37 @@ impl Rig {
         Self::with_features(scene, size, wgpu::Features::empty(), configure)
     }
 
-    /// [`Self::new`] on a device that has `features`, such as block-compressed texture formats.
+    /// A rig on the shared test device with exactly `features`, for a game whose targets need
+    /// them, such as block-compressed ones.
     pub fn with_features(
         scene: &RenderScene,
         size: [u32; 2],
         features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
+        Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
+            ScenePipelines::new(device, FORMAT)
+        })
+    }
+
+    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
+    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    pub fn hdr(
+        scene: &RenderScene,
+        size: [u32; 2],
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let hdr = wgpu::TextureFormat::Rgba16Float;
         Self::with_pipelines(
             scene,
             (size, view(size)),
-            configure,
-            (features, |device| ScenePipelines::new(device, FORMAT)),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame.format = hdr;
+                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                configure(settings);
+            },
+            |device| ScenePipelines::new(device, hdr),
         )
     }
 
@@ -254,23 +273,23 @@ impl Rig {
         Self::with_pipelines(
             scene,
             (size, camera),
+            wgpu::Features::empty(),
             |settings| {
                 settings.frame = FrameConfig::new(size, hdr, 1);
                 settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
                 settings.ssao = Some(ssao);
                 configure(settings);
             },
-            (wgpu::Features::empty(), |device| {
-                ScenePipelines::with_ssao(device, hdr, 1).unwrap()
-            }),
+            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
         )
     }
 
     fn with_pipelines(
         scene: &RenderScene,
         (size, camera): ([u32; 2], SceneView),
+        features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
-        (features, pipelines): (wgpu::Features, impl FnOnce(&wgpu::Device) -> ScenePipelines),
+        pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
     ) -> Self {
         let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");

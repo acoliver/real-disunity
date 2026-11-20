@@ -89,6 +89,15 @@ struct Slot {
     location: Option<(BatchKey, usize)>,
 }
 
+/// The state of the placements and tables that cached batch bounds were checked in. Placement
+/// edits and table changes only raise their counters, so an equal stamp means neither moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BoundsStamp {
+    edits: u64,
+    tables: u64,
+    meshes: usize,
+}
+
 #[derive(Debug)]
 pub(crate) struct Instances {
     scene: u64,
@@ -109,6 +118,10 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    /// Counts the changes to the material tables and mesh bounds that are not placement edits.
+    tables: u64,
+    /// The state in which every batch's cached bounds were last found current.
+    bounds_current: std::cell::Cell<Option<BoundsStamp>>,
     ready: ready_memo::ReadyMemo,
     pub contours: worldrunner_render_plan::SceneContours,
     pub contour_members: BTreeMap<(BatchKey, usize), u8>,
@@ -161,6 +174,8 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            tables: 0,
+            bounds_current: std::cell::Cell::new(None),
             ready: ready_memo::ReadyMemo::default(),
             contours: scene
                 .effects()
@@ -180,6 +195,33 @@ impl Instances {
     /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
     pub fn edits(&self) -> u64 {
         self.batches.values().map(InstanceBatch::edits).sum()
+    }
+
+    /// What the cached bounds of every batch depend on: the placements, the material tables and
+    /// mesh bounds that `extend_resources` and `forget_mesh_bounds` change, and the selection
+    /// of every mesh, of which there are `mesh_count`.
+    pub(crate) fn bounds_stamp(&self, mesh_count: usize) -> BoundsStamp {
+        BoundsStamp {
+            edits: self.edits(),
+            tables: self.tables,
+            meshes: mesh_count,
+        }
+    }
+
+    /// Whether every batch's cached bounds were found current in the state `stamp` names.
+    pub(crate) fn bounds_current_at(&self, stamp: BoundsStamp) -> bool {
+        self.bounds_current.get() == Some(stamp)
+    }
+
+    /// Records that every batch's cached bounds are current in the state `stamp` names.
+    pub(crate) fn set_bounds_current_at(&self, stamp: BoundsStamp) {
+        self.bounds_current.set(Some(stamp));
+    }
+
+    /// Makes the next view check every batch's cached bounds, as every view once did.
+    #[cfg(test)]
+    pub(crate) fn recheck_bounds(&self) {
+        self.bounds_current.set(None);
     }
 
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
@@ -234,10 +276,12 @@ impl Instances {
             fade::Fade::new(material, &[])
         }));
         self.mesh_count = mesh_count;
+        self.tables += 1;
     }
 
     /// Discards the cached placement bounds of every batch that draws `mesh`.
     pub fn forget_mesh_bounds(&mut self, mesh: usize) {
+        self.tables += 1;
         for ((_, batch_mesh, _), batch) in &mut self.batches {
             if *batch_mesh == mesh {
                 batch.forget_bounds();

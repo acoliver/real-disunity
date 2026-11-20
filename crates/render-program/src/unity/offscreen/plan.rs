@@ -25,7 +25,7 @@ use crate::sampler::{SamplerCache, SamplerState};
 use crate::unity::constants::pack_layout;
 use crate::unity::shader::{PassSelector, ProgramShader, Variant};
 use crate::unity::state::{RenderState, resolve_state};
-use crate::unity::targets::{ConstantBufferTarget, TextureTarget};
+use crate::unity::targets::{BufferTarget, ConstantBufferTarget, TextureTarget};
 use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
 use super::constants_plan::ConstantsPlan;
@@ -36,6 +36,7 @@ use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::sampling::{self, Sampled, read_unfilterable};
+use super::storage_buffers::{PendingStorage, check_stage_limits, require_buffers};
 use super::textures::TextureTable;
 use super::tracker::Tracker;
 
@@ -47,6 +48,8 @@ pub(super) struct ProgramEntry {
     pub(super) pass: usize,
     constants: Vec<ConstantBufferTarget>,
     textures: Vec<TextureTarget>,
+    /// The structured buffers the stages declare, by the property that names each.
+    buffers: Vec<BufferTarget>,
     /// The sampler binding split from the texture at a set and binding.
     samplers: HashMap<(u32, u32), u32>,
     /// The names the shader gives its comparison samplers, by set and binding.
@@ -61,6 +64,15 @@ impl ProgramEntry {
     /// How many vertex inputs the vertex stage declares.
     pub(super) fn vertex_input_count(&self) -> usize {
         self.inputs.count()
+    }
+
+    /// The property that names the structured buffer `slot` binds, if a parameter does.
+    pub(super) fn buffer_name(&self, slot: &Slot) -> Result<Option<&str>, OffscreenError> {
+        let found = self
+            .buffers
+            .iter()
+            .find(|t| (t.set, t.binding) == (slot.set, slot.binding));
+        Ok(found.map(|t| t.name.resolve(&[])).transpose()?)
     }
 }
 
@@ -81,6 +93,8 @@ pub(super) struct DrawPlan {
     pub(super) constants: Vec<PendingConstant>,
     pub(super) textures: Vec<(u32, TextureBinding)>,
     pub(super) samplers: Vec<(u32, SamplerBinding)>,
+    /// The read-only structured buffers the draw binds.
+    pub(super) storage: Vec<PendingStorage>,
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
@@ -186,6 +200,9 @@ pub(super) struct DrawCounts {
     /// texture property.
     pub(super) missing_texture: usize,
     pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
+    /// Draws left out because no layer names a structured buffer the pass reads, by the buffer
+    /// property.
+    pub(super) missing_buffers: std::collections::BTreeMap<String, usize>,
     /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
     /// set and the shader does not declare, by the texture property.
     pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
@@ -330,6 +347,7 @@ impl Services<'_> {
             constants: Vec::new(),
             textures: Vec::new(),
             samplers: Vec::new(),
+            storage: Vec::new(),
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
             undeclared: Vec::new(),
@@ -337,9 +355,10 @@ impl Services<'_> {
             unset,
         };
         let entry = Arc::clone(&plan.entry);
-        // Every texture is looked for before anything is bound, so a draw that lacks one changes
-        // nothing in the frame.
+        // Every texture and structured buffer is looked for before anything is bound, so a draw
+        // that lacks one changes nothing in the frame.
         self.require_textures(spec, &entry, &slots)?;
+        let storage = require_buffers(spec, &entry, &slots)?;
         let mut sampler_states = HashMap::new();
         let mut any_unfiltered = false;
         for slot in &slots {
@@ -363,6 +382,9 @@ impl Services<'_> {
                 let states = (&sampler_states, any_unfiltered);
                 self.bind_sampler(&entry, slot, kind, states, &mut plan);
             }
+        }
+        for input in &storage {
+            self.bind_storage(input, &mut plan)?;
         }
         Ok(plan)
     }
@@ -490,6 +512,16 @@ impl Services<'_> {
         variant: &Arc<Variant>,
         pass: usize,
     ) -> Result<ProgramEntry, OffscreenError> {
+        // The device's limit is checked before the program is made, so a refusal names the buffer.
+        let vertex_buffers = variant.vertex.buffer_targets()?;
+        let fragment_buffers = variant.fragment.buffer_targets()?;
+        check_stage_limits(
+            self.runtime
+                .device()
+                .limits()
+                .max_storage_buffers_per_shader_stage,
+            [("vertex", &vertex_buffers), ("fragment", &fragment_buffers)],
+        )?;
         let stage = |stage: &crate::unity::module::StageProgram| {
             stage.neutral().map_err(ProgramError::from)
         };
@@ -514,6 +546,7 @@ impl Services<'_> {
             pass,
             constants,
             textures,
+            buffers: [vertex_buffers, fragment_buffers].concat(),
             samplers,
             comparison_names,
             inputs: declared_inputs(&variant.vertex),
@@ -528,22 +561,24 @@ impl Services<'_> {
         slot: &Slot,
         plan: &mut DrawPlan,
     ) -> Result<(), OffscreenError> {
-        let wgpu::BindingType::Buffer { ty, .. } = slot.ty else {
+        // A storage buffer is not packed from the layers' values: `require_buffers` found its
+        // buffer, and `bind_storage` binds it.
+        let wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            ..
+        } = slot.ty
+        else {
             return Ok(());
         };
-        let unsupported = |what| OffscreenError::UnsupportedBinding {
-            set: slot.set,
-            binding: slot.binding,
-            what,
-        };
-        if ty != wgpu::BufferBindingType::Uniform {
-            return Err(unsupported("a storage buffer"));
-        }
         let target = entry
             .constants
             .iter()
             .find(|t| (t.set, t.binding) == (slot.set, slot.binding))
-            .ok_or_else(|| unsupported("a uniform buffer no parameter describes"))?;
+            .ok_or(OffscreenError::UnsupportedBinding {
+                set: slot.set,
+                binding: slot.binding,
+                what: "a uniform buffer no parameter describes",
+            })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
         let packed = pack_layout(&target.buffer, &[], &spec.layers.values(), min_len)?;
         if let Some(facts) = plan.facts.as_mut() {

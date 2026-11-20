@@ -163,6 +163,8 @@ pub struct GpuWorkReport {
     pub partial_reads: BTreeMap<String, usize>,
     /// The draws left out because no layer names a texture the pass samples, by the property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a structured buffer the pass reads, by the property.
+    pub missing_buffers: BTreeMap<String, usize>,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
@@ -245,6 +247,9 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
+        for (name, count) in &report.missing_buffers {
+            *self.missing_buffers.entry(name.clone()).or_default() += count;
+        }
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
         }
@@ -375,6 +380,31 @@ impl GpuWorkReport {
         }
     }
 
+    /// The lines about the storage the run held, gave back and refused, and the time it took.
+    fn print_storage_lines(&self) {
+        eprintln!(
+            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
+            self.peak_live_bytes, self.peak_runtime_bytes
+        );
+        eprintln!(
+            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
+            self.reclaimed.textures,
+            self.reclaimed.targets,
+            self.reclaimed.meshes,
+            self.reclaimed.bytes
+        );
+        for line in &self.refusal_holdings {
+            eprintln!(
+                "[gpu] held when the budget first refused, in frame {}: {line}",
+                self.refusal_frame
+            );
+        }
+        eprintln!(
+            "[gpu] time in the frame path {:?}, in flushes {:?}",
+            self.frame_time, self.flush_time
+        );
+    }
+
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
         self.print_with(&self.stand_in_lines());
@@ -418,6 +448,7 @@ impl GpuWorkReport {
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
+            ("draw:MissingBuffer by buffer", &self.missing_buffers),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
@@ -457,27 +488,7 @@ impl GpuWorkReport {
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
         );
-        eprintln!(
-            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
-            self.peak_live_bytes, self.peak_runtime_bytes
-        );
-        eprintln!(
-            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
-            self.reclaimed.textures,
-            self.reclaimed.targets,
-            self.reclaimed.meshes,
-            self.reclaimed.bytes
-        );
-        for line in &self.refusal_holdings {
-            eprintln!(
-                "[gpu] held when the budget first refused, in frame {}: {line}",
-                self.refusal_frame
-            );
-        }
-        eprintln!(
-            "[gpu] time in the frame path {:?}, in flushes {:?}",
-            self.frame_time, self.flush_time
-        );
+        self.print_storage_lines();
         for (index, work) in self.work.iter().enumerate() {
             eprintln!("[gpu] {}", work.line(index));
         }

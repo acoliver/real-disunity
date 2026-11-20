@@ -13,10 +13,11 @@ mod tests;
 use std::sync::{Arc, PoisonError};
 
 use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_post::PreparedWrite;
 
 use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
-use crate::resources::TextureHandle;
+use crate::resources::{Keepalive, Pins, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use plan::{Facts, Plan, Region, plan};
 
@@ -78,6 +79,74 @@ pub(crate) struct Staging {
     reservation: Arc<Reservation>,
 }
 
+/// The block-compressed texture a transfer fills when another owner holds it, from the first
+/// block of its mip and layer.
+#[derive(Clone, Debug)]
+pub struct LentBlockDestination {
+    pub texture: wgpu::Texture,
+    pub mip: u32,
+    pub layer: u32,
+    /// The logical texels the blocks describe, which may end inside the last block.
+    pub extent: [u32; 2],
+}
+
+/// A transfer whose plan was checked and whose staging was reserved. Recording it touches no
+/// runtime state.
+///
+/// It holds the staging buffer it was planned against and shares of the reservations of the
+/// buffer and of the runtime's textures it reads or writes, for as long as it is held and then
+/// for every frame that [`retain`](Self::retain)ed it, until that frame is cancelled, dropped or
+/// completed on the GPU. A larger transfer prepared later may give the runtime a new staging
+/// buffer; this one keeps the one it was planned with.
+pub struct PreparedBlockTransfer {
+    pins: Pins,
+    source: (wgpu::Texture, Region),
+    destination: (wgpu::Texture, Region),
+    staging: wgpu::Buffer,
+    plan: Plan,
+}
+
+impl std::fmt::Debug for PreparedBlockTransfer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedBlockTransfer")
+            .field("source", &self.source.1)
+            .field("destination", &self.destination.1)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PreparedBlockTransfer {
+    /// Makes the frame `encoder` records hold the transfer's reservations and owners until the
+    /// frame is cancelled, dropped or completed on the GPU. Call it for every frame the transfer
+    /// is recorded into.
+    ///
+    /// # Errors
+    /// Fails with `ForeignAuthority` when the frame belongs to another submission authority than
+    /// the runtime's and when `encoder` is not a frame being recorded.
+    pub fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        self.pins.retain(encoder)
+    }
+
+    /// The destination mip and layer, the one subresource the transfer writes besides its
+    /// staging buffer.
+    pub fn writes(&self) -> PreparedWrite {
+        let (texture, region) = &self.destination;
+        PreparedWrite::layer(texture, region.mip, region.layer)
+    }
+
+    /// Records the copy of the source region into the staging buffer and the copy of the staging
+    /// buffer into the destination mip and layer, one after the other.
+    pub fn record(&self, encoder: &mut wgpu::CommandEncoder) {
+        record_copies(
+            encoder,
+            (&self.source.0, &self.source.1),
+            (&self.destination.0, &self.destination.1),
+            &self.staging,
+            &self.plan,
+        );
+    }
+}
+
 impl ProgramRuntime {
     /// Records a block-image transfer into `encoder`: a copy of the source region into the
     /// staging buffer and a copy of the staging buffer into the destination mip and layer.
@@ -99,31 +168,93 @@ impl ProgramRuntime {
         request: &BlockImageTransfer,
     ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
+        let prepared = self.prepare_block_transfer(request)?;
+        prepared.retain(encoder)?;
+        prepared.record(encoder);
+        Ok(())
+    }
+
+    /// Prepares a block-image transfer for a frame that records it later, as
+    /// [`transfer_block_image`](Self::transfer_block_image) would record it now. Everything that
+    /// can fail is checked here, and the staging buffer is made or reused here.
+    ///
+    /// # Errors
+    /// As [`transfer_block_image`](Self::transfer_block_image), less the encoder's.
+    pub fn prepare_block_transfer(
+        &self,
+        request: &BlockImageTransfer,
+    ) -> Result<PreparedBlockTransfer, ProgramError> {
+        self.authority.check_device()?;
         let source = self.store.texture(request.source.texture)?.texture.clone();
         let destination = self
             .store
             .texture(request.destination.texture)?
             .texture
             .clone();
+        let shares = vec![
+            self.store.texture_reservation(request.source.texture)?,
+            self.store
+                .texture_reservation(request.destination.texture)?,
+        ];
+        self.prepare_transfer(
+            (source, request.source.region()),
+            (destination, request.destination.region()),
+            (shares, Vec::new()),
+        )
+    }
+
+    /// Prepares a transfer from a runtime texture into a block-compressed texture another owner
+    /// holds and keeps counted. `owners` are held by the transfer and by every frame that retains
+    /// it.
+    ///
+    /// # Errors
+    /// As [`prepare_block_transfer`](Self::prepare_block_transfer).
+    pub fn prepare_lent_block_transfer(
+        &self,
+        source: &BlockSource,
+        destination: &LentBlockDestination,
+        owners: &[Keepalive],
+    ) -> Result<PreparedBlockTransfer, ProgramError> {
+        self.authority.check_device()?;
+        let texture = self.store.texture(source.texture)?.texture.clone();
+        let shares = vec![self.store.texture_reservation(source.texture)?];
+        let region = Region {
+            mip: destination.mip,
+            layer: destination.layer,
+            origin: [0, 0],
+            extent: destination.extent,
+        };
+        self.prepare_transfer(
+            (texture, source.region()),
+            (destination.texture.clone(), region),
+            (shares, owners.to_vec()),
+        )
+    }
+
+    /// Plans the copies between the two ends and reserves the staging they need, holding
+    /// `shares` and `owners` with the staging buffer's reservation.
+    fn prepare_transfer(
+        &self,
+        source: (wgpu::Texture, Region),
+        destination: (wgpu::Texture, Region),
+        (mut shares, owners): (Vec<Arc<Reservation>>, Vec<Keepalive>),
+    ) -> Result<PreparedBlockTransfer, ProgramError> {
         let plan = plan(
-            &Facts::of(&source),
-            &request.source.region(),
-            &Facts::of(&destination),
-            &request.destination.region(),
+            &Facts::of(&source.0),
+            &source.1,
+            &Facts::of(&destination.0),
+            &destination.1,
             self.device.features(),
         )?;
         let (staging, counted) = self.transfer_staging(plan.staging_bytes)?;
-        self.hold_for_frame(
-            encoder,
-            vec![
-                self.store.texture_reservation(request.source.texture)?,
-                self.store
-                    .texture_reservation(request.destination.texture)?,
-                counted,
-            ],
-        )?;
-        record_copies(encoder, &source, &destination, &staging, request, &plan);
-        Ok(())
+        shares.push(counted);
+        Ok(PreparedBlockTransfer {
+            pins: Pins::borrowing(&self.authority, shares, owners),
+            source,
+            destination,
+            staging,
+            plan,
+        })
     }
 
     /// The staging buffer with room for `size` bytes, made when there is none or it is too
@@ -171,10 +302,9 @@ impl ProgramRuntime {
 
 fn record_copies(
     encoder: &mut wgpu::CommandEncoder,
-    source: &wgpu::Texture,
-    destination: &wgpu::Texture,
+    (source, from): (&wgpu::Texture, &Region),
+    (destination, to): (&wgpu::Texture, &Region),
     staging: &wgpu::Buffer,
-    request: &BlockImageTransfer,
     plan: &Plan,
 ) {
     let layout = wgpu::TexelCopyBufferLayout {
@@ -182,8 +312,6 @@ fn record_copies(
         bytes_per_row: Some(plan.bytes_per_row),
         rows_per_image: Some(plan.rows_per_image),
     };
-    let from = &request.source;
-    let to = &request.destination;
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             texture: source,
@@ -210,8 +338,8 @@ fn record_copies(
             texture: destination,
             mip_level: to.mip,
             origin: wgpu::Origin3d {
-                x: 0,
-                y: 0,
+                x: to.origin[0],
+                y: to.origin[1],
                 z: to.layer,
             },
             aspect: wgpu::TextureAspect::All,

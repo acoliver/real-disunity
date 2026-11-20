@@ -5,12 +5,15 @@
 //!
 //! * [`OffscreenHost::frame`] adapts and builds a snapshot's records for the scene to encode
 //!   before its own passes. Dispatches are not part of it; they are counted as left out.
+//!   The compute buffers its materials bind are uploaded first and kept until the next frame.
 //! * [`OffscreenHost::flush`] runs a snapshot's work to completion before it returns. It follows
 //!   the records in call order, offscreen records and dispatches alike. Each run of records is
 //!   built, recorded and submitted, then the dispatch that follows it is recorded and submitted
 //!   with it. A last submission copies the compute buffers a dispatch bound back, and the call
 //!   waits for that submission alone. The buffers whose bytes changed come out as
-//!   [`BufferWrite`]s for the world to take with [`BufferSink`].
+//!   [`BufferWrite`]s for the world to take with [`BufferSink`]. The compute buffers the
+//!   materials of the work bind are uploaded before the first run is built, and a dispatch that
+//!   binds one of them shares its upload.
 //!
 //! A pixel read is placed like a dispatch: the records before it are submitted with a copy of the
 //! render texture recorded last, and the copy's rectangle comes out as a [`PixelAnswer`] for the
@@ -169,6 +172,9 @@ pub struct OffscreenHost {
     adapter: OffscreenAdapter,
     compute: ComputeAdapter,
     traces: Vec<WorkTrace>,
+    /// The compute buffers the last frame's materials bind, kept until the next frame because
+    /// the scene submits what `frame` built after it returns.
+    frame_buffers: GpuBuffers,
     /// Whether submitted work has drawn into the screen's colour since it was last read back.
     screen_written: bool,
     /// Whether the last `frame`'s operations draw into the screen; counted once submitted.
@@ -224,6 +230,14 @@ impl OffscreenHost {
             screen_written: false,
             frame_writes_screen: false,
             screen_flushed: None,
+            frame_buffers: GpuBuffers::default(),
+        }
+    }
+
+    /// Gives back the buffers the last frame's materials bound.
+    fn release_frame_buffers(&mut self) {
+        for handle in std::mem::take(&mut self.frame_buffers).handles() {
+            let _ = self.runtime.release_buffer(handle);
         }
     }
 
@@ -385,17 +399,26 @@ impl OffscreenHost {
         settling: Settling,
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
         let live_before = self.runtime.live_bytes();
+        self.release_frame_buffers();
         let started = Instant::now();
         self.frame_writes_screen = false;
+        let uploaded = self
+            .frame_buffers
+            .upload_material_buffers(&mut self.runtime, snapshot);
         let mut adapted = self.adapter.adapt_settling(
             snapshot,
             assets,
             &mut self.state,
             &mut self.runtime,
             settling,
+            &uploaded.handles,
         );
+        adapted
+            .report
+            .count_many("materialbuffer:BufferUpload", uploaded.refused);
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
+            self.release_frame_buffers();
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
@@ -434,15 +457,25 @@ impl OffscreenHost {
         // The render textures a kernel writes need storage binding usage when they are made.
         let storage = self.compute.storage_textures(&self.runtime, snapshot);
         self.state.bind_as_storage(storage);
-        let mut adapted =
-            self.adapter
-                .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
+        // The materials' buffers go up before the frame is adapted, and a dispatch that binds one
+        // of them finds it held.
+        let mut buffers = GpuBuffers::default();
+        let uploaded = buffers.upload_material_buffers(&mut self.runtime, snapshot);
+        let mut adapted = self.adapter.adapt_probing(
+            snapshot,
+            assets,
+            &mut self.state,
+            &mut self.runtime,
+            (true, &uploaded.handles),
+        );
+        adapted
+            .report
+            .count_many("materialbuffer:BufferUpload", uploaded.refused);
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
         adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
-        let mut buffers = GpuBuffers::default();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
         let error = result.as_ref().err().map(ToString::to_string);
         // The buffers can go once the GPU has finished with them, and the next flush then

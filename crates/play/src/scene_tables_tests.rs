@@ -717,3 +717,6 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
 
 #[path = "scene_tables_tests/lit.rs"]
 mod lit;
+
+#[path = "scene_tables_tests/substitution.rs"]
+mod substitution;

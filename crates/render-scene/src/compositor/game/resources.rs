@@ -2,17 +2,22 @@
 //! the game's declarations, and the program runtime the passes draw with.
 //!
 //! A game describes each resource as data: a buffer's role and initial bytes, a texture's
-//! format, extent and texels, a sampler's descriptor. The renderer generation creates it, counts
-//! it in the memory census and against the factory's budget, and hands back a handle. The game
+//! format, extent, mip chain and texels, a sampler's descriptor. The renderer generation creates
+//! it, counts it in the memory census and against the factory's budget, and hands back a handle.
+//! A texture every factory of the generation may declare is made once and shared
+//! ([`GameResources::declare_shared_texture`]). The game
 //! fills buffers through [`GameResources::write`], which stages the bytes in the frame like any
 //! other upload, and binds resources by handle ([`GameResources::import_buffer`] and its
 //! siblings, [`GameResources::vertex_input`], [`GameResources::indices`]). It never holds the
 //! device, the queue or a resource of its own. Everything is released with the generation.
+use super::declared_textures::{
+    GameTextureDeclaration, TextureIdentity, refuse, unsampleable, upload,
+};
 use std::cell::{RefCell, RefMut};
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::census::{ResourceClass, Tracked};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
@@ -40,21 +45,6 @@ pub struct GameBufferDeclaration<'a> {
     pub usage: GameBufferUsage,
     /// The initial bytes, at least one. Zeros for a buffer the game writes before it is read.
     pub contents: &'a [u8],
-}
-
-/// A sampled texture a game declares: one level, of one or more layers or slices.
-#[derive(Clone, Copy, Debug)]
-pub struct GameTextureDeclaration<'a> {
-    /// Names the texture in errors, labels and the census.
-    pub label: &'a str,
-    pub format: wgpu::TextureFormat,
-    /// Width, height, and array layers (for `D2` and `D2Array`) or depth (for `D3`).
-    pub size: [u32; 3],
-    /// How the texture is sampled: `D2` (one layer), `D2Array` or `D3`.
-    pub dimension: wgpu::TextureViewDimension,
-    /// The level's texels, tightly packed rows of texels or blocks, layer after layer; `None`
-    /// leaves the texture zeroed, which is the only choice for a depth format.
-    pub texels: Option<&'a [u8]>,
 }
 
 macro_rules! handle {
@@ -140,10 +130,13 @@ struct DeclaredBuffer {
     buffer: Tracked<wgpu::Buffer>,
 }
 
+/// A declared texture; a shared one is held by every store that declared it.
+#[derive(Clone)]
 struct DeclaredTexture {
-    texture: Tracked<wgpu::Texture>,
+    texture: Rc<Tracked<wgpu::Texture>>,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
+    bytes: u64,
 }
 
 #[derive(Default)]
@@ -151,9 +144,16 @@ struct Store {
     buffers: Vec<DeclaredBuffer>,
     textures: Vec<DeclaredTexture>,
     samplers: Vec<wgpu::Sampler>,
+    /// The index in `textures` of each shared texture this store declared, by label.
+    shared: HashMap<String, u32>,
     /// Bytes of the declared buffers and textures.
     bytes: u64,
 }
+
+/// The textures declared shared in one renderer generation, by label, with what their first
+/// declaration declared. Every factory's store of the generation holds the same table.
+#[derive(Clone, Default)]
+pub(crate) struct SharedTextures(Rc<RefCell<HashMap<String, (TextureIdentity, DeclaredTexture)>>>);
 
 /// Numbers every store, so a handle of one is refused by another.
 static NEXT_STORE: AtomicU64 = AtomicU64::new(1);
@@ -167,15 +167,18 @@ pub struct GameResources {
     authority: SubmissionAuthority,
     budget: AllocationBudget,
     store: Rc<RefCell<Store>>,
+    shared: SharedTextures,
     runtime: Rc<RefCell<ProgramRuntime>>,
 }
 
 impl GameResources {
-    /// The resources of a factory with `budget`, on the renderer's device and authority.
+    /// The resources of a factory with `budget`, on the renderer's device and authority, sharing
+    /// `shared` with the generation's other factories.
     pub(crate) fn new(
         device: &wgpu::Device,
         authority: &SubmissionAuthority,
         budget: AllocationBudget,
+        shared: SharedTextures,
     ) -> Self {
         Self {
             id: NEXT_STORE.fetch_add(1, Ordering::Relaxed),
@@ -183,6 +186,7 @@ impl GameResources {
             authority: authority.clone(),
             budget,
             store: Rc::default(),
+            shared,
             runtime: Rc::new(RefCell::new(ProgramRuntime::new(
                 device.clone(),
                 authority.clone(),
@@ -270,46 +274,111 @@ impl GameResources {
     ///
     /// # Errors
     /// [`GameResourceError::Declaration`] for an empty extent, a dimension other than `D2`,
-    /// `D2Array` and `D3`, more than one layer for `D2`, texels for a depth format or texels
-    /// that are not exactly the level; [`GameResourceError::Budget`] beyond the budget.
+    /// `D2Array` and `D3`, more than one layer for `D2`, a mip count the extent does not have,
+    /// texels for a depth format or a 3D texture deeper than one slice, texels that are not
+    /// exactly the levels [`GameTextureDeclaration::levels`] lists, or a format the device
+    /// cannot sample; [`GameResourceError::Budget`] beyond the budget.
     pub fn declare_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,
     ) -> Result<GameTexture, GameResourceError> {
-        let descriptor = texture_descriptor(declaration)?;
+        let declared = self.create_texture(declaration)?;
+        Ok(self.hold_texture(declared))
+    }
+
+    /// Declares a texture the generation's other factories may declare too, under the same
+    /// label: the first declaration creates it, a later one, from this factory or another, gets
+    /// the same texture as a handle of its own store. Every factory that declares it counts it
+    /// against its own budget, as it would hold it alone; the memory census counts it once.
+    ///
+    /// # Errors
+    /// As [`Self::declare_texture`], and [`GameResourceError::Declaration`] when the
+    /// declaration differs from the one that created the texture (in format, extent,
+    /// dimension, mip count or texels).
+    pub fn declare_shared_texture(
+        &self,
+        declaration: &GameTextureDeclaration<'_>,
+    ) -> Result<GameTexture, GameResourceError> {
+        let label = declaration.label;
+        let identity = declaration.identity();
+        let differs = || {
+            refuse(
+                label,
+                "the declaration differs from the shared texture of that label",
+            )
+        };
+        let existing = self.shared.0.borrow().get(label).cloned();
+        let Some((first, declared)) = existing else {
+            let declared = self.create_texture(declaration)?;
+            self.shared
+                .0
+                .borrow_mut()
+                .insert(label.to_owned(), (identity, declared.clone()));
+            let texture = self.hold_texture(declared);
+            self.store
+                .borrow_mut()
+                .shared
+                .insert(label.to_owned(), texture.index);
+            return Ok(texture);
+        };
+        if first != identity {
+            return Err(differs());
+        }
+        if let Some(&index) = self.store.borrow().shared.get(label) {
+            return Ok(GameTexture {
+                store: self.id,
+                index,
+            });
+        }
+        self.admit(label, declared.bytes)?;
+        let texture = self.hold_texture(declared);
+        self.store
+            .borrow_mut()
+            .shared
+            .insert(label.to_owned(), texture.index);
+        Ok(texture)
+    }
+
+    /// Creates a declared texture, admitted against the budget but not yet held.
+    fn create_texture(
+        &self,
+        declaration: &GameTextureDeclaration<'_>,
+    ) -> Result<DeclaredTexture, GameResourceError> {
+        let descriptor = declaration.descriptor()?;
+        if let Some(reason) = unsampleable(declaration.format, self.device.features()) {
+            return Err(refuse(declaration.label, &reason));
+        }
         let bytes = worldrunner_render_gpu::census::texture_backing_bytes(&descriptor);
         self.admit(declaration.label, bytes)?;
+        let census = self.authority.census();
         let texture = match declaration.texels {
-            Some(texels) => self.authority.census().track_texture(
+            Some(texels) => census.track_texture(
                 ResourceClass::Texture,
-                self.device.create_texture_with_data(
-                    self.authority.queue(),
-                    &descriptor,
-                    wgpu::util::TextureDataOrder::LayerMajor,
-                    texels,
-                ),
+                upload(&self.device, self.authority.queue(), declaration, texels)?,
             ),
-            None => self.authority.census().create_texture(
-                &self.device,
-                ResourceClass::Texture,
-                &descriptor,
-            ),
+            None => census.create_texture(&self.device, ResourceClass::Texture, &descriptor),
         };
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(declaration.dimension),
             ..wgpu::TextureViewDescriptor::default()
         });
-        let mut store = self.store.borrow_mut();
-        store.bytes += bytes;
-        store.textures.push(DeclaredTexture {
-            texture,
+        Ok(DeclaredTexture {
+            texture: Rc::new(texture),
             view,
             dimension: declaration.dimension,
-        });
-        Ok(GameTexture {
+            bytes,
+        })
+    }
+
+    /// Holds an admitted texture in this store, counting its bytes.
+    fn hold_texture(&self, declared: DeclaredTexture) -> GameTexture {
+        let mut store = self.store.borrow_mut();
+        store.bytes += declared.bytes;
+        store.textures.push(declared);
+        GameTexture {
             store: self.id,
             index: index(store.textures.len()),
-        })
+        }
     }
 
     /// Creates a sampler with `descriptor`. Samplers are not counted against the budget.
@@ -352,7 +421,7 @@ impl GameResources {
             .ok_or(GameResourceError::Foreign(GameTexture::KIND))?;
         Ok(Import::texture_view(
             semantic,
-            (*declared.texture).clone(),
+            wgpu::Texture::clone(&declared.texture),
             declared.view.clone(),
             declared.dimension,
         ))
@@ -495,82 +564,3 @@ impl GameResources {
 fn index(len: usize) -> u32 {
     u32::try_from(len - 1).expect("fewer than 2^32 declared resources")
 }
-
-fn refuse(label: &str, reason: &str) -> GameResourceError {
-    GameResourceError::Declaration {
-        label: label.to_owned(),
-        reason: reason.to_owned(),
-    }
-}
-
-/// The descriptor of a declared texture, refused when the declaration cannot be created.
-fn texture_descriptor<'a>(
-    declaration: &GameTextureDeclaration<'a>,
-) -> Result<wgpu::TextureDescriptor<'a>, GameResourceError> {
-    let GameTextureDeclaration {
-        label,
-        format,
-        size: [width, height, layers],
-        dimension,
-        texels,
-    } = *declaration;
-    let texture_dimension = match dimension {
-        wgpu::TextureViewDimension::D2 if layers == 1 => wgpu::TextureDimension::D2,
-        wgpu::TextureViewDimension::D2Array => wgpu::TextureDimension::D2,
-        wgpu::TextureViewDimension::D3 => wgpu::TextureDimension::D3,
-        _ => {
-            return Err(refuse(
-                label,
-                "a declared texture is sampled as D2 (one layer), D2Array or D3",
-            ));
-        }
-    };
-    if width == 0 || height == 0 || layers == 0 {
-        return Err(refuse(label, "the extent is empty"));
-    }
-    let (block_width, block_height) = format.block_dimensions();
-    if !width.is_multiple_of(block_width) || !height.is_multiple_of(block_height) {
-        return Err(refuse(
-            label,
-            "the extent is not whole blocks of the format",
-        ));
-    }
-    let mut usage = wgpu::TextureUsages::TEXTURE_BINDING;
-    if let Some(texels) = texels {
-        if format.is_depth_stencil_format() {
-            return Err(refuse(label, "a depth texture is declared without texels"));
-        }
-        let block = format
-            .block_copy_size(None)
-            .ok_or_else(|| refuse(label, "the format has no single-plane block size"))?;
-        let needed = u64::from(width / block_width)
-            * u64::from(height / block_height)
-            * u64::from(block)
-            * u64::from(layers);
-        if texels.len() as u64 != needed {
-            return Err(refuse(
-                label,
-                &format!("the texels are {} bytes, the level {needed}", texels.len()),
-            ));
-        }
-        usage |= wgpu::TextureUsages::COPY_DST;
-    }
-    Ok(wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: layers,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: texture_dimension,
-        format,
-        usage,
-        view_formats: &[],
-    })
-}
-
-#[cfg(test)]
-#[path = "resources_tests.rs"]
-mod tests;

@@ -50,8 +50,8 @@ pub use game::{
     FrameShadowHandle, FrameShadows, FrameTerrainError, FrameTerrainHandle, GameBuffer,
     GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GamePassSpec,
     GamePasses, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
-    GameTextureDeclaration, OcclusionDepth, PassTarget, ShadowCascade, TargetDeclaration,
-    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    GameTextureDeclaration, GameTextureLevel, OcclusionDepth, PassTarget, ShadowCascade,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

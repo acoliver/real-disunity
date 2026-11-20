@@ -1,6 +1,7 @@
 //! Targets a game declares: allocated once, shared by its passes and, when persistent, kept
 //! across frames and renderer replacements.
 use super::frame_start;
+use super::snapshots::SnapshotReads;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use worldrunner_render_gpu::configuration::AllocationSet;
@@ -498,11 +499,28 @@ impl FrameEffect {
 #[derive(Clone)]
 pub struct GameTargets {
     store: Arc<TargetStore>,
+    snapshots: SnapshotReads,
 }
 
 impl GameTargets {
     pub(crate) fn new(store: Arc<TargetStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            snapshots: SnapshotReads::NONE,
+        }
+    }
+
+    /// These targets for the factory that declared `reads`, which is what its passes may read of
+    /// the frame's opaque snapshots.
+    #[must_use]
+    pub(crate) fn with_snapshot_reads(mut self, reads: SnapshotReads) -> Self {
+        self.snapshots = reads;
+        self
+    }
+
+    /// The opaque snapshots the factory these targets belong to declared it reads.
+    pub fn snapshot_reads(&self) -> SnapshotReads {
+        self.snapshots
     }
 
     /// The texture of a declared target, for a sampled view or a copy. The texture is the same

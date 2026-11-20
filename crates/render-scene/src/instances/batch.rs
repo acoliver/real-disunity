@@ -263,6 +263,14 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
+    /// Whether `ready_for` is true for every owner and whatever a transaction has staged: the
+    /// batch holds no bytes, or its buffer is current, no slot waits for upload and the history
+    /// has nothing pending.
+    pub fn is_idle(&self) -> bool {
+        self.bytes.is_empty()
+            || (self.dirty.is_empty() && self.buffer_valid.get() && !self.history.has_pending())
+    }
+
     /// Whether the buffers hold every slot, the previous-transform buffer too when it is kept and
     /// the skin stream when the batch has one, so `grow` has nothing to make.
     fn buffers_fit(&self, track_previous: bool) -> bool {

@@ -8,8 +8,13 @@
 //! publications that follow a frame change. The scan also reads the asking transaction and its
 //! status. The stamp sums counters that never fall and batches are never removed, so an equal
 //! stamp means no counter moved.
+//!
+//! A scan that finds every batch idle (nothing waiting for upload, a current buffer, nothing
+//! pending in the history) is true for every transaction, since an idle batch reads none of
+//! them. Only a change of a counter ends that, so a later transaction at the same stamp is
+//! answered without a scan.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
@@ -20,6 +25,8 @@ use super::{BatchKey, InstanceBatch};
 #[derive(Debug, Default)]
 pub(super) struct ReadyMemo {
     passed: RefCell<Option<Passed>>,
+    /// The stamp at which a scan found every batch idle, which is ready for any owner.
+    idle: Cell<Option<Stamp>>,
     #[cfg(test)]
     scans: std::cell::Cell<usize>,
 }
@@ -93,11 +100,12 @@ impl ReadyMemo {
             Stamp::of_totals,
         );
         debug_assert!(totals.is_none() || stamp == Stamp::of(batches));
-        if self
-            .passed
-            .borrow()
-            .as_ref()
-            .is_some_and(|passed| passed.answers(owner, stamp))
+        if self.idle.get() == Some(stamp)
+            || self
+                .passed
+                .borrow()
+                .as_ref()
+                .is_some_and(|passed| passed.answers(owner, stamp))
         {
             return true;
         }
@@ -105,6 +113,9 @@ impl ReadyMemo {
         self.scans.set(self.scans.get() + 1);
         let ready = batches.values().all(|batch| batch.ready_for(owner));
         if ready {
+            if batches.values().all(InstanceBatch::is_idle) {
+                self.idle.set(Some(stamp));
+            }
             *self.passed.borrow_mut() = Some(Passed {
                 owner: owner.map(|owner| (owner.clone(), owner.status())),
                 stamp,

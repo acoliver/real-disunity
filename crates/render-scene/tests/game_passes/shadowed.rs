@@ -403,7 +403,7 @@ fn lit_scene() -> RenderScene {
 }
 
 /// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
-fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
+pub fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
     shadowed_with(inventory, wgpu::Features::empty())
 }
 

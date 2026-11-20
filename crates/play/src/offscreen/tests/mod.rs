@@ -2,6 +2,7 @@
 
 mod ambient_gpu;
 mod assets;
+mod bake_parts;
 mod block_sources;
 mod bounds;
 mod builtins;

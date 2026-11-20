@@ -10,6 +10,13 @@ namespace UnityEngine;
 /// </summary>
 public partial class Material
 {
+    /// <summary>Every texture property of this material that holds a texture, by property name (a property whose ID this
+    /// process did not name reads as "#ID"), in name order.</summary>
+    internal IEnumerable<(string Property, Texture Texture)> HeldTextures() => _properties.Textures
+        .Where(pair => pair.Value.Texture is not null)
+        .Select(pair => (Shader.PropertyName(pair.Key) ?? $"#{pair.Key}", pair.Value.Texture!))
+        .OrderBy(held => held.Item1, StringComparer.Ordinal);
+
     public bool HasProperty(string name) => HasProperty(Shader.PropertyToID(name));
     public bool HasProperty(int nameID) => _properties.Has(nameID);
     public bool HasFloat(string name) => HasFloat(Shader.PropertyToID(name));

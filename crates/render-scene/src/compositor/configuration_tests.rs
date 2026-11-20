@@ -567,3 +567,46 @@ fn frame_targets_count_as_render_targets_through_a_resize_until_the_renderer_dro
     drop(renderer);
     assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 0);
 }
+
+#[test]
+fn lent_environment_is_the_installed_reflection_cube_else_water() {
+    use crate::compositor::EnvironmentConsumer;
+    use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
+    let maps = uploaded_reflection_maps(&context);
+    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssr = Some(worldrunner_render_plan::SceneSsr::default());
+    settings.water = vec![environment_water_body()];
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1_000_000)).unwrap();
+    assert!(renderer.state.current().lend_environment().is_none());
+    let (cube, _) = maps.views().unwrap();
+    for (consumers, expected) in [
+        (Water, EnvironmentConsumer::Water),
+        (Reflections, EnvironmentConsumer::Reflections),
+        (Both, EnvironmentConsumer::Reflections),
+    ] {
+        renderer.clear_environment(context.device());
+        renderer
+            .set_scene_environment(context.device(), &maps, consumers)
+            .unwrap();
+        let lent = renderer.state.current().lend_environment().unwrap();
+        assert_eq!(lent.consumer, expected);
+        assert_eq!(&lent.texture, cube.texture());
+        assert_eq!(lent.cube.texture(), cube.texture());
+        assert_eq!(lent.mip_count, 2);
+        assert!((lent.radiance_scale - 2.0).abs() < f32::EPSILON);
+        assert_eq!(lent.convention, maps.convention());
+        // The level the consumers sample for a roughness is the level filtered for it.
+        for mip in 0..lent.mip_count {
+            #[expect(clippy::cast_precision_loss, reason = "two levels")]
+            let level = mip as f32;
+            assert!((lent.level(lent.level_roughness(mip)) - level).abs() < 1e-6);
+        }
+    }
+    renderer.clear_environment(context.device());
+    assert!(renderer.state.current().lend_environment().is_none());
+}

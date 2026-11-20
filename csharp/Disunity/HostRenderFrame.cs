@@ -79,6 +79,7 @@ public static partial class DisunityHost
         {
             _rendering = false;
             ScriptableRenderContext.DiscardPending();
+            ShadowCasterCache.Invalidate();
         }
     }
 }

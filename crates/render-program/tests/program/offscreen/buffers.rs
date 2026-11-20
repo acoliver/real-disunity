@@ -12,7 +12,8 @@ use worldrunner_render_program::ids::{MaterialId, RendererId, ShaderId, TextureI
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::MissingBufferDraws;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, ListDraw, Material, OffscreenFrame, Record, Renderer,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, ListDraw, Material, OffscreenFrame,
+    Record, Renderer,
 };
 use worldrunner_render_program::unity::runtime::BufferHandle;
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
@@ -211,6 +212,7 @@ fn frame(
                 },
             },
             Record::Draws(Arc::new(DrawList {
+                raster: DrawRaster::default(),
                 target: whole,
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,

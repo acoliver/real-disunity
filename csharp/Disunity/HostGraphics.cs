@@ -104,6 +104,15 @@ public static partial class DisunityHost
     /// reads, replacing an earlier group of the same type.</summary>
     public static void RegisterPipelineSettings(IRenderPipelineGraphicsSettings settings) => GraphicsSettings.AddGraphicsSettings(settings);
 
+    /// <summary>The end-of-run lines for tooling about the mesh renderers drawn without a texture, by shader and in total, read
+    /// over the live renderers now (call before the world unloads), or none when the world has no mesh renderer.</summary>
+    public static IReadOnlyList<string> WhiteRendererLines()
+    {
+        if (!IsLoaded) return [];
+        try { return WhiteRenderers.Survey().Lines; }
+        catch (Exception error) { return [$"renderers drawn without a texture could not be read: {error.Message}"]; }
+    }
+
     /// <summary>The end-of-run line for tooling, or null when every texture a game set reached the world.</summary>
     public static string? UnsentTextureSummary => UnsentTextures.Summary;
 }

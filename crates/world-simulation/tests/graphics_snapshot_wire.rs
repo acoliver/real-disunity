@@ -359,10 +359,12 @@ fn with_header(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global.
+/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global and no
+/// environment.
 fn empty_until_work(tail: &[u8]) -> Vec<u8> {
     let mut body = vec![0; 4 * 3];
     body.push(0);
+    body.extend_from_slice(&[0; 2]);
     body.extend_from_slice(tail);
     with_header(&body)
 }

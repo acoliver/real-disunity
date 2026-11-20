@@ -40,7 +40,7 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         (block, instances): (Option<&ShaderProperties>, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
@@ -69,6 +69,7 @@ impl Mapper<'_> {
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
         Ok(vec![Record::Draws(Arc::new(DrawList {
+            raster,
             target,
             values,
             front_face: IMAGE_FRONT_FACE,

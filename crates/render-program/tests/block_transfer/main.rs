@@ -6,6 +6,7 @@
 mod command_buffers;
 mod common;
 mod encoded;
+mod mips;
 mod prepared;
 mod refusals;
 mod reuse;

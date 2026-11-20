@@ -87,6 +87,9 @@ fn filled(generation: u64, texel: [u8; 4]) -> PlayerTexture {
         linear: true,
         generation,
         distance_spread: 0,
+        depth: 0,
+        dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+        graphics_format: 0,
         bytes: texel.repeat(TEXTURE_LEN / 4),
     }
 }

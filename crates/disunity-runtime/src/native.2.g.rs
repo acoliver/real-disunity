@@ -119,6 +119,26 @@ pub struct DisunityComputeBindingsInfo {
     pub text_length: u32,
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DisunityEnvironment {
+    pub ambient_set: u32,
+    pub ambient_mode: u32,
+    pub ambient_intensity: f32,
+    pub reflection_set: u32,
+    pub reflection_mode: u32,
+    pub reflection_intensity: f32,
+    pub custom_kind: u32,
+    pub skybox_kind: u32,
+    pub custom_texture: u64,
+    pub skybox_texture: u64,
+    pub ambient_sky: [f32; 4],
+    pub ambient_equator: [f32; 4],
+    pub ambient_ground: [f32; 4],
+    pub ambient_flat: [f32; 4],
+    pub ambient_probe: [f32; 27],
+    pub padding: u32,
+}
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityShaderInfo {
     pub path_id: i64,
@@ -248,6 +268,57 @@ pub struct DisunityShadowRendererList {
     pub rendering_layer_test: u32,
     pub padding: u32,
     pub cull: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowRequest {
+    pub query: u32,
+    pub light_kind: u32,
+    pub light_range: f32,
+    pub light_spot_angle: f32,
+    pub camera_x: f32,
+    pub camera_y: f32,
+    pub camera_z: f32,
+    pub shadow_distance: f32,
+    pub culling_mask: u32,
+    pub caster_count: u32,
+    pub split_index: u32,
+    pub split_count: u32,
+    pub ratio_x: f32,
+    pub ratio_y: f32,
+    pub ratio_z: f32,
+    pub resolution: u32,
+    pub near_plane_offset: f32,
+    pub face: u32,
+    pub fov_bias: f32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowCaster {
+    pub min_x: f32,
+    pub min_y: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+    pub casting_mode: u32,
+    pub layer: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowResult {
+    pub found: u32,
+    pub plane_count: u32,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub min_z: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+    pub sphere_x: f32,
+    pub sphere_y: f32,
+    pub sphere_z: f32,
+    pub sphere_radius: f32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]

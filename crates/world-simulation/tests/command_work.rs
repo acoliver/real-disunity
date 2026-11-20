@@ -368,8 +368,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_thirteen_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 14);
+fn the_wire_version_is_sixteen_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 16);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);
@@ -435,6 +435,8 @@ fn clear_values_keep_their_bits_on_the_wire() {
 fn one_record(record: &[u8]) -> Vec<u8> {
     let mut body = vec![0; 12];
     body.push(0);
+    // No environment ambient or reflection.
+    body.extend_from_slice(&[0; 2]);
     body.extend_from_slice(&1_u32.to_le_bytes());
     body.extend_from_slice(record);
     body.extend_from_slice(&[0; 16]);

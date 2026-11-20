@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush, HostError, ManagedHostConfig};
-use worldrunner_world_simulation::graphics::{OffscreenWork, TextureRef};
+use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef};
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -587,7 +587,7 @@ fn assert_graphics_snapshot(host: &mut DisunityHost, root: &Path) {
         },
         OffscreenWork::Blit {
             source: TextureRef::Render(blit_source),
-            target: blit_target,
+            target: TargetRef::Render(blit_target),
             material: Some(material),
             pass: -1,
         },

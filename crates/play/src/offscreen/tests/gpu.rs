@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::{
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
-    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant,
+    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
 use worldrunner_render_program::unity::synthetic::{
     PassSpec, SyntheticShader, shader as synthetic_shader,
@@ -27,14 +27,14 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
-    ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader, dimension,
+    ShaderSource, TargetRef, TextureRef, WorldRenderTexture, WorldSampler, WorldShader, dimension,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
-use super::super::defaults::{ShaderFill, declared};
+use super::super::defaults::{ShaderFill, declared, declared_fill};
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
@@ -68,15 +68,44 @@ impl ShaderSupply for Synthetic {
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
             "cubeslot" => cube_blit("_BlitCubeTexture"),
+            // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
+            "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "caster" => super::shadow_gpu::caster_passes(),
             "receiver" => super::shadow_gpu::receiver_passes(),
             "comparing" => super::shadow_gpu::comparing_passes(),
+            "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
+            "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
+            // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
+            // of the default `declared_light::DECLARED`.
+            "declared_light" => {
+                let mut synthetic = super::lights_gpu::per_frame_passes("fs_color");
+                synthetic.shader.parsed.properties = vec![ShaderProperty {
+                    name: "_MainLightColor".to_owned(),
+                    description: String::new(),
+                    attributes: Vec::new(),
+                    kind: 0,
+                    flags: 0,
+                    default_value: super::declared_light::DECLARED,
+                    default_texture: String::new(),
+                    texture_dimension: 0,
+                }];
+                synthetic
+            }
+            "light_data" => super::lights_gpu::per_frame_passes_named(
+                "fs_color",
+                [super::supplied_gpu::NAME, "_MainLightPosition"],
+            ),
+            // The fourth component of `unity_SHAr` as grey.
+            "ambient" => super::lights_gpu::per_frame_passes_named(
+                "fs_color_w",
+                [crate::offscreen::SH_AR, "_MainLightPosition"],
+            ),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
-            "default_white" | "default_black" | "default_bump" => {
+            "default_white" | "default_black" | "default_bump" | "default_mystery" => {
                 let mut synthetic = camera_passes();
                 let name = source.file.trim_start_matches("default_");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {
@@ -94,6 +123,11 @@ impl ShaderSupply for Synthetic {
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
         let texture_defaults = declared(&synthetic.shader);
+        let fill = if source.file == "declared_light" {
+            declared_fill(&synthetic.shader)
+        } else {
+            ShaderFill::default()
+        };
         let program = ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap();
         Ok(LoadedShader {
             passes: program.pass_count(),
@@ -101,7 +135,7 @@ impl ShaderSupply for Synthetic {
             queue: 2000,
             texture_defaults,
             declared_defaults: Vec::new(),
-            fill: ShaderFill::default(),
+            fill,
         })
     }
 }
@@ -285,10 +319,20 @@ impl Rig {
         world: &mut World,
         reads: &[RenderTextureId],
     ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
+        self.frame_with(&Quad, world, reads)
+    }
+
+    /// As `frame`, with the meshes and textures `assets` stores.
+    pub(super) fn frame_with(
+        &mut self,
+        assets: &dyn Assets,
+        world: &mut World,
+        reads: &[RenderTextureId],
+    ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
         let snapshot = GraphicsSnapshot::take(world).unwrap();
         let mut adapted = self
             .adapter
-            .adapt(&snapshot, &Quad, &mut self.state, &mut self.runtime);
+            .adapt(&snapshot, assets, &mut self.state, &mut self.runtime);
         let mut operations = build(
             &mut self.state,
             &mut self.runtime,
@@ -363,6 +407,7 @@ pub(super) fn shaped_target(
             srgb: false,
             dimension,
             volume_depth,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -386,7 +431,7 @@ fn blit_and_copy(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(a),
-            target: b,
+            target: TargetRef::Render(b),
             material: Some(material),
             pass: -1,
         })
@@ -396,7 +441,7 @@ fn blit_and_copy(
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: c,
+            target: TargetRef::Render(c),
             target_element: 0,
             target_mip: 0,
         })
@@ -653,7 +698,7 @@ fn a_stored_texture_the_engine_does_not_hold_is_counted_each_frame_and_one_it_do
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(target),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass: 0,
         })

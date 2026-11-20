@@ -4,13 +4,14 @@
 use std::collections::HashMap;
 
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind, CheckedBindings,
-    CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation, TypedWork,
-    VertexStream,
+    AccessMode, AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind,
+    CheckedBindings, CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation,
+    TypedWork, VertexStream,
 };
 
 use crate::draw::VertexInput;
 use crate::packet::{PipelineRequest, TargetSignature, VertexLayout, with_pipeline_descriptor};
+use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, RenderState};
@@ -76,8 +77,8 @@ impl Finish<'_> {
         Ok(operation)
     }
 
-    /// The bind group of each descriptor set of the plan's program, and the uniform reads they
-    /// make of the constants buffers.
+    /// The bind group of each descriptor set of the plan's program, and the reads they make of
+    /// the constants buffers and of the structured buffers.
     fn bind(
         &mut self,
         plan: &DrawPlan,
@@ -120,6 +121,19 @@ impl Finish<'_> {
                     dynamic_offset: None,
                 });
             }
+            for storage in plan.storage.iter().filter(|s| s.set == set) {
+                uses.push(BufferUse::read(
+                    storage.view.clone(),
+                    BufferUseKind::Storage,
+                ));
+                buffers.push(BufferBinding {
+                    binding: storage.binding,
+                    visibility: storage.visibility,
+                    view: storage.view.clone(),
+                    kind: BufferBindingKind::Storage(AccessMode::Read),
+                    dynamic_offset: None,
+                });
+            }
             let registry = &self.tracker.registry;
             let built = self.runtime.guarded(|| {
                 CheckedBindings::build_with_resources(
@@ -151,15 +165,17 @@ impl Finish<'_> {
             stencil.reference = 0;
         }
         let layouts = vertex_layouts(&draw.vertices.inputs);
-        let colors = colors_of(draw.signature, &state)?;
+        let colors = draw_colors(draw.signature, &state, &draw.plan.entry.color_outputs)?;
         let request = PipelineRequest {
             program,
             state: &state,
             layouts: &layouts,
             signature: draw.signature,
             colors: &colors,
-            topology: draw.topology,
+            // Only a procedural draw names a topology other than a list, and it reads no indices.
+            primitive: Primitive::new(draw.topology, None),
         };
+        request.check_color_outputs()?;
         let key = request.key();
         let checked = self.pipeline_draw(&request, key, draw, bindings)?;
         Ok(match reference {
@@ -238,8 +254,9 @@ impl Finish<'_> {
             layouts: &layouts,
             signature,
             colors: &colors,
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: Primitive::TRIANGLE_LIST,
         };
+        request.check_color_outputs()?;
         let modules = self.runtime.program_modules(program)?;
         Ok(with_pipeline_descriptor(
             &request,
@@ -349,4 +366,35 @@ fn colors_of(
         return Ok(Vec::new());
     }
     Ok(state.check_targets(1, signature.samples())?)
+}
+
+/// The colour state of each colour attachment of a draw whose fragment stage writes the colour
+/// locations `outputs`: the pass's state for an attachment the stage writes, and an empty write
+/// mask for one it does not. wgpu builds a pipeline whose written target has no fragment output at
+/// its location and the attachment then gets undefined values, while an empty mask leaves it as it
+/// was, which is what Unity does with a render target a shader has no output for. An output with
+/// no attachment is dropped by wgpu. `PipelineRequest::check_color_outputs` holds the result to
+/// that rule. The state may name stencil, which the pipeline checks against the pass.
+fn draw_colors(
+    signature: TargetSignature,
+    state: &RenderState,
+    outputs: &[u32],
+) -> Result<Vec<ColorState>, OffscreenError> {
+    let Some(written) = colors_of(signature, state)?.first().copied() else {
+        return Ok(Vec::new());
+    };
+    let unwritten = ColorState {
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    };
+    Ok((0..)
+        .zip(signature.colors())
+        .map(|(location, _)| {
+            if outputs.contains(&location) {
+                written
+            } else {
+                unwritten
+            }
+        })
+        .collect())
 }

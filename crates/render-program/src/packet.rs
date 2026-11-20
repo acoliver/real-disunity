@@ -15,6 +15,7 @@ use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
 use crate::module::StageProgram;
 use crate::pipeline_key::Key;
+use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
@@ -421,7 +422,7 @@ impl ProgramRuntime {
             layouts: &layouts,
             signature,
             colors: &[color],
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            primitive: Primitive::TRIANGLE_LIST,
         })?;
         let groups = self.bind_groups_with(&packet.program.gpu, packet.bindings, snapshots)?;
         let vertex_buffers = packet
@@ -512,9 +513,8 @@ impl ProgramRuntime {
                 colors: request.signature.color_count(),
             });
         }
-        if let Some(fragment) = &request.program.fragment {
-            check_color_outputs(&fragment.color_outputs(), request.colors)?;
-        }
+        request.check_color_outputs()?;
+        request.primitive.check(request.state, request.signature)?;
         if request.state.stencil.is_some() && !request.signature.has_stencil() {
             return Err(ProgramError::UnsupportedState {
                 what: "stencil without a stencil attachment",
@@ -593,12 +593,7 @@ pub(crate) fn with_pipeline_descriptor<T>(
             },
             buffers: &layouts,
         },
-        primitive: wgpu::PrimitiveState {
-            topology: request.topology,
-            front_face: state.raster.front_face,
-            cull_mode: state.raster.cull,
-            ..wgpu::PrimitiveState::default()
-        },
+        primitive: request.primitive.state(&state.raster),
         depth_stencil: signature.depth().map(|format| wgpu::DepthStencilState {
             format,
             depth_write_enabled: Some(depth.write),
@@ -638,31 +633,35 @@ pub(crate) struct VertexLayout<'a> {
 
 /// Everything a render pipeline is built from. `colors` has one state per colour attachment of
 /// the signature.
-/// Refuses a colour target the draw writes (a write mask that is not empty) at a location the
-/// fragment stage has no output for. wgpu builds such a pipeline without complaint, and the
-/// attachment then receives undefined values on Vulkan and Metal. A target with an empty write
-/// mask may go without an output. An output with no target is allowed: wgpu discards it.
-fn check_color_outputs(outputs: &[u32], colors: &[ColorState]) -> Result<(), ProgramError> {
-    for (location, color) in (0u32..).zip(colors) {
-        if !color.write_mask.is_empty() && !outputs.contains(&location) {
-            return Err(ProgramError::TargetWithoutFragmentOutput { location });
-        }
-    }
-    Ok(())
-}
-
 pub(crate) struct PipelineRequest<'a> {
     pub(crate) program: &'a GraphicsProgram,
     pub(crate) state: &'a RenderState,
     pub(crate) layouts: &'a [VertexLayout<'a>],
     pub(crate) signature: TargetSignature,
     pub(crate) colors: &'a [ColorState],
-    /// How the vertices join: a triangle list for meshes and fullscreen draws, or what a
-    /// procedural draw names.
-    pub(crate) topology: wgpu::PrimitiveTopology,
+    /// How the vertices join: a triangle list for meshes and fullscreen draws, or what an
+    /// imported or procedural draw names.
+    pub(crate) primitive: Primitive,
 }
 
 impl PipelineRequest<'_> {
+    /// Refuses a colour target the draw writes (a write mask that is not empty) at a location the
+    /// fragment stage has no output for. wgpu builds such a pipeline without complaint, and the
+    /// attachment then receives undefined values on Vulkan and Metal. A target with an empty write
+    /// mask may go without an output, and an output with no target is allowed: wgpu discards it.
+    pub(crate) fn check_color_outputs(&self) -> Result<(), ProgramError> {
+        let Some(fragment) = &self.program.fragment else {
+            return Ok(());
+        };
+        let outputs = fragment.color_outputs();
+        for (location, color) in (0u32..).zip(self.colors) {
+            if !color.write_mask.is_empty() && !outputs.contains(&location) {
+                return Err(ProgramError::TargetWithoutFragmentOutput { location });
+            }
+        }
+        Ok(())
+    }
+
     fn vertex_buffers(&self) -> Vec<Option<wgpu::VertexBufferLayout<'_>>> {
         self.layouts
             .iter()
@@ -691,7 +690,7 @@ impl PipelineRequest<'_> {
     }
 
     /// The pipeline's content key: stage sources, layout, the whole state, the target signature,
-    /// the vertex layouts and the topology.
+    /// the vertex layouts and the primitive: topology and strip index format.
     pub(crate) fn key(&self) -> blake3::Hash {
         let mut key = Key::new("render");
         key.hash(self.program.vertex.content_key());
@@ -712,7 +711,7 @@ impl PipelineRequest<'_> {
         for layout in self.layouts {
             key.debug(&(layout.stride, layout.step, layout.attributes));
         }
-        key.debug(&self.topology);
+        key.debug(&self.primitive);
         key.finish()
     }
 }

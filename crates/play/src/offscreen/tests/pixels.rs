@@ -9,7 +9,7 @@
 
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, RenderTextureId, TextureRef, WorldRenderTexture, WorldSampler,
+    OffscreenWork, RenderTextureId, TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 
 use super::super::flush::OffscreenHost;
@@ -46,7 +46,7 @@ fn blit(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass,
         })
@@ -64,6 +64,7 @@ fn render_texture_of(world: &mut World, format: u32, srgb: bool) -> RenderTextur
             srgb,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

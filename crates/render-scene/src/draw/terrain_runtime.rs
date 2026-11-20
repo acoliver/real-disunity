@@ -91,6 +91,23 @@ impl SceneGpu {
             .map_or((0, 0), |terrain| terrain.prepared.kept())
     }
 
+    /// Selects which stock passes draw the terrain. The renderer sets it from its
+    /// configuration whenever it takes the scene's inputs, so every pass of a frame agrees.
+    pub(crate) fn set_terrain_draws(&self, draws: super::TerrainDraws) {
+        self.terrain_draws.set(draws);
+    }
+
+    /// Whether the camera passes draw the terrain: the opaque colour pass, the G-buffer and
+    /// depth prepasses, the metadata prefixes and the capture terms.
+    pub(crate) fn draws_terrain_in_camera_passes(&self) -> bool {
+        self.terrain_draws.get().draws_terrain_in_camera_passes()
+    }
+
+    /// Whether the shadow casters draw the terrain into the cascades.
+    pub(crate) fn casts_terrain_shadows(&self) -> bool {
+        self.terrain_draws.get().casts_terrain_shadows()
+    }
+
     /// The surface source the scene's terrain is drawn with.
     pub(crate) fn terrain_surface(&self) -> Option<crate::terrain::program::Surface> {
         self.terrain.as_ref().map(|terrain| {
@@ -118,7 +135,11 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
     ) -> (DrawCount, bool) {
-        let Some(terrain) = &self.terrain else {
+        let Some(terrain) = self
+            .terrain
+            .as_ref()
+            .filter(|_| self.draws_terrain_in_camera_passes())
+        else {
             return (DrawCount::default(), false);
         };
         let Some(pipeline) = self

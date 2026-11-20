@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{BufferHandle, ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
     SubMesh,
@@ -20,12 +20,14 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
+    ComputeBufferId, OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource,
+    TextureRef,
 };
 
 use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
+use super::depth_range::DepthRange;
 use super::frame::{
     Adapted, Available, BLIT_MESH, PASS_TAG, Report, Settings, ShaderInfo, adapt_probing,
     textures_of,
@@ -34,11 +36,14 @@ use super::holdings;
 use super::ids;
 use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
+use super::stand_ins::StandInReason;
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 mod meshes;
 mod reclaim;
 mod textures;
+
+pub(crate) use reclaim::Settling;
 
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
@@ -51,6 +56,8 @@ pub struct OffscreenAdapter {
     /// The index count of each sub-mesh of each uploaded mesh, by range number.
     sub_meshes: BTreeMap<u64, Vec<u32>>,
     textures: BTreeMap<u64, Stored>,
+    /// The stored textures that could not be uploaded, by why.
+    refused: BTreeMap<u64, StandInReason>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
     /// The default textures to register: all of them, unless a test holds some back.
@@ -98,6 +105,7 @@ impl OffscreenAdapter {
             bounds: BTreeMap::new(),
             sub_meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
+            refused: BTreeMap::new(),
             defaults: BTreeSet::new(),
             wanted_defaults: DefaultTexture::ALL.into_iter().collect(),
             blit_mesh: false,
@@ -106,6 +114,13 @@ impl OffscreenAdapter {
             epoch: 0,
             targets: BTreeMap::new(),
         }
+    }
+
+    /// How depth runs in the camera renders this adapter maps: the [`Settings::depth`] it was
+    /// made with.
+    #[must_use]
+    pub fn depth(&self) -> DepthRange {
+        self.settings.depth
     }
 
     /// Chooses whether block-compressed textures go up as blocks (the default, on a device that
@@ -124,6 +139,19 @@ impl OffscreenAdapter {
         self
     }
 
+    /// Sets the size of the screen a `CameraTarget` with no camera texture draws into, or takes
+    /// the screen away with `None`. The next snapshot makes its textures at the new size.
+    pub fn set_screen(&mut self, size: Option<[u32; 2]>) {
+        self.settings.screen = size;
+    }
+
+    /// The screen's texture when there is a screen.
+    fn screen_targets(&self) -> Vec<TextureId> {
+        self.settings
+            .screen
+            .map_or_else(Vec::new, |_| vec![ids::screen_color()])
+    }
+
     #[cfg(test)]
     pub(super) fn mesh_metadata_counts(&self) -> (usize, usize, usize) {
         (self.meshes.len(), self.bounds.len(), self.sub_meshes.len())
@@ -138,18 +166,63 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
-        self.adapt_probing(snapshot, assets, state, runtime, false)
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (false, &BTreeMap::new()),
+            Settling::Wait,
+        )
+    }
+
+    /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
+    /// to finish with the storage they give back, and with `buffers`, the compute buffers the host
+    /// uploaded for the materials that bind them.
+    pub(crate) fn adapt_settling(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        settling: Settling,
+        buffers: &BTreeMap<ComputeBufferId, BufferHandle>,
+    ) -> Adapted {
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (false, buffers),
+            settling,
+        )
     }
 
     /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]).
+    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
+    /// uploaded for the materials that bind them, which the frame's materials name by handle.
     pub fn adapt_probing(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
-        probe: bool,
+        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
+    ) -> Adapted {
+        self.adapt_with(
+            snapshot,
+            assets,
+            (state, runtime),
+            (probe, buffers),
+            Settling::Wait,
+        )
+    }
+
+    fn adapt_with(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
+        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
+        settling: Settling,
     ) -> Adapted {
         self.epoch += 1;
         let mut notes = Report::default();
@@ -162,17 +235,24 @@ impl OffscreenAdapter {
             .map(|id| ids::render_texture(*id))
             .collect();
         live_targets.extend(temporary_ids(&snapshot.work));
+        // The screen holds its contents between snapshots, so every snapshot names it and it is
+        // never given back to make room.
+        let screen = self.screen_targets();
+        live_targets.extend(screen.iter().copied());
         state.retain_render_textures(runtime, &live_targets);
-        self.stamp_targets(reclaim::named_targets(snapshot), &live_targets);
+        self.stamp_targets(
+            reclaim::named_targets(snapshot).into_iter().chain(screen),
+            &live_targets,
+        );
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let meshes = named_meshes(snapshot);
         let wanted = stored_textures(snapshot);
         // What the snapshot names is stamped before anything is uploaded, so that making room for
         // one upload never gives back another the snapshot is about to use.
         self.stamp(&meshes, &wanted);
-        self.register_meshes(meshes, assets, (state, runtime), &mut notes);
+        self.register_meshes(meshes, assets, (state, runtime), &mut notes, settling);
         self.register_defaults(state, runtime, &mut notes);
-        self.register_textures(&wanted, assets, (state, runtime), &mut notes);
+        self.register_textures(&wanted, assets, (state, runtime), &mut notes, settling);
         available.meshes = usable(&self.meshes);
         available.bounds = self
             .bounds
@@ -193,8 +273,19 @@ impl OffscreenAdapter {
             .map(|(identity, _)| *identity)
             .collect();
         available.textures = usable(&self.textures);
+        available.refused_textures = self
+            .refused
+            .iter()
+            .filter(|(identity, _)| wanted.contains(identity))
+            .map(|(identity, reason)| (*identity, *reason))
+            .collect();
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
+        available.buffers.clone_from(buffers);
+        available.float32_filterable = runtime
+            .device()
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE);
         if !self.blit_mesh {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();
@@ -228,7 +319,7 @@ impl OffscreenAdapter {
             }
             match self.supply.load(source) {
                 Ok(loaded) => {
-                    let (_, light_modes) = loaded.program.pass_tags(PASS_TAG);
+                    let (passes, light_modes) = loaded.program.pass_tags(PASS_TAG);
                     for mode in &light_modes {
                         *notes
                             .census
@@ -237,6 +328,7 @@ impl OffscreenAdapter {
                     }
                     let info = ShaderInfo {
                         passes: loaded.passes,
+                        has_untagged: light_modes.len() < passes,
                         light_modes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,
@@ -262,7 +354,8 @@ impl OffscreenAdapter {
             if self.defaults.contains(&texture) {
                 continue;
             }
-            match state.set_texture(runtime, &texture.texture()) {
+            let look = self.settings.stand_in_look;
+            match state.set_texture(runtime, &texture.texture_in(look)) {
                 Ok(()) => {
                     self.defaults.insert(texture);
                 }

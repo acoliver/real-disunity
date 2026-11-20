@@ -209,13 +209,13 @@ impl StockRaster {
     pub(crate) fn encode_stock_pass(
         &self,
         index: usize,
-        slot: crate::PassSlot,
+        entry: crate::PassEntry,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
         self.passes[index].validate_writes(encoder)?;
-        let label = crate::PassId::Geometry(slot).encoder_label();
+        let label = crate::PassId::Geometry(entry).encoder_label();
         self.passes[index].encode_named(encoder, stamp, label.as_ref(), draw);
         Ok(())
     }

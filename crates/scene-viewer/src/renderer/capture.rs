@@ -1,7 +1,8 @@
-use super::{Renderer, live::Capture};
+use super::{Renderer, game_screen::ViewMisses, live::Capture};
 mod accumulation;
 pub(super) mod advanced;
 mod products;
+use crate::retained::CaptureCompletion;
 use crate::{RetainedHost, ViewerError};
 pub(super) use products::Products;
 use worldrunner_render_gpu::flight::CompletionTicket;
@@ -14,6 +15,41 @@ struct Pending {
     time: std::time::Duration,
     ticket: CompletionTicket,
     image: Products,
+}
+
+/// A retained capture the next frame takes, and the terrain its view still lacks.
+#[derive(Default)]
+pub(super) struct HostCapture {
+    pub(super) request: Option<(u64, Products)>,
+    pub(super) misses: ViewMisses,
+}
+
+impl Renderer {
+    pub(super) fn prepare_host_capture(
+        &mut self,
+        host: Option<&mut RetainedHost>,
+        view: &worldrunner_render_scene::SceneView,
+        output: &wgpu::Texture,
+    ) -> Result<HostCapture, ViewerError> {
+        let Some(host) = host else {
+            return Ok(HostCapture::default());
+        };
+        let readiness = self.retained_pages_ready(host, view)?;
+        let request = self.streaming.captures.prepare(
+            self.context.device(),
+            host,
+            output,
+            &self.presentation.scheduler,
+            readiness.pages_ready,
+        )?;
+        if let Some((id, _)) = &request {
+            self.reject_stale_attachments(host, *id)?;
+        }
+        Ok(HostCapture {
+            request,
+            misses: readiness.misses,
+        })
+    }
 }
 
 #[derive(Default)]
@@ -87,11 +123,8 @@ impl Captures {
         host: &mut RetainedHost,
         image: Option<(u64, Products)>,
         ticket: CompletionTicket,
-        time: std::time::Duration,
-        scene: &worldrunner_render_scene::draw::SceneStatistics,
-        temporal_history_reset: crate::TemporalHistoryReset,
+        completion: &CaptureCompletion,
     ) -> Result<(), ViewerError> {
-        let frame = self.frame;
         self.advance_frame();
         if let Some((id, mut image)) = image {
             let index = host
@@ -104,10 +137,10 @@ impl Captures {
             image.begin()?;
             self.pending.push(Pending {
                 id,
-                frame,
-                scene: *scene,
-                temporal_history_reset,
-                time,
+                frame: completion.frame,
+                scene: completion.scene,
+                temporal_history_reset: completion.temporal_history_reset,
+                time: completion.time,
                 ticket,
                 image,
             });
@@ -139,20 +172,24 @@ impl Captures {
                 } else if host.captures.recipes.contains_key(&pending.id) {
                     host.captures.complete_recipe(
                         pending.id,
-                        pending.frame,
-                        pending.time,
+                        &CaptureCompletion {
+                            frame: pending.frame,
+                            time: pending.time,
+                            scene: pending.scene,
+                            temporal_history_reset: pending.temporal_history_reset,
+                        },
                         image,
-                        &pending.scene,
-                        pending.temporal_history_reset,
                     );
                 } else {
                     host.captures.complete(
                         pending.id,
-                        pending.frame,
-                        pending.time,
+                        &CaptureCompletion {
+                            frame: pending.frame,
+                            time: pending.time,
+                            scene: pending.scene,
+                            temporal_history_reset: pending.temporal_history_reset,
+                        },
                         image.srgb8.expect("plain capture"),
-                        &pending.scene,
-                        pending.temporal_history_reset,
                     );
                 }
                 let pending = self.pending.remove(index);
@@ -165,6 +202,43 @@ impl Captures {
             } else {
                 index += 1;
             }
+        }
+        Ok(())
+    }
+}
+
+pub(super) struct Encoding<'a> {
+    pub(super) device: &'a wgpu::Device,
+    pub(super) resident: &'a super::Resident,
+    pub(super) presentation: &'a crate::presentation::Presentation,
+}
+
+impl Encoding<'_> {
+    pub(super) fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+        capture: Option<&mut Capture>,
+        retained: Option<&mut Products>,
+        fitted: bool,
+    ) -> Result<(), ViewerError> {
+        if let Some(capture) = capture {
+            capture.encode(encoder, self.presentation.targets.color.texture())?;
+        }
+        if let Some(retained) = retained {
+            if !fitted {
+                retained.replay(
+                    self.device,
+                    encoder,
+                    self.resident,
+                    &self.presentation.scheduler,
+                )?;
+            }
+            retained.encode(
+                encoder,
+                output.texture(),
+                self.presentation.scheduler.targets().texture(),
+            )?;
         }
         Ok(())
     }
@@ -194,3 +268,6 @@ mod specular_tests;
 
 #[cfg(test)]
 mod lighting_term_tests;
+
+#[cfg(test)]
+mod screen_tests;

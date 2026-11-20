@@ -354,9 +354,9 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
         (slot, wgpu::LoadOp::Load, DepthMode::Independent, None),
         |feature, pass| {
             feature.draw(
-                &worldrunner_render_post::DrawContext {
-                    slot: PassSlot::TransparentWater,
-                },
+                &worldrunner_render_post::DrawContext::new(PassEntry::new(
+                    PassSlot::TransparentWater,
+                )),
                 pass,
             );
         },

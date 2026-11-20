@@ -81,6 +81,16 @@ fn check_case(context: &GpuContext, case: Case, failures: &mut Vec<String>) {
         return;
     }
     let (pairs, deltas) = fixture::capture(context, case);
+    compare(case, "", &pairs, &deltas, failures);
+}
+
+fn compare(
+    case: Case,
+    label: &str,
+    pairs: &[Vec<f32>],
+    deltas: &[Vec<f32>],
+    failures: &mut Vec<String>,
+) {
     for lane in 0..case.samples {
         let expected = reference(case, lane);
         let index = usize::try_from((SIZE[1] / 2 * SIZE[0] + SIZE[0] / 2) * 4).unwrap();
@@ -89,7 +99,7 @@ fn check_case(context: &GpuContext, case: Case, failures: &mut Vec<String>) {
         for channel in 0..4 {
             if (pair[channel] - expected[channel]).abs() > 0.0005 {
                 failures.push(format!(
-                    "pair {case:?}, lane {lane}, channel {channel}: {} != {}",
+                    "{label}pair {case:?}, lane {lane}, channel {channel}: {} != {}",
                     pair[channel], expected[channel]
                 ));
             }
@@ -98,7 +108,7 @@ fn check_case(context: &GpuContext, case: Case, failures: &mut Vec<String>) {
             // Water F0=1 and LUT=(0.5,0): factor=0.5; published environment=2.
             let replaced = expected[channel] * 0.5 - 2.0 * expected[3];
             if (delta[channel] - replaced).abs() > 0.001 {
-                failures.push(format!("environment subtraction {case:?}, lane {lane}, channel {channel}: {} != {replaced}", delta[channel]));
+                failures.push(format!("{label}environment subtraction {case:?}, lane {lane}, channel {channel}: {} != {replaced}", delta[channel]));
             }
         }
     }
@@ -160,6 +170,56 @@ fn gpu_footprint_opaque_normal_edge_uses_real_normals_with_ao() {
     matrix(Edge::Normal, false);
 }
 
+// Standard four-sample locations relative to the pixel centre.
+const SUBPIXEL_OFFSETS: [[f32; 2]; 4] = [
+    [-0.125, -0.375],
+    [0.375, -0.125],
+    [-0.375, 0.125],
+    [0.125, 0.375],
+];
+
+#[test]
+fn gpu_footprint_resolve_ignores_subpixel_fragment_position() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut failures = Vec::new();
+    for water in [false, true] {
+        for scale in [1_000_000, 500_000] {
+            for roughness in [0.1, 0.5] {
+                let case = Case {
+                    size: SIZE,
+                    rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
+                    scale,
+                    roughness,
+                    samples: 1,
+                    edge: Edge::Normal,
+                    ao: true,
+                    full: false,
+                    water,
+                };
+                if reflection_lod(case) > 1.0 {
+                    continue;
+                }
+                for offset in SUBPIXEL_OFFSETS {
+                    let (pairs, deltas) = fixture::capture_displaced(&context, case, offset);
+                    compare(
+                        case,
+                        &format!("offset {offset:?} "),
+                        &pairs,
+                        &deltas,
+                        &mut failures,
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "sub-pixel fragment position:\n{}",
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn gpu_footprint_shading_normal_does_not_change_coplanar_support() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -209,19 +269,20 @@ fn footprint_shader_variants_validate_without_device() {
                     water: true,
                 };
                 for pair in [false, true] {
-                    let source = format!(
-                        "{}\n{}",
-                        include_str!("../ssao/fullscreen.wgsl"),
-                        fixture::source(case, pair)
-                    );
-                    let module = naga::front::wgsl::parse_str(&source)
-                        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
-                    naga::valid::Validator::new(
-                        naga::valid::ValidationFlags::all(),
-                        naga::valid::Capabilities::all(),
-                    )
-                    .validate(&module)
-                    .unwrap();
+                    let resolve = fixture::source(case, pair);
+                    let displaced = fixture::displaced(&resolve, SUBPIXEL_OFFSETS[1]);
+                    for resolve in [resolve, displaced] {
+                        let source =
+                            format!("{}\n{}", include_str!("../ssao/fullscreen.wgsl"), resolve);
+                        let module = naga::front::wgsl::parse_str(&source)
+                            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+                        naga::valid::Validator::new(
+                            naga::valid::ValidationFlags::all(),
+                            naga::valid::Capabilities::all(),
+                        )
+                        .validate(&module)
+                        .unwrap();
+                    }
                 }
             }
         }

@@ -30,28 +30,32 @@ fn direct_capture(
     let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("offscreen scene"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target.color_view(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: target.depth_view(),
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        let pass = worldrunner_render_gpu::submission::RecordingRenderPass::begin(
+            &mut encoder,
+            &wgpu::RenderPassDescriptor {
+                label: Some("offscreen scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target.color_view(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: target.depth_view(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
-        scene.draw(&mut pass, pipelines);
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        scene.draw(pass, pipelines).unwrap();
     }
     target.encode_readback(&mut encoder).unwrap();
     let submitted = encoder.finish().submit().unwrap();

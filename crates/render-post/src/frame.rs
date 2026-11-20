@@ -3,6 +3,14 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod frozen;
+mod game;
+mod operations;
+pub(crate) use frozen::validate_stock_order;
+pub use game::GamePlace;
+pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
+pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
     ShadowCasters(u32),
@@ -16,7 +24,14 @@ pub enum PassSlot {
     /// The deferred G-buffer: four material targets that opaque producers write before
     /// Opaque. Present only when the scene selects the G-buffer opaque path.
     OpaqueGbuffer,
+    /// Deferred lighting of the G-buffer: one full-screen pass after the G-buffer and before
+    /// Opaque, reading the scene depth the depth prepass completed. Present only when the scene
+    /// selects a G-buffer opaque path; when it renders from the G-buffer, this pass writes the
+    /// scene colour and Opaque draws only the surfaces without a G-buffer producer.
+    OpaqueLighting,
     Opaque,
+    /// Visible object IDs, tested against completed opaque depth without writing it.
+    ContourIds,
     AfterOpaqueSnapshot,
     AfterOpaqueDepth,
     TransparentWater,
@@ -28,6 +43,45 @@ pub enum PassSlot {
     ReflectionTrace,
     ReflectionMip(u32),
     ScreenSpaceAfterTransparent,
+    /// A pass a game adds to the frame at the place `GamePlace` names. Its position in the
+    /// frame follows from that place, not from this enum's order; passes in one place run in the
+    /// order of their entries' occurrences.
+    Game(GamePlace),
+}
+
+/// Identity of one entry in an authored pass list: a role plus which appearance of
+/// that role it is. A role may appear in a frame more than once, so a role alone does
+/// not name an entry. `new(slot)` is the first appearance, which is what every
+/// single-appearance declaration means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PassEntry {
+    slot: PassSlot,
+    occurrence: u32,
+}
+impl PassEntry {
+    pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
+        Self { slot, occurrence }
+    }
+    pub const fn slot(self) -> PassSlot {
+        self.slot
+    }
+    pub const fn occurrence(self) -> u32 {
+        self.occurrence
+    }
+}
+/// The role's name for the first appearance and `role#n` for the nth after it, so a
+/// single-appearance entry reads exactly as its role always has.
+impl std::fmt::Display for PassEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:?}", self.slot)?;
+        match self.occurrence {
+            0 => Ok(()),
+            occurrence => write!(formatter, "#{occurrence}"),
+        }
+    }
 }
 
 /// A specific texture version and subresource, never an implicit latest value.
@@ -69,9 +123,12 @@ pub struct AttachmentDeclaration {
     pub read_only: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PassDeclaration {
+    /// The role: timing label, capture label and the `DrawContext` a feature sees.
     pub slot: PassSlot,
+    /// Which appearance of `slot` this is; `slot` and `occurrence` together are the entry.
+    pub occurrence: u32,
     pub color: Option<AttachmentDeclaration>,
     /// Additional indexed color outputs after location zero.
     pub additional_colors: Vec<AttachmentDeclaration>,
@@ -79,37 +136,57 @@ pub struct PassDeclaration {
 }
 impl PassDeclaration {
     pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
         Self {
             slot,
+            occurrence,
             color: None,
             additional_colors: Vec::new(),
             depth: None,
         }
     }
+    pub const fn entry(&self) -> PassEntry {
+        PassEntry::nth(self.slot, self.occurrence)
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeaturePass {
+    /// The role of the entry this feature draws in.
     pub slot: PassSlot,
+    /// Which appearance of `slot` it draws in; `slot` and `occurrence` together name the entry.
+    pub occurrence: u32,
     pub reads: Vec<ResourceRef>,
     pub color_format: Option<wgpu::TextureFormat>,
     pub additional_color_formats: Vec<wgpu::TextureFormat>,
     pub depth_format: Option<wgpu::TextureFormat>,
+    /// This pipeline can only draw in an entry without a depth attachment.
+    pub requires_no_depth: bool,
     pub samples: u32,
 }
 impl FeaturePass {
     pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
         Self {
             slot,
+            occurrence,
             reads: Vec::new(),
             color_format: None,
             additional_color_formats: Vec::new(),
             depth_format: None,
+            requires_no_depth: false,
             samples: 1,
         }
     }
+    pub const fn entry(&self) -> PassEntry {
+        PassEntry::nth(self.slot, self.occurrence)
+    }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureDeclaration {
     pub passes: Vec<FeaturePass>,
     pub effects: Vec<&'static str>,
@@ -138,30 +215,48 @@ pub enum FrameError {
     SsrSettings(&'static str),
     #[error("invalid or unsupported water setting: {0}")]
     WaterSettings(&'static str),
-    #[error("transparent features require unsupported cross-feature sorting")]
-    TransparentOrdering,
+    /// Two transparent features draw in the same entry. Transparent entries run in the order the
+    /// frame lists them, but the executor does not sort packets across features inside one entry.
+    #[error("{0} has more than one transparent feature; list each in its own entry")]
+    TransparentOrdering(PassEntry),
     #[error("scene exposure differs from the compiled fixed-exposure profile")]
     FixedExposureMismatch,
     #[error("invalid or unsupported SSAO setting: {0}")]
     SsaoSettings(&'static str),
-    #[error("frame slots must be unique; execution follows authored order")]
-    SlotOrder,
+    /// The list names one entry twice. A role may repeat; an entry (role and occurrence) may not.
+    #[error("pass entry appears more than once in the frame: {0}")]
+    DuplicatePass(PassEntry),
     #[error(transparent)]
     ResourceContract(#[from] crate::contracts::ContractError),
-    #[error("feature requests an undeclared slot {0:?}")]
-    MissingSlot(PassSlot),
+    #[error("feature requests an undeclared pass entry {0}")]
+    MissingPass(PassEntry),
     #[error("resource has no preceding producer: {0:?}")]
     MissingProducer(ResourceRef),
     #[error("resource is loaded or sampled after discard: {0:?}")]
     LoadAfterDiscard(ResourceRef),
     #[error("resource is sampled while attached or written ambiguously: {0:?}")]
     AttachmentHazard(ResourceRef),
-    #[error("attachment or pipeline contract is incompatible in slot {0:?}")]
-    AttachmentContract(PassSlot),
+    #[error("attachment or pipeline contract is incompatible in slot {0}")]
+    AttachmentContract(PassEntry),
     #[error("frame does not support requested effect {0}")]
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
     AttachmentView(ResourceRef),
+    /// A frozen plan lists a pass before one that the stock passes need it to follow.
+    #[error("pass {pass} is listed before {needs}, which the stock passes need it to follow")]
+    StockOrder { pass: PassEntry, needs: PassEntry },
+    /// A pass reads the depth that Opaque draws with before a prepass or Opaque has written it.
+    #[error("pass {pass} reads {resource:?} before the opaque depth is complete")]
+    IncompleteDepth {
+        pass: PassEntry,
+        resource: ResourceRef,
+    },
+    /// A geometry pass attaches a texture that operations groups write.
+    #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
+    OffscreenWrite {
+        pass: PassEntry,
+        resource: ResourceRef,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -170,7 +265,20 @@ pub fn validate_frame(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
-    validate_frame_inputs(passes, features, requested, &[])
+    validate_frame_inputs(passes, features, requested, &[], &[])
+}
+
+/// The checks `encode_geometry` makes before anything is prepared, in its order.
+pub(crate) fn validate_plan(
+    passes: &[PassDeclaration],
+    features: &[FeatureDeclaration],
+    requested: &[&'static str],
+    views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
+) -> Result<(), FrameError> {
+    validate_operations(passes, views, operations)?;
+    validate_frame_inputs(passes, features, requested, views, operations)?;
+    validate_views(passes, views)
 }
 
 pub(crate) fn validate_frame_inputs(
@@ -178,14 +286,17 @@ pub(crate) fn validate_frame_inputs(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
     views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
-    if passes.iter().enumerate().any(|(index, pass)| {
+    let repeated = passes.iter().enumerate().find_map(|(index, pass)| {
         passes[..index]
             .iter()
-            .any(|previous| previous.slot == pass.slot)
-    }) {
-        return Err(FrameError::SlotOrder);
+            .any(|previous| previous.entry() == pass.entry())
+            .then(|| pass.entry())
+    });
+    if let Some(entry) = repeated {
+        return Err(FrameError::DuplicatePass(entry));
     }
     for effect in requested {
         if !features
@@ -197,14 +308,19 @@ pub(crate) fn validate_frame_inputs(
     }
     for feature in features {
         for feature_pass in &feature.passes {
-            if !passes.iter().any(|pass| pass.slot == feature_pass.slot) {
-                return Err(FrameError::MissingSlot(feature_pass.slot));
+            if !passes
+                .iter()
+                .any(|pass| pass.entry() == feature_pass.entry())
+            {
+                return Err(FrameError::MissingPass(feature_pass.entry()));
             }
         }
     }
+    let outputs = GroupOutputs::new(passes, operations);
+    // A retained view a group writes has contents only from the group's position on.
     let mut produced: BTreeMap<_, _> = views
         .iter()
-        .filter(|view| view.retained)
+        .filter(|view| view.retained && !outputs.writes(view.resource()))
         .map(|view| {
             (
                 view.resource(),
@@ -220,7 +336,9 @@ pub(crate) fn validate_frame_inputs(
             )
         })
         .collect();
-    for pass in passes {
+    for (index, pass) in passes.iter().enumerate() {
+        outputs.refuse_writes(pass)?;
+        produced.extend(outputs.left_before(index));
         let attachments: Vec<_> = pass
             .color
             .iter()
@@ -231,7 +349,7 @@ pub(crate) fn validate_frame_inputs(
         for feature in features
             .iter()
             .flat_map(|feature| &feature.passes)
-            .filter(|feature| feature.slot == pass.slot)
+            .filter(|feature| feature.entry() == pass.entry())
         {
             validate_feature(pass, feature, &attachments, &produced)?;
         }
@@ -241,23 +359,24 @@ pub(crate) fn validate_frame_inputs(
     }
     Ok(())
 }
+/// Each transparent entry may hold one transparent feature. Entries run in the order the frame
+/// lists them, so water and alpha in separate entries compose in that order; several features in
+/// one entry would need their packets sorted against each other, which the executor does not do.
 fn validate_transparency(features: &[FeatureDeclaration]) -> Result<(), FrameError> {
-    // Water replaces radiance from an opaque snapshot. Combining transparent
-    // writers requires packet sorting, which this executor does not yet provide.
-    let water_count = features
+    let mut seen = std::collections::BTreeSet::new();
+    features
         .iter()
         .flat_map(|feature| &feature.passes)
-        .filter(|pass| pass.slot == PassSlot::TransparentWater)
-        .count();
-    if water_count > 1
-        || features
-            .iter()
-            .flat_map(|feature| &feature.passes)
-            .any(|pass| pass.slot == PassSlot::TransparentAlpha)
-    {
-        return Err(FrameError::TransparentOrdering);
-    }
-    Ok(())
+        .filter(|pass| {
+            matches!(
+                pass.slot,
+                PassSlot::TransparentWater | PassSlot::TransparentAlpha
+            )
+        })
+        .find(|pass| !seen.insert(pass.entry()))
+        .map_or(Ok(()), |pass| {
+            Err(FrameError::TransparentOrdering(pass.entry()))
+        })
 }
 /// Structural sample-count check, for callers that cannot ask the adapter.
 ///
@@ -292,7 +411,7 @@ fn validate_attachments(
         .chain(&pass.depth)
         .collect();
     if attachments.is_empty() {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     validate_attachment_shapes(pass, &attachments)?;
     for attachment in &attachments {
@@ -315,7 +434,7 @@ fn validate_attachments(
                 (true, AttachmentLoad::ClearColor(_)) | (false, AttachmentLoad::ClearDepth(_))
             )
         {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
         if produced.contains_key(&attachment.resource)
             && matches!(
@@ -331,7 +450,7 @@ fn validate_attachments(
                 || previous.size != attachment.size
                 || previous.samples != attachment.samples
             {
-                return Err(FrameError::AttachmentContract(pass.slot));
+                return Err(FrameError::AttachmentContract(pass.entry()));
             }
         } else if produced.contains_key(&attachment.resource) {
             return Err(FrameError::AttachmentHazard(attachment.resource));
@@ -351,7 +470,7 @@ fn validate_attachment_shapes(
             return Err(FrameError::AttachmentHazard(attachment.resource));
         }
         if attachment.size != attachments[0].size || attachment.samples != attachments[0].samples {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
     }
     Ok(())
@@ -375,11 +494,12 @@ fn validate_feature(
                 .iter()
                 .map(|attachment| attachment.format)
                 .collect::<Vec<_>>()
+        || (feature.requires_no_depth && pass.depth.is_some())
         || feature
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))
     {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     for resource in &feature.reads {
         let sampled_depth = pass.depth.as_ref().is_some_and(|depth| {
@@ -430,7 +550,8 @@ pub struct PrepareContext<'a> {
     publications: worldrunner_render_gpu::submission::Publications,
     staged: Vec<Staged>,
     views: Vec<AttachmentView>,
-    completed: Vec<PassSlot>,
+    passes: Vec<PassDeclaration>,
+    completed: Vec<PassEntry>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -444,14 +565,15 @@ impl<'a> PrepareContext<'a> {
             publications,
             staged: Vec::new(),
             views: Vec::new(),
+            passes: Vec::new(),
             completed: Vec::new(),
         })
     }
-    /// Whether a validated geometry prefix already encoded this slot in the same frame.
-    pub fn completed_in_prefix(&self, slot: PassSlot) -> bool {
-        self.completed.contains(&slot)
+    /// Whether a validated geometry prefix already encoded this entry in the same frame.
+    pub fn completed_in_prefix(&self, entry: PassEntry) -> bool {
+        self.completed.contains(&entry)
     }
-    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassSlot]) {
+    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassEntry]) {
         self.completed = completed.to_vec();
     }
     pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
@@ -463,6 +585,9 @@ impl<'a> PrepareContext<'a> {
     }
     pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
         self.views = views.to_vec();
+    }
+    pub(crate) fn set_passes(&mut self, passes: &[PassDeclaration]) {
+        self.passes = passes.to_vec();
     }
     /// Frame-local checked inputs, available only after full plan validation.
     pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
@@ -508,19 +633,29 @@ impl<'a> PrepareContext<'a> {
             workgroups,
         });
     }
+    /// Stages `bytes` for `destination` at `offset`, copied in staging order like
+    /// [`Self::copy_buffer_region`]. The bytes are written into the frame authority's reusable
+    /// staging now; a cancelled frame never copies them. `bytes` must be a multiple of
+    /// `wgpu::COPY_BUFFER_ALIGNMENT` long and fit `destination`, which must allow `COPY_DST`.
+    /// An empty upload copies nothing and stages nothing.
     pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
-        use wgpu::util::DeviceExt;
-        let staging = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("frame upload"),
-                contents: bytes,
-                usage: wgpu::BufferUsages::COPY_SRC,
-            });
+        let size = bytes.len() as u64;
+        assert!(
+            destination.usage().contains(wgpu::BufferUsages::COPY_DST)
+                && offset.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+                && offset
+                    .checked_add(size)
+                    .is_some_and(|end| end <= destination.size()),
+            "upload of {size} bytes at {offset} does not fit {destination:?}"
+        );
+        if bytes.is_empty() {
+            return;
+        }
+        let source = self.publications.stage_upload(self.device, bytes);
         self.staged.push(Staged::Copy {
-            source: (staging, 0),
+            source,
             destination: (destination.clone(), offset),
-            bytes: bytes.len() as u64,
+            bytes: size,
         });
     }
     /// Publishes staged copies and dispatches only after all fallible preparations succeed.
@@ -567,7 +702,19 @@ impl<'a> PrepareContext<'a> {
 /// inter-slot compute, copy and fullscreen operations. Those operations are not
 /// part of this geometry-only interface; stock effect validation remains separate.
 pub struct DrawContext {
+    /// The role of the entry being drawn, which is `entry.slot()`.
     pub slot: PassSlot,
+    /// The entry being drawn. A feature declared in two entries of one role tells them
+    /// apart by `entry.occurrence()`.
+    pub entry: PassEntry,
+}
+impl DrawContext {
+    pub const fn new(entry: PassEntry) -> Self {
+        Self {
+            slot: entry.slot(),
+            entry,
+        }
+    }
 }
 
 /// Features receive neither a queue nor authority to open or replace attachments.
@@ -614,6 +761,7 @@ pub struct BorrowedFeature<'a> {
 #[derive(Clone, Debug)]
 pub struct AttachmentView {
     retained: bool,
+    initialized_allocation: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -626,8 +774,26 @@ impl AttachmentView {
         self.retained = true;
         self
     }
-    pub(crate) fn retained(&self) -> bool {
+    /// Whether this view declares initialized contents from an earlier ordered submission.
+    pub fn retained(&self) -> bool {
         self.retained
+    }
+
+    /// Declares that the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission in other layers, without claiming any for this view's own layer. Every
+    /// view of a texture whose allocation is initialized is declared the same way, so the frame
+    /// imports the texture once whichever of its layers the frame attaches. The caller must
+    /// retain the allocation and submit encoders in preparation order.
+    #[must_use]
+    pub fn with_initialized_allocation(mut self) -> Self {
+        self.initialized_allocation = true;
+        self
+    }
+
+    /// Whether the allocation behind this view holds initialized contents from an earlier
+    /// ordered submission: this view's own, or another layer's.
+    pub fn allocation_initialized(&self) -> bool {
+        self.retained || self.initialized_allocation
     }
 
     pub const fn resource(&self) -> ResourceRef {
@@ -674,6 +840,7 @@ impl AttachmentView {
         Ok(Self {
             resource,
             retained: self.retained,
+            initialized_allocation: self.initialized_allocation,
             view: self.view.clone(),
             format: self.format,
         })
@@ -699,6 +866,7 @@ impl AttachmentView {
             resource,
             view,
             retained: false,
+            initialized_allocation: false,
             format: texture.format(),
         })
     }
@@ -747,4 +915,6 @@ pub struct FramePlan<'a> {
     pub passes: &'a [PassDeclaration],
     pub views: &'a [AttachmentView],
     pub requested: &'a [&'static str],
+    /// Operations groups the executor encodes at their positions in `passes`.
+    pub operations: &'a [OperationsGroup<'a>],
 }

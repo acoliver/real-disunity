@@ -201,7 +201,7 @@ impl Content for Session<'_> {
         self.host.options.window_mode
     }
     fn window_on_top(&self) -> bool {
-        self.host.window_on_top
+        self.host.window_level == winit::window::WindowLevel::AlwaysOnTop
     }
     fn size(&self) -> [u32; 2] {
         self.host.options.size
@@ -282,6 +282,9 @@ impl Content for Session<'_> {
                 temporal_history_reset: renderer.temporal_history_reset(),
                 presentation_budget_bytes: renderer.presentation_budget_bytes(),
                 capture_pool_bytes: renderer.capture_pool_bytes(),
+                resident_bytes: renderer.resident_bytes(),
+                texture_tier: renderer.texture_tier(),
+                upload_staging: renderer.upload_staging(),
             });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;

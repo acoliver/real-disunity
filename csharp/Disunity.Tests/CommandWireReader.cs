@@ -22,10 +22,15 @@ internal static unsafe class CommandWireReader
 
     private static string Flat(DisunityOffscreenWork r) => r.kind switch
     {
-        1 => $"Blit source={r.source_kind}:{r.source} target={r.target} material={r.material} pass={r.pass}",
-        2 => $"Copy source={r.source_kind}:{r.source}[{r.source_element},{r.source_mip}] target={r.target}[{r.target_element},{r.target_mip}]",
+        1 => $"Blit source={r.source_kind}:{r.source} target={WorkTarget(r)} material={r.material} pass={r.pass}",
+        2 => $"Copy source={r.source_kind}:{r.source}[{r.source_element},{r.source_mip}] target={WorkTarget(r)}[{r.target_element},{r.target_mip}]",
         var other => $"Flat{other}",
     };
+
+    /// <summary>A blit or copy target: a render texture by its world id, or <c>temp:</c> and the property name id of a temporary.</summary>
+    private static string WorkTarget(DisunityOffscreenWork r) => r.target_kind == 1
+        ? $"temp:{unchecked((int)(uint)r.target)}"
+        : r.target.ToString(CultureInfo.InvariantCulture);
 
     private static byte[] Detail(ulong world, uint token)
     {
@@ -48,18 +53,23 @@ internal static unsafe class CommandWireReader
             7 => $"Keyword {input.Text()}={input.Bool()}",
             8 => $"Allocate {input.I32()} {input.Texture()}",
             9 => $"Release {input.I32()}",
-            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()}",
+            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()} buffers={input.Optional(input.Buffers)}",
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
             15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
-            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()} block=[{input.Optional(input.Block)}]",
+            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()}{Instances(input.U32())} block=[{input.Optional(input.Block)}]",
             17 => $"DrawProcedural matrix={input.Floats(16)} material={input.U64()} pass={input.I32()} topology={input.U8()} vertices={input.U32()} instances={input.U32()}",
+            18 => $"Viewport rect={input.Floats(4)}",
+            19 => $"GenerateMips texture={input.U64()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
         return text;
     }
+
+    /// <summary>A mesh draw's instance count, written only when it is not the one instance of a plain draw.</summary>
+    private static string Instances(uint count) => count == 1 ? "" : $" instances={count}";
 
     private sealed class Cursor(byte[] bytes)
     {
@@ -101,6 +111,13 @@ internal static unsafe class CommandWireReader
         }
 
         public string Optional(Func<string> read) => U8() == 0 ? "-" : read();
+
+        /// <summary>A camera's target buffers: the color render textures in order, then the depth render texture or <c>-</c>.</summary>
+        public string Buffers()
+        {
+            var colors = List(U64);
+            return $"[{string.Join(",", colors)}]/{Optional(() => U64().ToString())}";
+        }
 
         public string Target() => U8() switch
         {
@@ -153,7 +170,7 @@ internal static unsafe class CommandWireReader
         private string Slot()
         {
             var kind = U8();
-            var texture = kind switch { 0 => $"asset:{U64()}", 1 => $"render:{U64()}", 2 => $"global:{Text()}", _ => "none" };
+            var texture = kind switch { 0 => $"asset:{U64()}", 1 => $"render:{U64()}", 2 => $"global:{Text()}", 4 => $"temporary:{I32()}", _ => "none" };
             return $"{texture} scale={Floats(2)} offset={Floats(2)}";
         }
 
@@ -162,10 +179,11 @@ internal static unsafe class CommandWireReader
             var (w, h, format, depth, mips) = (U32(), U32(), U32(), U32(), U32());
             var srgb = Bool();
             var (dimension, volumeDepth) = (U32(), U32());
+            var autoMips = Bool() ? " automips" : "";
             var (wu, wv, ww, filter, aniso, bias) = (U32(), U32(), U32(), U32(), U32(), F32());
             U64();
             var shape = dimension == 2 && volumeDepth == 1 ? "" : $" shape={dimension}x{volumeDepth}";
-            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
+            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape}{autoMips} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
         }
     }
 }

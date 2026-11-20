@@ -44,6 +44,7 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
             crate::FrameProfile::Legacy,
             source().effects(),
             &crate::presentation::PresentationPolicy {
+                game: crate::GameRendering::default(),
                 receiver_gradients:
                     worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
                 budget: crate::PresentationBudget(budget).into(),
@@ -77,6 +78,7 @@ impl Budgeted {
             None,
             crate::FrameProfile::Legacy,
             &mut presentation,
+            &mut crate::renderer::texture_tiers::TextureTiers::default(),
         )
         .unwrap();
         Self {

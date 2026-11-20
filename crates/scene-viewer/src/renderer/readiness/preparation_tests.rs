@@ -1,3 +1,5 @@
+mod offscreen;
+
 use super::*;
 use worldrunner_render_plan::*;
 use worldrunner_render_scene::{Viewport, draw::PreparedScene};
@@ -144,6 +146,7 @@ fn setup(
         profile,
         old.effects(),
         &crate::presentation::PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(2 * 1024 * 1024).into(),
@@ -152,9 +155,15 @@ fn setup(
         },
     )
     .unwrap();
-    let mut resident =
-        super::super::environment::new_resident(context, old, None, profile, &mut presentation)
-            .unwrap();
+    let mut resident = super::super::environment::new_resident(
+        context,
+        old,
+        None,
+        profile,
+        &mut presentation,
+        &mut crate::renderer::texture_tiers::TextureTiers::default(),
+    )
+    .unwrap();
     let mut target = worldrunner_render_scene::offscreen::OffscreenTarget::new(
         context.device(),
         Viewport {

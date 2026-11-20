@@ -17,6 +17,7 @@ use worldrunner_world_simulation::{
 };
 
 use super::super::bounds::Bounds;
+use super::super::depth_range::DepthRange;
 use super::super::frame::{Adapted, Available, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{available, material, render_texture, shader, snapshot, world};
@@ -24,6 +25,7 @@ use super::support::{available, material, render_texture, shader, snapshot, worl
 const FORWARD: &str = "UniversalForward";
 const CASTER: &str = "ShadowCaster";
 const UNLIT: &str = "Unlit";
+const DEFAULT_UNLIT: &str = "SRPDefaultUnlit";
 /// The meshes the renderers draw, one for each so a test can tell them apart in the frame.
 const MESH: u64 = 100;
 
@@ -98,6 +100,7 @@ fn setup(world: &mut World, camera: ComponentHandle, view: Mat4, target: TargetR
             view: view.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target,
+            buffers: None,
         })
         .unwrap();
 }
@@ -152,22 +155,28 @@ fn draw(world: &mut World, desc: RendererListDesc) {
         .unwrap();
 }
 
-/// The shaders `available` knows, each with the `LightMode` values `MODES` gives its name.
+/// The shaders `available` knows, each with the `LightMode` values and the pass with no tag that
+/// `MODES` gives its name.
 fn with_modes(snapshot: &worldrunner_world_simulation::graphics::GraphicsSnapshot) -> Available {
     let mut available = available(snapshot, 3, &[]);
     for (id, info) in &mut available.shaders {
         let name = &snapshot.shaders[id].name;
-        let (_, modes) = MODES.iter().find(|(held, _)| held == name).unwrap();
+        let (_, modes, untagged) = MODES.iter().find(|(held, ..)| held == name).unwrap();
         info.light_modes = modes.iter().map(|mode| (*mode).to_owned()).collect();
+        info.has_untagged = *untagged;
     }
     available
 }
 
 fn run(world: &mut World, edit: impl FnOnce(&mut Available)) -> Adapted {
+    run_with(world, &Settings::default(), edit)
+}
+
+fn run_with(world: &mut World, settings: &Settings, edit: impl FnOnce(&mut Available)) -> Adapted {
     let snapshot = snapshot(world);
     let mut available = with_modes(&snapshot);
     edit(&mut available);
-    adapt(&snapshot, &available, &Settings::default())
+    adapt(&snapshot, &available, settings)
 }
 
 /// The lists the frame draws.
@@ -211,10 +220,26 @@ fn shaders(world: &mut World) -> [MaterialId; 3] {
     .map(|shader| material(world, shader))
 }
 
-const MODES: [(&str, &[&str]); 3] = [
-    ("forward-and-caster", &[FORWARD, CASTER]),
-    ("unlit", &[UNLIT]),
-    ("forward", &[FORWARD]),
+/// Three more: 3 has one pass with no tag, 4 has a forward pass and a pass with no tag, and 5 has
+/// one pass tagged `Always`.
+fn untagged_shaders(world: &mut World) -> [MaterialId; 3] {
+    [
+        shader(world, "untagged"),
+        shader(world, "forward-and-untagged"),
+        shader(world, "always"),
+    ]
+    .map(|shader| material(world, shader))
+}
+
+/// The name of each shader, the `LightMode` values of its tagged passes and whether it has a pass
+/// with no tag.
+const MODES: [(&str, &[&str], bool); 6] = [
+    ("forward-and-caster", &[FORWARD, CASTER], false),
+    ("unlit", &[UNLIT], false),
+    ("forward", &[FORWARD], false),
+    ("untagged", &[], true),
+    ("forward-and-untagged", &[FORWARD], true),
+    ("always", &["Always"], false),
 ];
 
 #[test]
@@ -299,9 +324,10 @@ fn a_drawing_list_admits_by_layer_queue_and_pass_tag_and_counts_the_rest_by_reas
     assert_eq!(drawn, [(0, 0), (4, 0)]);
     assert_eq!(
         listed[0].draws[0].pass,
-        PassSelector::Tag {
+        PassSelector::TagWithUntagged {
             key: "LightMode".to_owned(),
             values: vec![FORWARD.to_owned()],
+            untagged: DEFAULT_UNLIT.to_owned(),
         }
     );
     let report = &adapted.report.lists;
@@ -329,6 +355,97 @@ fn the_first_listed_tag_a_shader_has_names_the_pass_a_draw_is_counted_under() {
     assert_eq!(
         adapted.report.lists.draws_by_tag,
         counts(&[(FORWARD, 1), (UNLIT, 1)])
+    );
+}
+
+#[test]
+fn a_list_naming_srp_default_unlit_draws_a_shader_with_a_pass_with_no_light_mode() {
+    let mut world = world();
+    let [_, _, forward] = shaders(&mut world);
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    placed(&mut world, (1, 0, Vec3::ZERO), &[forward], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0), (1, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(
+        report.draws_by_tag,
+        counts(&[(FORWARD, 1), (DEFAULT_UNLIT, 1)])
+    );
+    assert!(report.left_out.is_empty(), "{:?}", report.left_out);
+}
+
+#[test]
+fn a_list_not_naming_srp_default_unlit_leaves_out_a_shader_with_a_pass_with_no_light_mode() {
+    let mut world = world();
+    let [_, _, forward] = shaders(&mut world);
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    placed(&mut world, (1, 0, Vec3::ZERO), &[forward], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(meshes(&adapted, listed[0]), [(1, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(report.draws_by_tag, counts(&[(FORWARD, 1)]));
+    assert_eq!(
+        report.left_out,
+        counts(&[("no pass with the list's tags", 1)])
+    );
+}
+
+#[test]
+fn a_list_with_nothing_but_untagged_shaders_is_empty_unless_it_names_srp_default_unlit() {
+    let mut world = world();
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, "UniversalForwardOnly"]));
+    draw(
+        &mut world,
+        drawing(&["UniversalForwardOnly", DEFAULT_UNLIT]),
+    );
+    let adapted = run(&mut world, |_| {});
+    assert_eq!(lists(&adapted).len(), 1);
+    assert_eq!(adapted.report.lists.empty, 1);
+    assert_eq!(adapted.report.lists.drawn, 1);
+}
+
+#[test]
+fn a_list_counts_a_shader_with_a_tagged_and_an_untagged_pass_under_the_first_tag_it_names() {
+    let mut world = world();
+    let [_, mixed, _] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[mixed], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    draw(&mut world, drawing(&[DEFAULT_UNLIT, FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    // The list's own order of tags decides, as it does for tagged passes.
+    assert_eq!(
+        adapted.report.lists.draws_by_tag,
+        counts(&[(FORWARD, 1), (DEFAULT_UNLIT, 1)])
+    );
+    assert_eq!(lists(&adapted).len(), 2);
+}
+
+#[test]
+fn a_pass_tagged_always_is_not_a_pass_with_no_light_mode_for_a_list() {
+    let mut world = world();
+    let [.., always] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[always], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    let adapted = run(&mut world, |_| {});
+    assert!(lists(&adapted).is_empty());
+    assert_eq!(
+        adapted.report.lists.left_out,
+        counts(&[("no pass with the list's tags", 1)])
     );
 }
 
@@ -606,7 +723,7 @@ fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
 }
 
 #[test]
-fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_bound() {
+fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);
     placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
@@ -621,11 +738,13 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
     let listed = lists(&adapted);
     let first = listed[0];
     let values = &first.values.values;
-    // The light shines along +Z, so the direction toward it is -Z.
+    // The light shines along +Z, so the direction toward it is -Z. It is the host's fallback in
+    // the frame's starting globals, below whatever the script sets, and not in the view.
     assert_eq!(
-        values.get("_MainLightPosition"),
+        adapted.frame.globals.values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
+    assert_eq!(values.get("_MainLightPosition"), None);
     // The script's projection is the identity, which has no perspective divide and puts the
     // near plane at 1.
     assert_eq!(
@@ -657,7 +776,30 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         values.get("_WorldSpaceCameraPos"),
         Some(&PropertyValue::Vector([-1.0, -2.0, -3.0, 0.0]))
     );
-    assert!(first.target.color.is_some() && first.target.depth.is_some());
+    assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
+}
+
+#[test]
+fn a_draw_list_takes_the_clip_depth_the_settings_say() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(
+        &mut world,
+        Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+        u32::MAX,
+    );
+    draw(&mut world, drawing(&[FORWARD]));
+    let settings = Settings::default().with_depth(DepthRange::Reversed);
+    let adapted = run_with(&mut world, &settings, |_| {});
+    let values = &lists(&adapted)[0].values.values;
+    // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
+    assert_eq!(
+        values.get("unity_MatrixVP"),
+        Some(&PropertyValue::Matrix([
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, 2.0, -1.0, 1.0
+        ]))
+    );
 }
 
 #[test]
@@ -680,7 +822,7 @@ fn a_view_change_after_the_setup_reaches_the_draw_and_keeps_the_bound_targets() 
         Some(&PropertyValue::Vector([-4.0, -5.0, -6.0, 0.0])),
         "the draw sees the view the command buffer set"
     );
-    assert!(first.target.color.is_some() && first.target.depth.is_some());
+    assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
 }
 
 #[test]
@@ -829,6 +971,7 @@ fn a_draw_into_a_mip_has_the_size_of_that_mip() {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })

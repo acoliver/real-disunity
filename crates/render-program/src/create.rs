@@ -152,7 +152,7 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D2, size, format, bytes)
+        self.create_source_texture(label, TextureKind::D2, size, 1, format, bytes)
     }
 
     /// Uploads the base level of a cube of six `edge` by `edge` faces, sampled through a cube
@@ -169,20 +169,55 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Cube, [edge, edge], format, bytes)
+        self.create_source_texture(label, TextureKind::Cube, [edge, edge], 6, format, bytes)
     }
 
-    /// The upload of a 2D texture (one layer) or a cube (six), `size` being one face.
+    /// Uploads the base level of a 2D array of `layers` layers of `size`, sampled through an
+    /// array view even when there is one layer. `bytes` holds the layers one after the other,
+    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    ///
+    /// # Errors
+    /// Fails when `bytes` is not exactly the `layers` layers, `layers` is zero, or the upload plan
+    /// or device refuses the texture, as for a 2D texture.
+    pub fn create_texture_array(
+        &mut self,
+        label: &str,
+        size: [u32; 2],
+        layers: u32,
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::Array, size, layers, format, bytes)
+    }
+
+    /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. The texture is sampled through a
+    /// 3D view. A deeper volume has no upload.
+    ///
+    /// # Errors
+    /// Fails as for a 2D texture, and when the device's 3D extent limit is below the slice.
+    pub fn create_texture_3d(
+        &mut self,
+        label: &str,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::D3, size, 1, format, bytes)
+    }
+
+    /// The upload of a 2D texture (one layer), a one-slice 3D texture, a cube (six) or an array
+    /// (`faces`), `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,
         kind: TextureKind,
         size: [u32; 2],
+        faces: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
         self.authority.check_device()?;
-        let faces: u32 = if kind == TextureKind::Cube { 6 } else { 1 };
         let block = format
             .block_copy_size(None)
             .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
@@ -239,10 +274,10 @@ impl ProgramRuntime {
                 wgpu::TextureUsages::COPY_SRC,
             )
         })??;
-        let entry = if kind == TextureKind::Cube {
-            entry_viewed(texture, wgpu::TextureViewDimension::Cube)
-        } else {
-            entry(texture)
+        let entry = match kind {
+            TextureKind::Cube => entry_viewed(texture, wgpu::TextureViewDimension::Cube),
+            TextureKind::Array => entry_viewed(texture, wgpu::TextureViewDimension::D2Array),
+            TextureKind::D2 | TextureKind::D3 => entry(texture),
         };
         Ok(self.store.add_texture(entry, reservation))
     }
@@ -308,8 +343,7 @@ impl ProgramRuntime {
     ///
     /// # Errors
     /// Fails when the budget or the device refuses the texture.
-    #[cfg(feature = "unity")]
-    pub(crate) fn create_empty_texture(
+    pub fn create_empty_texture(
         &mut self,
         label: &str,
         shape: TextureShape,
@@ -415,9 +449,15 @@ impl ProgramRuntime {
         Ok(self.store.add_texture(entry(texture), reservation))
     }
 
-    /// The wgpu texture behind a handle.
-    #[cfg(feature = "unity")]
-    pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
+    /// The wgpu texture behind a handle, for work the runtime does not record itself, such as
+    /// sampling it after the submission that writes it or reading a block-compressed texture
+    /// back. The result shares wgpu's reference-counted texture; the runtime still counts its
+    /// storage in the budget until the handle is released. Drop the clone when the allocation
+    /// is replaced: the runtime cannot track references the caller retains.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown handle.
+    pub fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }
 
@@ -484,21 +524,19 @@ impl ProgramRuntime {
 }
 
 /// The shape of a texture [`ProgramRuntime::create_empty_texture`] makes.
-#[cfg(feature = "unity")]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct TextureShape {
-    pub(crate) size: [u32; 2],
-    pub(crate) layers: u32,
-    pub(crate) mips: u32,
-    pub(crate) format: wgpu::TextureFormat,
+pub struct TextureShape {
+    pub size: [u32; 2],
+    pub layers: u32,
+    pub mips: u32,
+    pub format: wgpu::TextureFormat,
     /// Whether a kernel binds the texture as a storage image, which the format must allow.
-    pub(crate) storage: bool,
+    pub storage: bool,
     /// The dimension of the default view, which is the one a kernel or a draw samples the texture
     /// through. A 3D view makes a 3D texture with `layers` as its depth.
-    pub(crate) view: wgpu::TextureViewDimension,
+    pub view: wgpu::TextureViewDimension,
 }
 
-#[cfg(feature = "unity")]
 impl TextureShape {
     fn volume(self) -> bool {
         self.view == wgpu::TextureViewDimension::D3

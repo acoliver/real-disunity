@@ -8,34 +8,43 @@
 //! elements than it holds refuses it when its constants are packed. A texture slot becomes a
 //! texture input under its name. Its scale and offset reach a shader as the vector `<name>_ST` of
 //! the fallback layer ([`fallback_layer`]), where they sit below anything a property block or the
-//! material sets.
+//! material sets. A structured buffer a material binds to a property name becomes the buffer
+//! input under that name when the host has it on the GPU ([`bind_buffers`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::runtime::BufferHandle;
 use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
-    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
+    ComputeBufferId, PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef,
+    WorldRenderTexture,
 };
 
 use super::assets::sampler_of_world;
 use super::defaults::ShaderFill;
 use super::ids;
+use super::stand_ins::StandInReason;
+
+/// The stored textures the host refused: none, for a frame the adapter did not describe.
+static NO_REFUSALS: BTreeMap<u64, StandInReason> = BTreeMap::new();
 
 /// Why a texture property is counted that was given its shader's default.
 const DEFAULT_READ: &str = "no texture set, the shader's default read";
-/// Why a texture property is counted that was given Unity's default texture: nothing set it and
-/// the shader does not declare it. Unity binds its grey default 2D texture (`UnityDefault2D`) to
-/// such a property, as frame-debugger reports of unset `_CameraDepthTexture` and
-/// `_MotionVectorTexture` show.
-const UNDECLARED_READ: &str = "no texture set and not declared, Unity's default grey read";
+/// Why a texture property is counted that was given the host's grey default: nothing set it and
+/// the shader does not declare it. Old World's shader programs reflect such slots (a cube slot
+/// beside the 2D source of the URP blit program, for one) and no layer sets them. The wording of
+/// the reason is the report text that the tests assert.
+const UNDECLARED_READ: &str = "no texture set and not declared, grey default read";
 
 /// Which textures a frame can name, and which render textures its properties did.
 pub struct Textures<'a> {
     render: &'a BTreeMap<RenderTextureId, WorldRenderTexture>,
     stored: &'a BTreeSet<u64>,
+    /// The stored textures the host could not upload, by why.
+    refused: &'a BTreeMap<u64, StandInReason>,
     used: BTreeSet<RenderTextureId>,
     /// Properties that named no texture the frame can read, by `name: reason`.
     unresolved: BTreeMap<String, usize>,
@@ -54,10 +63,19 @@ impl<'a> Textures<'a> {
         Self {
             render,
             stored,
+            refused: &NO_REFUSALS,
             used: BTreeSet::new(),
             unresolved: BTreeMap::new(),
             filled: BTreeMap::new(),
         }
+    }
+
+    /// These textures with `refused`, the stored textures the host could not upload and why, so
+    /// that a property that names one says so.
+    #[must_use]
+    pub fn with_refused(mut self, refused: &'a BTreeMap<u64, StandInReason>) -> Self {
+        self.refused = refused;
+        self
     }
 
     /// The name of the texture a reference names and the sampler state it is read with, or
@@ -66,7 +84,7 @@ impl<'a> Textures<'a> {
     /// texture's sampler is the one it was uploaded with.
     pub fn resolve(&mut self, texture: &TextureRef) -> Option<(TextureId, Option<SamplerState>)> {
         match *texture {
-            TextureRef::None | TextureRef::Global(_) => None,
+            TextureRef::None | TextureRef::Global(_) | TextureRef::Temporary(_) => None,
             TextureRef::Render(id) => self.render.get(&id).map(|description| {
                 self.used.insert(id);
                 (
@@ -88,12 +106,39 @@ impl<'a> Textures<'a> {
         match texture {
             TextureRef::None => "no texture set",
             TextureRef::Global(_) => "a global the host does not resolve",
+            TextureRef::Temporary(_) => "a temporary render texture outside recorded work",
             TextureRef::Render(_) => "a render texture that no longer exists",
             TextureRef::Asset(identity) if ids::stored_texture(*identity).is_none() => {
                 "an identity a render texture would share"
             }
             TextureRef::Asset(_) => "asset not readable by the host",
         }
+    }
+
+    /// Why a draw that reads a stand-in for `texture`, which resolves to nothing, reads one: the
+    /// reference names a texture the host does not hold. `None` for no texture at all, which the
+    /// world cannot tell from one that did not reach it.
+    fn why_missing(&self, texture: &TextureRef) -> Option<StandInReason> {
+        match texture {
+            TextureRef::None => None,
+            TextureRef::Asset(identity) => Some(
+                self.refused
+                    .get(identity)
+                    .copied()
+                    .unwrap_or(StandInReason::ExistsNotLoaded),
+            ),
+            TextureRef::Global(_) | TextureRef::Temporary(_) | TextureRef::Render(_) => {
+                Some(StandInReason::ExistsNotLoaded)
+            }
+        }
+    }
+
+    /// Counts a property under `reason`, the text of why it names no texture the frame can read.
+    fn count_unresolved(&mut self, name: &str, reason: &str) {
+        *self
+            .unresolved
+            .entry(format!("{name}: {reason}"))
+            .or_default() += 1;
     }
 
     /// The properties that named no texture the frame can read, by `name: reason`.
@@ -159,17 +204,41 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
                 .values
                 .set(name, PropertyValue::MatrixArray(held.clone()));
         }
-        WorldValue::Texture(name, slot) => match textures.resolve(&slot.texture) {
-            Some((texture, sampler)) => {
+        WorldValue::Texture(name, slot) => {
+            layer.stand_ins.remove(name);
+            if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
                 layer
                     .textures
                     .insert(name.clone(), TextureInput { texture, sampler });
-            }
-            None => {
+            } else {
                 layer.textures.remove(name);
+                explain(layer, name, textures.why_missing(&slot.texture));
             }
-        },
+        }
     }
+}
+
+/// Says in `layer` why the property `name` has no texture, when the reference named one.
+fn explain(layer: &mut PropertyLayer, name: &str, why: Option<StandInReason>) {
+    if let Some(reason) = why {
+        layer
+            .stand_ins
+            .insert(name.to_owned(), reason.label().to_owned());
+    }
+}
+
+/// Gives the property `name` of `layer` the stand-in `texture`, for `reason`.
+fn stand_in(layer: &mut PropertyLayer, name: &str, texture: TextureId, reason: StandInReason) {
+    layer.textures.insert(
+        name.to_owned(),
+        TextureInput {
+            texture,
+            sampler: None,
+        },
+    );
+    layer
+        .stand_ins
+        .insert(name.to_owned(), reason.label().to_owned());
 }
 
 /// The layer of `properties`.
@@ -177,8 +246,23 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
     layer_with_defaults(properties, textures, &[], None)
 }
 
-/// The texture a property that no layer sets and the shader does not declare reads: Unity's
-/// default grey texture, when the host registered it, and the names the shader declares.
+/// Binds each of a material's `bindings` (property name, buffer) that `uploaded` holds to its
+/// name in `layer`. A buffer the host does not hold, as one destroyed after it was bound, is left
+/// unbound, so a draw that reads it is left out and counted by the name.
+pub fn bind_buffers(
+    layer: &mut PropertyLayer,
+    bindings: &[(String, ComputeBufferId)],
+    uploaded: &BTreeMap<ComputeBufferId, BufferHandle>,
+) {
+    for (name, id) in bindings {
+        if let Some(handle) = uploaded.get(id) {
+            layer.buffers.insert(name.clone(), *handle);
+        }
+    }
+}
+
+/// The texture a property that no layer sets and the shader does not declare reads: the grey
+/// default texture, when the host registered it, and the names the shader declares.
 #[derive(Clone, Copy, Debug)]
 pub struct Undeclared<'a> {
     pub texture: TextureId,
@@ -206,52 +290,24 @@ pub fn layer_with_defaults(
                 .textures
                 .insert(name.clone(), TextureInput { texture, sampler });
         } else if let (TextureRef::None, Some((_, texture))) = (&slot.texture, default_of(name)) {
-            layer.textures.insert(
-                name.clone(),
-                TextureInput {
-                    texture: *texture,
-                    sampler: None,
-                },
-            );
-            *textures
-                .unresolved
-                .entry(format!("{name}: {DEFAULT_READ}"))
-                .or_default() += 1;
+            // The world cannot say whether the material names no texture or named one that did not
+            // reach it, so the stand-in is not called unset.
+            stand_in(&mut layer, name, *texture, StandInReason::UnsetOrNotLoaded);
+            textures.count_unresolved(name, DEFAULT_READ);
         } else if let (TextureRef::None, Some(rule)) = (&slot.texture, undeclared)
             && !rule.declared.iter().any(|held| held == name)
         {
-            layer.textures.insert(
-                name.clone(),
-                TextureInput {
-                    texture: rule.texture,
-                    sampler: None,
-                },
-            );
-            *textures
-                .unresolved
-                .entry(format!("{name}: {UNDECLARED_READ}"))
-                .or_default() += 1;
+            stand_in(&mut layer, name, rule.texture, StandInReason::Undeclared);
+            textures.count_unresolved(name, UNDECLARED_READ);
         } else {
-            let reason = Textures::why_unresolved(&slot.texture);
-            *textures
-                .unresolved
-                .entry(format!("{name}: {reason}"))
-                .or_default() += 1;
+            textures.count_unresolved(name, Textures::why_unresolved(&slot.texture));
+            explain(&mut layer, name, textures.why_missing(&slot.texture));
         }
     }
     for (name, texture) in defaults {
         if !properties.textures.iter().any(|(held, _)| held == name) {
-            layer.textures.insert(
-                name.clone(),
-                TextureInput {
-                    texture: *texture,
-                    sampler: None,
-                },
-            );
-            *textures
-                .unresolved
-                .entry(format!("{name}: {DEFAULT_READ}"))
-                .or_default() += 1;
+            stand_in(&mut layer, name, *texture, StandInReason::Unset);
+            textures.count_unresolved(name, DEFAULT_READ);
         }
     }
     layer
@@ -322,4 +378,28 @@ pub fn fallback_layer(
         });
     }
     layer
+}
+
+/// Splits the values of `fallback` named in `host_filled` out into a layer of their own, and
+/// gives back the rest of `fallback` first. The frame's globals hold what the host fills for
+/// those names, so their declared defaults belong below the globals and not above them.
+#[must_use]
+pub fn split_below_globals(
+    fallback: PropertyLayer,
+    host_filled: &[&str],
+) -> (PropertyLayer, PropertyLayer) {
+    let mut above = PropertyLayer {
+        textures: fallback.textures,
+        ..PropertyLayer::default()
+    };
+    let mut below = PropertyLayer::default();
+    for (name, value) in fallback.values.iter() {
+        let target = if host_filled.contains(&name) {
+            &mut below
+        } else {
+            &mut above
+        };
+        target.values.set(name, value.clone());
+    }
+    (above, below)
 }

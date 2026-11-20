@@ -1,3 +1,4 @@
+mod frozen;
 #[path = "geometry_prefix.rs"]
 mod geometry_prefix;
 
@@ -271,16 +272,32 @@ impl<F: StageFactory> PostChain<F> {
         Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
         crate::contracts::ContractError,
     > {
+        let textures: Vec<_> = textures.iter().map(|texture| (*texture, None)).collect();
+        self.capture_write_keys_initial(&textures)
+    }
+
+    /// As [`Self::capture_write_keys`], for textures whose allocation the frame imports with an
+    /// initial version: `Some(0)` for a texture that holds contents an earlier submission left,
+    /// as the stock compile imports it when any of its views declares them. A capture and the
+    /// frame it submits must import a texture the same way, or the frame's own import conflicts
+    /// with the capture's.
+    pub fn capture_write_keys_initial(
+        &mut self,
+        textures: &[(&wgpu::Texture, Option<u32>)],
+    ) -> Result<
+        Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+        crate::contracts::ContractError,
+    > {
         use crate::contracts::{ResourceLifetime, Semantic};
         let registry = self.capture_resources.get_or_insert_with(Default::default);
         textures
             .iter()
-            .map(|texture| {
+            .map(|(texture, initial)| {
                 let key = registry.import(
                     texture,
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
-                    None,
+                    *initial,
                 )?;
                 Ok(
                     worldrunner_render_gpu::submission::capture::WriteKey::Resource {
@@ -499,13 +516,23 @@ impl<F: StageFactory> PostChain<F> {
         Ok(declarations)
     }
 
+    /// Records the declarations that [`Self::plan_features`] returned for an earlier frame, for a
+    /// frame that reuses that plan: validation reads the retained declarations, and a reused plan
+    /// does not plan the features again.
+    pub fn adopt_planned_features(&mut self, declarations: &[crate::FeatureDeclaration]) {
+        debug_assert_eq!(self.features.len(), declarations.len());
+        for (feature, declaration) in self.features.iter_mut().zip(declarations) {
+            feature.declaration = declaration.clone();
+        }
+    }
+
     fn prepare_features(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
-        views: &[crate::AttachmentView],
-        completed: &[crate::PassSlot],
+        plan: &crate::FramePlan<'_>,
+        completed: &[crate::PassEntry],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
             .features
@@ -530,7 +557,8 @@ impl<F: StageFactory> PostChain<F> {
             }
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
-        context.set_views(views);
+        context.set_views(plan.views);
+        context.set_passes(plan.passes);
         context.set_completed_prefix(completed);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
@@ -585,22 +613,32 @@ impl<F: StageFactory> PostChain<F> {
         plan: &crate::FramePlan<'_>,
         borrowed: &mut [crate::BorrowedFeature<'_>],
     ) -> Result<(), crate::FrameError> {
+        let declarations = self.declarations(borrowed);
+        crate::frame::validate_plan(
+            plan.passes,
+            &declarations,
+            plan.requested,
+            plan.views,
+            plan.operations,
+        )?;
+        self.encode_validated(device, encoder, plan, borrowed, &declarations)
+    }
+
+    /// Encodes a plan that has passed validation.
+    fn encode_validated(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &crate::FramePlan<'_>,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+        declarations: &[crate::FeatureDeclaration],
+    ) -> Result<(), crate::FrameError> {
         let crate::FramePlan {
             passes,
             views,
-            requested,
+            operations,
+            ..
         } = *plan;
-        let declarations: Vec<_> = borrowed
-            .iter()
-            .map(|feature| feature.declaration.clone())
-            .chain(
-                self.features
-                    .iter()
-                    .map(|feature| feature.declaration.clone()),
-            )
-            .collect();
-        crate::frame::validate_frame_inputs(passes, &declarations, requested, views)?;
-        crate::frame::validate_views(passes, views)?;
         let completed = self.completed_geometry_prefix(encoder, plan)?;
         let mut local_registry = crate::contracts::ResourceRegistry::default();
         let registry = self
@@ -608,23 +646,25 @@ impl<F: StageFactory> PostChain<F> {
             .as_mut()
             .unwrap_or(&mut local_registry);
         let raster =
-            crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, views, &completed)?;
+            crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
+        self.prepare_features(device, encoder, borrowed, plan, &completed)?;
+        let timing = self.timing_state();
+        let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {
-            if completed.contains(&declaration.slot) {
+            let entry = declaration.entry();
+            if completed.contains(&entry) {
                 continue;
             }
-            let context = crate::DrawContext {
-                slot: declaration.slot,
-            };
-            let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
-            raster.encode_stock_pass(index, declaration.slot, encoder, stamp.as_ref(), |pass| {
+            groups.encode_before(index, &timing, encoder)?;
+            let context = crate::DrawContext::new(entry);
+            let stamp = self.stamp(crate::PassId::Geometry(entry));
+            raster.encode_stock_pass(index, entry, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration
                         .passes
                         .iter()
-                        .any(|pass| pass.slot == context.slot)
+                        .any(|pass| pass.entry() == entry)
                 }) {
                     feature.prepared.draw(&context, pass);
                 }
@@ -633,7 +673,7 @@ impl<F: StageFactory> PostChain<F> {
                         .declaration
                         .passes
                         .iter()
-                        .any(|pass| pass.slot == context.slot)
+                        .any(|pass| pass.entry() == entry)
                 }) {
                     feature
                         .prepared
@@ -643,6 +683,7 @@ impl<F: StageFactory> PostChain<F> {
                 }
             })?;
         }
+        groups.encode_rest(&timing, encoder)?;
         self.finish_feature_draws(device, encoder, borrowed)
     }
 

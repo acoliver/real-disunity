@@ -24,7 +24,9 @@ fn import_views(
                     Semantic::Unspecified,
                     views
                         .iter()
-                        .any(|other| other.texture() == view.texture() && other.retained())
+                        .any(|other| {
+                            other.texture() == view.texture() && other.allocation_initialized()
+                        })
                         .then_some(0),
                 )
                 .map(|key| (view.resource(), key))
@@ -46,7 +48,7 @@ pub(crate) fn compile(
         let uses = features
             .iter()
             .flat_map(|feature| &feature.passes)
-            .filter(|feature| feature.slot == pass.slot)
+            .filter(|feature| feature.entry() == pass.entry())
             .flat_map(|feature| &feature.reads)
             .map(|resource| {
                 checked_view(registry, &keys, *resource, versions[resource])
@@ -104,7 +106,7 @@ fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
         .filter(|view| {
             views
                 .iter()
-                .any(|other| other.texture() == view.texture() && other.retained())
+                .any(|other| other.texture() == view.texture() && other.allocation_initialized())
         })
         .map(|view| (view.resource(), 0))
         .collect()

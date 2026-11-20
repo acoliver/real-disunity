@@ -5,7 +5,8 @@
     let size = vec2<i32>(textureDimensions(depths));
     let centre = textureLoad(depths, pixel, 0).r;
     let axis = vec2<i32>(AXIS_X, AXIS_Y);
-    var sum = textureLoad(occlusion, pixel, 0).r;
+    let anchor = textureLoad(occlusion, pixel, 0).r;
+    var sum = 0.0;
     var total = 1.0;
     for (var tap = -4; tap <= 4; tap++) {
         if tap == 0 { continue; }
@@ -14,8 +15,8 @@
         if difference >= 1.0 { continue; }
         let spatial = f32(tap * tap) / (2.0 * (4.0 / 1.5) * (4.0 / 1.5));
         let weight = exp(-7.0 * difference - spatial);
-        sum += weight * textureLoad(occlusion, p, 0).r;
+        sum += weight * (textureLoad(occlusion, p, 0).r - anchor);
         total += weight;
     }
-    return sum / total;
+    return anchor + sum / total;
 }

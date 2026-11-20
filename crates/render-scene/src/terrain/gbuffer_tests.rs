@@ -8,7 +8,8 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{RenderScene, SceneOpaquePath, SceneSsr};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
+    FrameFeature, PassEntry, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef,
+    ToneMap,
 };
 
 use super::capture_tests::scenes;
@@ -25,7 +26,7 @@ use crate::renderer::ScenePipelines;
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-fn reflections() -> SceneSsr {
+pub(super) fn reflections() -> SceneSsr {
     SceneSsr {
         enabled: true,
         max_steps: 64,
@@ -39,26 +40,33 @@ fn reflections() -> SceneSsr {
 /// A plain HDR frame, and one with reflections, whose depth prepass completes scene depth
 /// before Opaque.
 #[derive(Clone, Copy, Debug)]
-enum Frame {
+pub(super) enum Frame {
     Plain,
     Reflecting,
+    Flat,
 }
 
 impl Frame {
-    fn scene(self) -> RenderScene {
+    pub(super) fn scene(self) -> RenderScene {
         match self {
             Self::Plain => scenes::plain(),
             Self::Reflecting => scenes::reflecting(reflections()),
+            Self::Flat => scenes::flat_reflecting(reflections()),
         }
     }
 
-    fn uniform(self, scene: &RenderScene) -> FrameUniform {
+    pub(super) fn uniform(self, scene: &RenderScene) -> FrameUniform {
         match self {
             Self::Plain => scenes::frame(scenes::pose()),
-            Self::Reflecting => {
+            Self::Reflecting | Self::Flat => {
                 scenes::frame_with(scenes::pose(), scene.effects().expect("scene effects"))
             }
         }
+    }
+
+    /// Whether the frame has the depth prepass, which completes scene depth before Opaque.
+    pub(super) const fn prepassed(self) -> bool {
+        matches!(self, Self::Reflecting | Self::Flat)
     }
 
     fn configuration(self, opaque_path: SceneOpaquePath) -> RendererConfiguration {
@@ -66,7 +74,7 @@ impl Frame {
             RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
         settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
         settings.hdr = Some((1.0, ToneMap::Reinhard));
-        if matches!(self, Self::Reflecting) {
+        if matches!(self, Self::Reflecting | Self::Flat) {
             settings.ssr = Some(reflections());
         }
         settings.opaque_path = opaque_path;
@@ -74,35 +82,59 @@ impl Frame {
     }
 }
 
-struct Drawn {
-    renderer: ConfiguredFrameRenderer,
-    gpu: SceneGpu,
-    pipelines: ScenePipelines,
-    frame: FrameUniform,
+pub(super) struct Drawn {
+    pub(super) renderer: ConfiguredFrameRenderer,
+    pub(super) gpu: SceneGpu,
+    pub(super) pipelines: ScenePipelines,
+    pub(super) frame: FrameUniform,
 }
 
 fn prepare(context: &GpuContext, frame: Frame, opaque_path: SceneOpaquePath) -> Drawn {
-    let scene = frame.scene();
+    prepare_scene(context, frame, opaque_path, &frame.scene())
+}
+
+/// [`prepare`] for `scene`, which has `frame`'s effects.
+pub(super) fn prepare_scene(
+    context: &GpuContext,
+    frame: Frame,
+    opaque_path: SceneOpaquePath,
+    scene: &RenderScene,
+) -> Drawn {
+    let scene = scene.clone();
     let uniform = frame.uniform(&scene);
-    let pipelines = ScenePipelines::new(context.device(), HDR);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    gpu.set_frame(context.queue(), uniform);
-    let renderer = ConfiguredFrameRenderer::new(
-        context,
-        frame.configuration(opaque_path),
-        AllocationBudget(1 << 28),
-    )
-    .unwrap();
+    prepare_with(context, &scene, &uniform, frame.configuration(opaque_path))
+}
+
+/// Uploads `scene`, sets `uniform` and builds a renderer with `configuration`.
+pub(super) fn prepare_with(
+    context: &GpuContext,
+    scene: &RenderScene,
+    uniform: &FrameUniform,
+    configuration: RendererConfiguration,
+) -> Drawn {
+    let pipelines = if configuration.ssao.is_some() {
+        ScenePipelines::with_ssao(context.device(), HDR, 1).unwrap()
+    } else {
+        ScenePipelines::new(context.device(), HDR)
+    };
+    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+    gpu.set_frame(context.queue(), *uniform);
+    let renderer =
+        ConfiguredFrameRenderer::new(context, configuration, AllocationBudget(1 << 28)).unwrap();
     Drawn {
         renderer,
         gpu,
         pipelines,
-        frame: uniform,
+        frame: *uniform,
     }
 }
 
 /// Encodes `frames` frames and returns the resolved scene colour of the last.
-fn render(context: &GpuContext, drawn: &mut Drawn, frames: usize) -> Result<Vec<u8>, FrameError> {
+pub(super) fn render(
+    context: &GpuContext,
+    drawn: &mut Drawn,
+    frames: usize,
+) -> Result<Vec<u8>, FrameError> {
     for _ in 0..frames {
         let targets = drawn.renderer.targets();
         let color =
@@ -123,7 +155,11 @@ fn render(context: &GpuContext, drawn: &mut Drawn, frames: usize) -> Result<Vec<
     Ok(read(context, drawn.renderer.targets().texture(), HDR))
 }
 
-fn read(context: &GpuContext, texture: &wgpu::Texture, format: wgpu::TextureFormat) -> Vec<u8> {
+pub(super) fn read(
+    context: &GpuContext,
+    texture: &wgpu::Texture,
+    format: wgpu::TextureFormat,
+) -> Vec<u8> {
     Readback::new(
         context.device(),
         FrameConfig::new([texture.width(), texture.height()], format, 1),
@@ -134,7 +170,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture, format: wgpu::TextureForm
     .unwrap()
 }
 
-fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
+pub(super) fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
     GbufferTarget::ALL.map(|target| {
         let texture = renderer
             .feature_target(FeatureTarget::Gbuffer(target))
@@ -146,8 +182,18 @@ fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>
     })
 }
 
+/// The texels of the target bytes `g3` (`R16Uint`) that a producer covered.
+fn covered(g3: &[u8]) -> impl Iterator<Item = (usize, u16)> + '_ {
+    g3.chunks(2)
+        .map(|code| u16::from_le_bytes([code[0], code[1]]))
+        .enumerate()
+        .filter(|&(_, code)| code != 0)
+}
+
+/// Without the depth prepass the scene stores nothing and the four targets stay clear; with it
+/// the scene's terrain is stored. The visible frame is the forward frame either way.
 #[test]
-fn gbuffer_observation_keeps_the_forward_frame_and_clears_four_targets() {
+fn gbuffer_observation_keeps_the_forward_frame_and_stores_the_prepassed_scene() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for frame in [Frame::Plain, Frame::Reflecting] {
@@ -169,15 +215,57 @@ fn gbuffer_observation_keeps_the_forward_frame_and_clears_four_targets() {
         let mut observed = prepare(&context, frame, SceneOpaquePath::GBUFFER_OBSERVATION);
         let colour = render(&context, &mut observed, 3).unwrap();
         assert!(colour == expected, "{frame:?}: the observed frame differs");
-        for (target, bytes) in GbufferTarget::ALL
-            .iter()
-            .zip(gbuffer(&context, &observed.renderer))
-        {
+        let targets = gbuffer(&context, &observed.renderer);
+        if matches!(frame, Frame::Plain) {
+            for (target, bytes) in GbufferTarget::ALL.iter().zip(&targets) {
+                assert!(
+                    bytes.iter().all(|&byte| byte == 0),
+                    "{frame:?}: {target:?} is not clear"
+                );
+            }
+        } else {
             assert!(
-                bytes.iter().all(|&byte| byte == 0),
-                "{frame:?}: {target:?} is not clear"
+                covered(&targets[3]).next().is_some(),
+                "{frame:?}: the scene stored no terrain"
             );
         }
+    }
+}
+
+/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel,
+/// with terrain's AO of 1, no emission, no flags and the reserved channels zero.
+#[test]
+fn gbuffer_observation_stores_level_terrain_facing_up() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut forward = prepare(&context, Frame::Flat, SceneOpaquePath::Forward);
+    let expected = render(&context, &mut forward, 1).unwrap();
+    let mut observed = prepare(&context, Frame::Flat, SceneOpaquePath::GBUFFER_OBSERVATION);
+    let colour = render(&context, &mut observed, 1).unwrap();
+    assert!(colour == expected, "the producer changed the visible frame");
+    let targets = gbuffer(&context, &observed.renderer);
+    let texels = covered(&targets[3]).collect::<Vec<_>>();
+    assert!(
+        texels.len() * 4 >= (SIZE * SIZE) as usize,
+        "the level terrain covers {} of {} texels",
+        texels.len(),
+        SIZE * SIZE
+    );
+    for (pixel, code) in texels {
+        let normal = reference::g3_normal(code);
+        let off = angle_degrees(normal, Vec3::Z);
+        assert!(
+            off <= GEOMETRIC_DEGREES,
+            "{pixel}: geometric normal off by {off} degrees"
+        );
+        assert_eq!(code & 3, 0, "{pixel}: terrain sets no flags");
+        let g1 = &targets[1][pixel * 4..pixel * 4 + 4];
+        let g2 = &targets[2][pixel * 4..pixel * 4 + 4];
+        assert_eq!(
+            g1[3], 0,
+            "{pixel}: G1 alpha is the lighting record, 0 for terrain"
+        );
+        assert_eq!([g2[2], g2[3]], [0, 255], "{pixel}: terrain emission and AO");
     }
 }
 
@@ -228,9 +316,30 @@ fn surfaces(rotation: Mat3) -> Vec<Surface> {
                 emission: unit(23),
                 ao: unit(29),
                 flags: u32::try_from(index % 4).unwrap(),
+                lighting_record: u8::try_from(index % 256).unwrap(),
             }
         })
         .collect()
+}
+
+/// The worst shading error of any G0 code within one code of `mirrored`, the codes the CPU
+/// mirror stores. A GPU may round a unorm store either way (lavapipe and RADV do, Metal stays on
+/// the mirror), so its stored codes are only held to that neighbourhood, which the code check
+/// above already requires; the band bounds are the mirror's own maxima.
+fn one_code_bound(mirrored: &Codes, expected: Vec3, rotation: Mat3) -> f32 {
+    let mut worst = 0.0_f32;
+    for dx in -1_i32..=1 {
+        for dy in -1_i32..=1 {
+            let mut codes = *mirrored;
+            for (channel, step) in [(0, dx), (1, dy)] {
+                let code = i32::from(codes.g0[channel]) + step;
+                codes.g0[channel] = u16::try_from(code.clamp(0, 1023)).expect("a ten-bit code");
+            }
+            let decoded = reference::decode(&codes, rotation.transpose());
+            worst = worst.max(angle_degrees(decoded.shading_normal, expected));
+        }
+    }
+    worst
 }
 
 fn rotation() -> Mat3 {
@@ -269,7 +378,7 @@ impl FrameFeature for Probe {
             values.extend(surface.geometric_normal.extend(surface.metal).to_array());
             values.extend(surface.base_colour.extend(surface.emission).to_array());
             let flags = f32::from(u8::try_from(surface.flags).expect("two bits"));
-            values.extend([surface.ao, flags, 0.0, 0.0]);
+            values.extend([surface.ao, flags, f32::from(surface.lighting_record), 0.0]);
         }
         let bytes: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -294,7 +403,7 @@ fn fs_probe(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
     let c = probe[base + 2u];
     let d = probe[base + 3u];
     return scene_gbuffer_encode(
-        SceneGbufferSurface(a.xyz, b.xyz, c.xyz, a.w, b.w, c.w, d.x, u32(d.y)),
+        SceneGbufferSurface(a.xyz, b.xyz, c.xyz, a.w, b.w, c.w, d.x, u32(d.y), u32(d.z)),
         view_from_scene,
     );
 }}
@@ -379,7 +488,10 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
             );
         }
         assert_eq!(codes.g0[2..], [0, 0], "{pixel}: G0 reserved channels");
-        assert_eq!(codes.g1[3], 0, "{pixel}: G1 reserved alpha");
+        assert_eq!(
+            codes.g1[3], expected.lighting_record,
+            "{pixel}: G1 lighting record"
+        );
         for channel in 0..3 {
             assert!(
                 near(codes.g1[channel].into(), mirrored.g1[channel].into()),
@@ -402,7 +514,8 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
         }
         let decoded = reference::decode(&codes, rotation.transpose());
         let view_z = (rotation * expected.shading_normal).z;
-        let bound = shading_bound(view_z);
+        let bound =
+            shading_bound(view_z).max(one_code_bound(&mirrored, expected.shading_normal, rotation));
         let shading = angle_degrees(decoded.shading_normal, expected.shading_normal);
         assert!(
             shading <= bound,
@@ -414,6 +527,10 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
             "{pixel}: geometric normal off by {geometric} degrees"
         );
         assert_eq!(decoded.flags, expected.flags, "{pixel}: flags");
+        assert_eq!(
+            decoded.lighting_record, expected.lighting_record,
+            "{pixel}: lighting record"
+        );
         assert!(
             (decoded.ao - expected.ao).abs() <= 1.0 / 255.0,
             "{pixel}: ao"
@@ -429,11 +546,9 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
 fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for (frame, with_depth) in [
-        (Frame::Plain, false),
-        (Frame::Reflecting, false),
-        (Frame::Reflecting, true),
-    ] {
+    // In a prepass frame the scene's own producer tests the finished depth in this slot, so a
+    // producer drawn with it must declare that depth too.
+    for (frame, with_depth) in [(Frame::Plain, false), (Frame::Reflecting, true)] {
         let mut drawn = prepare(&context, frame, SceneOpaquePath::GBUFFER_OBSERVATION);
         let mut forward = prepare(&context, frame, SceneOpaquePath::Forward);
         let expected = render(&context, &mut forward, 1).unwrap();
@@ -452,7 +567,9 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             // Opaque, so the slot has no depth to lend and says so.
             assert_eq!(
                 rendered.err(),
-                Some(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))
+                Some(FrameError::AttachmentContract(PassEntry::new(
+                    PassSlot::OpaqueGbuffer
+                )))
             );
             continue;
         }
@@ -461,6 +578,11 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             colour == expected,
             "{frame:?}: the producer changed the visible frame"
         );
+        // Printed so that a failing decode names its frame.
+        println!("GBUFFER-PROBE frame={frame:?} depth={with_depth}");
         check_decoded(&gbuffer(&context, &drawn.renderer));
     }
 }
+
+#[path = "gbuffer_object_tests.rs"]
+mod object_tests;

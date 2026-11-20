@@ -299,3 +299,150 @@ fn a_reservation_reports_the_descriptor_bytes_it_holds() {
         Err(ConfigurationError::Budget { .. })
     ));
 }
+
+#[test]
+fn a_counted_configuration_counts_gpu_generations_until_they_retire() {
+    use crate::census::ResourceClass;
+    let (device, authority) = fresh_context();
+    let census = authority.census().clone();
+    let mut first = bytes(16);
+    first.cpu("host copy", 1000);
+    let mut config = Configuration::new(
+        &authority,
+        1_u32,
+        first,
+        &device.limits(),
+        AllocationBudget(4096),
+    )
+    .unwrap()
+    .counted(ResourceClass::RenderTarget, &device.limits());
+    // The CPU entry counts toward admission but not toward resident GPU memory.
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 16);
+    let flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    config
+        .replace(&device.limits(), bytes(24), || Ok::<_, ()>(2))
+        .unwrap();
+    // The old generation stays counted until the queue passes its last submission.
+    assert_eq!(config.retired_count(), 1);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 40);
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(flight),
+            timeout: None,
+        })
+        .unwrap();
+    config.collect();
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 24);
+    drop(config);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 0);
+}
+
+#[test]
+fn an_uncounted_configuration_leaves_the_census_alone() {
+    let (device, authority) = fresh_context();
+    let config = Configuration::new(
+        &authority,
+        (),
+        bytes(16),
+        &device.limits(),
+        AllocationBudget(64),
+    )
+    .unwrap();
+    assert_eq!(authority.census().snapshot().total(), 0);
+    drop(config);
+}
+
+/// A retired generation's frame is complete on the GPU, but a held poller has not run its
+/// completion bookkeeping (hub issue 4d2b47c55165). Its bytes still count, so the next
+/// replacement fails the budget; collecting settled waits for the bookkeeping and frees them.
+#[test]
+fn collecting_settled_frees_a_generation_whose_bookkeeping_a_held_poller_holds() {
+    let (device, authority) = fresh_context();
+    let mut config = Configuration::new(
+        &authority,
+        1_u32,
+        bytes(16),
+        &device.limits(),
+        AllocationBudget(40),
+    )
+    .unwrap();
+    let _flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    config
+        .replace(&device.limits(), bytes(16), || Ok::<_, ()>(2))
+        .unwrap();
+    let held = crate::test_support::HeldPoller::start(&device);
+    assert!(
+        matches!(
+            config.replace(&device.limits(), bytes(16), || Ok::<_, ()>(3)),
+            Err(ConfigurationError::Budget { .. })
+        ),
+        "the retired generation still counts before its completion is recorded"
+    );
+    let releaser = held.release_after(std::time::Duration::from_millis(200));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    config.collect_settled(&device, deadline).unwrap();
+    assert_eq!(config.retired_count(), 0);
+    config
+        .replace(&device.limits(), bytes(16), || Ok::<_, ()>(3))
+        .expect("the freed generation no longer counts");
+    releaser.join().unwrap();
+    held.join();
+}
+
+#[test]
+fn a_kept_backing_counts_once_and_a_replaced_backing_counts_beside_it_until_it_retires() {
+    let (device, authority) = fresh_context();
+    let limits = device.limits();
+    let backing = |id: u64| {
+        let mut set = AllocationSet::default();
+        set.backing_texture(
+            "history",
+            id,
+            [8, 8, 1],
+            wgpu::TextureFormat::Rgba8Unorm,
+            [1, 1],
+        );
+        set.buffer("targets", 16, 1);
+        set
+    };
+    let mut config =
+        Configuration::new(&authority, 1, backing(0), &limits, AllocationBudget(800)).unwrap();
+    let flight = authority
+        .prepare(&device, |_, _| Ok::<_, ()>(()))
+        .unwrap()
+        .submit()
+        .unwrap();
+    // The kept backing is one storage in both generations; each generation has its own buffer.
+    config
+        .replace(&limits, backing(0), || Ok::<_, ()>(2))
+        .unwrap();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 16 + 16);
+    // A different backing under the same name, at the same size, is further storage.
+    config
+        .replace(&limits, backing(1), || Ok::<_, ()>(3))
+        .unwrap();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 256 + 3 * 16);
+    // A third distinct backing does not fit beside the two that are still live.
+    assert!(matches!(
+        config.replace(&limits, backing(2), || -> Result<i32, ()> {
+            panic!("must not allocate")
+        }),
+        Err(ConfigurationError::Budget { .. })
+    ));
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(flight),
+            timeout: None,
+        })
+        .unwrap();
+    config.collect();
+    assert_eq!(config.resident_bytes(&limits).unwrap(), 256 + 16);
+}

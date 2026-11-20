@@ -1,17 +1,16 @@
-//! Unity's `Rigidbody2D` interpolation, for drawing only.
+//! Presentation poses for 2D bodies, without changing physics state.
 //!
-//! Physics advances in fixed steps, so a body drawn at its last step pose moves in jumps whenever
-//! frames and steps do not line up. An interpolated body is drawn between its poses before and
-//! after the last step, by the fraction of a step the clock has run past it, as Unity does. Its
-//! transform, contacts and queries keep the physics pose. A body moved outside physics since the
-//! step, such as a script teleporting it, is drawn where it is.
+//! Interpolate blends the poses before and after the last fixed step. Extrapolate predicts
+//! from the step result and current velocity over the remaining fraction of a fixed step.
+//! Transforms, contacts and queries keep the physics pose. A body moved outside physics
+//! since the step, such as a script teleporting it, is drawn where it is.
 
 use glam::{Mat4, Quat, Vec3};
 
-use super::{BodyType, Interpolation};
+use super::{Body2d, BodyType, Interpolation, PhysicsError};
 use crate::{ComponentDesc, ComponentHandle, ObjectHandle, World, WorldError};
 
-/// An interpolated body's world pose either side of the last physics step.
+/// A body's world pose either side of the last physics step.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct StepPoses {
     object: ObjectHandle,
@@ -20,7 +19,7 @@ pub(crate) struct StepPoses {
 }
 
 impl World {
-    /// The enabled, moving, interpolated bodies with their current world poses.
+    /// The enabled, moving bodies requiring presentation poses, with their current world poses.
     pub(super) fn interpolated_bodies(
         &self,
     ) -> Result<Vec<(ComponentHandle, ObjectHandle, Mat4)>, WorldError> {
@@ -29,7 +28,7 @@ impl World {
             let ComponentDesc::Body2d(b) = &c.desc else {
                 continue;
             };
-            if b.interpolation == Interpolation::Interpolate
+            if b.interpolation != Interpolation::None
                 && b.enabled
                 && b.body_type != BodyType::Static
                 && !self.lifetime.components.contains(&c.handle)
@@ -62,28 +61,41 @@ impl World {
         Ok(())
     }
 
-    /// The matrix `object` is drawn with: its world matrix, carried along with the interpolated
-    /// pose of the nearest interpolated body at or above it.
+    /// The world matrix carried along with the presentation pose of the nearest body at or
+    /// above `object`. A script edit since the last step takes precedence over presentation.
     pub fn presented_matrix(&self, object: ObjectHandle) -> Result<Mat4, WorldError> {
         let world = self.world_matrix(object)?;
         let mut current = Some(object);
         while let Some(node) = current {
-            if let Some(poses) = self.step_poses_of(node)? {
+            if let Some((poses, body)) = self.step_poses_of(node)? {
                 let now = self.world_matrix(node)?;
                 if now != poses.after {
                     return Ok(world);
                 }
-                let drawn = blend(poses.before, poses.after, self.step_fraction());
-                return Ok(drawn * now.inverse() * world);
+                let drawn = match body.interpolation {
+                    Interpolation::Interpolate => {
+                        blend(poses.before, poses.after, self.step_fraction())
+                    }
+                    Interpolation::Extrapolate => self.predicted_matrix(poses.after, body)?,
+                    Interpolation::None => unreachable!(),
+                };
+                return Ok(if node == object {
+                    drawn
+                } else {
+                    drawn * now.inverse() * world
+                });
             }
             current = self.parent(node)?;
         }
         Ok(world)
     }
 
-    /// The step poses of the body on `object`, while that body is still interpolated.
-    fn step_poses_of(&self, object: ObjectHandle) -> Result<Option<StepPoses>, WorldError> {
-        let Some((&body, &poses)) = self
+    /// The recorded poses and current presentation settings of the body on `object`.
+    fn step_poses_of(
+        &self,
+        object: ObjectHandle,
+    ) -> Result<Option<(StepPoses, &Body2d)>, WorldError> {
+        let Some((&handle, &poses)) = self
             .physics
             .step_poses
             .iter()
@@ -91,11 +103,44 @@ impl World {
         else {
             return Ok(None);
         };
-        let interpolated = matches!(
-            &self.component(body)?.desc,
-            ComponentDesc::Body2d(b) if b.interpolation == Interpolation::Interpolate
-        );
-        Ok(interpolated.then_some(poses))
+        let ComponentDesc::Body2d(body) = &self.component(handle)?.desc else {
+            return Ok(None);
+        };
+        if body.interpolation == Interpolation::None
+            || (body.interpolation == Interpolation::Extrapolate
+                && (!body.enabled
+                    || body.sleeping
+                    || body.body_type == BodyType::Static
+                    || self.lifetime.components.contains(&handle)
+                    || !self.active_in_hierarchy(object)?))
+        {
+            return Ok(None);
+        }
+        Ok(Some((poses, body)))
+    }
+
+    fn predicted_matrix(&self, after: Mat4, body: &Body2d) -> Result<Mat4, WorldError> {
+        let elapsed = self
+            .clock
+            .accumulator
+            .seconds()
+            .clamp(0.0, self.clock.fixed_step.seconds());
+        let dt = std::time::Duration::try_from_secs_f64(elapsed)
+            .map_err(|_| PhysicsError::NumericOverflow)?
+            .as_secs_f32();
+        let plane = self.physics.settings.plane;
+        let angular = if body.freeze_rotation {
+            0.0
+        } else {
+            body.angular_velocity
+        };
+        let mut drawn = Mat4::from_quat(plane.rotation(angular * dt)) * after;
+        let velocity = plane.vector(body.velocity * body.linear_mask());
+        drawn.w_axis = (after.w_axis.truncate() + velocity * dt).extend(1.0);
+        if !drawn.is_finite() {
+            return Err(PhysicsError::NumericOverflow.into());
+        }
+        Ok(drawn)
     }
 
     /// Unity's `(Time.time - Time.fixedTime) / Time.fixedDeltaTime`, in `[0, 1]`.

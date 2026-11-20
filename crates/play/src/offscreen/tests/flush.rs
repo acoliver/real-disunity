@@ -20,7 +20,8 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
-use super::super::defaults::DefaultTexture;
+use super::super::defaults::{DefaultTexture, StandInLook};
+use super::super::depth_range::DepthRange;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -59,7 +60,7 @@ pub(super) fn host_with_budget(directory: &Path, budget: u64) -> OffscreenHost {
     host_on(directory, settings, gpu_with_budget(budget))
 }
 
-fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
+pub(super) fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
     host_on(directory, settings, gpu())
 }
 
@@ -91,6 +92,20 @@ fn host_over(directory: &Path, adapter: OffscreenAdapter, gpu: super::gpu::Gpu) 
         adapter,
         ComputeAdapter::new(PlayerKernels::new(directory)),
     )
+}
+
+#[test]
+fn the_host_draws_with_the_depth_range_of_its_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    for depth in [DepthRange::Forward, DepthRange::Reversed] {
+        let settings = Settings::default().with_depth(depth);
+        let host = host_with(directory.path(), settings);
+        assert_eq!(host.reversed_depth(), depth.reversed(), "{depth:?}");
+    }
+    assert!(
+        !host(directory.path()).reversed_depth(),
+        "a plain host stays forward"
+    );
 }
 
 /// A camera that clears to `CLEAR` in red and draws `DRAWN` over the left half of its target.
@@ -488,6 +503,7 @@ fn a_camera_draws_a_shader_without_a_light_mode_only_when_untagged_passes_count_
     let settings = |untagged: Option<&str>| Settings {
         light_modes: vec!["Alpha".to_owned()],
         untagged_light_mode: untagged.map(str::to_owned),
+        ..Settings::default()
     };
     let run = |untagged: Option<&str>| {
         let mut host = host_with(directory.path(), settings(untagged));
@@ -580,7 +596,7 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
     );
 }
 
-/// With the grey default registered, the same draw reads Unity's default 2D texture: it is kept,
+/// With the grey default registered, the same draw reads the grey 2D default: it is kept,
 /// no failure names it, and the report counts it by the texture property.
 #[test]
 fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_counted_so() {
@@ -633,12 +649,18 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
 /// left half, so `white` gives 0.5 and `black` gives 0, each scaled by 2, over a clear color of
 /// 0.25 scaled to 0.5.
 fn heights_with_default(file: &str) -> (FlushOutcome, Vec<f32>) {
+    heights_with_look(file, StandInLook::Declared)
+}
+
+/// As `heights_with_default`, with the host's default textures made in `look`.
+fn heights_with_look(file: &str, look: StandInLook) -> (FlushOutcome, Vec<f32>) {
     let directory = tempfile::tempdir().unwrap();
     write_compute(directory.path(), "heights", vec![(1, copy_object())]);
     let settings = Settings {
         light_modes: vec!["Gamma".to_owned()],
         ..Settings::default()
-    };
+    }
+    .with_stand_in_look(look);
     let mut host = host_with(directory.path(), settings);
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
@@ -692,8 +714,53 @@ fn an_unset_texture_reads_the_black_its_shader_declares() {
 }
 
 #[test]
-fn an_unset_texture_whose_default_the_host_does_not_supply_leaves_the_draw_out() {
+fn the_magenta_look_reaches_the_texture_a_draw_reads_for_an_unset_property() {
+    let (_, declared) = heights_with_default("default_black");
+    let (outcome, magenta) = heights_with_look("default_black", StandInLook::Magenta);
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    // The pass paints the red of the albedo: the declared black gives 0 where the magenta, whose
+    // red is 255, gives the 1 that white does.
+    assert_ne!(declared, magenta, "the setting changed the bound texture");
+    assert_eq!(magenta, expected());
+}
+
+#[test]
+fn an_unset_texture_reads_the_bump_its_shader_declares() {
     let (outcome, heights) = heights_with_default("default_bump");
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    // The pass paints the albedo times the red tint, so the red of the bump texel, 128 of 255,
+    // shows. The height map holds 16-bit floats, so the value is exact to one step of those.
+    let bump_red = f32::from(DefaultTexture::Bump.texture().bytes[0]) / 255.0;
+    let step = SCALE / 4096.0;
+    let predicted: Vec<f32> = (0..SIDE * SIDE)
+        .map(|index| {
+            if index % SIDE < SIDE / 2 {
+                bump_red * DRAWN * SCALE
+            } else {
+                CLEAR * SCALE
+            }
+        })
+        .collect();
+    for (index, (got, want)) in heights.iter().zip(&predicted).enumerate() {
+        assert!(
+            (got - want).abs() <= step,
+            "texel {index}: {got} against {want}, within {step}"
+        );
+    }
+    assert_eq!(outcome.report.traces[0].textures[0].camera_draws, 1);
+}
+
+#[test]
+fn an_unset_texture_whose_declared_default_the_table_does_not_list_leaves_the_draw_out() {
+    let (outcome, heights) = heights_with_default("default_mystery");
     assert_eq!(outcome.report.failures.get("draw:MissingTexture"), Some(&1));
     assert_eq!(
         outcome.report.missing_textures,

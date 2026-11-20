@@ -28,6 +28,10 @@
 //! * Matrices are column-major, as the world stores them.
 //! * The view, the projection and the camera position follow the engine layer's camera
 //!   ([`camera`]), mapped to the clip space render-program's conventions tests measured.
+//! * Depth runs as the run's [`DepthRange`] says, reversed (near 1, far 0) for a built player
+//!   unless the run chooses forward. The one value reaches the render-program state, the clip
+//!   space of every camera and the managed side's request; see [`DepthRange`] for the setting,
+//!   its default and the run that is the evidence.
 //! * The built-in values and the evidence for each name are in [`builtins`].
 //! * Texture rows are bottom first, as the engine stores them, which is the orientation of a
 //!   render texture's rows.
@@ -52,6 +56,7 @@ mod camera;
 mod census;
 mod compute;
 mod defaults;
+mod depth_range;
 mod flush;
 mod frame;
 mod holdings;
@@ -59,19 +64,26 @@ mod ids;
 mod kernels;
 mod lists;
 mod mesh_draw;
+mod mips;
 mod pass_notes;
 mod pixels;
 mod probe;
 mod procedural_draw;
 mod properties;
+mod records;
 mod report;
+mod screen;
 mod script;
 mod shaders;
+mod sink;
+mod stand_ins;
+mod supplied;
 mod trace;
 
 #[cfg(test)]
 mod tests;
 
+pub(crate) use adapter::Settling;
 pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
     AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,
@@ -80,8 +92,9 @@ pub use assets::{
 pub use bounds::Bounds;
 pub use builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT,
-    WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size, camera_layer, draw_layer,
+    PROJECTION_PARAMS, SCREEN_PARAMS, SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C,
+    SPEC_CUBE0_HDR, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_ambient,
+    add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
@@ -89,8 +102,9 @@ pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
-pub use defaults::DefaultTexture;
-pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
+pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
+pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
+pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
     Skip, TEST_CLEAR, adapt, adapt_probing,
@@ -100,6 +114,10 @@ pub use pixels::{
     PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
     REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
 };
+pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use sink::BufferSink;
+pub use stand_ins::{StandInCounts, StandInReason};
+pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

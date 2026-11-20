@@ -1,6 +1,7 @@
 //! Tessellates canonical Z-up terrain using the shared mesh upload layout.
 
 pub(crate) mod chunks;
+pub use chunks::build as build_terrain_chunk_mesh;
 mod height_bounds;
 pub mod pages;
 pub(crate) mod planes;
@@ -57,6 +58,9 @@ pub enum TerrainError {
         /// Selected sample rows after level-of-detail reduction.
         rows: usize,
     },
+    /// A caller supplied a window outside the grid, an empty axis or an invalid stride.
+    #[error("terrain chunk must have positive in-grid spans and a power-of-two stride")]
+    InvalidChunk,
     /// A sample position left the signed millimetre range the domain uses.
     #[error("terrain sample positions leave the signed millimeter range")]
     ExtentOverflow,
@@ -65,7 +69,7 @@ pub enum TerrainError {
     StreamingUnsupported { feature: &'static str },
 }
 
-/// The whole terrain surface, packed as one mesh.
+/// A terrain surface or chunk, packed as one mesh.
 ///
 /// The buffers are byte-for-byte what an authored mesh LOD produces, so the
 /// draw path uploads them with the same calls and no special case.
@@ -319,6 +323,8 @@ mod capture_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
+pub(crate) mod deferred_tests;
+#[cfg(test)]
 mod family_tests;
 #[cfg(test)]
 mod gbuffer_tests;
@@ -334,3 +340,6 @@ mod streaming_tests;
 
 #[cfg(test)]
 mod height_bounds_tests;
+
+#[cfg(test)]
+mod small_leaves_tests;

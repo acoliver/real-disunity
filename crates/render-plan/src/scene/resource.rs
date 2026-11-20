@@ -6,8 +6,14 @@
 //! survives only where its format permits one.
 
 use crate::scene::error::SceneValidationError;
+#[path = "texture_descriptor.rs"]
+mod descriptor;
 #[path = "resource_tables.rs"]
 mod tables;
+pub use descriptor::{
+    SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
+    SceneTextureDescriptor,
+};
 
 macro_rules! dense_handle {
     ($(#[$doc:meta])* $name:ident, $table:literal) => {
@@ -138,6 +144,9 @@ pub enum SceneTexture {
         /// The exact encoded bytes.
         bytes: Box<[u8]>,
     },
+    /// Validated metadata that replaced a source payload. The source bytes are not
+    /// held here, so any operation that needs them reports the texture as released.
+    Released(SceneTextureDescriptor),
 }
 
 impl SceneTexture {
@@ -148,6 +157,7 @@ impl SceneTexture {
             Self::SpecularCube(_) => TextureColorSpace::Linear,
             Self::Sampled { texture, .. } => texture.color_space(),
             Self::Texels { color_space, .. } | Self::Encoded { color_space, .. } => *color_space,
+            Self::Released(descriptor) => descriptor.color_space(),
         }
     }
 
@@ -182,6 +192,7 @@ impl SceneTexture {
                 }
                 Ok(())
             }
+            Self::Released(descriptor) => descriptor.validate(),
         }
     }
 }
@@ -204,9 +215,43 @@ fn validate_texels(
     bytes: &[u8],
 ) -> Result<(), SceneValidationError> {
     const PART: &str = "texture texels";
+    let observed = u64::try_from(bytes.len())
+        .map_err(|_| SceneValidationError::ArithmeticOverflow { part: PART })?;
+    validate_texel_layout(format, width, height, mips, observed)
+}
+
+/// Validates a texel layout against an exact payload length.
+fn validate_texel_layout(
+    format: TexelFormat,
+    width: u32,
+    height: u32,
+    mips: u32,
+    observed: u64,
+) -> Result<(), SceneValidationError> {
+    const PART: &str = "texture texels";
+    validate_extent(PART, width, height, mips)?;
+    let expected = texel_bytes(format, width, height, mips, PART)?;
+    if expected != observed {
+        return Err(SceneValidationError::ByteLengthMismatch {
+            part: PART,
+            reason: "texel payload must equal the concatenated level sizes",
+            expected,
+            observed,
+        });
+    }
+    Ok(())
+}
+
+/// Requires nonzero extents and a mip count the extents can address.
+fn validate_extent(
+    part: &'static str,
+    width: u32,
+    height: u32,
+    mips: u32,
+) -> Result<(), SceneValidationError> {
     if width == 0 || height == 0 {
         return Err(SceneValidationError::InvalidDimensions {
-            part: PART,
+            part,
             width,
             height,
         });
@@ -214,20 +259,9 @@ fn validate_texels(
     let maximum = max_mips(width, height);
     if mips == 0 || mips > maximum {
         return Err(SceneValidationError::MipOverflow {
-            part: PART,
+            part,
             observed: mips,
             maximum,
-        });
-    }
-    let expected = texel_bytes(format, width, height, mips, PART)?;
-    let observed = u64::try_from(bytes.len())
-        .map_err(|_| SceneValidationError::ArithmeticOverflow { part: PART })?;
-    if expected != observed {
-        return Err(SceneValidationError::ByteLengthMismatch {
-            part: PART,
-            reason: "texel payload must equal the concatenated level sizes",
-            expected,
-            observed,
         });
     }
     Ok(())
@@ -624,6 +658,12 @@ fn require_unit_range(part: &'static str, observed: u64) -> Result<(), SceneVali
 pub struct SceneResources {
     textures: std::sync::Arc<Vec<SceneTexture>>,
     materials: std::sync::Arc<Vec<SceneMaterial>>,
+    /// Checked sum of every texture's logical source bytes; always equal to
+    /// `logical_total(&textures)`, so the aggregate query and the overflow check on
+    /// append and replacement never walk the table.
+    logical_bytes: u64,
+    /// Textures the scene declares level-reducible (`RenderScene::with_reducible_textures`).
+    pub(super) reducible_textures: std::sync::Arc<[TextureHandle]>,
 }
 
 impl SceneResources {
@@ -638,12 +678,7 @@ impl SceneResources {
         textures: Vec<SceneTexture>,
         materials: Vec<SceneMaterial>,
     ) -> Result<Self, SceneValidationError> {
-        let resources = Self {
-            textures: textures.into(),
-            materials: materials.into(),
-        };
-        resources.validate()?;
-        Ok(resources)
+        Self::adopt(textures.into(), materials.into())
     }
 
     /// Returns the owned texture table.
@@ -672,3 +707,7 @@ mod tests;
 #[cfg(test)]
 #[path = "resource_table_tests.rs"]
 mod table_tests;
+
+#[cfg(test)]
+#[path = "texture_descriptor_tests.rs"]
+mod descriptor_tests;

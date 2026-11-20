@@ -73,3 +73,42 @@ fn terrain_pages_foreign_authority_cannot_reserve() {
     ));
     frame.finish().cancel();
 }
+
+#[test]
+fn terrain_page_arrays_count_in_the_census_until_the_cache_drops() {
+    use worldrunner_render_gpu::census::{ResourceClass, texture_backing_bytes};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let device = context.device();
+    // A private authority, so no other test's pages enter its tally.
+    let authority = SubmissionAuthority::new(context.queue().clone());
+    let cache =
+        ResidentPages::new(device, &authority, settings(), 2, AllocationBudget(100_000)).unwrap();
+    let texture = cache.texture();
+    let expected = texture_backing_bytes(&wgpu::TextureDescriptor {
+        label: None,
+        size: texture.size(),
+        mip_level_count: texture.mip_level_count(),
+        sample_count: texture.sample_count(),
+        dimension: texture.dimension(),
+        format: texture.format(),
+        usage: texture.usage(),
+        view_formats: &[],
+    });
+    assert!(expected > 0);
+    assert_eq!(
+        authority
+            .census()
+            .snapshot()
+            .get(ResourceClass::TerrainPage),
+        expected
+    );
+    drop((texture, cache));
+    assert_eq!(
+        authority
+            .census()
+            .snapshot()
+            .get(ResourceClass::TerrainPage),
+        0
+    );
+}

@@ -4,9 +4,11 @@ use std::ops::Range;
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
 use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
 
 use super::skin_stream::SkinStream;
 use super::slot_bounds::SlotBounds;
+use super::staged_uploads::StagedUploads;
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
 
 #[derive(Debug, Default)]
@@ -17,13 +19,10 @@ pub(crate) struct InstanceBatch {
     pub bytes: Vec<u8>,
     uploaded: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
     buffer_valid: std::rc::Rc<std::cell::Cell<bool>>,
-    encoded: Option<worldrunner_render_gpu::submission::Publications>,
+    encoded: Option<(Publications, u64)>,
+    staged: StagedUploads,
     pub buffer: Option<Tracked<wgpu::Buffer>>,
-    /// Slots added since the last published frame; their previous transform is their current one.
-    fresh: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
-    /// Slots whose previous transform differed from their current one in the last published
-    /// frame. They are copied once more so an untouched slot converges to previous == current.
-    stale: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
+    pub(crate) history: super::history::History,
     /// The previous-frame transform of every slot, same layout as `buffer`; velocity draws only.
     pub previous: Option<Tracked<wgpu::Buffer>>,
     /// The per-slot skin descriptors, present when the batch's mesh has a skinned level.
@@ -61,8 +60,21 @@ impl InstanceBatch {
         self.dirty.insert(position);
     }
 
-    /// Whether the slot's placement or skin descriptor differs from the last published bytes.
-    fn slot_pending(&self, position: usize) -> bool {
+    /// Whether a copy must replace this owner's staged bytes or the submitted baseline.
+    fn slot_pending(&self, position: usize, owner: Option<&Publications>) -> bool {
+        let range = position * STRIDE..(position + 1) * STRIDE;
+        let skin = self.skin.as_ref().and_then(|stream| {
+            let start = position * crate::skinning::SKIN_INSTANCE_BYTES;
+            stream
+                .bytes
+                .get(start..start + crate::skinning::SKIN_INSTANCE_BYTES)
+        });
+        self.staged
+            .differs(owner, position, &self.bytes[range], skin)
+            .unwrap_or_else(|| self.slot_unpublished(position))
+    }
+
+    fn slot_unpublished(&self, position: usize) -> bool {
         let range = position * STRIDE..(position + 1) * STRIDE;
         self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
             || self
@@ -71,12 +83,10 @@ impl InstanceBatch {
                 .is_some_and(|stream| stream.differs(position))
     }
 
-    /// Reuse new-slot initialization to upload current transforms as previous ones.
-    /// Fresh markers are consumed only by submission, so abandonment keeps the reset.
+    /// Resets remain pending until a final-colour submission publishes them.
     pub fn reset_velocity_history(&mut self) {
         let slots: Vec<_> = self.placements().map(|(slot, _, _)| slot).collect();
-        self.fresh.borrow_mut().extend(slots.iter().copied());
-        self.stale.borrow_mut().extend(slots);
+        self.history.reset(slots);
     }
 
     pub(crate) fn publication_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
@@ -94,7 +104,7 @@ impl InstanceBatch {
         self.placements[position] = Some((object, visible));
         self.edits += 1;
         self.bounds.get_mut().invalidate(position);
-        self.fresh.borrow_mut().insert(position);
+        self.history.add(position);
         self.pack(position);
         position
     }
@@ -109,7 +119,7 @@ impl InstanceBatch {
         self.bounds.get_mut().invalidate(position);
         self.free.insert(position);
         self.dirty.remove(&position);
-        self.stale.borrow_mut().remove(&position);
+        self.history.remove(position);
     }
 
     pub fn set_transform(&mut self, position: usize, transform: SceneTransform) {
@@ -125,9 +135,12 @@ impl InstanceBatch {
     }
 
     fn pack(&mut self, position: usize) {
-        let object = self.get(position).0;
-        self.bytes[position * STRIDE..(position + 1) * STRIDE]
-            .copy_from_slice(&pack_object(object));
+        let packed = pack_object(self.get(position).0);
+        let bytes = &mut self.bytes[position * STRIDE..(position + 1) * STRIDE];
+        if *bytes != packed[..] {
+            bytes.copy_from_slice(&packed);
+            self.history.edit(position);
+        }
         self.dirty.insert(position);
     }
 
@@ -142,6 +155,11 @@ impl InstanceBatch {
 
     pub fn content(&self) -> u64 {
         self.content
+    }
+
+    /// Rises with every change to the history that `ready_for` reads.
+    pub fn history_version(&self) -> u64 {
+        self.history.version()
     }
 
     /// Drops every slot's cached bounds after the batch's mesh changed, and counts it as an
@@ -165,27 +183,47 @@ impl InstanceBatch {
         &self.placements
     }
 
+    #[cfg(test)]
     pub fn has_pending(&self) -> bool {
-        if worldrunner_render_gpu::submission::Publications::current().is_some_and(|current| {
-            self.encoded
-                .as_ref()
-                .is_some_and(|encoded| encoded.same_transaction(&current))
+        let current = Publications::current();
+        if current.as_ref().is_some_and(|current| {
+            self.encoded.as_ref().is_some_and(|(encoded, edits)| {
+                encoded.same_transaction(current)
+                    && *edits == self.edits
+                    && current.status() == TransactionStatus::Preparing
+            })
         }) {
             return false;
         }
         !self.buffer_valid.get()
-            || (self.previous.is_some() && self.live_stale().next().is_some())
+            || (self.previous.is_some() && self.history.has_pending())
             || self
                 .dirty
                 .iter()
-                .any(|position| self.slot_pending(*position))
+                .any(|position| self.slot_pending(*position, current.as_ref()))
     }
 
-    fn live_stale(&self) -> impl Iterator<Item = usize> + '_ {
-        let stale: Vec<usize> = self.stale.borrow().iter().copied().collect();
-        stale
-            .into_iter()
-            .filter(|position| self.placements.get(*position).is_some_and(Option::is_some))
+    /// Physical readiness is independent of work still owed to a visible colour frame.
+    pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
+        if self.bytes.is_empty() {
+            return true;
+        }
+        let in_frame = owner.is_some_and(|owner| {
+            self.encoded.as_ref().is_some_and(|(encoded, edits)| {
+                encoded.same_transaction(owner)
+                    && *edits == self.edits
+                    && owner.status() == TransactionStatus::Preparing
+            })
+        });
+        (in_frame
+            || (self.buffer_valid.get()
+                && !self
+                    .dirty
+                    .iter()
+                    .any(|slot| self.slot_pending(*slot, owner))))
+            && self
+                .history
+                .ready(&self.bytes, in_frame, self.previous.is_some())
     }
 
     #[cfg(test)]
@@ -203,26 +241,30 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
-    /// Forgets dirty slots whose bytes the last published frame already holds. Staged bytes are
-    /// published at submit and preparations never overlap, so `uploaded` is exact when a frame
-    /// prepares, and a forgotten slot becomes pending again only through `pack`, which marks it
-    /// dirty. Without this the set keeps every slot ever written, and each draw pass rescans it.
-    fn prune_published(&mut self) {
+    /// Keeps copies needed by this encoder and edits still owed if its transaction cancels.
+    fn prune_published(&mut self, owner: &Publications) {
         let pending: BTreeSet<usize> = self
             .dirty
             .iter()
             .copied()
-            .filter(|position| self.slot_pending(*position))
+            .filter(|position| {
+                self.slot_pending(*position, Some(owner)) || self.slot_unpublished(*position)
+            })
             .collect();
         self.dirty = pending;
     }
 
+    #[cfg(test)]
     pub fn pending_ranges(&self) -> Vec<Range<u32>> {
+        self.pending_ranges_for(Publications::current().as_ref())
+    }
+
+    fn pending_ranges_for(&self, owner: Option<&Publications>) -> Vec<Range<u32>> {
         ranges(
             self.dirty
                 .iter()
                 .copied()
-                .filter(|position| self.slot_pending(*position)),
+                .filter(|position| self.slot_pending(*position, owner)),
         )
     }
 
@@ -270,118 +312,93 @@ pub(crate) fn flush_prepared(
     context: &mut worldrunner_render_post::PrepareContext<'_>,
     census: &MemoryCensus,
     track_previous: bool,
-) -> Vec<Range<u32>> {
-    batch.prune_published();
-    let writes = batch.pending_ranges();
-    let mut ranges = writes.clone();
+) -> (Vec<Range<u32>>, Option<super::history::Candidate>) {
+    let owner = context.publications();
+    batch.prune_published(&owner);
+    let writes = batch.pending_ranges_for(Some(&owner));
     if batch.bytes.is_empty() {
-        return ranges;
+        return (writes, None);
     }
+    let track_previous = track_previous || batch.previous.is_some();
     grow(batch, context, census, track_previous);
     let full = !batch.buffer_valid.get();
-    if full {
-        ranges =
-            std::iter::once(0..u32::try_from(batch.bytes.len() / STRIDE).expect("instance count"))
-                .collect();
+    if !full && writes.is_empty() && !batch.history.has_pending() {
+        return (writes, None);
     }
-    let previous = if track_previous {
-        previous_uploads(batch, &ranges, full)
+    let ranges = if full {
+        std::iter::once(0..u32::try_from(batch.bytes.len() / STRIDE).expect("instance count"))
+            .collect()
     } else {
-        PreviousUploads::default()
+        writes.clone()
     };
-    if ranges.is_empty() && previous.uploads.is_empty() {
-        return ranges;
+    let candidate = batch
+        .history
+        .prepare(&batch.bytes, &batch.dirty, &context.publications());
+    let previous = if track_previous {
+        batch
+            .history
+            .previous_uploads(&candidate, &batch.bytes, full)
+    } else {
+        Vec::new()
+    };
+    if !ranges.is_empty() || !previous.is_empty() {
+        stage_uploads(batch, context, &ranges, &previous);
     }
+    if track_previous {
+        let acknowledged = candidate.clone();
+        crate::compositor::publication::stage(context, &batch.uploaded, move || {
+            acknowledged.acknowledge_previous(full);
+        });
+    }
+    batch.encoded = Some((context.publications(), batch.edits));
+    (writes, (!candidate.is_empty()).then_some(candidate))
+}
+
+/// Physical content changes before the caller refreshes the mirror and gathers view records.
+fn stage_uploads(
+    batch: &mut InstanceBatch,
+    context: &mut worldrunner_render_post::PrepareContext<'_>,
+    ranges: &[Range<u32>],
+    previous: &[(u64, Vec<u8>)],
+) {
     batch.content += 1;
-    // Previous transforms are staged first: the encoder runs copies in staging order and the
-    // previous buffer is a separate resource, so it can never observe this frame's bytes.
-    if let Some(buffer) = batch.previous.as_deref().filter(|_| track_previous) {
-        for (start, bytes) in &previous.uploads {
+    if let Some(buffer) = batch.previous.as_deref() {
+        for (start, bytes) in previous {
             context.upload_buffer(buffer, *start, bytes);
         }
     }
     let buffer = batch.buffer.as_deref().expect("allocated instance buffer");
-    for range in &ranges {
-        let bytes = byte_range(range);
-        context.upload_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
-    }
+    let chunks: Vec<_> = ranges
+        .iter()
+        .map(|range| {
+            let range = byte_range(range);
+            context.upload_buffer(buffer, range.start as u64, &batch.bytes[range.clone()]);
+            (range.clone(), batch.bytes[range].to_vec())
+        })
+        .collect();
     let skin_published = batch
         .skin
         .as_ref()
-        .map(|stream| stream.stage(context, &ranges));
+        .map(|stream| stream.stage(context, ranges));
+    batch
+        .staged
+        .record(&context.publications(), &chunks, batch.skin.as_ref());
     let uploaded = batch.uploaded.clone();
     let valid = batch.buffer_valid.clone();
-    let bytes = batch.bytes.clone();
-    let (fresh, stale) = (batch.fresh.clone(), batch.stale.clone());
-    let included = batch.fresh.borrow().clone();
+    let changes = batch.history.changes();
+    let length = batch.bytes.len();
     crate::compositor::publication::stage(context, &uploaded.clone(), move || {
-        *uploaded.borrow_mut() = bytes;
+        let mut uploaded = uploaded.borrow_mut();
+        uploaded.resize(length, 0);
+        for (range, bytes) in chunks {
+            uploaded[range].copy_from_slice(&bytes);
+        }
         if let Some((uploaded, bytes)) = skin_published {
             *uploaded.borrow_mut() = bytes;
         }
         valid.set(true);
-        fresh.borrow_mut().retain(|slot| !included.contains(slot));
-        if track_previous {
-            *stale.borrow_mut() = previous.slots;
-        }
+        changes.record();
     });
-    batch.encoded = worldrunner_render_gpu::submission::Publications::current();
-    writes
-}
-
-#[derive(Default)]
-struct PreviousUploads {
-    /// Slots whose previous transform still differs from the current one after this frame.
-    slots: BTreeSet<usize>,
-    uploads: Vec<(u64, Vec<u8>)>,
-}
-
-/// The previous transforms to write this frame, taken from the last published bytes so that a
-/// cancelled frame leaves them untouched. Slots edited this frame or the last one are written;
-/// a full upload rewrites every slot. Added slots start with previous == current.
-fn previous_uploads(batch: &InstanceBatch, ranges: &[Range<u32>], full: bool) -> PreviousUploads {
-    let mut slots: BTreeSet<usize> = batch.live_stale().collect();
-    if full {
-        slots.extend(0..batch.bytes.len() / STRIDE);
-    } else {
-        slots.extend(
-            ranges
-                .iter()
-                .flat_map(|range| range.start as usize..range.end as usize),
-        );
-    }
-    let fresh = batch.fresh.borrow();
-    let uploaded = batch.uploaded.borrow();
-    let source = |slot: usize| {
-        let range = slot * STRIDE..(slot + 1) * STRIDE;
-        let current = &batch.bytes[range.clone()];
-        if fresh.contains(&slot) {
-            current
-        } else {
-            uploaded.get(range).unwrap_or(current)
-        }
-    };
-    let positions = slots.iter().copied();
-    let mut result = PreviousUploads::default();
-    for range in ranges_of(positions) {
-        let bytes = range
-            .clone()
-            .flat_map(|slot| source(slot).iter().copied())
-            .collect();
-        result.uploads.push(((range.start * STRIDE) as u64, bytes));
-    }
-    result.slots = slots
-        .into_iter()
-        .filter(|slot| source(*slot) != &batch.bytes[slot * STRIDE..(slot + 1) * STRIDE])
-        .collect();
-    result
-}
-
-fn ranges_of(positions: impl Iterator<Item = usize>) -> Vec<Range<usize>> {
-    ranges(positions)
-        .into_iter()
-        .map(|range| range.start as usize..range.end as usize)
-        .collect()
 }
 
 fn grow(
@@ -449,6 +466,9 @@ fn skin_capacity(instance_capacity: u64) -> u64 {
     (slots * crate::skinning::SKIN_INSTANCE_BYTES as u64).max(wgpu::COPY_BUFFER_ALIGNMENT)
 }
 
+#[cfg(test)]
+#[path = "ready_memo_tests.rs"]
+mod ready_memo_tests;
 #[cfg(test)]
 #[path = "velocity_reset_cpu_tests.rs"]
 mod velocity_reset_cpu_tests;

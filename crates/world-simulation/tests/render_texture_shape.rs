@@ -2,8 +2,8 @@
 //! the snapshot carries to the host.
 use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
-    GraphicsError, GraphicsSnapshot, MAX_VOLUME_DEPTH, OffscreenWork, WorldRenderTexture,
-    WorldSampler, dimension,
+    GraphicsError, GraphicsSnapshot, MAX_VOLUME_DEPTH, OffscreenWork, TargetRef,
+    WorldRenderTexture, WorldSampler, dimension,
 };
 use worldrunner_world_simulation::{World, WorldError, WorldSettings};
 
@@ -17,6 +17,7 @@ fn shaped(size: [u32; 2], dimension: u32, volume_depth: u32) -> WorldRenderTextu
         srgb: false,
         dimension,
         volume_depth,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     }
@@ -105,7 +106,7 @@ fn the_snapshot_carries_the_shape_to_the_host() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: worldrunner_world_simulation::graphics::TextureRef::Render(id),
-            target: id,
+            target: TargetRef::Render(id),
             material: None,
             pass: -1,
         })

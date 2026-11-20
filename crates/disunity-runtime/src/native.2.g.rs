@@ -154,12 +154,14 @@ pub struct DisunityRenderTexture {
     pub srgb: u32,
     pub dimension: u32,
     pub volume_depth: u32,
+    pub auto_generate_mips: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
     pub filter: u32,
     pub aniso_level: u32,
     pub mip_bias: f32,
+    pub padding: u32,
     pub generation: u64,
 }
 #[repr(C)]
@@ -175,6 +177,7 @@ pub struct DisunityOffscreenWork {
     pub kind: u32,
     pub camera: u64,
     pub target: u64,
+    pub target_kind: u32,
     pub source_kind: u32,
     pub source: u64,
     pub material: u64,
@@ -332,4 +335,12 @@ pub struct DisunityUiDraw {
     pub corner_3_g: f32,
     pub corner_3_b: f32,
     pub corner_3_a: f32,
+    /// 0 ordinary coverage; 1 distance fill, 2 outline, 3 glow.
+    pub distance_mode: u32,
+    pub distance_spread: f32,
+    pub distance_radius: f32,
+    pub effect_r: f32,
+    pub effect_g: f32,
+    pub effect_b: f32,
+    pub effect_a: f32,
 }

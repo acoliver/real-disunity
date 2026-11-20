@@ -76,7 +76,9 @@ impl RenderDimension {
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
-/// creates the texture again when anything but the id changes.
+/// creates the texture again, empty, when a field that shapes its storage changes (see
+/// [`same_storage`](Self::same_storage)). A rise of `generation` alone, which is what a sampler
+/// edit makes, keeps the texture and its contents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
@@ -99,6 +101,20 @@ impl RenderTextureSpec {
     pub const fn layers(&self) -> u32 {
         self.dimension.layers()
     }
+
+    /// Whether a texture made from `self` can serve `other`: every field but `generation` is
+    /// the same, so the storage has the same shape, format and size and keeps what it holds.
+    /// `generation` is how the host says the texture was edited, and a sampler edit changes no
+    /// storage. The one rule that decides when storage is made again, for the state's creation
+    /// of the texture and for its count of the bytes a frame would add.
+    #[must_use]
+    pub fn same_storage(&self, other: &Self) -> bool {
+        let without_generation = |spec: &Self| Self {
+            generation: 0,
+            ..spec.clone()
+        };
+        without_generation(self) == without_generation(other)
+    }
 }
 
 /// A material: a shader, keywords and properties.
@@ -110,6 +126,10 @@ pub struct Material {
     /// The values of properties the material does not set, which the host derives from what its
     /// shader declares and the material's textures. They sit below the material's own.
     pub fallback: PropertyLayer,
+    /// The declared defaults of the names the host fills in the globals, such as the main light.
+    /// They sit below every global, so a value the world, the script or the host puts in the
+    /// globals wins over the default the shader declares.
+    pub below_globals: PropertyLayer,
     pub render_queue: i32,
 }
 
@@ -151,21 +171,32 @@ pub struct Attachment {
     pub mip: u32,
 }
 
-/// What a pass draws into: the color storage of one texture and the depth storage of the same or
-/// another. A texture with no color has none to offer, and a depth buffer under a color texture
-/// has one mip, so a pass whose depth does not fit the color is drawn without it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What a pass draws into: the color storage of one to eight textures, in the order of the
+/// fragment stage's outputs, and the depth storage of one texture, which may be a texture none
+/// of the colors is of. A texture with no color has none to offer, and a depth buffer under a
+/// color texture has one mip, so a pass whose depth does not fit the colors is drawn without it. Every color must have
+/// the size of the first at its mip, and no two colors are the same mip of one texture.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Attachments {
-    pub color: Option<Attachment>,
+    pub colors: Vec<Attachment>,
     pub depth: Option<Attachment>,
 }
 
 impl Attachments {
-    /// The textures the attachments are of: the color's, then the depth's.
-    pub fn textures(&self) -> impl Iterator<Item = TextureId> {
-        self.color
-            .into_iter()
-            .chain(self.depth)
+    /// A pass over at most one color, which a camera or a script names with one texture.
+    #[must_use]
+    pub fn single(color: Option<Attachment>, depth: Option<Attachment>) -> Self {
+        Self {
+            colors: color.into_iter().collect(),
+            depth,
+        }
+    }
+
+    /// The textures the attachments are of: the colors', then the depth's.
+    pub fn textures(&self) -> impl Iterator<Item = TextureId> + '_ {
+        self.colors
+            .iter()
+            .chain(&self.depth)
             .map(|attachment| attachment.texture)
     }
 }
@@ -189,6 +220,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
+    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
+    pub instances: u32,
 }
 
 /// A list of draws into attachments.
@@ -253,6 +286,15 @@ pub enum Record {
         target_element: u32,
         target_mip: u32,
     },
+    /// Generates mips 1 to N of a render texture from its mip 0: each level is the 2x2 box
+    /// average of the level above it, made by a linear downsample of every layer or cube face on
+    /// its own. The texture must be a color render texture of a format the device filters; a 3D
+    /// texture and any other format are refused ([`MipsOfVolume`](super::OffscreenError::MipsOfVolume),
+    /// [`MipsOfFormat`](super::OffscreenError::MipsOfFormat)). Afterwards every level of every layer counts as written
+    /// at that point, so a later draw that samples the texture binds all of its levels.
+    GenerateMips {
+        texture: TextureId,
+    },
     /// Sets the parts of the attachments that `clear` names.
     Clear {
         target: Attachments,
@@ -293,8 +335,10 @@ pub struct OffscreenFrame {
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
     /// The textures a texture slot reads when no layer sets it and the shader does not declare
-    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
-    /// each as it does any source texture. A draw that reads one is counted by property in
+    /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
+    /// the Old World player makes with such a slot is drawn and counted instead of left out. The
+    /// host uploads each as it does any source texture. A draw that reads one is counted by
+    /// property in
     /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
@@ -306,12 +350,14 @@ pub struct OffscreenFrame {
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UndeclaredTextures {
-    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
-    /// 0.5 0.5 0.5 1.
+    /// For a slot that samples a 2D texture. The host's grey 2D default is RGBA 0.5 0.5 0.5 1.
     pub d2: Option<TextureId>,
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
+    /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
+    /// a [`SourceDimension::D3`] source.
+    pub d3: Option<TextureId>,
 }
 
 impl UndeclaredTextures {
@@ -320,6 +366,7 @@ impl UndeclaredTextures {
         match view {
             wgpu::TextureViewDimension::D2 => self.d2,
             wgpu::TextureViewDimension::Cube => self.cube,
+            wgpu::TextureViewDimension::D3 => self.d3,
             _ => None,
         }
     }
@@ -354,6 +401,13 @@ pub enum SourceDimension {
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
     /// +Z, -Z, each as a 2D level is.
     Cube,
+    /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
+    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    D2Array(u32),
+    /// A 3D texture one slice deep, sampled through a 3D view. `size` is the slice and `bytes`
+    /// its one level, as for a 2D source. The graph tracks one cell per texture, so a deeper
+    /// volume is not an upload.
+    D3,
 }
 
 /// A texture the host uploads once: uncompressed, one mip.

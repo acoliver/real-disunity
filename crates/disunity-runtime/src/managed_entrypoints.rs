@@ -13,7 +13,9 @@ fn pdcstring(value: &OsStr) -> Result<PdCString, HostError> {
     PdCString::from_os_str(value).map_err(|error| HostError::Hostfxr(error.to_string()))
 }
 
-fn managed_loader(config: &ManagedHostConfig) -> Result<AssemblyDelegateLoader, HostError> {
+pub(crate) fn managed_loader(
+    config: &ManagedHostConfig,
+) -> Result<AssemblyDelegateLoader, HostError> {
     let runtime_config = pdcstring(config.runtime_config.as_os_str())?;
     let assembly_path = pdcstring(config.assembly.as_os_str())?;
     let hostfxr = if let Some(hostfxr) = HOSTFXR.get() {

@@ -13,6 +13,26 @@ UI into scene contributions (the `simulation` and `ui` features).
   uniquely owned, preserving table allocations and texture payload addresses.
   Otherwise it returns the resource value unchanged. Callers can append to the
   owned vectors and validate them again with `SceneResources::new`.
+- `SceneTexture::Released` stands in for a texture whose source bytes were
+  dropped. It holds a `SceneTextureDescriptor`: the texel format, extent and mip
+  count of a texel grid; the block format, colour space, extent and mip count of a
+  validated `DDS` container; or the format, size, mip count, preparation request and
+  face order (+X, -X, +Y, -Y, +Z, -Z; face-major, finest mip first) of a specular
+  cube. Every descriptor also records the exact source length in bytes. A
+  descriptor is validated like the source it replaces, so a released table keeps
+  dense texture handles, material channel admission and fade-threshold admission.
+  `SceneResources::with_textures` swaps the texture table, shares the material
+  table and validates the result. `logical_texture_bytes` returns the checked
+  source-payload total of every texture, released or not. Adoption, append and
+  replacement reject aggregate overflow; failed mutations preserve the table and
+  total. Incremental updates account only for the changed textures, and the total
+  query does not scan the table. `retained_texture_source_bytes` sums
+  only the payload bytes that table value still reaches, so it is zero after every
+  texture is released. Both are table arithmetic: another table value that shares
+  or clones the sources keeps its own bytes, and neither number measures process
+  memory. Operations that need source bytes report the texture as released.
+  `worldrunner-render-scene` validates a table and converts it with
+  `release_texture_sources`, because only its DDS reader can establish container facts.
 - `SceneDirection` validates a unit vector quantized to integer micro-components.
   A scene sun points from a surface toward the light in right-handed Z-up
   coordinates: `[east, north, elevation]`. An authored document sun uses XYZ
@@ -149,6 +169,21 @@ map headers return `InvalidMaterialTextureFormat`. Scene closure also checks any
 packed-impostor material used on a fixed mesh against its mesh-channel selectors.
 Unsupported encoded container types remain the renderer's texture-admission errors.
 
+## Reducible textures
+
+`RenderScene::with_reducible_textures` declares the textures whose top mip levels
+the renderer may drop at upload to fit adapter memory (GitHub #376). None is
+reducible by default, so a texture keeps its authored chain until its producer
+opts in. `SceneResources::reducible_textures` returns the declaration, which
+survives placement edits and `with_textures`. Validation refuses a handle outside
+the table, and refuses by name a declared handle that the scene also binds through
+a consumer reading level 0 or the authored size: the environment cube and BRDF
+table, the sky dome, celestial discs, water normal, flow and wind maps, material
+wind fields, fade threshold textures, impostor relief and border maps, terrain
+palette maps, layer sources and colorization. Impostor material atlas maps also
+stay authored so dropping levels cannot invalidate their frame grid. UI overlay
+textures are a separate dynamic table and never use scene handles.
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies
@@ -240,7 +275,7 @@ to captures, while the visible frame stays forward. Every other
 `SceneOpaquePath::Experiment` tuple returns
 `SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
 The target layout and the shared WGSL interface are described in the
-[render-scene README](../render-scene/README.md#deferred-g-buffer-observation).
+[render-scene README](../render-scene/README.md#deferred-g-buffer).
 The CPU admission census is a separate explicit query on
 `RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
 

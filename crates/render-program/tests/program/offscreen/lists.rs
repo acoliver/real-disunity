@@ -16,10 +16,7 @@ const NEAR: TextureId = TextureId(11);
 
 fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
-    Attachments {
-        color: attachment,
-        depth: attachment,
-    }
+    Attachments::single(attachment, attachment)
 }
 
 fn clear_to(color: [f64; 4]) -> Clear {
@@ -36,6 +33,7 @@ fn item(renderer: u64, material: Option<u64>) -> ListDraw {
         slot: 0,
         material: material.map(MaterialId),
         pass: alpha(),
+        instances: 1,
     }
 }
 
@@ -89,6 +87,24 @@ fn a_list_draws_its_items_over_what_the_target_holds() {
             assert_eq!(pixel(&image, 8, (x + 4, y)), CLEAR, "right ({x}, {y})");
         }
     }
+}
+
+#[test]
+fn a_list_item_of_no_instances_draws_nothing_and_its_neighbours_still_draw() {
+    let mut rig = Rig::new();
+    let none = ListDraw {
+        instances: 0,
+        ..item(1, None)
+    };
+    let records = vec![list(whole(TARGET), vec![none, item(2, None)])];
+    let frame = frame_of(&mut rig, records);
+    let image = render(&mut rig, &frame);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        ZERO,
+        "the left renderer has no instances"
+    );
+    assert_eq!(pixel(&image, 8, (6, 3)), BLUE, "the right renderer draws");
 }
 
 #[test]
@@ -168,13 +184,10 @@ fn a_list_draws_into_the_mip_it_names_and_leaves_the_others() {
         texture: TARGET,
         mip: 1,
     };
-    let target = Attachments {
-        color: Some(level_one),
-        depth: None,
-    };
+    let target = Attachments::single(Some(level_one), None);
     frame.records = vec![
         Record::Clear {
-            target,
+            target: target.clone(),
             clear: clear_to([1.0, 1.0, 0.0, 1.0]),
         },
         list(target, vec![item(1, None)]),
@@ -210,16 +223,16 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
     for id in [RendererId(1), RendererId(2)] {
         frame.renderers.get_mut(&id).unwrap().per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
     }
-    let target = Attachments {
-        color: Some(Attachment {
+    let target = Attachments::single(
+        Some(Attachment {
             texture: TARGET,
             mip: 0,
         }),
-        depth: Some(Attachment {
+        Some(Attachment {
             texture: NEAR,
             mip: 0,
         }),
-    };
+    );
     let depth_clear = Clear {
         color: None,
         depth: Some(1.0),
@@ -228,7 +241,7 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
     // The far red quad is drawn after the near blue one and stays hidden behind it.
     frame.records = vec![
         Record::Clear {
-            target,
+            target: target.clone(),
             clear: depth_clear,
         },
         list(target, vec![item(2, None), item(1, None)]),

@@ -32,7 +32,7 @@ const MARK: ShaderId = ShaderId(1);
 const TEST: ShaderId = ShaderId(2);
 const SIZE: u32 = 8;
 
-/// What Unity's grey default 2D texture is in RGBA8.
+/// What the grey default 2D texture is in RGBA8.
 const GREY_TEXEL: [u8; 4] = [128, 128, 128, 255];
 
 /// The shader text: the vertex stage covers clip x from -1 to `right`, the fragment stage writes
@@ -110,10 +110,7 @@ fn generated(right: f32, textured: bool, state: impl Fn(&mut ShaderState)) -> Pr
 
 fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
-    Attachments {
-        color: attachment,
-        depth: attachment,
-    }
+    Attachments::single(attachment, attachment)
 }
 
 fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
@@ -126,6 +123,7 @@ fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
         keywords: Vec::new(),
         properties,
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }

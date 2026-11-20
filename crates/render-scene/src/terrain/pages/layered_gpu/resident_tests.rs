@@ -43,7 +43,7 @@ fn uploads_only_positions_and_reuses_all_source_allocations() {
 #[test]
 fn residency_is_atomic_per_device_and_owned_by_the_source() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let first = pollster::block_on(crate::device::GpuContext::request_with_features(
+    let first = pollster::block_on(crate::device::GpuContext::request_with_features_for_test(
         wgpu::Features::empty(),
     ))
     .unwrap();

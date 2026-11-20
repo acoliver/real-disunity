@@ -16,9 +16,11 @@ use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads};
+use super::mips;
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::resample::{ResampleStep, resample_step};
@@ -123,8 +125,12 @@ pub(super) fn plan_steps(
                 (*material, *pass),
             )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
+            Record::GenerateMips { texture } => {
+                steps.extend(mips::generate_steps(svc, steps.len(), *texture)?);
+                continue;
+            }
             Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, *target, clear)? {
+                match list_steps::clear_step(svc, index, target.clone(), clear)? {
                     Some(step) => step,
                     None => continue,
                 }
@@ -270,7 +276,10 @@ fn pass_report(
             },
             depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
                 (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), true) => format!(
+                    "clear {:?}",
+                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
+                ),
                 (Some(_), false) => "load".to_owned(),
             },
         },
@@ -280,13 +289,14 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 6] = [
+pub const DRAW_LAYERS: [&str; 7] = [
     "per-draw",
     "camera",
     "property block",
     "material",
     "material fallback",
     "globals",
+    "declared default below globals",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -405,6 +415,7 @@ pub(super) fn planned_draw(
         &material.properties,
         &material.fallback,
         look.globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -434,8 +445,8 @@ pub(super) fn planned_draw(
 }
 
 /// The draw `planned` made, or `None` when it was left out for a cause the report counts: no
-/// pass the selector picks, a texture no layer names or a mesh channel the pass reads. Other
-/// errors fail the frame.
+/// pass the selector picks, a texture or structured buffer no layer names or a mesh channel the
+/// pass reads. Other errors fail the frame.
 pub(super) fn counted(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
@@ -445,6 +456,8 @@ pub(super) fn counted(
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
             svc.counts.note_undeclared(&draw.plan.undeclared);
+            svc.counts.note_stand_ins(&draw.plan.stand_ins);
+            svc.keep_unset(&draw.plan);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -456,6 +469,10 @@ pub(super) fn counted(
             svc.counts.missing_texture += 1;
             *svc.counts.current.textures.entry(name.clone()).or_default() += 1;
             *svc.counts.missing_textures.entry(name).or_default() += 1;
+            Ok(None)
+        }
+        Err(OffscreenError::MissingBuffer { name }) => {
+            *svc.counts.missing_buffers.entry(name).or_default() += 1;
             Ok(None)
         }
         Err(OffscreenError::MissingChannel { channel, input, .. }) => {
@@ -618,16 +635,7 @@ fn camera_pass(
         color: camera.clear_color,
         depth: camera.clear_depth.then_some(DEPTH_CLEAR),
     };
-    list_steps::attachments_pass(
-        svc,
-        id,
-        Attachments {
-            color: whole,
-            depth: whole,
-        },
-        &loads,
-        draws,
-    )
+    list_steps::attachments_pass(svc, id, &Attachments::single(whole, whole), &loads, draws)
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {
@@ -730,6 +738,7 @@ fn blit_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -741,6 +750,8 @@ fn blit_step(
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
     svc.counts.note_undeclared(&plan.undeclared);
+    svc.counts.note_stand_ins(&plan.stand_ins);
+    svc.keep_unset(&plan);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

@@ -198,6 +198,8 @@ CheckImport("disunity_mesh_filter_write", u64, u64, u64);
 CheckImport("disunity_canvas_renderer_inherited_alpha", u64, u64, f32.MakePointerType());
 CheckImport("disunity_camera_matrix_read", u64, u64, u32, f32.MakePointerType(), u32.MakePointerType());
 CheckImport("disunity_camera_matrix_write", u64, u64, u32, f32.MakePointerType());
+CheckImport("disunity_camera_target_buffers_read", u64, u64, u64.MakePointerType(), u32.MakePointerType(), u64.MakePointerType());
+CheckImport("disunity_camera_target_buffers_write", u64, u64, u64.MakePointerType(), u32, u64);
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
@@ -267,6 +269,7 @@ CheckImport("disunity_material_render_queue_write", u64, u64, typeof(int));
 CheckImport("disunity_material_pass_write", u64, u64, bytes, u32, u32);
 CheckImport("disunity_material_read", u64, u64, AbiType("DisunityMaterialInfo").MakePointerType());
 CheckImport("disunity_material_set_pass", u64, u64, u32);
+CheckImport("disunity_material_set_buffer", u64, u64, bytes, u32, u64);
 CheckImport("disunity_active_pass_read", u64, AbiType("DisunityActivePass").MakePointerType());
 CheckImport("disunity_render_texture_create", u64, renderTextureRecord, u64.MakePointerType());
 CheckImport("disunity_render_texture_write", u64, u64, renderTextureRecord);
@@ -298,10 +301,13 @@ CheckImport("disunity_offscreen_allocate_temporary", u64, typeof(int), renderTex
 CheckImport("disunity_offscreen_release_temporary", u64, typeof(int));
 CheckImport("disunity_offscreen_detail", u64, u32, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_offscreen_cull", u64, u64, u64, u32, f32.MakePointerType(), u32, u32);
-CheckImport("disunity_offscreen_setup_camera", u64, u64, f32.MakePointerType(), f32.MakePointerType(), targetRef);
+CheckImport("disunity_offscreen_setup_camera", u64, u64, f32.MakePointerType(), targetRef, u64.MakePointerType(), u32, u64);
 CheckImport("disunity_offscreen_set_view_projection", u64, f32.MakePointerType(), f32.MakePointerType());
+CheckImport("disunity_offscreen_set_viewport", u64, f32, f32, f32, f32);
 CheckImport("disunity_offscreen_draw_mesh", u64, u64, f32.MakePointerType(), u64, u32, typeof(int));
+CheckImport("disunity_offscreen_draw_mesh_instanced", u64, u64, f32.MakePointerType(), u64, u32, typeof(int), u32);
 CheckImport("disunity_offscreen_draw_procedural", u64, f32.MakePointerType(), u64, typeof(int), u32, typeof(int), typeof(int));
+CheckImport("disunity_offscreen_generate_mips", u64, u64);
 CheckImport("disunity_renderer_list_create_draw", u64, AbiType("DisunityDrawRendererList").MakePointerType(), bytes, u64.MakePointerType());
 CheckImport("disunity_renderer_list_create_shadow", u64, AbiType("DisunityShadowRendererList").MakePointerType(), f32.MakePointerType(), u64.MakePointerType());
 CheckImport("disunity_shadow_query", AbiType("DisunityShadowRequest").MakePointerType(), f32.MakePointerType(), AbiType("DisunityShadowCaster").MakePointerType(), AbiType("DisunityShadowResult").MakePointerType(), f32.MakePointerType());
@@ -347,6 +353,7 @@ CheckImport("disunity_graphics_snapshot", u64, bytes, u32, u32.MakePointerType()
 var unverified = bindings.GetMethods(Imports).Select(method => method.Name).Except(checkedImports).ToArray();
 Require(unverified.Length == 0, $"native imports without a signature check: {string.Join(", ", unverified)}");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
+AbiRevisionTests.Run();
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
 CheckLayout(command, 24, ("object", u64, 0), ("kind", u32, 8),
@@ -359,6 +366,12 @@ CheckLayout(worldTime, 40, ("unscaled_delta", typeof(double), 0), ("unscaled_tim
     ("time_scale", typeof(double), 24), ("maximum_delta", typeof(double), 32));
 CheckLayout(buffer, 16, ("handle", u64, 0), ("length", u32, 8));
 Console.WriteLine($"PASS: all {checkedImports.Count} native import signatures and generated ABI layout expectations");
+if (args is ["screen-identity"])
+{
+    DisunityHost.ConfigurePlayer(PlayerEnvironment.Default);
+    ScreenTests.Run();
+    return;
+}
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 DisunityHost.ConfigureNativeLibrary(args[0]);
 MathTests.Run();
@@ -416,6 +429,7 @@ KeyCodeTests.Run();
 DeferredDestroyTests.Run();
 ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();
+PlayerApiReportTests.Run();
 NativeCallbackTests.Run();
 PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();
@@ -483,6 +497,10 @@ CommandBufferMeshRefreshTests.Run();
 CommandBufferMeshLifecycleTests.Run();
 CommandBufferMeshFailureTests.Run();
 CommandBufferMeshBlockTests.Run();
+CommandBufferRendererTests.Run();
+CommandBufferWireframeTests.Run();
+CommandBufferInstancedIndirectTests.Run();
+MaterialBufferTests.Run();
 CommandBufferCameraTests.Run();
 CommandBufferProceduralTests.Run();
 GlobalArrayTests.Run();

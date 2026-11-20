@@ -6,6 +6,7 @@ use crate::{ViewerError, ViewerOptions};
 pub use camera::{CameraContinuity, TemporalHistoryReset};
 use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
+use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
@@ -17,7 +18,7 @@ mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, BusConfig, ClipHandle, DuckingDetector, DuckingRule, EnvelopeMode,
-    VoiceHandle,
+    ExistingVoices, PlaybackOptions, VoiceHandle,
 };
 mod timers;
 #[cfg(test)]
@@ -31,15 +32,15 @@ pub use work::{
 };
 mod timing;
 pub use timing::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };
 mod statistics;
 pub use statistics::{
-    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
-    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
-    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
-    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
+    PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
+    ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 mod decals;
 pub use decals::DecalUpdate;
@@ -58,11 +59,11 @@ pub use input::{
     WheelDelta, WindowControlError,
 };
 mod capture;
+pub(crate) use capture::{CaptureCompletion, Captures, ao_format_from_settings};
 pub use capture::{
     CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureObservation,
     RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe,
 };
-pub(crate) use capture::{Captures, ao_format_from_settings};
 pub(crate) mod readiness;
 pub(crate) mod session;
 pub(crate) use session::Session;
@@ -276,6 +277,10 @@ pub struct RetainedHost {
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
     pub(crate) capture_pool: u64,
+    /// The player's offscreen work for the next frame the viewer renders.
+    pub(crate) offscreen: Option<PendingOffscreen>,
+    /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
+    pub(crate) game_screen: Option<crate::GameScreen>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -289,7 +294,9 @@ pub struct RetainedHost {
     size: [u32; 2],
     exit: bool,
     occluded: bool,
-    window_on_top: bool,
+    window_level: winit::window::WindowLevel,
+    #[cfg(test)]
+    pub(crate) texture_tier_memory_override: Option<u64>,
 }
 
 impl RetainedHost {
@@ -302,7 +309,11 @@ impl RetainedHost {
     /// Disabled by default.
     #[must_use]
     pub fn with_window_on_top(mut self, enabled: bool) -> Self {
-        self.window_on_top = enabled;
+        self.window_level = if enabled {
+            winit::window::WindowLevel::AlwaysOnTop
+        } else {
+            winit::window::WindowLevel::Normal
+        };
         self
     }
 
@@ -332,6 +343,9 @@ impl RetainedHost {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
+        }
+        if let RetainedUpdate::Settings(effects) = &update {
+            Self::validate_streamed_effects(effects, &self.options)?;
         }
         if resource_edits::is_resource_edit(&update) {
             return self.apply_resource_edit(update);
@@ -418,7 +432,6 @@ impl RetainedHost {
         let mut replacement = None;
         let rebuild = match &update {
             RetainedUpdate::Settings(next) => {
-                Self::validate_streamed_effects(next, &self.options)?;
                 let rebuild = readiness::resource_settings_changed(self.scene().effects(), next);
                 effects = Some(*next.clone());
                 rebuild
@@ -556,6 +569,48 @@ impl RetainedHost {
             driver,
             crate::activity::ActivityGuard::begin,
             crate::app::run_retained,
+        )
+    }
+
+    /// Hands the player's offscreen work for the next frame the viewer renders. That frame admits
+    /// it on its own recording and runs it before its first pass, in the same submission, so its
+    /// render textures are written before the scene samples them. A later call replaces work no
+    /// frame took. The operations must come from a runtime on the device the window draws on,
+    /// such as one [`crate::ViewerStart::device`] made.
+    pub fn admit_offscreen(&mut self, operations: PendingOffscreen) {
+        self.offscreen = Some(operations);
+    }
+
+    /// Offers the game's own screen, or withdraws it with `None`, for the frames the viewer renders
+    /// next. While a screen with contents is offered a frame shows it in place of the stock scene
+    /// and the UI draws over it, with no copy through the CPU. A screen has contents once an
+    /// earlier frame that carried operations exporting this texture as [`crate::GAME_SCREEN`] was
+    /// submitted (an export of another texture under that name is dropped and counts for nothing),
+    /// or when the offer says submitted work wrote it (see [`crate::GameScreen::new`]). Until then,
+    /// and in a frame whose operations do not reach the viewer, the stock scene shows. Offering a
+    /// different texture, such as the one a resize makes, starts without contents. A capture of
+    /// frame attachments the stock scene writes, such as depth and normals, is refused with
+    /// [`crate::ViewerError::UnsupportedScene`] while the screen can replace that scene.
+    pub fn show_game_screen(&mut self, screen: Option<crate::GameScreen>) {
+        self.game_screen = screen;
+    }
+
+    /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,
+    /// which another user such as a player's offscreen work may share. The window's surface is
+    /// checked against that device's adapter when it is made.
+    ///
+    /// # Errors
+    /// As [`Self::run`], and [`ViewerError::SharedSurface`] when the adapter cannot present to the
+    /// window, or a missing-feature error when the scene needs a feature the device lacks.
+    pub fn run_on(
+        self,
+        start: crate::ViewerStart,
+        driver: &mut impl RetainedDriver,
+    ) -> Result<(), ViewerError> {
+        self.run_with_activity(
+            driver,
+            crate::activity::ActivityGuard::begin,
+            |host, driver| crate::app::run_retained_on(host, driver, start),
         )
     }
 

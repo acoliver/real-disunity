@@ -13,7 +13,8 @@ mod activity;
 pub use activity::ActivityReason;
 mod adapter;
 pub use adapter::{
-    AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent, InitialContext,
+    AdapterCallback, AdapterClass, AdapterIdentity, AdapterMemory, AdapterMemorySource,
+    FrameSettings, InitialContent, InitialContext,
 };
 mod app;
 pub mod cpu_profile;
@@ -25,6 +26,8 @@ pub use live::{
 };
 mod clock;
 pub use clock::RenderClock;
+mod game_screen;
+pub use game_screen::{GAME_SCREEN, GameScreen};
 mod camera;
 mod capture_pool;
 mod presentation;
@@ -36,18 +39,20 @@ pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan
 pub use window_size::{DisplayInfo, WindowMode, WindowSizeUnit};
 mod renderer;
 mod retained;
+mod start;
+pub use start::{SharedGpu, ViewerStart};
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, BusConfig, CameraContinuity, CameraShadowPolicy, CancelToken, CaptureJitter,
     CaptureOutput, CaptureRequestError, ClipHandle, CursorError, CursorGrabMode, DuckingDetector,
-    DuckingRule, EnvelopeMode, KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton, NativeKeyCode,
-    ObjectId, PhysicalKey, PickHit, RetainedCaptureObservation, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate,
-    SceneObjectEdit, TemporalHistoryReset, TimerError, TimerHandle, VoiceHandle, WheelDelta,
-    WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError,
-    WorkSubmitError, WorkTicket,
+    DuckingRule, EnvelopeMode, ExistingVoices, KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton,
+    NativeKeyCode, ObjectId, PhysicalKey, PickHit, PlaybackOptions, RetainedCaptureObservation,
+    RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver,
+    RetainedEvent, RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick,
+    RetainedUpdate, SceneObjectEdit, TemporalHistoryReset, TimerError, TimerHandle, VoiceHandle,
+    WheelDelta, WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue,
+    WorkQueueError, WorkSubmitError, WorkTicket,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 
@@ -100,12 +105,31 @@ pub struct ViewerOptions {
     pub present_mode: wgpu::PresentMode,
     /// Positive desired latency, default 2. wgpu clamps this hint to backend limits.
     pub desired_maximum_frame_latency: u32,
+    /// Drops the top mip levels of the scene's declared reducible textures to fit a share of the
+    /// adapter's device-local memory (GitHub #376). `None` uploads every texture as authored.
+    pub texture_tiers: Option<worldrunner_render_scene::texture::TextureTierPolicy>,
     /// Resolves optional frame settings from the selected adapter before GPU scene preparation.
     pub adapter_callback: Option<AdapterCallback>,
     /// Presentation scheduling; defaults to a 16 ms fixed interval.
     pub cadence: PresentationCadence,
     /// Shader clock, wall time by default.
     pub render_clock: RenderClock,
+    /// What the game adds to the stock render: its own passes and targets, and whether the stock
+    /// passes draw the scene's terrain. The default adds nothing.
+    pub game: GameRendering,
+}
+
+/// A game's additions to the stock render of a retained scene.
+///
+/// The viewer registers the inventoried factories on every renderer it builds, at startup and
+/// after every reconfiguration, so the game's passes take part in each frame the viewer draws and
+/// its persistent targets survive replacement. The viewer itself knows nothing of what they draw.
+#[derive(Clone, Debug, Default)]
+pub struct GameRendering {
+    /// The game's feature factories and the targets they declare.
+    pub passes: worldrunner_render_scene::compositor::GamePasses,
+    /// Whether the stock passes draw the scene's terrain. The terrain stays resident either way.
+    pub terrain_draws: worldrunner_render_scene::compositor::TerrainDraws,
 }
 
 /// Presentation policy, independent of GPU submission admission.
@@ -166,8 +190,21 @@ pub enum ViewerError {
     Surface(#[from] wgpu::CreateSurfaceError),
     #[error("no presentation-compatible GPU adapter: {0}")]
     Adapter(#[from] wgpu::RequestAdapterError),
+    #[error(
+        "selected adapter backend {backend:?} is excluded by the effective instance backend mask {enabled:?}"
+    )]
+    SelectedBackendDisallowed {
+        backend: wgpu::Backend,
+        enabled: wgpu::Backends,
+    },
+    #[error("selected adapter backend {backend:?} was absent from presentability observations")]
+    SelectedBackendMissing { backend: wgpu::Backend },
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
+    #[error("the player's offscreen work could not join the frame: {0}")]
+    Offscreen(String),
+    #[error("the shared GPU adapter {adapter} cannot present to the window's surface")]
+    SharedSurface { adapter: String },
     #[error("surface does not support requested present mode {0:?}")]
     UnsupportedPresentMode(wgpu::PresentMode),
     #[error("surface has no supported sRGB presentation format")]
@@ -319,12 +356,12 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 }
 
 pub use retained::{
-    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
-    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
-    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
-    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
-    TerrainStreamingStatistics,
+    CensusSnapshot, DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording,
+    PassExecution, PassInstallation, ReceiverBinding, ReceiverBindings, ResourceClass,
+    ResourceStatistics, RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    StagingStatistics, TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics, TextureTierPolicy, TierChoice,
 };
 pub use retained::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };

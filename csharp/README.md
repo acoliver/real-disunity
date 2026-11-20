@@ -18,6 +18,49 @@ normal builds never update the checked file. All ABI source files and the
 checked bindings are Cargo rerun inputs. Keep LF line endings as required by the
 repository attributes.
 
+## Owned asynchronous file reads
+
+The native `DisunityHost` installs one bounded file reader before managed execution
+and removes it on host disposal. `Unity.IO.LowLevel.Unsafe.AsyncReadManager.Read(path,
+offset, size)` submits a regular-file region without borrowing a target pointer.
+The worker owns its buffer through completion; `ReadHandle.GetData()` copies the
+terminal bytes into a new managed array. No world, device or frame pump is required.
+Submission outside an installed native runtime host throws.
+
+The reader admits at most 64 retained requests and 64 MiB of reserved native result
+storage, with at most 16 MiB per read and 4096 UTF-8 bytes per path. Completed results
+keep their reservation until disposed. Disposing an in-progress read invalidates
+all copies of its handle and requests cancellation; its reservation remains held
+until the worker returns. Admission failures throw without creating a handle.
+Offsets and sizes are bytes. Negative arguments and overflowing ranges fail.
+
+`Identity` names a request within its host session. `Status` reports `InProgress`,
+`Complete`, `Failed` or `Canceled`; `Complete()` waits for a terminal state.
+`GetBytesRead()` is zero while pending and the actual transfer count afterward.
+A short region is `Failed` with its transferred prefix and `Error` diagnostic;
+a missing file fails with zero bytes. A zero-byte read still checks that the file
+can be opened. `GetData()` rejects pending reads. Invalid or disposed handles have
+failed status, zero readable bytes and an explanatory error.
+
+Cancellation is best effort at worker checkpoints between reads of at most 64 KiB.
+It does not interrupt a blocking OS open/read. Status remains pending until the
+worker acknowledges cancellation. A fully transferred range or an I/O error wins
+over late cancellation. Native host disposal detaches callbacks, drains borrowed
+calls, cancels remaining work and joins the worker. Old session handles cannot
+access a later host's requests. Serialize disposal against other operations on the
+same handle; `Cancel` can run while another thread waits in `Complete`.
+
+Raw `ReadCommand` submission throws `NotSupportedException`: those descriptors
+specify neither capacity nor asynchronous buffer ownership. `ReadHandle.JobHandle`
+also throws, because the current synchronous job scheduler cannot represent pending
+native I/O. Use `ReadHandle.Complete()` and owned results. Persistent `FileHandle`
+opening is unsupported; a default file remains absent.
+
+The focused `file_reads` tests in `worldrunner-disunity-runtime` exercise a real
+fixture region, channel-controlled pending and cancellation states, bounded
+admission, partial EOF results and native-to-managed Release execution. They do
+not use sleeps or timing thresholds.
+
 ## Explicit binding maintenance
 
 After an intentional ABI change:
@@ -38,10 +81,23 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` (and its numbered parts) and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 10 carries optional BL/BR/TR/TL linear RGBA corner multipliers in
+   Revision 11 carries distance mode (0 coverage, 1 fill, 2 outline, 3 glow),
+   atlas-pixel spread, physical-pixel effect radius and linear effect RGBA in the
+   152-byte `DisunityUiDraw`. Distance draws require textured affine text quads.
+   The record also carries optional BL/BR/TR/TL linear RGBA corner multipliers in
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
-   and all channels must be finite and in 0..=1. Native and managed hosts reject
-   mismatched revisions. Rebuild all peers.
+   and all channels must be finite and in 0..=1. Revision 12 adds the camera target
+   buffers calls (`disunity_camera_target_buffers_write` and `_read`) and the buffer
+   arguments of `disunity_offscreen_setup_camera`. Revision 16 adds `auto_generate_mips`
+   and a `padding` word (which keeps `generation` 8-byte aligned) to
+   `DisunityRenderTexture`, and `disunity_offscreen_generate_mips`, which records a
+   generate-mips request for a render texture with more than one level (offscreen
+   kind 19). Native and managed hosts reject
+   mismatched revisions before creating a world or accessing versioned records.
+   Managed startup reads `disunity_abi_version` and uses the generated
+   `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,
+   whose message and `Expected`/`Actual` properties identify both revisions;
+   no world-associated diagnostic is needed. Rebuild all peers.
 
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
@@ -65,6 +121,12 @@ After the native gate passes, that test runs the dependency-free
 parameter and result types, entry points, native image, calling conventions,
 and record field types, offsets, and sizes. Native
 and runtime Rust layout tests independently check sizes, alignment, and offsets.
+
+The managed test suite builds `Disunity.IdentifierTests` with warnings as errors
+and runs its CPU-only subprocess checks in a separate integration target, without
+booting a native host. The fixture covers persistence across fresh processes, scope
+switching, deletion reset, barrier-synchronized concurrent creation, invalid stored
+GUIDs and storage errors.
 
 The managed console tests also derive a behaviour from the separate PortableFixture
 assembly and export native state after each step. Commands from Start, Update,

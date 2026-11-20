@@ -6,6 +6,7 @@
 mod support;
 
 mod batch;
+mod borrowed;
 mod common;
 mod comparison;
 mod coverage;
@@ -16,4 +17,5 @@ mod ranges;
 mod set_layout;
 mod sets;
 mod stencil;
+mod topology;
 mod unfilterable;

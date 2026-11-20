@@ -39,6 +39,8 @@ mod append;
 mod append_skinning;
 mod compaction;
 mod compaction_gather;
+mod compaction_mirror;
+mod contours;
 mod curved_wind;
 mod decal_mip_bias;
 pub(crate) mod decals;
@@ -47,10 +49,10 @@ mod fade_coverage;
 mod fade_handoff;
 mod fade_steps;
 mod fold_only;
-mod fold_translucency;
+pub(crate) mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
-mod impostor;
+pub(crate) mod impostor;
 mod impostor_flat_mask;
 mod impostor_mip_bias;
 mod layered_terrain;
@@ -80,12 +82,14 @@ mod source_environment;
 mod ssao;
 mod ssr;
 mod ssr_acceptance;
+mod stock_plan;
 mod streaming;
 mod taa;
 mod taa_screen_space_tests;
 mod temporal;
 mod terrain_blend;
 mod terrain_mip_bias;
+mod texture_tier;
 mod velocity;
 
 /// The colour format every test renders into.
@@ -556,31 +560,35 @@ fn record_scene(
     depth_view: &TextureView,
     gpu: &SceneGpu,
     pipelines: &ScenePipelines,
-) {
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        label: Some("scene"),
-        color_attachments: &[Some(RenderPassColorAttachment {
-            view: color_view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(Color::BLACK),
-                store: StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: depth_view,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(1.0),
-                store: StoreOp::Store,
+) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
+    let pass = worldrunner_render_gpu::submission::RecordingRenderPass::begin(
+        encoder,
+        &RenderPassDescriptor {
+            label: Some("scene"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color::BLACK),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
             }),
-            stencil_ops: None,
-        }),
-        timestamp_writes: None,
-        occlusion_query_set: None,
-        multiview_mask: None,
-    });
-    gpu.draw(&mut pass, pipelines);
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        },
+    )?;
+    gpu.draw(pass, pipelines).unwrap();
+    Ok(())
 }
 
 /// Waits for the queue to drain, then copies the mapped bytes out.
@@ -615,13 +623,8 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform)
     let device = context.device();
     let queue = context.queue();
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
-        device,
-        &worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone()),
-        scene,
-        &pipelines,
-    )
-    .expect("the fixture scene uploads");
+    let gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines)
+        .expect("the fixture scene uploads");
     gpu.set_frame(queue, *frame);
 
     let color = color_target(device);
@@ -643,8 +646,8 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform)
         mapped_at_creation: false,
     });
 
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-    record_scene(&mut encoder, &color_view, &depth_view, &gpu, &pipelines);
+    let mut encoder = context.submission().begin(device).unwrap();
+    record_scene(&mut encoder, &color_view, &depth_view, &gpu, &pipelines).unwrap();
     encoder.copy_texture_to_buffer(
         color.as_image_copy(),
         TexelCopyBufferInfo {
@@ -661,7 +664,7 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform)
             depth_or_array_layers: 1,
         },
     );
-    queue.submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
 
     map_pixels(device, &readback)
 }

@@ -8,16 +8,18 @@ use worldrunner_render_program::unity::offscreen::frame::Record;
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
-    TextureRef, WorldRenderTexture, WorldSampler,
+    TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
+use super::super::defaults::StandInLook;
+use super::super::depth_range::DepthRange;
 use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{
-    available, camera, compute_buffer, compute_shader, dispatch, material, render_texture,
-    renderer, renderer_with, set, shader, snapshot, texture_slot, world,
+    assert_close, available, camera, compute_buffer, compute_shader, dispatch, material,
+    render_texture, renderer, renderer_with, set, shader, snapshot, texture_slot, world,
 };
 
 const MESH: u64 = (1 << 41) + 3;
@@ -26,6 +28,10 @@ pub(super) fn settings() -> Settings {
     Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
         untagged_light_mode: None,
+        screen: None,
+        depth: DepthRange::Forward,
+        supplied: Vec::new(),
+        stand_in_look: StandInLook::Declared,
     }
 }
 
@@ -45,7 +51,7 @@ pub(super) fn blit(
     world
         .record_offscreen(OffscreenWork::Blit {
             source,
-            target,
+            target: TargetRef::Render(target),
             material,
             pass,
         })
@@ -127,7 +133,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: a,
+            target: TargetRef::Render(a),
             target_element: 0,
             target_mip: 0,
         })
@@ -143,6 +149,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             Record::CameraRender { .. } => "camera",
             Record::Blit { .. } => "blit",
             Record::CopyTexture { .. } => "copy",
+            Record::GenerateMips { .. } => "mips",
             Record::Clear { .. } => "clear",
             Record::Draws(_) => "draws",
             Record::Globals(_) => "globals",
@@ -252,23 +259,20 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
         srgb: false,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     };
     let commands = [
         OffscreenWork::SetRenderTarget {
-            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
-                target,
-            )],
+            color: vec![TargetRef::Render(target)],
             depth: None,
             mip: 0,
             face: -1,
             slice: -1,
         },
         OffscreenWork::SetRenderTarget {
-            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
-                other,
-            )],
+            color: vec![TargetRef::Render(other)],
             depth: None,
             mip: 0,
             face: -1,
@@ -303,7 +307,8 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
             camera,
             view: glam::Mat4::IDENTITY.to_cols_array(),
             projection: glam::Mat4::IDENTITY.to_cols_array(),
-            target: worldrunner_world_simulation::graphics::TargetRef::Render(target),
+            target: TargetRef::Render(target),
+            buffers: None,
         },
         OffscreenWork::Cull {
             id: 5,
@@ -436,6 +441,7 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         srgb: true,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler::default(),
         generation: 0,
     };
@@ -608,6 +614,62 @@ fn a_camera_maps_its_clear_flags_mask_pass_list_and_front_face() {
         // Unity's clockwise front faces are counter-clockwise in the image, which is turned over.
         assert_eq!(made.front_face, wgpu::FrontFace::Ccw);
     }
+}
+
+/// The `unity_MatrixVP` of the only camera of a frame adapted with `settings`.
+fn view_projection_with(settings: &Settings) -> [f32; 16] {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    draw(&mut world, camera, target);
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), settings);
+    match adapted.frame.cameras[&CameraId(0)]
+        .values
+        .values
+        .get("unity_MatrixVP")
+    {
+        Some(PropertyValue::Matrix(matrix)) => *matrix,
+        other => panic!("unity_MatrixVP is {other:?}"),
+    }
+}
+
+#[test]
+fn a_cameras_clip_depth_follows_the_depth_range_of_the_settings() {
+    let forward = view_projection_with(&settings().with_depth(DepthRange::Forward));
+    let reversed = view_projection_with(&settings().with_depth(DepthRange::Reversed));
+    assert!(
+        forward
+            .iter()
+            .zip(&reversed)
+            .any(|(forward, reversed)| (forward - reversed).abs() > 1e-6),
+        "the two ranges give different matrices"
+    );
+    for column in 0..4 {
+        let at = |matrix: &[f32; 16], row: usize| matrix[column * 4 + row];
+        // Only the clip depth differs. For one OpenGL depth z and w, forward is (z + w) / 2 and
+        // reversed is (w - z) / 2, so the two add up to w, which both keep.
+        for row in [0, 1, 3] {
+            assert!(
+                (at(&forward, row) - at(&reversed, row)).abs() < 1e-6,
+                "row {row}"
+            );
+        }
+        assert!(
+            (at(&forward, 2) + at(&reversed, 2) - at(&forward, 3)).abs() < 1e-5,
+            "column {column}"
+        );
+    }
+}
+
+#[test]
+fn settings_without_a_depth_range_keep_depth_forward() {
+    assert_eq!(Settings::default().depth, DepthRange::Forward);
+    assert_eq!(Settings::cameras().depth, DepthRange::Forward);
+    assert_close(
+        &view_projection_with(&Settings::default()),
+        &view_projection_with(&settings()),
+    );
 }
 
 #[test]

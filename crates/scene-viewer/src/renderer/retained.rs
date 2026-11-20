@@ -1,8 +1,43 @@
 use super::{Renderer, Resident};
 use crate::{ObjectId, RetainedHost, RetainedUpdate, SceneObjectEdit, ViewerError};
 use std::collections::BTreeMap;
+use worldrunner_render_gpu::flight::CompletionTicket;
 use worldrunner_render_plan::SceneEffects;
-use worldrunner_render_scene::draw::{InstanceHandle, SceneGpu};
+use worldrunner_render_scene::{
+    SceneView,
+    draw::{InstanceHandle, SceneGpu},
+};
+
+pub(super) fn finish_admitted_frame(
+    renderer: &mut Renderer,
+    host: Option<&mut RetainedHost>,
+    view: &SceneView,
+    retained_capture: Option<(u64, super::capture::Products)>,
+    ticket: CompletionTicket,
+) -> Result<(), ViewerError> {
+    if let Some(host) = host {
+        renderer.submitted_camera_history(host);
+        let temporal_history_reset = renderer.temporal_history_reset();
+        host.present_pick(view.resolved_view());
+        let statistics = renderer.scene_statistics();
+        let frame = renderer.streaming.captures.next_frame();
+        renderer.streaming.captures.submitted(
+            host,
+            retained_capture,
+            ticket,
+            &crate::retained::CaptureCompletion {
+                frame,
+                time: renderer.frame_time,
+                scene: statistics,
+                temporal_history_reset,
+            },
+        )?;
+    } else {
+        renderer.streaming.captures.advance_frame();
+    }
+    renderer.check_errors()?;
+    Ok(())
+}
 
 #[derive(Default)]
 pub(super) struct Objects {
@@ -123,6 +158,28 @@ impl Renderer {
         self.presentation.scheduler.budget().0
     }
 
+    /// The texture tier chosen for the resident scene, when the host set a policy.
+    pub(crate) fn texture_tier(&self) -> Option<worldrunner_render_scene::texture::TierChoice> {
+        self.streaming.tiers.chosen
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stock_plan_statistics(
+        &self,
+    ) -> worldrunner_render_scene::compositor::StockPlanStatistics {
+        self.presentation.scheduler.stock_plan_statistics()
+    }
+
+    /// Resident GPU bytes the device's census counts, by resource class.
+    pub(crate) fn resident_bytes(&self) -> worldrunner_render_gpu::census::CensusSnapshot {
+        self.context.submission().census().snapshot()
+    }
+
+    /// Counters of the device's reusable upload staging.
+    pub(crate) fn upload_staging(&self) -> worldrunner_render_gpu::submission::StagingStatistics {
+        self.context.submission().upload_staging()
+    }
+
     /// The frame's statistics, consuming its uploads and those of residents it replaced.
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
         let carried = std::mem::take(&mut self.streaming.carried);
@@ -148,6 +205,18 @@ impl Renderer {
         Ok(self.streaming.captures.is_pending())
     }
 
+    pub(super) fn reject_offscreen_depth_fitting(
+        &self,
+        host: &RetainedHost,
+    ) -> Result<(), ViewerError> {
+        if host.offscreen.is_some() && self.resident.depth_fitting_enabled() {
+            return Err(ViewerError::UnsupportedScene(
+                "player offscreen work with same-frame depth fitting",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn render_retained(&mut self, host: &mut RetainedHost) -> Result<bool, ViewerError> {
         self.poll()?;
         self.collect_retained(host)?;
@@ -170,21 +239,7 @@ pub(super) fn configure_effects(
     presentation: &mut super::Presentation,
     effects: &SceneEffects,
 ) -> Result<(), ViewerError> {
-    let mut settings = presentation.scheduler.configuration().clone();
-    let upscale = settings.post.upscale;
-    let native_rcas = settings.post.native_rcas;
-    settings.post = worldrunner_render_scene::post_settings(effects)?;
-    settings.post.upscale = upscale;
-    settings.post.native_rcas = native_rcas;
-    settings.ssao = effects.ssao().copied();
-    settings.ssr = effects.ssr().copied();
-    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
-    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
-    settings.water = effects.water_bodies().to_vec();
-    settings.opaque_path = effects.opaque_path();
-    if let Some((exposure, _)) = &mut settings.hdr {
-        *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
-    }
+    let settings = preflight_effects(context, presentation, effects)?;
     resident.set_retained_effects(effects)?;
     match resident {
         Resident::Shadowed(scene) => {
@@ -200,6 +255,47 @@ pub(super) fn configure_effects(
     presentation.scheduler.reconfigure(context, settings)?;
     super::environment::install(context, resident, presentation, Some(effects), true)?;
     presentation.refresh_targets();
+    Ok(())
+}
+
+/// Resolves the same candidate used for replacement, without touching resident or scheduler.
+pub(super) fn preflight_effects(
+    context: &super::GpuContext,
+    presentation: &super::Presentation,
+    effects: &SceneEffects,
+) -> Result<worldrunner_render_scene::compositor::RendererConfiguration, ViewerError> {
+    let mut settings = presentation.scheduler.configuration().clone();
+    let upscale = settings.post.upscale;
+    let native_rcas = settings.post.native_rcas;
+    settings.post = worldrunner_render_scene::post_settings(effects)?;
+    settings.post.upscale = upscale;
+    settings.post.native_rcas = native_rcas;
+    settings.ssao = effects.ssao().copied();
+    settings.ssr = effects.ssr().copied();
+    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
+    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
+    settings.water = effects.water_bodies().to_vec();
+    settings.opaque_path = effects.opaque_path();
+    if let Some((exposure, _)) = &mut settings.hdr {
+        *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
+    }
+    settings.validate_opaque(&context.device().limits())?;
+    Ok(settings)
+}
+
+/// Check before consuming preparation results or initializing object-handle bookkeeping.
+pub(super) fn preflight_preparation(
+    context: &super::GpuContext,
+    presentation: &super::Presentation,
+    front: &crate::retained::readiness::Preparation,
+) -> Result<(), ViewerError> {
+    let effects = match &front.update {
+        crate::RetainedUpdate::Settings(effects) => Some(effects.as_ref()),
+        _ => front.pick_scene.as_ref().and_then(|scene| scene.effects()),
+    };
+    if let Some(effects) = effects {
+        preflight_effects(context, presentation, effects)?;
+    }
     Ok(())
 }
 

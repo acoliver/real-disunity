@@ -5,6 +5,7 @@ mod arithmetic_reference;
 #[cfg(test)]
 pub(crate) use arithmetic_reference::positions as main_receiver_positions;
 mod cards;
+pub(crate) use cards::normal_inputs as prepared_normal_source;
 #[cfg(test)]
 pub(crate) use cards::reference as late_card_source;
 mod backing;
@@ -14,6 +15,8 @@ mod reject;
 mod reservation;
 pub(crate) use bindings::{SetTwo, ShadowInputs, object_layout, shadow_layout};
 pub use reservation::ReceiverGradientReservation;
+#[cfg(test)]
+mod front_tests;
 #[cfg(test)]
 pub(crate) mod poison;
 mod shader;
@@ -122,7 +125,7 @@ pub(crate) fn card_reject_source(source: &str, layout: ReceiverLayout) -> String
     reject::card_reject_source(source, layout)
 }
 
-#[cfg(test)]
+/// The text of WGSL function `name` in `source`, from `fn` to its closing brace.
 pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
     shader::function(source, name)
 }
@@ -274,7 +277,22 @@ impl crate::compositor::FrameRenderer {
         gpu: &crate::draw::SceneGpu,
         bias: f32,
     ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.validate_opaque_normal_bias(bias)?;
         let paired = self.targets().config().samples == 1 && gpu.has_shadow_receivers();
+        if paired
+            && self
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders)
+            && !self.receiver_gradients.admits(ReceiverLayout::Front)
+        {
+            return Err(worldrunner_render_post::FrameError::UnsupportedEffect(
+                "receiver displacements exceed configured reservation",
+            ));
+        }
+        if self.prepare_reconstructed_front_receiver() {
+            return Ok(());
+        }
         if let Some(screen) = &mut self.ssao {
             if !paired {
                 screen.receiver = None;
@@ -297,51 +315,15 @@ impl crate::compositor::FrameRenderer {
                 Some(ReceiverReference::MainArithmetic) => ReceiverCapture::MainArithmetic,
                 _ => capture,
             };
-            let output = ReceiverPayload::output_for(screen);
-            let colors = admission::metadata_colors(output);
-            admission::validate(&device.limits(), layout, colors, gpu.terrain_surface())?;
-            let card_reject =
-                admission::card_reject(&device.limits(), device.adapter_info().backend, colors);
-            let reserved = self
-                .receiver_gradients
-                .layout()
-                .expect("admitted receiver layout");
-            screen
-                .receiver_backing
-                .get_or_insert_with(|| ReceiverBacking::new(device, screen.size, reserved));
-            // `card_reject` follows from the device and `output`, so it needs no check of its own.
-            if screen.receiver.as_ref().is_none_or(|receiver| {
-                receiver.layout != layout
-                    || receiver.bias.to_bits() != bias.to_bits()
-                    || receiver.output != output
-                    || receiver.capture != capture
-            }) {
-                screen.receiver = Some(ReceiverPayload::new(
-                    device,
-                    screen,
-                    layout,
-                    bias,
-                    capture,
-                    card_reject,
-                ));
-            }
+            prepare_receiver_payload(
+                device,
+                screen,
+                gpu,
+                self.receiver_gradients,
+                (layout, bias, capture),
+            )?;
             #[cfg(test)]
-            if matches!(
-                self.receiver_reference,
-                Some(
-                    ReceiverReference::PoisonUncovered
-                        | ReceiverReference::PoisonShared
-                        | ReceiverReference::PoisonIndependent
-                        | ReceiverReference::UncoveredProbe { poison: true, .. }
-                )
-            ) {
-                screen.receiver.as_mut().unwrap().clear = [1.0, 2.0].map(|scale| wgpu::Color {
-                    r: 12344.0 * scale,
-                    g: -6788.0 * scale,
-                    b: 4320.0 * scale,
-                    a: -9872.0 * scale,
-                });
-            }
+            poison_receiver_payload(screen, self.receiver_reference);
         }
         Ok(())
     }
@@ -432,5 +414,63 @@ pub(crate) fn source_formats(source: &str) -> Vec<wgpu::TextureFormat> {
         ReceiverLayout::Front.formats()
     } else {
         Vec::new()
+    }
+}
+
+fn prepare_receiver_payload(
+    device: &wgpu::Device,
+    screen: &mut super::SceneMetadata,
+    gpu: &crate::draw::SceneGpu,
+    reservation: ReceiverGradientReservation,
+    (layout, bias, capture): (ReceiverLayout, f32, ReceiverCapture),
+) -> Result<(), worldrunner_render_post::FrameError> {
+    let output = ReceiverPayload::output_for(screen);
+    let colors = admission::metadata_colors(output);
+    admission::validate(&device.limits(), layout, colors, gpu.terrain_surface())?;
+    let card_reject =
+        admission::card_reject(&device.limits(), device.adapter_info().backend, colors);
+    let reserved = reservation.layout().expect("admitted receiver layout");
+    screen
+        .receiver_backing
+        .get_or_insert_with(|| ReceiverBacking::new(device, screen.size, reserved));
+    // `card_reject` follows from the device and `output`, so it needs no check of its own.
+    if screen.receiver.as_ref().is_none_or(|receiver| {
+        receiver.layout != layout
+            || receiver.bias.to_bits() != bias.to_bits()
+            || receiver.output != output
+            || receiver.capture != capture
+    }) {
+        screen.receiver = Some(ReceiverPayload::new(
+            device,
+            screen,
+            layout,
+            bias,
+            capture,
+            card_reject,
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn poison_receiver_payload(
+    screen: &mut super::SceneMetadata,
+    reference: Option<ReceiverReference>,
+) {
+    if matches!(
+        reference,
+        Some(
+            ReceiverReference::PoisonUncovered
+                | ReceiverReference::PoisonShared
+                | ReceiverReference::PoisonIndependent
+                | ReceiverReference::UncoveredProbe { poison: true, .. }
+        )
+    ) {
+        screen.receiver.as_mut().unwrap().clear = [1.0, 2.0].map(|scale| wgpu::Color {
+            r: 12344.0 * scale,
+            g: -6788.0 * scale,
+            b: 4320.0 * scale,
+            a: -9872.0 * scale,
+        });
     }
 }

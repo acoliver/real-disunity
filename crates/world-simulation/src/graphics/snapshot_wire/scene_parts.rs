@@ -3,7 +3,9 @@ use super::WireError;
 use super::codec::{Reader, Wire, Writer, wire_struct};
 use super::command_parts::{read_command, write_command};
 use crate::ComponentHandle;
-use crate::graphics::{CameraView, GraphicsSnapshot, OffscreenWork, RenderTextureId, RendererView};
+use crate::graphics::{
+    CameraBuffers, CameraView, GraphicsSnapshot, OffscreenWork, RenderTextureId, RendererView,
+};
 use crate::handles::Identity;
 use crate::presentation::{Camera, CameraClear, CameraFlags, Projection};
 
@@ -20,6 +22,20 @@ impl Wire for ComponentHandle {
             slot: u32::read(input)?,
             generation: u32::read(input)?,
         }))
+    }
+}
+
+impl Wire for CameraBuffers {
+    fn write(&self, out: &mut Writer) -> Result<(), WireError> {
+        self.colors().to_vec().write(out)?;
+        self.depth().write(out)
+    }
+
+    fn read(input: &mut Reader<'_>) -> Result<Self, WireError> {
+        let colors = Vec::<RenderTextureId>::read(input)?;
+        let depth = Option::<RenderTextureId>::read(input)?;
+        // The count has no number of its own, so a list of none or nine names no buffers.
+        Self::new(&colors, depth).map_err(|_| WireError::TooLong)
     }
 }
 
@@ -88,7 +104,8 @@ impl Wire for Camera {
 
 wire_struct!(CameraView {
     settings,
-    world_matrix
+    world_matrix,
+    target_buffers
 });
 wire_struct!(RendererView {
     local_to_world,

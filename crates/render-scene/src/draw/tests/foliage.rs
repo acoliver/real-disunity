@@ -229,7 +229,8 @@ fn pass_readback(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        gpu.draw_objects(&mut pass, &gpu.frame_group, &pipelines, None);
+        let materials = gpu.objects.material_groups(device);
+        gpu.draw_objects(&mut pass, &gpu.frame_group, (&pipelines, &materials), None);
     }
     copy_attachment(
         &mut encoder,
@@ -558,9 +559,11 @@ fn foliage_resources_retire_after_scene_drop() {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         let after = instance.generate_report().unwrap();
+        // The authority keeps its upload staging across scenes; everything else must retire.
+        let staging = usize::try_from(authority.upload_staging().chunks).unwrap();
         assert_eq!(
             after.hub.buffers.num_kept_from_user,
-            before.hub.buffers.num_kept_from_user
+            before.hub.buffers.num_kept_from_user + staging
         );
         assert_eq!(
             after.hub.textures.num_kept_from_user,

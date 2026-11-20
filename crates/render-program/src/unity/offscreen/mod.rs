@@ -9,12 +9,15 @@
 
 mod constants_plan;
 mod defaults;
+mod depth_range;
 mod error;
+mod exports;
 mod finish;
 mod format;
 pub mod frame;
 mod list_steps;
 mod meshes;
+mod mips;
 mod plan;
 mod probe;
 mod procedural;
@@ -22,6 +25,7 @@ mod readback;
 mod resample;
 mod sampling;
 mod steps;
+mod storage_buffers;
 mod textures;
 mod tracker;
 
@@ -38,9 +42,9 @@ use crate::arena::ProgramArena;
 use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
-use crate::offscreen::AdmittedOffscreen;
+use crate::offscreen::{AdmissionError, AdmittedOffscreen, Export, PendingOffscreen};
 use crate::program::GraphicsProgram;
-use crate::resources::{BufferHandle, Pins, TextureHandle};
+use crate::resources::{BufferHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
 use crate::unity::shader::ProgramShader;
@@ -83,6 +87,8 @@ pub struct OffscreenState {
     /// runtime's budget has left.
     constants_total_limit: Option<u64>,
     retired_constants: Vec<BufferHandle>,
+    /// Whether depth is reversed (near 1, far 0); see [`depth_range`].
+    reversed_depth: bool,
 }
 
 /// The most bytes a constants buffer holds unless the host sets less. A frame with more constants
@@ -105,7 +111,21 @@ impl OffscreenState {
             constants_limit: None,
             constants_total_limit: None,
             retired_constants: Vec::new(),
+            reversed_depth: false,
         }
+    }
+
+    /// Sets whether offscreen depth is reversed: near is 1 and far is 0. Depth clears store
+    /// `1 - depth`, depth tests and the shadow comparison swap their direction, and the host
+    /// builds projections that map near to 1. Off by default.
+    pub fn set_reversed_depth(&mut self, reversed: bool) {
+        self.reversed_depth = reversed;
+    }
+
+    /// Whether depth is reversed: see [`set_reversed_depth`](Self::set_reversed_depth).
+    #[must_use]
+    pub fn reversed_depth(&self) -> bool {
+        self.reversed_depth
     }
 
     /// Sets the most bytes one constants buffer may hold, which the device's buffer size also
@@ -171,8 +191,9 @@ impl OffscreenState {
     }
 
     /// The bytes the render textures of `specs` would add to the runtime's storage: those the
-    /// state has not made, or made from another spec. A host that must make room asks before it
-    /// builds the frame.
+    /// state has not made or must replace for different storage or storage-binding capability.
+    /// This includes both color and depth while the old storage remains live. A host that must
+    /// make room asks before it builds the frame.
     #[must_use]
     pub fn new_render_texture_bytes(
         &self,
@@ -240,7 +261,7 @@ impl OffscreenState {
     }
 
     /// The dimension of the view a draw or a kernel samples the texture through: the one its
-    /// spec names, and for an uploaded source 2D or cube by its
+    /// spec names, and for an uploaded source 2D, cube or 2D array by its
     /// [`SourceDimension`](frame::SourceDimension). `None` for an id that names no texture the
     /// state holds.
     #[must_use]
@@ -334,6 +355,7 @@ impl OffscreenState {
                 shares: &mut shares,
                 probing: false,
                 constant_fragment: false,
+                reversed_depth: self.reversed_depth,
             };
             // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {
@@ -367,6 +389,8 @@ impl OffscreenState {
             constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
+        // Counted when the frame is built, since the host runs a frame it builds.
+        self.textures.mark_written(tracker.written_textures());
         Ok(OffscreenOperations {
             device: runtime.device().clone(),
             authority: runtime.authority().clone(),
@@ -374,6 +398,7 @@ impl OffscreenState {
             tracker,
             operations,
             reads,
+            exports: Vec::new(),
             shares,
             missing: missing.into_iter().collect(),
             counts,
@@ -528,6 +553,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
+    exports: Vec<Export>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -631,6 +657,15 @@ pub struct UndeclaredDefaultDraws {
     pub draws: usize,
 }
 
+/// Draws that read a stand-in texture for one texture property, by the reason the host gave for
+/// the stand-in. A draw that reads stand-ins for several properties is counted once for each.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandInDraws {
+    pub texture: String,
+    pub reason: String,
+    pub draws: usize,
+}
+
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
 /// counted for one source channel, the shader input it feeds and the format the input was given.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -646,6 +681,14 @@ pub struct DefaultedChannelDraws {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MissingTextureDraws {
     pub texture: String,
+    pub draws: usize,
+}
+
+/// Draws left out because no layer names a structured buffer the pass reads, counted for one
+/// buffer property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingBufferDraws {
+    pub buffer: String,
     pub draws: usize,
 }
 
@@ -687,6 +730,20 @@ impl OffscreenOperations {
             .collect()
     }
 
+    /// The draws left out because no layer names a structured buffer the pass reads, by the
+    /// buffer property, sorted by name. The rest of the pass's draws are recorded.
+    #[must_use]
+    pub fn missing_buffer_draws(&self) -> Vec<MissingBufferDraws> {
+        self.counts
+            .missing_buffers
+            .iter()
+            .map(|(buffer, draws)| MissingBufferDraws {
+                buffer: buffer.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
     /// The draws that read one of the frame's `undeclared_textures` for a texture property no
     /// layer set and the shader does not declare, by the texture property, sorted by name. They
     /// are drawn; none is counted as missing a texture.
@@ -700,6 +757,27 @@ impl OffscreenOperations {
                 draws: *draws,
             })
             .collect()
+    }
+
+    /// The draws that read a stand-in texture, by texture property and the reason the layer that
+    /// supplied it gave, or `undeclared` for a slot nothing explains. Only recorded draws count.
+    #[must_use]
+    pub fn stand_in_draws(&self) -> Vec<StandInDraws> {
+        self.counts
+            .stand_ins
+            .iter()
+            .map(|((texture, reason), draws)| StandInDraws {
+                texture: texture.clone(),
+                reason: reason.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The recorded draws that read at least one stand-in texture.
+    #[must_use]
+    pub fn draws_with_stand_ins(&self) -> usize {
+        self.counts.stand_in_draws
     }
 
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by the
@@ -813,6 +891,22 @@ impl OffscreenOperations {
         &self.missing
     }
 
+    /// Hands the operations and their exports to a consumer that admits them on its own frame.
+    /// Finish adapter-side reporting, readbacks and exports before handing off the packet.
+    #[must_use]
+    pub fn into_pending(self) -> PendingOffscreen {
+        PendingOffscreen {
+            device: self.device,
+            authority: self.authority,
+            lease: self.lease,
+            registry: self.tracker.registry,
+            operations: self.operations,
+            reads: self.reads,
+            exports: self.exports,
+            shares: self.shares,
+        }
+    }
+
     /// Has the contract check the whole list and the reads the scene will make after it, and has
     /// `encoder`'s frame retain the arena and the storage the operations use until the GPU has
     /// completed the frame. Nothing is retained when the check fails.
@@ -825,16 +919,11 @@ impl OffscreenOperations {
         self,
         encoder: &wgpu::CommandEncoder,
     ) -> Result<AdmittedOffscreen, OffscreenError> {
-        let registry = self.tracker.registry;
-        let compiled =
-            registry.compile_operations_with_reads(&self.device, &self.operations, &self.reads)?;
-        let admitted = AdmittedOffscreen::new(
-            compiled,
-            registry,
-            self.lease,
-            Pins::new(&self.authority, self.shares),
-        );
-        admitted.retain(encoder)?;
-        Ok(admitted)
+        self.into_pending()
+            .admit(encoder)
+            .map_err(|error| match error {
+                AdmissionError::Contract(error) => error.into(),
+                AdmissionError::Program(error) => error.into(),
+            })
     }
 }

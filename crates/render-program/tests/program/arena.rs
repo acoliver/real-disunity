@@ -145,7 +145,10 @@ fn admitted_draws_record_into_the_frame_and_hold_the_arena_until_it_completes() 
     let bytes = read(&gpu.device, &readback);
     assert_eq!(pixel(&bytes, 32, 32), [0, 255, 0, 255]);
     arena
-        .retire()
+        .retire_settled(
+            &gpu.device,
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
         .expect("the completed frame released the arena");
     assert_eq!(
         arena.retire().unwrap_err(),

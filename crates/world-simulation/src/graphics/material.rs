@@ -118,6 +118,7 @@ impl World {
     /// material as it was.
     pub fn edit_material(&mut self, id: MaterialId, edit: MaterialEdit) -> Result<(), WorldError> {
         let edit = self.checked_edit(edit)?;
+        self.freeze_material_draws(id)?;
         let material = self
             .graphics
             .materials

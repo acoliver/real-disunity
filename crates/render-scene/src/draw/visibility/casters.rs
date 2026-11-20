@@ -40,9 +40,7 @@ pub(in crate::draw) fn caster_matrix(
     terrain: Option<Bounds>,
     receiver: Mat4,
 ) -> Mat4 {
-    for (&(_, mesh, material), batch) in &instances.batches {
-        placement::refresh(&meshes[mesh], instances, material, batch);
-    }
+    placement::refresh_all(instances, meshes);
     let borrowed: Vec<_> = instances
         .batches
         .values()

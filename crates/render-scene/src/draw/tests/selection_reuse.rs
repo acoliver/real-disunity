@@ -137,6 +137,110 @@ fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
 }
 
 #[test]
+fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    let objects = pipelines.object_context();
+    gpu.prepare_object_context(objects).unwrap();
+    let pairs = gpu.drawn_pairs().len();
+    assert!(pairs > 0);
+    let after_first = gpu.objects.lookups();
+    assert_eq!(after_first, pairs, "one lookup per pair the first time");
+    for _ in 0..4 {
+        gpu.prepare_object_context(objects).unwrap();
+    }
+    assert_eq!(
+        gpu.objects.lookups(),
+        after_first,
+        "the same list is not looked up again"
+    );
+
+    // Every pair of the list has its pipeline: asking for them builds nothing.
+    let built = pipelines.object_runtime_stats();
+    for &(index, material, geometry) in &*gpu.drawn_pairs() {
+        gpu.objects
+            .pipeline(objects, (index, material), geometry)
+            .unwrap();
+    }
+    assert_eq!(pipelines.object_runtime_stats(), built);
+
+    // Another list is looked up once, whatever it holds, and what it needs is made.
+    let handle = gpu.instance_handles().next().unwrap();
+    let (object, _) = gpu.instance(handle).unwrap();
+    gpu.remove_instance(handle).unwrap();
+    assert!(gpu.drawn_pairs().is_empty());
+    let before = gpu.objects.lookups();
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(
+        gpu.objects.lookups(),
+        before,
+        "an empty list has nothing to look up"
+    );
+    let other = SceneObject::new(
+        *object.transform(),
+        object.mesh(),
+        worldrunner_render_plan::MaterialHandle::from_raw(2),
+    );
+    gpu.add_instance(other, true).unwrap();
+    let changed = gpu.drawn_pairs().len();
+    assert!(changed > 0);
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(gpu.objects.lookups() - before, changed);
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(gpu.objects.lookups() - before, changed);
+    for &(index, material, geometry) in &*gpu.drawn_pairs() {
+        let built = pipelines.object_runtime_stats();
+        gpu.objects
+            .pipeline(objects, (index, material), geometry)
+            .unwrap();
+        assert_eq!(pipelines.object_runtime_stats(), built, "already prepared");
+    }
+}
+
+#[test]
+fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    let first = pipelines.object_context();
+    let other = pipelines.for_raster(
+        worldrunner_render_plan::SceneSpecularConvention::default(),
+        wgpu::FrontFace::Cw,
+    );
+    gpu.prepare_object_context(first).unwrap();
+    let pairs = gpu.drawn_pairs().len();
+    let before = gpu.objects.lookups();
+    gpu.prepare_object_context(other.object_context()).unwrap();
+    assert_eq!(
+        gpu.objects.lookups() - before,
+        pairs,
+        "another context has no pipelines yet"
+    );
+    gpu.prepare_object_context(first).unwrap();
+    gpu.prepare_object_context(other.object_context()).unwrap();
+    assert_eq!(
+        gpu.objects.lookups() - before,
+        pairs,
+        "both lists are remembered"
+    );
+}
+
+#[test]
 fn passes_share_one_selection_of_a_view_instead_of_copying_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

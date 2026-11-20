@@ -366,17 +366,14 @@ impl SceneGpu {
         &self,
         context: &Context,
     ) -> Result<(), worldrunner_render_post::FrameError> {
-        for &(index, material, geometry) in &*self.drawn_pairs() {
-            self.objects
-                .pipeline(context, (index, material), geometry)
-                .map_err(
-                    |error| worldrunner_render_post::FrameError::FeaturePreparation {
-                        feature: "objects",
-                        reason: error.to_string(),
-                    },
-                )?;
-        }
-        Ok(())
+        self.objects
+            .prepare_pairs(context, &self.drawn_pairs())
+            .map_err(
+                |error| worldrunner_render_post::FrameError::FeaturePreparation {
+                    feature: "objects",
+                    reason: error.to_string(),
+                },
+            )
     }
 
     /// Prepares the objects of a term replay drawn with `pipelines` in the frame being drawn,

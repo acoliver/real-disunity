@@ -264,7 +264,7 @@ impl Mirror {
         (halves, generation): (Halves, u64),
     ) -> Rc<State> {
         let mut state = Self::laid_out(context.device(), found, (instances, keys), halves);
-        let stale: Vec<(BatchKey, &InstanceBatch, Held)> = {
+        let outdated: Vec<(BatchKey, &InstanceBatch, Held)> = {
             let mut batches = Ascending::new(&instances.batches, keys.len());
             let mut held = Ascending::new(&state.held, keys.len());
             keys.iter()
@@ -274,7 +274,7 @@ impl Mirror {
                 })
                 .collect()
         };
-        for (key, batch, wanted) in stale {
+        for (key, batch, wanted) in outdated {
             // The state is shared with the committed one and with earlier publications, so
             // the first edit of a transaction copies it.
             let editable = Rc::make_mut(&mut state);

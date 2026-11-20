@@ -205,7 +205,7 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
             .is_empty()
     );
     assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
-    let (content, edits) = (gpu.instances.content_generation(), gpu.instances.edits());
+    let (generation, edits) = (gpu.instances.content_generation(), gpu.instances.edits());
     for _ in 0..3 {
         assert!(
             gpu.flush_instances(context.device(), context.submission())
@@ -216,7 +216,7 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
     }
     assert_eq!(
         (gpu.instances.content_generation(), gpu.instances.edits()),
-        (content, edits),
+        (generation, edits),
         "flushing settled batches stages no bytes and allocates no buffer"
     );
 }

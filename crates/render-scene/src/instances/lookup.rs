@@ -95,7 +95,7 @@ mod tests {
         assert!(Ascending::new(&map, map.len() / WALK_SHARE).walk.is_some());
         assert!(Ascending::new(&map, 1).walk.is_none());
         assert!(
-            Ascending::new(&BTreeMap::<BatchKey, ()>::new(), 0)
+            Ascending::new(&BTreeMap::<BatchKey, u8>::new(), 0)
                 .walk
                 .is_some()
         );

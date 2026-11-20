@@ -198,16 +198,13 @@ impl Levels {
     fn prepare(&mut self, key: LevelKey, slots: usize) {
         if self.key != Some(key) {
             self.key = Some(key);
-            self.epoch = match self.epoch.checked_add(1) {
-                Some(epoch) => epoch,
-                None => {
-                    // Entries of every earlier epoch may still be stored: empty them once.
-                    for value in &mut self.values {
-                        *value.get_mut() = 0;
-                    }
-                    1
+            self.epoch = self.epoch.checked_add(1).unwrap_or_else(|| {
+                // Entries of every earlier epoch may still be stored: empty them once.
+                for value in &mut self.values {
+                    *value.get_mut() = 0;
                 }
-            };
+                1
+            });
         }
         if self.values.len() < slots {
             self.values.resize_with(slots, || AtomicU16::new(0));

@@ -482,9 +482,14 @@ impl SceneGpu {
         key.map(|key| format!("{key:?}"))
     }
 
-    /// How many times the gather mirror checked its batch ranges one by one.
+    /// How many times the gather mirror checked batch ranges one by one.
     pub(crate) fn mirror_scans(&self) -> usize {
         self.gather.mirror.scans()
+    }
+
+    /// How many batch ranges those checks started from: the keys the mirror was not known to hold.
+    pub(crate) fn mirror_checked(&self) -> usize {
+        self.gather.mirror.checked()
     }
 
     /// The committed gather mirror, for comparison.

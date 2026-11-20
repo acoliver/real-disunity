@@ -37,7 +37,8 @@ mod snapshots;
 mod stock_plan;
 mod temporal;
 mod validation;
-pub use crate::draw::TerrainDraws;
+mod water_draws;
+pub use crate::draw::{TerrainDraws, WaterDraws};
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
@@ -106,6 +107,8 @@ pub struct FrameRenderer {
     game_terrain: FrameTerrainHandle,
     /// Whether the stock passes draw the scene's terrain.
     terrain_draws: TerrainDraws,
+    /// Whether the stock passes draw the scene's water.
+    water_draws: WaterDraws,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -168,6 +171,7 @@ impl FrameRenderer {
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
             terrain_draws: TerrainDraws::Stock,
+            water_draws: WaterDraws::Stock,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -288,13 +292,7 @@ impl FrameRenderer {
         let water = crate::water::Water::new(device, authority, self.targets().config(), settings)?;
         *self.snapshot_ready.borrow_mut() = Default::default();
         self.snapshots = Some(water.snapshots.clone());
-        self.chain.register(
-            device,
-            Box::new(crate::water::WaterRegistration {
-                state: self.water_state.clone(),
-                samples: self.targets().config().samples,
-            }),
-        )?;
+        self.register_water(device)?;
         self.water = Some(water);
         Ok(())
     }
@@ -342,25 +340,6 @@ impl FrameRenderer {
                 snapshots[self.frame_slot]
                     .final_depth
                     .create_view(&wgpu::TextureViewDescriptor::default())
-            })
-    }
-    /// Submitted per-sample water receivers: view normal and water flag (alpha),
-    /// dielectric F0 and environment roughness, and replaceable environment specular.
-    /// Sample-frequency normal/coverage, material (pixel offsets RG, scalar F0 B,
-    /// environment-coordinate roughness A), and specular (camera transmittance A).
-    pub fn water_receivers(
-        &self,
-    ) -> Option<(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView)> {
-        self.water
-            .as_ref()
-            .filter(|_| self.snapshot_ready.borrow()[self.frame_slot].final_depth)
-            .map(|water| {
-                let [normal, material, specular] = &water.receivers[self.frame_slot];
-                (
-                    normal.create_view(&wgpu::TextureViewDescriptor::default()),
-                    material.create_view(&wgpu::TextureViewDescriptor::default()),
-                    specular.create_view(&wgpu::TextureViewDescriptor::default()),
-                )
             })
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
@@ -544,13 +523,12 @@ impl FrameRenderer {
         encoder: &wgpu::CommandEncoder,
         depth: crate::renderer::depth::DepthMode,
     ) -> Result<(), FrameError> {
-        if let Some(water) = &self.water {
+        if let Some(water) = self.stock_water() {
             crate::water::surface::validate_inputs(water)?;
         }
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         let feature = self
-            .water
-            .as_ref()
+            .stock_water()
             .map(|water| {
                 water.feature_with_depth(
                     (device, encoder),
@@ -565,7 +543,7 @@ impl FrameRenderer {
                 feature: "water",
                 reason: error.to_string(),
             })?;
-        self.water_state.borrow_mut().feature = feature;
+        self.record_water_frame(feature);
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
@@ -617,6 +595,7 @@ impl FrameRenderer {
             crate::renderer::depth::DepthMode::Independent
         };
         self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
+        self.clear_unwritten_water_mask(encoder);
         let declarations: Vec<_> = features
             .iter()
             .map(|feature| feature.declaration.clone())
@@ -627,7 +606,8 @@ impl FrameRenderer {
             slot: self.frame_slot,
             ssao: self.ssao.as_ref(),
             ssr: self.ssr.as_ref(),
-            water: self.water.as_ref(),
+            water: self.water_draws.drawn(self.water.as_ref()),
+            water_registered: self.water.is_some(),
             gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
             temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
@@ -695,7 +675,7 @@ impl FrameRenderer {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.remember_taa_block(None);
-        if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
+        if self.ssao.is_some() || self.stock_water().is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
             ));

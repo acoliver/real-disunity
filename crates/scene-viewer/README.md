@@ -358,13 +358,14 @@ have no surface.
 
 ## Game rendering
 
-`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene` and a `TerrainDraws` choice. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. The viewer does not know what the game draws.
+`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene`, a `TerrainDraws` choice and a `WaterDraws` choice. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. The viewer does not know what the game draws.
 
 ```rust,ignore
 let mut options = ViewerOptions::default();
 options.game = GameRendering {
     passes: GamePasses::new().with(Arc::new(MyGame::new())),
     terrain_draws: TerrainDraws::Suppressed, // the game's own passes draw the terrain
+    water_draws: WaterDraws::Stock,
 };
 ```
 

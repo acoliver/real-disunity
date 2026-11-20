@@ -31,6 +31,8 @@ mod snapshot_capture;
 mod snapshot_game;
 #[path = "game_passes/snapshot_gaps.rs"]
 mod snapshot_gaps;
+#[path = "game_passes/snapshot_water.rs"]
+mod snapshot_water;
 #[path = "game_passes/snapshots.rs"]
 mod snapshots;
 #[path = "game_passes/stores.rs"]

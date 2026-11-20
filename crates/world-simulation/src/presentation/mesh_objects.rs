@@ -2,7 +2,9 @@
 use std::collections::HashMap;
 
 use super::extraction::{selected_camera, view_basis};
-use crate::graphics::{MaterialId, ShaderProperties};
+use crate::graphics::{
+    BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MaterialId, ShaderProperties, TextureRef,
+};
 use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, RendererKind, World, WorldError};
 
 /// One mesh renderer a frame shows.
@@ -14,7 +16,10 @@ pub struct MeshObject {
     pub local_to_world: [f32; 16],
     /// The renderer identity of the mesh contents, the one the host reads them by.
     pub mesh: u64,
-    /// What each material slot draws with, one per material the renderer holds.
+    /// What each material slot draws with, one per material the renderer holds. A slot with a
+    /// live material draws with that material's current colour and main texture, as the
+    /// renderer's property block overrides them; any other slot draws with the renderer's
+    /// `drawn` record.
     pub slots: Vec<DrawnMaterial>,
     /// The layer of the renderer's object, which a camera's culling mask tests.
     pub layer: u32,
@@ -61,11 +66,16 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
         {
             continue;
         }
-        let slots = (0..renderer.material_count as usize)
-            .map(|slot| renderer.drawn.get(slot).copied().unwrap_or_default())
-            .collect();
-        let materials = (0..renderer.material_count as usize)
+        let materials: Vec<Option<MaterialId>> = (0..renderer.material_count as usize)
             .map(|slot| live_material(world, renderer.slot_materials.get(slot).copied().flatten()))
+            .collect();
+        let slots = materials
+            .iter()
+            .enumerate()
+            .map(|(slot, material)| {
+                let fallback = renderer.drawn.get(slot).copied().unwrap_or_default();
+                drawn_slot(world, *material, renderer.property_block.as_ref(), fallback)
+            })
             .collect();
         objects.push(MeshObject {
             object: component.object,
@@ -83,4 +93,40 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
 
 fn live_material(world: &World, material: Option<MaterialId>) -> Option<MaterialId> {
     material.filter(|id| world.material(*id).is_ok())
+}
+
+/// What a slot draws with now. A slot with a live world material takes the colour and main
+/// texture the material and the renderer's property block hold, the way the managed
+/// `Renderer.DrawnOf` reads them when the shared materials are set (csharp/Disunity/RendererDrawn.cs):
+/// `_Color` if there is one, else `_BaseColor`, else white, with negative channels as 0; and the
+/// main texture's asset identity, 0 for a texture that is not an asset. A slot with no live
+/// material draws `fallback`, the record the managed side sent. The world never holds a colour
+/// that is not finite, so none reaches the slot.
+fn drawn_slot(
+    world: &World,
+    material: Option<MaterialId>,
+    block: Option<&ShaderProperties>,
+    fallback: DrawnMaterial,
+) -> DrawnMaterial {
+    let Some(material) = material.and_then(|id| world.material(id).ok()) else {
+        return fallback;
+    };
+    let sets = [block, Some(&material.properties)];
+    let color = sets
+        .iter()
+        .flatten()
+        .find_map(|set| set.vector(MAIN_COLOR))
+        .or_else(|| sets.iter().flatten().find_map(|set| set.vector(BASE_COLOR)))
+        .unwrap_or([1.0; 4])
+        .map(|channel| channel.max(0.0));
+    let texture = match sets
+        .iter()
+        .flatten()
+        .find_map(|set| set.texture(MAIN_TEXTURE))
+        .map(|slot| slot.texture)
+    {
+        Some(TextureRef::Asset(identity)) => identity,
+        _ => 0,
+    };
+    DrawnMaterial { color, texture }
 }

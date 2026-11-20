@@ -20,13 +20,16 @@ const FIXED: [u32; 2] = [256, 256];
 /// The bytes of the fixed backing: 256 by 256 texels of four bytes.
 const FIXED_BYTES: u64 = 256 * 256 * 4;
 const LARGER: [u32; 2] = [96, 72];
+/// The bytes of the fixed backing in BC4: a 64 by 64 grid of eight-byte blocks.
+const FIXED_BLOCK_BYTES: u64 = 64 * 64 * 8;
 
 /// A game that owns targets and draws nothing.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Ledger {
     frame_sized: bool,
     persistent: bool,
     format: wgpu::TextureFormat,
+    fixed: [u32; 2],
 }
 
 impl Ledger {
@@ -34,6 +37,7 @@ impl Ledger {
         frame_sized: false,
         persistent: true,
         format: wgpu::TextureFormat::Rgba8Unorm,
+        fixed: FIXED,
     };
 
     fn passes(self) -> GamePasses {
@@ -78,7 +82,7 @@ impl GameFeatureFactory for Ledger {
         let mut targets = vec![declaration(
             "ledger",
             self.format,
-            TargetExtent::Fixed(FIXED),
+            TargetExtent::Fixed(self.fixed),
             self.persistent,
         )];
         if self.frame_sized {
@@ -245,4 +249,71 @@ fn a_backing_is_kept_only_for_an_identical_declaration() {
             "a target whose declaration changed is a new backing"
         );
     }
+}
+
+fn block_context() -> GpuContext {
+    GpuContext::shared_for_test_with_features(wgpu::Features::TEXTURE_COMPRESSION_BC)
+        .expect("game pass acceptance requires a real adapter; never skip")
+}
+
+const BLOCKS: Ledger = Ledger {
+    format: wgpu::TextureFormat::Bc4RUnorm,
+    ..Ledger::FIXED_ONLY
+};
+
+#[test]
+fn a_block_compressed_target_is_charged_its_blocks_and_a_kept_backing_counts_once() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = block_context();
+    let plain = charged(&context, &settings(SIZE, GamePasses::new()));
+    let live = settings(SIZE, BLOCKS.passes());
+    assert_eq!(charged(&context, &live), plain + FIXED_BLOCK_BYTES);
+    let peak = 2 * plain + FIXED_BLOCK_BYTES;
+    let mut fits = renderer(&context, live.clone(), peak);
+    let backing = fits.game_targets().texture("ledger").unwrap();
+    assert_eq!(
+        backing.usage(),
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        "a block-compressed target is written by copies only"
+    );
+    assert_eq!(backing.mip_level_count(), 1);
+    fits.reconfigure(&context, recolored(&live)).unwrap();
+    assert_eq!(fits.game_targets().texture("ledger").unwrap(), backing);
+    let mut tight = renderer(&context, live.clone(), peak - 1);
+    let error = tight.reconfigure(&context, recolored(&live)).unwrap_err();
+    assert!(
+        matches!(error, ConfigurationError::Budget { required, .. } if required == peak),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_block_compressed_target_needs_the_compression_feature_and_whole_blocks() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let refusal = |context: &GpuContext, ledger: Ledger| {
+        let Err(error) = ConfiguredFrameRenderer::new(
+            context,
+            settings(SIZE, ledger.passes()),
+            AllocationBudget(1 << 28),
+        ) else {
+            panic!("{ledger:?} was allocated");
+        };
+        error.to_string()
+    };
+    let missing = refusal(&context(), BLOCKS);
+    assert!(
+        missing.contains("game target ledger") && missing.contains("TEXTURE_COMPRESSION_BC"),
+        "{missing}"
+    );
+    let partial = refusal(
+        &block_context(),
+        Ledger {
+            fixed: [6, 8],
+            ..BLOCKS
+        },
+    );
+    assert!(
+        partial.contains("game target ledger") && partial.contains("block"),
+        "{partial}"
+    );
 }

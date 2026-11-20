@@ -18,8 +18,8 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
-    TargetSignature,
+    ExternalSet, GraphicsProgram, Import, ImportTable, ImportedDraw, ImportedGeometry,
+    PreparedProgramDraw, ProgramRuntime, TargetSignature,
 };
 
 use crate::common::{SIZE, no_cull};
@@ -373,4 +373,81 @@ fn a_filtering_sampler_lent_to_a_non_filtering_slot_is_wgpus_to_refuse() {
     ));
     let error = prepare(&mut runtime, &lent, &both).unwrap_err();
     assert!(matches!(error, ProgramError::Gpu(_)), "{error:?}");
+}
+
+/// A set the pass owner binds, holding the texture of set 0 declared filterable.
+fn filterable_set(gpu: &Gpu) -> ExternalSet {
+    let layout = gpu
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("filterable ambient"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: FILTERABLE,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+    ExternalSet {
+        set: 0,
+        layout,
+        bindings: ResourceLayout::new(declarations(FILTERABLE, None)),
+    }
+}
+
+fn table(gpu: &Gpu) -> ImportTable {
+    let mut table = ImportTable::new();
+    for import in imports(gpu, R32) {
+        table.insert(import);
+    }
+    table
+}
+
+#[test]
+fn an_r32float_texture_suits_a_filterable_binding_on_a_device_that_filters_it() {
+    let gpu = Gpu::with_features(wgpu::Features::FLOAT32_FILTERABLE);
+    let mut runtime = gpu.runtime();
+    let filterable = program(
+        &runtime,
+        "fs_sample",
+        declarations(FILTERABLE, Some(wgpu::SamplerBindingType::Filtering)),
+    )
+    .unwrap();
+    // The runtime's filtering sampler reads texel centres, so the values come back exact.
+    let draw = prepare(&mut runtime, &filterable, &imports(&gpu, R32)).unwrap();
+    assert_eq!(drawn(&gpu, &draw), expected());
+    assert!(
+        runtime
+            .prepare_external_set(&filterable_set(&gpu), &table(&gpu))
+            .is_ok()
+    );
+}
+
+#[test]
+fn an_r32float_texture_is_refused_at_a_filterable_binding_on_a_device_without_the_feature() {
+    let gpu = Gpu::new();
+    assert!(
+        !gpu.device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE)
+    );
+    let refused = gpu
+        .runtime()
+        .prepare_external_set(&filterable_set(&gpu), &table(&gpu))
+        .unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            ProgramError::WrongResource {
+                set: 0,
+                binding: 0,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
 }

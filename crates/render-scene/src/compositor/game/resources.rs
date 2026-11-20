@@ -287,9 +287,10 @@ impl GameResources {
     /// # Errors
     /// [`GameResourceError::Declaration`] for an empty extent, a dimension other than `D2`,
     /// `D2Array` and `D3`, more than one layer for `D2`, a mip count the extent does not have,
-    /// texels for a depth format or a 3D texture deeper than one slice, texels that are not
-    /// exactly the levels [`GameTextureDeclaration::levels`] lists, or a format the device
-    /// cannot sample; [`GameResourceError::Budget`] beyond the budget.
+    /// a depth or block-compressed 3D texture, texels for a depth format or a 3D texture deeper
+    /// than one slice, texels that are not exactly the levels [`GameTextureDeclaration::levels`]
+    /// lists, an extent or layer count past the device's limits, or a format the device cannot
+    /// sample; [`GameResourceError::Budget`] beyond the budget.
     pub fn declare_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,

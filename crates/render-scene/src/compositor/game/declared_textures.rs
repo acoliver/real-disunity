@@ -125,6 +125,9 @@ impl GameTextureDeclaration<'_> {
                 "the extent is not whole blocks of the format",
             ));
         }
+        if volume && self.format.is_depth_stencil_format() {
+            return Err(refuse(label, "a depth texture is not 3D"));
+        }
         if volume && self.format.is_compressed() {
             return Err(refuse(label, "a 3D texture is not block-compressed"));
         }

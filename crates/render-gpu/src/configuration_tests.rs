@@ -142,6 +142,17 @@ fn padded_block_mip_and_slot_accounting() {
     );
 }
 #[test]
+fn external_storage_counts_its_bytes_without_the_buffer_rules() {
+    let limits = wgpu::Limits::default();
+    let mut set = AllocationSet::default();
+    set.external("odd texture", 3);
+    set.external("past the buffer limit", limits.max_buffer_size + 1);
+    assert_eq!(set.validate(&limits).unwrap(), limits.max_buffer_size + 4);
+    let mut empty = AllocationSet::default();
+    empty.external("empty", 0);
+    assert_eq!(empty.validate(&limits), Err("empty external storage"));
+}
+#[test]
 fn rejection_and_allocator_failure_leave_generation_and_output_unchanged() {
     let (device, authority) = context();
     let mut config = Configuration::new(

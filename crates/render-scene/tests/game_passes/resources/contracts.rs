@@ -261,6 +261,13 @@ fn a_texture_the_device_cannot_create_is_refused_by_name_rather_than_by_a_wgpu_p
             wgpu::TextureViewDimension::D2Array,
         ),
         (
+            // wgpu creates depth textures in two dimensions only.
+            "limits.depth_volume",
+            wgpu::TextureFormat::Depth32Float,
+            [2, 2, 2],
+            wgpu::TextureViewDimension::D3,
+        ),
+        (
             // The rig's device has no texture compression.
             "limits.compressed",
             wgpu::TextureFormat::Bc1RgbaUnorm,
@@ -287,6 +294,32 @@ fn a_texture_the_device_cannot_create_is_refused_by_name_rather_than_by_a_wgpu_p
             "{label}: expected a refused declaration, got {declared:?}"
         );
     }
+}
+
+#[test]
+fn a_texture_of_any_byte_count_is_declared_and_held_in_the_runtimes_ledger() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    KEPT.with_borrow_mut(Vec::clear);
+    let _clear = ClearKept;
+    let (mut rig, _inventory, _controls, _seen) = single_game();
+    rig.render().unwrap();
+    let resources = first_resources();
+    let held = (resources.bytes(), resources.runtime().live_bytes());
+    // Three one-byte texels: no buffer rule (a multiple of four bytes) applies to a texture.
+    let declared = resources.declare_texture(&GameTextureDeclaration {
+        label: "ledger.odd",
+        format: wgpu::TextureFormat::R8Unorm,
+        size: [3, 1, 1],
+        dimension: wgpu::TextureViewDimension::D2,
+        mip_levels: 1,
+        texels: Some(&[1, 2, 3]),
+    });
+    assert!(declared.is_ok(), "{declared:?}");
+    assert_eq!(
+        (resources.bytes(), resources.runtime().live_bytes()),
+        (held.0 + 3, held.1 + 3),
+        "the store and the runtime's ledger both count the three bytes"
+    );
 }
 
 #[test]

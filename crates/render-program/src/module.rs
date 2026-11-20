@@ -553,6 +553,7 @@ fn stage_key(
 
 fn parse_spirv(words: &[u32]) -> Result<naga::Module, ModuleError> {
     let words = crate::texel_buffer::lower(words)?;
+    let words = crate::nonfinite::lower(&words)?;
     let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     // The default options flip the vertex position's Y, which turns the SPIR-V clip space
     // (Y down) into the one wgpu draws with; the crate's convention tests pin the result.

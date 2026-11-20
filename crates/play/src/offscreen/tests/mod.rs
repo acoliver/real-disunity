@@ -1,5 +1,6 @@
 //! Tests of the offscreen adapter. Worlds, files, meshes and textures are synthetic.
 
+mod ambient_gpu;
 mod assets;
 mod block_sources;
 mod bounds;
@@ -17,6 +18,7 @@ mod frame;
 mod global_arrays;
 mod gpu;
 mod keep;
+mod keep_targets;
 mod kernels;
 mod lights_gpu;
 mod lists;
@@ -30,10 +32,12 @@ mod procedural;
 mod properties;
 mod reclaim;
 mod refusal;
+mod screen;
 mod script;
 mod script_targets;
 mod shaders;
 mod shapes;
+mod stand_ins;
 mod storage;
 mod supplied_gpu;
 mod support;

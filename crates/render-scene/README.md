@@ -242,7 +242,8 @@ retained replacement has not finished, and a second view in one recording is a
 unrelated frame cannot read that preparation. A scene without streamed terrain
 returns `None`.
 
-Each draw carries its inclusive height-sample bounds and sampling stride. Edge
+Each draw carries its inclusive height-sample bounds and sampling stride, and its
+resident vertex and index buffers (`TerrainChunkDraw::buffers`). Edge
 neighbors come from the entire admitted cover, including culled leaves. Their
 positive-length overlaps are sorted along the edge and can describe multiple
 strides. The caller owns material nodes, material page slots and index-map
@@ -267,12 +268,28 @@ Lit objects, foliage and impostors draw through `render-program` in the forward 
 
 ## Player offscreen operations
 
-`SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from `worldrunner-render-program` into the next frame encoded with this scene: camera renders into render textures, `Graphics.Blit` material passes and texture copies, already checked by the render-post executor's contract as `TypedOperation`s. `compositor::encode_scene` takes them after it has checked the admitted draws and before it declares the stock passes, so they are the first commands the frame records in the same encoder and so the same submission. They are encoded through the frame's pass timer, so with timing configured each one is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of the stock opaque pass. No second scheduler was added: the scene's only change is where it calls `AdmittedOffscreen::encode`.
+`SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from
+`worldrunner-render-program` into the next frame encoded with this scene:
+camera renders into render textures, `Graphics.Blit` material passes and texture
+copies, already checked by the render-post executor's contract as
+`TypedOperation`s. `FrameEncoding::encode_scene` and `FrameEncoding::encode_shadowed`
+take this work before validating the scene's admitted draws. On an accepted
+frame, the same executor records the offscreen operations before the stock passes,
+on the frame's encoder and in its submission. With timing configured, each
+operation is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of
+the stock opaque pass.
 
 A draw admitted with `admit_programs` can sample a render texture that the offscreen operations write, in the stock opaque pass. The host names that read when it builds the offscreen frame (`OffscreenFrame::later_reads`), and the executor checks it as a sampled read of the version the frame leaves, so a read before any write or of a range a later operation overwrites fails at admission by name, before anything is recorded.
 
-- The resident path (`encode_resident`) and the shadowed path refuse a scene that holds admitted offscreen operations by name, as they do for admitted draws.
-- The offscreen operations are taken whether or not the frame is accepted, so a refused frame leaves none for the next. An arena that retired or belongs to another submission authority fails the frame by name.
+- The resident path (`encode_resident`) refuses admitted offscreen operations by name.
+  Shadowed frame encoding accepts those operations but still refuses admitted program draws.
+- Plain and shadowed frame encoding take the offscreen operations whether or not
+  the frame is accepted, so a refused encoding attempt leaves none for the next.
+  An arena that retired or belongs to another submission authority fails the frame by name.
+- The viewer rejects offscreen work whenever shadow depth fitting is configured,
+  including interactive `QuantizedPerBound` fitting. It checks before taking the
+  host's pending operations or submitting; see the
+  [shared-device contract](../scene-viewer/README.md#a-device-another-user-shares).
 - A cancelled frame submits nothing; the render textures keep what they held and the arena can retire.
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
@@ -295,6 +312,27 @@ so known HDR pixels differ between frames too. Each encoder records its own
 readback copies while both frames reuse the scene and G-buffer targets. After both
 submissions, each frame's timing record checks that every offscreen operation
 executes once before the path's expected geometry passes.
+
+## Game-screen composition
+
+`compositor::GameScreenComposite` replaces one authored colour pass with a named
+screen texture. Register it on `FrameRenderer` with the screen `ResourceRef`, the
+`PassEntry`, and the destination colour format. Each frame plan supplies that
+resource as an `AttachmentView`; the pass must have exactly one colour target of
+the configured format, one sample and no depth attachment. The screen must be a
+single-sample `Rgba8UnormSrgb` texture with `TEXTURE_BINDING` usage. Its sample decodes sRGB to
+linear, and the target format performs its normal output conversion. The fullscreen
+copy scales to the target extent. It presents the last stored source row at the
+top, matching the bottom-first row order of the player screen.
+
+Place the composite at the existing opaque entry and omit the stock opaque feature
+from that authored plan. Add UI at a later entry that loads the same target. Plans
+without a registered composite retain their existing behavior. A current-frame writer exports the screen through a `FrameOperations` group
+positioned before the composite. It must supply the matching retained view. A retained view can also supply the last
+submitted screen in a frame without a current writer. Operation, composite and UI
+commands use the frame's encoder and submission authority. Unsupported source or
+target contracts return a named preparation error; multisampled composite targets
+are unsupported.
 
 ## Material sampling
 
@@ -1405,11 +1443,13 @@ The targets count against the allocation budget. A kept backing is charged once 
 
 A layer is recorded as written when the *last* attachment that wrote that exact texture in a submitted frame stored its contents; a last write that discarded them leaves the layer unwritten. Only the declared texture counts: a stock attachment with the same name is another texture and never marks it, and a pass or read that would stand a declared target in for a same-named attachment of the frame is refused at planning with `FrameError::AttachmentHazard`. A same-frame fitted capture lists each game target's texture and each persistent target's publication in its suffix writes, so a game's passes run inside it, and a capture that fails publishes none of the game's bookkeeping.
 
+`GameTargets::is_written`, `view` and the imports a capture declares answer with the state the frame started with, in every segment of that frame: both segments of one owned capture, or one transaction. A segment of a fitted capture that is submitted first records what it wrote when it is submitted, and the segment after it still plans, loads and imports as the frame's first segment did, so a feature plans the same passes in both and a completed pass keeps the declaration the executor compared it with. A later frame, and a query made outside any frame, sees the published state.
+
 ```rust,ignore
 let passes = GamePasses::new().with(Arc::new(MyGame::new()));
 let mut settings = RendererConfiguration::legacy(size, format);
 settings.game_passes = passes;
-settings.terrain_draws = TerrainDraws::Suppressed; // optional: the game draws the terrain
+settings.terrain_draws = TerrainDraws::CastersOnly; // optional: the game draws the terrain, the stock casters stay
 let renderer = ConfiguredFrameRenderer::new(&context, settings, budget)?;
 
 // Inside the feature's `plan`: A writes four targets and the frame depth before Opaque,
@@ -1428,6 +1468,7 @@ let state = target.render_state(raster);   // reuses DepthMode::render_state
 let draw = runtime.prepare_imported_draw(&imported, target.signature()?)?;
 target.admit("my program", &draw)?;         // a mismatch is refused by name before recording
 let camera = frame_camera.current()?;        // the matrices the stock passes use
+let chunks = frame_terrain.current()?;       // the streamed chunks this frame admitted
 ```
 
 A block-compressed format makes a *copy target* with `COPY_DST | TEXTURE_BINDING` usage, of one mip unless it declares a chain (below). The device must have the format's features and the extent must be whole blocks, or the configuration is refused naming the target. Passes may sample a copy target but not render into it (`ColorOutput::Target` of one is `FrameError::AttachmentView`). Its layers are written while the frame prepares: the feature's `plan` calls `GameTargets::plan_prepared(reads, writes, views)` for the layers it writes, and its `prepare` stages a `PreparedDispatch` that encodes the blocks and a `PreparedBlockTransfer` from `ProgramRuntime::prepare_lent_block_transfer` into each layer with `PrepareContext::record_prepared`, declaring the layer it writes; a transfer into another layer than the one declared is `FrameError::PreparedWriteMismatch` naming both, and the frame is refused before anything is staged. The commands run before the frame's first pass, so a game pass of the same frame reads the layers, and a persistent layer counts as written once the frame is submitted, exactly as an attachment's write does; a same-frame capture owns the writes and the bookkeeping like any other game target's. A layer a frame does not compress again is read from the earlier frame. Tests: `tests/game_passes/prepared.rs` and the block cases in `refusals.rs`, `shadowed.rs`, `persistence.rs` and `accounting.rs`.
@@ -1436,7 +1477,11 @@ A copy target may carry a mip chain: `TargetDeclaration::mips(n)` (default 1) ma
 
 `GamePlace::BeforeOpaque` passes run after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterTransparent` before the reflection and screen-space tail. The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
 
-`RendererConfiguration::terrain_draws = TerrainDraws::Suppressed` keeps the scene's terrain resident, streamed and updated but skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata and shadow casters. The default `Stock` is byte-identical to a build without the option. A frame with game features is planned without the stock plan cache. Switching the choice between frames refreshes every retained shadow cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs`, `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` and the forward-order tests.
+`GameBuild::shadows`, a `FrameShadowHandle`, lends the stock shadow cascades of the frame in flight. The shadowed route publishes them when the frame's cascades are final (after any same-frame depth fit and refresh, before the features prepare), and only when the renderer has game features. `current()` returns `FrameShadows`: the cascade depth array view the stock casters wrote this frame, the comparison sampler the receivers use with it, and each cascade's `view_projection`, `split_distance` and `depth_bias`, with the selection rule, near distance, view-depth vector, blend, fade and normal bias the stock receivers apply, all from the receiver uniform the frame uploads. It refuses with `FrameShadowError::OutsideFrame` when no frame is being prepared, and with `NotPrepared` when the frame in flight published nothing (an unshadowed route, shadows off, or a fit with no receivers); a later frame never receives an earlier frame's cascades. The view and sampler belong to the frame: read them in `prepare` and `draw`, never write through them and never keep them, because the next frame writes the same texture and a renderer replacement frees it. A game pass declares no read of the view: every game place runs after the shadow casters, and `GamePassSpec::reading` refuses a stock resource such as `shadow depth` with `FrameError::AttachmentView`, so such a read cannot be declared. Tests: `src/shadows/tests/game_shadows.rs`, `tests/game_passes/shadow_cascades.rs`.
+
+`RendererConfiguration::terrain_draws` selects what the stock passes do with the scene's terrain, which stays resident, streamed and updated in every case. The default `Stock` draws it everywhere and is byte-identical to a build without the option. `TerrainDraws::Suppressed` skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata, capture terms and shadow casters. `TerrainDraws::CastersOnly` skips every camera pass the same way but keeps the stock terrain in the shadow cascades, so a game that draws the camera-visible terrain itself keeps the terrain's shadows in its lit frame. `TerrainDraws::draws_terrain_in_camera_passes` and `TerrainDraws::casts_terrain_shadows` name the two decisions: the camera passes draw terrain for `Stock` only, and the casters, their retained-map refresh key and their caster selection draw it for `Stock` and `CastersOnly`. A frame with game features is planned without the stock plan cache. Switching between `Stock` and `CastersOnly` leaves the casters unchanged and holds the retained shadow cascades. Switching to or from `Suppressed` changes the casters and refreshes every retained cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs` (`Suppressed` and `CastersOnly` with a game feature), `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` (camera depth and stored pixels equal the terrain-free scene for both variants, and the cascade depth texels of `CastersOnly` equal `Stock` and differ from `Suppressed`), the refresh test in `src/shadows/tests/refresh.rs` (`Stock` to `CastersOnly` holds, `CastersOnly` to `Suppressed` refreshes), the caster and camera pass captures in `src/terrain/capture_tests/suppressed.rs` and the forward-order tests.
+
+A game that draws the terrain itself reads `GameBuild::terrain`, a `FrameTerrainHandle`. Each stock route (unshadowed, shadowed and resident, including the suffix of a same-frame capture) publishes it after it prepares the frame's terrain, with the finalized frame and raster extent, so `current()` in a feature's `prepare` returns the chunks the stock camera draw would submit, in its order, as `TerrainChunkDraw`s with their geometric neighbours and resident buffers (`TerrainChunkDraw::buffers`, in the stock vertex layout of `geometry::vertex_attributes`). It returns `None` when the scene has no terrain. Otherwise it refuses with a `FrameTerrainError`: `OutsideFrame`, `NotPrepared` when the frame's route prepared no terrain, `NotStreamed` for terrain without a streaming policy, or `View` with the lender's `TerrainChunkViewError` (for example `Unprepared` or `ViewMismatch`). The route records a refusal instead of failing the frame, so a feature that does not read the terrain is unaffected. It never returns an earlier frame's chunks. The lent buffers are the renderer's own: record draws from them in the frame that lent them, and do not keep, write or destroy them. Lending works the same with `TerrainDraws::Stock`. `tests/game_passes/terrain_lender.rs` suppresses the stock draws and draws the lent chunks with an imported program draw. `src/shadows/tests/game_terrain.rs` and `src/draw/tests/streaming/game_lending.rs` read the lent chunks on the shadowed route, in a same-frame capture and on the resident route.
 
 ## Native-resolution RCAS
 

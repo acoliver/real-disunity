@@ -1,9 +1,10 @@
 //! Targets a game declares: allocated once, shared by its passes and, when persistent, kept
 //! across frames and renderer replacements.
+use super::frame_start;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use worldrunner_render_gpu::configuration::AllocationSet;
-use worldrunner_render_gpu::submission::capture::WriteKey;
+use worldrunner_render_gpu::submission::{Publications, capture::WriteKey};
 use worldrunner_render_post::{AttachmentView, FrameError, PostError, PrepareContext, ResourceRef};
 
 /// How large a declared target is.
@@ -212,6 +213,8 @@ pub(crate) struct Backing {
     /// another of the same name in the allocation budget.
     serial: u64,
     /// Per mip of each layer, at `layer * mips + mip`: whether a submitted frame has written it.
+    /// This is the published state. The queries of a frame in preparation answer through
+    /// [`Self::state`] instead.
     written: Mutex<Vec<bool>>,
 }
 
@@ -251,11 +254,27 @@ impl Backing {
         self.declaration.lifetime == TargetLifetime::Persistent
     }
 
-    /// Whether a submitted frame has left contents in any mip of any layer of this persistent
-    /// backing, so the allocation a frame imports is no longer fresh whichever subresources the
-    /// frame uses.
+    /// Per mip of each layer, at `layer * mips + mip`, whether a submitted frame had written it
+    /// when the frame in preparation started. Outside a frame, and in one that has staged nothing on this backing yet, that is
+    /// the published state.
+    ///
+    /// Every query of a frame in preparation uses this one state: the planning query
+    /// [`GameTargets::is_written`], the load a pass is planned with, the allocation views declare
+    /// and the initial version a capture imports the texture at. A capture submits its first
+    /// segment, which publishes what it wrote, before its second segment plans, and the two must
+    /// agree. The second segment lists the first one's completed passes with the declaration the
+    /// first one used, and the capture imported the texture once before the first segment, so a
+    /// view that already reported the first segment's writes would plan a different load and
+    /// import the texture differently from the capture.
+    fn state(&self) -> Vec<bool> {
+        frame_start::recall(self).unwrap_or_else(|| self.subresources().clone())
+    }
+
+    /// Whether a submitted frame had left contents in any mip of any layer of this persistent
+    /// backing when the frame started, so the allocation a frame imports is no longer fresh
+    /// whichever subresources the frame uses.
     fn initialized(&self) -> bool {
-        self.persistent() && self.subresources().contains(&true)
+        self.persistent() && self.state().contains(&true)
     }
 
     fn subresources(&self) -> MutexGuard<'_, Vec<bool>> {
@@ -269,14 +288,20 @@ impl Backing {
         (layer < self.declaration.layers && mip < mips).then(|| (layer * mips + mip) as usize)
     }
 
+    /// Keeps the published state as the start of `frame`, before a segment of it stages a
+    /// record that changes it.
+    pub(super) fn note_frame_start(self: &Arc<Self>, frame: &Publications) {
+        frame_start::remember(self, frame, self.subresources().clone());
+    }
+
     fn is_written(&self, subresource: (u32, u32)) -> bool {
         self.persistent()
             && self
                 .index(subresource)
-                .is_some_and(|index| self.subresources()[index])
+                .is_some_and(|index| self.state()[index])
     }
 
-    /// Whether a submitted frame has written every mip of `layer`.
+    /// Whether a submitted frame had written every mip of `layer` when the frame started.
     fn is_layer_written(&self, layer: u32) -> bool {
         layer < self.declaration.layers
             && (0..self.declaration.mips).all(|mip| self.is_written((layer, mip)))
@@ -409,7 +434,8 @@ impl TargetStore {
 
     /// Every texture of the store, which the frame's passes may write, with the initial version
     /// the frame imports it at: the one [`Self::view`] declares to the stock compile, which is
-    /// `Some(0)` for a persistent backing a submitted frame has written and `None` otherwise.
+    /// `Some(0)` for a persistent backing a submitted frame had written when the frame started
+    /// and `None` otherwise.
     pub(crate) fn imports(&self) -> Vec<(&wgpu::Texture, Option<u32>)> {
         self.backings
             .iter()
@@ -426,7 +452,7 @@ impl TargetStore {
             .collect()
     }
 
-    fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
+    pub(super) fn backing(&self, name: &str) -> Option<&Arc<Backing>> {
         self.backings
             .iter()
             .find(|backing| backing.declaration.name == name)
@@ -530,6 +556,17 @@ pub(super) struct FrameEffect {
     pub(super) written: Vec<((u32, u32), bool)>,
 }
 
+impl FrameEffect {
+    /// Stages the recording of this effect, to run when `frame` is submitted. The capture records
+    /// a refusal and fails before submission, as for stock state.
+    pub(super) fn stage(self, frame: &mut Publications) {
+        let Self { backing, written } = self;
+        backing.note_frame_start(frame);
+        let key = backing.write_key();
+        let _ = frame.stage_write(key, move || backing.record(&written));
+    }
+}
+
 /// A game's view of its targets for one renderer generation. Cloning shares the same textures.
 #[derive(Clone)]
 pub struct GameTargets {
@@ -570,8 +607,9 @@ impl GameTargets {
     }
 
     /// The checked attachment view of one mip of one layer. A persistent subresource that a
-    /// submitted frame has written carries retained contents, so a pass may read it without
-    /// writing it first.
+    /// submitted frame had written when the frame being planned started carries retained
+    /// contents, so a pass may read it without writing it first. Like [`Self::is_written`], the
+    /// view reports the frame's start in every segment of the frame.
     ///
     /// # Errors
     /// [`FrameError::AttachmentView`] for an undeclared target or a layer or mip beyond its
@@ -580,13 +618,18 @@ impl GameTargets {
         self.store.view(resource)
     }
 
-    /// Whether a submitted frame has written every mip of `layer` of the persistent target
-    /// `name`, which a pass that reads the layer needs.
+    /// Whether a submitted frame had written every mip of `layer` of the persistent target
+    /// `name` when the frame being planned started, which a pass that reads the layer needs.
+    /// Every segment of one frame, both parts of an owned capture
+    /// included, gets the same answer, so a feature plans the same passes in each. A segment
+    /// that records its writes when it is submitted does not change the answer for the segments
+    /// after it. A query made between frames answers with what has been published.
     pub fn is_written(&self, name: &'static str, layer: u32) -> bool {
         self.store.written(name, layer)
     }
 
-    /// Whether a submitted frame has written `mip` of `layer` of the persistent target `name`.
+    /// Whether a submitted frame had written `mip` of `layer` of the persistent target `name`
+    /// when the frame being planned started, as [`Self::is_written`] answers.
     pub fn is_mip_written(&self, name: &'static str, layer: u32, mip: u32) -> bool {
         self.store.mip_written(name, (layer, mip))
     }

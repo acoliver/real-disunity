@@ -333,6 +333,7 @@ fn feature_pass(pass: &PassDeclaration) -> Result<FeaturePass, FrameError> {
             .map(|color| color.format)
             .collect(),
         depth_format: pass.depth.as_ref().map(|depth| depth.format),
+        requires_no_depth: false,
         samples,
     })
 }

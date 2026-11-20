@@ -1,5 +1,5 @@
 use super::*;
-use rspirv::dr::Module;
+use rspirv::dr::{Module, Operand};
 use rspirv::spirv::{Capability, ImageFormat};
 
 fn words(name: &str) -> Vec<u32> {

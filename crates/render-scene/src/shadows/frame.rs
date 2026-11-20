@@ -1,7 +1,7 @@
 use super::{
     AttachmentView, BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext,
     SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene,
-    cascades, light_frame, refresh, resources, sdsm, terrain_caster,
+    cascades, lent, light_frame, refresh, resources, sdsm, terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -51,6 +51,7 @@ impl ShadowedScene {
             Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         ),
     ) -> Result<(), ShadowError> {
+        let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
         let scheduler = input.0.as_deref().unwrap_or(&self.scheduler);
         scheduler.validate_opaque_depth(attachments.1)?;
         scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
@@ -88,7 +89,7 @@ impl ShadowedScene {
             (&*resources.gpu, &scene),
             map,
         )?;
-        resources.encode_schedule(context, encoder, scheduler, scene, work)?;
+        resources.encode_schedule(context, encoder, scheduler, scene, (work, offscreen))?;
         if let Some(map) = replacement {
             self.map = map;
         }
@@ -122,6 +123,7 @@ impl ShadowFrameResources<'_> {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        scheduler.publish_game_terrain(self.gpu, &frame, color.size());
         scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         self.gpu
             .track_previous_transforms(selected.writes_velocity());
@@ -180,8 +182,12 @@ impl ShadowFrameResources<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
         scene: SceneFrame,
-        work: ShadowScheduleWork<'_>,
+        work: (
+            ShadowScheduleWork<'_>,
+            Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
+        ),
     ) -> Result<(), ShadowError> {
+        let (work, offscreen) = work;
         let ShadowScheduleWork {
             shadow,
             groups,
@@ -190,6 +196,7 @@ impl ShadowFrameResources<'_> {
             contour,
             map,
         } = work;
+        scheduler.publish_game_shadows(|| lent::lend(map, &shadow.cascades, self.settings));
         let mut feature = ShadowFeature {
             publications: scheduler.draw_publications(),
             renders: scheduler
@@ -212,15 +219,18 @@ impl ShadowFrameResources<'_> {
             sampling: self.effects.shadows().sampling(),
             deferred,
         };
-        scheduler.encode_frame(
+        scheduler.encode_frame_with(
             context.device(),
             encoder,
             (&schedule.passes, &schedule.views),
+            offscreen
+                .as_ref()
+                .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
             &mut [BorrowedFeature {
                 declaration: schedule.declaration,
                 prepared: &mut feature,
             }],
-            (scene.frame, Some(&map.group)),
+            &(scene.frame, Some(&map.group)),
         )?;
         Ok(())
     }

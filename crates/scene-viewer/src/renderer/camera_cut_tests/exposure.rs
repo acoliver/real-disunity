@@ -1,4 +1,5 @@
 use super::*;
+use crate::renderer::game_screen::ViewMisses;
 use std::time::Duration;
 use worldrunner_render_plan::{
     SceneAdaptiveExposure, SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition,
@@ -83,7 +84,9 @@ fn frame(renderer: &mut Renderer, host: &mut RetainedHost, time: Duration, cut: 
     }
     let texture = ready.frame.texture.clone();
     let output = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let prepared = renderer.encode_frame(&view, None, &output, None).unwrap();
+    let prepared = renderer
+        .encode_frame(&view, (None, None), &output, None, ViewMisses::default())
+        .unwrap();
     renderer
         .execution
         .submit_prepared(ready, prepared, &renderer.context)

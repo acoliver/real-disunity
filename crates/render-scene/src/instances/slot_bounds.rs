@@ -2,7 +2,7 @@
 //! eye-independent inputs of each placement's level, and the level it draws at for the
 //! current eye.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use glam::Vec3;
 
@@ -171,10 +171,15 @@ pub(crate) struct LevelKey {
 /// What each slot draws at for one eye, filled during selection by whichever view needs it
 /// first. A slot's entry depends only on its placement, its batch's mesh and materials and
 /// the eye, so concurrent views may fill it in any order.
+///
+/// Each entry holds the epoch of the eye it was filled for above its outcome, so a new eye
+/// empties every entry by counting up an epoch rather than by writing every slot.
 #[derive(Debug, Default)]
 pub(crate) struct Levels {
     key: Option<LevelKey>,
-    values: Vec<AtomicU8>,
+    /// The epoch of `key`, from 1; no entry holds epoch 0.
+    epoch: u8,
+    values: Vec<AtomicU16>,
 }
 
 /// A slot's memoized selection outcome.
@@ -186,7 +191,6 @@ pub(crate) enum Level {
     Drawn(usize),
 }
 
-const UNKNOWN: u8 = 0;
 const FADED: u8 = 1;
 const DRAWN: u8 = 2;
 
@@ -194,39 +198,49 @@ impl Levels {
     fn prepare(&mut self, key: LevelKey, slots: usize) {
         if self.key != Some(key) {
             self.key = Some(key);
-            for value in &mut self.values {
-                *value.get_mut() = UNKNOWN;
-            }
+            self.epoch = match self.epoch.checked_add(1) {
+                Some(epoch) => epoch,
+                None => {
+                    // Entries of every earlier epoch may still be stored: empty them once.
+                    for value in &mut self.values {
+                        *value.get_mut() = 0;
+                    }
+                    1
+                }
+            };
         }
         if self.values.len() < slots {
-            self.values.resize_with(slots, || AtomicU8::new(UNKNOWN));
+            self.values.resize_with(slots, || AtomicU16::new(0));
         }
     }
 
     fn forget(&mut self, position: usize) {
         if let Some(value) = self.values.get_mut(position) {
-            *value.get_mut() = UNKNOWN;
+            *value.get_mut() = 0;
         }
     }
 
     /// The outcome of `position`, computed by `compute` unless an earlier view stored it.
     pub fn get_or_compute(&self, position: usize, compute: impl FnOnce() -> Level) -> Level {
         let value = &self.values[position];
-        match value.load(Ordering::Relaxed) {
-            UNKNOWN => {
-                let level = compute();
-                value.store(
-                    match level {
-                        Level::Faded => FADED,
-                        Level::Drawn(lod) => u8::try_from(lod + usize::from(DRAWN))
-                            .expect("levels of detail fit the memo"),
-                    },
-                    Ordering::Relaxed,
-                );
-                level
-            }
+        let [epoch, outcome] = value.load(Ordering::Relaxed).to_be_bytes();
+        if epoch != self.epoch {
+            let level = compute();
+            let outcome = match level {
+                Level::Faded => FADED,
+                Level::Drawn(lod) => {
+                    u8::try_from(lod + usize::from(DRAWN)).expect("levels of detail fit the memo")
+                }
+            };
+            value.store(u16::from_be_bytes([self.epoch, outcome]), Ordering::Relaxed);
+            return level;
+        }
+        match outcome {
             FADED => Level::Faded,
             stored => Level::Drawn(usize::from(stored - DRAWN)),
         }
     }
 }
+
+#[cfg(test)]
+mod levels_tests;

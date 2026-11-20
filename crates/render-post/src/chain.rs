@@ -175,6 +175,9 @@ pub struct PostChain<F> {
     upload_slots: [Vec<wgpu::Buffer>; 3],
     capture_resources: Option<crate::contracts::ResourceRegistry>,
     geometry_prefix: Option<geometry_prefix::GeometryPrefix>,
+    /// The declarations [`Self::plan_prefix_features`] planned for the next geometry prefix, by
+    /// feature index.
+    planned_prefix: Option<Vec<(usize, crate::FeatureDeclaration)>>,
     frame_slot: usize,
     timing: std::rc::Rc<std::cell::RefCell<Option<crate::PassTimer>>>,
 }
@@ -258,6 +261,7 @@ impl<F: StageFactory> PostChain<F> {
             features: Vec::new(),
             capture_resources: None,
             geometry_prefix: None,
+            planned_prefix: None,
             upload_slots: std::array::from_fn(|_| Vec::new()),
             frame_slot: 0,
             timing: std::rc::Rc::new(std::cell::RefCell::new(None)),
@@ -495,6 +499,7 @@ impl<F: StageFactory> PostChain<F> {
             declaration,
             prepared: None,
             source: feature,
+            prefix: false,
         });
         Ok(id)
     }
@@ -561,7 +566,7 @@ impl<F: StageFactory> PostChain<F> {
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
-        for feature in &mut self.features {
+        for feature in self.active_features(completed) {
             feature
                 .prepared
                 .as_mut()
@@ -572,7 +577,7 @@ impl<F: StageFactory> PostChain<F> {
         for feature in borrowed.iter_mut() {
             feature.prepared.commit(&mut context);
         }
-        for feature in &mut self.features {
+        for feature in self.active_features(completed) {
             feature
                 .prepared
                 .as_mut()
@@ -583,7 +588,8 @@ impl<F: StageFactory> PostChain<F> {
         Ok(())
     }
 
-    /// Encode a complete borrowed subplan without invoking retained frame features.
+    /// Encode a complete borrowed subplan without invoking retained frame features, apart from
+    /// the prefix participants that [`Self::plan_prefix_features`] planned into it.
     /// Used for metadata prefixes; the same validation and raster compiler apply.
     pub fn encode_geometry_prefix(
         &mut self,
@@ -593,9 +599,9 @@ impl<F: StageFactory> PostChain<F> {
         borrowed: &mut [crate::BorrowedFeature<'_>],
     ) -> Result<(), crate::FrameError> {
         self.geometry_prefix = None;
-        let retained = std::mem::take(&mut self.features);
+        let parked = self.park_non_prefix_features();
         let result = self.encode_geometry(device, encoder, plan, borrowed);
-        self.features = retained;
+        self.restore_parked_features(parked);
         if result.is_ok() {
             let frame = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
             self.geometry_prefix = Some(geometry_prefix::GeometryPrefix::new(frame, plan));
@@ -683,7 +689,7 @@ impl<F: StageFactory> PostChain<F> {
             })?;
         }
         groups.encode_rest(&timing, encoder)?;
-        self.finish_feature_draws(device, encoder, borrowed)
+        self.finish_feature_draws(device, encoder, borrowed, &completed)
     }
 
     fn finish_feature_draws(
@@ -691,12 +697,13 @@ impl<F: StageFactory> PostChain<F> {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
+        completed: &[crate::PassEntry],
     ) -> Result<(), crate::FrameError> {
         let mut context = crate::PrepareContext::new(device, encoder)?;
         for feature in borrowed {
             feature.prepared.finish_draws(&mut context);
         }
-        for feature in &mut self.features {
+        for feature in self.active_features(completed) {
             feature
                 .prepared
                 .as_mut()

@@ -6,6 +6,8 @@ namespace UnityEngine.Identifiers;
 public static class Identifiers
 {
     private const string InstallationFileName = "installation-id";
+    private static readonly TimeSpan CreationLockTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan LockRetryInterval = TimeSpan.FromMilliseconds(5);
 
     /// <summary>An identifier for this installation, stored in <see cref="Application.persistentDataPath"/>.
     /// It remains stable across processes that use the same persistent data path. Removing its file resets it.</summary>
@@ -25,24 +27,45 @@ public static class Identifiers
             return ReadInstallationId(path);
         }
 
+        // Concurrent creators serialize on a lock file. A rename that replaces an existing
+        // file succeeds on some platforms, so creation re-checks for the file under the lock
+        // and every process then reads the one identifier that was published.
+        using var creationLock = AcquireCreationLock(path + ".lock");
+        if (!File.Exists(path))
+        {
+            PublishInstallationId(persistentDataPath, path);
+        }
+
+        return ReadInstallationId(path);
+    }
+
+    private static void PublishInstallationId(string persistentDataPath, string path)
+    {
         var temporaryPath = Path.Combine(persistentDataPath, $"{InstallationFileName}.{Guid.NewGuid():N}.tmp");
         try
         {
-            var installationId = Guid.NewGuid().ToString();
-            File.WriteAllText(temporaryPath, installationId);
-            try
-            {
-                File.Move(temporaryPath, path);
-                return installationId;
-            }
-            catch (IOException) when (File.Exists(path))
-            {
-                return ReadInstallationId(path);
-            }
+            File.WriteAllText(temporaryPath, Guid.NewGuid().ToString());
+            File.Move(temporaryPath, path);
         }
         finally
         {
             File.Delete(temporaryPath);
+        }
+    }
+
+    private static FileStream AcquireCreationLock(string lockPath)
+    {
+        var deadline = DateTime.UtcNow + CreationLockTimeout;
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (File.Exists(lockPath) && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(LockRetryInterval);
+            }
         }
     }
 

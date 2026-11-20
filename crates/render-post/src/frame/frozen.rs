@@ -11,8 +11,8 @@
 //! attachments differ from what its feature declared ([`FrameError::AttachmentContract`]) and a
 //! target written twice in one pass ([`FrameError::AttachmentHazard`]).
 use super::{
-    AttachmentLoad, FeatureDeclaration, FrameError, PassDeclaration, PassEntry, PassSlot,
-    ResourceRef,
+    AttachmentLoad, FeatureDeclaration, FrameError, GamePlace, PassDeclaration, PassEntry,
+    PassSlot, ResourceRef,
 };
 
 /// Refuses a frozen plan whose entries are listed in an order the stock passes cannot run in.
@@ -20,8 +20,11 @@ use super::{
 /// # Errors
 /// [`FrameError::StockOrder`] for a role listed before a role it must follow,
 /// [`FrameError::IncompleteDepth`] for a read of the opaque depth before it is complete, and
-/// [`FrameError::AttachmentContract`] for an `OpaqueGbuffer` producer that tests depth no
-/// prepass has completed.
+/// [`FrameError::AttachmentContract`] for an `OpaqueGbuffer` producer that tests depth the depth
+/// prefix has not completed.
+///
+/// The depth prefix is the depth/normal prepass and the game's passes after it
+/// ([`GamePlace::AfterDepthPrepass`]); the last of them that writes a depth completes it.
 pub(crate) fn validate_stock_order(
     passes: &[PassDeclaration],
     features: &[FeatureDeclaration],
@@ -38,16 +41,51 @@ pub(crate) fn validate_stock_order(
 /// reflection trace and the screen-space resolve read those products, so the lighting pass and
 /// Opaque must have finished them. Contours attach depth read-only; resource validation alone
 /// cannot establish that every Opaque entry has finished writing it.
+///
+/// The game's passes after the depth prepass load what the prepass wrote, and every pass that
+/// reads the depth prefix (the depth pyramid, the occlusion metadata, SSAO, the G-buffer and
+/// Opaque) must see what they added. Resource validation alone cannot establish that: those
+/// passes read products the prepass already produced.
 const fn must_follow(slot: PassSlot, earlier: PassSlot) -> bool {
     match slot {
+        PassSlot::Game(GamePlace::AfterDepthPrepass) => {
+            matches!(earlier, PassSlot::DepthNormalPrepass)
+        }
+        PassSlot::DepthPyramid(_)
+        | PassSlot::OcclusionMetadata(_)
+        | PassSlot::Ssao
+        | PassSlot::SsaoBlurHorizontal
+        | PassSlot::SsaoBlur
+        | PassSlot::OpaqueGbuffer => {
+            matches!(earlier, PassSlot::Game(GamePlace::AfterDepthPrepass))
+        }
         PassSlot::OpaqueLighting => matches!(earlier, PassSlot::OpaqueGbuffer),
-        PassSlot::Opaque => matches!(earlier, PassSlot::OpaqueLighting),
+        PassSlot::Opaque => matches!(
+            earlier,
+            PassSlot::OpaqueLighting | PassSlot::Game(GamePlace::AfterDepthPrepass)
+        ),
         PassSlot::ContourIds => matches!(earlier, PassSlot::Opaque),
         PassSlot::ReflectionTrace | PassSlot::ScreenSpaceAfterTransparent => {
             matches!(earlier, PassSlot::OpaqueLighting | PassSlot::Opaque)
         }
         _ => false,
     }
+}
+
+/// The roles of the depth prefix: the depth/normal prepass and the game's passes after it.
+const fn completes_depth_prefix(slot: PassSlot) -> bool {
+    matches!(
+        slot,
+        PassSlot::DepthNormalPrepass | PassSlot::Game(GamePlace::AfterDepthPrepass)
+    )
+}
+
+/// The position of the last depth-prefix entry that writes `resource`, after which the prefix's
+/// depth is complete.
+fn prefix_depth_writer(passes: &[PassDeclaration], resource: ResourceRef) -> Option<usize> {
+    passes
+        .iter()
+        .rposition(|pass| completes_depth_prefix(pass.slot) && writes_depth(pass, resource))
 }
 
 fn validate_role_order(passes: &[PassDeclaration]) -> Result<(), FrameError> {
@@ -65,8 +103,8 @@ fn validate_role_order(passes: &[PassDeclaration]) -> Result<(), FrameError> {
     Ok(())
 }
 
-/// A G-buffer producer that tests depth in `OpaqueGbuffer` tests the depth a depth prepass
-/// completed, read-only, so that depth ownership stays with the prepass and Opaque.
+/// A G-buffer producer that tests depth in `OpaqueGbuffer` tests the depth the depth prefix
+/// completed, read-only, so that depth ownership stays with the prefix and Opaque.
 fn validate_gbuffer_depth(
     passes: &[PassDeclaration],
     features: &[FeatureDeclaration],
@@ -89,10 +127,7 @@ fn validate_gbuffer_depth(
             .as_ref()
             .filter(|depth| depth.read_only && depth.load == AttachmentLoad::Load)
             .is_some_and(|depth| {
-                passes[..index].iter().any(|earlier| {
-                    earlier.slot == PassSlot::DepthNormalPrepass
-                        && writes_depth(earlier, depth.resource)
-                })
+                prefix_depth_writer(passes, depth.resource).is_some_and(|writer| writer < index)
             });
         if !completed {
             return Err(FrameError::AttachmentContract(producer.entry()));
@@ -107,8 +142,8 @@ fn writes_depth(pass: &PassDeclaration, resource: ResourceRef) -> bool {
         .is_some_and(|depth| depth.resource == resource && !depth.read_only)
 }
 
-/// A pass that reads the depth Opaque draws with reads it complete: after a prepass wrote it, or
-/// after every Opaque entry that writes it. A pass reads it by listing it among its feature's
+/// A pass that reads the depth Opaque draws with reads it complete: after the last depth-prefix
+/// entry that writes it, or after every Opaque entry that writes it. A pass reads it by listing it among its feature's
 /// reads or by testing against it through a read-only depth attachment; a pass that attaches it
 /// for writing is a writer and is not held to this.
 fn validate_opaque_depth(
@@ -125,9 +160,7 @@ fn validate_opaque_depth(
         }
     }
     for resource in resources {
-        let prepass = passes.iter().position(|pass| {
-            pass.slot == PassSlot::DepthNormalPrepass && writes_depth(pass, resource)
-        });
+        let prepass = prefix_depth_writer(passes, resource);
         let opaque = passes
             .iter()
             .rposition(|pass| pass.slot == PassSlot::Opaque && writes_depth(pass, resource));

@@ -48,6 +48,16 @@ fn a_pass_is_chosen_by_index_or_by_the_first_tag_value_any_pass_has() {
 }
 
 #[test]
+fn tag_values_match_whatever_their_case() {
+    let mut shader = shader();
+    assert_eq!(shader.resolve(&tag(&["ALPHA"]), &[]).unwrap().pass, 0);
+    assert_eq!(
+        shader.resolve(&tag(&["beta"]), &["K_OTHER"]).unwrap().pass,
+        1
+    );
+}
+
+#[test]
 fn no_pass_is_a_named_error_and_never_another_pass() {
     let mut shader = shader();
     assert!(matches!(
@@ -56,11 +66,6 @@ fn no_pass_is_a_named_error_and_never_another_pass() {
     ));
     assert!(matches!(
         shader.resolve(&tag(&["Gamma"]), &[]),
-        Err(ResolveError::NoPass { .. })
-    ));
-    // The tag value is compared exactly.
-    assert!(matches!(
-        shader.resolve(&tag(&["alpha"]), &[]),
         Err(ResolveError::NoPass { .. })
     ));
 }

@@ -9,7 +9,8 @@ namespace UnityEngine;
 /// (the engine's choice) until it replaces them. A renderer starts with no material. A property block set for every
 /// material is also sent to the world, which draws with it; one set for a single material index is stored and
 /// nothing reads it. Setting the shared materials also sends the host each slot's colour and texture
-/// identity (see <see cref="SendDrawnMaterials"/>).
+/// identity (see <see cref="SendDrawnMaterials"/>); the host draws a slot with a world material from the material's
+/// current values and uses that identity only for a slot without one.
 /// </summary>
 public abstract partial class Renderer
 {

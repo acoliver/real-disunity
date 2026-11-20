@@ -32,7 +32,7 @@ use super::depth_range::DepthRange;
 use super::ids;
 use super::mips::AutoMips;
 use super::properties::{
-    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
+    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults, slot_layers,
     split_below_globals,
 };
 use super::script::Script;
@@ -821,16 +821,7 @@ impl<'a> Mapper<'a> {
             .map_or_else(PropertyLayer::default, |block| {
                 layer(block, &mut self.textures)
             });
-        // A block of a slot the renderer draws nothing in is left out, as its textures are not
-        // needed by any draw.
-        let slot_blocks = view
-            .slot_blocks
-            .iter()
-            .filter_map(|(slot, block)| {
-                let slot = usize::try_from(*slot).ok()?;
-                (slot < slots.len()).then(|| (slot, layer(block, &mut self.textures)))
-            })
-            .collect();
+        let slot_blocks = slot_layers(&view.slot_blocks, slots.len(), &mut self.textures);
         Ok(Renderer {
             mesh: ids::mesh(view.mesh),
             materials: slots,

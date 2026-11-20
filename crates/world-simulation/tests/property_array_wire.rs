@@ -198,7 +198,7 @@ fn every_location() -> GraphicsSnapshot {
         materials: vec![None],
         render_queue: None,
         property_block: Some(properties.clone()),
-        slot_blocks: Default::default(),
+        slot_blocks: std::collections::BTreeMap::new(),
     });
     snapshot.work = vec![
         OffscreenWork::SetGlobal(PropertyValue::VectorArray(

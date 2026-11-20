@@ -29,6 +29,7 @@ mod nonfinite;
 pub mod offscreen;
 mod packet;
 mod pipeline_key;
+mod prepared_commands;
 mod primitive;
 mod program;
 pub mod properties;

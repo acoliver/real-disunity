@@ -33,6 +33,7 @@ pub use buffer_bindings::{BufferBinding, BufferBindingKind};
 pub use buffers::{BufferUse, BufferUseKind, BufferView};
 pub use fullscreen::{FullscreenVertices, VertexStream};
 pub use operations::{CompiledOperations, TypedOperation, TypedWork};
+pub(crate) use raster::StockRaster;
 pub use raster::{ColorAttachment, CompiledRaster, DepthAttachment, RasterId, RasterPass};
 pub use registry::ResourceRegistry;
 pub use transfers::TextureCopy;

@@ -347,6 +347,36 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The environment lighting of a world. A section a scene or a script never wrote reads with its
+    ///  `*_set` flag 0 and the values of a new scene; writing a section with its flag 0 puts it back to
+    ///  unwritten, whatever its other fields hold. Colours are linear RGBA. `ambient_mode` is 0 skybox,
+    ///  1 trilight, 3 flat or 4 custom, and `reflection_mode` 0 skybox or 1 custom. `ambient_probe`
+    ///  holds the nine coefficients of red, then of green, then of blue. A reflection cube is a texture
+    ///  kind and identity as `DisunityTextureSlot` gives them (0 none, 1 a stored texture, 2 a render
+    ///  texture). `padding` is zero.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityEnvironment
+    {
+        public uint ambient_set;
+        public uint ambient_mode;
+        public float ambient_intensity;
+        public uint reflection_set;
+        public uint reflection_mode;
+        public float reflection_intensity;
+        public uint custom_kind;
+        public uint skybox_kind;
+        public ulong custom_texture;
+        public ulong skybox_texture;
+        public fixed float ambient_sky[4];
+        public fixed float ambient_equator[4];
+        public fixed float ambient_ground[4];
+        public fixed float ambient_flat[4];
+        public fixed float ambient_probe[27];
+        public uint padding;
+    }
+
+    /// <summary>
     ///  What a shader holds. `has_source` is 1 when the shader has a source, whose file is
     ///  `file_length` bytes of the text after the name and whose object is `path_id` there. On input
     ///  `text_capacity` is the capacity of the text a caller passes; on output it is the length of the

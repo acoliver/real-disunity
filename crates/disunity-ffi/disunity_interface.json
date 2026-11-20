@@ -448,6 +448,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_environment_read",
+      "since": "17.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_environment_write",
+      "since": "17.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_face_glyph_index",
       "since": "7.0.0",
       "rets": "DisunityResult"

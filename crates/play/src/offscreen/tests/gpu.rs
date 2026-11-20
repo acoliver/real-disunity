@@ -64,6 +64,8 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A 2D slot that is not the blit source, so a property can set it.
+            "flatslot" => blit_passes("_FlatTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
             // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
@@ -71,6 +73,12 @@ impl ShaderSupply for Synthetic {
             // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
             "volumeslot" => volume_blit("_3DNoiseTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
+            "arrayslices" => super::array_gpu::array_slices_passes(),
+            "arraylevels" => super::array_gpu::array_levels_passes(),
+            "cubebase" => super::cube_volume_gpu::cube_base_passes(),
+            "cubetop" => super::cube_volume_gpu::cube_top_passes(),
+            "volumeslices" => super::cube_volume_gpu::volume_slices_passes(),
+            "volumelevels" => super::cube_volume_gpu::volume_levels_passes(),
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
             // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
@@ -667,6 +675,9 @@ impl Assets for HeldTexture {
             linear: false,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
+            dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+            graphics_format: 0,
             bytes: vec![255; 4],
         }))
     }

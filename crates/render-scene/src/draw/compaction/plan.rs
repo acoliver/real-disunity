@@ -71,8 +71,18 @@ impl Plan {
     /// runs longer than [`RUN_RECORDS`] split.
     pub fn runs(&self, base: impl Fn(BatchKey) -> u32) -> Vec<Run> {
         let mut merged: Vec<Run> = Vec::with_capacity(self.copies.len());
+        // The copies of one batch are adjacent, so its base is looked up once.
+        let mut known: Option<(BatchKey, u32)> = None;
         for copy in &self.copies {
-            let source = base(copy.key)
+            let origin = match known {
+                Some((key, origin)) if key == copy.key => origin,
+                _ => {
+                    let origin = base(copy.key);
+                    known = Some((copy.key, origin));
+                    origin
+                }
+            };
+            let source = origin
                 .checked_add(copy.source.start)
                 .expect("mirror records fit u32");
             let count = copy.source.end - copy.source.start;

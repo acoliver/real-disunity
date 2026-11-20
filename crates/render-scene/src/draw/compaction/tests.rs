@@ -100,6 +100,18 @@ fn runs_read_each_selected_range_at_its_batch_base_in_the_mirror() {
 }
 
 #[test]
+fn the_mirror_is_asked_for_each_batch_once_however_many_ranges_it_holds() {
+    let plan = fragmented();
+    let asked = std::cell::Cell::new(0);
+    let runs = plan.runs(|key| {
+        asked.set(asked.get() + 1);
+        if key == A { 100 } else { 10 }
+    });
+    assert_eq!(runs.len(), 4);
+    assert_eq!(asked.get(), 2, "batches A and B");
+}
+
+#[test]
 fn ranges_adjacent_in_the_mirror_and_the_view_merge_into_one_run() {
     let plan = Plan::new(&[range(A, 0, 6..8), range(B, 0, 0..3), range(B, 0, 5..6)]).unwrap();
     // Batch B starts right after slot 7 of batch A in this mirror.

@@ -92,7 +92,9 @@ After an intentional ABI change:
    and a `padding` word (which keeps `generation` 8-byte aligned) to
    `DisunityRenderTexture`, and `disunity_offscreen_generate_mips`, which records a
    generate-mips request for a render texture with more than one level (offscreen
-   kind 19). Native and managed hosts reject
+   kind 19). Revision 17 adds the property block of one material slot of a mesh
+   renderer: shader property scope 4 and `disunity_mesh_renderer_slot_block_target`,
+   which gives the target of a renderer's slot. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

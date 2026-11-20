@@ -5,6 +5,7 @@ pub(crate) mod batch;
 mod contour_tests;
 pub(crate) mod fade;
 pub(crate) mod history;
+mod lookup;
 mod ready_memo;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
@@ -27,6 +28,7 @@ use worldrunner_render_plan::{
 
 use crate::pipeline::PipelineKey;
 pub(crate) use batch::InstanceBatch;
+pub(crate) use lookup::Ascending;
 
 #[cfg(test)]
 thread_local! {

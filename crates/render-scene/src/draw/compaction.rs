@@ -32,7 +32,7 @@ use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
 use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
-use crate::instances::BatchKey;
+use crate::instances::{Ascending, BatchKey};
 use crate::skinning::SKIN_INSTANCE_BYTES;
 
 mod gather;
@@ -300,10 +300,13 @@ impl SceneGpu {
     fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<BatchKey>> {
         let mut keys: Vec<BatchKey> = Vec::new();
         for copy in &plan.copies {
-            if keys.last() == Some(&copy.key) {
-                continue;
+            if keys.last() != Some(&copy.key) {
+                keys.push(copy.key);
             }
-            let batch = self.instances.batches.get(&copy.key)?;
+        }
+        let mut batches = Ascending::new(&self.instances.batches, keys.len());
+        for key in &keys {
+            let batch = batches.get(key)?;
             batch.buffer.as_ref()?;
             if previous {
                 batch.previous.as_ref()?;
@@ -311,7 +314,6 @@ impl SceneGpu {
             if let Some(stream) = &batch.skin {
                 stream.buffer.as_ref()?;
             }
-            keys.push(copy.key);
         }
         Some(keys)
     }

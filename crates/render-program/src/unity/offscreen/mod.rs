@@ -21,6 +21,7 @@ mod mips;
 mod plan;
 mod probe;
 mod procedural;
+mod raster;
 mod readback;
 mod resample;
 mod sampling;

@@ -14,6 +14,7 @@ pub struct CheckedDraw {
     vertex_abi: Vec<super::geometry::VertexAbi>,
     primitive: wgpu::PrimitiveState,
     stencil_reference: Option<u32>,
+    scissor: Option<[u32; 4]>,
 }
 impl CheckedDraw {
     /// Retains the actual creation contract, rather than accepting caller-reported metadata.
@@ -77,6 +78,7 @@ impl CheckedDraw {
             vertex_abi,
             primitive: descriptor.primitive,
             stencil_reference: None,
+            scissor: None,
         })
     }
     /// The stencil reference the draw sets on the pass before it draws. The pipeline's stencil
@@ -87,6 +89,17 @@ impl CheckedDraw {
     pub fn with_stencil_reference(self, reference: u32) -> Self {
         Self {
             stencil_reference: Some(reference),
+            ..self
+        }
+    }
+    /// The rectangle the draw clips to, which it sets on the pass before it draws: x, y, width and
+    /// height in texels of the pass's attachments from the top left, as a pass's scissor is. The
+    /// rectangle must lie inside the attachments. A draw that sets none draws with the scissor the
+    /// pass holds, which covers the attachments until one is set.
+    #[must_use]
+    pub fn with_scissor(self, rect: [u32; 4]) -> Self {
+        Self {
+            scissor: Some(rect),
             ..self
         }
     }
@@ -164,6 +177,9 @@ impl CheckedDraw {
         pass.set_pipeline(&self.pipeline);
         if let Some(reference) = self.stencil_reference {
             pass.set_stencil_reference(reference);
+        }
+        if let Some([x, y, width, height]) = self.scissor {
+            pass.set_scissor_rect(x, y, width, height);
         }
         for (index, binding) in self.bindings.iter().enumerate() {
             pass.set_bind_group(

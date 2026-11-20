@@ -20,6 +20,7 @@ mod lists;
 mod mips;
 mod multiple_targets;
 mod procedural;
+mod raster_override;
 mod resample;
 mod resolve;
 mod rig;

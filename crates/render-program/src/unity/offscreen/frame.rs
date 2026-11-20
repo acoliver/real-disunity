@@ -224,10 +224,30 @@ pub struct ListDraw {
     pub instances: u32,
 }
 
+/// The raster state a script set for the draws of a record, over the state their passes resolve.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DrawRaster {
+    /// The rectangle in texels of the attachments that clips the draws: x, y, width and height
+    /// from column 0 and row 0 at the attachments' mip, the corner a script calls the bottom
+    /// left (the engine draws a scene's lowest part in row 0). `None` clips nothing. The part of
+    /// the rectangle outside the attachments is dropped, and a rectangle with no texel left draws
+    /// nothing.
+    pub scissor: Option<[f32; 4]>,
+    /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
+    /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
+    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
+    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
+    /// to triangles only; a line list is drawn without it.
+    pub depth_bias: [f32; 2],
+}
+
 /// A list of draws into attachments.
 #[derive(Clone, Debug)]
 pub struct DrawList {
     pub target: Attachments,
+    /// The raster state of the whole list.
+    pub raster: DrawRaster,
     /// The values of the view the list draws with, below the renderer's per-draw values and above
     /// the renderer's property block.
     pub values: PropertyLayer,
@@ -243,6 +263,8 @@ pub struct DrawList {
 #[derive(Clone, Debug)]
 pub struct ProceduralDraw {
     pub target: Attachments,
+    /// The raster state of the draw.
+    pub raster: DrawRaster,
     /// The values of the view the draw uses, as a list's are.
     pub values: PropertyLayer,
     /// The draw's own values, such as its object matrix, below the view's.

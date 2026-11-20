@@ -136,6 +136,18 @@ public static class NativeBridge
         texture.filterMode = FilterMode.Trilinear;
         texture.anisoLevel = 4;
         Sprite.Create(texture, new Rect(0, 0, 2, 1), new Vector2(0.5f, 0.5f));
+        AddLayeredTexture();
+    }
+    /// <summary>A three layer array of 2x1 texels that a material holds, so the host reads its layers, dimension and format: layer s
+    /// has texels (10 s + 1, 2, 3, 255) and (10 s + 2, 2, 3, 255).</summary>
+    private static void AddLayeredTexture()
+    {
+        var layers = new Texture2DArray(2, 1, 3, TextureFormat.RGBA32, false, true);
+        for (var layer = 0; layer < 3; layer++)
+            layers.SetPixels32([new Color32((byte)(10 * layer + 1), 2, 3, 255), new Color32((byte)(10 * layer + 2), 2, 3, 255)], layer);
+        var material = new Material(DisunityHost.RegisterShader("Fixture/Layers"));
+        material.SetTexture("_Layers", layers);
+        DisunityHost.CreateGameObject().AddComponent<MeshRenderer>().sharedMaterial = material;
     }
     /// <summary>An Alpha8 atlas that takes its renderer identity and then has a distance field glyph drawn into it, as TextMesh Pro does.</summary>
     private static void AddAtlas()

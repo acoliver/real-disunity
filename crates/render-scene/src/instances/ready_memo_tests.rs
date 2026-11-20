@@ -180,3 +180,21 @@ fn a_failed_scan_is_not_remembered() {
     assert!(!instances.ready_for(Some(&owner)));
     assert_eq!(instances.ready_scans(), 2);
 }
+
+#[test]
+fn a_full_upload_encoded_by_one_transaction_leaves_the_scene_ready_for_that_transaction_only() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let owner = Owner::new();
+    let other = Owner::new();
+    let (mut instances, _) = settled(&owner);
+    // Velocity turned on with no slot dirty, so `grow` made the buffers and cleared the validity
+    // flag, and the transaction `owner` encoded the full upload.
+    for batch in instances.batches.values_mut() {
+        batch.buffer_valid.set(false);
+        batch.encoded = Some((Publications::clone(&owner), batch.edits));
+    }
+    assert!(instances.ready_for(Some(&owner)));
+    assert!(!instances.ready_for(Some(&other)));
+    assert!(!instances.ready_for(None));
+    assert!(instances.batches.values().all(|batch| !batch.is_idle()));
+}

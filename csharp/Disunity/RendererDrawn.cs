@@ -5,7 +5,9 @@ namespace UnityEngine;
 
 /// <summary>What the host draws each material slot of a renderer with: a colour and a texture identity per slot, and the
 /// world material of the slot, sent whenever the shared materials are set. The colour and texture identity are not sent
-/// again when the material changes; the world material follows its own changes. A property block set for every
+/// again when the material changes; the world material follows its own changes, and the host draws a slot that has a
+/// world material from the material's current <c>_Color</c> or <c>_BaseColor</c> and <c>_MainTex</c>, so the colour
+/// and texture identity sent here are what it draws a slot with no world material with. A property block set for every
 /// material is sent to the world, and one set for a single material index stays in managed memory.</summary>
 public abstract partial class Renderer
 {

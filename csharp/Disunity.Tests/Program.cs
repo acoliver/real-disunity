@@ -403,6 +403,7 @@ SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
 PlayerTextureStoreTests.Run();
 PlayerMeshStoreTests.Run();
+PlayerMeshLiveMaterialTests.Run();
 PlayerMeshChannelTests.Run();
 PlayerSamplerTests.Run();
 

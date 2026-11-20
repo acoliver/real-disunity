@@ -11,6 +11,8 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/mips.rs"]
+mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
 #[path = "game_passes/prepared.rs"]

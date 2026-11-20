@@ -135,3 +135,30 @@ fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
     assert_eq!(gpu.drawn_pairs().to_vec(), fresh(&gpu));
     assert_eq!(gpu.drawn_pairs().to_vec(), loaded);
 }
+
+#[test]
+fn passes_share_one_selection_of_a_view_instead_of_copying_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    gpu.set_frame(context.queue(), selection_frame(5_000));
+    let frame = gpu.drawing_uniform();
+    let first = gpu.select_objects(None, &frame);
+    let again = gpu.select_objects(None, &frame);
+    assert!(
+        std::rc::Rc::ptr_eq(&first, &again),
+        "an unchanged view lends the selection it built"
+    );
+    assert!(!first.ranges.is_empty());
+    gpu.set_frame(context.queue(), selection_frame(50_000));
+    let moved = gpu.select_objects(None, &gpu.drawing_uniform());
+    assert!(!std::rc::Rc::ptr_eq(&first, &moved));
+    assert_ne!(first.stats.drawn_per_lod, moved.stats.drawn_per_lod);
+}

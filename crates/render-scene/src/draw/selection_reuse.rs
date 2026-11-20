@@ -40,8 +40,8 @@ impl Key {
 /// The selection a view last published and the one it last built.
 #[derive(Debug, Default)]
 pub(super) struct View {
-    pub published: Rc<RefCell<Selection>>,
-    built: RefCell<Option<(Key, Selection)>>,
+    pub published: Rc<RefCell<Rc<Selection>>>,
+    built: RefCell<Option<(Key, Rc<Selection>)>>,
     pub compaction: super::compaction::Compaction,
     pub slice: super::slice_hull::CascadeSlice,
     #[cfg(test)]
@@ -80,10 +80,23 @@ impl SceneGpu {
             frame,
             shadow_matrix.is_some(),
         );
-        key.slice = self
-            .view_slice(shadow_matrix)
-            .map_or(0, |(_, generation)| generation);
+        key.slice = self.slice_generation(shadow_matrix);
         key
+    }
+
+    /// The generation of the slice hull `view_slice` returns, which is all a key needs of it.
+    fn slice_generation(&self, shadow_matrix: Option<(u32, glam::Mat4)>) -> u64 {
+        let Some((_, matrix)) = shadow_matrix else {
+            return 0;
+        };
+        #[cfg(test)]
+        if super::slice_hull::UNCULLED.get() {
+            return 0;
+        }
+        self.views[view_index(shadow_matrix)]
+            .slice
+            .generation_for(matrix)
+            .unwrap_or(0)
     }
 
     fn view_slice(
@@ -105,13 +118,13 @@ impl SceneGpu {
         &self,
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
-    ) -> Selection {
+    ) -> Rc<Selection> {
         self.select_views(&[shadow_matrix], frame);
         self.views[view_index(shadow_matrix)]
             .built
             .borrow()
             .as_ref()
-            .map(|(_, selection)| selection.clone())
+            .map(|(_, selection)| Rc::clone(selection))
             .expect("a selected view")
     }
 
@@ -134,7 +147,14 @@ impl SceneGpu {
             {
                 continue;
             }
-            let mut selection = view.published.borrow().clone();
+            // Selecting resets everything but these, so a view starts from what it last held
+            // only in capacity: the previous result may still be lent to a pass.
+            let mut selection = Selection::with_capacity(
+                view.built
+                    .borrow()
+                    .as_ref()
+                    .map_or(0, |(_, built)| built.ranges.len()),
+            );
             selection.casters_only = key.casters_only;
             selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
             jobs.push((
@@ -164,7 +184,7 @@ impl SceneGpu {
             let view = &self.views[index];
             #[cfg(test)]
             view.rebuilds.set(view.rebuilds.get() + 1);
-            *view.built.borrow_mut() = Some((key, selection));
+            *view.built.borrow_mut() = Some((key, Rc::new(selection)));
         }
     }
 

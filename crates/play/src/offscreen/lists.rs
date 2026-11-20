@@ -58,13 +58,21 @@ const NO_SHADOW_CAST: &str = "casts no shadow";
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
+    /// Whether a pass of the shader has the `LightMode` value `mode`, in any case: a player build
+    /// spells its shadow caster passes `SHADOWCASTER` where a pipeline asks for `ShadowCaster`.
+    pub(super) fn has_light_mode(&self, mode: &str) -> bool {
+        self.light_modes
+            .iter()
+            .any(|held| held.eq_ignore_ascii_case(mode))
+    }
+
     /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
     fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
-            self.light_modes.contains(tag)
+            self.has_light_mode(tag)
                 || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
         })
     }
@@ -333,7 +341,7 @@ impl<'a> Mapper<'a> {
                     self.left_out(MATERIAL_UNAVAILABLE, 1);
                     continue;
                 };
-                if !info.light_modes.iter().any(|mode| mode == SHADOW_CASTER) {
+                if !info.has_light_mode(SHADOW_CASTER) {
                     self.left_out(NO_CASTER_PASS, 1);
                     continue;
                 }

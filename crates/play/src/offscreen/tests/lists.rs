@@ -221,15 +221,27 @@ fn untagged_shaders(world: &mut World) -> [MaterialId; 3] {
     .map(|shader| material(world, shader))
 }
 
+/// A shader whose shadow caster pass has the `LightMode` value in capitals, as the shaders of a
+/// player build spell it.
+fn shouting_caster(world: &mut World) -> MaterialId {
+    let shader = shader(world, "forward-and-shouting-caster");
+    material(world, shader)
+}
+
 /// The name of each shader, the `LightMode` values of its tagged passes and whether it has a pass
 /// with no tag.
-const MODES: [(&str, &[&str], bool); 6] = [
+const MODES: [(&str, &[&str], bool); 7] = [
     ("forward-and-caster", &[FORWARD, CASTER], false),
     ("unlit", &[UNLIT], false),
     ("forward", &[FORWARD], false),
     ("untagged", &[], true),
     ("forward-and-untagged", &[FORWARD], true),
     ("always", &["Always"], false),
+    (
+        "forward-and-shouting-caster",
+        &[FORWARD, "SHADOWCASTER"],
+        false,
+    ),
 ];
 
 #[test]

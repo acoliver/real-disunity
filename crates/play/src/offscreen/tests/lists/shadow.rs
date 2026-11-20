@@ -6,7 +6,8 @@ use worldrunner_world_simulation::graphics::RendererListDesc;
 
 use super::super::super::bounds::Bounds;
 use super::{
-    CASTER, MESH, counts, draw, lists, meshes, placed, placed_casting, run, scene, shaders, world,
+    CASTER, MESH, counts, draw, lists, meshes, placed, placed_casting, run, scene, shaders,
+    shouting_caster, world,
 };
 
 fn shadow_list(planes: Vec<[f32; 4]>, sphere: [f32; 4]) -> RendererListDesc {
@@ -161,4 +162,18 @@ fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
         adapted.report.lists.left_out,
         counts(&[("outside the split's planes", 1)])
     );
+}
+
+#[test]
+fn a_shadow_caster_pass_is_found_whatever_the_case_of_its_light_mode() {
+    let mut world = world();
+    let shouting = shouting_caster(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[shouting], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, shadow_list(Vec::new(), [0.0; 4]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
+    assert_eq!(adapted.report.lists.shadow_drawn, 1);
+    assert!(adapted.report.lists.left_out.is_empty());
 }

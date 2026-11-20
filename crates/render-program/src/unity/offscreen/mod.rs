@@ -26,6 +26,7 @@ mod resample;
 mod sampling;
 mod slot_dimension;
 mod steps;
+mod storage_buffers;
 mod textures;
 mod tracker;
 
@@ -684,6 +685,14 @@ pub struct MissingTextureDraws {
     pub draws: usize,
 }
 
+/// Draws left out because no layer names a structured buffer the pass reads, counted for one
+/// buffer property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingBufferDraws {
+    pub buffer: String,
+    pub draws: usize,
+}
+
 /// Camera draws left out for want of a pass, counted for the shaders whose passes carry the same
 /// tag values.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -717,6 +726,20 @@ impl OffscreenOperations {
             .iter()
             .map(|(texture, draws)| MissingTextureDraws {
                 texture: texture.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The draws left out because no layer names a structured buffer the pass reads, by the
+    /// buffer property, sorted by name. The rest of the pass's draws are recorded.
+    #[must_use]
+    pub fn missing_buffer_draws(&self) -> Vec<MissingBufferDraws> {
+        self.counts
+            .missing_buffers
+            .iter()
+            .map(|(buffer, draws)| MissingBufferDraws {
+                buffer: buffer.clone(),
                 draws: *draws,
             })
             .collect()

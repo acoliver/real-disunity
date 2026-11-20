@@ -17,6 +17,8 @@ mod persistence;
 mod refusals;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
+#[path = "game_passes/shadow_cascades.rs"]
+mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]
 mod shadowed;
 #[path = "game_passes/stores.rs"]
@@ -25,3 +27,5 @@ mod stores;
 mod strip;
 #[path = "game_passes/terrain.rs"]
 mod terrain;
+#[path = "game_passes/terrain_lender.rs"]
+mod terrain_lender;

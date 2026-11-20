@@ -12,7 +12,7 @@ use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 /// forward frame is chosen here. The sequence is:
 ///
 /// 1. shadow caster layers, by layer
-/// 2. the depth/normal prepass
+/// 2. the depth/normal prepass, then the game's passes after it
 /// 3. the depth pyramid, by level
 /// 4. occlusion metadata, by level
 /// 5. SSAO, its horizontal blur, its final blur
@@ -38,6 +38,7 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
     match slot {
         PassSlot::ShadowCasters(layer) => (0, layer),
         PassSlot::DepthNormalPrepass => (1, 0),
+        PassSlot::Game(GamePlace::AfterDepthPrepass) => (1, 1),
         PassSlot::DepthPyramid(level) => (2, level),
         PassSlot::OcclusionMetadata(level) => (3, level),
         PassSlot::Ssao => (4, 0),
@@ -206,6 +207,46 @@ mod tests {
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 0),
                 worldrunner_render_post::PassEntry::nth(PassSlot::Opaque, 1),
                 worldrunner_render_post::PassEntry::new(PassSlot::TransparentWater),
+            ]
+        );
+    }
+
+    /// The game's passes after the depth prepass run before every reader of the prepass: the
+    /// depth pyramid, the occlusion metadata and SSAO, and keep occurrence order.
+    #[test]
+    fn the_games_passes_after_the_depth_prepass_run_before_its_readers() {
+        use worldrunner_render_post::PassEntry;
+        let game =
+            |occurrence| PassEntry::nth(PassSlot::Game(GamePlace::AfterDepthPrepass), occurrence);
+        let stock = |slot| PassEntry::new(slot);
+        let mut passes: Vec<_> = [
+            stock(PassSlot::Ssao),
+            game(1),
+            stock(PassSlot::OcclusionMetadata(0)),
+            stock(PassSlot::DepthPyramid(0)),
+            game(0),
+            stock(PassSlot::DepthNormalPrepass),
+            stock(PassSlot::ShadowCasters(0)),
+            stock(PassSlot::Opaque),
+        ]
+        .into_iter()
+        .map(|entry| PassDeclaration::nth(entry.slot(), entry.occurrence()))
+        .collect();
+        forward_order(&mut passes);
+        assert_eq!(
+            passes
+                .iter()
+                .map(PassDeclaration::entry)
+                .collect::<Vec<_>>(),
+            [
+                stock(PassSlot::ShadowCasters(0)),
+                stock(PassSlot::DepthNormalPrepass),
+                game(0),
+                game(1),
+                stock(PassSlot::DepthPyramid(0)),
+                stock(PassSlot::OcclusionMetadata(0)),
+                stock(PassSlot::Ssao),
+                stock(PassSlot::Opaque),
             ]
         );
     }

@@ -502,6 +502,7 @@ impl SceneTransform {
 pub struct SceneObject {
     contour_id: u8,
     casts_shadow: bool,
+    shadow_only: bool,
     lod_distance_scale_millionths: Option<u32>,
     fade: Option<super::SceneFadeBand>,
     tint: super::SceneTint,
@@ -545,6 +546,19 @@ impl SceneObject {
 
     pub const fn casts_shadow(&self) -> bool {
         self.casts_shadow
+    }
+
+    /// Keeps the placement out of every camera view (colour, depth prefix, G-buffer,
+    /// contours) while it still casts into the shadow maps as `casts_shadow` says. For
+    /// objects a game draws itself through its own passes, and for shadow-only proxies.
+    #[must_use]
+    pub const fn with_shadow_only(mut self, shadow_only: bool) -> Self {
+        self.shadow_only = shadow_only;
+        self
+    }
+
+    pub const fn shadow_only(&self) -> bool {
+        self.shadow_only
     }
 
     /// Scales LOD ceilings independently of geometry scale, including selection
@@ -607,6 +621,7 @@ impl SceneObject {
         Self {
             contour_id: 0,
             casts_shadow: true,
+            shadow_only: false,
             lod_distance_scale_millionths: None,
             fade: None,
             tint: super::SceneTint::WHITE,

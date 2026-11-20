@@ -50,6 +50,62 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
     assert_eq!(render(&context, &mut renderer, &mut target), shadowed);
 }
 
+#[test]
+fn gpu_shadow_only_caster_shadows_receivers_without_being_drawn() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let base = scene(&[[0, 0, 1_000]], 600_000, None);
+    let mut objects = base.geometry().objects().to_vec();
+    objects[0] = objects[0].with_casts_shadow(false);
+    let source = with_objects(&base, objects.clone());
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let shadowed = render(&context, &mut renderer, &mut target);
+    let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
+    renderer
+        .scene_mut()
+        .set_instance_object(caster, objects[1].with_shadow_only(true))
+        .unwrap();
+    let shadow_only = render(&context, &mut renderer, &mut target);
+    // The caster quad has the floor's albedo and normal, so its pixels cannot tell drawn from
+    // undrawn; the camera's selection count does.
+    let drawn = |lods: Vec<usize>| lods.iter().sum::<usize>();
+    assert_eq!(
+        drawn(renderer.view_stats().drawn_per_lod),
+        1,
+        "the camera skips it"
+    );
+    assert_eq!(
+        drawn(renderer.shadow_view_stats().drawn_per_lod),
+        1,
+        "the cascade draws it"
+    );
+    renderer
+        .scene_mut()
+        .set_instance_visible(caster, false)
+        .unwrap();
+    let absent = render(&context, &mut renderer, &mut target);
+    // Without the caster drawn, its shadow is the only difference from a frame without it:
+    // no channel is brighter, and some are darker.
+    let darker = shadow_only
+        .pixels
+        .iter()
+        .zip(&absent.pixels)
+        .inspect(|(with, without)| assert!(with <= without, "{with} > {without}"))
+        .filter(|(with, without)| with < without)
+        .count();
+    assert!(darker > 0, "the shadow-only caster casts");
+    renderer
+        .scene_mut()
+        .set_instance_visible(caster, true)
+        .unwrap();
+    renderer
+        .scene_mut()
+        .set_instance_object(caster, objects[1])
+        .unwrap();
+    assert_eq!(render(&context, &mut renderer, &mut target), shadowed);
+}
+
 fn render(
     context: &GpuContext,
     renderer: &mut ShadowedScene,

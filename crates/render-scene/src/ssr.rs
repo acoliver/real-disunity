@@ -404,7 +404,9 @@ impl ReflectionFeature<'_> {
     }
     fn application_reads(&self, feature: &mut FeaturePass) {
         if self.ssr.settings.depth_relative_ao {
-            feature.reads.push(ResourceRef::new("ambient occlusion"));
+            feature
+                .reads
+                .push(crate::ssao::passes::occlusion_resource());
         }
     }
     pub fn schedule(

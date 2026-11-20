@@ -196,7 +196,14 @@ impl ShadowFrameResources<'_> {
             contour,
             map,
         } = work;
-        scheduler.publish_game_shadows(|| lent::lend(map, &shadow.cascades, self.settings));
+        scheduler.publish_game_shadows(|| {
+            lent::lend(
+                map,
+                &shadow.cascades,
+                self.settings,
+                self.effects.shadows().sampling(),
+            )
+        });
         let mut feature = ShadowFeature {
             publications: scheduler.draw_publications(),
             renders: scheduler

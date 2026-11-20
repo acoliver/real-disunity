@@ -763,6 +763,21 @@ pub(crate) struct RegisteredFeature {
     pub declaration: FeatureDeclaration,
     pub prepared: Option<Box<dyn PreparedFeature>>,
     pub source: Box<dyn FrameFeature>,
+    /// Takes part in geometry prefixes as well as in the frames that complete them.
+    pub prefix: bool,
+}
+
+impl RegisteredFeature {
+    /// Whether a geometry prefix already drew everything this prefix participant declares, so
+    /// the frame that completes the prefix neither prepares nor draws it again.
+    pub(crate) fn completed_in(&self, completed: &[PassEntry]) -> bool {
+        self.prefix
+            && self
+                .declaration
+                .passes
+                .iter()
+                .all(|pass| completed.contains(&pass.entry()))
+    }
 }
 
 /// Borrowed features use the same prepare/draw boundary as retained registrations.

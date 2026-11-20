@@ -67,6 +67,7 @@ impl Mapper<'_> {
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
         Ok(vec![Record::Draws(Arc::new(DrawList {
+            raster: self.raster(),
             target,
             values,
             front_face: IMAGE_FRONT_FACE,

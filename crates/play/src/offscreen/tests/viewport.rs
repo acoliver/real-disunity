@@ -18,14 +18,14 @@ const MESH: u64 = 77;
 const SIDE: f32 = 8.0;
 
 /// A world with a target of 8 by 8 texels and a material, and the camera a setup may name.
-struct Rig {
-    world: World,
-    target: RenderTextureId,
-    material: MaterialId,
-    camera: ComponentHandle,
+pub(super) struct Rig {
+    pub(super) world: World,
+    pub(super) target: RenderTextureId,
+    pub(super) material: MaterialId,
+    pub(super) camera: ComponentHandle,
 }
 
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let shader = shader(&mut world, "viewport");
@@ -43,11 +43,11 @@ fn rig() -> Rig {
 }
 
 impl Rig {
-    fn record(&mut self, work: OffscreenWork) {
+    pub(super) fn record(&mut self, work: OffscreenWork) {
         self.world.record_offscreen(work).unwrap();
     }
 
-    fn bind(&mut self) {
+    pub(super) fn bind(&mut self) {
         let target = TargetRef::Render(self.target);
         self.record(OffscreenWork::SetRenderTarget {
             color: vec![target],
@@ -58,11 +58,11 @@ impl Rig {
         });
     }
 
-    fn viewport(&mut self, rect: [f32; 4]) {
+    pub(super) fn viewport(&mut self, rect: [f32; 4]) {
         self.record(OffscreenWork::SetViewport { rect });
     }
 
-    fn setup_camera(&mut self) {
+    pub(super) fn setup_camera(&mut self) {
         self.record(OffscreenWork::SetupCamera {
             camera: self.camera,
             view: Mat4::IDENTITY.to_cols_array(),
@@ -72,7 +72,7 @@ impl Rig {
         });
     }
 
-    fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.record(OffscreenWork::ClearRenderTarget {
             color: true,
             depth: true,
@@ -83,7 +83,7 @@ impl Rig {
         });
     }
 
-    fn draw_mesh(&mut self) {
+    pub(super) fn draw_mesh(&mut self) {
         self.record(OffscreenWork::DrawMesh {
             mesh: MESH,
             matrix: Mat4::IDENTITY.to_cols_array(),
@@ -95,7 +95,7 @@ impl Rig {
         });
     }
 
-    fn draw_procedural(&mut self) {
+    pub(super) fn draw_procedural(&mut self) {
         self.record(OffscreenWork::DrawProcedural {
             matrix: Mat4::IDENTITY.to_cols_array(),
             material: self.material,
@@ -107,7 +107,7 @@ impl Rig {
     }
 
     /// Culls with an empty result and draws a list of it, which holds no renderer.
-    fn draw_list(&mut self) {
+    pub(super) fn draw_list(&mut self) {
         let holder = object(&mut self.world, 0, Vec3::ZERO, Quat::IDENTITY);
         let camera = self
             .world
@@ -136,7 +136,7 @@ impl Rig {
         self.record(OffscreenWork::DrawRendererList { list });
     }
 
-    fn run(&mut self) -> Adapted {
+    pub(super) fn run(&mut self) -> Adapted {
         let snapshot = snapshot(&mut self.world);
         let mut available = available(&snapshot, 1, &[]);
         available.meshes.insert(MESH);
@@ -146,7 +146,7 @@ impl Rig {
 }
 
 /// What the frame's records are, in order, without the globals the frame adds between them.
-fn kinds(adapted: &Adapted) -> Vec<&'static str> {
+pub(super) fn kinds(adapted: &Adapted) -> Vec<&'static str> {
     adapted
         .frame
         .records

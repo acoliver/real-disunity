@@ -182,6 +182,7 @@ impl<'a> Mapper<'a> {
             lists.drawn += 1;
         }
         Ok(vec![Record::Draws(Arc::new(DrawList {
+            raster: self.raster(),
             target,
             values,
             front_face: IMAGE_FRONT_FACE,

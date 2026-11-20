@@ -39,6 +39,7 @@ impl Mapper<'_> {
             return Ok(Vec::new());
         }
         Ok(vec![Record::Procedural(Arc::new(ProceduralDraw {
+            raster: self.raster(),
             target,
             values,
             per_draw: draw_layer(matrix),

@@ -213,6 +213,24 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_viewport", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_viewport(ulong world, float x, float y, float width, float height);
         /// <summary>
+        ///  Records the rectangle, in pixels of the bound targets from the bottom left, that clips the draws
+        ///  after it until a disable, a new target or a camera setup. A value that is not finite and a
+        ///  negative width or height are refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_enable_scissor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_enable_scissor(ulong world, float x, float y, float width, float height);
+        /// <summary>
+        ///  Records the end of the clip `disunity_offscreen_enable_scissor` set.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_disable_scissor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_disable_scissor(ulong world);
+        /// <summary>
+        ///  Records the depth bias of the draws after it: `bias` is the constant offset and `slope_bias` the
+        ///  factor of the triangle's depth slope. A value that is not finite is refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_depth_bias", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_depth_bias(ulong world, float bias, float slope_bias);
+        /// <summary>
         ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
         ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
         ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and

@@ -280,8 +280,10 @@ impl GameResources {
     ///
     /// # Errors
     /// [`GameResourceError::Declaration`] for an empty extent, a dimension other than `D2`,
-    /// `D2Array` and `D3`, more than one layer for `D2`, texels for a depth format or texels
-    /// that are not exactly the level; [`GameResourceError::Budget`] beyond the budget.
+    /// `D2Array` and `D3`, more than one layer for `D2`, a depth or block-compressed 3D texture,
+    /// texels for a depth format or texels that are not exactly the level, an extent or layer
+    /// count past the device's limits or a format it lacks the feature for;
+    /// [`GameResourceError::Budget`] beyond the budget.
     pub fn declare_texture(
         &self,
         declaration: &GameTextureDeclaration<'_>,
@@ -546,6 +548,14 @@ fn texture_descriptor<'a>(
             label,
             "the extent is not whole blocks of the format",
         ));
+    }
+    if texture_dimension == wgpu::TextureDimension::D3 {
+        if format.is_depth_stencil_format() {
+            return Err(refuse(label, "a depth texture is not 3D"));
+        }
+        if format.is_compressed() {
+            return Err(refuse(label, "a 3D texture is not block-compressed"));
+        }
     }
     let mut usage = wgpu::TextureUsages::TEXTURE_BINDING;
     if let Some(texels) = texels {

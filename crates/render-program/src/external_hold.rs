@@ -24,11 +24,14 @@ impl ProgramRuntime {
     /// the owner holds and what the runtime allocates. The owner calls it before it creates the
     /// resource and keeps the hold as long as the resource lives.
     ///
+    /// The bytes are counted as they are: the owner has checked its resource against the device,
+    /// so no buffer rule (size limit, four-byte multiple) applies to them.
+    ///
     /// # Errors
-    /// Fails, with nothing counted, when the bytes would pass the budget or the device's limits.
+    /// Fails, with nothing counted, when the bytes would pass the budget, or are zero.
     pub fn hold_external(&self, label: &str, bytes: u64) -> Result<ExternalHold, ProgramError> {
         let mut allocations = AllocationSet::default();
-        allocations.buffer("render-program external resource", bytes, 1);
+        allocations.external("render-program external resource", bytes);
         let reservation = self.admit(allocations, Note::new(label, "external"))?;
         Ok(ExternalHold {
             _reservation: reservation,

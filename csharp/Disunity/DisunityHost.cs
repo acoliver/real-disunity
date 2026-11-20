@@ -37,6 +37,7 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
+        UnsentTextures.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try

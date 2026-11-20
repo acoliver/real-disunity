@@ -19,11 +19,21 @@ mod prepared;
 mod refusals;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
+#[path = "game_passes/shadow_cascades.rs"]
+mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]
 mod shadowed;
+#[path = "game_passes/snapshot_capture.rs"]
+mod snapshot_capture;
+#[path = "game_passes/snapshot_game.rs"]
+mod snapshot_game;
+#[path = "game_passes/snapshots.rs"]
+mod snapshots;
 #[path = "game_passes/stores.rs"]
 mod stores;
 #[path = "game_passes/strip.rs"]
 mod strip;
 #[path = "game_passes/terrain.rs"]
 mod terrain;
+#[path = "game_passes/terrain_lender.rs"]
+mod terrain_lender;

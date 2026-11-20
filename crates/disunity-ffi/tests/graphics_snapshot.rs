@@ -119,12 +119,23 @@ fn a_size_query_then_a_copy_returns_the_records_once() {
 }
 
 #[test]
-fn a_world_without_work_has_an_empty_snapshot() {
+fn a_world_without_work_has_a_snapshot_with_no_records_that_lists_its_render_textures() {
     let world = new_world();
     render_texture(world);
-    let empty = snapshot(world);
-    assert_eq!(empty, GraphicsSnapshot::default());
-    assert_eq!(snapshot(world), empty);
+    let idle = snapshot(world);
+    assert_eq!(
+        GraphicsSnapshot {
+            render_textures: Default::default(),
+            ..idle.clone()
+        },
+        GraphicsSnapshot::default()
+    );
+    assert_eq!(
+        idle.render_textures.len(),
+        1,
+        "the host retains what the world holds"
+    );
+    assert_eq!(snapshot(world), idle);
 }
 
 #[test]

@@ -34,11 +34,15 @@ use worldrunner_scene_viewer::GameScreen;
 mod frame;
 
 use crate::PlayError;
+use crate::counts_line::{top_counts_line, unset_constants_line};
+use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
-    Reclaimed, Report, ScreenImage, Settings, SuppliedGlobal, WorkTrace, supplied_line,
+    Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts, StandInLook,
+    SuppliedGlobal, WorkTrace, supplied_line,
 };
+use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -49,79 +53,27 @@ const MAX_WORK_TRACES: usize = 64;
 /// The most textures the draw:MissingTexture line names.
 const TOP_TEXTURES: usize = 5;
 
-/// `title` and the `top` names with the largest counts, largest first and equal counts by name,
-/// as `title: name count, name count`. A count of names past `top` ends the line as `and N more`.
-/// There is no line for no counts.
-fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) -> Option<String> {
-    if counts.is_empty() {
-        return None;
-    }
-    let mut ranked: Vec<_> = counts.iter().collect();
-    // A stable sort keeps the names of equal counts in the map's order.
-    ranked.sort_by(|a, b| b.1.cmp(a.1));
-    let named: Vec<String> = ranked
-        .iter()
-        .take(top)
-        .map(|(name, count)| format!("{name} {count}"))
-        .collect();
-    let line = format!("{title}: {}", named.join(", "));
-    Some(match ranked.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
-}
-
 /// The most names the unset constants line gives.
 const TOP_UNSET: usize = 8;
 
-/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
-/// and `and N more` for those past them. There is no line for no names.
-fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
-    if unset.is_empty() {
-        return None;
-    }
-    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
-    let line = format!(
-        "constants or state properties no layer set: {}",
-        shown.join(", ")
-    );
-    Some(match unset.len().saturating_sub(top) {
-        0 => line,
-        more => format!("{line}, and {more} more"),
-    })
-}
+/// The most property and reason pairs the stand-ins line names.
+const TOP_STAND_INS: usize = 8;
 
 /// The settings of a player run's offscreen work: camera renders drawing with `depth`, and
-/// `supplied` as the fallback globals every frame starts from.
-fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal]) -> Settings {
+/// `supplied` as the fallback globals every frame starts from, with stand-in textures drawn as
+/// `look`.
+fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
     Settings {
         supplied: supplied.to_vec(),
-        ..Settings::cameras().with_depth(depth)
+        ..Settings::cameras()
+            .with_depth(depth)
+            .with_stand_in_look(look)
     }
 }
 
-/// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GlobalListing {
-    /// The frame the work belongs to, counting from zero: a flush the managed engine asked for
-    /// during a frame's script update, or that frame's own snapshot.
-    pub frame: u64,
-    /// `flush` or `frame`.
-    pub source: &'static str,
-    pub textures: Vec<String>,
-}
-
-impl GlobalListing {
-    /// The listing as a report line.
-    #[must_use]
-    pub fn line(&self) -> String {
-        format!(
-            "globals at a {} of frame {}: {}",
-            self.source,
-            self.frame,
-            self.textures.join(", ")
-        )
-    }
+/// The stand-in look the environment asks for.
+fn stand_in_look_from_env() -> StandInLook {
+    StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref())
 }
 
 /// What the offscreen work of a run did.
@@ -189,6 +141,8 @@ pub struct GpuWorkReport {
     pub partial_reads: BTreeMap<String, usize>,
     /// The draws left out because no layer names a texture the pass samples, by the property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a structured buffer the pass reads, by the property.
+    pub missing_buffers: BTreeMap<String, usize>,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
@@ -198,6 +152,10 @@ pub struct GpuWorkReport {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The draws that read a stand-in texture, over every piece of work, by property and reason.
+    pub stand_ins: StandInCounts,
+    /// The retained renderers drawn white and left out, when the run drew a retained scene.
+    pub retained: Option<SubstitutionCensus>,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
     /// `Report::unset_constants`), over every piece of work.
     pub unset_constants: BTreeSet<String>,
@@ -269,17 +227,14 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
-        for (name, count) in &report.missing_textures {
-            *self.missing_textures.entry(name.clone()).or_default() += count;
+        for (name, count) in &report.missing_buffers {
+            *self.missing_buffers.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
-        }
-        for (name, count) in &report.undeclared_defaults {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
         }
         for (name, count) in report.lists.named() {
             *self.lists.entry(name).or_default() += count;
@@ -307,9 +262,7 @@ impl GpuWorkReport {
                 textures: report.global_textures.keys().cloned().collect(),
             });
         }
-        for (name, count) in &report.unresolved_textures {
-            *self.unresolved_textures.entry(name.clone()).or_default() += count;
-        }
+        self.add_texture_counts(report);
         self.unset_constants.extend(report.unset_constants.clone());
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
@@ -331,6 +284,53 @@ impl GpuWorkReport {
                 entry.texture, entry.written, entry.total, entry.key, entry.tag
             );
             *self.partial_reads.entry(name).or_default() += entry.reads;
+        }
+    }
+
+    /// Adds the counts of the draws left out for want of a texture and of the draws and
+    /// properties a stand-in served instead.
+    fn add_texture_counts(&mut self, report: &Report) {
+        for (name, count) in &report.missing_textures {
+            *self.missing_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.undeclared_defaults {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.unresolved_textures {
+            *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        self.stand_ins.add(&report.stand_ins);
+    }
+
+    /// The lines of the stand-in census, without the `[gpu] ` prefix.
+    fn stand_in_lines(&self) -> Vec<String> {
+        self.stand_ins.lines(TOP_STAND_INS)
+    }
+
+    /// The lines of the retained renderer census, without the `[gpu] ` prefix.
+    fn retained_lines(&self) -> Vec<String> {
+        self.retained
+            .as_ref()
+            .map_or_else(Vec::new, SubstitutionCensus::lines)
+    }
+
+    /// The lines of the stand-in census of the work done since the census was `before`.
+    fn frame_stand_in_lines(&self, before: &StandInCounts) -> Vec<String> {
+        self.stand_ins.since(before).lines(TOP_STAND_INS)
+    }
+
+    /// The lines about the draws left out for want of a texture, from `stand_in_lines` the
+    /// draws that read stand-ins, and the retained renderers drawn white.
+    fn print_texture_lines(&self, stand_in_lines: &[String]) {
+        if let Some(line) = top_counts_line(
+            "draw:MissingTexture by texture",
+            &self.missing_textures,
+            TOP_TEXTURES,
+        ) {
+            eprintln!("[gpu] {line}");
+        }
+        for line in stand_in_lines.iter().chain(&self.retained_lines()) {
+            eprintln!("[gpu] {line}");
         }
     }
 
@@ -367,8 +367,43 @@ impl GpuWorkReport {
         }
     }
 
+    /// The lines about the storage the run held, gave back and refused, and the time it took.
+    fn print_storage_lines(&self) {
+        eprintln!(
+            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
+            self.peak_live_bytes, self.peak_runtime_bytes
+        );
+        eprintln!(
+            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
+            self.reclaimed.textures,
+            self.reclaimed.targets,
+            self.reclaimed.meshes,
+            self.reclaimed.bytes
+        );
+        for line in &self.refusal_holdings {
+            eprintln!(
+                "[gpu] held when the budget first refused, in frame {}: {line}",
+                self.refusal_frame
+            );
+        }
+        eprintln!(
+            "[gpu] time in the frame path {:?}, in flushes {:?}",
+            self.frame_time, self.flush_time
+        );
+    }
+
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
+        self.print_with(&self.stand_in_lines());
+    }
+
+    /// As [`print`](Self::print), with the stand-in census of the work done since it was `before`
+    /// (a clone of `stand_ins` taken then) in place of the run's totals.
+    pub fn print_frame(&self, before: &StandInCounts) {
+        self.print_with(&self.frame_stand_in_lines(before));
+    }
+
+    fn print_with(&self, stand_in_lines: &[String]) {
         self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
@@ -396,16 +431,11 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        if let Some(line) = top_counts_line(
-            "draw:MissingTexture by texture",
-            &self.missing_textures,
-            TOP_TEXTURES,
-        ) {
-            eprintln!("[gpu] {line}");
-        }
+        self.print_texture_lines(stand_in_lines);
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
+            ("draw:MissingBuffer by buffer", &self.missing_buffers),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
@@ -445,27 +475,7 @@ impl GpuWorkReport {
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
         );
-        eprintln!(
-            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
-            self.peak_live_bytes, self.peak_runtime_bytes
-        );
-        eprintln!(
-            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
-            self.reclaimed.textures,
-            self.reclaimed.targets,
-            self.reclaimed.meshes,
-            self.reclaimed.bytes
-        );
-        for line in &self.refusal_holdings {
-            eprintln!(
-                "[gpu] held when the budget first refused, in frame {}: {line}",
-                self.refusal_frame
-            );
-        }
-        eprintln!(
-            "[gpu] time in the frame path {:?}, in flushes {:?}",
-            self.frame_time, self.flush_time
-        );
+        self.print_storage_lines();
         for (index, work) in self.work.iter().enumerate() {
             eprintln!("[gpu] {}", work.line(index));
         }
@@ -510,7 +520,11 @@ impl PlayerGpu {
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::headless_with_inputs(data, &inputs, run_settings(depth, supplied))
+        Self::headless_with_inputs(
+            data,
+            &inputs,
+            run_settings(depth, supplied, stand_in_look_from_env()),
+        )
     }
 
     fn headless_with_inputs(
@@ -562,7 +576,12 @@ impl PlayerGpu {
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::shared_with_inputs(source, data, &inputs, run_settings(depth, supplied))
+        Self::shared_with_inputs(
+            source,
+            data,
+            &inputs,
+            run_settings(depth, supplied, stand_in_look_from_env()),
+        )
     }
 
     fn shared_with_inputs(
@@ -782,12 +801,23 @@ impl PlayerGpu {
         Ok(())
     }
 
+    /// Records the retained scene's census of renderers drawn white, for the report.
+    pub fn note_retained(&self, census: SubstitutionCensus) {
+        self.report.borrow_mut().retained = Some(census);
+    }
+
     /// What the run's offscreen work did so far.
     #[must_use]
     pub fn report(&self) -> std::cell::Ref<'_, GpuWorkReport> {
         self.report.borrow()
     }
 }
+
+#[cfg(test)]
+#[path = "gpu_player_retained_tests.rs"]
+mod retained_tests;
+#[cfg(test)]
+mod stand_in_tests;
 
 #[cfg(test)]
 #[path = "gpu_player_tests.rs"]

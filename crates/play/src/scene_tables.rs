@@ -25,7 +25,11 @@ use worldrunner_render_plan::{
 };
 use worldrunner_scene_viewer::{ObjectId, RetainedUpdate, SceneObjectEdit};
 
-use crate::{player_meshes::round_to_i64, scene_transform::scene_transform};
+use crate::{
+    player_meshes::round_to_i64,
+    scene_census::{FrameCensus, LeftOut, SubstitutionCensus, WhiteReason},
+    scene_transform::scene_transform,
+};
 
 const MICRO: f64 = 1_000_000.0;
 /// The handle of the 1x1 white texture every untextured slot draws with, and of the material
@@ -37,6 +41,12 @@ const WHITE_TINT: u32 = 1_000_000;
 pub trait FrameContent {
     fn mesh(&self, identity: u64) -> Option<&SceneMesh>;
     fn texture(&self, identity: u64) -> Option<&SceneTexture>;
+
+    /// Why [`FrameContent::texture`] has no texture for `identity`: the texels were never stored
+    /// or their conversion failed.
+    fn missing_texture(&self, _identity: u64) -> WhiteReason {
+        WhiteReason::TexelsNotStored
+    }
 }
 
 /// The identities whose contents changed since the last frame.
@@ -109,6 +119,7 @@ pub struct SceneTables {
     next_id: u64,
     /// Meshes and textures the viewer holds whose contents changed since the last send.
     stale: Changes,
+    census: SubstitutionCensus,
 }
 
 fn white_texture() -> SceneTexture {
@@ -160,7 +171,14 @@ impl SceneTables {
             placed: BTreeMap::new(),
             next_id: 0,
             stale: Changes::default(),
+            census: SubstitutionCensus::default(),
         })
+    }
+
+    /// What the last frame drew with the white texture and left out, and the worst frame so far.
+    #[must_use]
+    pub fn census(&self) -> &SubstitutionCensus {
+        &self.census
     }
 
     /// The smallest scene the viewer accepts: the white texture and material, no meshes and no
@@ -191,8 +209,9 @@ impl SceneTables {
         self.note_changes(changes);
         let mut resolved = BTreeMap::new();
         let mut skipped = Vec::new();
+        let mut census = FrameCensus::default();
         for view in objects {
-            match self.place(view, content) {
+            match self.place(view, content, &mut census) {
                 Ok(Some(object)) => {
                     resolved.insert(view.object, object);
                 }
@@ -203,6 +222,7 @@ impl SceneTables {
                 }),
             }
         }
+        self.census.end_frame(census);
         let append = std::mem::take(&mut self.pending);
         FrameUpdate {
             append: (!append.is_empty()).then_some(append),
@@ -257,17 +277,26 @@ impl SceneTables {
     }
 
     /// The scene object a frame's renderer becomes. `None` while its mesh has no scene mesh yet.
+    /// `census` counts the renderer as drawn, with the reason it is white, or as left out.
     fn place(
         &mut self,
         view: &MeshObjectView,
         content: &impl FrameContent,
+        census: &mut FrameCensus,
     ) -> Result<Option<SceneObject>, String> {
         let transform = scene_transform(&view.local_to_world).map_err(|error| error.to_string())?;
-        let Some(mesh) = self.mesh_handle(view.mesh, content) else {
-            return Ok(None);
+        let mesh = match self.mesh_handle(view.mesh, content) {
+            Ok(mesh) => mesh,
+            Err(reason) => {
+                census.left_out(reason);
+                return Ok(None);
+            }
         };
         let slot = view.slots.first();
-        let texture = self.texture_handle(slot.map_or(0, |slot| slot.texture), content);
+        let (texture, white) = match slot {
+            Some(slot) => self.texture_handle(slot.texture, content),
+            None => (WHITE, Some(WhiteReason::NoMaterialSlot)),
+        };
         let material = self
             .material_handle(texture)
             .map_err(|error| error.to_string())?;
@@ -275,6 +304,7 @@ impl SceneTables {
             [slot.color[0], slot.color[1], slot.color[2]].map(tint_channel)
         });
         let tint = SceneTint::new(tint).map_err(|error| error.to_string())?;
+        census.drawn(white);
         Ok(Some(
             SceneObject::new(
                 transform,
@@ -285,38 +315,46 @@ impl SceneTables {
         ))
     }
 
-    fn mesh_handle(&mut self, identity: u64, content: &impl FrameContent) -> Option<u32> {
+    /// The mesh handle of player mesh `identity`, or why the renderer cannot be shown.
+    fn mesh_handle(&mut self, identity: u64, content: &impl FrameContent) -> Result<u32, LeftOut> {
         if let Some(index) = self.mesh_index.get(&identity) {
-            return Some(*index);
+            return Ok(*index);
         }
-        let mesh = content.mesh(identity)?.clone();
+        let mesh = content
+            .mesh(identity)
+            .ok_or(LeftOut::MeshNotArrived)?
+            .clone();
         let index = self.meshes;
-        self.meshes = index.checked_add(1)?;
+        self.meshes = index.checked_add(1).ok_or(LeftOut::MeshHandleOverflow)?;
         self.pending.meshes.push(mesh);
         self.mesh_index.insert(identity, index);
-        Some(index)
+        Ok(index)
     }
 
-    /// The texture handle of player texture `identity`, white for no texture and for one whose
-    /// texels have not arrived.
-    fn texture_handle(&mut self, identity: u64, content: &impl FrameContent) -> u32 {
+    /// The texture handle of player texture `identity`, and the reason it is the white texture
+    /// when it is: white for no texture and for one whose texels have not arrived.
+    fn texture_handle(
+        &mut self,
+        identity: u64,
+        content: &impl FrameContent,
+    ) -> (u32, Option<WhiteReason>) {
         if identity == 0 {
-            return WHITE;
+            return (WHITE, Some(WhiteReason::TextureZero));
         }
         if let Some(index) = self.texture_index.get(&identity) {
-            return *index;
+            return (*index, None);
         }
         let Some(texture) = content.texture(identity).cloned() else {
-            return WHITE;
+            return (WHITE, Some(content.missing_texture(identity)));
         };
         let index = self.textures;
         let Some(next) = index.checked_add(1) else {
-            return WHITE;
+            return (WHITE, Some(WhiteReason::HandleOverflow));
         };
         self.textures = next;
         self.pending.textures.push(texture);
         self.texture_index.insert(identity, index);
-        index
+        (index, None)
     }
 
     fn material_handle(&mut self, texture: u32) -> Result<u32, SceneValidationError> {

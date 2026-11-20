@@ -1,7 +1,10 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
-use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
+use super::shadows::{FrameShadowHandle, FrameShadows};
+use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
+use super::targets::{GameTargets, TargetDeclaration, TargetStore};
+use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -22,6 +25,14 @@ pub struct GameBuild<'a> {
     pub targets: GameTargets,
     /// The camera of the frame in flight, set as each frame plans.
     pub camera: FrameCameraHandle,
+    /// The streamed terrain chunks of the frame in flight, set as each frame prepares its
+    /// terrain.
+    pub terrain: FrameTerrainHandle,
+    /// The stock shadow cascades of the frame in flight, published by the shadowed route.
+    pub shadows: FrameShadowHandle,
+    /// The opaque snapshots of the frame in flight, published once the frame is planned and only
+    /// when a pass of it declared a read of them.
+    pub snapshots: FrameSnapshotHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -38,6 +49,17 @@ pub trait GameFeatureFactory: Send + Sync {
     /// The targets this contribution owns, for the allocation budget and the store.
     fn targets(&self) -> Vec<TargetDeclaration> {
         Vec::new()
+    }
+
+    /// The frame's opaque snapshots that this contribution's passes may read. The default reads
+    /// none, and then a renderer with no water, reflection or depth-tested overlay allocates no
+    /// snapshots at all. A factory that samples them states it here so that the renderer reserves
+    /// and allocates them when it is built, and so that a same-frame capture admits their writes
+    /// before the first frame plans. Each pass then declares what it samples with
+    /// [`GamePassSpec::reading_snapshots`], and a pass that declares more than this is refused at
+    /// planning.
+    fn snapshot_reads(&self) -> SnapshotReads {
+        SnapshotReads::NONE
     }
 
     /// Builds the feature for one generation. It plans its passes with
@@ -85,6 +107,15 @@ impl GamePasses {
 
     pub fn len(&self) -> usize {
         self.factories.len()
+    }
+
+    /// The opaque snapshots any factory of the inventory declared it reads.
+    pub(crate) fn snapshot_reads(&self) -> SnapshotReads {
+        self.factories
+            .iter()
+            .fold(SnapshotReads::NONE, |reads, factory| {
+                reads.union(factory.snapshot_reads())
+            })
     }
 
     fn declarations(&self) -> Vec<TargetDeclaration> {
@@ -154,8 +185,12 @@ impl GamePasses {
             let feature = factory.build(&GameBuild {
                 context,
                 frame,
-                targets: GameTargets::new(store.clone()),
+                targets: GameTargets::new(store.clone())
+                    .with_snapshot_reads(factory.snapshot_reads()),
                 camera: renderer.game_camera.clone(),
+                terrain: renderer.game_terrain.clone(),
+                shadows: renderer.game.shadows.clone(),
+                snapshots: renderer.game.snapshots.clone(),
             })?;
             renderer.chain.register(
                 context.device(),
@@ -167,6 +202,7 @@ impl GamePasses {
             renderer.game.features += 1;
         }
         renderer.game.store = Some(store);
+        renderer.game.snapshot_reads = self.snapshot_reads();
         Ok(())
     }
 }
@@ -179,6 +215,13 @@ pub(crate) struct Installed {
     /// The textures behind the declared targets: made from the previous generation's, and handed
     /// on to the next one.
     pub(crate) store: Option<Arc<TargetStore>>,
+    /// Where the shadowed route lends its cascades to the features of this generation.
+    pub(crate) shadows: FrameShadowHandle,
+    /// Where the renderer lends the frame's opaque snapshots to the features of this generation.
+    pub(crate) snapshots: FrameSnapshotHandle,
+    /// The snapshots the inventory's factories declared they read, which this generation
+    /// allocates and a capture admits whether or not a frame reads them.
+    pub(crate) snapshot_reads: SnapshotReads,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the
@@ -225,12 +268,9 @@ impl PreparedFeature for RegisteredPrepared {
         // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
         // Each publication names the exact backing it records, which an owned capture needs to
         // admit it; a frame that writes no declared target publishes nothing.
-        for FrameEffect { backing, layers } in self.store.frame_effects(context) {
-            let key = backing.write_key();
-            // The capture records a refusal and fails before submission, as for stock state.
-            let _ = context
-                .publications()
-                .stage_write(key, move || backing.record(&layers));
+        let mut frame = context.publications();
+        for effect in self.store.frame_effects(context) {
+            effect.stage(&mut frame);
         }
     }
 
@@ -244,6 +284,17 @@ impl PreparedFeature for RegisteredPrepared {
 }
 
 impl FrameRenderer {
+    /// Lends the stock shadow cascades of the frame being prepared to the game's features, when
+    /// the renderer has any. `lend` runs only then, so a renderer without game features builds
+    /// nothing.
+    pub(crate) fn publish_game_shadows(&self, lend: impl FnOnce() -> Option<FrameShadows>) {
+        if self.game.features > 0
+            && let Some(shadows) = lend()
+        {
+            self.game.shadows.publish(shadows);
+        }
+    }
+
     /// The textures the game's targets add to a capture's write contract, each with the initial
     /// version the frame imports it at: the targets the frame's passes attach.
     pub(crate) fn game_capture_imports(&self) -> Vec<(wgpu::Texture, Option<u32>)> {

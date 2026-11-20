@@ -433,6 +433,9 @@ fn relief_survives_culling_when_only_displaced_surface_intersects() {
     selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
     assert_eq!(selection.stats.culled, 1);
     instances.impostor_extents[0] = [0.0, 2.0, 0.0];
+    // A scene changes its material tables only through `extend_resources`; a test that edits
+    // them in place says so.
+    instances.recheck_bounds();
     selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0; 3]);
     // The card spans Z=2.7..3.3; its two-metre relief spans Z=0.7..1.3.
     assert_eq!(selection.stats.culled, 0);

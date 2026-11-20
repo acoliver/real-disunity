@@ -17,6 +17,7 @@
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 mod camera;
+mod frame_start;
 mod pass_target;
 mod plan;
 mod registry;
@@ -39,5 +40,7 @@ pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
 pub(crate) use terrain::probe as terrain_probe;
 pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
+#[cfg(test)]
+mod frame_start_tests;
 #[cfg(test)]
 mod tests;

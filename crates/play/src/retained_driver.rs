@@ -46,6 +46,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
+    scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
@@ -207,6 +208,8 @@ pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
 struct Content<'a> {
     meshes: &'a PlayerMeshes,
     textures: &'a SpriteTextures,
+    /// Which textures the managed host stored but could not convert.
+    player_textures: &'a PlayerTextures,
 }
 
 impl FrameContent for Content<'_> {
@@ -216,6 +219,21 @@ impl FrameContent for Content<'_> {
 
     fn texture(&self, identity: u64) -> Option<&SceneTexture> {
         self.textures.textures.get(&identity)
+    }
+
+    fn missing_texture(&self, identity: u64) -> WhiteReason {
+        if self.player_textures.conversion_failed(identity) {
+            WhiteReason::ConversionFailed
+        } else {
+            WhiteReason::TexelsNotStored
+        }
+    }
+}
+
+/// Writes the lines of `census` to standard error as the GPU report writes them.
+fn print_census(census: &SubstitutionCensus) {
+    for line in census.lines() {
+        eprintln!("[gpu] {line}");
     }
 }
 
@@ -281,10 +299,15 @@ impl PlayerRetainedDriver {
         })
     }
 
-    /// Prints the GPU report of the run, as a headless run does when it ends.
+    /// Prints the GPU report of the run, as a headless run does when it ends, with the census of
+    /// the renderers drawn white. Without a GPU the census prints alone.
     fn report_gpu(&self) {
+        let census = self.tables.census();
         if let Some(gpu) = &self.gpu {
+            gpu.note_retained(census.clone());
             gpu.report().print();
+        } else {
+            print_census(census);
         }
     }
 
@@ -332,6 +355,7 @@ impl PlayerRetainedDriver {
         let content = Content {
             meshes: &self.meshes,
             textures: &self.sprites,
+            player_textures: &self.player_textures,
         };
         let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);

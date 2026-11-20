@@ -34,6 +34,7 @@ mod policy;
 mod probe;
 mod procedural;
 mod properties;
+mod rebuild;
 mod reclaim;
 mod refusal;
 mod screen;

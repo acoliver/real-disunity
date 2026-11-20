@@ -51,6 +51,18 @@ const PASS_WGSL: &str = "
     return textureLoad(source, vec2<i32>(at.xy), 0);
 }";
 
+/// The pass of a game that reads what the kernel wrote: level 0 of the one-layer import of the
+/// target's layer, scaled to a colour.
+const FROM_KERNEL_WGSL: &str = "
+@group(0) @binding(0) var source: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureLoad(source, vec2<i32>(at.xy), 0).x / 1100.0, 0.0, 0.0, 1.0);
+}";
+
 /// The kernel writes every texel of the 2D image it is lent.
 const KERNEL_WGSL: &str = "
 @group(0) @binding(0) var written: texture_storage_2d<r32float, write>;
@@ -130,6 +142,8 @@ struct Parts {
     source: GameTexture,
     program: GraphicsProgram,
     kernel: bool,
+    /// The pass loads the layer the kernel wrote, instead of a level of the declared array.
+    from_kernel: bool,
     draw: RefCell<Option<PreparedProgramDraw>>,
 }
 
@@ -212,12 +226,24 @@ impl PreparedFeature for Game {
             )?;
             stage_kernel(context, &import);
         }
-        let sampled = parts.resources.import_texture_level(
-            EngineSemantic::named(SOURCE),
-            parts.source,
-            SAMPLED,
-            LevelAccess::Sampled,
-        )?;
+        let sampled = if parts.from_kernel {
+            parts.targets.import_level(
+                LAYERS,
+                EngineSemantic::named(SOURCE),
+                GameLevel {
+                    layer: WRITTEN_LAYER,
+                    mip: 0,
+                },
+                LevelAccess::Sampled,
+            )?
+        } else {
+            parts.resources.import_texture_level(
+                EngineSemantic::named(SOURCE),
+                parts.source,
+                SAMPLED,
+                LevelAccess::Sampled,
+            )?
+        };
         let target = PassTarget::of(context, ENTRY)?;
         let signature = target
             .signature()
@@ -263,6 +289,7 @@ impl PreparedFeature for Game {
 /// writes one layer of its four-layer target.
 struct LevelGame {
     kernel: bool,
+    from_kernel: bool,
 }
 
 impl GameFeatureFactory for LevelGame {
@@ -303,9 +330,14 @@ impl GameFeatureFactory for LevelGame {
             })
             .collect::<Result<Vec<_>, GameResourceError>>()?;
         let out = resources.read_back_target(targets, OUT, GameLevel::default())?;
+        let (wgsl, filterable) = if self.from_kernel {
+            (FROM_KERNEL_WGSL, false)
+        } else {
+            (PASS_WGSL, true)
+        };
         let program = common::graphics(
             &resources.runtime(),
-            PASS_WGSL,
+            wgsl,
             "vs",
             "fs",
             StageDeclarations::default(),
@@ -313,7 +345,7 @@ impl GameFeatureFactory for LevelGame {
                 resources: ResourceLayout::new(vec![texture_binding(
                     0,
                     SOURCE,
-                    wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::TextureSampleType::Float { filterable },
                 )]),
                 constants: Vec::new(),
             },
@@ -332,6 +364,7 @@ impl GameFeatureFactory for LevelGame {
             source,
             program,
             kernel: self.kernel,
+            from_kernel: self.from_kernel,
             draw: RefCell::new(None),
         }))))
     }
@@ -347,8 +380,16 @@ struct Delivered {
 /// Renders the game's first frame and takes every readback: the first take starts its map, and
 /// the level is delivered once the host has polled the device.
 fn frame(kernel: bool) -> Delivered {
+    frame_of(LevelGame {
+        kernel,
+        from_kernel: false,
+    })
+}
+
+/// [`frame`] of `game`.
+fn frame_of(game: LevelGame) -> Delivered {
     let mut rig = Rig::new(&quad_scene(), SIZE, |settings| {
-        settings.game_passes = GamePasses::new().with(Arc::new(LevelGame { kernel }));
+        settings.game_passes = GamePasses::new().with(Arc::new(game));
     });
     rig.render().unwrap();
     KEPT.with_borrow(|kept| {
@@ -428,5 +469,31 @@ fn a_pass_loads_exactly_layer_one_mip_one_of_a_declared_array_through_a_one_leve
             image.bytes.iter().all(|&byte| byte == 0),
             "layer {layer}: nothing writes the target without the kernel"
         );
+    }
+}
+
+#[test]
+fn a_pass_loads_the_layer_a_kernel_wrote_in_the_same_frame_through_a_one_layer_import() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let delivered = frame_of(LevelGame {
+        kernel: true,
+        from_kernel: true,
+    });
+    assert_eq!(delivered.out.size, SAMPLED_SIZE);
+    for y in 0..SAMPLED_SIZE[1] {
+        for x in 0..SAMPLED_SIZE[0] {
+            let red = delivered.out.pixel(x, y)[0];
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a unit colour"
+            )]
+            let expected = (written_at(x, y) / 1100.0 * 255.0).round() as u8;
+            assert!(
+                red.abs_diff(expected) <= 1,
+                "texel ({x}, {y}): the pass read {red}, the kernel wrote {expected}"
+            );
+        }
     }
 }

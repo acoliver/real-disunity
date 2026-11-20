@@ -1,5 +1,5 @@
 //! What the shadowed route lends of its cascades to a game's features.
-use super::{DirectionalShadowSettings, ShadowMap, cascades::CascadeViews};
+use super::{DirectionalShadowSettings, ShadowMap, cascades::CascadeViews, resources};
 use crate::compositor::{FrameShadows, ShadowCascade};
 
 /// The cascades of the frame as the stock receivers will read them, or `None` when the frame has
@@ -9,6 +9,7 @@ pub(super) fn lend(
     map: &ShadowMap,
     cascades: &CascadeViews,
     settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> Option<FrameShadows> {
     if cascades.no_receivers {
         return None;
@@ -35,5 +36,6 @@ pub(super) fn lend(
         multiplier: cascades.multiplier,
         fade_out: cascades.fade_out,
         normal_bias_meters: settings.normal_bias_meters,
+        strength: 1.0 - resources::strength_reduction(sampling),
     })
 }

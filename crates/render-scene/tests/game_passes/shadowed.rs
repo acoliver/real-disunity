@@ -29,7 +29,7 @@ use worldrunner_render_scene::{
     },
     shadows::{
         DirectionalShadowSettings, ShadowedScene,
-        sdsm::{AdoptionPolicy, RangeFit, SdsmSettings},
+        sdsm::{AdoptedFit, AdoptionPolicy, RangeFit, SdsmSettings},
     },
     wgpu,
 };
@@ -354,6 +354,11 @@ fn assert_painted(image: &[[u8; 4]], context: &str) {
 }
 
 pub fn effects() -> SceneEffects {
+    effects_with(None)
+}
+
+/// The sunlit effects of the shadowed scene, with `ssao`.
+pub(super) fn effects_with(ssao: Option<worldrunner_render_plan::SceneSsao>) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -377,7 +382,7 @@ pub fn effects() -> SceneEffects {
             ground_irradiance_micro: 100_000,
         },
         shadows: SceneShadowCascades::new(vec![4_000], 0).unwrap(),
-        ssao: None,
+        ssao,
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,
@@ -403,7 +408,7 @@ fn lit_scene() -> RenderScene {
 }
 
 /// A rig whose renderer carries the game, and the shadowed scene that captures its frames.
-pub fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
+pub(super) fn shadowed(inventory: GamePasses) -> (Rig, ShadowedScene) {
     shadowed_with(inventory, wgpu::Features::empty())
 }
 
@@ -412,9 +417,20 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });
+    let scene = fitted(&rig, &lit_scene(), FORMAT);
+    (rig, scene)
+}
+
+/// The shadowed scene that captures `rig`'s frames of `source` in `format`, fitting its cascades
+/// to the depth of the same frame.
+pub(super) fn fitted(
+    rig: &Rig,
+    source: &RenderScene,
+    format: wgpu::TextureFormat,
+) -> ShadowedScene {
     let mut scene = ShadowedScene::with_target(
         &rig.context,
-        &lit_scene(),
+        source,
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -424,7 +440,7 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
         },
-        FORMAT,
+        format,
         1,
     )
     .unwrap();
@@ -445,11 +461,24 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
             }),
         )
         .unwrap();
-    (rig, scene)
+    scene
 }
 
 /// Captures one frame with the rig's renderer and returns its colour.
-pub fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
+    capture_fit(rig, scene, frame);
+    let mut encoder = rig
+        .context
+        .submission()
+        .begin(rig.context.device())
+        .unwrap();
+    rig.renderer.targets().encode_resolve(&mut encoder);
+    encoder.finish().submit().unwrap();
+    rig.read(rig.renderer.targets().texture())
+}
+
+/// Captures one frame with the rig's renderer and returns the fit it adopted.
+pub(super) fn capture_fit(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> AdoptedFit {
     let targets = rig.renderer.targets();
     let color =
         AttachmentView::new(ResourceRef::new("scene color"), targets.scene().texture()).unwrap();
@@ -466,15 +495,7 @@ pub fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8;
             scene,
         )
         .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));
-    assert!(fit.is_some(), "frame {frame} adopted its own fit");
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
+    fit.unwrap_or_else(|| panic!("frame {frame} adopted its own fit"))
 }
 
 #[test]

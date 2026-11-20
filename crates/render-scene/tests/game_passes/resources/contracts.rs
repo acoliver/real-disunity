@@ -276,13 +276,13 @@ fn a_texture_the_device_cannot_create_is_refused_by_name_rather_than_by_a_wgpu_p
                 texels: None,
             })
         }));
-        match attempt {
-            Ok(Err(GameResourceError::Declaration { label: named, .. })) => {
-                assert_eq!(named, label);
-            }
-            Ok(other) => panic!("{label}: expected a refused declaration, got {other:?}"),
-            Err(_) => panic!("{label}: declare_texture panicked instead of refusing by name"),
-        }
+        let declared = attempt
+            .unwrap_or_else(|_| panic!("{label}: declare_texture panicked instead of refusing"));
+        assert!(
+            matches!(&declared, Err(GameResourceError::Declaration { label: named, .. })
+                if named == label),
+            "{label}: expected a refused declaration, got {declared:?}"
+        );
     }
 }
 

@@ -39,6 +39,10 @@ pub struct TargetDeclaration {
     pub extent: TargetExtent,
     /// Array layers, at least one.
     pub layers: u32,
+    /// Mip levels, at least one: level `m` is `max(1, width >> m)` by `max(1, height >> m)`.
+    /// A pass attaches or reads one level of one layer ([`Self::level`]). Only a per-frame
+    /// target has more than one.
+    pub mip_levels: u32,
     pub lifetime: TargetLifetime,
     /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every declared target has.
     pub usage: wgpu::TextureUsages,
@@ -56,6 +60,7 @@ impl TargetDeclaration {
             format,
             extent,
             layers: 1,
+            mip_levels: 1,
             lifetime: TargetLifetime::PerFrame,
             usage: wgpu::TextureUsages::empty(),
         }
@@ -64,6 +69,12 @@ impl TargetDeclaration {
     #[must_use]
     pub const fn layers(mut self, layers: u32) -> Self {
         self.layers = layers;
+        self
+    }
+
+    #[must_use]
+    pub const fn mip_levels(mut self, mip_levels: u32) -> Self {
+        self.mip_levels = mip_levels;
         self
     }
 
@@ -85,6 +96,16 @@ impl TargetDeclaration {
             name: self.name,
             version: 0,
             mip: 0,
+            layer,
+        }
+    }
+
+    /// The resource a pass names to attach or read level `mip` of `layer` of this target.
+    pub const fn level(&self, layer: u32, mip: u32) -> ResourceRef {
+        ResourceRef {
+            name: self.name,
+            version: 0,
+            mip,
             layer,
         }
     }
@@ -119,6 +140,16 @@ impl TargetDeclaration {
         }
         if width == 0 || height == 0 || width.max(height) > limits.max_texture_dimension_2d {
             return refuse("extent is empty or beyond max_texture_dimension_2d");
+        }
+        let most = u32::BITS - width.max(height).leading_zeros();
+        if self.mip_levels == 0 || self.mip_levels > most {
+            return refuse(&format!(
+                "{} mip levels, a {width} x {height} target has 1 to {most}",
+                self.mip_levels
+            ));
+        }
+        if self.mip_levels > 1 && self.lifetime == TargetLifetime::Persistent {
+            return refuse("a persistent target has one mip level");
         }
         let features = self
             .format
@@ -163,7 +194,7 @@ impl Backing {
                     height: extent[1],
                     depth_or_array_layers: declaration.layers,
                 },
-                mip_level_count: 1,
+                mip_level_count: declaration.mip_levels,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: declaration.format,
@@ -284,7 +315,7 @@ impl TargetStore {
                 serial,
                 [extent[0], extent[1], declaration.layers],
                 declaration.format,
-                [1, 1],
+                [declaration.mip_levels, 1],
             );
         }
     }

@@ -48,7 +48,18 @@ fn a_declared_texture_takes_its_dimension_and_usage_from_the_declaration() {
     assert_eq!(plain.mip_level_count, 1);
     assert_eq!(
         plain.usage,
-        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST
+        wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
+    );
+    // Without texels, a colour or block-compressed texture is still writable by GPU work and
+    // readable back.
+    let empty = chain(Format::Bc5RgUnorm, [16, 16, 2], View::D2Array, 4, None);
+    assert_eq!(
+        empty.descriptor().unwrap().usage,
+        wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
     );
     let volume = declaration(Format::Rg8Unorm, [1, 1, 1], View::D3, Some(&[1, 2]));
     assert_eq!(

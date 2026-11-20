@@ -54,8 +54,8 @@ pub(crate) use plan::{place_after_prepass, reconcile_loads};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub use resources::{
-    GameBuffer, GameBufferDeclaration, GameBufferUsage, GameResourceError, GameResources,
-    GameSampler, GameTexture,
+    GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
+    GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,
 };
 pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
@@ -78,6 +78,23 @@ impl super::FrameRenderer {
                 .map(|metadata| metadata.passes.lend_occlusion()),
         );
         self.game.environment.publish(self.lend_environment());
+    }
+
+    /// Records the block transfers and readbacks the game's features asked of their resources
+    /// into `encoder`'s frame. Every route calls it after the passes it encodes, so the work
+    /// lands after the frame's (or the depth prefix's) passes and before its submission.
+    ///
+    /// # Errors
+    /// [`FrameError`](worldrunner_render_post::FrameError) when a transfer is refused or
+    /// `encoder` is not a frame being recorded.
+    pub(crate) fn record_game_work(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        for resources in &self.game.resources {
+            resources.record_work(encoder)?;
+        }
+        Ok(())
     }
 }
 

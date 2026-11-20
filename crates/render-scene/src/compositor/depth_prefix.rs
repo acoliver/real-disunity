@@ -265,7 +265,8 @@ impl FrameRenderer {
                 operations: &operations,
             },
             &mut features,
-        )
+        )?;
+        self.record_game_work(encoder)
     }
 
     /// Plans the game's passes after the depth prepass into the prefix, immediately after the

@@ -41,3 +41,5 @@ mod strip;
 mod terrain;
 #[path = "game_passes/terrain_lender.rs"]
 mod terrain_lender;
+#[path = "game_passes/transfer_readback.rs"]
+mod transfer_readback;

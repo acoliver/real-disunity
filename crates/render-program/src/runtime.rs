@@ -24,7 +24,9 @@ pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::batch::{
     GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
 };
-pub use crate::block_transfer::{BlockDestination, BlockImageTransfer, BlockSource};
+pub use crate::block_transfer::{
+    BlockDestination, BlockImageTransfer, BlockSource, LentBlockDestination,
+};
 pub use crate::budget::Holding;
 pub use crate::create::TextureShape;
 pub use crate::dispatch::DispatchRequest;
@@ -37,7 +39,9 @@ pub use crate::import::{
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, ExternalSet, GraphicsProgram};
-pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
+pub use crate::readback::{
+    MappingTargetRead, PendingBufferRead, PendingTargetRead, TargetImage, TextureLevel,
+};
 pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
 pub use crate::resources::{
     BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,

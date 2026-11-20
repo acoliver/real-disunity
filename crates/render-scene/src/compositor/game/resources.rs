@@ -113,6 +113,12 @@ pub enum GameResourceError {
         usage: GameBufferUsage,
         wanted: &'static str,
     },
+    /// A block transfer into the texture `label` that cannot be made.
+    #[error("block transfer into {label}: {reason}")]
+    Transfer { label: String, reason: String },
+    /// A readback of the texture or target `label` that cannot be made or delivered.
+    #[error("readback of {label}: {reason}")]
+    Readback { label: String, reason: String },
 }
 
 impl From<GameResourceError> for FrameError {
@@ -133,6 +139,7 @@ struct DeclaredBuffer {
 /// A declared texture; a shared one is held by every store that declared it.
 #[derive(Clone)]
 struct DeclaredTexture {
+    label: String,
     texture: Rc<Tracked<wgpu::Texture>>,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
@@ -148,6 +155,8 @@ struct Store {
     shared: HashMap<String, u32>,
     /// Bytes of the declared buffers and textures.
     bytes: u64,
+    /// The transfers and readbacks the game asked for and the frames that recorded them.
+    work: work::WorkQueue,
 }
 
 /// The textures declared shared in one renderer generation, by label, with what their first
@@ -363,6 +372,7 @@ impl GameResources {
             ..wgpu::TextureViewDescriptor::default()
         });
         Ok(DeclaredTexture {
+            label: declaration.label.to_owned(),
             texture: Rc::new(texture),
             view,
             dimension: declaration.dimension,
@@ -415,10 +425,7 @@ impl GameResources {
         texture: GameTexture,
     ) -> Result<Import, GameResourceError> {
         let store = self.store.borrow();
-        let declared = store
-            .textures
-            .get(self.slot(texture.store, texture.index, GameTexture::KIND)?)
-            .ok_or(GameResourceError::Foreign(GameTexture::KIND))?;
+        let declared = self.texture(&store, texture)?;
         Ok(Import::texture_view(
             semantic,
             wgpu::Texture::clone(&declared.texture),
@@ -537,6 +544,17 @@ impl GameResources {
             .ok_or(GameResourceError::Foreign(GameBuffer::KIND))
     }
 
+    fn texture<'a>(
+        &self,
+        store: &'a Store,
+        texture: GameTexture,
+    ) -> Result<&'a DeclaredTexture, GameResourceError> {
+        store
+            .textures
+            .get(self.slot(texture.store, texture.index, GameTexture::KIND)?)
+            .ok_or(GameResourceError::Foreign(GameTexture::KIND))
+    }
+
     fn buffer_as<'a>(
         &self,
         store: &'a Store,
@@ -559,6 +577,10 @@ impl GameResources {
         Ok(declared)
     }
 }
+
+#[path = "resource_work.rs"]
+mod work;
+pub use work::{GameBlockDestination, GameLevel, GameReadback};
 
 /// The index of the entry just pushed into a list of `len`.
 fn index(len: usize) -> u32 {

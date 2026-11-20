@@ -16,8 +16,9 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    BlockDestination, BlockImageTransfer, BlockSource, BoundResource, DispatchRequest, DrawRequest,
-    Geometry, ProgramRuntime, TargetImage, TextureHandle, TextureShape,
+    BlockDestination, BlockImageTransfer, BlockSource, BoundResource, ComputeProgram,
+    DispatchRequest, DrawRequest, Geometry, ProgramRuntime, TargetImage, TextureHandle,
+    TextureShape,
 };
 use worldrunner_render_program::state::RenderState;
 
@@ -129,7 +130,12 @@ fn declarations(kind: ResourceKind, visibility: ShaderStages) -> StageDeclaratio
     }
 }
 
-fn stage(source: &str, entry: &str, kind: StageKind, declared: StageDeclarations) -> StageProgram {
+pub fn stage(
+    source: &str,
+    entry: &str,
+    kind: StageKind,
+    declared: StageDeclarations,
+) -> StageProgram {
     let module = StageModule {
         source: StageSource::Wgsl(Arc::from(source)),
         entry_point: entry.to_owned(),
@@ -174,8 +180,40 @@ pub fn dispatch_writer(
     size: [u32; 2],
     blocks: &[Vec<u8>],
 ) -> Result<(), ProgramError> {
-    let format = source_format(blocks[0].len());
+    let program = writer_program(runtime, size, blocks)?;
+    runtime.dispatch(
+        encoder,
+        &writer_dispatch(
+            &program,
+            &[BoundResource::texture(0, 0, texture)],
+            size,
+            blocks,
+        ),
+    )
+}
+
+/// The dispatch of the kernel `writer_program` builds over `bindings`.
+pub fn writer_dispatch<'a>(
+    program: &'a ComputeProgram,
+    bindings: &'a [BoundResource],
+    size: [u32; 2],
+    blocks: &[Vec<u8>],
+) -> DispatchRequest<'a> {
     let layers = u32::try_from(blocks.len()).unwrap() / (size[0] * size[1]);
+    DispatchRequest {
+        program,
+        bindings,
+        groups: [size[0], size[1], layers],
+    }
+}
+
+/// The kernel that writes `blocks` into a source image of `size` texels.
+pub fn writer_program(
+    runtime: &ProgramRuntime,
+    size: [u32; 2],
+    blocks: &[Vec<u8>],
+) -> Result<ComputeProgram, ProgramError> {
+    let format = source_format(blocks[0].len());
     let image = ResourceKind::StorageImage {
         access: StorageTextureAccess::WriteOnly,
         format,
@@ -187,15 +225,7 @@ pub fn dispatch_writer(
         StageKind::Compute,
         declarations(image, ShaderStages::COMPUTE),
     );
-    let program = runtime.compute_program(&kernel)?;
-    runtime.dispatch(
-        encoder,
-        &DispatchRequest {
-            program: &program,
-            bindings: &[BoundResource::texture(0, 0, texture)],
-            groups: [size[0], size[1], layers],
-        },
-    )
+    runtime.compute_program(&kernel)
 }
 
 pub fn transfer(
@@ -249,10 +279,21 @@ pub fn read_blocks(
     blocks: [u32; 2],
 ) -> Readback {
     let texture = runtime.gpu_texture(texture).unwrap();
+    read_texture_blocks(runtime.device(), encoder, &texture, at, blocks)
+}
+
+/// As [`read_blocks`], for a texture the runtime does not hold.
+pub fn read_texture_blocks(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    at: (u32, u32),
+    blocks: [u32; 2],
+) -> Readback {
     let block_bytes = texture.format().block_copy_size(None).unwrap();
     let row = (blocks[0] * block_bytes) as usize;
     let padded_row = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
-    let buffer = runtime.device().create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("block readback"),
         size: (padded_row * blocks[1] as usize) as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
@@ -260,7 +301,7 @@ pub fn read_blocks(
     });
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
-            texture: &texture,
+            texture,
             mip_level: at.0,
             origin: wgpu::Origin3d {
                 x: 0,

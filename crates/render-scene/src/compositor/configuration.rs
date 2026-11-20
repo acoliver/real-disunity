@@ -179,8 +179,10 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
         self.validate_opaque(&context.device().limits())?;
-        self.game_passes
-            .validate(self.frame.size, &context.device().limits())?;
+        self.game_passes.validate(
+            self.frame.size,
+            (&context.device().limits(), context.device().features()),
+        )?;
         if self.contour_ids {
             crate::contours::validate_format(
                 context

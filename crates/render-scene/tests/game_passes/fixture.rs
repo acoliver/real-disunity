@@ -213,7 +213,18 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, false, configure)
+        Self::build(scene, size, (false, wgpu::Features::empty()), configure)
+    }
+
+    /// A rig on the shared test device with exactly `features`, for a game whose targets need
+    /// them, such as block-compressed ones.
+    pub fn with_features(
+        scene: &RenderScene,
+        size: [u32; 2],
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::build(scene, size, (false, features), configure)
     }
 
     /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
@@ -223,16 +234,16 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, true, configure)
+        Self::build(scene, size, (true, wgpu::Features::empty()), configure)
     }
 
     fn build(
         scene: &RenderScene,
         size: [u32; 2],
-        hdr: bool,
+        (hdr, features): (bool, wgpu::Features),
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+        let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
         let scene_format = if hdr {

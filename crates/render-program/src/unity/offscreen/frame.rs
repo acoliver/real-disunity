@@ -404,6 +404,36 @@ impl Default for OffscreenFrame {
     }
 }
 
+impl OffscreenFrame {
+    /// The most draws building `record` plans, which a host that builds a frame in parts uses to
+    /// keep a part within a budget of planned draws before it plans any.
+    ///
+    /// A camera render is bound by the material slots of the renderers its mask selects, a list
+    /// by its items and a procedural draw by its passes. A draw left out for want of a pass, a
+    /// texture or a mesh channel is planned by none, so the bound is at least what is planned.
+    #[must_use]
+    pub fn planned_draw_bound(&self, record: &Record) -> usize {
+        match record {
+            Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
+                self.renderers
+                    .values()
+                    .filter(|renderer| {
+                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
+                    })
+                    .map(|renderer| renderer.materials.len())
+                    .sum()
+            }),
+            Record::Draws(list) => list.draws.len(),
+            Record::Procedural(draw) => draw.passes.len(),
+            Record::Blit { .. } => 1,
+            Record::CopyTexture { .. }
+            | Record::GenerateMips { .. }
+            | Record::Clear { .. }
+            | Record::Globals(_) => 0,
+        }
+    }
+}
+
 /// The shape of an uploaded source texture.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SourceDimension {

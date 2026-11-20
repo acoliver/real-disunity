@@ -581,14 +581,10 @@ impl Services<'_> {
                 what: "a uniform buffer no parameter describes",
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
-        let packed = pack_layout(&target.buffer, &[], &spec.layers.values(), min_len)?;
+        let values = spec.layers.values();
+        let packed = pack_layout(&target.buffer, &[], &values, min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
-            facts.note_constants(
-                &target.buffer,
-                &packed,
-                slot.visibility,
-                &spec.layers.values(),
-            );
+            facts.note_constants(&target.buffer, &packed, slot.visibility, &values);
         }
         plan.unset.extend(packed.missing);
         let placed = self.constants.push(&packed.bytes)?;

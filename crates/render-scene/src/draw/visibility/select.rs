@@ -32,6 +32,9 @@ pub(in crate::draw) struct Placements<'a> {
     fade_eye: Vec3,
 }
 
+/// Slots in a leaf up to which a view tests them one by one instead of classifying the leaf.
+pub(super) const SMALL_LEAF: usize = 4;
+
 struct IndexedBatch<'a> {
     key: BatchKey,
     placements: &'a [Option<(SceneObject, bool)>],
@@ -147,10 +150,17 @@ impl Selection {
         stack.extend(tree.root().map(|root| (root, Passed::default())));
         while let Some((index, passed)) = stack.pop() {
             let node = tree.node(index);
-            let [min, max] = node.bounds();
-            let group = Bounds { min, max }.expanded(growth);
-            let Some(passed) = self.classify(frustum, light, group, passed) else {
-                continue;
+            let passed = match node {
+                // A few slots cost less to test one by one than their group costs to classify.
+                Node::Leaf { slots, .. } if slots.len() <= SMALL_LEAF => passed,
+                _ => {
+                    let [min, max] = node.bounds();
+                    let group = Bounds { min, max }.expanded(growth);
+                    let Some(passed) = self.classify(frustum, light, group, passed) else {
+                        continue;
+                    };
+                    passed
+                }
             };
             match node {
                 Node::Inner { children, .. } => {

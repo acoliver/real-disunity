@@ -478,7 +478,7 @@ fn a_prepared_dispatch_recorded_while_a_pass_holds_the_encoder_is_a_named_gpu_er
     );
     drop(open);
     let (mut encoder, open) = locked();
-    let refusal = PreparedCommands::record(&dispatch, &mut encoder).unwrap_err();
+    let refusal = PreparedCommands::record(&dispatch, &mut encoder, "dispatch").unwrap_err();
     assert!(
         matches!(
             refusal.downcast_ref::<ProgramError>(),

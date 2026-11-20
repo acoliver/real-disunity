@@ -639,22 +639,24 @@ policy, so switching levels needs no transform upload.
 
 Every recorded object pass rebuilds contiguous visible ranges in reusable storage,
 ordered by pipeline, mesh, material and stable placement slot. Hidden placements
-are excluded from every view. `SceneObject::with_shadow_only(true)` keeps a visible
-placement out of the camera view (every colour, depth-prefix, G-buffer, contour and
-compaction pass draws the camera selection) while the shadow cascades still select
-it when `casts_shadow` is true; a shadow-only placement that does not cast draws
-nothing. It is how a game that draws a family through its own passes keeps the
-family's stock shadow, and it serves shadow-only proxies. LOD, fade and the
-caster depth fit treat it like any other caster. Tests: the shadow-only cases in
-`src/draw/visibility/caster_tests.rs` and
-`gpu_shadow_only_caster_shadows_receivers_without_being_drawn` in
-`src/shadows/tests/sampling.rs`. Removed slots are excluded from selection and
+are excluded from every view. Removed slots are excluded from selection and
 statistics, but traversal still scans all allocated slots, including holes.
 Moving a retained placement changes the next pass's bounds and LOD, without
 changing its handle.
 Bounds enclose all levels, transform scale and rotation, with an orientation-free
 sphere for chains containing camera-facing billboards. Camera planes use `0..=1`
 clip depth. Terrain keeps its independent draw and LOD policy.
+
+`SceneObject::with_shadow_only(true)` keeps a visible placement out of the camera
+view (every colour, depth-prefix, G-buffer, contour and compaction pass draws the
+camera selection) while the shadow cascades still select it when `casts_shadow`
+is true; a shadow-only placement that does not cast draws nothing. It is how a
+game that draws a family through its own passes keeps the family's stock shadow,
+and it serves shadow-only proxies. LOD, fade and the caster depth fit treat it
+like any other caster. Tests: the shadow-only cases in
+`src/draw/visibility/caster_tests.rs` and
+`gpu_shadow_only_caster_shadows_receivers_without_being_drawn` in
+`src/shadows/tests/sampling.rs`.
 
 Directional shadow selection uses light-space coverage independently of camera
 visibility and shares the main camera's LOD distance and billboard orientation.

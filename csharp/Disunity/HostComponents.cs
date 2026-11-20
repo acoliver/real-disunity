@@ -6,6 +6,15 @@ namespace Disunity.Hosting;
 public static partial class DisunityHost
 {
     private static readonly ComponentTable<Component> NativeComponents = new();
+
+    /// <summary>The live native components that are a <typeparamref name="TKind"/>, in the order they were built, found without
+    /// visiting the world's other objects. Scripts are not native components, so a script class is not a kind.</summary>
+    internal static IEnumerable<TKind> NativeComponentsOf<TKind>() where TKind : Component =>
+        NativeComponents.OfKind<TKind>().Where(value => !value.gameObject.IsDestroyed && value.Life < ComponentLife.Hidden);
+
+    /// <summary>A number that changes whenever a <typeparamref name="TKind"/> joins or leaves the native components.</summary>
+    internal static int NativeComponentVersion<TKind>() where TKind : Component => NativeComponents.VersionOfKind<TKind>();
+
     internal static Collider2D ResolveCollider(ulong handle) => (Collider2D)NativeComponents[handle];
     internal static unsafe T AttachComponent<T>(GameObject owner, T value) where T : Component
     {

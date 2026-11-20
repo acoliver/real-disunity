@@ -48,7 +48,6 @@ internal sealed unsafe class ShadowCasterSet
     private const int MatrixFloats = 16;
 
     private readonly ScriptableCullingParameters _parameters;
-    private DisunityShadowCaster[]? _casters;
 
     public ShadowCasterSet(in ScriptableCullingParameters parameters) => _parameters = parameters;
 
@@ -81,7 +80,7 @@ internal sealed unsafe class ShadowCasterSet
     /// <summary>Asks the native shadow module. A query it refuses throws <see cref="ArgumentException"/> with its reason.</summary>
     internal Answer Ask(in VisibleLight light, DisunityShadowRequest request)
     {
-        var casters = Casters();
+        var casters = ShadowCasterCache.Get();
         request.caster_count = (uint)casters.Length;
         var matrices = new float[2 * MatrixFloats];
         for (var element = 0; element < MatrixFloats; element++)
@@ -98,27 +97,5 @@ internal sealed unsafe class ShadowCasterSet
         try { DisunityHost.ThrowIfError(status); }
         catch (DisunityException error) when (error.Reason == DisunityErrorReason.InvalidArgument) { throw new ArgumentException(error.Message); }
         return new Answer(result.found == 1, result, output);
-    }
-
-    /// <summary>The renderers that can cast, each as its world box, shadow casting mode and layer.</summary>
-    private DisunityShadowCaster[] Casters() => _casters ??= Gather();
-
-    private static DisunityShadowCaster[] Gather()
-    {
-        var found = new List<DisunityShadowCaster>();
-        foreach (var renderer in ObjectRegistry.SceneObjects(typeof(Renderer)).OfType<Renderer>())
-        {
-            if (!renderer || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-            var bounds = renderer.bounds;
-            if (bounds.size == Vector3.zero) continue;
-            found.Add(new DisunityShadowCaster
-            {
-                min_x = bounds.min.x, min_y = bounds.min.y, min_z = bounds.min.z,
-                max_x = bounds.max.x, max_y = bounds.max.y, max_z = bounds.max.z,
-                casting_mode = (uint)renderer.shadowCastingMode,
-                layer = (uint)renderer.gameObject.layer,
-            });
-        }
-        return found.ToArray();
     }
 }

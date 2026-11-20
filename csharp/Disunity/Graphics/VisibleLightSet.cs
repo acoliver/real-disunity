@@ -1,3 +1,4 @@
+using Disunity.Hosting;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
@@ -55,7 +56,7 @@ internal sealed class VisibleLightSet
         var planes = GeometryUtility.CalculateFrustumPlanes(parameters.cullingMatrix);
         var directional = new List<(Light Light, VisibleLight Data)>();
         var others = new List<(Light Light, VisibleLight Data)>();
-        foreach (var light in ObjectRegistry.SceneObjects(typeof(Light)).OfType<Light>())
+        foreach (var light in DisunityHost.NativeComponentsOf<Light>())
         {
             if (!light || !light.isActiveAndEnabled) continue;
             var type = light.type;

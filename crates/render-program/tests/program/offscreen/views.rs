@@ -95,3 +95,39 @@ fn a_draw_after_a_write_of_the_texture_it_samples_reads_the_written_contents() {
     assert_eq!(pixel(&images[1], 8, (1, 4)), RED);
     assert_eq!(pixel(&images[1], 8, (6, 4)), BLUE);
 }
+
+/// The planned draws of every record of `frame`, one build each, against the bound the frame
+/// gives before any of them is built.
+fn bounds_and_planned(rig: &mut Rig, frame: &OffscreenFrame) -> Vec<(usize, usize)> {
+    frame
+        .records
+        .iter()
+        .map(|record| {
+            let mut alone = frame.clone();
+            alone.records = vec![record.clone()];
+            (
+                frame.planned_draw_bound(record),
+                rig.build(&alone).unwrap().planned_draws(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_bound_on_the_draws_of_a_record_holds_for_cameras_and_lists() {
+    use super::camera::fixture;
+    use super::lists::{item, list, whole};
+
+    let mut rig = Rig::new();
+    let mut frame = fixture(&mut rig, (1 << 1) | (1 << 2));
+    frame.records.push(list(
+        whole(TARGET),
+        vec![item(1, None), item(2, None), item(1, None)],
+    ));
+    // The camera draws both renderers, and the list its three items.
+    assert_eq!(bounds_and_planned(&mut rig, &frame), [(2, 2), (3, 3)]);
+    // A camera whose mask names one renderer's layer is bound by that renderer alone.
+    frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = 1 << 1;
+    let measured = bounds_and_planned(&mut rig, &frame);
+    assert_eq!(measured[0], (1, 1));
+}

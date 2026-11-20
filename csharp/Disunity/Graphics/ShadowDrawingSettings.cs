@@ -12,7 +12,7 @@ public enum ShadowObjectsFilter
 /// How a shadow caster draw is set up: the culling results and the visible light it draws for, the split's culling volume,
 /// which objects it includes, whether it tests rendering layers and the projection. A new value names the given culling
 /// results and light, has an empty split, includes all objects, does not test rendering layers and uses a perspective
-/// projection unless one is given. Plain data; the engine does not draw shadow casters yet.
+/// projection unless one is given. Plain data; <see cref="ScriptableRenderContext.CreateShadowRendererList"/> makes the list of casters it selects.
 /// </summary>
 public struct ShadowDrawingSettings : IEquatable<ShadowDrawingSettings>
 {

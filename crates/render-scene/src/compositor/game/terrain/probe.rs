@@ -22,11 +22,14 @@ thread_local! {
     static PUBLISHED: RefCell<Vec<Published>> = const { RefCell::new(Vec::new()) };
 }
 
-pub(super) fn record_publication(frame: &super::FrameTerrain) {
+/// Records `lent` as the publication of the frame in scope. The handle calls it only while it
+/// publishes, which it does only inside a frame.
+pub(super) fn record_publication(lent: &Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>) {
+    let owner = Publications::current().expect("the terrain is published only inside a frame");
     PUBLISHED.with(|log| {
         log.borrow_mut().push(Published {
-            owner: frame.owner.clone(),
-            lent: frame.lent.clone(),
+            owner,
+            lent: lent.clone(),
         });
     });
 }

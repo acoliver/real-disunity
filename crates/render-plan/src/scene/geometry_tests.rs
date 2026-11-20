@@ -111,3 +111,23 @@ fn transforms_require_normalized_rotation_and_positive_scale() {
         Err(SceneValidationError::RangeViolation { observed: 0, .. })
     ));
 }
+
+#[test]
+fn shadow_only_defaults_off_and_is_independent_of_casting() {
+    let object = SceneObject::new(
+        SceneTransform {
+            position_millimeters: [0; 3],
+            rotation: SceneRotation::IDENTITY,
+            scale_millionths: 1_000_000,
+        },
+        MeshHandle::from_raw(0),
+        MaterialHandle::from_raw(0),
+    );
+    assert!(!object.shadow_only());
+    let only = object.with_shadow_only(true);
+    assert!(only.shadow_only() && only.casts_shadow());
+    assert_ne!(only, object);
+    let silent = only.with_casts_shadow(false);
+    assert!(silent.shadow_only() && !silent.casts_shadow());
+    assert_eq!(only.with_shadow_only(false), object);
+}

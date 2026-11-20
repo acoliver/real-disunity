@@ -29,6 +29,7 @@ fn desktop_supplier_receives_physical_extent_instead_of_logical_window_size() {
         adapter: &identity(),
         surface_extent: [physical.width, physical.height],
         display: None,
+        presentable_backends: None,
     })
     .unwrap();
     assert_eq!(host.size(), [1280, 960]);
@@ -52,6 +53,7 @@ fn minimized_initial_extent_is_preserved_and_rendering_remains_suspended() {
             adapter: &identity(),
             surface_extent,
             display: None,
+            presentable_backends: None,
         })
         .unwrap();
         assert_eq!(host.size(), surface_extent);
@@ -96,6 +98,7 @@ fn supplier_sees_the_monitor_before_the_first_frame() {
         adapter: &identity(),
         surface_extent: display.physical_size,
         display: Some(display),
+        presentable_backends: None,
     })
     .unwrap();
     assert_eq!(*seen.lock().unwrap(), Some(Some(display)));

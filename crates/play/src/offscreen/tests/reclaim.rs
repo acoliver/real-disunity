@@ -20,11 +20,11 @@ use worldrunner_world_simulation::graphics::{
     TextureRef,
 };
 
-use super::super::adapter::OffscreenAdapter;
+use super::super::adapter::{OffscreenAdapter, Settling};
 use super::super::assets::{AssetError, Assets};
 use super::super::compute::ComputeAdapter;
 use super::super::flush::OffscreenHost;
-use super::super::frame::{Reclaimed, Report, Settings};
+use super::super::frame::{Adapted, Reclaimed, Report, Settings};
 use super::super::ids;
 use super::super::kernels::PlayerKernels;
 use super::gpu::{Gpu, MESH, Quad, Synthetic, gpu_with_budget, shader};
@@ -138,6 +138,41 @@ impl Room {
             .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime)
             .report
     }
+
+    /// As `adapt`, for a frame the viewer submits: room is made from what the GPU has finished
+    /// with, and nothing waits for the GPU.
+    fn adapt_for_viewer(&mut self, snapshot: &GraphicsSnapshot) -> Adapted {
+        self.adapter.adapt_settling(
+            snapshot,
+            &self.textures,
+            &mut self.state,
+            &mut self.runtime,
+            Settling::Poll,
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    /// Builds a viewer frame and submits it as the viewer does, without waiting for the GPU.
+    fn submit_for_viewer(&mut self, snapshot: &GraphicsSnapshot) {
+        let adapted = self.adapt_for_viewer(snapshot);
+        let operations = self
+            .state
+            .build(&mut self.runtime, &self.device.2, &adapted.frame)
+            .unwrap();
+        let mut frame = self.device.1.begin(&self.device.0).unwrap();
+        let admitted = operations.admit(&frame).unwrap();
+        admitted.encode(None, &mut frame).unwrap();
+        frame.finish().submit().unwrap();
+    }
+
+    /// Waits until the GPU has finished every submission, as the viewer's later frames find it.
+    fn finish_gpu(&mut self) {
+        let _ = self
+            .runtime
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely());
+        self.runtime.collect();
+    }
 }
 
 /// A snapshot of a world whose blit material names the stored textures `named` and whose render
@@ -170,6 +205,22 @@ fn naming_in(world: &mut World, named: &[u64], side: u32) {
             pass: 0,
         })
         .unwrap();
+}
+
+/// A snapshot of a world that blits the stored texture `identity` into a render target of `side`
+/// texels across, which is not the texture it reads.
+fn blitting_from(identity: u64, side: u32) -> GraphicsSnapshot {
+    let mut world = world();
+    let target = render_texture(&mut world, [side, side]);
+    world
+        .record_offscreen(OffscreenWork::Blit {
+            source: TextureRef::Asset(identity),
+            target: TargetRef::Render(target),
+            material: None,
+            pass: 0,
+        })
+        .unwrap();
+    snapshot(&mut world)
 }
 
 /// What the runtime holds with nothing named: the default textures and buffers.
@@ -218,6 +269,68 @@ fn a_texture_no_later_snapshot_names_is_given_back_when_the_next_upload_needs_th
 }
 
 #[test]
+fn a_viewer_frame_gives_back_a_texture_once_the_work_that_used_it_has_completed() {
+    let base = base_bytes();
+    // Room for one stored texture, the first frame's render target and constants, and nothing
+    // like a second texture.
+    let mut room = Room::new(base + TEXTURE_BYTES + 8192);
+    room.submit_for_viewer(&blitting_from(A, 4));
+    room.finish_gpu();
+    let held = room.runtime.live_bytes();
+
+    let next = room.adapt_for_viewer(&naming(&[B], 4)).report;
+    assert_eq!(over_budget(&next), 0, "{:?}", next.causes);
+    assert_eq!(
+        (next.reclaimed.textures, next.reclaimed.bytes),
+        (1, TEXTURE_BYTES)
+    );
+    room.runtime.collect();
+    assert_eq!(room.runtime.live_bytes(), held);
+}
+
+#[test]
+fn an_upload_runs_again_when_collecting_older_released_storage_frees_the_room() {
+    let base = base_bytes();
+    let mut room = Room::new(base + TEXTURE_BYTES + 8192);
+    room.submit_for_viewer(&blitting_from(A, 4));
+    // An earlier frame gave A back, and the work that used it has not been collected yet. B finds
+    // the budget full, and the room is there once the waiting reclaim has collected A, though
+    // nothing is left for it to give back.
+    let released = room
+        .state
+        .release_source_texture(&mut room.runtime, ids::stored_texture(A).unwrap());
+    assert_eq!(released, Some(TEXTURE_BYTES));
+
+    let next = room.adapt(&naming(&[B], 4));
+    assert_eq!(over_budget(&next), 0, "{:?}", next.causes);
+    assert_eq!(next.causes.get("texture:NotStored"), None);
+    assert_eq!(
+        room.textures.uploads.borrow().last(),
+        Some(&B),
+        "B was read and stored"
+    );
+}
+
+#[test]
+fn an_upload_that_no_reclaiming_makes_room_for_is_refused_once() {
+    let base = base_bytes();
+    let mut room = Room::new(base + TEXTURE_BYTES + 8192);
+    room.submit_for_viewer(&blitting_from(A, 4));
+    room.finish_gpu();
+
+    // A and B are both named, so nothing may be given back and the budget stays full.
+    let next = room.adapt_for_viewer(&naming(&[A, B], 4)).report;
+    assert_eq!(over_budget(&next), 1, "{:?}", next.causes);
+    assert_eq!(next.reclaimed.bytes, 0);
+}
+
+#[test]
+fn only_waiting_blocks_on_the_gpu_when_storage_is_given_back() {
+    assert!(Settling::Wait.poll_type().is_wait());
+    assert!(!Settling::Poll.poll_type().is_wait());
+}
+
+#[test]
 fn textures_a_snapshot_names_are_never_given_back_for_each_other() {
     let base = base_bytes();
     let mut room = Room::new(base + TEXTURE_BYTES + 1024);
@@ -260,6 +373,23 @@ fn the_least_recently_named_texture_goes_first() {
 
 #[test]
 fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
+    render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
+        host.frame(snapshot, &Textures::default()).unwrap().1
+    });
+}
+
+#[test]
+fn the_render_textures_of_a_viewer_frame_take_the_room_of_what_no_snapshot_names() {
+    render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
+        host.frame_with(snapshot, &Textures::default(), Settling::Poll)
+            .unwrap()
+            .1
+    });
+}
+
+fn render_textures_take_the_room_of_what_no_snapshot_names(
+    mut frame: impl FnMut(&mut OffscreenHost, &GraphicsSnapshot) -> Report,
+) {
     let base = base_bytes();
     // The first frame holds the stored texture, a 4 x 4 target of 64 bytes, the 32 bytes of the
     // default vertex values the first build makes and the 4096 bytes of the constants buffer,
@@ -284,7 +414,7 @@ fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
         ComputeAdapter::new(PlayerKernels::new(directory.path())),
     );
 
-    let (_, first) = host.frame(&naming(&[A], 4), &Textures::default()).unwrap();
+    let first = frame(&mut host, &naming(&[A], 4));
     host.settle();
     assert_eq!(over_budget(&first), 0, "{:?}", first.causes);
     assert_eq!(
@@ -292,7 +422,7 @@ fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
         base + TEXTURE_BYTES + small_target + constants
     );
 
-    let (_, second) = host.frame(&naming(&[], 64), &Textures::default()).unwrap();
+    let second = frame(&mut host, &naming(&[], 64));
     host.settle();
     assert_eq!(over_budget(&second), 0, "{:?}", second.causes);
     assert_eq!(
@@ -588,3 +718,6 @@ fn mixed_pressure_evicts_old_source_and_target_but_preserves_a_global_target() {
         held + new_target_bytes - 8 * 8 * 4
     );
 }
+
+#[path = "reclaim/pending_completion.rs"]
+mod pending_completion;

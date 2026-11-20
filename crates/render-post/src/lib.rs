@@ -260,7 +260,7 @@ pub use chain::{
     BufferSpec, Operation, PostChain, Resources, Stage, StageFactory, StageSet, StageTarget,
     TimingState,
 };
-pub use copy::CopyOutput;
+pub use copy::{CopyOutput, CopySource};
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
 pub use targets::{
     FrameConfig, FrameTargets, SceneDepth, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT,

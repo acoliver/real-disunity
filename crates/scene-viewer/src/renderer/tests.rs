@@ -200,6 +200,7 @@ mod capture;
 mod live;
 mod recovery;
 mod sdsm;
+mod shared;
 mod streaming;
 mod teardown;
 use super::*;
@@ -319,6 +320,8 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     drop((device, queue, adapter, instance));
     retained_settings_present(&event_loop, &window);
     crate::retained::session::pointer_tests::native_window_pointer_delivery(window.clone());
+    shared::presents_through_a_shared_device(&event_loop, &window);
+    shared::refuses_a_scene_the_shared_device_cannot_draw(&event_loop, &window);
     streaming::streaming_present(&event_loop, &window);
     capture::retained_capture_present(&event_loop, &window);
     capture::retained_page_capture_present(&event_loop, &window);

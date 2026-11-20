@@ -11,7 +11,7 @@ use super::super::assets::{Assets, MeshError, mesh_of};
 use super::super::bounds::Bounds;
 use super::super::frame::Report;
 use super::super::ids;
-use super::{OffscreenAdapter, Stored};
+use super::{OffscreenAdapter, Settling, Stored};
 
 /// What uploading a mesh the engine stored came to.
 enum MeshUpload {
@@ -36,6 +36,7 @@ impl OffscreenAdapter {
         assets: &dyn Assets,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
         notes: &mut Report,
+        settling: Settling,
     ) {
         for identity in identities {
             let known = self.meshes.get(&identity).map_or(0, |held| held.generation);
@@ -47,7 +48,7 @@ impl OffscreenAdapter {
                     continue;
                 }
             };
-            let upload = self.upload_mesh(identity, &stored, (state, runtime), notes);
+            let upload = self.upload_mesh(identity, &stored, (state, runtime), notes, settling);
             self.note_mesh(identity, stored.generation, upload, (state, runtime));
         }
     }
@@ -59,6 +60,7 @@ impl OffscreenAdapter {
         stored: &MeshChannels,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
         notes: &mut Report,
+        settling: Settling,
     ) -> MeshUpload {
         let mesh = match mesh_of(stored) {
             Ok(mesh) => mesh,
@@ -76,7 +78,7 @@ impl OffscreenAdapter {
                 return MeshUpload::Malformed;
             }
         };
-        let uploaded = self.with_room(state, runtime, notes, |state, runtime| {
+        let uploaded = self.with_room(state, runtime, notes, settling, |state, runtime| {
             state.set_mesh(runtime, ids::mesh(identity), &mesh)
         });
         match uploaded {

@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::runtime::BufferHandle;
 use worldrunner_render_program::unity::offscreen::CameraProbe;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
@@ -16,23 +17,26 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId, ShaderId as WorldShaderId,
-    TargetRef, TextureRef, WorldRenderTexture, dimension,
+    ComputeBufferId, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TargetRef, TextureRef, WorldRenderTexture, dimension,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
+    draw_layer,
 };
-use super::defaults::{DefaultTexture, ShaderFill};
+use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
 use super::ids;
 use super::mips::AutoMips;
 use super::properties::{
-    Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
+    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
+    split_below_globals,
 };
 use super::script::Script;
+use super::stand_ins::StandInReason;
 use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
 
 pub use super::probe::{TEST_CLEAR, TEST_VARIANTS};
@@ -71,12 +75,17 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+    /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
+    /// names it, or `None` for a host with no screen, where such a record is left out.
+    pub screen: Option<[u32; 2]>,
     /// How depth runs in the camera renders: the clip space of every camera's view-projection,
     /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
     /// Forward unless the caller says otherwise.
     pub depth: DepthRange,
     /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
     pub supplied: Vec<SuppliedGlobal>,
+    /// How the stand-in textures the host supplies look: their declared colours, or magenta.
+    pub stand_in_look: StandInLook,
 }
 
 impl Settings {
@@ -96,6 +105,13 @@ impl Settings {
     #[must_use]
     pub fn with_depth(mut self, depth: DepthRange) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// These settings with the stand-in textures looking as `look` says.
+    #[must_use]
+    pub fn with_stand_in_look(mut self, look: StandInLook) -> Self {
+        self.stand_in_look = look;
         self
     }
 
@@ -140,6 +156,9 @@ pub struct Available {
     pub shaders: BTreeMap<WorldShaderId, ShaderInfo>,
     pub meshes: BTreeSet<u64>,
     pub textures: BTreeSet<u64>,
+    /// The stored textures the host holds no usable texture of because it could not upload them,
+    /// by why. A texture the engine stored nothing of is in neither set.
+    pub refused_textures: BTreeMap<u64, StandInReason>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
     /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
@@ -150,6 +169,9 @@ pub struct Available {
     pub sub_meshes: BTreeMap<u64, Vec<u32>>,
     /// The meshes the host read and found to have nothing to draw. They are not in `meshes`.
     pub empty_meshes: BTreeSet<u64>,
+    /// The compute buffers the host uploaded for the materials that bind them, by the id a
+    /// material names. A buffer that is not here is left unbound.
+    pub buffers: BTreeMap<ComputeBufferId, BufferHandle>,
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
@@ -349,7 +371,8 @@ impl<'a> Mapper<'a> {
         available: &'a Available,
         settings: &'a Settings,
     ) -> Self {
-        let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
+        let mut textures = Textures::new(&snapshot.render_textures, &available.textures)
+            .with_refused(&available.refused_textures);
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
             // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot
@@ -378,7 +401,14 @@ impl<'a> Mapper<'a> {
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
         add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
-        let script = Script::new(frame.globals.clone(), &frame.global_keywords);
+        // Nothing the world or the script sets is replaced: the ambient names take the engine's
+        // default only where no layer holds them.
+        add_ambient(&mut frame.globals);
+        let script = Script::new(
+            frame.globals.clone(),
+            &frame.global_keywords,
+            settings.screen,
+        );
         Self {
             snapshot,
             available,
@@ -713,12 +743,13 @@ impl<'a> Mapper<'a> {
                     texture: DefaultTexture::Grey.id(),
                     declared: &info.fill.declared_textures,
                 });
-            let properties = layer_with_defaults(
+            let mut properties = layer_with_defaults(
                 &material.properties,
                 &mut self.textures,
                 &defaults,
                 undeclared,
             );
+            bind_buffers(&mut properties, &material.buffers, &self.available.buffers);
             let declared = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             let (fallback, below_globals) =
                 split_below_globals(declared, &host_filled(&self.settings.supplied));
@@ -823,9 +854,9 @@ impl<'a> Mapper<'a> {
             .records
             .iter()
             .flat_map(textures_of)
-            .filter(|id| ids::is_temporary(*id))
+            .filter(|id| ids::is_temporary(*id) || ids::is_screen(*id))
             .collect();
-        for spec in self.temporary_specs(&temporaries) {
+        for spec in self.held_specs(&temporaries) {
             self.note_format(spec.graphics_format);
             self.frame.render_textures.push(spec);
         }

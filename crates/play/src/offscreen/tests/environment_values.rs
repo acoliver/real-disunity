@@ -74,8 +74,9 @@ fn fill(layer: &mut PropertyLayer, environment: &Environment) {
 
 /// The irradiance over pi that the radiance coefficients `l` (the nine of one channel) give a
 /// surface that faces `n`, by the real spherical harmonics and the cosine lobe of each band.
-fn irradiance(l: &[f32], n: [f32; 3]) -> f32 {
-    let [x, y, z] = n;
+fn irradiance(coefficients: &[f32], direction: [f32; 3]) -> f32 {
+    let l = coefficients;
+    let [x, y, z] = direction;
     let pi = std::f32::consts::PI;
     let band_zero = 0.5 / pi.sqrt();
     let band_one = (3.0 / (4.0 * pi)).sqrt();
@@ -90,19 +91,27 @@ fn irradiance(l: &[f32], n: [f32; 3]) -> f32 {
                 + difference * l[8] * (x * x - y * y))
 }
 
-/// What the three terms of the shader add up to for a channel with the vectors `a` (`unity_SHA*`),
-/// `b` (`unity_SHB*`) and the `c` component of `unity_SHC`, for a surface that faces `n`.
-fn shaded(a: [f32; 4], b: [f32; 4], c: f32, n: [f32; 3]) -> f32 {
-    let [x, y, z] = n;
-    a[0] * x
-        + a[1] * y
-        + a[2] * z
-        + a[3]
-        + b[0] * x * y
-        + b[1] * y * z
-        + b[2] * z * z
-        + b[3] * z * x
-        + c * (x * x - y * y)
+/// What the three terms of the shader add up to for a channel with the vectors `linear`
+/// (`unity_SHA*`), `quadratic` (`unity_SHB*`) and the `difference` component of `unity_SHC`, for a
+/// surface that faces `direction`.
+fn shaded(linear: [f32; 4], quadratic: [f32; 4], difference: f32, direction: [f32; 3]) -> f32 {
+    let [x, y, z] = direction;
+    linear[0] * x
+        + linear[1] * y
+        + linear[2] * z
+        + linear[3]
+        + quadratic[0] * x * y
+        + quadratic[1] * y * z
+        + quadratic[2] * z * z
+        + quadratic[3] * z * x
+        + difference * (x * x - y * y)
+}
+
+/// The vector of `name` is `expected` to within the tolerance of `assert_near`.
+fn assert_vector(layer: &PropertyLayer, name: &str, expected: [f32; 4]) {
+    for (index, (found, wanted)) in vector(layer, name).into_iter().zip(expected).enumerate() {
+        assert_near(found, wanted, &format!("{name}[{index}]"));
+    }
 }
 
 fn assert_near(found: f32, expected: f32, what: &str) {
@@ -170,10 +179,10 @@ fn the_fourth_component_of_the_constant_term_is_the_uniform_radiance_of_a_flat_p
     let layer = layer_of(&environment(skybox_probe(probe, 1.0)));
     let red = vector(&layer, SH_AR);
     assert_near(red[3], 0.5, "constant term");
-    assert_eq!(red[..3], [0.0; 3]);
-    assert_eq!(vector(&layer, SH_BR), [0.0; 4]);
-    assert_eq!(vector(&layer, SH_C), [0.0; 4]);
-    assert_eq!(vector(&layer, SH_AG)[3], 0.0);
+    assert_vector(&layer, SH_AR, [0.0, 0.0, 0.0, 0.5]);
+    assert_vector(&layer, SH_BR, [0.0; 4]);
+    assert_vector(&layer, SH_C, [0.0; 4]);
+    assert_vector(&layer, SH_AG, [0.0; 4]);
 }
 
 #[test]
@@ -244,14 +253,18 @@ fn a_name_the_layer_already_holds_keeps_its_value() {
         .values
         .set(SPEC_CUBE0_HDR, PropertyValue::Vector([5.0; 4]));
     fill(&mut layer, &environment(skybox_probe(probe(), 1.0)));
-    assert_eq!(vector(&layer, SH_AR), [9.0, 8.0, 7.0, 6.0]);
-    assert_ne!(vector(&layer, SH_AG), [0.0; 4]);
+    assert_vector(&layer, SH_AR, [9.0, 8.0, 7.0, 6.0]);
+    assert!(
+        vector(&layer, SH_AG)
+            .iter()
+            .any(|value| value.abs() > 1.0e-3)
+    );
     let reflecting = Environment {
         ambient: None,
         reflection: Some(Reflection::default()),
     };
     fill(&mut layer, &reflecting);
-    assert_eq!(vector(&layer, SPEC_CUBE0_HDR), [5.0; 4]);
+    assert_vector(&layer, SPEC_CUBE0_HDR, [5.0; 4]);
 }
 
 #[test]
@@ -265,11 +278,7 @@ fn the_decode_of_the_reflection_cube_scales_by_the_reflection_intensity() {
             }),
         };
         let layer = layer_of(&reflecting);
-        assert_eq!(
-            vector(&layer, SPEC_CUBE0_HDR),
-            [intensity, 1.0, 0.0, 0.0],
-            "{intensity}"
-        );
+        assert_vector(&layer, SPEC_CUBE0_HDR, [intensity, 1.0, 0.0, 0.0]);
     }
 }
 

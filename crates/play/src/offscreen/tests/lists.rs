@@ -27,10 +27,10 @@ const CASTER: &str = "ShadowCaster";
 const UNLIT: &str = "Unlit";
 const DEFAULT_UNLIT: &str = "SRPDefaultUnlit";
 /// The meshes the renderers draw, one for each so a test can tell them apart in the frame.
-const MESH: u64 = 100;
+pub(super) const MESH: u64 = 100;
 
 /// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material.
-fn placed(
+pub(super) fn placed(
     world: &mut World,
     (number, layer, position): (u64, u8, Vec3),
     materials: &[MaterialId],
@@ -68,7 +68,7 @@ fn placed(
 ///
 /// The world copies the renderers of the layers that camera renders name, and only those, so the
 /// scene also has a camera render of every layer into a texture of its own.
-fn scene(world: &mut World, view: Mat4, mask: u32) {
+pub(super) fn scene(world: &mut World, view: Mat4, mask: u32) {
     let target = render_texture(world, [8, 8]);
     let object = super::support::object(world, 0, Vec3::ZERO, Quat::IDENTITY);
     let camera = world
@@ -113,7 +113,7 @@ fn cull(world: &mut World, id: u64, mask: u32, planes: Vec<[f32; 4]>) {
         .unwrap();
 }
 
-fn drawing(tags: &[&str]) -> RendererListDesc {
+pub(super) fn drawing(tags: &[&str]) -> RendererListDesc {
     RendererListDesc::Draw {
         cull: 5,
         pass_tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
@@ -128,7 +128,7 @@ fn drawing(tags: &[&str]) -> RendererListDesc {
     }
 }
 
-fn draw(world: &mut World, desc: RendererListDesc) {
+pub(super) fn draw(world: &mut World, desc: RendererListDesc) {
     let list = world.create_renderer_list(desc).unwrap();
     world
         .record_offscreen(OffscreenWork::DrawRendererList { list })
@@ -148,7 +148,7 @@ fn with_modes(snapshot: &worldrunner_world_simulation::graphics::GraphicsSnapsho
     available
 }
 
-fn run(world: &mut World, edit: impl FnOnce(&mut Available)) -> Adapted {
+pub(super) fn run(world: &mut World, edit: impl FnOnce(&mut Available)) -> Adapted {
     run_with(world, &Settings::default(), edit)
 }
 
@@ -160,7 +160,7 @@ fn run_with(world: &mut World, settings: &Settings, edit: impl FnOnce(&mut Avail
 }
 
 /// The lists the frame draws.
-fn lists(adapted: &Adapted) -> Vec<&DrawList> {
+pub(super) fn lists(adapted: &Adapted) -> Vec<&DrawList> {
     adapted
         .frame
         .records
@@ -173,7 +173,7 @@ fn lists(adapted: &Adapted) -> Vec<&DrawList> {
 }
 
 /// The numbers of the meshes of a list's draws, in order, and their slots.
-fn meshes(adapted: &Adapted, list: &DrawList) -> Vec<(u64, usize)> {
+pub(super) fn meshes(adapted: &Adapted, list: &DrawList) -> Vec<(u64, usize)> {
     list.draws
         .iter()
         .map(|draw: &ListDraw| {
@@ -183,7 +183,7 @@ fn meshes(adapted: &Adapted, list: &DrawList) -> Vec<(u64, usize)> {
         .collect()
 }
 
-fn counts(pairs: &[(&str, usize)]) -> BTreeMap<String, usize> {
+pub(super) fn counts(pairs: &[(&str, usize)]) -> BTreeMap<String, usize> {
     pairs
         .iter()
         .map(|(name, count)| ((*name).to_owned(), *count))
@@ -191,7 +191,7 @@ fn counts(pairs: &[(&str, usize)]) -> BTreeMap<String, usize> {
 }
 
 /// Three shaders: 0 draws forward and casts, 1 is unlit, 2 draws forward only.
-fn shaders(world: &mut World) -> [MaterialId; 3] {
+pub(super) fn shaders(world: &mut World) -> [MaterialId; 3] {
     [
         shader(world, "forward-and-caster"),
         shader(world, "unlit"),
@@ -615,57 +615,6 @@ fn a_shadow_list_draws_the_casters_inside_the_split() {
             ("no shadow caster pass", 2),
             ("outside the split's sphere", 1)
         ])
-    );
-}
-
-fn shadow_split(sphere: [f32; 4]) -> RendererListDesc {
-    RendererListDesc::Shadow {
-        cull: 5,
-        light_index: 0,
-        planes: Vec::new(),
-        sphere,
-        objects_filter: 0,
-        projection: 2,
-        use_rendering_layer_mask_test: false,
-    }
-}
-
-#[test]
-fn a_shadow_list_draws_a_caster_whose_pass_tag_is_spelled_in_capitals() {
-    let mut world = world();
-    let caster = shader(&mut world, "forward-and-upper-caster");
-    let upper = material(&mut world, caster);
-    placed(&mut world, (0, 0, Vec3::ZERO), &[upper], None);
-    scene(&mut world, Mat4::IDENTITY, u32::MAX);
-    draw(&mut world, shadow_split([0.0, 0.0, 0.0, 5.0]));
-    let adapted = run(&mut world, |available| {
-        let cube = Bounds {
-            min: [-0.5; 3],
-            max: [0.5; 3],
-        };
-        available.bounds.insert(MESH, cube);
-    });
-    let listed = lists(&adapted);
-    assert_eq!(listed.len(), 1);
-    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
-    assert_eq!(adapted.report.lists.shadow_drawn, 1);
-    assert_eq!(adapted.report.lists.left_out, BTreeMap::new());
-}
-
-#[test]
-fn a_drawing_list_names_a_pass_whatever_the_case_of_its_tag() {
-    let mut world = world();
-    let [lit, unlit, _] = shaders(&mut world);
-    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
-    placed(&mut world, (1, 0, Vec3::ZERO), &[unlit], None);
-    scene(&mut world, Mat4::IDENTITY, u32::MAX);
-    draw(&mut world, drawing(&["universalforward"]));
-    let adapted = run(&mut world, |_| {});
-    let listed = lists(&adapted);
-    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
-    assert_eq!(
-        adapted.report.lists.left_out,
-        counts(&[("no pass with the list's tags", 1)])
     );
 }
 

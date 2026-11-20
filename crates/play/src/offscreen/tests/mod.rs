@@ -28,6 +28,7 @@ mod kernels;
 mod lights_gpu;
 mod lists;
 mod lists_gpu;
+mod lists_tags;
 mod mesh_cache;
 mod mips;
 mod pixels;

@@ -188,17 +188,16 @@ fn pixels(plan: &Value, index: usize) -> Vec<u8> {
         data["size"].as_u64().unwrap(),
     );
     let bytes = std::fs::read(file).unwrap();
-    bytes[offset as usize..(offset + size) as usize].to_vec()
+    let (start, end) = (
+        usize::try_from(offset).unwrap(),
+        usize::try_from(offset + size).unwrap(),
+    );
+    bytes[start..end].to_vec()
 }
 
 /// The numbers of a JSON array as the `f32`s they were written from.
 fn floats(value: &Value) -> Vec<f32> {
-    value
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|number| number.as_f64().unwrap() as f32)
-        .collect()
+    serde_json::from_value(value.clone()).unwrap()
 }
 
 #[test]

@@ -120,7 +120,7 @@ fn radiance(ambient: &Ambient) -> [f32; PROBE_COEFFICIENTS] {
             }
             AmbientMode::Flat => own[0] = flat / band_zero(),
             AmbientMode::Trilight => {
-                own[0] = tau * band_zero() * (equator + (sky + ground) / 2.0);
+                own[0] = tau * band_zero() * (equator + f32::midpoint(sky, ground));
                 own[1] = tau * band_one() * (sky - ground) / 3.0;
             }
         }

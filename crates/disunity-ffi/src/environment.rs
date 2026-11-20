@@ -99,7 +99,7 @@ impl DisunityEnvironment {
         }
     }
 
-    fn to_native(&self) -> Result<Environment, AbiError> {
+    fn to_native(self) -> Result<Environment, AbiError> {
         if self.padding != 0 {
             return Err("the padding of an environment record is zero".into());
         }

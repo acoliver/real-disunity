@@ -13,7 +13,9 @@ use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{World, WorldError};
 
 mod graphics_world;
-use graphics_world::{camera, render_texture, snapshot, world};
+use graphics_world::{
+    camera, material, render_texture, renderer, renderer_with, shader, snapshot, world,
+};
 
 const CUBE: u64 = (1 << 40) + 3;
 const BAKED: u64 = (1 << 40) + 4;
@@ -95,14 +97,29 @@ fn a_reflection_reads_the_custom_cube_when_the_mode_and_a_cube_say_so_and_the_sk
 
 #[test]
 fn the_defaults_of_a_new_scene_are_the_values_a_section_nobody_wrote_reads_as() {
-    let ambient = Ambient::default();
-    assert_eq!(ambient.mode, AmbientMode::Skybox);
-    assert_eq!(ambient.intensity, 1.0);
-    assert_eq!(ambient.probe, [0.0; PROBE_COEFFICIENTS]);
-    assert_eq!(ambient.flat, ambient.sky);
+    let sky = [0.212, 0.227, 0.259, 1.0];
+    assert_eq!(
+        Ambient::default(),
+        Ambient {
+            mode: AmbientMode::Skybox,
+            sky,
+            equator: [0.114, 0.125, 0.133, 1.0],
+            ground: [0.047, 0.043, 0.035, 1.0],
+            flat: sky,
+            intensity: 1.0,
+            probe: [0.0; PROBE_COEFFICIENTS],
+        }
+    );
     let reflection = Reflection::default();
-    assert_eq!(reflection.mode, ReflectionMode::Skybox);
-    assert_eq!(reflection.intensity, 1.0);
+    assert_eq!(
+        reflection,
+        Reflection {
+            mode: ReflectionMode::Skybox,
+            intensity: 1.0,
+            custom: TextureRef::None,
+            skybox: TextureRef::None,
+        }
+    );
     assert_eq!(reflection.source(), &TextureRef::None);
 }
 
@@ -187,4 +204,25 @@ fn the_environment_round_trips_through_the_byte_encoding() {
     assert_eq!(decoded, snapshot);
     let sizes: WorldRenderTexture = *decoded.render_textures.values().next().unwrap();
     assert_eq!(sizes.width, 4);
+}
+
+#[test]
+fn a_frame_that_draws_renderers_carries_the_environment_beside_them() {
+    let mut world = world();
+    world.set_environment(lit()).unwrap();
+    let lit_shader = shader(&mut world, "Lit");
+    let surface = material(&mut world, lit_shader);
+    renderer(&mut world, 0, (1 << 41) + 1, vec![Some(surface)]);
+    renderer_with(
+        &mut world,
+        (0, true),
+        (1 << 41) + 2,
+        worldrunner_world_simulation::MeshRenderer::default(),
+    );
+    frame(&mut world);
+    let snapshot = snapshot(&mut world);
+    assert_eq!(snapshot.renderers.len(), 2);
+    assert_eq!(snapshot.environment, lit());
+    let decoded = decode(&encode(&snapshot).unwrap()).unwrap();
+    assert_eq!(decoded, snapshot);
 }

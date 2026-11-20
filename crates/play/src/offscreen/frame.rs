@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::runtime::BufferHandle;
 use worldrunner_render_program::unity::offscreen::CameraProbe;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
@@ -16,8 +17,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId, ShaderId as WorldShaderId,
-    TargetRef, TextureRef, WorldRenderTexture, dimension,
+    ComputeBufferId, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TargetRef, TextureRef, WorldRenderTexture, dimension,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -31,7 +32,8 @@ use super::depth_range::DepthRange;
 use super::ids;
 use super::mips::AutoMips;
 use super::properties::{
-    Textures, Undeclared, fallback_layer, layer, layer_with_defaults, split_below_globals,
+    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
+    split_below_globals,
 };
 use super::script::Script;
 use super::stand_ins::StandInReason;
@@ -167,6 +169,9 @@ pub struct Available {
     pub sub_meshes: BTreeMap<u64, Vec<u32>>,
     /// The meshes the host read and found to have nothing to draw. They are not in `meshes`.
     pub empty_meshes: BTreeSet<u64>,
+    /// The compute buffers the host uploaded for the materials that bind them, by the id a
+    /// material names. A buffer that is not here is left unbound.
+    pub buffers: BTreeMap<ComputeBufferId, BufferHandle>,
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
@@ -738,12 +743,13 @@ impl<'a> Mapper<'a> {
                     texture: DefaultTexture::Grey.id(),
                     declared: &info.fill.declared_textures,
                 });
-            let properties = layer_with_defaults(
+            let mut properties = layer_with_defaults(
                 &material.properties,
                 &mut self.textures,
                 &defaults,
                 undeclared,
             );
+            bind_buffers(&mut properties, &material.buffers, &self.available.buffers);
             let declared = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             let (fallback, below_globals) =
                 split_below_globals(declared, &host_filled(&self.settings.supplied));

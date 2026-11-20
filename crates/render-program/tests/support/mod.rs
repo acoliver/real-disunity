@@ -22,22 +22,14 @@ pub struct Attachment<'a> {
 
 impl Gpu {
     pub fn new() -> Self {
-        Self::with_features(wgpu::Features::empty())
-    }
-
-    /// A device with `features` enabled, which the adapter must offer.
-    pub fn with_features(features: wgpu::Features) -> Self {
         let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("these tests need a GPU adapter");
         eprintln!("render-program tests adapter: {}", adapter.get_info().name);
-        let requirements = DeviceRequirements {
-            required_features: features,
-            ..DeviceRequirements::default()
-        };
-        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
-            .expect("the adapter gives a device with the features");
+        let (device, queue, _) =
+            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
+                .expect("the adapter gives a device");
         Self {
             device,
             authority: SubmissionAuthority::new(queue),

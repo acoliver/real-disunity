@@ -186,11 +186,7 @@ impl ProgramRuntime {
             }
             (wgpu::BindingType::Texture { .. }, Resource::Texture(handle)) => {
                 let entry = self.store.texture(handle)?;
-                check_texture(
-                    slot,
-                    (&entry.texture, entry.dimension),
-                    self.device.features(),
-                )?;
+                check_texture(slot, &entry.texture, entry.dimension)?;
                 Ok(Resolved::Borrowed(wgpu::BindingResource::TextureView(
                     &entry.view,
                 )))
@@ -266,11 +262,7 @@ pub(crate) fn imported_resource<'a>(
             },
         ) => buffer_range(device, (slot, *ty), (buffer, *offset, *size)),
         (wgpu::BindingType::Texture { .. }, ImportedResource::Texture(texture)) => {
-            check_texture(
-                slot,
-                (&texture.texture, texture.dimension),
-                device.features(),
-            )?;
+            check_texture(slot, &texture.texture, texture.dimension)?;
             Ok(wgpu::BindingResource::TextureView(&texture.view))
         }
         (wgpu::BindingType::StorageTexture { .. }, ImportedResource::Texture(texture)) => {
@@ -493,13 +485,11 @@ fn check_bound(
 }
 
 /// A bound texture suits the slot when its view has the slot's dimension, its sample count
-/// agrees with the slot's multisampling and its format suits the shader's sample type on a
-/// device with `features`: `R32Float` is filterable where the device enables
-/// `FLOAT32_FILTERABLE`.
+/// agrees with the slot's multisampling and its format suits the shader's sample type.
 fn check_texture(
     slot: &Slot,
-    (texture, dimension): (&wgpu::Texture, wgpu::TextureViewDimension),
-    features: wgpu::Features,
+    texture: &wgpu::Texture,
+    dimension: wgpu::TextureViewDimension,
 ) -> Result<(), ProgramError> {
     let wgpu::BindingType::Texture {
         sample_type,
@@ -515,7 +505,7 @@ fn check_texture(
     let aspect = format
         .has_depth_aspect()
         .then_some(wgpu::TextureAspect::DepthOnly);
-    let format_type = format.sample_type(aspect, Some(features));
+    let format_type = format.sample_type(aspect, None);
     let suits = match (sample_type, format_type) {
         (
             wgpu::TextureSampleType::Float { filterable },

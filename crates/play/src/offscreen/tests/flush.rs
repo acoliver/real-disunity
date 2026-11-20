@@ -162,7 +162,7 @@ pub(super) fn scaling(world: &mut World) -> ComputeShaderId {
     shader
 }
 
-fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
+pub(super) fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
     world
         .compute_buffer(buffer)
         .unwrap()
@@ -174,7 +174,7 @@ fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
 
 /// The values the kernel writes for a height map the camera drew: the left two columns of each
 /// row are drawn, the rest cleared.
-fn expected() -> Vec<f32> {
+pub(super) fn expected() -> Vec<f32> {
     (0..SIDE * SIDE)
         .map(|index| {
             if index % SIDE < SIDE / 2 {

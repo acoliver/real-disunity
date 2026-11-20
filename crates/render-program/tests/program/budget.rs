@@ -55,6 +55,23 @@ fn bytes_an_owner_holds_outside_the_runtime_count_against_its_budget_until_relea
 }
 
 #[test]
+fn an_external_hold_counts_bytes_no_buffer_could_have() {
+    let gpu = Gpu::new();
+    let past_buffers = gpu.device.limits().max_buffer_size + 1;
+    let runtime = gpu.runtime_with(AllocationBudget(past_buffers + 3));
+    // A one-byte-texel texture three texels wide, and a texture larger than any buffer.
+    let odd = runtime.hold_external("odd", 3).unwrap();
+    let large = runtime.hold_external("large", past_buffers).unwrap();
+    assert_eq!(runtime.live_bytes(), past_buffers + 3);
+    drop((odd, large));
+    assert_eq!(runtime.live_bytes(), 0);
+    assert!(
+        runtime.hold_external("empty", 0).is_err(),
+        "an empty hold is refused"
+    );
+}
+
+#[test]
 fn a_depth_attachment_counts_against_the_budget() {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime_with(AllocationBudget(2 * TARGET_BYTES - 1));

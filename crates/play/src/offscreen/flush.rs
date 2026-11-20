@@ -5,20 +5,27 @@
 //!
 //! * [`OffscreenHost::frame`] adapts and builds a snapshot's records for the scene to encode
 //!   before its own passes. Dispatches are not part of it; they are counted as left out.
+//!   The compute buffers its materials bind are uploaded first and kept until the next frame.
 //! * [`OffscreenHost::flush`] runs a snapshot's work to completion before it returns. It follows
 //!   the records in call order, offscreen records and dispatches alike. Each run of records is
 //!   built, recorded and submitted, then the dispatch that follows it is recorded and submitted
 //!   with it. A last submission copies the compute buffers a dispatch bound back, and the call
 //!   waits for that submission alone. The buffers whose bytes changed come out as
-//!   [`BufferWrite`]s for the world to take with [`BufferSink`].
+//!   [`BufferWrite`]s for the world to take with [`BufferSink`]. The compute buffers the
+//!   materials of the work bind are uploaded before the first run is built, and a dispatch that
+//!   binds one of them shares its upload.
 //!
 //! A pixel read is placed like a dispatch: the records before it are submitted with a copy of the
 //! render texture recorded last, and the copy's rectangle comes out as a [`PixelAnswer`] for the
 //! world to take with [`BufferSink`] (see the `pixels` module).
 //!
 //! Each run of records is its own submission because the buffer a run's constants share is
-//! rewritten for the next run, and a submission fixes what its commands read.
+//! rewritten for the next run, and a submission fixes what its commands read. A run that would
+//! plan more draws than the host's [draw budget](DRAW_BUDGET) is built and submitted in parts,
+//! each submission of its own, so the draws one part planned are dropped before the next is
+//! planned.
 
+use std::ops::Range;
 use std::time::Instant;
 
 use worldrunner_render_program::error::ProgramError;
@@ -41,7 +48,18 @@ use super::screen::{ScreenImage, writes_screen};
 use super::sink::BufferSink;
 use super::trace::WorkTrace;
 
+mod parts;
 mod screen_view;
+
+/// The most draws one build of a flush plans unless the host sets another.
+///
+/// A planned draw holds its constants, its bindings and its texture views until the build that
+/// planned it is submitted, about 13 KB of memory for a draw of a game that binds several
+/// textures. A frame of hundreds of camera renders of thousands of draws each would hold every
+/// one of them at once. A flush plans this many, submits them and drops them before it plans
+/// more: 16,384 draws take about 200 MB, and a part is large enough that the cost of one more
+/// submission is small against what it draws.
+pub const DRAW_BUDGET: usize = 16_384;
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
 /// contents the CPU holds.
@@ -169,12 +187,18 @@ pub struct OffscreenHost {
     adapter: OffscreenAdapter,
     compute: ComputeAdapter,
     traces: Vec<WorkTrace>,
+    /// The compute buffers the last frame's materials bind, kept until the next frame because
+    /// the scene submits what `frame` built after it returns.
+    frame_buffers: GpuBuffers,
     /// Whether submitted work has drawn into the screen's colour since it was last read back.
     screen_written: bool,
     /// Whether the last `frame`'s operations draw into the screen; counted once submitted.
     frame_writes_screen: bool,
     /// The allocation last written by a submitted flush. A handle does not keep it alive.
     screen_flushed: Option<TextureHandle>,
+    /// The most draws a build plans before the flush submits them and plans the next (see
+    /// [`set_draw_budget`](Self::set_draw_budget)).
+    draw_budget: usize,
 }
 
 impl OffscreenHost {
@@ -224,6 +248,21 @@ impl OffscreenHost {
             screen_written: false,
             frame_writes_screen: false,
             screen_flushed: None,
+            frame_buffers: GpuBuffers::default(),
+            draw_budget: DRAW_BUDGET,
+        }
+    }
+
+    /// Sets the most draws a flush plans in one build. A run of records that would plan more is
+    /// built, submitted and dropped in parts, in record order.
+    pub fn set_draw_budget(&mut self, draws: usize) {
+        self.draw_budget = draws;
+    }
+
+    /// Gives back the buffers the last frame's materials bound.
+    fn release_frame_buffers(&mut self) {
+        for handle in std::mem::take(&mut self.frame_buffers).handles() {
+            let _ = self.runtime.release_buffer(handle);
         }
     }
 
@@ -385,17 +424,26 @@ impl OffscreenHost {
         settling: Settling,
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
         let live_before = self.runtime.live_bytes();
+        self.release_frame_buffers();
         let started = Instant::now();
         self.frame_writes_screen = false;
+        let uploaded = self
+            .frame_buffers
+            .upload_material_buffers(&mut self.runtime, snapshot);
         let mut adapted = self.adapter.adapt_settling(
             snapshot,
             assets,
             &mut self.state,
             &mut self.runtime,
             settling,
+            &uploaded.handles,
         );
+        adapted
+            .report
+            .count_many("materialbuffer:BufferUpload", uploaded.refused);
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
+            self.release_frame_buffers();
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
@@ -434,15 +482,25 @@ impl OffscreenHost {
         // The render textures a kernel writes need storage binding usage when they are made.
         let storage = self.compute.storage_textures(&self.runtime, snapshot);
         self.state.bind_as_storage(storage);
-        let mut adapted =
-            self.adapter
-                .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
+        // The materials' buffers go up before the frame is adapted, and a dispatch that binds one
+        // of them finds it held.
+        let mut buffers = GpuBuffers::default();
+        let uploaded = buffers.upload_material_buffers(&mut self.runtime, snapshot);
+        let mut adapted = self.adapter.adapt_probing(
+            snapshot,
+            assets,
+            &mut self.state,
+            &mut self.runtime,
+            (true, &uploaded.handles),
+        );
+        adapted
+            .report
+            .count_many("materialbuffer:BufferUpload", uploaded.refused);
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
         adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
-        let mut buffers = GpuBuffers::default();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
         let error = result.as_ref().err().map(ToString::to_string);
         // The buffers can go once the GPU has finished with them, and the next flush then
@@ -500,41 +558,32 @@ impl OffscreenHost {
             .chain(std::iter::once(records.len()))
             .enumerate()
         {
-            let segment = with_globals(&records[..from], &records[from..until]);
+            // The parts before the last are built and submitted now, so their planned draws are
+            // dropped before the next part plans its own.
+            let mut parts = parts::split(&adapted.frame, &records, from..until, self.draw_budget);
+            let last = parts.pop().unwrap_or(from..until);
+            built += self.submit_parts(&records, &parts, adapted)?;
             from = until;
             // The first build also creates the render textures the dispatches bind.
-            let mut wrote_screen = false;
-            let mut operations =
-                if segment.iter().all(is_state) && (index > 0 || placements.is_empty()) {
-                    None
-                } else {
-                    let (operations, kept, wrote) =
-                        self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
-                    built += kept;
-                    wrote_screen = wrote;
-                    Some(operations)
-                };
-            let prepared = placements.get(index).and_then(|placed| {
-                self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
-            });
+            let skippable = index > 0 || placements.is_empty();
+            let (mut operations, kept, wrote_screen) =
+                self.build_last_part(&records, last, skippable, adapted)?;
+            built += kept;
+            let work = placements.get(index).map(|placed| placed.work);
+            let prepared =
+                work.and_then(|work| self.prepare(snapshot, work, buffers, &mut adapted.report));
             let probe = prepared.as_ref().and_then(|_| {
                 let trace = adapted.report.traces.last()?;
                 Some(Probe::plan(trace, &self.state, operations.as_mut()))
             });
-            let wanted = placements
-                .get(index)
-                .and_then(|placed| Wanted::of(&snapshot.work[placed.work]));
+            let wanted = work.and_then(|work| Wanted::of(&snapshot.work[work]));
             if let Some(wanted) = &wanted {
                 self.make_room_for_read(wanted, &mut adapted.report);
             }
             let submitted = Instant::now();
             let result = self.submit(operations, prepared.as_ref(), probe.as_ref(), wanted)?;
             adapted.report.phases.submit += submitted.elapsed();
-            // A later segment that fails does not undo what this one drew.
-            self.screen_written |= wrote_screen;
-            if wrote_screen {
-                self.note_screen_flushed();
-            }
+            self.note_screen_written(wrote_screen);
             result.resolve(
                 self.runtime.device(),
                 &mut adapted.report,
@@ -546,6 +595,56 @@ impl OffscreenHost {
         adapted.report.built = built;
         let writes = self.read_back(buffers, &mut adapted.report.traces)?;
         Ok(Produced { writes, pixels })
+    }
+
+    /// Builds the last part of a run, which the run's dispatch or read follows in its own
+    /// submission. A part of state records alone builds nothing when `skippable`. Returns the
+    /// operations, the records kept and whether they write the screen.
+    fn build_last_part(
+        &mut self,
+        records: &[Record],
+        part: Range<usize>,
+        skippable: bool,
+        adapted: &mut Adapted,
+    ) -> Result<(Option<OffscreenOperations>, usize, bool), FlushError> {
+        let segment = with_globals(&records[..part.start], &records[part]);
+        if skippable && segment.iter().all(is_state) {
+            return Ok((None, 0, false));
+        }
+        let (operations, kept, wrote_screen) =
+            self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
+        Ok((Some(operations), kept, wrote_screen))
+    }
+
+    /// Builds and submits each of `parts` of `records` on its own, and returns how many of their
+    /// records were kept. A later part that fails does not undo what an earlier one drew.
+    fn submit_parts(
+        &mut self,
+        records: &[Record],
+        parts: &[Range<usize>],
+        adapted: &mut Adapted,
+    ) -> Result<usize, FlushError> {
+        let mut built = 0;
+        for part in parts {
+            let segment = with_globals(&records[..part.start], &records[part.clone()]);
+            let (operations, kept, wrote_screen) =
+                self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
+            built += kept;
+            let submitted = Instant::now();
+            self.submit(Some(operations), None, None, None)?;
+            adapted.report.phases.submit += submitted.elapsed();
+            self.note_screen_written(wrote_screen);
+        }
+        Ok(built)
+    }
+
+    /// Notes that a submitted part drew into the screen's colour.
+    fn note_screen_written(&mut self, wrote_screen: bool) {
+        // A later segment that fails does not undo what this one drew.
+        self.screen_written |= wrote_screen;
+        if wrote_screen {
+            self.note_screen_flushed();
+        }
     }
 
     fn build_segment(

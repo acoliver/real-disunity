@@ -14,7 +14,10 @@ use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::{Import, ImportedResource};
 
 fn device() -> (wgpu::Device, SubmissionAuthority) {
-    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ..wgpu::DeviceDescriptor::default()
+    });
     (device, SubmissionAuthority::new(queue))
 }
 
@@ -45,7 +48,8 @@ fn declare(
         .unwrap()
 }
 
-/// A four-layer `R32Float` target a kernel may write, and a two-layer one it may only sample.
+/// A four-layer `R32Float` target a kernel may write, and a two-layer, two-mip BC4 copy target
+/// it may only sample.
 fn targets(device: &wgpu::Device) -> GameTargets {
     let declarations = [
         TargetDeclaration::new(
@@ -57,11 +61,11 @@ fn targets(device: &wgpu::Device) -> GameTargets {
         .with_usage(wgpu::TextureUsages::STORAGE_BINDING),
         TargetDeclaration::new(
             "probe.sampled",
-            wgpu::TextureFormat::R32Float,
+            wgpu::TextureFormat::Bc4RUnorm,
             TargetExtent::Fixed([8, 4]),
         )
         .layers(2)
-        .mip_levels(2),
+        .mips(2),
     ];
     GameTargets::new(Arc::new(TargetStore::build(
         device,

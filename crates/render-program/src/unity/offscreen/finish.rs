@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind, CheckedBindings,
-    CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation, TypedWork,
-    VertexStream,
+    AccessMode, AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind,
+    CheckedBindings, CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation,
+    TypedWork, VertexStream,
 };
 
 use crate::draw::VertexInput;
@@ -77,8 +77,8 @@ impl Finish<'_> {
         Ok(operation)
     }
 
-    /// The bind group of each descriptor set of the plan's program, and the uniform reads they
-    /// make of the constants buffers.
+    /// The bind group of each descriptor set of the plan's program, and the reads they make of
+    /// the constants buffers and of the structured buffers.
     fn bind(
         &mut self,
         plan: &DrawPlan,
@@ -121,6 +121,19 @@ impl Finish<'_> {
                     dynamic_offset: None,
                 });
             }
+            for storage in plan.storage.iter().filter(|s| s.set == set) {
+                uses.push(BufferUse::read(
+                    storage.view.clone(),
+                    BufferUseKind::Storage,
+                ));
+                buffers.push(BufferBinding {
+                    binding: storage.binding,
+                    visibility: storage.visibility,
+                    view: storage.view.clone(),
+                    kind: BufferBindingKind::Storage(AccessMode::Read),
+                    dynamic_offset: None,
+                });
+            }
             let registry = &self.tracker.registry;
             let built = self.runtime.guarded(|| {
                 CheckedBindings::build_with_resources(
@@ -147,6 +160,12 @@ impl Finish<'_> {
             .plan
             .state
             .neutral_with_stencil(draw.front_face, draw.signature.has_stencil());
+        if draw.topology.is_triangles() {
+            // A depth bias is drawn for triangles only, and the pass's own state has none.
+            if let Some(depth) = state.depth.as_mut() {
+                depth.bias = draw.raster.bias;
+            }
+        }
         let reference = state.stencil.as_ref().map(|stencil| stencil.reference);
         if let Some(stencil) = state.stencil.as_mut() {
             stencil.reference = 0;
@@ -165,8 +184,16 @@ impl Finish<'_> {
         request.check_color_outputs()?;
         let key = request.key();
         let checked = self.pipeline_draw(&request, key, draw, bindings)?;
-        Ok(match reference {
+        let checked = match reference {
             Some(reference) => checked.with_stencil_reference(reference),
+            None => checked,
+        };
+        let checked = match draw.raster.viewport {
+            Some(rect) => checked.with_viewport(rect),
+            None => checked,
+        };
+        Ok(match draw.raster.scissor {
+            Some(rect) => checked.with_scissor(rect),
             None => checked,
         })
     }

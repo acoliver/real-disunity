@@ -65,8 +65,8 @@ fn into(texture: GameTexture, layer: u32, mip: u32) -> GameBlockDestination {
     }
 }
 
-/// The targets a game declared: a two-layer `R32Float` target that can be read back and one
-/// that cannot.
+/// The targets a game declared: a two-layer `R32Float` target and a two-layer, two-mip BC4
+/// copy target that can be read back, and an `R32Float` target that cannot.
 fn targets(device: &wgpu::Device) -> GameTargets {
     let declarations = [
         TargetDeclaration::new(
@@ -75,7 +75,14 @@ fn targets(device: &wgpu::Device) -> GameTargets {
             TargetExtent::Fixed([8, 4]),
         )
         .layers(2)
-        .mip_levels(2)
+        .with_usage(wgpu::TextureUsages::COPY_SRC),
+        TargetDeclaration::new(
+            "probe.pages",
+            wgpu::TextureFormat::Bc4RUnorm,
+            TargetExtent::Fixed([8, 4]),
+        )
+        .layers(2)
+        .mips(2)
         .with_usage(wgpu::TextureUsages::COPY_SRC),
         TargetDeclaration::new(
             "probe.plain",
@@ -153,8 +160,12 @@ fn a_level_outside_the_texture_or_target_is_refused_by_name() {
     assert!(reason.contains("layer 2"), "{reason}");
     let targets = targets(&device);
     let (label, reason) =
-        readback(resources.read_back_target(&targets, "probe.float", level(1, 2)));
+        readback(resources.read_back_target(&targets, "probe.float", level(1, 1)));
     assert_eq!(label, "probe.float");
+    assert!(reason.contains("mip 1"), "{reason}");
+    let (label, reason) =
+        readback(resources.read_back_target(&targets, "probe.pages", level(1, 2)));
+    assert_eq!(label, "probe.pages");
     assert!(reason.contains("mip 2"), "{reason}");
     let (label, reason) =
         readback(resources.read_back_target(&targets, "probe.float", level(2, 0)));
@@ -168,7 +179,12 @@ fn a_level_outside_the_texture_or_target_is_refused_by_name() {
     assert!(resources.read_back_texture(pages, level(1, 3)).is_ok());
     assert!(
         resources
-            .read_back_target(&targets, "probe.float", level(1, 1))
+            .read_back_target(&targets, "probe.float", level(1, 0))
+            .is_ok()
+    );
+    assert!(
+        resources
+            .read_back_target(&targets, "probe.pages", level(1, 1))
             .is_ok()
     );
 }

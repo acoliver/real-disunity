@@ -16,11 +16,14 @@ mod block_texture;
 mod camera_start;
 mod counts_line;
 mod driver;
+mod global_listing;
 mod gpu_device;
 #[cfg(test)]
 mod gpu_flush_tests;
 mod gpu_player;
 mod keys;
+#[cfg(test)]
+mod managed_array_tests;
 mod navigation;
 pub mod offscreen;
 mod player;
@@ -29,6 +32,7 @@ mod player_textures;
 mod player_ui;
 mod prepare;
 mod retained_driver;
+mod scene_census;
 mod scene_light;
 mod scene_tables;
 mod scene_transform;

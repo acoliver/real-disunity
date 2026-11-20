@@ -6,7 +6,8 @@ use super::occlusion::FrameOcclusionHandle;
 use super::resources::{GameResources, SharedTextures};
 use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
-use super::targets::{FrameEffect, GameTargets, TargetDeclaration, TargetStore};
+use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
+use super::targets::{GameTargets, TargetDeclaration, TargetStore};
 use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
@@ -45,6 +46,9 @@ pub struct GameBuild<'a> {
     /// The scene's resident textures, lent in every frame and in a depth prefix submitted ahead
     /// of the frame.
     pub scene_textures: FrameSceneTexturesHandle,
+    /// The opaque snapshots of the frame in flight, published once the frame is planned and only
+    /// when a pass of it declared a read of them.
+    pub snapshots: FrameSnapshotHandle,
 }
 
 /// A game's contribution to the retained renderer: the targets it owns and the frame feature
@@ -69,6 +73,17 @@ pub trait GameFeatureFactory: Send + Sync {
         AllocationBudget(0)
     }
 
+    /// The frame's opaque snapshots that this contribution's passes may read. The default reads
+    /// none, and then a renderer with no water, reflection or depth-tested overlay allocates no
+    /// snapshots at all. A factory that samples them states it here so that the renderer reserves
+    /// and allocates them when it is built, and so that a same-frame capture admits their writes
+    /// before the first frame plans. Each pass then declares what it samples with
+    /// [`GamePassSpec::reading_snapshots`], and a pass that declares more than this is refused at
+    /// planning.
+    fn snapshot_reads(&self) -> SnapshotReads {
+        SnapshotReads::NONE
+    }
+
     /// Builds the feature for one generation. It plans its passes with
     /// [`GameTargets::plan_pass`] and draws in them like any other frame feature.
     ///
@@ -89,10 +104,14 @@ pub trait GameFeatureFactory: Send + Sync {
     /// the same generation, from the same `context` except that `context.targets` plans only
     /// this place, and it is prepared before it in a frame drawn whole.
     ///
-    /// It reads none of the lent stock inputs (`context.shadows`, `context.occlusion`,
-    /// `context.environment`, `context.terrain`): a route that submits the prefix ahead of the
-    /// frame prepares it before the frame publishes them, so there each refuses with
-    /// `NotPrepared`, and the shadow casters of a fitted frame draw after it.
+    /// A depth-prefix feature reads the lent terrain only; shadow, occlusion and environment
+    /// inputs are `NotPrepared` there. A route that submits the prefix ahead of the frame lends
+    /// `context.terrain` inside the prefix, before this feature prepares, with the chunks the
+    /// rest of the frame lends. It prepares this feature before the frame publishes
+    /// `context.shadows`, `context.occlusion` and `context.environment`, so there each refuses
+    /// with `NotPrepared`, and the shadow casters of a fitted frame draw after it. The opaque
+    /// snapshots (`context.snapshots`) are written after Opaque, so no pass of this feature can
+    /// declare a read of them.
     ///
     /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
     /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with
@@ -147,6 +166,15 @@ impl GamePasses {
         self.factories.len()
     }
 
+    /// The opaque snapshots any factory of the inventory declared it reads.
+    pub(crate) fn snapshot_reads(&self) -> SnapshotReads {
+        self.factories
+            .iter()
+            .fold(SnapshotReads::NONE, |reads, factory| {
+                reads.union(factory.snapshot_reads())
+            })
+    }
+
     fn declarations(&self) -> Vec<TargetDeclaration> {
         self.factories
             .iter()
@@ -168,10 +196,14 @@ impl GamePasses {
     }
 
     /// Refuses a declaration the device cannot allocate and a name declared twice.
-    pub(crate) fn validate(&self, frame: [u32; 2], limits: &wgpu::Limits) -> Result<(), PostError> {
+    pub(crate) fn validate(
+        &self,
+        frame: [u32; 2],
+        device: (&wgpu::Limits, wgpu::Features),
+    ) -> Result<(), PostError> {
         let declarations = self.declarations();
         for (index, declaration) in declarations.iter().enumerate() {
-            declaration.validate(limits, frame)?;
+            declaration.validate(device, frame)?;
             if declarations[..index]
                 .iter()
                 .any(|other| other.name == declaration.name)
@@ -215,17 +247,18 @@ impl GamePasses {
                 shared.clone(),
             );
             renderer.game.resources.push(resources.clone());
-            let build = |targets| GameBuild {
+            let build = |targets: GameTargets| GameBuild {
                 context,
                 resources: resources.clone(),
                 frame,
-                targets,
+                targets: targets.with_snapshot_reads(factory.snapshot_reads()),
                 camera: renderer.game_camera.clone(),
                 terrain: renderer.game_terrain.clone(),
                 shadows: renderer.game.shadows.clone(),
                 occlusion: renderer.game.occlusion.clone(),
                 environment: renderer.game.environment.clone(),
                 scene_textures: renderer.game_textures.clone(),
+                snapshots: renderer.game.snapshots.clone(),
             };
             let prefix =
                 factory.build_depth_prefix(&build(GameTargets::for_depth_prefix(store.clone())))?;
@@ -244,6 +277,7 @@ impl GamePasses {
             renderer.game.features += 1;
         }
         renderer.game.store = Some(store);
+        renderer.game.snapshot_reads = self.snapshot_reads();
         Ok(())
     }
 }
@@ -264,6 +298,11 @@ pub(crate) struct Installed {
     pub(crate) environment: FrameEnvironmentHandle,
     /// Each factory's declared resources, released with this generation.
     pub(crate) resources: Vec<GameResources>,
+    /// Where the renderer lends the frame's opaque snapshots to the features of this generation.
+    pub(crate) snapshots: FrameSnapshotHandle,
+    /// The snapshots the inventory's factories declared they read, which this generation
+    /// allocates and a capture admits whether or not a frame reads them.
+    pub(crate) snapshot_reads: SnapshotReads,
 }
 
 /// A factory's feature as the chain holds it: the feature itself, plus the one thing the
@@ -310,12 +349,9 @@ impl PreparedFeature for RegisteredPrepared {
         // before: a frame that is cancelled, or whose capture fails, leaves them as they were.
         // Each publication names the exact backing it records, which an owned capture needs to
         // admit it; a frame that writes no declared target publishes nothing.
-        for FrameEffect { backing, layers } in self.store.frame_effects(context) {
-            let key = backing.write_key();
-            // The capture records a refusal and fails before submission, as for stock state.
-            let _ = context
-                .publications()
-                .stage_write(key, move || backing.record(&layers));
+        let mut frame = context.publications();
+        for effect in self.store.frame_effects(context) {
+            effect.stage(&mut frame);
         }
     }
 

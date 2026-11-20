@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use glam::{Quat, Vec3};
-use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureDimension, TextureSampler};
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef,
 };
@@ -24,7 +24,7 @@ const HEIGHT: u32 = 45;
 const STORED: u64 = 1 << 40;
 
 /// A rig whose cameras draw the `Gamma` pass of the camera shaders, the one that samples `_Albedo`.
-fn gamma_rig() -> Rig {
+pub(super) fn gamma_rig() -> Rig {
     let mut rig = Rig::new();
     let settings = Settings {
         light_modes: vec!["Gamma".to_owned()],
@@ -36,7 +36,11 @@ fn gamma_rig() -> Rig {
 
 /// A camera render into a new target of a quad drawn with the material of `shader_file`, whose
 /// `_Albedo` slot is `slot` (unlisted for `None`).
-fn camera_scene(world: &mut World, shader_file: &str, slot: Option<TextureRef>) -> RenderTextureId {
+pub(super) fn camera_scene(
+    world: &mut World,
+    shader_file: &str,
+    slot: Option<TextureRef>,
+) -> RenderTextureId {
     let heights = target(world, HEIGHT);
     let camera = camera(world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
     let shader = shader(world, shader_file);
@@ -109,6 +113,9 @@ impl Assets for Undecodable {
             linear: true,
             generation: 1,
             distance_spread: 0,
+            depth: 1,
+            dimension: TextureDimension::D2,
+            graphics_format: 0,
             bytes: vec![0; 4],
         }))
     }

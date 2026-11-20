@@ -15,6 +15,8 @@ mod layers;
 mod level_import;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
+#[path = "game_passes/mips.rs"]
+mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
 #[path = "game_passes/prefix.rs"]
@@ -23,6 +25,8 @@ mod prefix;
 mod prefix_loads;
 #[path = "game_passes/prefix_state.rs"]
 mod prefix_state;
+#[path = "game_passes/prepared.rs"]
+mod prepared;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
 #[path = "game_passes/replacement.rs"]
@@ -31,10 +35,20 @@ mod replacement;
 mod resource_mips;
 #[path = "game_passes/resources.rs"]
 mod resources;
+#[path = "game_passes/scene_arrays.rs"]
+mod scene_arrays;
 #[path = "game_passes/shadow_cascades.rs"]
 mod shadow_cascades;
 #[path = "game_passes/shadowed.rs"]
 mod shadowed;
+#[path = "game_passes/snapshot_capture.rs"]
+mod snapshot_capture;
+#[path = "game_passes/snapshot_game.rs"]
+mod snapshot_game;
+#[path = "game_passes/snapshot_water.rs"]
+mod snapshot_water;
+#[path = "game_passes/snapshots.rs"]
+mod snapshots;
 #[path = "game_passes/stores.rs"]
 mod stores;
 #[path = "game_passes/strip.rs"]

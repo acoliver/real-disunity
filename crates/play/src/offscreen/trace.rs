@@ -4,6 +4,8 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
+use worldrunner_render_program::unity::offscreen::ViewCounts;
+
 /// The time a flush or frame spent in each of its steps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Phases {
@@ -16,8 +18,8 @@ pub struct Phases {
     pub programs: Duration,
     /// Recording the operations and the dispatches, submitting them and waiting.
     pub submit: Duration,
-    /// Times the whole frame was refused and its render textures and records were built one at a
-    /// time to find the ones the state refuses.
+    /// Times the whole frame was refused and its parts were built alone to find the ones the
+    /// state refuses: the record the refusal names, or else each render texture and each record.
     pub refusals: usize,
     /// The builds of one render texture or one record alone that followed.
     pub probes: usize,
@@ -30,6 +32,13 @@ pub struct Phases {
     pub constants_largest: u64,
     pub constants_blocks: usize,
     pub constants_shared: usize,
+    /// The builds of the work (a flush builds one for each run of records, split further when a
+    /// run plans more draws than the host's budget), the most draws one of them held planned at
+    /// once, and the texture views the builds made and reused.
+    pub builds: usize,
+    pub draws_held_most: usize,
+    pub views_created: usize,
+    pub views_reused: usize,
 }
 
 impl Phases {
@@ -47,6 +56,27 @@ impl Phases {
         self.constants_largest = self.constants_largest.max(other.constants_largest);
         self.constants_blocks += other.constants_blocks;
         self.constants_shared += other.constants_shared;
+        self.builds += other.builds;
+        self.draws_held_most = self.draws_held_most.max(other.draws_held_most);
+        self.views_created += other.views_created;
+        self.views_reused += other.views_reused;
+    }
+
+    /// Counts one build that planned `draws` at once and made and reused `views`.
+    pub fn note_build(&mut self, draws: usize, views: ViewCounts) {
+        self.builds += 1;
+        self.draws_held_most = self.draws_held_most.max(draws);
+        self.views_created += views.created;
+        self.views_reused += views.reused;
+    }
+
+    /// The planner's counts as a report line.
+    #[must_use]
+    pub fn planner_line(&self) -> String {
+        format!(
+            "builds {}, most draws held in one build {}, texture views made {} and reused {}",
+            self.builds, self.draws_held_most, self.views_created, self.views_reused
+        )
     }
 }
 
@@ -79,7 +109,7 @@ impl WorkTrace {
             "{} {index}: records {}, built {}, camera renders {} drew {} left out {}, programs \
              built {}, constants {} bytes in {} buffers (largest {}, {} blocks, {} shared), held {} then {} \
              bytes, adapt {:.1} s, build {:.1} s \
-             (programs {:.1} s), submit {:.1} s, whole-frame refusals {} with {} builds alone",
+             (programs {:.1} s), submit {:.1} s, whole-frame refusals {} with {} builds alone, {}",
             self.kind,
             self.records,
             self.built,
@@ -100,6 +130,7 @@ impl WorkTrace {
             seconds(self.phases.submit),
             self.phases.refusals,
             self.phases.probes,
+            self.phases.planner_line(),
         );
         if let Some(error) = &self.error {
             write!(line, ", refused: {error}").ok();

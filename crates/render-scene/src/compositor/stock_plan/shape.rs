@@ -87,7 +87,9 @@ pub(super) fn snapshot_bank<'a>(
 ) -> Vec<&'a wgpu::Texture> {
     snapshots.map_or_else(Vec::new, |snapshots| {
         let snapshot = &snapshots[environment.slot];
-        vec![&snapshot.color, &snapshot.depth, &snapshot.final_depth]
+        let mut bank = vec![&snapshot.color, &snapshot.depth, &snapshot.final_depth];
+        bank.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
+        bank
     })
 }
 
@@ -164,6 +166,9 @@ pub(super) struct Shape {
     ssao_requested: Option<SceneSsao>,
     ssr_requested: Option<SceneSsr>,
     water: Option<std::sync::Arc<[SceneWaterBody]>>,
+    /// Whether a water registration is retained, which decides the retained declarations even
+    /// when the water draws nothing.
+    water_registered: bool,
     screen: Option<ScreenShape>,
     gbuffer_renders: Option<bool>,
     overlay_depth: bool,
@@ -177,6 +182,7 @@ impl Shape {
             ssao_requested: environment.requested.0,
             ssr_requested: environment.requested.1,
             water: environment.water.map(|water| water.settings.clone()),
+            water_registered: environment.water_registered,
             screen: environment.ssao.map(ScreenShape::new),
             gbuffer_renders: environment.gbuffer.map(crate::gbuffer::Gbuffer::renders),
             overlay_depth: environment.overlay_depth,

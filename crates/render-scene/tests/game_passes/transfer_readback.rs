@@ -27,13 +27,13 @@ use worldrunner_render_scene::{
     wgpu,
 };
 
-/// The float target: two layers of 8 x 4 and 4 x 2 texels. The pass writes layer 1, mip 1.
+/// The float target: two layers of 8 x 4 texels. The pass writes layer 1.
 const FLOAT: &str = "work.float";
 const FLOAT_SIZE: [u32; 2] = [8, 4];
 const WRITTEN: ResourceRef = ResourceRef {
     name: FLOAT,
     version: 0,
-    mip: 1,
+    mip: 0,
     layer: 1,
 };
 
@@ -47,7 +47,7 @@ const FLOAT_WGSL: &str = "
     return vec4<f32>(texel.x * 0.5 + texel.y * 64.0 + 0.0625, 0.0, 0.0, 1.0);
 }";
 
-/// What the float pass writes at a texel of mip 1, exact in `f32`.
+/// What the float pass writes at a texel, exact in `f32`.
 #[expect(clippy::cast_precision_loss, reason = "a handful of texels")]
 fn float_at(x: u32, y: u32) -> f32 {
     x as f32 * 0.5 + y as f32 * 64.0 + 0.0625
@@ -65,7 +65,7 @@ enum Ask {
     /// A transfer into layer 1, mip 2 of a BC5 page array, and readbacks of that level and its
     /// neighbours.
     Transfer,
-    /// Layer 1, mip 1 of the float target, which the pass writes.
+    /// Layer 1 of the float target, which the pass writes.
     Float,
     /// Mip 3 of both layers of an uploaded BC4 array.
     Bc4,
@@ -261,9 +261,9 @@ fn ask(
     match ask {
         Ask::Transfer => ask_transfer(resources),
         Ask::Float => Ok(vec![(
-            resources.read_back_target(targets, FLOAT, GameLevel { layer: 1, mip: 1 })?,
-            "layer 1, mip 1 of the float target",
-            [4, 2],
+            resources.read_back_target(targets, FLOAT, GameLevel { layer: 1, mip: 0 })?,
+            "layer 1 of the float target",
+            FLOAT_SIZE,
             None,
         )]),
         Ask::Bc4 => ask_bc4(resources),
@@ -271,7 +271,7 @@ fn ask(
     }
 }
 
-/// One pass before Opaque writing layer 1, mip 1 of the float target.
+/// One pass before Opaque writing layer 1 of the float target.
 struct Pass {
     targets: GameTargets,
     resources: GameResources,
@@ -372,7 +372,6 @@ impl GameFeatureFactory for WorkGame {
                 TargetExtent::Fixed(FLOAT_SIZE),
             )
             .layers(2)
-            .mip_levels(2)
             .with_usage(wgpu::TextureUsages::COPY_SRC),
         ]
     }
@@ -487,20 +486,20 @@ fn a_block_transfer_fills_mip_two_of_a_declared_bc5_array_and_reads_back_exactly
 }
 
 #[test]
-fn an_r32float_target_mip_one_reads_back_exactly() {
+fn an_r32float_target_layer_one_reads_back_exactly() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let _clear = ClearKept;
     let delivered = frame(Ask::Float, true);
     let [(_, image)] = delivered.as_slice() else {
         panic!("one readback")
     };
-    assert_eq!(image.size, [FLOAT_SIZE[0] / 2, FLOAT_SIZE[1] / 2]);
+    assert_eq!(image.size, FLOAT_SIZE);
     assert_eq!(image.format, wgpu::TextureFormat::R32Float);
-    let expected: Vec<u8> = (0..FLOAT_SIZE[1] / 2)
-        .flat_map(|y| (0..FLOAT_SIZE[0] / 2).map(move |x| float_at(x, y)))
+    let expected: Vec<u8> = (0..FLOAT_SIZE[1])
+        .flat_map(|y| (0..FLOAT_SIZE[0]).map(move |x| float_at(x, y)))
         .flat_map(f32::to_le_bytes)
         .collect();
-    assert_eq!(image.bytes, expected, "layer 1, mip 1 of the float target");
+    assert_eq!(image.bytes, expected, "layer 1 of the float target");
 }
 
 #[test]

@@ -18,8 +18,8 @@ use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
 use worldrunner_render_post::FrameError;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{
-    BlockSource, LentBlockDestination, MappingTargetRead, PendingTargetRead, TargetImage,
-    TextureLevel,
+    BlockSource, LentBlockDestination, MappingTargetRead, PendingTargetRead, ProgramRuntime,
+    TargetImage, TextureLevel,
 };
 
 /// One mip level of one layer (or, for a 3D texture, one slice of the level).
@@ -351,10 +351,7 @@ impl GameResources {
                     label,
                     source,
                     destination,
-                } => self
-                    .runtime
-                    .borrow()
-                    .transfer_block_image_into(encoder, &source, &destination)
+                } => Self::record_transfer(&self.runtime.borrow(), encoder, &source, &destination)
                     .map(|()| {
                         Some(Work::Transfer {
                             label: label.clone(),
@@ -382,6 +379,20 @@ impl GameResources {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Records the copies of a transfer into a declared texture, the frame holding the source's
+    /// and the staging buffer's reservations.
+    fn record_transfer(
+        runtime: &ProgramRuntime,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &BlockSource,
+        destination: &LentBlockDestination,
+    ) -> Result<(), ProgramError> {
+        let prepared = runtime.prepare_lent_block_transfer(source, destination, &[])?;
+        prepared.retain(encoder)?;
+        prepared.record(encoder);
         Ok(())
     }
 

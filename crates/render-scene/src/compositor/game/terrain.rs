@@ -44,8 +44,9 @@ impl From<FrameTerrainError> for FrameError {
 /// prepares, with the frame's finalized camera and raster extent. It holds the chunks the stock
 /// camera draw would submit, in its order, with their neighbours and resident buffers, whether
 /// or not the stock passes draw the terrain. A route that cannot lend records why, and only a
-/// feature that reads the terrain sees it; the frame itself goes on. Like the other lent inputs,
-/// it is not published inside a depth prefix that a route submits ahead of the frame; see
+/// feature that reads the terrain sees it; the frame itself goes on. A depth prefix that a
+/// route submits ahead of the frame publishes it too, before the prefix's features prepare,
+/// with the chunks the rest of the frame lends: a depth-prefix feature reads the lent terrain only; shadow, occlusion and environment inputs are `NotPrepared` there; see
 /// [`GameFeatureFactory::build_depth_prefix`](super::GameFeatureFactory::build_depth_prefix).
 ///
 /// The lent buffers are the renderer's own. Record draws from them in the frame that lent them;
@@ -74,7 +75,12 @@ impl FrameTerrainHandle {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
-        self.0.publish_with(|| lend(gpu, frame, viewport));
+        self.0.publish_with(|| {
+            let lent = lend(gpu, frame, viewport);
+            #[cfg(test)]
+            probe::record_publication(&lent);
+            lent
+        });
     }
 }
 

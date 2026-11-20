@@ -79,6 +79,7 @@ fn new_renderer(
         game_terrain: super::super::FrameTerrainHandle::default(),
         game_textures: super::super::game::FrameSceneTexturesHandle::default(),
         terrain_draws: settings.terrain_draws,
+        water_draws: settings.water_draws,
         chain: scene_chain(context, settings, factory)?,
         environment_conventions: [None; 2],
         water: None,
@@ -148,6 +149,7 @@ fn finish_renderer(
     settings
         .game_passes
         .install(renderer, context, carried.game)?;
+    renderer.ensure_game_snapshots(device);
     restore_timing(renderer, context, settings.timing, carried.timing)?;
     Ok(())
 }

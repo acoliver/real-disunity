@@ -495,3 +495,120 @@ fn required_gpu_missing_features_are_not_silently_dropped() {
         other => panic!("must reject requirements before requesting a device, got {other}"),
     }
 }
+
+#[test]
+fn the_scene_device_asks_for_float32_filtering_where_the_adapter_offers_it() {
+    use worldrunner_render_gpu::device::negotiate;
+    use worldrunner_render_post::TimingMode;
+    let limits = wgpu::Limits::default();
+    let request = super::requirements(&limits, REQUIRED_FEATURES, TimingMode::Disabled);
+    for offered in [false, true] {
+        let available = REQUIRED_FEATURES
+            | Features::DEPTH32FLOAT_STENCIL8
+            | if offered {
+                Features::FLOAT32_FILTERABLE
+            } else {
+                Features::empty()
+            };
+        let negotiated = negotiate(available, &limits, &request)
+            .expect("an adapter without the optional feature still gets a device");
+        assert_eq!(
+            negotiated
+                .enabled_features
+                .contains(Features::FLOAT32_FILTERABLE),
+            offered,
+            "FLOAT32_FILTERABLE is enabled exactly where offered: {:?}",
+            negotiated.enabled_features
+        );
+        assert!(
+            negotiated
+                .enabled_features
+                .contains(REQUIRED_FEATURES | Features::DEPTH32FLOAT_STENCIL8),
+            "the other features are unchanged: {:?}",
+            negotiated.enabled_features
+        );
+    }
+}
+
+/// A shader that samples an `R32Float` texture (such as a copy of device depth) through a linear
+/// sampler declares it `Float { filterable: true }`. wgpu treats 32-bit float formats as
+/// unfilterable unless the device enabled `FLOAT32_FILTERABLE`, whatever the adapter reports.
+#[test]
+fn the_engine_device_binds_r32float_to_a_filtering_sampler_where_the_adapter_offers_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let offered = context
+        .adapter()
+        .features()
+        .contains(Features::FLOAT32_FILTERABLE);
+    let device = context.device();
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("r32float filtered"),
+        size: wgpu::Extent3d {
+            width: 2,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::R32Float,
+        usage: TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("linear clamp"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..wgpu::SamplerDescriptor::default()
+    });
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("filterable float and filtering sampler"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("r32float through linear"),
+        layout: &layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    let error = pollster::block_on(scope.pop());
+    assert_eq!(
+        error.is_none(),
+        offered,
+        "an R32Float view binds to a filterable binding exactly where FLOAT32_FILTERABLE is \
+         offered: {error:?}"
+    );
+    assert_eq!(
+        device.features().contains(Features::FLOAT32_FILTERABLE),
+        offered,
+        "the engine device enables FLOAT32_FILTERABLE exactly where the adapter offers it"
+    );
+}

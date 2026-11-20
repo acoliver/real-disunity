@@ -17,6 +17,13 @@ pub enum GamePlace {
     /// Immediately after the last Opaque entry, before the contour IDs and the opaque snapshots,
     /// so the snapshots include what these passes drew.
     AfterOpaque,
+    /// After the opaque snapshot passes (the contour IDs, the colour snapshot and the depth
+    /// snapshots) and before the water, the temporal-mask producers and every other transparent
+    /// pass. The frame has the snapshots of the opaque scene by now, so a pass here samples them
+    /// and draws over the lit opaque colour that the transparent passes then draw over. It needs
+    /// no snapshot of its own to be placed here; it orders after the snapshot writers only when
+    /// it declares a read of one.
+    AfterOpaqueSnapshots,
     /// After the transparent passes and the post-water depth, before the reflection and
     /// screen-space passes that follow transparency.
     AfterTransparent,

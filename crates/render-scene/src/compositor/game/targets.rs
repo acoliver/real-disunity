@@ -161,6 +161,13 @@ impl TargetDeclaration {
         {
             return refuse("format is not a renderable colour format");
         }
+        let unsupported = self.usage.difference(features.allowed_usages);
+        if !unsupported.is_empty() {
+            return refuse(&format!(
+                "{:?} cannot be created with {unsupported:?}",
+                self.format
+            ));
+        }
         Ok(())
     }
 }

@@ -380,6 +380,16 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_script_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_messages(ulong world, ulong identity, uint messages);
         /// <summary>
+        ///  Answers a shadow query; see [`DisunityShadowRequest`].
+        ///
+        ///  # Safety
+        ///  `request` is readable for one record; `matrices` for 32 floats; `casters` for
+        ///  `request.caster_count` records, or null when the count is zero; `result` is writable for one
+        ///  record; `output` is writable for [`SHADOW_OUTPUT_FLOATS`] floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shadow_query", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shadow_query(DisunityShadowRequest* request, float* matrices, DisunityShadowCaster* casters, DisunityShadowResult* result, float* output);
+        /// <summary>
         ///  # Safety
         ///  Both outputs must be writable for one count.
         /// </summary>

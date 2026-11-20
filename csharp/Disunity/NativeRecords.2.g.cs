@@ -520,6 +520,78 @@ namespace Disunity.Native
         public ulong cull;
     }
 
+    /// <summary>
+    ///  A shadow query. The light's and the camera's matrices travel in the call's `matrices` pointer
+    ///  (32 floats: the light's local-to-world matrix, then the camera's projection times view
+    ///  matrix), column-major. `light_kind` is the `LightType` number. `caster_count` is the number of
+    ///  casters at the call's `casters` pointer. The directional fields are the split index and count,
+    ///  the three split ratios, the shadow map resolution and the near plane offset; `face` and
+    ///  `fov_bias` are for a point light.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowRequest
+    {
+        public uint query;
+        public uint light_kind;
+        public float light_range;
+        public float light_spot_angle;
+        public float camera_x;
+        public float camera_y;
+        public float camera_z;
+        public float shadow_distance;
+        public uint culling_mask;
+        public uint caster_count;
+        public uint split_index;
+        public uint split_count;
+        public float ratio_x;
+        public float ratio_y;
+        public float ratio_z;
+        public uint resolution;
+        public float near_plane_offset;
+        public uint face;
+        public float fov_bias;
+    }
+
+    /// <summary>
+    ///  A renderer a culling kept: the world-space box, the shadow casting mode (0 casts none) and the
+    ///  layer.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowCaster
+    {
+        public float min_x;
+        public float min_y;
+        public float min_z;
+        public float max_x;
+        public float max_y;
+        public float max_z;
+        public uint casting_mode;
+        public uint layer;
+    }
+
+    /// <summary>
+    ///  The answer to a query. `found` is 1 when casters affect the light and 0 when none does, and
+    ///  then the rest is zero. `plane_count` planes are written to the output buffer. The box of a
+    ///  bounds query and the culling sphere of a directional split are here; the matrices and planes
+    ///  are in the output buffer.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowResult
+    {
+        public uint found;
+        public uint plane_count;
+        public float min_x;
+        public float min_y;
+        public float min_z;
+        public float max_x;
+        public float max_y;
+        public float max_z;
+        public float sphere_x;
+        public float sphere_y;
+        public float sphere_z;
+        public float sphere_radius;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityUiDraw
     {

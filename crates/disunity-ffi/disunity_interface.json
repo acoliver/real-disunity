@@ -918,6 +918,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_shadow_query",
+      "since": "10.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_sorting_group_read",
       "since": "7.0.0",
       "rets": "DisunityResult"

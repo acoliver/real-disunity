@@ -8,7 +8,7 @@ internal static class AbiRevisionTests
         Expect.That(!DisunityHost.IsLoaded, "ABI verification precedes world creation");
         Expect.That(NativeAbi.Version == 18, "current ABI revision");
         NativeAbi.VerifyRevision(18);
-        foreach (var actual in new uint[] { 16, 18 })
+        foreach (var actual in new uint[] { 17, 19 })
         {
             var error = Expect.Catch<DisunityAbiRevisionException>(
                 () => NativeAbi.VerifyRevision(actual), "mismatched native revision");

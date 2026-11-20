@@ -49,6 +49,7 @@ fn texels(size: [u32; 2], graphics_format: u32, bytes: Vec<u8>) -> SourceTexture
         size,
         graphics_format,
         bytes,
+        mips: 1,
         sampler: None,
     }
 }

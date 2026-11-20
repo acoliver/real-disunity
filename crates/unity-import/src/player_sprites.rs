@@ -158,7 +158,7 @@ pub(crate) fn plan_texture(
 }
 
 /// The texture's planned fields over the pixels at `data`.
-fn texture_asset(texture: Texture2D, data: TextureData) -> Texture2DAsset {
+pub(crate) fn texture_asset(texture: Texture2D, data: TextureData) -> Texture2DAsset {
     let settings = texture.settings;
     Texture2DAsset {
         name: texture.name,

@@ -35,12 +35,14 @@ mod frame;
 
 use crate::PlayError;
 use crate::counts_line::{top_counts_line, unset_constants_line};
+use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
     Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts, StandInLook,
     SuppliedGlobal, WorkTrace, supplied_line,
 };
+use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -72,30 +74,6 @@ fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal], look: StandInLoo
 /// The stand-in look the environment asks for.
 fn stand_in_look_from_env() -> StandInLook {
     StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref())
-}
-
-/// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GlobalListing {
-    /// The frame the work belongs to, counting from zero: a flush the managed engine asked for
-    /// during a frame's script update, or that frame's own snapshot.
-    pub frame: u64,
-    /// `flush` or `frame`.
-    pub source: &'static str,
-    pub textures: Vec<String>,
-}
-
-impl GlobalListing {
-    /// The listing as a report line.
-    #[must_use]
-    pub fn line(&self) -> String {
-        format!(
-            "globals at a {} of frame {}: {}",
-            self.source,
-            self.frame,
-            self.textures.join(", ")
-        )
-    }
 }
 
 /// What the offscreen work of a run did.
@@ -176,6 +154,8 @@ pub struct GpuWorkReport {
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, over every piece of work, by property and reason.
     pub stand_ins: StandInCounts,
+    /// The retained renderers drawn white and left out, when the run drew a retained scene.
+    pub retained: Option<SubstitutionCensus>,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
     /// `Report::unset_constants`), over every piece of work.
     pub unset_constants: BTreeSet<String>,
@@ -327,13 +307,20 @@ impl GpuWorkReport {
         self.stand_ins.lines(TOP_STAND_INS)
     }
 
+    /// The lines of the retained renderer census, without the `[gpu] ` prefix.
+    fn retained_lines(&self) -> Vec<String> {
+        self.retained
+            .as_ref()
+            .map_or_else(Vec::new, SubstitutionCensus::lines)
+    }
+
     /// The lines of the stand-in census of the work done since the census was `before`.
     fn frame_stand_in_lines(&self, before: &StandInCounts) -> Vec<String> {
         self.stand_ins.since(before).lines(TOP_STAND_INS)
     }
 
-    /// The lines about the draws left out for want of a texture and, from `stand_in_lines`, the
-    /// draws that read stand-ins.
+    /// The lines about the draws left out for want of a texture, from `stand_in_lines` the
+    /// draws that read stand-ins, and the retained renderers drawn white.
     fn print_texture_lines(&self, stand_in_lines: &[String]) {
         if let Some(line) = top_counts_line(
             "draw:MissingTexture by texture",
@@ -342,7 +329,7 @@ impl GpuWorkReport {
         ) {
             eprintln!("[gpu] {line}");
         }
-        for line in stand_in_lines {
+        for line in stand_in_lines.iter().chain(&self.retained_lines()) {
             eprintln!("[gpu] {line}");
         }
     }
@@ -814,6 +801,11 @@ impl PlayerGpu {
         Ok(())
     }
 
+    /// Records the retained scene's census of renderers drawn white, for the report.
+    pub fn note_retained(&self, census: SubstitutionCensus) {
+        self.report.borrow_mut().retained = Some(census);
+    }
+
     /// What the run's offscreen work did so far.
     #[must_use]
     pub fn report(&self) -> std::cell::Ref<'_, GpuWorkReport> {
@@ -821,6 +813,9 @@ impl PlayerGpu {
     }
 }
 
+#[cfg(test)]
+#[path = "gpu_player_retained_tests.rs"]
+mod retained_tests;
 #[cfg(test)]
 mod stand_in_tests;
 

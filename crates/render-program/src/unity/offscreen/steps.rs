@@ -68,6 +68,17 @@ pub(super) enum Step {
     Resample(Box<ResampleStep>),
 }
 
+impl Step {
+    /// The draws the step holds planned until it is finished.
+    pub(super) fn planned_draws(&self) -> usize {
+        match self {
+            Self::Camera { draws, .. } => draws.len(),
+            Self::Blit(_) => 1,
+            Self::Resample(_) | Self::Ready(_) => 0,
+        }
+    }
+}
+
 /// The global values and keywords the draws read: the frame's own until a record replaces them.
 #[derive(Clone, Copy)]
 pub(super) struct Globals<'a> {

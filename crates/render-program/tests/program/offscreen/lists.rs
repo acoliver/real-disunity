@@ -15,7 +15,7 @@ use super::rig::{BLUE, CLEAR, GREEN, RED, Rig, ZERO, layer, pixel, quad, texture
 
 const NEAR: TextureId = TextureId(11);
 
-fn whole(texture: TextureId) -> Attachments {
+pub fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
     Attachments::single(attachment, attachment)
 }
@@ -28,7 +28,7 @@ fn clear_to(color: [f64; 4]) -> Clear {
     }
 }
 
-fn item(renderer: u64, material: Option<u64>) -> ListDraw {
+pub fn item(renderer: u64, material: Option<u64>) -> ListDraw {
     ListDraw {
         renderer: RendererId(renderer),
         slot: 0,
@@ -38,7 +38,7 @@ fn item(renderer: u64, material: Option<u64>) -> ListDraw {
     }
 }
 
-fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
+pub fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
     Record::Draws(Arc::new(DrawList {
         raster: DrawRaster::default(),
         target,

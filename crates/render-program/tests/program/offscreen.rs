@@ -34,4 +34,5 @@ mod undeclared;
 mod undeclared_cube;
 mod undeclared_volume;
 mod unfilterable;
+mod views;
 mod volume;

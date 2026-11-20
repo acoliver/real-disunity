@@ -304,6 +304,7 @@ CheckImport("disunity_offscreen_draw_mesh", u64, u64, f32.MakePointerType(), u64
 CheckImport("disunity_offscreen_draw_procedural", u64, f32.MakePointerType(), u64, typeof(int), u32, typeof(int), typeof(int));
 CheckImport("disunity_renderer_list_create_draw", u64, AbiType("DisunityDrawRendererList").MakePointerType(), bytes, u64.MakePointerType());
 CheckImport("disunity_renderer_list_create_shadow", u64, AbiType("DisunityShadowRendererList").MakePointerType(), f32.MakePointerType(), u64.MakePointerType());
+CheckImport("disunity_shadow_query", AbiType("DisunityShadowRequest").MakePointerType(), f32.MakePointerType(), AbiType("DisunityShadowCaster").MakePointerType(), AbiType("DisunityShadowResult").MakePointerType(), f32.MakePointerType());
 CheckImport("disunity_offscreen_draw_renderer_list", u64, u64);
 CheckImport("disunity_render_texture_read_pixels", u64, u64, u32, u32, u32, u32, u64.MakePointerType());
 CheckImport("disunity_render_texture_pixels_write", u64, u64, f32.MakePointerType(), u32);
@@ -555,6 +556,7 @@ Hash128Tests.Run();
 FilteringAndStateTests.Run();
 CullingDataTests.Run();
 VisibleLightTests.Run();
+ShadowCasterTests.Run();
 TransformAccessArrayTests.Run();
 RenderEntryPointTests.Run();
 SceneManagerTests.Run();

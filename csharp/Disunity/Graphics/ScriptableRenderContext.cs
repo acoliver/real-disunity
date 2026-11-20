@@ -67,7 +67,7 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         var copy = parameters;
         var lights = VisibleLightSet.Collect(parameters);
         lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
-        return new CullingResults { Handle = id, Lights = lights };
+        return new CullingResults { Handle = id, Lights = lights, Casters = new ShadowCasterSet(parameters) };
     }
     /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target, read now. The
     /// record reaches the world's offscreen list at <see cref="Submit"/>. A null camera throws <see cref="ArgumentNullException"/>, a

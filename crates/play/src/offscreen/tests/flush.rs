@@ -138,6 +138,7 @@ fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str)
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: Default::default(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);

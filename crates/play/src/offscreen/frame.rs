@@ -821,11 +821,22 @@ impl<'a> Mapper<'a> {
             .map_or_else(PropertyLayer::default, |block| {
                 layer(block, &mut self.textures)
             });
+        // A block of a slot the renderer draws nothing in is left out, as its textures are not
+        // needed by any draw.
+        let slot_blocks = view
+            .slot_blocks
+            .iter()
+            .filter_map(|(slot, block)| {
+                let slot = usize::try_from(*slot).ok()?;
+                (slot < slots.len()).then(|| (slot, layer(block, &mut self.textures)))
+            })
+            .collect();
         Ok(Renderer {
             mesh: ids::mesh(view.mesh),
             materials: slots,
             layer: view.layer,
             block,
+            slot_blocks,
             per_draw: draw_layer(&view.local_to_world),
         })
     }

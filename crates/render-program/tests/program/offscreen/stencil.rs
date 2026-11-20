@@ -138,6 +138,7 @@ fn frame(items: &[(Item, u32)], cameras: &[Camera], depth_bits: u8) -> Offscreen
                 materials: vec![MaterialId(id)],
                 layer: *layer_index,
                 block: PropertyLayer::default(),
+                slot_blocks: Default::default(),
                 per_draw: layer(&[("_Place", [width, 1.0, centre, 0.0])]),
             },
         );

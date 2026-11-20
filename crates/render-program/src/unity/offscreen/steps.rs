@@ -437,15 +437,19 @@ pub(super) fn planned_draw(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(material_id))?;
-    let layers = [
-        &renderer.per_draw,
-        look.values,
-        &renderer.block,
-        &material.properties,
-        &material.fallback,
-        look.globals.layer,
-        &material.below_globals,
-    ];
+    let layers: Vec<&PropertyLayer> = [
+        Some(&renderer.per_draw),
+        Some(look.values),
+        renderer.slot_blocks.get(&slot),
+        Some(&renderer.block),
+        Some(&material.properties),
+        Some(&material.fallback),
+        Some(look.globals.layer),
+        Some(&material.below_globals),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let spec = DrawSpec {
         shader,
         keywords: keywords(material, look.globals),

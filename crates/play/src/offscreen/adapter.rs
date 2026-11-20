@@ -20,8 +20,8 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState, Refusal,
 };
 use worldrunner_world_simulation::graphics::{
-    ComputeBufferId, OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource,
-    TextureRef,
+    ComputeBufferId, OffscreenWork, PropertyValue, RendererView, ShaderId as WorldShaderId,
+    ShaderSource, TextureRef,
 };
 
 use super::assets::Assets;
@@ -399,12 +399,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
         .materials
         .values()
         .map(|material| &material.properties)
-        .chain(
-            snapshot
-                .renderers
-                .iter()
-                .filter_map(|r| r.property_block.as_ref()),
-        )
+        .chain(snapshot.renderers.iter().flat_map(RendererView::blocks))
         .chain(snapshot.global.iter().map(|global| &global.properties));
     for properties in properties {
         for (_, slot) in &properties.textures {

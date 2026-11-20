@@ -197,6 +197,7 @@ fn frame(
                 materials: Vec::new(),
                 layer: 0,
                 block: PropertyLayer::default(),
+                slot_blocks: Default::default(),
                 per_draw: PropertyLayer::default(),
             },
         )]),

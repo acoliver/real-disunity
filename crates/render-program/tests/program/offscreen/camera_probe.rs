@@ -84,6 +84,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 materials: vec![MaterialId(1)],
                 layer: 1,
                 block: PropertyLayer::default(),
+                slot_blocks: Default::default(),
                 per_draw,
             },
         )

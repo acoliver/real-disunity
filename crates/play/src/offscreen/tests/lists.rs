@@ -631,10 +631,12 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
         ]))
     );
     // The clip depth takes (z + w) / 2, so the translation's z of 3 becomes 2 and z scales by half.
+    // The player's stages negate clip Y, so the matrix negates it first: y scales by -1 and the
+    // translation's y of 2 becomes -2.
     assert_eq!(
         values.get("unity_MatrixVP"),
         Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, 2.0, 2.0, 1.0
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, -2.0, 2.0, 1.0
         ]))
     );
     assert_eq!(
@@ -659,10 +661,11 @@ fn a_draw_list_takes_the_clip_depth_the_settings_say() {
     let adapted = run_with(&mut world, &settings, |_| {});
     let values = &lists(&adapted)[0].values.values;
     // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
+    // Y is negated for the player's stages, as in the forward case.
     assert_eq!(
         values.get("unity_MatrixVP"),
         Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, 2.0, -1.0, 1.0
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, -2.0, -1.0, 1.0
         ]))
     );
 }

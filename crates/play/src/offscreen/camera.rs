@@ -19,12 +19,19 @@ use worldrunner_world_simulation::graphics::CameraView;
 /// The matrix that takes OpenGL clip coordinates to the clip space a Unity Vulkan module is
 /// drawn in, with depth running as `depth` says.
 ///
-/// render-program's conventions tests (`tests/program/conventions.rs`) measure that the module's
-/// position output is used unflipped, so positive clip Y lands in the bottom rows of the image,
-/// and that the depth that survives clipping is 0 to w. The OpenGL projection's Y therefore
-/// stays as it is, which puts the lowest part of the scene in row 0, the same orientation as a
-/// texture the player stored (its rows are bottom first). Only depth changes. For
-/// [`DepthRange::Forward`], `z' = (z + w) / 2` takes -w..w to 0..w. For
+/// render-program's conventions tests (`tests/program/conventions.rs`) measure that a module's
+/// position output is used unflipped, so positive clip Y lands in the bottom rows of the image
+/// (row 0 at the top), and that the depth that survives clipping is 0 to w. The stages the player
+/// compiles write their clip Y negated, so a stage that is given the OpenGL Y puts the scene's up
+/// in row 0, the top rows, and what a camera draws into a render texture would hold its rows top
+/// first. A stored texture and every shader that samples one by a texture coordinate, the
+/// terrain's height lookup among them, have rows bottom first (v = 0 is row 0, the lowest part of
+/// the picture), and so do the world's pixel reads and the blits. The matrix therefore negates Y
+/// ahead of the stage's own negation: the scene's up lands in the last rows and a render
+/// texture's rows are bottom first like every other texture's. Winding follows from it: a front
+/// face is counter-clockwise in the image (see `lists::IMAGE_FRONT_FACE`).
+///
+/// Depth changes too. For [`DepthRange::Forward`], `z' = (z + w) / 2` takes -w..w to 0..w. For
 /// [`DepthRange::Reversed`], `z' = (w - z) / 2` takes -w..w to w..0, so near is w and far is 0,
 /// which is what render-program's reversed depth clears and tests expect.
 #[must_use]
@@ -32,7 +39,7 @@ pub fn clip_from_gl(depth: DepthRange) -> Mat4 {
     let sign = if depth.reversed() { -0.5 } else { 0.5 };
     Mat4::from_cols(
         Vec4::X,
-        Vec4::Y,
+        Vec4::NEG_Y,
         Vec4::new(0.0, 0.0, sign, 0.0),
         Vec4::new(0.0, 0.0, 0.5, 1.0),
     )

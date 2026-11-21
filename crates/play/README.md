@@ -46,7 +46,7 @@ A player run draws with reversed depth unless the run says otherwise: near is 1 
 | --- | --- |
 | `PlayerLaunch::depth` | `prepare_player` writes it into the bridge's request as `"reversed_z_buffer": true` or `false`, and the managed `PlayerDevice` declares a reversed depth buffer (`SystemInfo.usesReversedZBuffer`) exactly when it is true. |
 | `PreparedPlayer::depth` | `run_player_with` hands it to `PlayerGpu::headless`, which puts it in `Settings::depth`. |
-| `Settings::depth` | `OffscreenHost::new` calls `OffscreenState::set_reversed_depth` with it, and the adapter builds the clip space of every camera render and renderer list view with `clip_from_gl` for the same value. |
+| `Settings::depth` | `OffscreenHost::new` calls `OffscreenState::set_reversed_depth` with it, and the adapter builds the clip space of every camera render and renderer list view with `clip_from_gl` for the same value. `clip_from_gl` also negates clip Y, ahead of the negation every compiled player stage applies, so the scene's up lands in the last rows and a render texture's rows are bottom first like a stored texture's (a shader's texture coordinate, a pixel read and a blit then agree on which row is which). |
 
 The default is reversed. `--depth forward` or the environment variable `RD_REVERSED_DEPTH=0` (or `false`) turns it off, and `--depth reversed` or `RD_REVERSED_DEPTH=1` (or `true`) states the default; the command line wins over the environment, and `play`'s `main` reads the environment once. Library callers that build `Settings` or an `OffscreenState` directly get forward depth, as before, unless they ask: `Settings::default().depth` is `DepthRange::Forward`, and `PlayerLaunch::default().depth` is `DepthRange::PLAYER`, which is reversed.
 

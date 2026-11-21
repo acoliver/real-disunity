@@ -22,7 +22,7 @@ use worldrunner_unity_serialized::{SerializedError, smolv};
 
 use crate::module::entry_point_names;
 use crate::unity::module::{ModuleError, StageKind, StageModule, StageProgram};
-use crate::unity::variant::{declared_keywords, select_variant};
+use crate::unity::variant::{declared_player_keywords, select_variant};
 
 /// Unity's `ShaderPropertyType` of a texture property.
 const TEXTURE_PROPERTY: i32 = 4;
@@ -32,9 +32,10 @@ const TEXTURE_PROPERTY: i32 = 4;
 pub enum PassSelector {
     /// The pass at this position in the first sub-shader, as a blit names it.
     Index(usize),
-    /// The first pass whose tag `key` has the first of `values` that any pass has. Tag keys are
-    /// compared without regard to ASCII case, because Unity stores some of them in upper case.
-    /// Values are compared exactly.
+    /// The first pass whose tag `key` has the first of `values` that any pass has. Tag keys and
+    /// values are compared without regard to ASCII case (see [`tag_values_match`]), because
+    /// Unity stores some of them in upper case and shaders spell a value such as `ShadowCaster`
+    /// both ways.
     Tag { key: String, values: Vec<String> },
     /// As `Tag`, with a pass that has no tag `key` counted as having `untagged` for that key.
     /// A pass that has the tag keeps its own value.
@@ -43,6 +44,14 @@ pub enum PassSelector {
         values: Vec<String>,
         untagged: String,
     },
+}
+
+/// Whether two tag values, or a tag value and a value a caller asks for, name the same thing. The
+/// one rule for tag values everywhere a pass is chosen by tag: ASCII case does not matter, as it
+/// does not for tag keys.
+#[must_use]
+pub fn tag_values_match(held: &str, asked: &str) -> bool {
+    held.eq_ignore_ascii_case(asked)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -128,6 +137,12 @@ impl ProgramShader {
             states,
             variants: HashMap::new(),
         })
+    }
+
+    /// The name the shader source declares.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.shader.parsed.name
     }
 
     /// The passes of the first sub-shader.
@@ -229,7 +244,7 @@ impl ProgramShader {
             PassSelector::Index(index) => (*index < passes.len()).then_some(*index),
             PassSelector::Tag { key, values } => values.iter().find_map(|value| {
                 passes.iter().position(|pass| {
-                    tag(pass, key).is_some_and(|held| held.eq_ignore_ascii_case(value))
+                    tag(pass, key).is_some_and(|held| tag_values_match(held, value))
                 })
             }),
             PassSelector::TagWithUntagged {
@@ -237,11 +252,9 @@ impl ProgramShader {
                 values,
                 untagged,
             } => values.iter().find_map(|value| {
-                passes.iter().position(|pass| {
-                    tag(pass, key)
-                        .unwrap_or(untagged.as_str())
-                        .eq_ignore_ascii_case(value)
-                })
+                passes
+                    .iter()
+                    .position(|pass| tag_values_match(tag(pass, key).unwrap_or(untagged), value))
             }),
         };
         found.ok_or_else(|| ResolveError::NoPass {
@@ -272,7 +285,7 @@ impl ProgramShader {
         let (variant, parameters) = select_variant(
             &pairs,
             |(variant, _)| variant.keyword_indices.as_slice(),
-            &declared_keywords(program),
+            &declared_player_keywords(pairs.iter().map(|(variant, _)| *variant)),
             &enabled,
         )
         .map_err(|error| no_variant(error.to_string()))?;

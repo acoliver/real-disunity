@@ -28,7 +28,7 @@ use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
-use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 use worldrunner_world_simulation::shadows::CASTS_NO_SHADOW;
 
@@ -37,6 +37,7 @@ use super::builtins::{add_screen_size, view_layer};
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
+use super::light_data::{MainLight, item_values};
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
 /// the passes of the Old World player's shaders come from the decoded pass tags, which the report
@@ -58,12 +59,12 @@ const NO_SHADOW_CAST: &str = "casts no shadow";
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
-    /// Whether a pass of the shader has the `LightMode` value `mode`, in any case: a player build
-    /// spells its shadow caster passes `SHADOWCASTER` where a pipeline asks for `ShadowCaster`.
+    /// Whether a pass of the shader has the `LightMode` value `mode`, by the rule that selects
+    /// the pass ([`tag_values_match`]).
     pub(super) fn has_light_mode(&self, mode: &str) -> bool {
         self.light_modes
             .iter()
-            .any(|held| held.eq_ignore_ascii_case(mode))
+            .any(|held| tag_values_match(held, mode))
     }
 
     /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
@@ -73,7 +74,7 @@ impl ShaderInfo {
     fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
             self.has_light_mode(tag)
-                || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
+                || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
         })
     }
 }
@@ -119,6 +120,7 @@ impl<'a> Mapper<'a> {
         report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
         self.script.culls.insert(id, kept);
+        self.script.cull_masks.insert(id, mask);
     }
 
     /// The corners of the box of the renderer's mesh in the world, or the point its matrix places
@@ -175,9 +177,11 @@ impl<'a> Mapper<'a> {
             .ok_or(Skip::UnknownList)?;
         let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
+        let mask = self.script.cull_masks.get(cull).copied().unwrap_or(0);
+        let main = MainLight::picked_by(&self.snapshot.lights, mask);
         let draws = match &desc {
-            RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
-            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
+            RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, (eye, &main)),
+            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc, &main),
         };
         let lists = &mut self.report.lists;
         if draws.is_empty() {
@@ -240,7 +244,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         culled: &[usize],
         desc: &RendererListDesc,
-        eye: Vec3,
+        (eye, main): (Vec3, &MainLight),
     ) -> Vec<ListDraw> {
         let RendererListDesc::Draw {
             pass_tags,
@@ -311,12 +315,17 @@ impl<'a> Mapper<'a> {
             }
         }
         sort(&mut candidates, *sorting);
-        self.items(candidates, replacement, &selector)
+        self.items(candidates, replacement, (&selector, main))
     }
 
     /// The draws of the culled renderers inside a shadow split that cast a shadow and have a pass
     /// to draw a caster, in the order the renderers were culled.
-    fn shadow_items(&mut self, culled: &[usize], desc: &RendererListDesc) -> Vec<ListDraw> {
+    fn shadow_items(
+        &mut self,
+        culled: &[usize],
+        desc: &RendererListDesc,
+        main: &MainLight,
+    ) -> Vec<ListDraw> {
         let RendererListDesc::Shadow { planes, sphere, .. } = desc else {
             return Vec::new();
         };
@@ -354,7 +363,7 @@ impl<'a> Mapper<'a> {
                 });
             }
         }
-        self.items(candidates, None, &selector)
+        self.items(candidates, None, (&selector, main))
     }
 
     /// Whether renderer `index` casts a shadow into a split, counting it by the reason when it
@@ -384,18 +393,20 @@ impl<'a> Mapper<'a> {
         &mut self,
         candidates: Vec<Candidate>,
         replacement: Option<worldrunner_render_program::ids::MaterialId>,
-        selector: &PassSelector,
+        (selector, main): (&PassSelector, &MainLight),
     ) -> Vec<ListDraw> {
         candidates
             .into_iter()
             .map(|candidate| {
                 self.drawn_with(&candidate.tag);
+                let layer = self.snapshot.renderers[candidate.renderer].layer;
                 ListDraw {
                     renderer: RendererId(candidate.renderer as u64),
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
                     instances: 1,
+                    per_draw: item_values(main, layer),
                 }
             })
             .collect()

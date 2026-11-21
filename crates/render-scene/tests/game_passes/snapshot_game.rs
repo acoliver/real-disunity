@@ -14,8 +14,8 @@ use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, GameBuild,
-        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, SnapshotImage,
-        SnapshotReads, TargetDeclaration, TargetExtent,
+        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, PostWaterDepth,
+        SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -46,6 +46,13 @@ const COPY_DEPTH: &str = "
     return vec4<f32>(textureLoad(device_depth, pixel, 0).r, textureLoad(linear_depth, pixel, 0).r, 0.0, 1.0);
 }";
 
+/// Writes the linear depth in red into a game target, binding no other snapshot.
+const COPY_LINEAR: &str = "
+@group(0) @binding(0) var linear_depth: texture_2d<f32>;
+@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureLoad(linear_depth, vec2<i32>(p.xy), 0).r, 0.0, 0.0, 1.0);
+}";
+
 /// Writes the depth snapshots into the frame's own colour: device depth in red, a tenth of the
 /// metres in green.
 const DEPTH_TO_FRAME: &str = "
@@ -70,6 +77,9 @@ pub const DEPTH_PASS: PassEntry =
     PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaqueSnapshots), 1);
 pub const FRAME_PASS: PassEntry =
     PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaqueSnapshots), 2);
+/// Reads only the linear depth snapshot.
+pub const LINEAR_PASS: PassEntry =
+    PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaqueSnapshots), 5);
 pub const TRANSPARENT_PASS: PassEntry =
     PassEntry::nth(PassSlot::Game(GamePlace::AfterTransparent), 0);
 /// A fill drawn into the frame after the snapshots, ahead of [`LATE_COLOR_PASS`].
@@ -113,6 +123,8 @@ pub struct Plan {
     pub probe_depth: bool,
     /// Writes both depth snapshots into the frame's colour.
     pub depth_to_frame: bool,
+    /// Writes only the linear depth snapshot into [`DEPTH_PROBE`], in red.
+    pub probe_linear: bool,
     /// A magenta fill into the frame, and where it is drawn.
     pub fill: Fill,
 }
@@ -124,6 +136,11 @@ pub struct Seen {
     pub recorded: Vec<PassEntry>,
     /// What the handle answered in each frame's `prepare`.
     pub lent: Vec<Result<(), FrameSnapshotError>>,
+    /// Which snapshots each frame's lent set held, none when the handle refused.
+    pub lent_shape: Vec<SnapshotReads>,
+    /// When set, the plan every later frame uses in place of the factory's, so a test can change
+    /// what the game plans between frames.
+    pub replan: Option<Plan>,
 }
 
 #[derive(Clone)]
@@ -134,6 +151,11 @@ pub struct SnapGame {
 }
 
 impl SnapGame {
+    /// The plan for the frame now being planned or prepared.
+    fn plan_now(&self) -> Plan {
+        self.seen.lock().unwrap().replan.unwrap_or(self.plan)
+    }
+
     pub fn new(declared: SnapshotReads, plan: Plan) -> (Arc<Self>, Arc<Mutex<Seen>>) {
         let seen = Arc::new(Mutex::new(Seen::default()));
         let game = Arc::new(Self {
@@ -213,6 +235,10 @@ impl GameFeatureFactory for SnapGame {
                 vec![texture_binding(0, "snapshot.color", unfiltered)],
             ),
             copy_depth: program(COPY_DEPTH, depth_bindings()),
+            copy_linear: program(
+                COPY_LINEAR,
+                vec![texture_binding(0, "snapshot.linear_depth", unfiltered)],
+            ),
             depth_to_frame: program(DEPTH_TO_FRAME, depth_bindings()),
             magenta: program(MAGENTA, Vec::new()),
         };
@@ -233,6 +259,7 @@ impl GameFeatureFactory for SnapGame {
 struct Programs {
     copy_color: GraphicsProgram,
     copy_depth: GraphicsProgram,
+    copy_linear: GraphicsProgram,
     depth_to_frame: GraphicsProgram,
     magenta: GraphicsProgram,
 }
@@ -265,7 +292,7 @@ impl FrameFeature for SnapFeature {
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
         let [copy, probe] = declarations();
-        let plan = self.game.plan;
+        let plan = self.game.plan_now();
         let mut declared = Vec::new();
         let mut add = |spec: GamePassSpec| -> Result<(), FrameError> {
             declared.push(self.targets.plan_pass(&spec, passes, views)?);
@@ -280,6 +307,10 @@ impl FrameFeature for SnapFeature {
             device_depth: true,
             ..SnapshotReads::NONE
         };
+        let linear = SnapshotReads {
+            linear_depth: true,
+            ..SnapshotReads::NONE
+        };
         let after = GamePlace::AfterOpaqueSnapshots;
         if plan.copy_color {
             add(GamePassSpec::new(after, 0)
@@ -290,6 +321,11 @@ impl FrameFeature for SnapFeature {
             add(GamePassSpec::new(after, 1)
                 .writing([ColorOutput::Target(probe.layer(0))])
                 .reading_snapshots(depths))?;
+        }
+        if plan.probe_linear {
+            add(GamePassSpec::new(after, 5)
+                .writing([ColorOutput::Target(probe.layer(0))])
+                .reading_snapshots(linear))?;
         }
         if plan.depth_to_frame {
             add(GamePassSpec::new(after, 2)
@@ -350,6 +386,11 @@ impl SnapFrame {
                 "snapshot.color",
                 lent.color.as_ref().ok_or_else(missing)?,
             )]
+        } else if entry == LINEAR_PASS {
+            vec![sampled(
+                "snapshot.linear_depth",
+                lent.linear_depth.as_ref().ok_or_else(missing)?,
+            )]
         } else if entry == DEPTH_PASS || entry == FRAME_PASS {
             vec![
                 sampled(
@@ -381,10 +422,10 @@ impl SnapFrame {
             alpha_to_coverage: false,
         });
         let imports = match (entry, lent) {
-            (COLOR_PASS | LATE_COLOR_PASS | DEPTH_PASS | FRAME_PASS, Ok(lent)) => {
+            (COLOR_PASS | LATE_COLOR_PASS | DEPTH_PASS | FRAME_PASS | LINEAR_PASS, Ok(lent)) => {
                 Self::imports(entry, lent)?
             }
-            (COLOR_PASS | LATE_COLOR_PASS | DEPTH_PASS | FRAME_PASS, Err(error)) => {
+            (COLOR_PASS | LATE_COLOR_PASS | DEPTH_PASS | FRAME_PASS | LINEAR_PASS, Err(error)) => {
                 return Err((*error).into());
             }
             _ => Vec::new(),
@@ -392,6 +433,7 @@ impl SnapFrame {
         let program = match entry {
             COLOR_PASS | LATE_COLOR_PASS => &parts.programs.copy_color,
             DEPTH_PASS => &parts.programs.copy_depth,
+            LINEAR_PASS => &parts.programs.copy_linear,
             FRAME_PASS => &parts.programs.depth_to_frame,
             _ => &parts.programs.magenta,
         };
@@ -423,17 +465,33 @@ impl PreparedFeature for SnapFrame {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         self.parts.lock().unwrap().draws.clear();
         let lent = self.snapshots.current();
-        self.game
-            .seen
-            .lock()
-            .unwrap()
-            .lent
-            .push(lent.as_ref().map(|_| ()).map_err(|error| *error));
-        let plan = self.game.plan;
+        let plan = self.game.plan_now();
+        {
+            let mut seen = self.game.seen.lock().unwrap();
+            seen.lent
+                .push(lent.as_ref().map(|_| ()).map_err(|error| *error));
+            seen.lent_shape.push(
+                lent.as_ref()
+                    .map_or(SnapshotReads::NONE, |lent| SnapshotReads {
+                        color: lent.color.is_some(),
+                        linear_depth: lent.linear_depth.is_some(),
+                        device_depth: lent.device_depth.is_some(),
+                        post_water_depth: match (
+                            lent.post_water_depth.is_some(),
+                            lent.post_water_device_depth.is_some(),
+                        ) {
+                            (true, true) => PostWaterDepth::LinearAndDevice,
+                            (true, false) => PostWaterDepth::Linear,
+                            _ => PostWaterDepth::Unread,
+                        },
+                    }),
+            );
+        }
         for (planned, entry) in [
             (plan.copy_color, COLOR_PASS),
             (plan.probe_depth, DEPTH_PASS),
             (plan.depth_to_frame, FRAME_PASS),
+            (plan.probe_linear, LINEAR_PASS),
             (plan.fill == Fill::AfterOpaque, OPAQUE_FILL_PASS),
             (plan.fill == Fill::ThenCopyColor, FILL_PASS),
             (plan.fill == Fill::ThenCopyColor, LATE_COLOR_PASS),

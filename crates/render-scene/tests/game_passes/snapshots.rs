@@ -9,6 +9,7 @@ use super::snapshot_game::{
 use worldrunner_render_scene::{
     compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics},
     executor::{FrameConfig, FrameError},
+    wgpu,
 };
 
 /// A pixel the quad covers, and one it does not.
@@ -360,6 +361,13 @@ fn the_handle_refuses_outside_a_frame_by_name() {
     );
 }
 
+/// What `count` textures of the frame's extent in `format` cost, texel size times texels times
+/// count, the way the renderer configuration charges its snapshot textures.
+fn charged(format: wgpu::TextureFormat, count: u64) -> u64 {
+    let texel = u64::from(format.block_copy_size(None).unwrap());
+    count * u64::from(SIZE[0] * SIZE[1]) * texel
+}
+
 #[test]
 fn the_allocation_budget_charges_the_snapshots_a_game_declares_it_reads() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
@@ -370,19 +378,28 @@ fn the_allocation_budget_charges_the_snapshots_a_game_declares_it_reads() {
         })
         .resident_bytes()
     };
-    let texels = u64::from(SIZE[0] * SIZE[1]);
-    // Three slots of Rgba16Float colour, and of R32Float linear, post-water and device depth.
-    let without_device_depth = 3 * texels * (8 + 4 + 4);
-    let device_depth = 3 * texels * 4;
+    // A colour snapshot per frame slot, two depths a slot (linear and post-water), and the
+    // uniform and staging buffers of the snapshot executor, one each per slot.
+    let shared = charged(wgpu::TextureFormat::Rgba16Float, 3)
+        + charged(wgpu::TextureFormat::R32Float, 6)
+        + 3 * (304 + 192);
+    let device_depth = charged(wgpu::TextureFormat::R32Float, 3);
     let none = resident(SnapshotReads::NONE);
     let colour = resident(COLOR);
-    assert!(
-        colour >= none + without_device_depth,
-        "{colour} over {none}"
+    assert_eq!(
+        colour - none,
+        shared,
+        "the shared snapshots, without device depth"
     );
-    assert!(
-        resident(DEPTHS) >= colour + device_depth,
-        "the device depth copy is reserved when a game reads it"
+    assert_eq!(
+        resident(DEPTHS) - colour,
+        device_depth,
+        "the device depth copy is reserved when a game reads it, and the colour is not"
+    );
+    assert_eq!(
+        resident(SnapshotReads::ALL) - colour,
+        device_depth,
+        "reading everything costs the shared snapshots and the device depth once"
     );
 }
 

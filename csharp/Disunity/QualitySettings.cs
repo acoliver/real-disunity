@@ -27,7 +27,7 @@ public static class QualitySettings
     private static float _shadowDistance = 150f;
     private static ShadowQuality _shadows = ShadowQuality.All;
     private static ShadowmaskMode _shadowmask = ShadowmaskMode.DistanceShadowmask;
-    private static ColorSpace _colorSpace = ColorSpace.Gamma;
+    private static ColorSpace? _colorSpace;
     private static bool _lodCrossFade = true;
     private static bool _billboardsFaceCamera = true;
 
@@ -129,6 +129,13 @@ public static class QualitySettings
     /// <summary>The color space the host reports; gamma until it says otherwise.</summary>
     public static ColorSpace activeColorSpace
     {
+        get { lock (Gate) return _colorSpace ?? ColorSpace.Gamma; }
+    }
+
+    /// <summary>The color space the host set, or null before it sets one. The engine's default render formats read
+    /// this value, so they follow the host's choice and keep their own default until it makes one.</summary>
+    internal static ColorSpace? HostColorSpace
+    {
         get { lock (Gate) return _colorSpace; }
     }
 
@@ -214,7 +221,7 @@ public static class QualitySettings
         {
             (_names, _pipelines) = (["Default"], [null]);
             (_level, _antiAliasing, _mipmapLimit, _maximumLod, _queuedFrames, _vSync) = (0, 0, 0, 0, 2, 1);
-            (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, ColorSpace.Gamma);
+            (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, null);
             (_lodCrossFade, _billboardsFaceCamera) = (true, true);
             _shadowmask = ShadowmaskMode.DistanceShadowmask;
         }

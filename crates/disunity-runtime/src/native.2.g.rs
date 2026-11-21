@@ -119,6 +119,26 @@ pub struct DisunityComputeBindingsInfo {
     pub text_length: u32,
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DisunityEnvironment {
+    pub ambient_set: u32,
+    pub ambient_mode: u32,
+    pub ambient_intensity: f32,
+    pub reflection_set: u32,
+    pub reflection_mode: u32,
+    pub reflection_intensity: f32,
+    pub custom_kind: u32,
+    pub skybox_kind: u32,
+    pub custom_texture: u64,
+    pub skybox_texture: u64,
+    pub ambient_sky: [f32; 4],
+    pub ambient_equator: [f32; 4],
+    pub ambient_ground: [f32; 4],
+    pub ambient_flat: [f32; 4],
+    pub ambient_probe: [f32; 27],
+    pub padding: u32,
+}
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityShaderInfo {
     pub path_id: i64,

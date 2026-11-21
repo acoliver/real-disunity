@@ -1,6 +1,7 @@
 use super::*;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
+use worldrunner_scene_viewer::SharedGpu;
 
 /// The turn of one test that boots the managed host. A process holds one host at a time, so a
 /// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
@@ -84,7 +85,9 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     .unwrap();
     let scene = SceneTables::initial_scene(None).unwrap();
     let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host
+        .windowless_on(&mut driver, SharedGpu::headless_for_test())
+        .unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     run.frame().unwrap();
     let generation = run.host().accepted_generation();

@@ -1,12 +1,16 @@
 use worldrunner_unity_serialized::{
     SerializedError,
-    player_settings::{FIELDS, Field, PlayerIdentity, read_player_identity},
+    player_settings::{
+        ColorSpace, FIELDS, Field, PlayerIdentity, PlayerSettings, read_player_identity,
+        read_player_settings,
+    },
 };
 
 /// `PlayerSettings` bytes for [`FIELDS`]: every string named `companyName`, `productName` or
 /// `bundleVersion` holds `text(name)`, other strings are empty, and every collection holds
-/// one entry, so a wrong element size or alignment shifts the strings that follow.
-fn settings(text: impl Fn(&str) -> String) -> Vec<u8> {
+/// one entry, so a wrong element size or alignment shifts the strings that follow. Every `int`
+/// is 7 except `m_ActiveColorSpace`, which is `space`.
+fn settings_in(text: impl Fn(&str) -> String, space: u32) -> Vec<u8> {
     let mut bytes = Vec::new();
     let align = |bytes: &mut Vec<u8>| bytes.resize(bytes.len().next_multiple_of(4), 0);
     let string = |bytes: &mut Vec<u8>, value: &str| {
@@ -17,6 +21,7 @@ fn settings(text: impl Fn(&str) -> String) -> Vec<u8> {
     for &(name, field, aligned) in FIELDS {
         match field {
             Field::Bool => bytes.push(1),
+            Field::I32 if name == "m_ActiveColorSpace" => bytes.extend(space.to_le_bytes()),
             Field::I32 | Field::U32 | Field::F32 => bytes.extend(7u32.to_le_bytes()),
             Field::Str => string(&mut bytes, &text(name)),
             Field::PPtr => bytes.extend([0; 12]),
@@ -38,6 +43,10 @@ fn settings(text: impl Fn(&str) -> String) -> Vec<u8> {
     bytes
 }
 
+fn settings(text: impl Fn(&str) -> String) -> Vec<u8> {
+    settings_in(text, 1)
+}
+
 fn named(name: &str) -> String {
     match name {
         "companyName" => "Studio".to_owned(),
@@ -56,6 +65,38 @@ fn reads_the_names_and_version_and_ignores_later_settings() {
             product_name: "Game".to_owned(),
             version: "1.2.3".to_owned(),
         }
+    );
+}
+
+#[test]
+fn reads_the_project_color_space_with_the_identity() {
+    for (stored, space) in [(0, ColorSpace::Gamma), (1, ColorSpace::Linear)] {
+        assert_eq!(
+            read_player_settings(&settings_in(named, stored), false).unwrap(),
+            PlayerSettings {
+                identity: PlayerIdentity {
+                    company_name: "Studio".to_owned(),
+                    product_name: "Game".to_owned(),
+                    version: "1.2.3".to_owned(),
+                },
+                color_space: space,
+            }
+        );
+    }
+}
+
+#[test]
+fn a_color_space_that_is_neither_gamma_nor_linear_is_an_error() {
+    assert!(matches!(
+        read_player_settings(&settings_in(named, 2), false),
+        Err(SerializedError::InvalidEnum { value: 2, .. })
+    ));
+    // The identity does not depend on the color space.
+    assert_eq!(
+        read_player_identity(&settings_in(named, 2), false)
+            .unwrap()
+            .product_name,
+        "Game"
     );
 }
 

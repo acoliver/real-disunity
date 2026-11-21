@@ -12,7 +12,9 @@ pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
-pub use prepared::{PreparedAccess, PreparedCommands, PreparedRefusal, PreparedWrite};
+pub use prepared::{
+    PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -666,8 +668,10 @@ impl<'a> PrepareContext<'a> {
             bytes,
         });
     }
-    /// Stages one compute dispatch, encoded in its own compute pass after the copies and
-    /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    /// Stages one compute dispatch of `pipeline` with `group` at set 0, encoded after the copies
+    /// and dispatches staged before it, so it reads bytes uploaded or copied earlier in this
+    /// context. It shares a compute pass with the compute work staged just before and after it,
+    /// inside a debug group of `label`, so `pipeline` must use no other group.
     ///
     /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
     /// owns over its own buffers and textures. Work that writes or reads views of the frame, or

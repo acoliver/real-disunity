@@ -282,6 +282,38 @@ namespace Unity.Burst.LowLevel
         public static int CompileAsyncDelegateMethod(object delegateMethod, string compilerOptions) => -1;
         public static void* GetAsyncCompiledAsyncDelegateMethod(int userID) => null;
 
+        private static readonly object SharedLock = new();
+        private static readonly Dictionary<UnityEngine.Hash128, (IntPtr Block, uint Size, uint Alignment)> Shared = new();
+
+        /// <summary>
+        /// The memory a shared static lives in: a block of <paramref name="sizeOf"/> bytes at <paramref name="alignment"/>,
+        /// zeroed when it is made and kept for the life of the process. The same key gives the same block, so every reader of
+        /// one shared static sees one value. A key asked again for more bytes or a wider alignment than its block has is
+        /// refused, since the block cannot grow under readers that hold it.
+        /// </summary>
+        /// <exception cref="ArgumentException">The alignment is not a power of two.</exception>
+        /// <exception cref="InvalidOperationException">The key's block is smaller or less aligned than asked.</exception>
+        public static void* GetOrCreateSharedMemory(ref UnityEngine.Hash128 key, uint sizeOf, uint alignment)
+        {
+            var align = Math.Max(alignment, 1u);
+            if (!uint.IsPow2(align)) throw new ArgumentException($"the alignment {alignment} is not a power of two", nameof(alignment));
+            lock (SharedLock)
+            {
+                if (Shared.TryGetValue(key, out var held))
+                {
+                    if (sizeOf > held.Size || align > held.Alignment)
+                        throw new InvalidOperationException(
+                            $"the shared memory for {key} holds {held.Size} bytes at alignment {held.Alignment}, not {sizeOf} at {align}");
+                    return (void*)held.Block;
+                }
+                var size = Math.Max(sizeOf, 1u);
+                var block = System.Runtime.InteropServices.NativeMemory.AlignedAlloc(size, align);
+                System.Runtime.InteropServices.NativeMemory.Clear(block, size);
+                Shared[key] = ((IntPtr)block, sizeOf, align);
+                return block;
+            }
+        }
+
         public static void Log(void* userData, BurstLogType logType, byte* message, byte* filename, int lineNumber) =>
             Write(logType, message);
 

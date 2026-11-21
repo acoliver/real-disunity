@@ -25,14 +25,14 @@ use worldrunner_world_simulation::presentation::CameraClear;
 use super::bounds::Bounds;
 use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
-    draw_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
+use super::environment::add_environment;
 use super::ids;
 use super::mips::AutoMips;
 use super::properties::{
-    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
+    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults, slot_layers,
     split_below_globals,
 };
 use super::script::Script;
@@ -401,8 +401,9 @@ impl<'a> Mapper<'a> {
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
         add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
-        // Nothing the world or the script sets is replaced: the ambient names take the engine's
-        // default only where no layer holds them.
+        // The scene's environment fills the reflection cube and the ambient names no layer holds,
+        // and the engine's default ambient takes the names that remain.
+        add_environment(&mut frame.globals, &snapshot.environment, &mut textures);
         add_ambient(&mut frame.globals);
         let script = Script::new(
             frame.globals.clone(),
@@ -821,12 +822,14 @@ impl<'a> Mapper<'a> {
             .map_or_else(PropertyLayer::default, |block| {
                 layer(block, &mut self.textures)
             });
+        let slot_blocks = slot_layers(&view.slot_blocks, slots.len(), &mut self.textures);
         Ok(Renderer {
             mesh: ids::mesh(view.mesh),
             materials: slots,
             layer: view.layer,
             block,
-            per_draw: draw_layer(&view.local_to_world),
+            slot_blocks,
+            per_draw: self.renderer_draw(&view.local_to_world, view.layer),
         })
     }
 

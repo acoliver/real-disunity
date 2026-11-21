@@ -71,6 +71,34 @@ fn no_pass_is_a_named_error_and_never_another_pass() {
 }
 
 #[test]
+fn a_tag_value_is_compared_without_regard_to_case_as_a_tag_key_is() {
+    let mut shader = shader();
+    assert_eq!(shader.resolve(&tag(&["ALPHA"]), &[]).unwrap().pass, 0);
+    assert_eq!(
+        shader
+            .resolve(&tag(&["gamma", "bEtA"]), &["K_OTHER"])
+            .unwrap()
+            .pass,
+        1
+    );
+    let mut untagged = first_untagged();
+    assert_eq!(
+        untagged
+            .resolve(&untagged_as(&["BETA"], "Alpha"), &["K_OTHER"])
+            .unwrap()
+            .pass,
+        1
+    );
+    assert_eq!(
+        untagged
+            .resolve(&untagged_as(&["alpha"], "Alpha"), &[])
+            .unwrap()
+            .pass,
+        0
+    );
+}
+
+#[test]
 fn a_variant_has_exactly_the_keywords_the_pass_declares_that_are_enabled() {
     let mut shader = shader();
     let plain = shader.resolve(&PassSelector::Index(0), &[]).unwrap();

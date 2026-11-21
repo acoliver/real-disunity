@@ -45,7 +45,7 @@ fn run_frames(
     let (gpu, authority) = shared.unzip();
     let mut run = match gpu {
         Some(gpu) => viewer.windowless_on(driver, gpu),
-        None => viewer.windowless(driver),
+        None => viewer.windowless_on(driver, SharedGpu::headless_for_test()),
     }
     .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);

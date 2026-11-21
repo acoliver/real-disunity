@@ -47,11 +47,14 @@ pub(crate) use game::terrain_probe;
 pub use game::{
     CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle,
-    FrameSnapshots, FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory,
-    GamePassSpec, GamePasses, GameTargets, OcclusionDepth, PassTarget, PostWaterDepth,
-    ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration,
-    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
+    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
+    FrameTerrainError, FrameTerrainHandle, GameBlockDestination, GameBuffer, GameBufferDeclaration,
+    GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec, GamePasses,
+    GameReadback, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
+    GameTextureDeclaration, GameTextureLevel, LevelAccess, OcclusionDepth, PassTarget,
+    PostWaterDepth, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -107,6 +110,8 @@ pub struct FrameRenderer {
     game_camera: FrameCameraHandle,
     /// The streamed terrain of the frame being encoded, which the game's features read.
     game_terrain: FrameTerrainHandle,
+    /// Where every route lends the scene's resident textures to the game's features.
+    game_textures: game::FrameSceneTexturesHandle,
     /// Whether the stock passes draw the scene's terrain.
     terrain_draws: TerrainDraws,
     /// Whether the stock passes draw the scene's water.
@@ -172,6 +177,7 @@ impl FrameRenderer {
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
+            game_textures: game::FrameSceneTexturesHandle::default(),
             terrain_draws: TerrainDraws::Stock,
             water_draws: WaterDraws::Stock,
             water: None,
@@ -655,6 +661,7 @@ impl FrameRenderer {
                 &mut combined,
             )?;
         }
+        self.record_game_work(encoder)?;
         self.publish_snapshots(encoder, schedule.request);
         self.stage_temporal_history(encoder, &frame)
     }
@@ -701,7 +708,8 @@ impl FrameRenderer {
                 operations: &[],
             },
             features,
-        )
+        )?;
+        self.record_game_work(encoder)
     }
 }
 

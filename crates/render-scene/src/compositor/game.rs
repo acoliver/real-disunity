@@ -21,7 +21,12 @@
 //! [`GamePassSpec::sampling_frame`], so that frame validation orders the pass after the filter
 //! that produces it and the frame computes it even when no stock receiver samples it.
 //! It can also sample the installed specular environment cube ([`FrameEnvironmentHandle`]), a
-//! retained texture that needs no declaration.
+//! retained texture that needs no declaration, and the scene's resident textures
+//! ([`FrameSceneTexturesHandle`]).
+//!
+//! The feature owns no GPU resource. The buffers, textures and samplers its passes read are
+//! declared to [`GameResources`], which the generation creates and owns, and its programs, sets
+//! and draws are made with that store's program runtime.
 //!
 //! A pass that draws over the opaque scene with a copy of it, as a water surface does, is placed
 //! at [`GamePlace::AfterOpaqueSnapshots`] and declares the snapshots it samples with
@@ -31,27 +36,38 @@
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 mod camera;
+mod declared_textures;
 mod environment;
 mod frame_start;
 mod lent;
+mod level_import;
 mod occlusion;
 mod pass_target;
 mod plan;
 mod registry;
+mod resources;
+mod scene_textures;
 mod shadows;
 mod snapshots;
 mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
+pub use level_import::LevelAccess;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
 pub use pass_target::PassTarget;
 pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes_frame_depth};
 pub(crate) use plan::{place_after_prepass, reconcile_loads};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
+pub use resources::{
+    GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
+    GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,
+};
+pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub use snapshots::{
     FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, PostWaterDepth, SnapshotImage,
@@ -76,6 +92,25 @@ impl super::FrameRenderer {
                 .map(|metadata| metadata.passes.lend_occlusion()),
         );
         self.game.environment.publish(self.lend_environment());
+    }
+
+    /// Records the block transfers and readbacks the game's features asked of their resources
+    /// into `encoder`'s frame. Every route calls it after the passes it encodes, so the work
+    /// lands after the frame's (or the depth prefix's) passes and before its submission. A depth
+    /// prefix submitted ahead of the frame records everything queued by then, so that work lands
+    /// before the rest of the frame's passes.
+    ///
+    /// # Errors
+    /// [`FrameError`](worldrunner_render_post::FrameError) when a transfer is refused or
+    /// `encoder` is not a frame being recorded.
+    pub(crate) fn record_game_work(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        for resources in &self.game.resources {
+            resources.record_work(encoder)?;
+        }
+        Ok(())
     }
 }
 

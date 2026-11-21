@@ -443,6 +443,7 @@ ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();
 PlayerApiReportTests.Run();
 NativeCallbackTests.Run();
+JobRegistrationTests.Run();
 PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();
 RuntimeHookTests.Run();

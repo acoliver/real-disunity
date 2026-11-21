@@ -167,6 +167,7 @@ fn item(material: u64, instances: u32) -> ListDraw {
         material: Some(MaterialId(material)),
         pass: alpha(),
         instances,
+        per_draw: PropertyLayer::default(),
     }
 }
 

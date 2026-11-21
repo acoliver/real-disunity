@@ -91,6 +91,8 @@ pub(super) struct Globals<'a> {
 pub(super) struct Look<'a> {
     pub(super) selector: &'a PassSelector,
     pub(super) values: &'a PropertyLayer,
+    /// The values of the one draw, above its renderer's own: a list item's.
+    pub(super) own: Option<&'a PropertyLayer>,
     pub(super) front_face: wgpu::FrontFace,
     pub(super) globals: Globals<'a>,
     pub(super) signature: TargetSignature,
@@ -207,6 +209,7 @@ fn camera_step(
     let look = Look {
         selector: &camera.pass,
         values: &camera.values,
+        own: None,
         front_face: camera.front_face,
         globals,
         signature,
@@ -442,6 +445,7 @@ pub(super) fn planned_draw(
         .shader
         .ok_or(OffscreenError::NoShader(material_id))?;
     let layers: Vec<&PropertyLayer> = [
+        look.own,
         Some(&renderer.per_draw),
         Some(look.values),
         renderer.slot_blocks.get(&slot),
@@ -815,8 +819,8 @@ fn blit_step(
     }))
 }
 
-/// The layer a blit adds above the material: the source under the main texture name, and its
-/// texel size under `<name>_TexelSize` for a shader that declares it.
+/// The layer a blit adds above the material: the frame's blit values, the source under the main
+/// texture name, and its texel size under `<name>_TexelSize` for a shader that declares it.
 fn source_layer(
     svc: &Services<'_>,
     frame: &OffscreenFrame,
@@ -824,7 +828,7 @@ fn source_layer(
 ) -> Result<PropertyLayer, OffscreenError> {
     let info = svc.textures.get(source)?;
     let [width, height] = info.size.map(texels);
-    let mut layer = PropertyLayer::default();
+    let mut layer = frame.blit_values.clone();
     layer.textures.insert(
         frame.main_texture.clone(),
         TextureInput {

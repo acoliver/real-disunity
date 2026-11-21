@@ -20,20 +20,69 @@ pub enum FrameSceneTextureError {
 /// texture tier the host chose), including those appended since. One snapshot is shared by every
 /// frame until the table changes.
 #[derive(Clone, Debug)]
-pub struct FrameSceneTextures(Rc<[wgpu::Texture]>);
+pub struct FrameSceneTextures {
+    textures: Rc<[wgpu::Texture]>,
+    /// The normal map of each water body the renderer has installed.
+    water_normals: Rc<[Option<TextureHandle>]>,
+}
+
+/// Why the installed water's normal map cannot be lent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum FrameWaterNormalError {
+    #[error("the renderer has no water installed")]
+    NoWater,
+    #[error("water body {body} is not among the {bodies} installed")]
+    UnknownBody { body: usize, bodies: usize },
+    #[error("water body {body} has no normal map")]
+    NoNormalMap { body: usize },
+    #[error(transparent)]
+    Texture(#[from] FrameSceneTextureError),
+}
 
 impl FrameSceneTextures {
-    pub(crate) fn new(textures: Rc<[wgpu::Texture]>) -> Self {
-        Self(textures)
+    pub(crate) fn new(
+        textures: Rc<[wgpu::Texture]>,
+        water_normals: Rc<[Option<TextureHandle>]>,
+    ) -> Self {
+        Self {
+            textures,
+            water_normals,
+        }
+    }
+
+    /// The normal map of installed water body `body`, for the binding sourced from `semantic`:
+    /// the resident texture the body's settings name, through its default view. It is read from
+    /// the water settings the renderer was configured with, so it does not depend on whether
+    /// the stock passes draw the water.
+    ///
+    /// # Errors
+    /// [`FrameWaterNormalError::NoWater`] when the renderer has no water installed,
+    /// [`FrameWaterNormalError::UnknownBody`] beyond the installed bodies and
+    /// [`FrameWaterNormalError::NoNormalMap`] for a body without a normal map.
+    pub fn water_normal_map(
+        &self,
+        semantic: EngineSemantic,
+        body: usize,
+    ) -> Result<Import, FrameWaterNormalError> {
+        let bodies = self.water_normals.len();
+        if bodies == 0 {
+            return Err(FrameWaterNormalError::NoWater);
+        }
+        let handle = self
+            .water_normals
+            .get(body)
+            .ok_or(FrameWaterNormalError::UnknownBody { body, bodies })?
+            .ok_or(FrameWaterNormalError::NoNormalMap { body })?;
+        Ok(self.import(semantic, handle)?)
     }
 
     /// Textures in the resident table.
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.textures.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.textures.is_empty()
     }
 
     /// The texture of `handle`, through its default view, for the binding sourced from
@@ -86,17 +135,17 @@ impl FrameSceneTextures {
     fn texture(&self, handle: TextureHandle) -> Result<&wgpu::Texture, FrameSceneTextureError> {
         usize::try_from(handle.raw())
             .ok()
-            .and_then(|index| self.0.get(index))
+            .and_then(|index| self.textures.get(index))
             .ok_or(FrameSceneTextureError::Unknown {
                 handle: handle.raw(),
-                resident: self.0.len(),
+                resident: self.textures.len(),
             })
     }
 
     /// Whether `other` is the same snapshot: the same table, so anything built from one binds
     /// the textures the other would. An append or a texture replacement makes a new snapshot.
     pub fn same_snapshot(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Rc::ptr_eq(&self.textures, &other.textures)
     }
 }
 
@@ -135,13 +184,37 @@ impl From<FrameSceneTextureError> for worldrunner_render_post::FrameError {
 }
 
 impl crate::compositor::FrameRenderer {
-    /// Lends `gpu`'s resident textures to the game's features, when there are any. Every route
-    /// calls it before features prepare, and the depth prefix calls it before its game passes.
-    pub(crate) fn publish_game_textures(&self, gpu: &crate::draw::SceneGpu) {
+    /// Lends `gpu`'s resident textures and meshes to the game's features, when there are any.
+    /// Every route calls it before features prepare, and the depth prefix calls it before its
+    /// game passes.
+    pub(crate) fn publish_game_scene(&self, gpu: &crate::draw::SceneGpu) {
         if self.game.features > 0 {
             self.game_textures
-                .publish(|| FrameSceneTextures::new(gpu.lent_textures()));
+                .publish(|| FrameSceneTextures::new(gpu.lent_textures(), self.water_normals()));
+            self.game
+                .meshes
+                .publish(|| super::FrameSceneMeshes::new(gpu.lent_meshes()));
+            if let Some(engine) = &self.game.engine {
+                engine.publish_scene(super::SceneSources {
+                    textures: gpu.lent_textures(),
+                    terrain: gpu.lent_terrain(),
+                });
+            }
         }
+    }
+
+    /// The normal map handle of each water body installed on this renderer.
+    fn water_normals(&self) -> Rc<[Option<TextureHandle>]> {
+        self.water.as_ref().map_or_else(
+            || Rc::from([]),
+            |water| {
+                water
+                    .settings
+                    .iter()
+                    .map(|body| body.material.normal)
+                    .collect()
+            },
+        )
     }
 }
 
@@ -181,6 +254,7 @@ mod tests {
                 texture(&context, wgpu::TextureDimension::D3),
             ]
             .into(),
+            super::Rc::from([]),
         );
         let semantic = EngineSemantic::named("scene");
         assert!(

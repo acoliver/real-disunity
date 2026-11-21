@@ -239,6 +239,9 @@ pub struct ListDraw {
     pub pass: PassSelector,
     /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
     pub instances: u32,
+    /// The values the list gives this draw alone, such as a light factor that depends on the
+    /// culling result the draw came from. They win over the renderer's own `per_draw` values.
+    pub per_draw: PropertyLayer,
 }
 
 /// The raster state a script set for the draws of a record, over the state their passes resolve.
@@ -368,6 +371,9 @@ pub struct OffscreenFrame {
     pub main_texture: String,
     /// The mesh a blit draws: triangles with no index buffer, in clip space.
     pub blit_mesh: Option<MeshId>,
+    /// The values the host gives every blit with a material, above the material and the
+    /// globals: what `Graphics.Blit` itself sets, such as the transform of its quad.
+    pub blit_values: PropertyLayer,
     pub globals: PropertyLayer,
     pub global_keywords: Vec<String>,
     pub render_textures: Vec<RenderTextureSpec>,
@@ -421,6 +427,7 @@ impl Default for OffscreenFrame {
         Self {
             main_texture: DEFAULT_MAIN_TEXTURE.to_owned(),
             blit_mesh: None,
+            blit_values: PropertyLayer::default(),
             globals: PropertyLayer::default(),
             global_keywords: Vec::new(),
             render_textures: Vec::new(),

@@ -56,6 +56,7 @@ fn item(renderer: u64) -> ListDraw {
         material: None,
         pass: alpha(),
         instances: 1,
+        per_draw: PropertyLayer::default(),
     }
 }
 

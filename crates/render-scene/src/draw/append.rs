@@ -563,6 +563,7 @@ impl SceneGpu {
         self.objects.extend(tables);
         self.objects.warm(pipelines.object_context());
         self.meshes.extend(meshes);
+        self.retained.lent_meshes.get_mut().take();
         self.mesh_selection.extend(prepared.selection);
         self.instances
             .extend_resources(&prepared.materials, self.meshes.len());
@@ -680,6 +681,7 @@ impl SceneGpu {
         .expect("one mesh uploaded");
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
+        self.retained.lent_meshes.get_mut().take();
         self.mesh_selection[index] = replacement.selection;
         self.instances
             .skin

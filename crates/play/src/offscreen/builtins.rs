@@ -31,6 +31,12 @@
 //!   script's matrix is. Which order a shader reads is not measured here; it is inferred from
 //!   there being one way to write a matrix.
 //! * `unity_WorldToObject` is its inverse, left out when the matrix has none.
+//! * A blit with a material draws a quad over clip space with no renderer and no camera
+//!   ([`blit_layer`]): `unity_ObjectToWorld`, `unity_WorldToObject` and `unity_MatrixVP` are the
+//!   identity. Old World's terrain bake blits its normal through a pass of the post-processing
+//!   material whose vertex stage reads `unity_ObjectToWorld` and `unity_MatrixVP` and nothing else
+//!   per draw (the constants of the pass as the engine packs them), so with no value for them the
+//!   quad collapsed to a point and the tile normal stayed empty.
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
@@ -82,6 +88,15 @@
 //!   uniform scale `M`, `cross(M^-T n, M t)` is `sign(det M)` times the rotated `n x t`, so that
 //!   factor restores the bitangent's direction only when it is the determinant's sign. No
 //!   scanned stage reads the first three components, which are 0.
+//! * `unity_LightData` (1,472 variants) carries the main light's factor in its third component:
+//!   `(0, 0, z, 0)` with `z` 1 when the main light affects the draw's renderer and 0 when it does
+//!   not (the `light_data` module has the rule). A read-only decode of the player's own
+//!   `Mohawk/Terrain/TerrainShader` and `Mohawk/StandardShader` shows
+//!   `mainLight = _MainLightColor.rgb * (shadowAtten * unity_LightData.z *
+//!   saturate(dot(N, _MainLightPosition.xyz)))` and an output of `brdf * mainLight + ambient`,
+//!   and all 116 stage modules of those shaders that read `unity_LightData` read only `.z`. The other three components are 0. The value is a per-draw
+//!   one, so it wins over a `--global unity_LightData=` value and over a script's global for a
+//!   frame that has a directional light; a frame with none leaves the name to those.
 //! * `_ScreenParams` (2,389) holds the width and height in pixels of the target the view draws
 //!   into, the mip's for a mip target ([`add_screen_size`]). `Mohawk/StandardShader` multiplies the
 //!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. The
@@ -105,14 +120,14 @@
 //!   evidence that the engine sets it in the way the common ones are set. The projection ones
 //!   would also need a choice between the engine layer's projection and the one adjusted for the
 //!   graphics API, which nothing here measures.
-//! * The other lighting and shadow values (the `LightShadows` buffer and `unity_LightData` 1,472):
-//!   they depend on shadow maps and additional lights that no offscreen record carries.
+//! * The other lighting and shadow values (the `LightShadows` buffer): they depend on shadow maps
+//!   and additional lights that no offscreen record carries.
 //!   `unity_SHAr` and the other spherical harmonics (1,040 variants) and `unity_SpecCube0_HDR`
 //!   (1,552) are not left to render-program either: [`add_ambient`] gives them an engine
 //!   default, because a shader that reads them as zero draws black. The default is flat (0.3 in
 //!   the fourth component of `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in the rest) and
 //!   (1, 1, 0, 0) for `unity_SpecCube0_HDR`, a neutral decode chosen without a measured
-//!   convention. It stands until the scene's authored ambient is carried to the host.
+//!   convention. It stands for a world whose scene wrote no environment.
 //! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
@@ -176,6 +191,22 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
             WORLD_TO_OBJECT,
             PropertyValue::Matrix(matrix.inverse().to_cols_array()),
         );
+    }
+    layer
+}
+
+/// The values a blit with a material draws with. The blit's quad is in clip space (see
+/// `adapter::blit_mesh`), so the pass places it with the identity as its object-to-world,
+/// world-to-object and world-to-clip matrices. A blit has no renderer and no camera, so no other
+/// layer holds them, and without them a vertex stage that multiplies its position by one packs a
+/// zero matrix and puts every vertex at the origin.
+#[must_use]
+pub fn blit_layer() -> PropertyLayer {
+    let mut layer = PropertyLayer::default();
+    for name in [OBJECT_TO_WORLD, WORLD_TO_OBJECT, VIEW_PROJECTION] {
+        layer
+            .values
+            .set(name, PropertyValue::Matrix(Mat4::IDENTITY.to_cols_array()));
     }
     layer
 }
@@ -274,9 +305,9 @@ const NEUTRAL_SPEC_CUBE_HDR: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 /// and `unity_SHC`, and (1, 1, 0, 0) in `unity_SpecCube0_HDR`.
 ///
 /// This is an engine default for a frame in which nothing sets these names, and nothing more.
-/// The scene's authored ambient does not reach the plan, the world or the host yet, and the
-/// repository has no measured convention for packing a probe into spherical harmonics, so the
-/// ambient is flat. (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
+/// A world whose scene wrote an environment gets its ambient light from `add_environment`, which
+/// packs the scene's probe; this flat ambient stands for a world that wrote none.
+/// (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
 /// Without any value these names pack as zero and the scene shaders of the Old World player draw
 /// black.
 ///

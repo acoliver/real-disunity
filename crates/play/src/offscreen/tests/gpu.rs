@@ -18,6 +18,7 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::placed::placed_blit;
 use worldrunner_render_program::unity::synthetic::shaders::{
     BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
@@ -64,6 +65,10 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A blit pass that places its quad by `unity_ObjectToWorld` and `unity_MatrixVP`.
+            "placed_blit" => placed_blit("_MainTex"),
+            // The same pass sampling a texture the material sets, as a blit's own pass does.
+            "placed_primary" => placed_blit("_PrimaryTex"),
             // A 2D slot that is not the blit source, so a property can set it.
             "flatslot" => blit_passes("_FlatTex"),
             "gradient" => gradient_passes(),
@@ -102,6 +107,11 @@ impl ShaderSupply for Synthetic {
                 }];
                 synthetic
             }
+            // The main light colour times `unity_LightData.z`.
+            "light_factor" => super::lights_gpu::per_frame_passes_named(
+                "fs_factor",
+                [super::lights_gpu::COLOR, super::supplied_gpu::NAME],
+            ),
             "light_data" => super::lights_gpu::per_frame_passes_named(
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],
@@ -551,7 +561,7 @@ fn a_render_texture_with_a_mip_chain_is_sampled_at_the_level_the_camera_wrote() 
     camera_render(&mut world, a);
     blit_and_copy(&mut world, (a, b, c));
     let (adapted, operations, reads) = rig.frame(&mut world, &[b, c]);
-    assert_eq!(adapted.report.failures["draw:SampledWrittenLevelsOnly"], 3);
+    assert_eq!(adapted.report.notes["draw:SampledWrittenLevelsOnly"], 3);
     assert!(
         !adapted
             .report

@@ -186,6 +186,42 @@ pub const FIELDS: &[(&str, Field, bool)] = &[
     ("bundleVersion", Str, false),
 ];
 
+/// The project's color space, `m_ActiveColorSpace`: how the player converts colors and which
+/// variants of its default render formats it picks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorSpace {
+    Gamma,
+    Linear,
+}
+
+impl ColorSpace {
+    fn from_stored(value: i32) -> Result<Self, SerializedError> {
+        match value {
+            0 => Ok(Self::Gamma),
+            1 => Ok(Self::Linear),
+            value => Err(SerializedError::InvalidEnum {
+                what: "active color space",
+                value,
+            }),
+        }
+    }
+}
+
+/// What the leading fields of `PlayerSettings` tell the engine: the identity and the project's
+/// color space.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayerSettings {
+    pub identity: PlayerIdentity,
+    pub color_space: ColorSpace,
+}
+
+/// One stored value a walk over [`FIELDS`] reports.
+enum Value {
+    Text(String),
+    Int(i32),
+    Other,
+}
+
 /// Reads the player's identity from the bytes of its `PlayerSettings` object, built by Unity
 /// 6000.3.
 ///
@@ -195,35 +231,78 @@ pub fn read_player_identity(
     bytes: &[u8],
     big_endian: bool,
 ) -> Result<PlayerIdentity, SerializedError> {
-    let mut r = ObjectReader::new(bytes, big_endian);
-    let mut identity = PlayerIdentity {
+    let mut identity = blank_identity();
+    walk(bytes, big_endian, |name, value| {
+        if let Value::Text(text) = value {
+            match name {
+                "companyName" => identity.company_name = text,
+                "productName" => identity.product_name = text,
+                "bundleVersion" => identity.version = text,
+                _ => {}
+            }
+        }
+    })?;
+    Ok(identity)
+}
+
+/// Reads the identity and the color space from the bytes of the player's `PlayerSettings`
+/// object, built by Unity 6000.3.
+///
+/// # Errors
+/// Fails when the bytes end before `bundleVersion`, a value is malformed, or the color space is
+/// neither gamma nor linear.
+pub fn read_player_settings(
+    bytes: &[u8],
+    big_endian: bool,
+) -> Result<PlayerSettings, SerializedError> {
+    let mut identity = blank_identity();
+    let mut stored_space = 0;
+    walk(bytes, big_endian, |name, value| match (name, value) {
+        ("companyName", Value::Text(text)) => identity.company_name = text,
+        ("productName", Value::Text(text)) => identity.product_name = text,
+        ("bundleVersion", Value::Text(text)) => identity.version = text,
+        ("m_ActiveColorSpace", Value::Int(space)) => stored_space = space,
+        _ => {}
+    })?;
+    Ok(PlayerSettings {
+        identity,
+        color_space: ColorSpace::from_stored(stored_space)?,
+    })
+}
+
+fn blank_identity() -> PlayerIdentity {
+    PlayerIdentity {
         company_name: String::new(),
         product_name: String::new(),
         version: String::new(),
-    };
+    }
+}
+
+/// Reads every field of [`FIELDS`] in order, reporting each one's value to `visit`.
+fn walk(
+    bytes: &[u8],
+    big_endian: bool,
+    mut visit: impl FnMut(&str, Value),
+) -> Result<(), SerializedError> {
+    let mut r = ObjectReader::new(bytes, big_endian);
     for &(name, field, align) in FIELDS {
-        let text = skip(&mut r, field)?;
-        match name {
-            "companyName" => identity.company_name = text.unwrap_or_default(),
-            "productName" => identity.product_name = text.unwrap_or_default(),
-            "bundleVersion" => identity.version = text.unwrap_or_default(),
-            _ => {}
-        }
+        visit(name, read_field(&mut r, field)?);
         if align {
             r.align()?;
         }
     }
-    Ok(identity)
+    Ok(())
 }
 
-/// Reads one field, returning its text when it is a string.
-fn skip(r: &mut ObjectReader<'_>, field: Field) -> Result<Option<String>, SerializedError> {
+/// Reads one field, returning its text when it is a string and its value when it is an `int`.
+fn read_field(r: &mut ObjectReader<'_>, field: Field) -> Result<Value, SerializedError> {
     match field {
-        Str => return r.string().map(Some),
+        Str => return r.string().map(Value::Text),
+        I32 => return r.i32().map(Value::Int),
         Bool => {
             r.bool()?;
         }
-        I32 | U32 | F32 => {
+        U32 | F32 => {
             r.u32()?;
         }
         PPtr => {
@@ -255,5 +334,5 @@ fn skip(r: &mut ObjectReader<'_>, field: Field) -> Result<Option<String>, Serial
             r.array("stack trace type", 4, ObjectReader::i32)?;
         }
     }
-    Ok(None)
+    Ok(Value::Other)
 }

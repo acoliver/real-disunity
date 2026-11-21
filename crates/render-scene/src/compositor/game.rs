@@ -136,4 +136,6 @@ impl super::FrameRenderer {
 #[cfg(test)]
 mod frame_start_tests;
 #[cfg(test)]
+mod inputs_tests;
+#[cfg(test)]
 mod tests;

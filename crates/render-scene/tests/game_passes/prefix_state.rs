@@ -346,6 +346,13 @@ impl FrameFeature for Prefix {
 
 impl PreparedFeature for Prefix {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        // A frame where it planned no pass (no prepass, or neither knob set) still prepares it.
+        if [RAISE, FILL]
+            .iter()
+            .all(|&entry| context.pass(entry).is_err())
+        {
+            return Ok(());
+        }
         let (raise, fill) = {
             let seen = self.seen.lock().unwrap();
             (seen.raise, seen.fill)

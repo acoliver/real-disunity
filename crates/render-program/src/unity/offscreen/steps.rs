@@ -13,7 +13,6 @@ use worldrunner_render_post::{AttachmentLoad, StageId};
 use crate::ids::{CameraId, MaterialId, MeshId, ShaderId, TextureId};
 use crate::layers::{Layers, PropertyLayer, TextureInput};
 use crate::packet::TargetSignature;
-use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::depth_range;
@@ -833,15 +832,14 @@ fn blit_step(
     }))
 }
 
-/// The layer a blit adds above the material: the source under the main texture name, and its
-/// texel size under `<name>_TexelSize` for a shader that declares it.
+/// The layer a blit adds above the material: the source under the main texture name. Its texel
+/// size comes from the fill every draw gets (see the `texel_size` module).
 fn source_layer(
     svc: &Services<'_>,
     frame: &OffscreenFrame,
     source: TextureId,
 ) -> Result<PropertyLayer, OffscreenError> {
-    let info = svc.textures.get(source)?;
-    let [width, height] = info.size.map(texels);
+    svc.textures.get(source)?;
     let mut layer = PropertyLayer::default();
     layer.textures.insert(
         frame.main_texture.clone(),
@@ -850,16 +848,7 @@ fn source_layer(
             sampler: None,
         },
     );
-    layer.values.set(
-        &format!("{}_TexelSize", frame.main_texture),
-        PropertyValue::Vector([1.0 / width, 1.0 / height, width, height]),
-    );
     Ok(layer)
-}
-
-/// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
-pub(super) fn texels(side: u32) -> f32 {
-    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
 fn blit_vertex_count(svc: &Services<'_>, mesh: MeshId) -> Result<u32, OffscreenError> {

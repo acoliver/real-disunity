@@ -11,7 +11,7 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
     let events = driver.events.clone();
     let mut host = gbuffer_host();
     install_reducible_texture(&mut host);
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut plans = Vec::new();
     let mut mesh_residency = None;

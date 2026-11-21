@@ -63,7 +63,7 @@ fn field_plan() -> UiRenderPlan {
 fn windowless_text_field_draws_caret_selection_and_delivers_scale_changes() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     apply(&mut run, field_plan());
     let image = capture(&mut run, &events).1;
     assert_eq!(pixel(&image, 28, 25), [255, 0, 0, 255]);

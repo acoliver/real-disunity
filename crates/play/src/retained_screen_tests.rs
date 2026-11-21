@@ -41,7 +41,7 @@ fn run_frames(
     frames: u64,
     (gpu, authority): (SharedGpu, SubmissionAuthority),
 ) -> Vec<u64> {
-    let mut run = viewer.windowless_on(driver, gpu).unwrap();
+    let mut run = viewer.windowless(driver, Some(gpu)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     let mut submissions = Vec::new();
     for _ in 0..frames {

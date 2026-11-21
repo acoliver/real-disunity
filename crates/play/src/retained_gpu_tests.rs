@@ -60,7 +60,9 @@ fn play() -> Played {
     let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
         .expect("the test needs a GPU adapter");
     let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
-    let mut run = viewer.windowless_on(&mut driver, source.gpu).unwrap();
+    let mut run = viewer
+        .windowless(&mut driver, Some(source.gpu))
+        .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     for _ in 0..UPDATES {
         run.frame().unwrap();

@@ -99,7 +99,7 @@ mod tests {
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
         assert!(
             !renderer
                 .context
@@ -143,7 +143,7 @@ mod tests {
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
         assert!(!renderer.context.device().features().contains(features()));
         assert_eq!(
             renderer.presentation.scheduler.configuration().timing,

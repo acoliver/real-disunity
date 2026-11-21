@@ -29,7 +29,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
     FrameProfile, ObjectId, OrbitLimits, RetainedDriver, RetainedHost, RetainedTick,
-    RetainedUpdate, ViewerOptions,
+    RetainedUpdate, ViewerOptions, ViewerStart,
 };
 
 struct MovingObject;
@@ -57,7 +57,7 @@ impl RetainedDriver for MovingObject {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    RetainedHost::new(scene()?, options())?.run(&mut MovingObject)?;
+    RetainedHost::new(scene()?, options())?.run(ViewerStart::new()?, &mut MovingObject)?;
     Ok(())
 }
 

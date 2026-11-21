@@ -103,7 +103,7 @@ pub fn play_player_window(
         },
     )?;
     let (viewer, mut driver) = start_window(prepared, window, gpu)?;
-    let ran = viewer.run_on(start, &mut driver);
+    let ran = viewer.run(start, &mut driver);
     driver.report_gpu();
     ran.map_err(|error| PlayError::Invalid(error.to_string()))?;
     Ok(std::mem::take(&mut driver.captures))

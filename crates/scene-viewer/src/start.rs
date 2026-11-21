@@ -3,7 +3,7 @@
 //!
 //! [`ViewerStart::new`] makes the event loop and the instance on its display. [`ViewerStart::device`]
 //! makes the device for the viewer's needs combined with the caller's, before the scene loads.
-//! [`crate::RetainedHost::run_on`] then opens the window on that device. Its surface is checked
+//! [`crate::RetainedHost::run`] then opens the window on that device. Its surface is checked
 //! against the adapter when the window exists: an adapter that cannot present to it is refused
 //! by name, as is a scene that needs a feature the device lacks.
 use winit::event_loop::EventLoop;
@@ -16,7 +16,7 @@ use crate::{ViewerError, ViewerOptions};
 
 /// The instance, adapter and device a viewer draws on, made before its window or session so
 /// another user can share them. [`ViewerStart`] holds one for a window; [`SharedGpu::headless`]
-/// makes one for [`crate::RetainedHost::windowless_on`].
+/// makes one for [`crate::RetainedHost::windowless`].
 pub struct SharedGpu {
     instance: wgpu::Instance,
     backends: wgpu::Backends,
@@ -110,7 +110,7 @@ pub struct ViewerStart {
 
 impl ViewerStart {
     /// The event loop and the instance on its display. Call on the main thread, once per
-    /// process, in place of the event loop [`crate::RetainedHost::run`] would make.
+    /// process, for [`crate::RetainedHost::run`].
     ///
     /// # Errors
     /// Fails when the platform has no event loop.

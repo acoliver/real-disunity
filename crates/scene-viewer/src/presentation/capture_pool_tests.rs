@@ -166,7 +166,7 @@ fn derived_pool_is_constant_across_smaller_and_larger_surfaces() {
         matches!(host.captures.take_event(), Some(crate::RetainedEvent::Capture { id: actual, .. }) if actual == id)
     );
     let mut driver = Driver;
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     for extent in [[128, 96], [3000, 1600]] {
         run.resize(extent).unwrap();
         assert!(run.frame().unwrap());

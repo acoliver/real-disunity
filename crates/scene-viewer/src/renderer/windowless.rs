@@ -1,18 +1,13 @@
 use super::{Extents, Renderer, ViewerError, device_errors, readiness, required_features, target};
 
 impl Renderer {
-    #[cfg(test)]
-    pub(crate) async fn windowless(host: &mut crate::RetainedHost) -> Result<Self, ViewerError> {
-        Self::windowless_with(host, None).await
-    }
-
     /// A renderer with no window, on `shared`'s device when one is given, otherwise on a device
     /// of its own.
-    pub(crate) async fn windowless_with(
+    pub(crate) async fn windowless(
         host: &mut crate::RetainedHost,
         shared: Option<super::Shared>,
     ) -> Result<Self, ViewerError> {
-        let (instance, context) = windowless_context_with(host, shared).await?;
+        let (instance, context) = windowless_context(host, shared).await?;
         let scene = host.initial_scene();
         let options = &host.options;
         let shadow_policy = host.readiness.shadow_policy;
@@ -77,7 +72,7 @@ impl Renderer {
     }
 }
 
-pub(super) async fn windowless_context_with(
+pub(super) async fn windowless_context(
     host: &mut crate::RetainedHost,
     shared: Option<super::Shared>,
 ) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {

@@ -341,7 +341,7 @@ fn an_append_inside_the_budget_is_admitted() {
 
 fn windowless_host() -> (RetainedHost, Renderer) {
     let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     (host, renderer)
 }
 

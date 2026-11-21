@@ -6,7 +6,7 @@ fn null_device_finishes_only_on_advance_time_even_while_presentation_is_paused()
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let status = AudioStatus::Unavailable(AudioUnavailable::NullDevice);
     assert_eq!(run.host_mut().audio().status(), status);

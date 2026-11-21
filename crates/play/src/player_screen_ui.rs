@@ -106,7 +106,7 @@ impl ScreenDevice {
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         let delivered = Rc::clone(&sink.delivered);
         let run = host
-            .windowless_on(sink, self.gpu)
+            .windowless(sink, Some(self.gpu))
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         Ok(ScreenComposer {
             run,

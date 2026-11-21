@@ -48,7 +48,18 @@ fn a_declared_texture_takes_its_dimension_and_usage_from_the_declaration() {
     assert_eq!(plain.mip_level_count, 1);
     assert_eq!(
         plain.usage,
-        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST
+        wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
+    );
+    // Without texels, a colour or block-compressed texture is still writable by GPU work and
+    // readable back.
+    let empty = chain(Format::Bc5RgUnorm, [16, 16, 2], View::D2Array, 4, None);
+    assert_eq!(
+        empty.descriptor().unwrap().usage,
+        wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
     );
     let volume = declaration(Format::Rg8Unorm, [1, 1, 1], View::D3, Some(&[1, 2]));
     assert_eq!(
@@ -248,4 +259,87 @@ fn shared_declarations_agree_on_everything_they_declare() {
     for probe in changed {
         assert_ne!(base.identity(), probe.identity(), "{probe:?}");
     }
+}
+
+#[test]
+fn a_shared_block_chain_is_counted_once_by_the_census_and_by_each_declaring_factory() {
+    use crate::compositor::game::resources::{GameResources, SharedTextures};
+    use worldrunner_render_gpu::census::ResourceClass;
+    use worldrunner_render_gpu::configuration::AllocationBudget;
+    use worldrunner_render_gpu::submission::SubmissionAuthority;
+
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ..wgpu::DeviceDescriptor::default()
+    });
+    let authority = SubmissionAuthority::new(queue);
+    let shared = SharedTextures::default();
+    let factory = |budget| {
+        GameResources::new(
+            &device,
+            &authority,
+            AllocationBudget(budget),
+            shared.clone(),
+        )
+    };
+    // Two layers of 12 x 20 BC3 down to 1 x 1: 15, 6, 2, 1 and 1 blocks of 16 bytes a layer, the
+    // last three levels smaller than a block.
+    let probe = chain(Format::Bc3RgbaUnorm, [12, 20, 2], View::D2Array, 5, None);
+    let bytes: u64 = probe.levels().unwrap().iter().map(|level| level.len).sum();
+    assert_eq!(bytes, 2 * (15 + 6 + 2 + 1 + 1) * 16);
+    let texels = vec![5; usize::try_from(bytes).unwrap()];
+    let declared = GameTextureDeclaration {
+        label: "grid",
+        texels: Some(&texels),
+        ..probe
+    };
+    let in_census = || authority.census().snapshot().get(ResourceClass::Texture);
+    let before = in_census();
+    let (first, second, small) = (factory(1 << 20), factory(1 << 20), factory(bytes - 1));
+    let handle = first.declare_shared_texture(&declared).unwrap();
+    assert_eq!(
+        in_census() - before,
+        bytes,
+        "the census counts every level of every layer"
+    );
+    assert_eq!(
+        (first.bytes(), first.runtime().live_bytes()),
+        (bytes, bytes)
+    );
+    second.declare_shared_texture(&declared).unwrap();
+    assert_eq!(
+        in_census() - before,
+        bytes,
+        "a second declaring factory adds no texture"
+    );
+    assert_eq!(
+        (second.bytes(), second.runtime().live_bytes()),
+        (bytes, bytes)
+    );
+    let refused = small.declare_shared_texture(&declared);
+    assert!(
+        matches!(refused, Err(GameResourceError::Budget { bytes: asked, .. }) if asked == bytes),
+        "{refused:?}"
+    );
+    assert_eq!(
+        (small.bytes(), small.runtime().live_bytes()),
+        (0, 0),
+        "a refusal holds nothing"
+    );
+    assert_eq!(first.declare_shared_texture(&declared), Ok(handle));
+    assert_eq!(
+        first.runtime().live_bytes(),
+        bytes,
+        "declaring again holds nothing more"
+    );
+    drop(first);
+    assert_eq!(
+        in_census() - before,
+        bytes,
+        "the texture outlives the factory that made it"
+    );
+    assert_eq!(second.runtime().live_bytes(), bytes);
+    drop((second, small, factory));
+    drop(shared);
+    assert_eq!(in_census(), before, "the last holder releases it once");
 }

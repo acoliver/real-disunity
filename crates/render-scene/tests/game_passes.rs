@@ -11,6 +11,8 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/level_import.rs"]
+mod level_import;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
 #[path = "game_passes/mips.rs"]
@@ -61,3 +63,5 @@ mod strip;
 mod terrain;
 #[path = "game_passes/terrain_lender.rs"]
 mod terrain_lender;
+#[path = "game_passes/transfer_readback.rs"]
+mod transfer_readback;

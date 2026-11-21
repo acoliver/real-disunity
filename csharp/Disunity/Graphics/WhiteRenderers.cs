@@ -2,10 +2,10 @@ namespace UnityEngine;
 
 /// <summary>
 /// The mesh renderers the window draws without a texture, grouped by the shader of their first material, with the texture
-/// properties that material does hold. The window draws slot 0 with the texture of its drawn record, which is the main texture
+/// properties that material does hold. The window draws slot 0 with the texture of its world material, which is the main texture
 /// when that is a <see cref="Texture2D"/> with pixels (see <see cref="Renderer.DrawableMainTexture"/>); a renderer whose material
 /// has no such texture draws white, and the report says which shaders those are and where their textures are instead.
-/// A renderer is evaluated when its drawn record is sent (<see cref="SentSurvey"/>, one entry per renderer however often its
+/// A renderer is evaluated when its materials are sent (<see cref="SentSurvey"/>, one entry per renderer however often its
 /// materials are set) and again over the live renderers (<see cref="Survey"/>), which reflects later material changes. The
 /// play bridge prints the second. The notes belong to the world loaded: a new world starts with none.
 /// </summary>

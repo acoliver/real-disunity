@@ -1,4 +1,4 @@
-use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
 use worldrunner_render_plan::{SceneTexture, TextureColorSpace};
 use worldrunner_render_scene::texture::prepare_texture;
 
@@ -504,4 +504,27 @@ fn a_distance_field_keeps_its_rows_top_first() {
     let scene = player_scene_texture(&texture).unwrap();
     let (_, rows) = texels(&scene);
     assert_eq!(rows, [255, 255, 255, 0, 255, 255, 255, 255]);
+}
+
+#[test]
+fn a_texture_of_layers_is_not_a_flat_texture() {
+    for dimension in [
+        TextureDimension::D2Array,
+        TextureDimension::Cube,
+        TextureDimension::D3,
+    ] {
+        let layered = PlayerTexture {
+            dimension,
+            depth: 6,
+            ..player(RGBA32, [1, 1], false, vec![255; 24])
+        };
+        assert!(
+            matches!(
+                player_scene_texture(&layered),
+                Err(PlayerTextureError::NotFlat { dimension: found }) if found == dimension
+            ),
+            "{dimension:?}"
+        );
+    }
+    assert!(player_scene_texture(&player(RGBA32, [1, 1], false, vec![255; 4])).is_ok());
 }

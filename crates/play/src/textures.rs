@@ -1,5 +1,5 @@
 //! A plan's textures as scene textures, under the identities the managed loader gives them.
-use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
 use worldrunner_render_plan::{
     SceneTexture, TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureSampler,
     TextureWrap, simulation::SpriteTextures,
@@ -69,6 +69,8 @@ fn wrap(texture: &PlanTexture, wrap: Wrap) -> Result<TextureWrap, PlayError> {
 pub enum PlayerTextureError {
     #[error("{format} textures are not drawn yet")]
     Unsupported { format: String },
+    #[error("a {dimension:?} texture has no single image to draw as a flat texture")]
+    NotFlat { dimension: TextureDimension },
     #[error(
         "a {width}x{height} {format} texture holds {actual} bytes but its base level needs {needed}"
     )]
@@ -154,11 +156,17 @@ pub fn stored_format_name(texture: &PlayerTexture) -> String {
 /// first. RGBA32, RGB24 and Alpha8 become RGBA8 texels (Alpha8 as white with that alpha, or with the coverage of its distance field when the texture holds one). DXT1,
 /// DXT5 and BC4 follow `path`: one-level DX10 DDS containers in their sRGB forms when the texture
 /// is not linear (BC4 holds data and is always linear), or decoded RGBA8 texels (BC4 as red). BC7 is only drawn decoded.
-/// Further mip levels are not carried, as the engine's choice for now.
+/// Further mip levels are not carried, as the engine's choice for now. A texture of layers (an
+/// array, a cube or a volume) is refused: a sprite, a UI graphic or a mesh slot draws one image.
 pub fn player_scene_texture(
     texture: &PlayerTexture,
     path: BlockPath,
 ) -> Result<SceneTexture, PlayerTextureError> {
+    if texture.dimension != TextureDimension::D2 {
+        return Err(PlayerTextureError::NotFlat {
+            dimension: texture.dimension,
+        });
+    }
     if path == BlockPath::Dds
         && let Some((format, layout)) = block_format(texture.format)
     {

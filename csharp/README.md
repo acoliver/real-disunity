@@ -108,7 +108,9 @@ After an intentional ABI change:
    which gives the target of a renderer's slot. Revision 21 adds texture slot kind 5 (a texture
    the data names that the engine did not send), which every texture slot, environment cube and
    offscreen source accepts with texture identity 0; the world reads it as no texture, and the
-   graphics snapshot wire version is 17 to carry it. Native and managed hosts reject
+   graphics snapshot wire version is 17 to carry it. Revision 22 removes
+   `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
+   object slot draws from the slot's world material alone. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

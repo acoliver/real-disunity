@@ -227,8 +227,6 @@ CheckImport("disunity_texture_sampler_write", u64, u64, samplerRecord);
 CheckImport("disunity_texture_sampler_read", u64, u64, samplerRecord);
 CheckImport("disunity_mesh_filter_drawn_write", u64, u64, u64);
 CheckImport("disunity_mesh_filter_drawn_read", u64, u64, u64.MakePointerType());
-CheckImport("disunity_mesh_renderer_slots_write", u64, u64, drawnSlots, u32);
-CheckImport("disunity_mesh_renderer_slots_read", u64, u64, drawnSlots, u32, u32.MakePointerType());
 CheckImport("disunity_presentation_mesh_object", u64, u32, AbiType("DisunityMeshObject").MakePointerType(), AbiType("DisunityMatrix").MakePointerType(), drawnSlots, u32);
 CheckImport("disunity_presentation_light_count", u64, u32.MakePointerType());
 CheckImport("disunity_presentation_light", u64, u32, AbiType("DisunityLight").MakePointerType(), u64.MakePointerType(), AbiType("DisunityMatrix").MakePointerType());

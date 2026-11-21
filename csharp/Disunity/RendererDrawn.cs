@@ -10,11 +10,9 @@ namespace UnityEngine;
 /// index is sent too and applies to that slot, above the all-material block.</summary>
 public abstract partial class Renderer
 {
-    /// <summary>Sends the world material of each slot, 0 for an empty slot, and notes the first one for the white-renderers
-    /// report.</summary>
+    /// <summary>Sends the world material of each slot, 0 for an empty slot.</summary>
     private void SendSlotMaterials(IReadOnlyList<Material?> materials)
     {
-        if (this is MeshRenderer mesh) WhiteRenderers.NoteSent(mesh, materials.Count > 0 ? materials[0] : null);
         WorldGraphics.WriteRendererMaterials(Handle, materials.Select(material => material is { } own && own ? own.WorldLink.Id : 0UL).ToArray());
     }
 

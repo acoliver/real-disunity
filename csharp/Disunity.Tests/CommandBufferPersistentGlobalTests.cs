@@ -38,8 +38,17 @@ internal static unsafe class CommandBufferPersistentGlobalTests
         }
         finally
         {
+            ForgetTextureGlobals();
             DisunityHost.UnloadWorld();
         }
+    }
+
+    /// <summary>Clears the texture globals these tests set. Globals outlive a world, and a texture the next world cannot
+    /// receive (a render texture that unloading destroyed) would be synced into it and noted as unsent there.</summary>
+    private static void ForgetTextureGlobals()
+    {
+        foreach (var name in new[] { "_GrabT", "_GrabById", "_GrabPlain", "_PgLazyT", "_PgTemp", "_PgGone" })
+            Shader.SetGlobalTexture(name, (Texture?)null);
     }
 
     private static DisunityPropertyRead Read(string name) => WorldGraphicsTests.Read(Global, GlobalLink, name);

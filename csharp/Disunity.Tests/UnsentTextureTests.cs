@@ -135,7 +135,7 @@ internal static class UnsentTextureTests
     {
         DisunityHost.UnloadWorld();
         DisunityHost.LoadWorld();
-        Expect.That(UnsentTextures.Summary is null, "a new world has nothing to report");
+        Expect.That(UnsentTextures.Summary is null, $"a new world has nothing to report, got {UnsentTextures.Summary}");
         Shader.SetGlobalTexture("_SummaryB", new Texture2D(0, 0));
         for (var set = 0; set < 2; set++) Shader.SetGlobalTexture("_SummaryA", DestroyedRenderTexture());
         Expect.Equal("_SummaryA destroyed-render-texture 2, _SummaryB empty-texture2d:0x0 1", UnsentTextures.Summary, "the summary");

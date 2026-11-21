@@ -58,6 +58,9 @@ internal static class CommandBufferExecutionTests
         }
         finally
         {
+            // An executed buffer's texture globals persist like Shader.SetGlobalTexture and outlive the world; clear them
+            // so the next world is not handed textures this one destroyed.
+            foreach (var name in new[] { "_Plain", "_T", "_T2" }) Shader.SetGlobalTexture(name, (Texture?)null);
             DisunityHost.UnloadWorld();
         }
     }

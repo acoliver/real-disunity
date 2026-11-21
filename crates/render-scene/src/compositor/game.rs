@@ -44,6 +44,7 @@
 //! [`GamePlace::BeforePost`]: worldrunner_render_post::GamePlace::BeforePost
 mod camera;
 mod declared_textures;
+mod engine;
 mod environment;
 mod frame_start;
 mod lent;
@@ -53,6 +54,7 @@ mod pass_target;
 mod plan;
 mod registry;
 mod resources;
+mod scene_meshes;
 mod scene_textures;
 mod shadows;
 mod snapshots;
@@ -61,6 +63,11 @@ mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
+pub(crate) use engine::SceneSources;
+pub use engine::{
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
+    FULLSCREEN_TRIANGLE_WGSL, LayerShape, TerrainMaterialArrayError, TerrainMaterialChannel,
+};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
 pub use level_import::LevelAccess;
@@ -74,7 +81,12 @@ pub use resources::{
     GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
     GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,
 };
-pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
+pub use scene_meshes::{
+    FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle, SceneMeshSlot,
+};
+pub use scene_textures::{
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameWaterNormalError,
+};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub use snapshots::{
     FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,

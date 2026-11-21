@@ -54,6 +54,9 @@ pub struct Report {
     /// `texture:Program/Layout/UnsupportedParameter`, and the first message of each chain.
     pub causes: BTreeMap<String, usize>,
     pub examples: BTreeMap<String, String>,
+    /// What a built frame did that is worth reading and is not a failure, by name, such as
+    /// `draw:SampledWrittenLevelsOnly`, the draws that bound only the levels a texture had written.
+    pub notes: BTreeMap<String, usize>,
     /// How each dispatch was bound and what came of it, in call order.
     pub traces: Vec<DispatchTrace>,
     /// What each camera render recorded and left out.

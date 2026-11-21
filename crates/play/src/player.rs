@@ -235,9 +235,10 @@ fn write_request(
 /// `plugins` when there are any. `callback_cache` is where the managed side keeps the player's
 /// assemblies rewritten so the delegates they give native code stay callable. `render_formats` are
 /// the `GraphicsFormat` codes the offscreen renderer draws into and samples, which the player's
-/// device reports as supported. `reversed_z_buffer` is `launch.depth`, the value the run's GPU
-/// work draws with, so the player's device declares a reversed depth buffer exactly when the
-/// host's depth is reversed.
+/// device reports as supported. `shadow_sampling` says the offscreen renderer reads a depth render
+/// texture through a comparison sampler, which the player's device reports as shadow support.
+/// `reversed_z_buffer` is `launch.depth`, the value the run's GPU work draws with, so the player's
+/// device declares a reversed depth buffer exactly when the host's depth is reversed.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
@@ -263,6 +264,7 @@ fn request_body(
         "first_texture": FIRST_TEXTURE,
         "callback_cache": callback_cache,
         "render_formats": worldrunner_render_program::unity::offscreen::RENDER_FORMATS,
+        "shadow_sampling": true,
         "reversed_z_buffer": depth.reversed(),
     });
     if let Some(screen) = screen {
@@ -351,7 +353,8 @@ pub struct ScreenOutput {
 }
 
 /// The environment variable that makes a headless run print the GPU report after every frame, not
-/// only at the end.
+/// only at the end. The counts are the run's so far, except the stand-in census, which is the
+/// frame's own.
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
@@ -402,6 +405,7 @@ pub fn run_player_screens(
     let mut meshes = PlayerMeshes::default();
     let mut times = Vec::new();
     for frame in 0..frames {
+        let stand_ins_before = gpu.as_ref().map(|gpu| gpu.report().stand_ins.clone());
         let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
@@ -412,10 +416,10 @@ pub fn run_player_screens(
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it.
         if std::env::var_os(REPORT_EACH_FRAME).is_some()
-            && let Some(gpu) = &gpu
+            && let (Some(gpu), Some(before)) = (&gpu, &stand_ins_before)
         {
             eprintln!("[gpu] report after frame {frame}");
-            gpu.report().print();
+            gpu.report().print_frame(before);
         }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
@@ -596,6 +600,11 @@ mod tests {
             body(&[])["render_formats"],
             serde_json::json!(worldrunner_render_program::unity::offscreen::RENDER_FORMATS)
         );
+    }
+
+    #[test]
+    fn the_request_says_the_device_samples_depth_with_a_comparison() {
+        assert_eq!(body(&[])["shadow_sampling"], serde_json::json!(true));
     }
 
     #[test]

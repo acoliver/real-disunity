@@ -96,10 +96,17 @@ After an intentional ABI change:
    `graphics_format`, `dimension` and a zero `reserved` word to the stored-texture
    record `DisunityTextureInfo` (48 to 64 bytes): a 2D array, a cube or a 3D texture
    states its layer count, `GraphicsFormat` and shader dimension code (2 2D, 3 3D,
-   4 cube, 5 2D array), and a writer that sets none stores a plain 2D texture.
-   Revision 18 adds `disunity_world_advance_teardown`, an advance that runs
-   only the `OnDisable` and `OnDestroy` messages and the asset cleanup that destruction
-   queued. Native and managed hosts reject
+   4 cube, 5 2D array), and a writer that sets none stores a plain 2D texture. Revision 18 adds
+   `disunity_offscreen_enable_scissor`, `disunity_offscreen_disable_scissor` and
+   `disunity_offscreen_set_depth_bias` (offscreen kinds 20 to 22) and the shadow
+   caster query `disunity_shadow_query`.
+   Revision 19 adds `disunity_environment_read` and `disunity_environment_write`, which move the
+   world's environment lighting (the ambient light and the default reflection, with a set flag
+   for each section) in the 224-byte `DisunityEnvironment`, and carries the environment in the
+   graphics snapshot.
+   Revision 20 adds `disunity_world_advance_teardown`, an advance that runs only the
+   `OnDisable` and `OnDestroy` messages and the asset cleanup that destruction queued.
+   Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

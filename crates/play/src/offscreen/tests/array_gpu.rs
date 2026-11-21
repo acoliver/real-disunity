@@ -24,7 +24,7 @@ use super::gpu::{Quad, SIDE, shader};
 use super::support::{material, render_texture, set, snapshot, texture_slot, world};
 
 /// The identity the managed engine stored the array under.
-const LAYERS: u64 = 1 << 40;
+pub(super) const LAYERS: u64 = 1 << 40;
 /// `TextureFormat` RGBA32 and its four layers, each a 1x1 texel that is exact in sRGB and linear.
 const RGBA32: u32 = 4;
 const RED: [u8; 4] = [255, 0, 0, 255];
@@ -82,10 +82,10 @@ pub(super) fn array_levels_passes() -> SyntheticShader {
     array_passes(ARRAY_LEVELS, "fs_levels")
 }
 
-/// The quad's mesh and one array under `LAYERS`.
-struct ArrayAssets(PlayerTexture);
+/// The quad's mesh and one stored texture under `LAYERS`.
+pub(super) struct StoredAssets(pub(super) PlayerTexture);
 
-impl Assets for ArrayAssets {
+impl Assets for StoredAssets {
     fn mesh(&self, identity: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
         Quad.mesh(identity, known)
     }
@@ -120,8 +120,18 @@ fn array(format: u32, side: u32, (depth, mips): (u32, u32), bytes: Vec<u8>) -> P
 /// The target's texels, as unit floats, after a blit of `pass` with `_Layers` set to `stored`, and
 /// the failures the flush counted.
 fn blit_with(
-    mut host: OffscreenHost,
+    host: OffscreenHost,
     pass: &str,
+    stored: PlayerTexture,
+) -> (Option<Vec<f32>>, BTreeMap<String, usize>) {
+    blit_property(host, (pass, "_Layers"), [SIDE, SIDE], stored)
+}
+
+/// As `blit_with` for the texture property `property` and a target of `size` texels.
+pub(super) fn blit_property(
+    mut host: OffscreenHost,
+    (pass, property): (&str, &str),
+    size: [u32; 2],
     stored: PlayerTexture,
 ) -> (Option<Vec<f32>>, BTreeMap<String, usize>) {
     let mut world = world();
@@ -130,11 +140,11 @@ fn blit_with(
     set(
         &mut world,
         blit,
-        PropertyValue::Texture("_Layers".into(), texture_slot(TextureRef::Asset(LAYERS))),
+        PropertyValue::Texture(property.into(), texture_slot(TextureRef::Asset(LAYERS))),
     );
     let (source, out) = (
-        render_texture(&mut world, [SIDE, SIDE]),
-        render_texture(&mut world, [SIDE, SIDE]),
+        render_texture(&mut world, size),
+        render_texture(&mut world, size),
     );
     world
         .record_offscreen(OffscreenWork::Blit {
@@ -144,10 +154,12 @@ fn blit_with(
             pass: 0,
         })
         .unwrap();
-    let request = world.request_texture_pixels(out, 0, 0, SIDE, SIDE).unwrap();
+    let request = world
+        .request_texture_pixels(out, 0, 0, size[0], size[1])
+        .unwrap();
 
     let snapshot = snapshot(&mut world);
-    let outcome = host.flush(&snapshot, &ArrayAssets(stored)).unwrap();
+    let outcome = host.flush(&snapshot, &StoredAssets(stored)).unwrap();
     outcome.apply(&mut world).unwrap();
     (
         world.take_texture_pixels(request),

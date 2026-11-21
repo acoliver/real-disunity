@@ -8,7 +8,7 @@ use crate::compositor::{
 };
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use worldrunner_render_gpu::submission::capture::WriteKey;
@@ -141,6 +141,19 @@ fn captured_layers(
 ) {
     let poison = Arc::new(AtomicBool::new(false));
     let layer = Arc::new(AtomicU32::new(0));
+    let game = Arc::new(Clears {
+        targets,
+        poison: poison.clone(),
+        layer: layer.clone(),
+    });
+    let (renderer, target) = captured_with(context, game);
+    (renderer, target, poison, layer)
+}
+
+fn captured_with(
+    context: &GpuContext,
+    game: Arc<dyn GameFeatureFactory>,
+) -> (ShadowedScene, OffscreenTarget) {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(context, &source, settings()).unwrap();
     renderer
@@ -152,15 +165,12 @@ fn captured_layers(
             }),
         )
         .unwrap();
-    let game = GamePasses::new().with(Arc::new(Clears {
-        targets,
-        poison: poison.clone(),
-        layer: layer.clone(),
-    }));
-    game.install(&mut renderer.scheduler, context, None)
+    GamePasses::new()
+        .with(game)
+        .install(&mut renderer.scheduler, context, None)
         .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    (renderer, target, poison, layer)
+    (renderer, target)
 }
 
 #[test]
@@ -242,4 +252,91 @@ fn a_capture_that_attaches_only_unwritten_layers_of_a_written_persistent_target_
             );
         }
     }
+}
+
+/// A game that always writes layer 0 of the persistent target and, once a submitted frame has
+/// written it, also plans a pass that samples it. `planned` records how many passes each plan of
+/// the feature declared.
+struct Samples {
+    planned: Arc<Mutex<Vec<usize>>>,
+}
+
+impl GameFeatureFactory for Samples {
+    fn name(&self) -> &'static str {
+        "samples"
+    }
+    fn targets(&self) -> Vec<TargetDeclaration> {
+        vec![scratch(), kept()]
+    }
+    fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+        Ok(Box::new(SamplesFeature {
+            targets: context.targets.clone(),
+            planned: self.planned.clone(),
+        }))
+    }
+}
+
+struct SamplesFeature {
+    targets: GameTargets,
+    planned: Arc<Mutex<Vec<usize>>>,
+}
+
+impl FrameFeature for SamplesFeature {
+    fn declare(&self) -> FeatureDeclaration {
+        FeatureDeclaration {
+            passes: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+    fn plan(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<FeatureDeclaration, FrameError> {
+        let (scratch, kept) = (scratch(), kept());
+        let write = GamePassSpec::new(GamePlace::BeforeOpaque, 0)
+            .writing([ColorOutput::Target(kept.layer(0))]);
+        let mut declared = vec![self.targets.plan_pass(&write, passes, views)?];
+        if self.targets.is_written(KEPT, 0) {
+            let sample = GamePassSpec::new(GamePlace::BeforeOpaque, 1)
+                .writing([ColorOutput::Target(scratch.layer(0))])
+                .reading([kept.layer(0)]);
+            declared.push(self.targets.plan_pass(&sample, passes, views)?);
+        }
+        self.planned.lock().unwrap().push(declared.len());
+        Ok(FeatureDeclaration {
+            passes: declared,
+            effects: Vec::new(),
+        })
+    }
+    fn build(&self, _context: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+        Ok(Box::new(ClearsFrame {
+            poison: Arc::new(AtomicBool::new(false)),
+        }))
+    }
+}
+
+#[test]
+fn a_feature_that_samples_a_target_once_it_is_written_plans_it_from_the_frame_after_the_write() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let planned = Arc::new(Mutex::new(Vec::new()));
+    let (mut renderer, target) = captured_with(
+        &context,
+        Arc::new(Samples {
+            planned: planned.clone(),
+        }),
+    );
+    for frame in 0..3 {
+        render_target(&mut renderer, &context, &view(), &target)
+            .unwrap_or_else(|error| panic!("capture {frame}: {error:?}"));
+    }
+    let planned = planned.lock().unwrap().clone();
+    // The sampling pass joins from the frame after the one that wrote the target.
+    assert_eq!(planned.first(), Some(&1), "the first frame writes only");
+    assert_eq!(
+        planned.last(),
+        Some(&2),
+        "a later frame samples what the first one wrote: {planned:?}"
+    );
 }

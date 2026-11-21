@@ -111,6 +111,7 @@ wire_struct!(RendererView {
     local_to_world,
     mesh,
     layer,
+    shadow_casting_mode,
     materials,
     render_queue,
     property_block
@@ -221,6 +222,7 @@ wire_struct!(GraphicsSnapshot {
     materials,
     render_textures,
     global,
+    environment,
     work,
     cameras,
     lights,

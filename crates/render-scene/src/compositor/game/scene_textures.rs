@@ -1,0 +1,207 @@
+//! The resident scene textures a game's passes sample: the textures the stock renderer uploaded
+//! for the scene the frame draws, lent by scene texture handle so a game never uploads a copy.
+use super::lent::{FrameInputError, Lent};
+use std::rc::Rc;
+use worldrunner_render_plan::TextureHandle;
+use worldrunner_render_program::binding::EngineSemantic;
+use worldrunner_render_program::runtime::Import;
+
+/// Why a lent scene texture cannot be bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum FrameSceneTextureError {
+    #[error("scene texture {handle} is not in the resident table of {resident}")]
+    Unknown { handle: u32, resident: usize },
+    #[error("scene texture {handle} is not two-dimensional, so it has no 2D array view")]
+    NotTwoDimensional { handle: u32 },
+}
+
+/// The resident textures of the scene the frame in flight draws, indexed by scene texture
+/// handle: every texture of the scene's table, uploaded once from its prepared payload (with any
+/// texture tier the host chose), including those appended since. One snapshot is shared by every
+/// frame until the table changes.
+#[derive(Clone, Debug)]
+pub struct FrameSceneTextures(Rc<[wgpu::Texture]>);
+
+impl FrameSceneTextures {
+    pub(crate) fn new(textures: Rc<[wgpu::Texture]>) -> Self {
+        Self(textures)
+    }
+
+    /// Textures in the resident table.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The texture of `handle`, through its default view, for the binding sourced from
+    /// `semantic`.
+    ///
+    /// # Errors
+    /// [`FrameSceneTextureError::Unknown`] for a handle beyond the resident table.
+    pub fn import(
+        &self,
+        semantic: EngineSemantic,
+        handle: TextureHandle,
+    ) -> Result<Import, FrameSceneTextureError> {
+        let texture = self.texture(handle)?;
+        Ok(Import::texture(
+            semantic,
+            texture.clone(),
+            texture.create_view(&wgpu::TextureViewDescriptor::default()),
+        ))
+    }
+
+    /// The texture of `handle` viewed as a 2D array of all its layers and mips, for a binding
+    /// the shader declares as a 2D texture array (HLSL `Texture2DArray`, WGSL
+    /// `texture_2d_array`). A one-layer scene texture is a one-layer array, which the program
+    /// reads as layer 0.
+    ///
+    /// # Errors
+    /// [`FrameSceneTextureError::Unknown`] for a handle beyond the resident table and
+    /// [`FrameSceneTextureError::NotTwoDimensional`] for a texture whose dimension is not 2D.
+    pub fn import_array(
+        &self,
+        semantic: EngineSemantic,
+        handle: TextureHandle,
+    ) -> Result<Import, FrameSceneTextureError> {
+        let texture = self.texture(handle)?;
+        if texture.dimension() != wgpu::TextureDimension::D2 {
+            return Err(FrameSceneTextureError::NotTwoDimensional {
+                handle: handle.raw(),
+            });
+        }
+        Ok(Import::texture_array(
+            semantic,
+            texture.clone(),
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            }),
+        ))
+    }
+
+    fn texture(&self, handle: TextureHandle) -> Result<&wgpu::Texture, FrameSceneTextureError> {
+        usize::try_from(handle.raw())
+            .ok()
+            .and_then(|index| self.0.get(index))
+            .ok_or(FrameSceneTextureError::Unknown {
+                handle: handle.raw(),
+                resident: self.0.len(),
+            })
+    }
+
+    /// Whether `other` is the same snapshot: the same table, so anything built from one binds
+    /// the textures the other would. An append or a texture replacement makes a new snapshot.
+    pub fn same_snapshot(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Where a game reads the resident scene textures of the frame in flight.
+///
+/// Every route publishes them before any game feature prepares: with the lent terrain in the
+/// frame, and also inside a depth prefix that a route submits ahead of the frame, because the
+/// textures are resident scene content rather than a product of the frame, so a depth-prefix
+/// feature may read them. The textures are the renderer's own: sample them, never write them,
+/// and take them again each frame.
+#[derive(Clone, Debug, Default)]
+pub struct FrameSceneTexturesHandle(Lent<FrameSceneTextures>);
+
+impl FrameSceneTexturesHandle {
+    /// The textures of the frame now being prepared.
+    ///
+    /// # Errors
+    /// [`FrameInputError::OutsideFrame`] outside a frame and [`FrameInputError::NotPrepared`]
+    /// before the route has published them.
+    pub fn current(&self) -> Result<FrameSceneTextures, FrameInputError> {
+        self.0.current()
+    }
+
+    pub(crate) fn publish(&self, textures: impl FnOnce() -> FrameSceneTextures) {
+        self.0.publish_with(textures);
+    }
+}
+
+impl From<FrameSceneTextureError> for worldrunner_render_post::FrameError {
+    fn from(error: FrameSceneTextureError) -> Self {
+        Self::FeaturePreparation {
+            feature: "frame scene textures",
+            reason: error.to_string(),
+        }
+    }
+}
+
+impl crate::compositor::FrameRenderer {
+    /// Lends `gpu`'s resident textures to the game's features, when there are any. Every route
+    /// calls it before features prepare, and the depth prefix calls it before its game passes.
+    pub(crate) fn publish_game_textures(&self, gpu: &crate::draw::SceneGpu) {
+        if self.game.features > 0 {
+            self.game_textures
+                .publish(|| FrameSceneTextures::new(gpu.lent_textures()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FrameSceneTextureError, FrameSceneTextures};
+    use crate::device::GpuContext;
+    use crate::test_support::SceneTestSession;
+    use worldrunner_render_plan::TextureHandle;
+    use worldrunner_render_program::binding::EngineSemantic;
+
+    fn texture(context: &GpuContext, dimension: wgpu::TextureDimension) -> wgpu::Texture {
+        context.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("scene texture test"),
+            size: wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 2,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    }
+
+    #[test]
+    fn an_array_view_needs_a_two_dimensional_texture_in_the_table() {
+        let _session = SceneTestSession::acquire();
+        let context =
+            GpuContext::shared_for_test_with_features(wgpu::Features::empty()).expect("a test GPU");
+        let textures = FrameSceneTextures::new(
+            [
+                texture(&context, wgpu::TextureDimension::D2),
+                texture(&context, wgpu::TextureDimension::D3),
+            ]
+            .into(),
+        );
+        let semantic = EngineSemantic::named("scene");
+        assert!(
+            textures
+                .import_array(semantic.clone(), TextureHandle::from_raw(0))
+                .is_ok()
+        );
+        assert_eq!(
+            textures
+                .import_array(semantic.clone(), TextureHandle::from_raw(1))
+                .err(),
+            Some(FrameSceneTextureError::NotTwoDimensional { handle: 1 })
+        );
+        assert_eq!(
+            textures
+                .import_array(semantic, TextureHandle::from_raw(2))
+                .err(),
+            Some(FrameSceneTextureError::Unknown {
+                handle: 2,
+                resident: 2
+            })
+        );
+    }
+}

@@ -32,6 +32,7 @@ impl FrameRenderer {
             ssao: Some(source),
             ssr: self.ssr.as_ref(),
             water: None,
+            water_registered: false,
             gbuffer: self.gbuffer.as_ref(),
             velocity: self.targets().velocity_texture().cloned(),
             temporal_mask: None,

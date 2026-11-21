@@ -8,6 +8,7 @@ use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
 use worldrunner_render_gpu::device::DeviceRequirements;
 use worldrunner_render_program::offscreen::PendingOffscreen;
+use worldrunner_render_program::unity::offscreen::ViewCounts;
 
 fn trace(records: usize, error: Option<&str>) -> WorkTrace {
     WorkTrace {
@@ -16,51 +17,9 @@ fn trace(records: usize, error: Option<&str>) -> WorkTrace {
         ..WorkTrace::default()
     }
 }
-fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
-    entries
-        .iter()
-        .map(|(name, count)| ((*name).to_owned(), *count))
-        .collect()
-}
-
-#[test]
-fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
-    let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
-    assert_eq!(
-        top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
-        Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
-    );
-}
-
-#[test]
-fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
-    let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
-    assert_eq!(
-        top_counts_line("t", &counts, 2).as_deref(),
-        Some("t: _A 4, _B 3, and 2 more")
-    );
-}
-
-#[test]
-fn there_is_no_missing_texture_line_without_missing_textures() {
-    assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
-}
 
 fn names(entries: &[&str]) -> BTreeSet<String> {
     entries.iter().map(|name| (*name).to_owned()).collect()
-}
-
-#[test]
-fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
-    assert_eq!(
-        unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
-        Some("constants or state properties no layer set: _A, _B, _C")
-    );
-    assert_eq!(
-        unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
-        Some("constants or state properties no layer set: _A, _B, and 3 more")
-    );
-    assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
 }
 
 #[test]
@@ -107,6 +66,22 @@ fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs
             "globals at a flush of frame 3: _Height: render, _Last: none",
             "globals at a frame of frame 3: _Last: render",
         ]
+    );
+}
+
+#[test]
+fn the_run_report_totals_the_planner_counts_of_every_piece_of_work() {
+    let views = |created, reused| ViewCounts { created, reused };
+    let mut first = trace(1, None);
+    first.phases.note_build(5, views(2, 7));
+    first.phases.note_build(9, views(1, 0));
+    let mut second = trace(1, Some("over its budget"));
+    second.phases.note_build(4, views(3, 4));
+    let mut report = GpuWorkReport::default();
+    report.keep_traces(vec![first, second]);
+    assert_eq!(
+        report.planner.planner_line(),
+        "builds 3, most draws held in one build 9, texture views made 6 and reused 11"
     );
 }
 

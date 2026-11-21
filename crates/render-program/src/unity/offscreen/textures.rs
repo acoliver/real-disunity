@@ -37,6 +37,9 @@ pub(super) struct TextureInfo {
     /// The bytes it holds in the budget: the source's bytes, or the render texture's color levels
     /// and depth buffer.
     pub(super) held_bytes: u64,
+    /// Whether a frame this state built wrote the texture. Only a render texture is written;
+    /// storage made again starts unwritten.
+    pub(super) written: bool,
 }
 
 impl TextureInfo {
@@ -85,52 +88,7 @@ impl TextureTable {
         source: &SourceTexture,
     ) -> Result<(), OffscreenError> {
         let format = source_format(source.graphics_format)?;
-        let (color, dimension) = match source.dimension {
-            SourceDimension::D2 => (
-                runtime.create_texture_2d(
-                    "offscreen source",
-                    source.size,
-                    format,
-                    &source.bytes,
-                )?,
-                RenderDimension::D2,
-            ),
-            SourceDimension::D3 => (
-                runtime.create_texture_3d(
-                    "offscreen source volume",
-                    source.size,
-                    format,
-                    &source.bytes,
-                )?,
-                RenderDimension::D3(1),
-            ),
-            SourceDimension::Cube => {
-                if source.size[0] != source.size[1] {
-                    return Err(OffscreenError::CubeShape {
-                        id: source.id,
-                        reason: "is square",
-                    });
-                }
-                let color = runtime.create_texture_cube(
-                    "offscreen source cube",
-                    source.size[0],
-                    format,
-                    &source.bytes,
-                )?;
-                (color, RenderDimension::Cube)
-            }
-            SourceDimension::D2Array(layers) => (
-                runtime.create_texture_array(
-                    "offscreen source array",
-                    source.size,
-                    layers,
-                    source.mips,
-                    format,
-                    &source.bytes,
-                )?,
-                RenderDimension::D2Array(layers),
-            ),
-        };
+        let (color, dimension) = upload_source(runtime, source, format)?;
         let info = TextureInfo {
             color: Some(color),
             depth: None,
@@ -138,8 +96,8 @@ impl TextureTable {
             layers: dimension.layers(),
             dimension,
             mips: match dimension {
-                RenderDimension::D2Array(_) => source.mips,
-                _ => 1,
+                RenderDimension::D2 => 1,
+                _ => source.mips,
             },
             format,
             depth_format: None,
@@ -148,6 +106,7 @@ impl TextureTable {
             spec: None,
             counts: Some(nonzero_texels(&source.bytes, format)),
             held_bytes: source.bytes.len() as u64,
+            written: false,
         };
         self.replace(runtime, source.id, info);
         Ok(())
@@ -156,6 +115,25 @@ impl TextureTable {
     /// Marks render textures as ones a kernel binds as storage images.
     pub(super) fn bind_as_storage(&mut self, ids: impl IntoIterator<Item = TextureId>) {
         self.storage.extend(ids);
+    }
+
+    /// Records that a built frame wrote the render textures `ids`.
+    pub(super) fn mark_written(&mut self, ids: impl IntoIterator<Item = TextureId>) {
+        for id in ids {
+            if let Some(info) = self.textures.get_mut(&id) {
+                info.written = true;
+            }
+        }
+    }
+
+    /// Whether `id` is a render texture no frame this state built has written. A kernel writes a
+    /// render texture the host bound as a storage image outside the frames, so such a texture is
+    /// not counted as unwritten.
+    pub(super) fn never_written(&self, id: TextureId) -> bool {
+        self.textures
+            .get(&id)
+            .is_some_and(|info| info.spec.is_some() && !info.written)
+            && !self.storage.contains(&id)
     }
 
     /// Creates every render texture of the frame that is new, whose storage changed or that a
@@ -293,6 +271,57 @@ impl TextureTable {
     }
 }
 
+/// Uploads the storage of a source texture in `format` and says what shape it has.
+fn upload_source(
+    runtime: &mut ProgramRuntime,
+    source: &SourceTexture,
+    format: wgpu::TextureFormat,
+) -> Result<(TextureHandle, RenderDimension), OffscreenError> {
+    Ok(match source.dimension {
+        SourceDimension::D2 => (
+            runtime.create_texture_2d("offscreen source", source.size, format, &source.bytes)?,
+            RenderDimension::D2,
+        ),
+        SourceDimension::D3(depth) => (
+            runtime.create_texture_3d(
+                "offscreen source volume",
+                [source.size[0], source.size[1], depth],
+                source.mips,
+                format,
+                &source.bytes,
+            )?,
+            RenderDimension::D3(depth),
+        ),
+        SourceDimension::Cube => {
+            if source.size[0] != source.size[1] {
+                return Err(OffscreenError::CubeShape {
+                    id: source.id,
+                    reason: "is square",
+                });
+            }
+            let color = runtime.create_texture_cube(
+                "offscreen source cube",
+                source.size[0],
+                source.mips,
+                format,
+                &source.bytes,
+            )?;
+            (color, RenderDimension::Cube)
+        }
+        SourceDimension::D2Array(layers) => (
+            runtime.create_texture_array(
+                "offscreen source array",
+                source.size,
+                layers,
+                source.mips,
+                format,
+                &source.bytes,
+            )?,
+            RenderDimension::D2Array(layers),
+        ),
+    })
+}
+
 /// Whether the device binds the color format of `spec` as a storage image, so that the texture
 /// can be made for a kernel to write.
 fn storage_format(runtime: &ProgramRuntime, spec: &RenderTextureSpec) -> bool {
@@ -391,6 +420,7 @@ fn create_render_texture(
         spec: Some(spec.clone()),
         counts: None,
         held_bytes: render_bytes(spec, runtime.device()),
+        written: false,
     })
 }
 

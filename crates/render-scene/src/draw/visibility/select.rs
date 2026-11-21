@@ -62,8 +62,8 @@ pub(in crate::draw) fn with_placements<R>(
         fade_eye: fade_eye.to_array().map(f32::to_bits),
         fade_cull_disabled,
     };
-    for (&(_, mesh, material), batch) in &instances.batches {
-        placement::refresh(&meshes[mesh], instances, material, batch);
+    placement::refresh_all(instances, meshes);
+    for batch in instances.batches.values() {
         batch.bounds.borrow_mut().prepare_levels(key);
     }
     let borrowed: Vec<(BatchKey, &InstanceBatch, Ref<'_, SlotBounds>)> = instances
@@ -128,8 +128,8 @@ impl Selection {
         self.stats.culled = self.stats.considered - self.stats.drawn_per_lod.iter().sum::<usize>();
     }
 
-    /// Collects the slots of `batch` that are visible, cast when only casters count, and
-    /// whose bounds the view admits, skipping groups no placement of which it can admit.
+    /// Collects the slots of `batch` that are visible, cast when only casters count, are not
+    /// shadow-only when the view is a camera, and whose bounds the view admits, skipping groups no placement of which it can admit.
     fn admit(
         &self,
         batch: &IndexedBatch<'_>,
@@ -159,7 +159,11 @@ impl Selection {
                         let (object, visible) =
                             batch.placements[slot as usize].expect("live instance");
                         visible
-                            && (!self.casters_only || object.casts_shadow())
+                            && if self.casters_only {
+                                object.casts_shadow()
+                            } else {
+                                !object.shadow_only()
+                            }
                             && self.admits(frustum, matrix, passed, || {
                                 placement::placement(
                                     batch.bounds.boxes(slot as usize),

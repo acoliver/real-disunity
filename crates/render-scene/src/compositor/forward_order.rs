@@ -12,7 +12,7 @@ use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 /// forward frame is chosen here. The sequence is:
 ///
 /// 1. shadow caster layers, by layer
-/// 2. the depth/normal prepass
+/// 2. the depth/normal prepass, then the game's passes after it
 /// 3. the depth pyramid, by level
 /// 4. occlusion metadata, by level
 /// 5. SSAO, its horizontal blur, its final blur
@@ -23,13 +23,14 @@ use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 /// 10. opaque
 /// 11. the game's passes after Opaque
 /// 12. visible contour IDs, then the opaque colour and depth snapshots
-/// 13. water, then the water mask
-/// 14. transparent alpha (rejected by validation today)
-/// 15. the post-water depth
-/// 16. the game's passes after the transparent passes
-/// 17. the reflection depth pyramid, by level
-/// 18. the reflection trace, then reflection mips by level
-/// 19. the screen-space pass after transparency
+/// 13. the game's passes after the opaque snapshots
+/// 14. water, then the water mask
+/// 15. transparent alpha (rejected by validation today)
+/// 16. the post-water depth
+/// 17. the game's passes after the transparent passes
+/// 18. the reflection depth pyramid, by level
+/// 19. the reflection trace, then reflection mips by level
+/// 20. the screen-space pass after transparency
 ///
 /// The game's passes are the only roles whose place is not their position in the `PassSlot`
 /// enum; within one place they keep the order of their entries' occurrences.
@@ -37,6 +38,7 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
     match slot {
         PassSlot::ShadowCasters(layer) => (0, layer),
         PassSlot::DepthNormalPrepass => (1, 0),
+        PassSlot::Game(GamePlace::AfterDepthPrepass) => (1, 1),
         PassSlot::DepthPyramid(level) => (2, level),
         PassSlot::OcclusionMetadata(level) => (3, level),
         PassSlot::Ssao => (4, 0),
@@ -51,6 +53,7 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::ContourIds => (13, 0),
         PassSlot::AfterOpaqueSnapshot => (13, 1),
         PassSlot::AfterOpaqueDepth => (14, 0),
+        PassSlot::Game(GamePlace::AfterOpaqueSnapshots) => (14, 1),
         PassSlot::TransparentWater => (15, 0),
         PassSlot::TransparentWaterMask => (16, 0),
         PassSlot::TransparentAlpha => (17, 0),
@@ -208,6 +211,46 @@ mod tests {
         );
     }
 
+    /// The game's passes after the depth prepass run before every reader of the prepass: the
+    /// depth pyramid, the occlusion metadata and SSAO, and keep occurrence order.
+    #[test]
+    fn the_games_passes_after_the_depth_prepass_run_before_its_readers() {
+        use worldrunner_render_post::PassEntry;
+        let game =
+            |occurrence| PassEntry::nth(PassSlot::Game(GamePlace::AfterDepthPrepass), occurrence);
+        let stock = |slot| PassEntry::new(slot);
+        let mut passes: Vec<_> = [
+            stock(PassSlot::Ssao),
+            game(1),
+            stock(PassSlot::OcclusionMetadata(0)),
+            stock(PassSlot::DepthPyramid(0)),
+            game(0),
+            stock(PassSlot::DepthNormalPrepass),
+            stock(PassSlot::ShadowCasters(0)),
+            stock(PassSlot::Opaque),
+        ]
+        .into_iter()
+        .map(|entry| PassDeclaration::nth(entry.slot(), entry.occurrence()))
+        .collect();
+        forward_order(&mut passes);
+        assert_eq!(
+            passes
+                .iter()
+                .map(PassDeclaration::entry)
+                .collect::<Vec<_>>(),
+            [
+                stock(PassSlot::ShadowCasters(0)),
+                stock(PassSlot::DepthNormalPrepass),
+                game(0),
+                game(1),
+                stock(PassSlot::DepthPyramid(0)),
+                stock(PassSlot::OcclusionMetadata(0)),
+                stock(PassSlot::Ssao),
+                stock(PassSlot::Opaque),
+            ]
+        );
+    }
+
     /// The game's places are not where the enum puts them: they sit around Opaque, after the
     /// transparent passes and before the screen-space tail, and keep occurrence order.
     #[test]
@@ -249,6 +292,61 @@ mod tests {
                 stock(PassSlot::ScreenSpaceAfterTransparent),
             ]
         );
+    }
+
+    /// The place after the snapshots is behind every writer of an opaque snapshot, and in front of
+    /// everything transparent, whatever order the features contributed their passes in.
+    #[test]
+    fn the_place_after_the_opaque_snapshots_follows_every_snapshot_writer_and_precedes_transparency()
+     {
+        use worldrunner_render_post::PassEntry;
+        let game = |occurrence| {
+            PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaqueSnapshots), occurrence)
+        };
+        let stock = |slot| PassEntry::new(slot);
+        let authored = [
+            stock(PassSlot::TransparentWater),
+            stock(PassSlot::TransparentWaterMask),
+            game(1),
+            stock(PassSlot::AfterWaterDepth),
+            stock(PassSlot::AfterOpaqueDepth),
+            PassEntry::nth(PassSlot::Game(GamePlace::AfterTransparent), 0),
+            game(0),
+            stock(PassSlot::AfterOpaqueSnapshot),
+            stock(PassSlot::ContourIds),
+            PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaque), 0),
+            stock(PassSlot::Opaque),
+        ];
+        let expected = [
+            stock(PassSlot::Opaque),
+            PassEntry::nth(PassSlot::Game(GamePlace::AfterOpaque), 0),
+            stock(PassSlot::ContourIds),
+            stock(PassSlot::AfterOpaqueSnapshot),
+            stock(PassSlot::AfterOpaqueDepth),
+            game(0),
+            game(1),
+            stock(PassSlot::TransparentWater),
+            stock(PassSlot::TransparentWaterMask),
+            stock(PassSlot::AfterWaterDepth),
+            PassEntry::nth(PassSlot::Game(GamePlace::AfterTransparent), 0),
+        ];
+        for rotation in 0..authored.len() {
+            let mut arranged = authored.to_vec();
+            arranged.rotate_left(rotation);
+            let mut passes: Vec<_> = arranged
+                .iter()
+                .map(|entry| PassDeclaration::nth(entry.slot(), entry.occurrence()))
+                .collect();
+            forward_order(&mut passes);
+            assert_eq!(
+                passes
+                    .iter()
+                    .map(PassDeclaration::entry)
+                    .collect::<Vec<_>>(),
+                expected,
+                "rotated by {rotation}"
+            );
+        }
     }
 
     #[test]

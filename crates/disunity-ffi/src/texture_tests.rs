@@ -417,6 +417,44 @@ fn a_3d_texture_needs_a_format_and_whole_slices() {
 }
 
 #[test]
+fn a_3d_texture_with_a_mip_chain_need_not_be_a_whole_number_of_slices() {
+    let world = new_world();
+    // 3x3x3 texels of four bytes with a 1x1x1 second level: 108 + 4 bytes, which three slices
+    // do not divide. A layered texture of one level still does.
+    let chain = DisunityTextureInfo {
+        width: 3,
+        height: 3,
+        mips: 2,
+        length: 112,
+        ..layered(FIRST, TEX_3D, 3)
+    };
+    assert_eq!(store_described(world, &chain, &[5; 112]).code, 0);
+    let (_, out, bytes) = read(world, FIRST, 112);
+    assert_eq!((out.dimension, out.depth, out.mips), (TEX_3D, 3, 2));
+    assert_eq!(bytes, vec![5; 112]);
+    let single = DisunityTextureInfo { mips: 1, ..chain };
+    assert_ne!(
+        store_described(
+            world,
+            &DisunityTextureInfo {
+                identity: FIRST + 1,
+                ..single
+            },
+            &[5; 112]
+        )
+        .code,
+        0
+    );
+    // An array's layers each hold a chain, so its length is whole layers whatever its levels.
+    let array = DisunityTextureInfo {
+        mips: 2,
+        length: 112,
+        ..layered(FIRST + 2, TEX_2D_ARRAY, 3)
+    };
+    assert_ne!(store_described(world, &array, &[5; 112]).code, 0);
+}
+
+#[test]
 fn a_dimension_the_engine_does_not_define_or_a_2d_texture_with_layers_is_refused() {
     let world = new_world();
     let mut bad = vec![DisunityTextureInfo {

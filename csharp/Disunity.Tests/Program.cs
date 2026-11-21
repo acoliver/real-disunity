@@ -422,6 +422,7 @@ EnabledTests.Run();
 PlayerServiceTests.Run();
 PlayerCommandLineTests.Run();
 PlayerScreenTests.Run();
+PlayerProjectGraphicsTests.Run();
 PlayerDeviceTests.Run();
 
 GameApiTests.Run();

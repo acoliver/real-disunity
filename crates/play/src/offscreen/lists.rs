@@ -37,6 +37,7 @@ use super::builtins::{add_screen_size, view_layer};
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
+use super::light_data::{MainLight, item_values};
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
 /// the passes of the Old World player's shaders come from the decoded pass tags, which the report
@@ -119,6 +120,7 @@ impl<'a> Mapper<'a> {
         report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
         self.script.culls.insert(id, kept);
+        self.script.cull_masks.insert(id, mask);
     }
 
     /// The corners of the box of the renderer's mesh in the world, or the point its matrix places
@@ -175,8 +177,10 @@ impl<'a> Mapper<'a> {
             .ok_or(Skip::UnknownList)?;
         let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
+        let mask = self.script.cull_masks.get(cull).copied().unwrap_or(0);
+        let main = MainLight::picked_by(&self.snapshot.lights, mask);
         let draws = match &desc {
-            RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
+            RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, (eye, &main)),
             RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
         };
         let lists = &mut self.report.lists;
@@ -240,7 +244,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         culled: &[usize],
         desc: &RendererListDesc,
-        eye: Vec3,
+        (eye, main): (Vec3, &MainLight),
     ) -> Vec<ListDraw> {
         let RendererListDesc::Draw {
             pass_tags,
@@ -311,7 +315,7 @@ impl<'a> Mapper<'a> {
             }
         }
         sort(&mut candidates, *sorting);
-        self.items(candidates, replacement, &selector)
+        self.items(candidates, replacement, (&selector, main))
     }
 
     /// The draws of the culled renderers inside a shadow split that cast a shadow and have a pass
@@ -384,18 +388,20 @@ impl<'a> Mapper<'a> {
         &mut self,
         candidates: Vec<Candidate>,
         replacement: Option<worldrunner_render_program::ids::MaterialId>,
-        selector: &PassSelector,
+        (selector, main): (&PassSelector, &MainLight),
     ) -> Vec<ListDraw> {
         candidates
             .into_iter()
             .map(|candidate| {
                 self.drawn_with(&candidate.tag);
+                let layer = self.snapshot.renderers[candidate.renderer].layer;
                 ListDraw {
                     renderer: RendererId(candidate.renderer as u64),
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
                     instances: 1,
+                    per_draw: item_values(main, layer),
                 }
             })
             .collect()

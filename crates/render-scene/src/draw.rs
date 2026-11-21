@@ -36,6 +36,10 @@ pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
 mod lod_material;
+mod mesh_arena;
+use mesh_arena::GpuMesh;
+#[cfg(test)]
+pub(crate) use mesh_arena::with_chunk_limit;
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
@@ -226,24 +230,12 @@ pub enum DrawError {
     },
 }
 
-/// One mesh level held as the buffer pair a draw needs.
+/// One terrain level held as the buffer pair a draw needs.
 #[derive(Clone, Debug)]
 struct GpuLod {
-    /// The vertex format of `vertices` and `transition`.
-    layout: crate::object::layout::GeometryLayout,
-    transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
     index_count: u32,
-}
-
-/// One mesh chain, uploaded level by level.
-#[derive(Debug)]
-struct GpuMesh {
-    lods: Vec<GpuLod>,
-    /// Keeps the chain's buffers counted under `ResourceClass::Mesh` while the mesh is resident.
-    /// The levels hold plain buffer handles, because draws and streaming clone them.
-    _census: Vec<worldrunner_render_gpu::census::CensusEntry>,
 }
 
 /// The terrain surface, as the one draw it has become.
@@ -420,7 +412,7 @@ impl SceneGpu {
                 heights: &contact_heights,
             },
         );
-        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
+        let meshes = upload_meshes(device, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
                 device,
@@ -734,7 +726,8 @@ impl SceneGpu {
     }
 }
 
-use resources::{upload_meshes, upload_textures};
+use mesh_arena::upload_meshes;
+use resources::upload_textures;
 mod environment;
 mod prepared;
 mod resources;

@@ -29,8 +29,10 @@ pub(super) fn upload(
             crate::sky::meshes::MeshDraw {
                 lighting: settings.lighting,
                 anchored: settings.anchor_millimeters.is_some(),
-                vertices: lod.vertices.clone(),
-                indices: lod.indices.clone(),
+                vertices: lod.vertices.buffer().clone(),
+                indices: lod.indices.buffer().clone(),
+                first_index: lod.indices.first(),
+                base_vertex: lod.vertices.base_vertex(),
                 count: lod.index_count,
                 material_index: settings.material.raw() as usize,
                 instance,

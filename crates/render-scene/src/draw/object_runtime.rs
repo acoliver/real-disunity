@@ -10,8 +10,10 @@
 //! The scene's colour and caster passes hold the walk's draws and record them grouped by
 //! pipeline and material (see [`DrawOrder`]): a batch is one mesh in one material, so the walk
 //! alternates materials as it moves from mesh to mesh, and each change binds a material group
-//! that wgpu validates texture by texture. Grouped, a pass binds each material once and changes
-//! vertex and index buffers between draws, which wgpu validates for one buffer each.
+//! that wgpu validates texture by texture. Grouped, a pass binds each material once. Levels share
+//! the chunks of buffers their upload packed them into (see [`super::mesh_arena`]), so the draws
+//! of a material in one chunk set the vertex and index buffers once and differ in `first_index`
+//! and `base_vertex`.
 
 use std::rc::Rc;
 
@@ -168,6 +170,7 @@ impl Held {
         key(self)
             .cmp(&key(other))
             .then_with(|| self.vertices.cmp(&other.vertices))
+            .then_with(|| self.draw.base_vertex.cmp(&other.draw.base_vertex))
             .then_with(|| self.indices.cmp(&other.indices))
             .then_with(|| self.instances.current.cmp(&other.instances.current))
     }
@@ -302,10 +305,10 @@ impl<P: PassCommands + ?Sized> Recorder<'_, P> {
         };
         let indices = BorrowedGeometry::Indexed {
             buffer: indices,
-            format: wgpu::IndexFormat::Uint32,
+            format: super::mesh_arena::INDEX_FORMAT,
             first: draw.indices.start,
             count: draw.indices.end - draw.indices.start,
-            base_vertex: 0,
+            base_vertex: draw.base_vertex,
         };
         pipeline
             .draw_borrowed(

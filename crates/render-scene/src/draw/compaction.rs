@@ -317,6 +317,10 @@ impl SceneGpu {
         }
         let mut batches = Ascending::new(&self.instances.batches, keys.len());
         for key in &keys {
+            #[cfg(test)]
+            self.gather
+                .source_checks
+                .set(self.gather.source_checks.get() + 1);
             let batch = batches.get(key)?;
             batch.buffer.as_ref()?;
             if previous {
@@ -482,6 +486,11 @@ impl SceneGpu {
     pub(crate) fn committed_compaction_key(&self, view: usize) -> Option<String> {
         let key = self.views[view].compaction.committed.borrow().key;
         key.map(|key| format!("{key:?}"))
+    }
+
+    /// How many batches `gather_sources` checked one by one.
+    pub(crate) fn source_checks(&self) -> usize {
+        self.gather.source_checks.get()
     }
 
     /// How many times the gather mirror checked batch ranges one by one.

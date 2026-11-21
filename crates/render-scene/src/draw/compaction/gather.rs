@@ -110,6 +110,9 @@ impl Pipelines {
 pub(in crate::draw) struct Shared {
     pub(super) mirror: mirror::Mirror,
     pipelines: OnceCell<Pipelines>,
+    /// How many batches `gather_sources` checked one by one.
+    #[cfg(test)]
+    pub(super) source_checks: std::cell::Cell<usize>,
 }
 
 /// The buffers one gather binds, in binding order.

@@ -286,7 +286,7 @@ impl InstanceBatch {
     /// Whether `flush_prepared` would find nothing to write, copy or allocate: no slot is
     /// waiting for upload, the buffers are current and hold every slot, and the history has
     /// nothing pending.
-    fn is_settled(&self, track_previous: bool) -> bool {
+    pub(super) fn is_settled(&self, track_previous: bool) -> bool {
         self.dirty.is_empty()
             && self.buffer_valid.get()
             && !self.history.has_pending()
@@ -365,9 +365,6 @@ pub(crate) fn flush_prepared(
     census: &MemoryCensus,
     track_previous: bool,
 ) -> (Vec<Range<u32>>, Option<super::history::Candidate>) {
-    if batch.is_settled(track_previous) {
-        return (Vec::new(), None);
-    }
     let owner = context.publications();
     batch.prune_published(&owner);
     let writes = batch.pending_ranges_for(Some(&owner));

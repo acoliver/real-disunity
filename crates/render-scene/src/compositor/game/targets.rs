@@ -33,9 +33,10 @@ pub enum TargetLifetime {
 /// A named texture a game owns: one 2D texture of one or more layers and one or more mips, with
 /// one view per mip of each layer and any sampled view the game makes.
 ///
-/// A renderable colour format makes a target passes render into, of one mip. A block-compressed
-/// format makes a copy target, which only a frame's preparation writes, mip by mip of each layer,
-/// by copy ([`GameTargets::plan_prepared`]), and passes sample; it may carry a mip chain.
+/// A renderable colour format makes a target passes render into, one (layer, mip) at a time. A
+/// block-compressed format makes a copy target, which only a frame's preparation writes, mip by mip
+/// of each layer, by copy ([`GameTargets::plan_prepared`]), and passes sample. Either may carry a
+/// mip chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetDeclaration {
     /// Names the target in the plan, in errors and in the allocation inventory.
@@ -45,8 +46,9 @@ pub struct TargetDeclaration {
     pub extent: TargetExtent,
     /// Array layers, at least one.
     pub layers: u32,
-    /// Mip levels, at least one and at most the extent's full chain. Only a copy target may have
-    /// more than one: nothing in a frame writes the lower mips of a renderable target.
+    /// Mip levels, at least one and at most the extent's full chain. A pass fills one mip of a
+    /// renderable target ([`ColorOutput::Target`](super::ColorOutput::Target) of
+    /// [`mip`](Self::mip)) and the frame's preparation fills one of a copy target.
     pub mips: u32,
     pub lifetime: TargetLifetime,
     /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every renderable target has, or
@@ -118,6 +120,15 @@ impl TargetDeclaration {
     /// Every mip of `layer`, from the first.
     pub fn layer_mips(&self, layer: u32) -> impl Iterator<Item = ResourceRef> + '_ {
         (0..self.mips).map(move |mip| self.mip(layer, mip))
+    }
+
+    /// The mips `mips` of `layer`, in order.
+    pub fn mip_range(
+        &self,
+        layer: u32,
+        mips: std::ops::Range<u32>,
+    ) -> impl Iterator<Item = ResourceRef> + '_ {
+        mips.map(move |mip| self.mip(layer, mip))
     }
 
     /// Every layer of the target, for a pass that reads the whole array.
@@ -193,11 +204,6 @@ impl TargetDeclaration {
                 .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
         {
             return refuse("format is not a renderable colour format");
-        }
-        if self.mips != 1 {
-            return refuse(
-                "a renderable target has one mip; mip chains are for block-compressed copy targets",
-            );
         }
         let unsupported = self.usage.difference(guaranteed.allowed_usages);
         if !unsupported.is_empty() {
@@ -662,6 +668,42 @@ impl GameTargets {
             .texture(name)?
             .create_view(&wgpu::TextureViewDescriptor {
                 label: Some(name),
+                ..Default::default()
+            }))
+    }
+
+    /// The view a pass that reads some mips of the target binds: every layer of the mips `mips`.
+    /// It is a 2D view of a one-layer target and a 2D array of several. A pass samples it while it
+    /// renders into a mip outside the range, because the views cover different subresources.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentView`] for a name no declaration made, naming the target, and for
+    /// an empty range or one past the target's mips, naming the first mip it cannot cover.
+    pub fn sampled_mips(
+        &self,
+        name: &'static str,
+        mips: std::ops::Range<u32>,
+    ) -> Result<wgpu::TextureView, FrameError> {
+        let count = self
+            .mips(name)
+            .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))?;
+        if mips.is_empty() || mips.end > count {
+            let mip = if mips.is_empty() {
+                mips.start
+            } else {
+                mips.start.max(count)
+            };
+            return Err(FrameError::AttachmentView(ResourceRef {
+                mip,
+                ..ResourceRef::new(name)
+            }));
+        }
+        Ok(self
+            .texture(name)?
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: Some(name),
+                base_mip_level: mips.start,
+                mip_level_count: Some(mips.end - mips.start),
                 ..Default::default()
             }))
     }

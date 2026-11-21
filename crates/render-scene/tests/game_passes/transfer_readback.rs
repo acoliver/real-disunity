@@ -915,7 +915,7 @@ fn a_pass_reads_a_level_of_a_target_only_when_an_earlier_pass_wrote_that_level()
         "layer 0 has no producer: {error:?}"
     );
     KEPT.with_borrow_mut(|kept| *kept = Kept::default());
-    // A renderable target has one mip, so a read of mip 1 names a level the target lacks.
+    // The float target declares one mip, so a read of mip 1 names a level the target lacks.
     for layer in [1, 0] {
         let outside = level(layer, 1);
         let error = render_reading(outside).unwrap_err();

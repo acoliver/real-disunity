@@ -8,8 +8,10 @@ use super::driver::Driver;
 
 /// Executes the same caller-owned simulation against the recorded desktop inputs.
 pub(super) fn verify(desktop: &Driver) {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let mut replay = Driver::default();

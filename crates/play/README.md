@@ -147,7 +147,7 @@ A draw that binds a texture the host supplied in place of a real one is a draw w
 | `unsupported-format` | The slot names a stored texture whose format the host does not decode. |
 | `undeclared` | The shader reflects a slot it does not declare and no layer sets it, so the grey of the slot's dimension is read. |
 
-A draw whose declared property has no texture and no default the host supplies is left out and counted as `draw:MissingTexture`, as before.
+A draw whose declared property has no texture and no default the host supplies is left out and counted as `draw:MissingTexture`.
 
 `unsupported-dimension` (a cube, 3D or array texture the engine cannot carry yet) is not reported separately. The importer plans a texture it does not build (a `Cubemap`, a `Texture3D`, a `Texture2D` it rejects) as a slot marked `unsent` with a line in the plan's differences (`unity-import` `player_materials.rs`, `plan_material`), the managed loader sets it as an empty texture, and `WorldGraphics.TextureOf` sends a named texture it cannot carry as kind 5, `TextureRef::Unsent`. A slot that is null in the game's data is kind 0, `TextureRef::None`. The world reads the two alike everywhere except in this report, so `declared-default` says the game left the slot null and `not-loaded` says a texture the game names did not arrive. The managed engine's own count of what it could not send, with the reason for each property, is printed as `UnsentTextureSummary`.
 

@@ -1,9 +1,11 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::engine::EngineConstants;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
 use super::resources::{GameResources, SharedTextures};
+use super::scene_meshes::FrameSceneMeshesHandle;
 use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
@@ -46,6 +48,11 @@ pub struct GameBuild<'a> {
     /// The scene's resident textures, lent in every frame and in a depth prefix submitted ahead
     /// of the frame.
     pub scene_textures: FrameSceneTexturesHandle,
+    /// The scene's resident meshes, lent wherever the textures are.
+    pub scene_meshes: FrameSceneMeshesHandle,
+    /// The constants of this generation: placeholder texels, the split-sum BRDF table and the
+    /// full-screen triangle.
+    pub engine: EngineConstants,
     /// The opaque snapshots of the frame in flight, published once the frame is planned and only
     /// when a pass of it declared a read of them.
     pub snapshots: FrameSnapshotHandle,
@@ -68,7 +75,9 @@ pub trait GameFeatureFactory: Send + Sync {
     }
 
     /// The bytes [`GameBuild::resources`] may hold: its declared buffers and textures with what
-    /// its program runtime allocates. None by default.
+    /// its program runtime allocates and the terrain material arrays
+    /// [`EngineConstants::material_array`] lends its features. None by default, so a factory
+    /// whose features ask for arrays states a budget that covers them.
     fn resource_budget(&self) -> AllocationBudget {
         AllocationBudget(0)
     }
@@ -116,6 +125,9 @@ pub trait GameFeatureFactory: Send + Sync {
     /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
     /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with
     /// `FrameError::MissingPass`; check the pass list for `PassSlot::DepthNormalPrepass` first.
+    /// Whenever it plans no pass, the frame prepares, commits and finishes it as an ordinary
+    /// feature without passes (a prefix encoded separately leaves it to the rest of the frame),
+    /// so its `prepare` must accept a frame that lists none of its entries.
     ///
     /// # Errors
     /// Whatever refuses the feature; the renderer is not built.
@@ -238,6 +250,8 @@ impl GamePasses {
             &self.declarations(),
             frame.size,
         ));
+        let engine = EngineConstants::new(context.device(), context.submission());
+        renderer.game.engine = Some(engine.clone());
         let shared = SharedTextures::default();
         for factory in &self.factories {
             let resources = GameResources::new(
@@ -258,6 +272,8 @@ impl GamePasses {
                 occlusion: renderer.game.occlusion.clone(),
                 environment: renderer.game.environment.clone(),
                 scene_textures: renderer.game_textures.clone(),
+                scene_meshes: renderer.game.meshes.clone(),
+                engine: engine.charged_to(&resources),
                 snapshots: renderer.game.snapshots.clone(),
             };
             let prefix =
@@ -296,6 +312,11 @@ pub(crate) struct Installed {
     pub(crate) occlusion: FrameOcclusionHandle,
     /// Where every route lends its specular environment to the features of this generation.
     pub(crate) environment: FrameEnvironmentHandle,
+    /// Where every route lends the scene's resident meshes to the features of this generation.
+    pub(crate) meshes: FrameSceneMeshesHandle,
+    /// The engine constants of this generation, which every route lends the scene's textures
+    /// and terrain to.
+    pub(crate) engine: Option<EngineConstants>,
     /// Each factory's declared resources, released with this generation.
     pub(crate) resources: Vec<GameResources>,
     /// Where the renderer lends the frame's opaque snapshots to the features of this generation.

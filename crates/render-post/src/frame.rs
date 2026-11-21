@@ -3,18 +3,27 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod error;
 mod finish;
 mod frozen;
 mod game;
 mod operations;
+#[cfg(test)]
+mod prefix_participant_tests;
+mod prepare;
 mod prepared;
+mod registered;
+pub use error::FrameError;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+pub use prepare::PrepareContext;
+use prepare::Staged;
 pub use prepared::{
     PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
 };
+pub(crate) use registered::RegisteredFeature;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -203,91 +212,6 @@ impl FeatureDeclaration {
             effects: Vec::new(),
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum FrameError {
-    #[error("streaming terrain already prepared for a different view in this transaction")]
-    StreamingSelectionConflict,
-    #[error("{feature} preparation failed: {reason}")]
-    FeaturePreparation {
-        feature: &'static str,
-        reason: String,
-    },
-    #[error(transparent)]
-    Transaction(#[from] worldrunner_render_gpu::submission::TransactionError),
-    #[error("invalid or unsupported SSR setting: {0}")]
-    SsrSettings(&'static str),
-    #[error("invalid or unsupported water setting: {0}")]
-    WaterSettings(&'static str),
-    /// Two transparent features draw in the same entry. Transparent entries run in the order the
-    /// frame lists them, but the executor does not sort packets across features inside one entry.
-    #[error("{0} has more than one transparent feature; list each in its own entry")]
-    TransparentOrdering(PassEntry),
-    #[error("scene exposure differs from the compiled fixed-exposure profile")]
-    FixedExposureMismatch,
-    #[error("invalid or unsupported SSAO setting: {0}")]
-    SsaoSettings(&'static str),
-    /// The list names one entry twice. A role may repeat; an entry (role and occurrence) may not.
-    #[error("pass entry appears more than once in the frame: {0}")]
-    DuplicatePass(PassEntry),
-    #[error(transparent)]
-    ResourceContract(#[from] crate::contracts::ContractError),
-    #[error("feature requests an undeclared pass entry {0}")]
-    MissingPass(PassEntry),
-    #[error("resource has no preceding producer: {0:?}")]
-    MissingProducer(ResourceRef),
-    #[error("resource is loaded or sampled after discard: {0:?}")]
-    LoadAfterDiscard(ResourceRef),
-    #[error("resource is sampled while attached or written ambiguously: {0:?}")]
-    AttachmentHazard(ResourceRef),
-    #[error("attachment or pipeline contract is incompatible in slot {0}")]
-    AttachmentContract(PassEntry),
-    #[error("frame does not support requested effect {0}")]
-    UnsupportedEffect(&'static str),
-    #[error("attachment view does not match its declared subresource: {0:?}")]
-    AttachmentView(ResourceRef),
-    /// A frozen plan lists a pass before one that the stock passes need it to follow.
-    #[error("pass {pass} is listed before {needs}, which the stock passes need it to follow")]
-    StockOrder { pass: PassEntry, needs: PassEntry },
-    /// A pass reads the depth that Opaque draws with before a prepass or Opaque has written it.
-    #[error("pass {pass} reads {resource:?} before the opaque depth is complete")]
-    IncompleteDepth {
-        pass: PassEntry,
-        resource: ResourceRef,
-    },
-    /// A geometry pass attaches a texture that operations groups write.
-    #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
-    OffscreenWrite {
-        pass: PassEntry,
-        resource: ResourceRef,
-    },
-    /// A preparation staged a write of a view the plan did not declare prepared.
-    #[error("prepared write {0:?} was not declared by the plan")]
-    UnplannedWrite(ResourceRef),
-    /// The plan declared a view prepared and no preparation of the frame staged its write.
-    #[error("the plan declared prepared write {0:?} and no preparation staged it")]
-    UnstagedWrite(ResourceRef),
-    /// A frame's preparations staged a second write of one view, which the frame versions once.
-    #[error("prepared write {0:?} is staged more than once in the frame's preparation")]
-    RepeatedPreparedWrite(ResourceRef),
-    /// Prepared commands were staged outside the features' `prepare`, after the frame checked
-    /// what its preparations write.
-    #[error("prepared commands may be staged only while features prepare")]
-    PreparedOutsidePreparation,
-    /// Prepared commands write other views of the frame than their access declares.
-    #[error("prepared commands {label} write {written:?} and declare writes of {declared:?}")]
-    PreparedWriteMismatch {
-        label: &'static str,
-        declared: Vec<ResourceRef>,
-        written: Vec<ResourceRef>,
-    },
-    /// The owner of prepared commands refused to retain or record them, with its own error.
-    #[error("prepared commands {label} were refused: {refusal}")]
-    PreparedRefused {
-        label: &'static str,
-        refusal: PreparedRefusal,
-    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -571,152 +495,6 @@ pub struct BuildContext<'a> {
     pub device: &'a wgpu::Device,
     pub targets: &'a FrameTargets,
 }
-/// One buffer operation staged by a preparation, encoded in staging order.
-enum Staged {
-    Copy {
-        source: (wgpu::Buffer, u64),
-        destination: (wgpu::Buffer, u64),
-        bytes: u64,
-    },
-    Dispatch {
-        label: &'static str,
-        pipeline: wgpu::ComputePipeline,
-        group: wgpu::BindGroup,
-        workgroups: [u32; 3],
-    },
-    Prepared {
-        label: &'static str,
-        commands: Box<dyn PreparedCommands>,
-    },
-}
-pub struct PrepareContext<'a> {
-    device: &'a wgpu::Device,
-    encoder: &'a mut wgpu::CommandEncoder,
-    publications: worldrunner_render_gpu::submission::Publications,
-    staged: Vec<Staged>,
-    views: Vec<AttachmentView>,
-    passes: Vec<PassDeclaration>,
-    completed: Vec<PassEntry>,
-    /// Whether features are preparing, the only time prepared commands may be staged.
-    preparing: bool,
-    /// The views the staged prepared commands write, in staging order.
-    prepared_written: Vec<ResourceRef>,
-}
-impl<'a> PrepareContext<'a> {
-    pub fn new(
-        device: &'a wgpu::Device,
-        encoder: &'a mut wgpu::CommandEncoder,
-    ) -> Result<Self, worldrunner_render_gpu::submission::TransactionError> {
-        let publications = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        Ok(Self {
-            device,
-            encoder,
-            publications,
-            staged: Vec::new(),
-            views: Vec::new(),
-            passes: Vec::new(),
-            completed: Vec::new(),
-            preparing: false,
-            prepared_written: Vec::new(),
-        })
-    }
-    /// Whether a validated geometry prefix already encoded this entry in the same frame.
-    pub fn completed_in_prefix(&self, entry: PassEntry) -> bool {
-        self.completed.contains(&entry)
-    }
-    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassEntry]) {
-        self.completed = completed.to_vec();
-    }
-    pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
-        self.publications.clone()
-    }
-    /// Stages an infallible resident edit in the active prepared frame.
-    pub fn publish(&mut self, publish: impl FnOnce() + 'static) {
-        self.publications.stage(publish);
-    }
-    pub(crate) fn set_views(&mut self, views: &[AttachmentView]) {
-        self.views = views.to_vec();
-    }
-    pub(crate) fn set_passes(&mut self, passes: &[PassDeclaration]) {
-        self.passes = passes.to_vec();
-    }
-    /// Frame-local checked inputs, available only after full plan validation.
-    pub fn resource(&self, resource: ResourceRef) -> Result<&AttachmentView, FrameError> {
-        self.views
-            .iter()
-            .find(|view| view.resource() == resource)
-            .ok_or(FrameError::AttachmentView(resource))
-    }
-    pub fn device(&self) -> &wgpu::Device {
-        self.device
-    }
-    pub fn copy_buffer(&mut self, source: &wgpu::Buffer, destination: &wgpu::Buffer, bytes: u64) {
-        self.copy_buffer_region((source, 0), (destination, 0), bytes);
-    }
-    /// Stages a copy of `bytes` bytes between buffer offsets, encoded after the copies staged
-    /// before it. A gather that reads bytes uploaded in this context therefore sees them.
-    /// Offsets and `bytes` must be multiples of `wgpu::COPY_BUFFER_ALIGNMENT`.
-    pub fn copy_buffer_region(
-        &mut self,
-        source: (&wgpu::Buffer, u64),
-        destination: (&wgpu::Buffer, u64),
-        bytes: u64,
-    ) {
-        self.staged.push(Staged::Copy {
-            source: (source.0.clone(), source.1),
-            destination: (destination.0.clone(), destination.1),
-            bytes,
-        });
-    }
-    /// Stages one compute dispatch of `pipeline` with `group` at set 0, encoded after the copies
-    /// and dispatches staged before it, so it reads bytes uploaded or copied earlier in this
-    /// context. It shares a compute pass with the compute work staged just before and after it,
-    /// inside a debug group of `label`, so `pipeline` must use no other group.
-    ///
-    /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
-    /// owns over its own buffers and textures. Work that writes or reads views of the frame, or
-    /// whose resources the frame must hold until it completes, is staged with
-    /// [`Self::record_prepared`].
-    pub fn dispatch(
-        &mut self,
-        label: &'static str,
-        pipeline: &wgpu::ComputePipeline,
-        group: &wgpu::BindGroup,
-        workgroups: [u32; 3],
-    ) {
-        self.staged.push(Staged::Dispatch {
-            label,
-            pipeline: pipeline.clone(),
-            group: group.clone(),
-            workgroups,
-        });
-    }
-    /// Stages `bytes` for `destination` at `offset`, copied in staging order like
-    /// [`Self::copy_buffer_region`]. The bytes are written into the frame authority's reusable
-    /// staging now; a cancelled frame never copies them. `bytes` must be a multiple of
-    /// `wgpu::COPY_BUFFER_ALIGNMENT` long and fit `destination`, which must allow `COPY_DST`.
-    /// An empty upload copies nothing and stages nothing.
-    pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
-        let size = bytes.len() as u64;
-        assert!(
-            destination.usage().contains(wgpu::BufferUsages::COPY_DST)
-                && offset.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
-                && offset
-                    .checked_add(size)
-                    .is_some_and(|end| end <= destination.size()),
-            "upload of {size} bytes at {offset} does not fit {destination:?}"
-        );
-        if bytes.is_empty() {
-            return;
-        }
-        let source = self.publications.stage_upload(self.device, bytes);
-        self.staged.push(Staged::Copy {
-            source,
-            destination: (destination.clone(), offset),
-            bytes: size,
-        });
-    }
-}
 /// Later geometry slices will add view identifiers/bindings and validated
 /// inter-slot compute, copy and fullscreen operations. Those operations are not
 /// part of this geometry-only interface; stock effect validation remains separate.
@@ -762,27 +540,6 @@ pub trait PreparedFeature {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeatureId(pub(crate) usize);
-
-pub(crate) struct RegisteredFeature {
-    pub declaration: FeatureDeclaration,
-    pub prepared: Option<Box<dyn PreparedFeature>>,
-    pub source: Box<dyn FrameFeature>,
-    /// Takes part in geometry prefixes as well as in the frames that complete them.
-    pub prefix: bool,
-}
-
-impl RegisteredFeature {
-    /// Whether a geometry prefix already drew everything this prefix participant declares, so
-    /// the frame that completes the prefix neither prepares nor draws it again.
-    pub(crate) fn completed_in(&self, completed: &[PassEntry]) -> bool {
-        self.prefix
-            && self
-                .declaration
-                .passes
-                .iter()
-                .all(|pass| completed.contains(&pass.entry()))
-    }
-}
 
 /// Borrowed features use the same prepare/draw boundary as retained registrations.
 /// This lets a resident scene keep its existing exclusive handle-editing API.

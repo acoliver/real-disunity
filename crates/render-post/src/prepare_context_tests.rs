@@ -1,6 +1,6 @@
 use crate::{BufferReadback, PrepareContext};
 
-fn buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+pub(crate) fn buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("region copy fixture"),
         size,
@@ -9,7 +9,7 @@ fn buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     })
 }
 
-fn bytes(device: &wgpu::Device, queue: &wgpu::Queue, source: &wgpu::Buffer) -> Vec<u8> {
+pub(crate) fn bytes(device: &wgpu::Device, queue: &wgpu::Queue, source: &wgpu::Buffer) -> Vec<u8> {
     let mut capture = BufferReadback::new(device, source.size(), 4096).unwrap();
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     capture.encode(&mut encoder, source).unwrap();
@@ -71,7 +71,7 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ";
 
-fn storage(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+pub(crate) fn storage(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("dispatch fixture"),
         size,

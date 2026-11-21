@@ -100,6 +100,18 @@ fn runs_read_each_selected_range_at_its_batch_base_in_the_mirror() {
 }
 
 #[test]
+fn the_mirror_is_asked_for_each_batch_once_however_many_ranges_it_holds() {
+    let plan = fragmented();
+    let asked = std::cell::Cell::new(0);
+    let runs = plan.runs(|key| {
+        asked.set(asked.get() + 1);
+        if key == A { 100 } else { 10 }
+    });
+    assert_eq!(runs.len(), 4);
+    assert_eq!(asked.get(), 2, "batches A and B");
+}
+
+#[test]
 fn ranges_adjacent_in_the_mirror_and_the_view_merge_into_one_run() {
     let plan = Plan::new(&[range(A, 0, 6..8), range(B, 0, 0..3), range(B, 0, 5..6)]).unwrap();
     // Batch B starts right after slot 7 of batch A in this mirror.
@@ -284,6 +296,29 @@ fn plans_equal_a_stable_sort_by_batch_and_level_in_any_batch_order() {
             assert_eq!(grouped, plan.total);
             let keys: Vec<_> = plan.groups.iter().map(|g| (g.key, g.lod)).collect();
             assert!(keys.windows(2).all(|pair| pair[0] < pair[1]), "{keys:?}");
+        }
+    }
+}
+
+#[test]
+fn plans_equal_a_stable_sort_when_only_a_late_part_of_the_batch_key_is_out_of_order() {
+    // Each list is in order up to its last or middle key part, so a check that read only the
+    // first parts would take the per-batch sort and lose the batch order.
+    let lists: [[BatchKey; 5]; 3] = [
+        [B, A, C, (2, 0, 0), (2, 1, 5)],
+        [A, B, C, (2, 1, 5), (2, 0, 0)],
+        [A, C, B, (2, 0, 0), (2, 1, 5)],
+    ];
+    for seed in 0..64 {
+        for batches in lists {
+            let ranges = generated(seed, &batches);
+            let plan = Plan::new(&ranges).unwrap();
+            let copies: Vec<_> = plan
+                .copies
+                .iter()
+                .map(|copy| (copy.key, copy.source.clone(), copy.destination))
+                .collect();
+            assert_eq!(copies, sorted_copies(&ranges), "seed {seed} {batches:?}");
         }
     }
 }

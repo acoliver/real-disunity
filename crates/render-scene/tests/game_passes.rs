@@ -3,14 +3,30 @@
 //! over a synthetic unlit scene on lavapipe, with the game's passes on compiled program draws.
 #[path = "game_passes/accounting.rs"]
 mod accounting;
+#[path = "game_passes/before_post.rs"]
+mod before_post;
 #[path = "game_passes/common.rs"]
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/environment.rs"]
+mod environment;
 #[path = "game_passes/fixture.rs"]
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/lent.rs"]
+mod lent;
+#[path = "game_passes/lent_engine.rs"]
+mod lent_engine;
+#[path = "game_passes/lent_prefix.rs"]
+mod lent_prefix;
+#[path = "game_passes/lent_terrain.rs"]
+mod lent_terrain;
+#[path = "game_passes/lent_terrain_budget.rs"]
+mod lent_terrain_budget;
+#[path = "game_passes/lent_terrain_game.rs"]
+mod lent_terrain_game;
 #[path = "game_passes/level_import.rs"]
 mod level_import;
 #[path = "game_passes/lighting.rs"]
@@ -19,8 +35,14 @@ mod lighting;
 mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/post_water_depth.rs"]
+mod post_water_depth;
+#[path = "game_passes/post_water_game.rs"]
+mod post_water_game;
 #[path = "game_passes/prefix.rs"]
 mod prefix;
+#[path = "game_passes/prefix_idle.rs"]
+mod prefix_idle;
 #[path = "game_passes/prefix_loads.rs"]
 mod prefix_loads;
 #[path = "game_passes/prefix_state.rs"]

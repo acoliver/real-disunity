@@ -15,6 +15,14 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::RetainedUpdate;
 
+/// The textures the UI's graphics draw, by identity.
+pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {
+    plan.draws
+        .iter()
+        .filter(|draw| draw.kind == UiDrawKind::Graphic)
+        .filter_map(|draw| draw.texture)
+}
+
 #[derive(Default)]
 pub(crate) struct PlayerUi {
     plan: Option<UiPresentation>,
@@ -35,11 +43,7 @@ impl PlayerUi {
         report: impl FnMut(String),
     ) -> Result<Option<RetainedUpdate>, PlayError> {
         self.filter_unavailable(&mut plan, textures, player, report);
-        let generations = plan
-            .draws
-            .iter()
-            .filter(|draw| draw.kind == UiDrawKind::Graphic)
-            .filter_map(|draw| draw.texture)
+        let generations = graphic_textures(&plan)
             .map(|id| (id, player.generation(id)))
             .collect();
         if self.plan.as_ref() == Some(&plan)

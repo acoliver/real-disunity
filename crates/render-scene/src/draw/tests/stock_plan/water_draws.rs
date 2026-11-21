@@ -8,17 +8,28 @@ use crate::compositor::WaterDraws;
 
 /// What one frame submitted and drew.
 #[derive(Debug, PartialEq)]
-struct Frame {
-    passes: Vec<String>,
+pub(super) struct Frame {
+    pub(super) passes: Vec<String>,
     colour: Vec<u8>,
 }
 
 /// A rig for `source` built with `draws`, through the public configuration.
 fn rig_with(context: &GpuContext, source: RenderScene, draws: Option<WaterDraws>) -> Rig<'_> {
+    rig_configured(context, source, |settings| {
+        if let Some(draws) = draws {
+            settings.water_draws = draws;
+        }
+    })
+}
+
+/// A rig for `source` whose configuration `configure` adjusts.
+pub(super) fn rig_configured(
+    context: &GpuContext,
+    source: RenderScene,
+    configure: impl FnOnce(&mut RendererConfiguration),
+) -> Rig<'_> {
     let mut settings = configuration(&source, SIZE);
-    if let Some(draws) = draws {
-        settings.water_draws = draws;
-    }
+    configure(&mut settings);
     let renderer =
         ConfiguredFrameRenderer::new(context, settings, AllocationBudget(64 << 20)).unwrap();
     let pipelines =
@@ -37,7 +48,7 @@ fn rig_with(context: &GpuContext, source: RenderScene, draws: Option<WaterDraws>
 
 impl Rig<'_> {
     /// One frame, the passes it submitted and the scene colour it left.
-    fn frame(&mut self, slot: usize, pose: usize) -> Frame {
+    pub(super) fn frame(&mut self, slot: usize, pose: usize) -> Frame {
         plan_trace::take();
         self.draw(slot, viewpoint(pose));
         let passes = plan_trace::take()

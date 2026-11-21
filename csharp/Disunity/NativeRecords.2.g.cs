@@ -504,7 +504,8 @@ namespace Disunity.Native
     /// <summary>
     ///  A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
     ///  by the identity the host knows it by (a player texture identity), 2 for a world render
-    ///  texture by its id and 4 for a temporary render texture by its property name id.
+    ///  texture by its id, 4 for a temporary render texture by its property name id and 5 for a texture
+    ///  that was named and not sent (`texture` must be 0).
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureSlot

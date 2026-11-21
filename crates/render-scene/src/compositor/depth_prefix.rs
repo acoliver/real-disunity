@@ -220,6 +220,8 @@ impl FrameRenderer {
         // suffix publishes again with its colour target's extent. The frame's terrain is
         // selected once, for the metadata's extent, so a suffix with another extent fails its
         // own terrain preparation (`StreamingSelectionConflict`) before it can publish.
+        // The same call lends the resident textures and meshes, which are scene content, not a
+        // product of the frame, so the prefix's game passes may sample them.
         self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();
@@ -227,9 +229,6 @@ impl FrameRenderer {
         let mut requested = Vec::new();
         let mut operations = Vec::new();
         let mut extra = None;
-        // The resident textures are scene content, not a product of the frame, so the prefix's
-        // game passes may sample them.
-        self.publish_game_textures(gpu);
         self.plan_game_prefix(frame, &mut passes, &mut views)?;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);
@@ -238,7 +237,13 @@ impl FrameRenderer {
             operations.extend_from_slice(plan.operations);
             extra = Some(features);
         }
-        let mut geometry = self.prefix_geometry(gpu, pipelines, frame, prefix)?;
+        let mut geometry = match self.prefix_geometry(gpu, pipelines, frame, prefix) {
+            Ok(geometry) => geometry,
+            Err(error) => {
+                self.chain.discard_prefix_plan();
+                return Err(error);
+            }
+        };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: &prefix.source,
             material: prefix.material.as_ref(),
@@ -282,8 +287,8 @@ impl FrameRenderer {
     /// # Errors
     /// [`FrameError`] when a depth-prefix feature refuses to plan, and
     /// [`FrameError::MissingPass`] naming the depth prepass when it planned passes into a prefix
-    /// that has none.
-    fn plan_game_prefix(
+    /// that has none. A refused prefix keeps no plan for the next one.
+    pub(super) fn plan_game_prefix(
         &mut self,
         frame: &crate::frame::FrameUniform,
         passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
@@ -297,6 +302,7 @@ impl FrameRenderer {
         let stock = passes.len();
         self.chain.plan_prefix_features(passes, views)?;
         super::game::place_after_prepass(passes, stock)
+            .inspect_err(|_| self.chain.discard_prefix_plan())
     }
 
     /// The caller's passes and views for the rest of a frame whose depth prefix, encoded
@@ -436,6 +442,12 @@ impl FrameRenderer {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
             textures.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
+            textures.extend(
+                snapshot
+                    .final_device_depth
+                    .as_ref()
+                    .map(|depth| &depth.texture),
+            );
         }
         let game = self.game_capture_imports();
         let imports: Vec<_> = textures

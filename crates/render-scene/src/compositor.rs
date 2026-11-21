@@ -36,6 +36,7 @@ pub(crate) mod publication;
 mod snapshots;
 mod stock_plan;
 mod temporal;
+mod timing;
 mod validation;
 mod water_draws;
 pub use crate::draw::{TerrainDraws, WaterDraws};
@@ -45,23 +46,25 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
+    EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
-    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
-    FrameTerrainError, FrameTerrainHandle, GameBlockDestination, GameBuffer, GameBufferDeclaration,
-    GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec, GamePasses,
-    GameReadback, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
-    GameTextureDeclaration, GameTextureLevel, LevelAccess, OcclusionDepth, PassTarget,
-    ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration,
-    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
+    FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
+    FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
+    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
+    GamePasses, GameReadback, GameResourceError, GameResources, GameSampler, GameTargets,
+    GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape, LevelAccess, OcclusionDepth,
+    PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads,
+    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
+    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
 pub use stock_plan::StockPlanStatistics;
 pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
 use validation::{validate_clear, validate_reflection_extent};
-
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
     CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
@@ -481,41 +484,6 @@ impl FrameRenderer {
         .map_err(FrameError::from)?;
         Ok(())
     }
-    /// Timing is explicitly begun before geometry and resolved after output.
-    pub fn configure_timing(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mode: worldrunner_render_post::TimingMode,
-    ) -> Result<worldrunner_render_post::TimingSupport, worldrunner_render_post::TimingError> {
-        self.chain.configure_timing(device, queue, mode)
-    }
-    pub fn begin_timing(
-        &self,
-        frame_id: u64,
-    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
-        self.chain.begin_timing(frame_id)
-    }
-    pub fn take_timings(
-        &self,
-    ) -> Result<Vec<worldrunner_render_post::FrameTiming>, worldrunner_render_post::TimingError>
-    {
-        self.chain.take_timings()
-    }
-    pub fn unavailable_timing_passes(&self) -> u64 {
-        self.chain.unavailable_timing_passes()
-    }
-    pub fn dropped_timing_frames(&self) -> u64 {
-        self.chain.dropped_timing_frames()
-    }
-    /// Geometry-only custom hosts finish explicitly; output composition does this automatically.
-    pub fn finish_timing(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), worldrunner_render_gpu::submission::TransactionError> {
-        self.chain.finish_timing(encoder)
-    }
-
     pub fn register(
         &mut self,
         device: &wgpu::Device,
@@ -698,6 +666,7 @@ impl FrameRenderer {
                 "the opaque G-buffer requires stock geometry composition",
             ));
         }
+        self.publish_game_inputs();
         self.chain.encode_geometry(
             device,
             encoder,

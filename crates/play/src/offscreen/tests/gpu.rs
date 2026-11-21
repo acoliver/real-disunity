@@ -101,6 +101,11 @@ impl ShaderSupply for Synthetic {
                 }];
                 synthetic
             }
+            // The main light colour times `unity_LightData.z`.
+            "light_factor" => super::lights_gpu::per_frame_passes_named(
+                "fs_factor",
+                [super::lights_gpu::COLOR, super::supplied_gpu::NAME],
+            ),
             "light_data" => super::lights_gpu::per_frame_passes_named(
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],
@@ -483,6 +488,7 @@ pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);
@@ -549,7 +555,7 @@ fn a_render_texture_with_a_mip_chain_is_sampled_at_the_level_the_camera_wrote() 
     camera_render(&mut world, a);
     blit_and_copy(&mut world, (a, b, c));
     let (adapted, operations, reads) = rig.frame(&mut world, &[b, c]);
-    assert_eq!(adapted.report.failures["draw:SampledWrittenLevelsOnly"], 3);
+    assert_eq!(adapted.report.notes["draw:SampledWrittenLevelsOnly"], 3);
     assert!(
         !adapted
             .report
@@ -649,7 +655,10 @@ fn a_record_that_does_not_build_on_its_own_is_dropped_and_counted_by_the_error()
     blit_and_copy(&mut world, (a, b, c));
     // The copy of a 4 by 4 texture into an 8 by 8 one cannot be done.
     let (adapted, operations, reads) = rig.frame(&mut world, &[b]);
-    assert_eq!(adapted.report.failures["record:CopyMismatch"], 1);
+    assert_eq!(
+        adapted.report.failures["record:CopyTexture:CopyMismatch"],
+        1
+    );
     assert_eq!(adapted.report.built, 3);
     rig.run(operations);
     let b = reads.into_iter().next().unwrap().bytes(&rig.device);

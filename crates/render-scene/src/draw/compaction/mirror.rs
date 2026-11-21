@@ -161,9 +161,12 @@ impl State {
 pub(super) struct Mirror {
     pub committed: Rc<RefCell<Rc<State>>>,
     drawing: RefCell<Option<(Publications, Rc<State>)>>,
-    /// How many times `prepare` checked every batch range of its keys one by one.
+    /// How many times `prepare` checked batch ranges one by one.
     #[cfg(test)]
     scans: std::cell::Cell<usize>,
+    /// How many batch ranges those checks started from: the keys the state was not known to hold.
+    #[cfg(test)]
+    checked: std::cell::Cell<usize>,
 }
 
 /// What a test can compare of a mirror state: its layout, what each range holds, and which
@@ -188,6 +191,10 @@ impl Snapshot {
 impl Mirror {
     pub fn scans(&self) -> usize {
         self.scans.get()
+    }
+
+    pub fn checked(&self) -> usize {
+        self.checked.get()
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -229,7 +236,8 @@ impl Mirror {
     /// gather reads. Every key must name a batch with a flushed buffer, with a previous buffer
     /// when `halves.previous`, and with a flushed skin stream when the batch is skinned.
     /// `generation` is `instances.content_generation()`. A state that already passed these keys at
-    /// that generation is returned without checking any batch.
+    /// that generation is returned without checking any batch, and one that passed all but a few
+    /// of them is checked for those few.
     pub fn prepare(
         &self,
         context: &mut PrepareContext<'_>,
@@ -240,12 +248,21 @@ impl Mirror {
         debug_assert_eq!(generation, instances.content_generation());
         let owner = context.publications();
         let found = self.state_in(&owner);
-        let state = if found.verified.covers(generation, halves, keys) {
+        let unremembered = found.verified.missing(generation, halves, keys);
+        let state = if unremembered.is_empty() {
             found
         } else {
             #[cfg(test)]
-            self.scans.set(self.scans.get() + 1);
-            Self::brought_up_to_date(context, found, (instances, keys), (halves, generation))
+            {
+                self.scans.set(self.scans.get() + 1);
+                self.checked.set(self.checked.get() + unremembered.len());
+            }
+            Self::brought_up_to_date(
+                context,
+                found,
+                (instances, keys, &unremembered),
+                (halves, generation),
+            )
         };
         *self.drawing.borrow_mut() = Some((owner, Rc::clone(&state)));
         let committed = self.committed.clone();
@@ -256,18 +273,26 @@ impl Mirror {
         state
     }
 
-    /// `found` with the ranges of `keys` copied up to their batches' content.
+    /// `found` with the ranges of `keys` copied up to their batches' content. `unremembered` are
+    /// the keys `found` was not known to hold; a relayout leaves it holding none of them.
     fn brought_up_to_date(
         context: &mut PrepareContext<'_>,
         found: Rc<State>,
-        (instances, keys): (&Instances, &[BatchKey]),
+        (instances, keys, unremembered): (&Instances, &[BatchKey], &[BatchKey]),
         (halves, generation): (Halves, u64),
     ) -> Rc<State> {
-        let mut state = Self::laid_out(context.device(), found, (instances, keys), halves);
+        let mut state = Self::laid_out(
+            context.device(),
+            found,
+            (instances, keys, unremembered),
+            halves,
+        );
+        let unchecked = state.verified.missing(generation, halves, keys);
         let outdated: Vec<(BatchKey, &InstanceBatch, Held)> = {
-            let mut batches = Ascending::new(&instances.batches, keys.len());
-            let mut held = Ascending::new(&state.held, keys.len());
-            keys.iter()
+            let mut batches = Ascending::new(&instances.batches, unchecked.len());
+            let mut held = Ascending::new(&state.held, unchecked.len());
+            unchecked
+                .iter()
                 .filter_map(|key| {
                     let batch = batches.get(key).expect("a selected batch exists");
                     State::stale(held.get(key), batch, halves).map(|wanted| (*key, batch, wanted))
@@ -280,36 +305,16 @@ impl Mirror {
             let editable = Rc::make_mut(&mut state);
             Self::refresh(context, editable, (key, batch), wanted);
         }
-        state.verified.remember(generation, halves, keys);
+        state.verified.remember(generation, halves, &unchecked);
         state
     }
 
-    /// Whether every range of `keys`, which the caller lists in ascending order, holds its
-    /// batch's buffer.
-    fn holds_all(
-        layout: &Layout,
-        batches: &BTreeMap<BatchKey, InstanceBatch>,
-        keys: &[BatchKey],
-    ) -> bool {
-        let mut extents = Ascending::new(&layout.extents, keys.len());
-        let mut sources = Ascending::new(batches, keys.len());
-        keys.iter().all(|key| {
-            let buffer = sources
-                .get(key)
-                .and_then(|batch| batch.buffer.as_deref())
-                .expect("flushed instance buffer");
-            extents
-                .get(key)
-                .is_some_and(|extent| extent.reserved >= reserved(buffer))
-        })
-    }
-
-    /// `state` when its ranges already hold `keys`, otherwise a state with them appended or, when
-    /// the mirror is full or lacks a half, a packed relayout in new buffers.
+    /// `state` when its ranges already hold `unremembered`, otherwise a copy with them appended
+    /// or, when the mirror is full or lacks a half, a packed relayout in new buffers.
     fn laid_out(
         device: &wgpu::Device,
         state: Rc<State>,
-        (instances, keys): (&Instances, &[BatchKey]),
+        (instances, keys, unremembered): (&Instances, &[BatchKey], &[BatchKey]),
         halves: Halves,
     ) -> Rc<State> {
         let batches = &instances.batches;
@@ -317,27 +322,49 @@ impl Mirror {
             (!halves.previous || buffers.previous.is_some())
                 && (!halves.skin || buffers.skin.is_some())
         });
-        let size = |key: &BatchKey| reserved(flushed(batches, *key));
-        if halves_exist && Self::holds_all(&state.layout, batches, keys) {
+        let outgrown: Vec<(BatchKey, u32)> = {
+            let mut sources = Ascending::new(batches, unremembered.len());
+            let mut extents = Ascending::new(&state.layout.extents, unremembered.len());
+            unremembered
+                .iter()
+                .filter_map(|key| {
+                    let buffer = sources
+                        .get(key)
+                        .and_then(|batch| batch.buffer.as_deref())
+                        .expect("flushed instance buffer");
+                    let records = reserved(buffer);
+                    let holds = extents
+                        .get(key)
+                        .is_some_and(|extent| extent.reserved >= records);
+                    (!holds).then_some((*key, records))
+                })
+                .collect()
+        };
+        if halves_exist && outgrown.is_empty() {
             return state;
         }
-        let mut layout = state.layout.clone();
-        if !(halves_exist && keys.iter().all(|key| layout.reserve(*key, size(key)))) {
+        let needed: u64 = outgrown
+            .iter()
+            .map(|&(_, records)| u64::from(records))
+            .sum();
+        let room = u64::from(state.layout.capacity - state.layout.end);
+        if !halves_exist || needed > room {
             return Rc::new(Self::allocate(device, &state, instances, keys, halves));
         }
-        // A batch that moved to the end holds nothing at its new range yet.
-        let held = state
-            .held
-            .iter()
-            .filter(|(key, _)| layout.extents.get(key) == state.layout.extents.get(key))
-            .map(|(key, held)| (*key, *held))
-            .collect();
-        Rc::new(State {
-            layout,
-            buffers: state.buffers.clone(),
-            held,
-            verified: Verified::default(),
-        })
+        let mut state = state;
+        let editable = Rc::make_mut(&mut state);
+        for (key, records) in outgrown {
+            // A batch that moved to the end holds nothing at its new range yet.
+            if editable.layout.extents.contains_key(&key) {
+                editable.held.remove(&key);
+                editable.verified.forget(key);
+            }
+            assert!(
+                editable.layout.reserve(key, records),
+                "the room was checked"
+            );
+        }
+        state
     }
 
     /// A packed layout of every batch the mirror held and `keys`, in new buffers that hold

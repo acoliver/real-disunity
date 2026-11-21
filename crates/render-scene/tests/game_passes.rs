@@ -11,6 +11,20 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/lent.rs"]
+mod lent;
+#[path = "game_passes/lent_engine.rs"]
+mod lent_engine;
+#[path = "game_passes/lent_prefix.rs"]
+mod lent_prefix;
+#[path = "game_passes/lent_terrain.rs"]
+mod lent_terrain;
+#[path = "game_passes/lent_terrain_budget.rs"]
+mod lent_terrain_budget;
+#[path = "game_passes/lent_terrain_game.rs"]
+mod lent_terrain_game;
+#[path = "game_passes/level_import.rs"]
+mod level_import;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
 #[path = "game_passes/mips.rs"]
@@ -25,8 +39,12 @@ mod prefix_loads;
 mod prefix_state;
 #[path = "game_passes/prepared.rs"]
 mod prepared;
+#[path = "game_passes/pyramid_model.rs"]
+mod pyramid_model;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
+#[path = "game_passes/render_mips.rs"]
+mod render_mips;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
 #[path = "game_passes/resource_mips.rs"]
@@ -57,3 +75,5 @@ mod strip;
 mod terrain;
 #[path = "game_passes/terrain_lender.rs"]
 mod terrain_lender;
+#[path = "game_passes/transfer_readback.rs"]
+mod transfer_readback;

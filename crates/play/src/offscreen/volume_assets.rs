@@ -6,7 +6,7 @@
 //! first, as for every stored texture. A device samples block-compressed volumes only with a
 //! feature the host does not enable, so a volume goes up as texels: Alpha8, RGB24 and RGBA32 read
 //! as RGBA8 as a plain texture is, and the four-byte `GraphicsFormats` 87 and 88 as the texels they
-//! hold.
+//! hold, 87 with its blue and red bytes exchanged.
 
 use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
 use worldrunner_render_program::ids::TextureId;
@@ -14,7 +14,9 @@ use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, SourceTexture};
 
 use super::assets::RGBA8_SRGB;
-use super::layer_assets::{FOUR_BYTE_ARRAY, FOUR_BYTE_DATA, four_byte_data, texel_format};
+use super::layer_assets::{
+    FOUR_BYTE_ARRAY, FOUR_BYTE_DATA, four_byte_data, red_first, texel_format,
+};
 use crate::textures::{PlayerTextureError, player_rgba8};
 
 /// A stored volume as a source volume of `depth` slices.
@@ -40,7 +42,7 @@ pub(super) fn volume_of(
         return Err(PlayerTextureError::VolumeMips { mips, size });
     }
     let (graphics_format, bytes) = match stored.graphics_format {
-        FOUR_BYTE_ARRAY => (RGBA8_SRGB, verbatim(stored, size, mips)?),
+        FOUR_BYTE_ARRAY => (RGBA8_SRGB, red_first(&verbatim(stored, size, mips)?)),
         FOUR_BYTE_DATA => (four_byte_data(stored), verbatim(stored, size, mips)?),
         _ => (
             texel_format(stored, "3D")?,

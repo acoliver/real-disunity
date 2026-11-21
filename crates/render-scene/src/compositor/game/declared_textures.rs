@@ -148,7 +148,7 @@ impl GameTextureDeclaration<'_> {
                 ),
             ));
         }
-        let mut usage = wgpu::TextureUsages::TEXTURE_BINDING;
+        let mut usage = wgpu::TextureUsages::TEXTURE_BINDING | copy_usage(self.format);
         if let Some(texels) = self.texels {
             let needed: u64 = self.packed_levels()?.iter().map(|level| level.len).sum();
             if texels.len() as u64 != needed {
@@ -314,8 +314,18 @@ pub(super) fn upload(
         _ => TextureKind::D2,
     };
     TextureUpload::new(&layers, 0, kind)
-        .and_then(|plan| plan.upload(device, queue, label, wgpu::TextureUsages::empty()))
+        .and_then(|plan| plan.upload(device, queue, label, copy_usage(declaration.format)))
         .map_err(upload_error)
+}
+
+/// The copies a declared texture of `format` allows: a colour or block-compressed format can be
+/// written by GPU work (a block transfer) and read back; a depth format is only sampled.
+fn copy_usage(format: wgpu::TextureFormat) -> wgpu::TextureUsages {
+    if format.is_depth_stencil_format() || format.block_copy_size(None).is_none() {
+        wgpu::TextureUsages::empty()
+    } else {
+        wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST
+    }
 }
 
 pub(super) fn refuse(label: &str, reason: &str) -> GameResourceError {

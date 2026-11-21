@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::{
-    player_identity::{PlayerIdentity, player_identity, player_quality, player_scene_paths},
+    player_identity::{
+        PlayerIdentity, player_identity, player_project_graphics, player_quality,
+        player_scene_paths,
+    },
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
     script_layouts::{ScriptLayouts, parse_script_layouts},
@@ -14,6 +17,8 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::offscreen::{DepthRange, SuppliedGlobal};
+use crate::plan_differences::shader_difference_lines;
+use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
 use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
 
@@ -87,6 +92,14 @@ pub fn prepare_player(
         resources.entries.len(),
         resources.assets.len()
     );
+    let differences: Vec<String> = [&plan.differences, &resources.differences]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+    for line in shader_difference_lines(&differences) {
+        eprintln!("{line}");
+    }
     let resources_path = output.join("resources.json");
     write(
         &resources_path,
@@ -186,8 +199,8 @@ fn plan_build_scenes(
     Ok(scene_entries(&paths, &plans))
 }
 
-/// Writes the bridge's request: the player's paths, plans, identity, command line arguments
-/// and quality levels. Each game keeps its preferences in its own
+/// Writes the bridge's request: the player's paths, plans, identity, command line arguments,
+/// quality levels and project graphics settings. Each game keeps its preferences in its own
 /// `persistent/<company>/<product>` directory under `output`. `plans` are the scene plan and
 /// the resource plan; `launch` is the build's scene list and the command line.
 fn write_request(
@@ -223,6 +236,9 @@ fn write_request(
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
+    }
+    if let Some(project) = player_project_graphics(data)? {
+        body["project"] = serde_json::json!(project);
     }
     write(&request, body.to_string().as_bytes())?;
     Ok(request)
@@ -343,12 +359,13 @@ pub(crate) fn window_gpu(
     }
 }
 
-/// What a headless run writes of the screen the player's offscreen work draws into: the screen's
-/// size, and a file for the image the screen holds after each listed frame's GPU work.
+/// What a headless run writes of the screen: the screen's size, and a file for the composed frame
+/// after each listed frame's GPU work. The composed frame is the screen the player's offscreen work
+/// drew into with the game's UI over it, the frame a window captures at that size.
 #[derive(Clone, Debug)]
 pub struct ScreenOutput {
     pub size: [u32; 2],
-    /// A frame, counting from zero, and the PNG its screen image is written to.
+    /// A frame, counting from zero, and the PNG its composed frame is written to.
     pub files: Vec<(u64, PathBuf)>,
 }
 
@@ -376,13 +393,16 @@ pub fn run_player_with(
 
 /// [`run_player_with`] with a screen, when `screen` is given: the offscreen work draws a
 /// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
-/// frame `screen` lists, the newest image of the screen is written to that frame's file as an RGB
-/// PNG. Without `screen` the run has none and behaves as [`run_player_with`] always did.
+/// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
+/// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
+/// that draws the UI share one device (see [`crate::player_screen_ui`]), and the frame is
+/// presented at the screen's size, which the game's UI lays itself out for. Without `screen` the
+/// run has none and behaves as [`run_player_with`] always did.
 ///
 /// # Errors
 /// As [`run_player_with`]. A run with a screen also fails before the scene starts when the work
 /// has no device or a listed frame is not among the `frames` run, and at a listed frame that has no
-/// image yet because no work has drawn into the screen.
+/// image yet because no work has drawn into the screen, or whose UI cannot be drawn.
 pub fn run_player_screens(
     prepared: &PreparedPlayer,
     frames: u64,
@@ -391,8 +411,17 @@ pub fn run_player_screens(
     screen: Option<&ScreenOutput>,
 ) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
-    let gpu = player_gpu(gpu, prepared);
+    let mut sink = CaptureSink::default();
+    let mut device = screen.map(|screen| ScreenDevice::new(screen.size));
+    let gpu = match device.as_mut() {
+        Some(device) => device.player_gpu(gpu, prepared),
+        None => player_gpu(gpu, prepared),
+    };
     check_screen(gpu.as_ref(), frames, screen)?;
+    let mut composer = match device {
+        Some(device) if gpu.is_some() => Some(device.compose(&mut sink)?),
+        _ => None,
+    };
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     if let Some(gpu) = &gpu {
         gpu.install(&mut host)?;
@@ -403,6 +432,7 @@ pub fn run_player_screens(
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
+    let viewport = screen.map_or(PRESENTED_SIZE, |screen| screen.size);
     let mut times = Vec::new();
     for frame in 0..frames {
         let stand_ins_before = gpu.as_ref().map(|gpu| gpu.report().stand_ins.clone());
@@ -410,9 +440,9 @@ pub fn run_player_screens(
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
-            .and_then(|()| present_meshes(&mut host, &mut meshes))
+            .and_then(|()| present_meshes(&mut host, &mut meshes, viewport))
             .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)))
-            .and_then(|()| write_screens(gpu.as_ref(), frame, screen));
+            .and_then(|()| write_screens(gpu.as_ref(), composer.as_mut(), &host, frame, screen));
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it.
         if std::env::var_os(REPORT_EACH_FRAME).is_some()
@@ -461,31 +491,50 @@ fn check_screen(
     }
 }
 
-/// Writes the newest screen image to the file `screen` lists for `frame`, if it lists one. The
-/// image is the one the last frame whose work drew into the screen left, which is this frame's
-/// when its work did.
+/// The files `screen` lists for `frame`, and the number of the frame whose work drew the image
+/// they will hold: the newest image of the screen, which is this frame's when its work drew into
+/// it.
+fn screens_due<'a>(
+    gpu: Option<&PlayerGpu>,
+    frame: u64,
+    screen: Option<&'a ScreenOutput>,
+) -> Result<(u64, Vec<&'a Path>), PlayError> {
+    let Some(screen) = screen else {
+        return Ok((frame, Vec::new()));
+    };
+    let files: Vec<&Path> = screen
+        .files
+        .iter()
+        .filter(|(listed, _)| *listed == frame)
+        .map(|(_, file)| file.as_path())
+        .collect();
+    if files.is_empty() {
+        return Ok((frame, files));
+    }
+    let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
+        PlayError::Invalid(format!(
+            "no screen image after frame {frame}: no work has drawn into the screen yet"
+        ))
+    })?;
+    Ok((image.frame, files))
+}
+
+/// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest
+/// screen image with the UI the world holds now over it.
 fn write_screens(
     gpu: Option<&PlayerGpu>,
+    composer: Option<&mut ScreenComposer<'_>>,
+    host: &DisunityHost,
     frame: u64,
     screen: Option<&ScreenOutput>,
 ) -> Result<(), PlayError> {
-    let Some(screen) = screen else {
-        return Ok(());
-    };
-    for (_, file) in screen.files.iter().filter(|(listed, _)| *listed == frame) {
-        let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
-            PlayError::Invalid(format!(
-                "no screen image after frame {frame}: no work has drawn into the screen yet"
-            ))
-        })?;
-        image.write_png(file)?;
-        eprintln!(
-            "[player] screen of frame {} written to {}",
-            image.frame,
-            file.display()
-        );
+    let (drawn, files) = screens_due(gpu, frame, screen)?;
+    match (composer, gpu) {
+        (Some(composer), Some(gpu)) if !files.is_empty() => {
+            composer.write(host, gpu, drawn, &files)
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Writes the first, mean and slowest frame time to standard error.
@@ -503,10 +552,18 @@ fn report_times(times: &[Duration]) {
     );
 }
 
-/// Prepares the frame's presentation at the size of a small window and brings its meshes in, so a
-/// headless run reports what the player shows in 3D.
-fn present_meshes(host: &mut DisunityHost, meshes: &mut PlayerMeshes) -> Result<(), PlayError> {
-    host.export_presentation([960, 540], FIRST_COVERAGE_TEXTURE)?;
+/// The size a headless run presents its frames at when it has no screen: a small window's.
+const PRESENTED_SIZE: [u32; 2] = [960, 540];
+
+/// Prepares the frame's presentation at `viewport`, the screen's size for a run with a screen
+/// (which is the size the game's UI is laid out for) and a small window's otherwise, and brings
+/// its meshes in, so a headless run reports what the player shows in 3D.
+fn present_meshes(
+    host: &mut DisunityHost,
+    meshes: &mut PlayerMeshes,
+    viewport: [u32; 2],
+) -> Result<(), PlayError> {
+    host.export_presentation(viewport, FIRST_COVERAGE_TEXTURE)?;
     let objects = host.mesh_objects()?;
     meshes.refresh(host, &objects)
 }

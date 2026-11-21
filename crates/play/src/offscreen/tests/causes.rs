@@ -57,3 +57,18 @@ fn reports_add_their_failures_causes_and_keep_the_first_example() {
         "GraphicsFormat 7 is not one this renderer draws into or samples"
     );
 }
+
+#[test]
+fn a_failure_can_lead_its_example_with_a_note_and_keeps_its_names() {
+    let mut report = Report::default();
+    let error = OffscreenError::UnsupportedFormat { code: 7 };
+    report.fail_with("record:Blit", Some("shader Fancy pass 2"), &error);
+    report.fail_with("record:Blit", Some("shader Other pass 0"), &error);
+
+    assert_eq!(report.failures["record:Blit:UnsupportedFormat"], 2);
+    assert_eq!(report.causes["record:Blit:UnsupportedFormat"], 2);
+    assert_eq!(
+        report.examples["record:Blit:UnsupportedFormat"],
+        "shader Fancy pass 2: GraphicsFormat 7 is not one this renderer draws into or samples"
+    );
+}

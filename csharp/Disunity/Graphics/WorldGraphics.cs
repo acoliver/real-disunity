@@ -14,8 +14,8 @@ namespace UnityEngine;
 /// </summary>
 internal static unsafe partial class WorldGraphics
 {
-    internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2, ScopeDraw = 3;
-    private const uint TextureNone = 0, TextureAsset = 1, TextureRender = 2;
+    internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2, ScopeDraw = 3, ScopeSlotBlock = 4;
+    private const uint TextureNone = 0, TextureAsset = 1, TextureRender = 2, TextureUnsent = 5;
     private const uint WorkCameraRender = 0, WorkBlit = 1, WorkCopyTexture = 2;
 
     /// <summary>A native resource id together with the world it was made in.</summary>
@@ -160,21 +160,27 @@ internal static unsafe partial class WorldGraphics
     /// <summary>The most bytes the host stores for one texture, which its store call refuses to exceed.</summary>
     private const long MaxStoredTextureBytes = 1L << 29;
 
+    /// <summary>Whether a texture kind reads as no texture in the world: none, and a texture the data names that was not sent.</summary>
+    internal static bool IsUnbound(uint kind) => kind is TextureNone or TextureUnsent;
+
     /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels, a
     /// <see cref="Texture2DArray"/>, a <see cref="Cubemap"/> or a <see cref="Texture3D"/> by the identity the host draws it by, a
-    /// <see cref="RenderTexture"/> by its world id, anything else, including null and a destroyed texture, as no texture.</summary>
+    /// <see cref="RenderTexture"/> by its world id, null as no texture, and any other texture (a destroyed one, an empty
+    /// <see cref="Texture2D"/>, an array, cube or volume the host cannot store, a kind the world does not hold) as named and not
+    /// sent, which the world reads as no texture and the host's stand-in census reports as not loaded.</summary>
     internal static (uint Kind, ulong Texture) TextureOf(Texture? texture) => texture switch
     {
+        null => (TextureNone, 0UL),
         Texture2D { width: > 0, height: > 0 } plain when plain => (TextureAsset, plain.RendererIdentity),
         Texture2DArray array when array => StoredOf(array, array.ByteLength, array.depth, () => array.RendererIdentity),
         Cubemap cube when cube => StoredOf(cube, cube.ByteLength, 6, () => cube.RendererIdentity),
         Texture3D volume when volume => StoredOf(volume, volume.ByteLength, volume.mipmapCount == 1 ? volume.depth : 1, () => volume.RendererIdentity),
         RenderTexture target when target => (TextureRender, target.WorldId),
-        _ => (TextureNone, 0UL),
+        _ => (TextureUnsent, 0UL),
     };
 
     /// <summary>A texture of layers (the layers of an array, the faces of a cube or the slices of a volume) the host can store by its
-    /// identity, or no texture for one it cannot: no bytes, bytes that are not whole <paramref name="layers"/> (a plan's raw size
+    /// identity, or a texture named and not sent for one it cannot: no bytes, bytes that are not whole <paramref name="layers"/> (a plan's raw size
     /// may not be; a volume with a mip chain is not made of equal slices, so it passes one layer) or more than the host stores,
     /// which would otherwise make the property write throw. The first such texture is named in a warning.</summary>
     private static (uint Kind, ulong Texture) StoredOf(Texture texture, int bytes, int layers, Func<ulong> identity)
@@ -184,15 +190,15 @@ internal static unsafe partial class WorldGraphics
             : bytes % layers != 0 ? $"holds {bytes} bytes, which are not {layers} equal layers" : null;
         if (problem is null) return (TextureAsset, identity());
         UndrawnCalls.NoteTextureUnstored(texture.name, problem);
-        return (TextureNone, 0UL);
+        return (TextureUnsent, 0UL);
     }
 
-    /// <summary>The same as <see cref="TextureOf(Texture?)"/>, and a texture that is not null and is sent as none is noted under
+    /// <summary>The same as <see cref="TextureOf(Texture?)"/>, and a texture that is sent as named and not sent is noted under
     /// <paramref name="property"/> with the reason (see <see cref="UnsentTextures"/>).</summary>
     internal static (uint Kind, ulong Texture) TextureOf(Texture? texture, string property)
     {
         var sent = TextureOf(texture);
-        if (sent.Kind == TextureNone) UnsentTextures.Note(property, texture);
+        if (sent.Kind == TextureUnsent) UnsentTextures.Note(property, texture);
         return sent;
     }
 
@@ -203,7 +209,7 @@ internal static unsafe partial class WorldGraphics
         if (texture is null) return (TextureNone, 0UL);
         if (!texture) throw new ArgumentException($"the {role} texture was destroyed", role);
         var (kind, identity) = TextureOf(texture);
-        return kind == TextureNone ? throw new NotSupportedException($"{member}: a {texture.GetType().Name} {role} is not supported yet") : (kind, identity);
+        return kind == TextureUnsent ? throw new NotSupportedException($"{member}: a {texture.GetType().Name} {role} is not supported yet") : (kind, identity);
     }
 
     internal static Link CreateRenderTexture(DisunityRenderTexture desc)

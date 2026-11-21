@@ -61,6 +61,7 @@ pub(super) fn camera_scene(
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);
@@ -133,12 +134,22 @@ fn a_draw_that_reads_a_declared_default_is_counted_under_its_property_and_reason
         unlisted.stand_ins.by_property,
         by_property(&[("_Albedo unset", 1)])
     );
-    // A slot that names no texture could be a texture the importer left out: it is not "unset".
+    // A slot the game's own data leaves null reads the shader's declared default, as the original.
     let none = report_of(&Quad, "default_white", Some(TextureRef::None));
     assert_eq!(none.stand_ins.draws, 1);
     assert_eq!(
         none.stand_ins.by_property,
-        by_property(&[("_Albedo unset-or-not-loaded", 1)])
+        by_property(&[("_Albedo declared-default", 1)])
+    );
+}
+
+#[test]
+fn a_slot_that_names_a_texture_the_engine_did_not_send_is_counted_as_not_loaded() {
+    let unsent = report_of(&Quad, "default_white", Some(TextureRef::Unsent));
+    assert_eq!(unsent.stand_ins.draws, 1);
+    assert_eq!(
+        unsent.stand_ins.by_property,
+        by_property(&[("_Albedo not-loaded", 1)])
     );
 }
 
@@ -236,6 +247,7 @@ fn block_scene(world: &mut World, shader_file: &str, block_albedo: TextureRef) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);

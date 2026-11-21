@@ -167,6 +167,7 @@ fn item(material: u64, instances: u32) -> ListDraw {
         material: Some(MaterialId(material)),
         pass: alpha(),
         instances,
+        per_draw: PropertyLayer::default(),
     }
 }
 
@@ -198,6 +199,7 @@ fn frame(
                 materials: Vec::new(),
                 layer: 0,
                 block: PropertyLayer::default(),
+                slot_blocks: std::collections::BTreeMap::new(),
                 per_draw: PropertyLayer::default(),
             },
         )]),

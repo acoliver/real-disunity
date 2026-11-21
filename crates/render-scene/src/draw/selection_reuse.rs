@@ -75,8 +75,18 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Key {
+        self.selection_key_at(self.instances.edits(), shadow_matrix, frame)
+    }
+
+    /// `selection_key` for a caller that already read the placements' edit count.
+    pub(super) fn selection_key_at(
+        &self,
+        edits: u64,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+        frame: &FrameUniform,
+    ) -> Key {
         let mut key = Key::new(
-            self.instances.edits(),
+            edits,
             Self::view_matrix(shadow_matrix, frame),
             frame,
             shadow_matrix.is_some(),

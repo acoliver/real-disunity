@@ -270,6 +270,22 @@ impl<'a> Integration<'a> {
         settings: EnvironmentPreparation,
         mip: u32,
     ) {
+        let (group, workgroups) = self.job(output, settings, mip);
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("environment integration"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
+    }
+    /// The bind group and workgroup counts of the dispatch that writes level `mip` of `output`.
+    fn job(
+        &self,
+        output: &wgpu::Texture,
+        settings: EnvironmentPreparation,
+        mip: u32,
+    ) -> (wgpu::BindGroup, [u32; 3]) {
         let is_lut = mip == settings.mip_count;
         let size = if is_lut {
             settings.lut_size
@@ -298,13 +314,7 @@ impl<'a> Integration<'a> {
         .flat_map(u32::to_le_bytes)
         .collect::<Vec<_>>();
         let group = self.bind(&view, &bytes);
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("environment integration"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups(size.div_ceil(8), size.div_ceil(8), layers);
+        (group, [size.div_ceil(8), size.div_ceil(8), layers])
     }
     fn bind(&self, view: &wgpu::TextureView, bytes: &[u8]) -> wgpu::BindGroup {
         let uniform = self
@@ -347,6 +357,35 @@ pub(crate) fn level_roughness(mip: u32, count: u32) -> f32 {
     } else {
         mip as f32 / (count - 1) as f32
     }
+}
+/// The texture a split-sum table of `size` texels square is integrated into.
+pub(crate) fn table_texture(device: &wgpu::Device, size: u32) -> wgpu::Texture {
+    texture(device, size, 1, 1)
+}
+/// Stages the integration of the split-sum table for `convention` into `table`, which
+/// [`table_texture`] made, in the frame `context` prepares: the job that environment
+/// preparation runs for its integrated BRDF, at neutral intensity and with `samples` samples
+/// for each texel.
+pub(crate) fn stage_table(
+    context: &mut worldrunner_render_post::PrepareContext<'_>,
+    table: &wgpu::Texture,
+    (convention, samples): (worldrunner_render_plan::SceneSpecularConvention, u32),
+) {
+    let device = context.device().clone();
+    // The table job reads no source; the integration still declares a cube for it.
+    let [source, _] = crate::water::receivers::empty_environment(&device);
+    let settings = EnvironmentPreparation {
+        convention,
+        cube_size: 1,
+        mip_count: 1,
+        lut_size: table.width(),
+        samples,
+        specular_intensity_micro: 1_000_000,
+        source_lod_tail: 1,
+    };
+    let job = Integration::new(&device, &source, settings.specular_intensity_micro);
+    let (group, workgroups) = job.job(table, settings, settings.mip_count);
+    context.dispatch("environment integration", &job.pipeline, &group, workgroups);
 }
 fn texture(device: &wgpu::Device, size: u32, layers: u32, mips: u32) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {

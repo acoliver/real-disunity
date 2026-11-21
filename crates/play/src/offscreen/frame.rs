@@ -25,7 +25,6 @@ use worldrunner_world_simulation::presentation::CameraClear;
 use super::bounds::Bounds;
 use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
-    draw_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
@@ -238,7 +237,7 @@ pub enum RendererSkip {
 /// What kind of texture a reference names, for reports.
 fn texture_kind(texture: &TextureRef) -> &'static str {
     match texture {
-        TextureRef::None => "none",
+        TextureRef::None | TextureRef::Unsent => "none",
         TextureRef::Global(_) => "global",
         TextureRef::Temporary(_) => "temporary",
         TextureRef::Render(_) => "render",
@@ -522,7 +521,7 @@ impl<'a> Mapper<'a> {
         source: &TextureRef,
     ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
         match *source {
-            TextureRef::None => Err(Skip::NoBlitSource),
+            TextureRef::None | TextureRef::Unsent => Err(Skip::NoBlitSource),
             TextureRef::Global(_) => Err(Skip::GlobalSource),
             TextureRef::Temporary(name_id) => self
                 .script
@@ -830,7 +829,7 @@ impl<'a> Mapper<'a> {
             layer: view.layer,
             block,
             slot_blocks,
-            per_draw: draw_layer(&view.local_to_world),
+            per_draw: self.renderer_draw(&view.local_to_world, view.layer),
         })
     }
 

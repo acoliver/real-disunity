@@ -106,6 +106,23 @@ pub(crate) struct PreparedObjects {
     /// Pipelines are kept per context and dropped when it is, so pipelines that a replay makes
     /// for one frame do not accumulate in the objects of a long-lived scene.
     pipelines: RefCell<BTreeMap<PairKey, (WeakContext, Rc<PreparedPipeline>)>>,
+    /// The pair lists `prepare_pairs` found every pipeline of for a context, so a frame whose
+    /// list is the one it prepared last looks up none of them.
+    prepared: RefCell<Vec<PreparedList>>,
+    /// How many times `pipeline` was asked for a pair.
+    #[cfg(test)]
+    lookups: std::cell::Cell<usize>,
+}
+
+/// The pipeline index, material and vertex format of a pipeline a scene draws with.
+pub(crate) type Pair = (usize, usize, GeometryLayout);
+
+/// A list of pairs whose pipelines exist for one context.
+#[derive(Debug)]
+struct PreparedList {
+    id: u64,
+    context: WeakContext,
+    pairs: Rc<[Pair]>,
 }
 
 impl PreparedObjects {
@@ -120,6 +137,9 @@ impl PreparedObjects {
             palette,
             sets: RefCell::default(),
             pipelines: RefCell::default(),
+            prepared: RefCell::default(),
+            #[cfg(test)]
+            lookups: std::cell::Cell::default(),
         };
         objects.extend(tables);
         objects
@@ -199,6 +219,7 @@ impl PreparedObjects {
         self.pipelines
             .get_mut()
             .retain(|(_, _, owner, _), _| *owner != material);
+        self.prepared.get_mut().clear();
     }
 
     /// The prepared pipeline of the pair, made on first use and found in a map afterwards.
@@ -211,6 +232,8 @@ impl PreparedObjects {
         (index, material): (usize, usize),
         geometry: GeometryLayout,
     ) -> Result<Rc<PreparedPipeline>, ProgramError> {
+        #[cfg(test)]
+        self.lookups.set(self.lookups.get() + 1);
         let key = (context.id(), index, material, geometry);
         if let Some((_, ready)) = self.pipelines.borrow().get(&key) {
             return Ok(ready.clone());
@@ -229,6 +252,46 @@ impl PreparedObjects {
             .borrow_mut()
             .insert(key, (context.downgrade(), made.clone()));
         Ok(made)
+    }
+
+    /// Makes the pipeline of every pair in `pairs` for `context`, unless this very list was made
+    /// for it already: a pipeline stays for as long as its context lives and until its
+    /// material's resources are replaced, which forgets the lists.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the program, the set or a pipeline; the list is then not
+    /// remembered.
+    pub(crate) fn prepare_pairs(
+        &self,
+        context: &Context,
+        pairs: &Rc<[Pair]>,
+    ) -> Result<(), ProgramError> {
+        let id = context.id();
+        if self
+            .prepared
+            .borrow()
+            .iter()
+            .any(|list| list.id == id && Rc::ptr_eq(&list.pairs, pairs))
+        {
+            return Ok(());
+        }
+        for &(index, material, geometry) in pairs.iter() {
+            self.pipeline(context, (index, material), geometry)?;
+        }
+        let mut prepared = self.prepared.borrow_mut();
+        prepared.retain(|list| list.id != id && list.context.alive());
+        prepared.push(PreparedList {
+            id,
+            context: context.downgrade(),
+            pairs: Rc::clone(pairs),
+        });
+        Ok(())
+    }
+
+    /// How many pipelines were asked for, whether found or made.
+    #[cfg(test)]
+    pub(crate) fn lookups(&self) -> usize {
+        self.lookups.get()
     }
 
     /// Prepares the material sets of every material for the runtime of `context`, so that the

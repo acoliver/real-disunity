@@ -128,7 +128,7 @@ impl Reflection {
     #[must_use]
     pub fn source(&self) -> &TextureRef {
         match (self.mode, &self.custom) {
-            (ReflectionMode::Custom, custom) if *custom != TextureRef::None => custom,
+            (ReflectionMode::Custom, custom) if !custom.is_unbound() => custom,
             _ => &self.skybox,
         }
     }

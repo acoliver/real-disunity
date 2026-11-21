@@ -482,3 +482,92 @@ fn reads_queue_names_offsets_and_numbers() {
         assert!(error.contains("cannot read"), "{text}: {error}");
     }
 }
+
+/// A player whose script asset references a shader in each of the engine's built-in resource
+/// files, which a player ships in the `Resources` directory beside its serialized files while
+/// the references name them as `Resources/unity_builtin_extra` and
+/// `Library/unity default resources`.
+fn planned_built_in_shaders() -> (tempfile::TempDir, ResourcesPlan) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut manager = ObjectWriter::new(false);
+    manager
+        .i32(1)
+        .string("config/main")
+        .unwrap()
+        .pptr(ptr(1, 4))
+        .i32(0);
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(1, ClassId::RESOURCE_MANAGER, manager.finish())],
+        &["resources.assets"],
+    );
+    write_file(
+        dir.path(),
+        "resources.assets",
+        vec![
+            object(
+                4,
+                ClassId::MONO_BEHAVIOUR,
+                behaviour(0, ptr(0, 6), "main", &[ptr(1, 2), ptr(2, 3)]),
+            ),
+            object(6, ClassId::MONO_SCRIPT, script()),
+        ],
+        &[
+            "Resources/unity_builtin_extra",
+            "Library/unity default resources",
+        ],
+    );
+    let resources = dir.path().join("Resources");
+    std::fs::create_dir(&resources).unwrap();
+    write_file(
+        &resources,
+        "unity_builtin_extra",
+        vec![object(
+            2,
+            ClassId::SHADER,
+            shader("Test/BuiltIn", None, &[1]),
+        )],
+        &[],
+    );
+    write_file(
+        &resources,
+        "unity default resources",
+        vec![object(
+            3,
+            ClassId::SHADER,
+            shader("Test/Default", None, &[1]),
+        )],
+        &[],
+    );
+    let plan = plan_player_resources(
+        dir.path(),
+        &layouts(&["extra", "default"]),
+        &dir.path().join("out"),
+    )
+    .unwrap();
+    (dir, plan)
+}
+
+#[test]
+fn shaders_in_the_built_in_resource_files_of_the_resources_directory_plan() {
+    let (dir, plan) = planned_built_in_shaders();
+    let ResourceAsset::Script { fields, .. } = &plan.assets[0] else {
+        panic!("asset 0 is the script: {:?}", plan.assets[0])
+    };
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("out").join(fields)).unwrap())
+            .unwrap();
+    let named = |field: &str| {
+        let index = usize::try_from(written[field]["$asset"].as_u64().unwrap_or_else(|| {
+            panic!(
+                "{field} binds a shader: {written}; differences {:?}",
+                plan.differences
+            )
+        }))
+        .unwrap();
+        shader_asset(&plan, index).0.to_owned()
+    };
+    assert_eq!(named("extra"), "Test/BuiltIn");
+    assert_eq!(named("default"), "Test/Default");
+}

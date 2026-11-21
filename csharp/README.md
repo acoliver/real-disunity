@@ -105,7 +105,10 @@ After an intentional ABI change:
    for each section) in the 224-byte `DisunityEnvironment`, and carries the environment in the
    graphics snapshot. Revision 20 adds the property block of one material slot of a mesh
    renderer: shader property scope 4 and `disunity_mesh_renderer_slot_block_target`,
-   which gives the target of a renderer's slot. Revision 21 adds
+   which gives the target of a renderer's slot. Revision 21 adds texture slot kind 5 (a texture
+   the data names that the engine did not send), which every texture slot, environment cube and
+   offscreen source accepts with texture identity 0; the world reads it as no texture, and the
+   graphics snapshot wire version is 17 to carry it. Revision 22 adds
    `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
    `OnDestroy` messages and the asset cleanup that destruction queued. Native and managed
    hosts reject

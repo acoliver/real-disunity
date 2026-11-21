@@ -268,7 +268,7 @@ fn a_refused_record_leaves_the_direct_writes_for_the_next_one() {
 }
 
 #[test]
-fn a_global_texture_of_a_render_texture_destroyed_before_the_record_reads_as_none() {
+fn a_global_texture_of_a_render_texture_destroyed_before_the_record_reads_as_unsent() {
     let mut world = world();
     let target = render_texture(&mut world);
     let doomed = render_texture(&mut world);
@@ -280,7 +280,7 @@ fn a_global_texture_of_a_render_texture_destroyed_before_the_record_reads_as_non
         vec![
             set_global(PropertyValue::Texture(
                 "_Last".into(),
-                slot(TextureRef::None)
+                slot(TextureRef::Unsent)
             )),
             blit(target),
         ]

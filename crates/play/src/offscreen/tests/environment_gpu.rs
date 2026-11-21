@@ -268,7 +268,8 @@ fn the_ambient_intensity_scales_the_ambient_light() {
 
 #[test]
 fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
-    // Radiance coefficient 0 of red is 1 and the basis function of it is 0.282095.
+    // The scene stores the coefficients of the polynomial the shader evaluates, so the constant
+    // term of red is the red the draw reads.
     let mut probe = [0.0; 27];
     probe[0] = 1.0;
     let environment = Environment {
@@ -283,7 +284,7 @@ fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
     world.set_environment(environment).unwrap();
     let (read, _) = flush_and_read(world, drawn);
     // Only the red probe is lit, so the constant term of `unity_SHAr` is read.
-    assert_texels(&read, &filled([0.282_095; 3]));
+    assert_texels(&read, &filled([1.0; 3]));
 }
 
 #[test]

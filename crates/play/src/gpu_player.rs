@@ -100,6 +100,8 @@ pub struct GpuWorkReport {
     pub skipped: BTreeMap<String, usize>,
     pub renderers_skipped: BTreeMap<String, usize>,
     pub failures: BTreeMap<String, usize>,
+    /// What built frames did that is worth reading and is not a failure.
+    pub notes: BTreeMap<String, usize>,
     /// The failures by the chain of names inside the error, and the first message of each.
     pub causes: BTreeMap<String, usize>,
     pub examples: BTreeMap<String, String>,
@@ -209,6 +211,9 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.notes {
+            *self.notes.entry(name.clone()).or_default() += count;
         }
         self.reclaimed.add(report.reclaimed);
         if self.refusal_holdings.is_empty() && !report.holdings.is_empty() {
@@ -419,6 +424,7 @@ impl GpuWorkReport {
             ("skipped records", &self.skipped),
             ("skipped renderers", &self.renderers_skipped),
             ("failures", &self.failures),
+            ("notes", &self.notes),
             ("causes", &self.causes),
             ("errors", &self.errors),
         ] {

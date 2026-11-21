@@ -109,6 +109,8 @@ const ZEROS_FRAGMENT: &str = "
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scenario {
     Mesh,
+    /// The second scene mesh, past another in the chunks both are packed into.
+    Chunk,
     Constants,
     Water,
     Zeros,
@@ -200,7 +202,7 @@ fn zeros_layout() -> ResourceLayout {
 fn program(resources: &GameResources, scenario: Scenario) -> GraphicsProgram {
     let runtime = resources.runtime();
     match scenario {
-        Scenario::Mesh => common::graphics(
+        Scenario::Mesh | Scenario::Chunk => common::graphics(
             &runtime,
             MESH_WGSL,
             "vs",
@@ -341,11 +343,14 @@ impl Game {
             ]);
         }
         drop(seen);
-        let count = meshes.index_count(quad, 0)?;
+        let (mesh, range) = match parts.scenario {
+            Scenario::Chunk => (MeshHandle::from_raw(1), 3..6),
+            _ => (quad, 0..meshes.index_count(quad, 0)?),
+        };
         let inputs = DrawInputs {
             imports: Vec::new(),
-            vertex_inputs: vec![meshes.vertex_input(quad, 0)?],
-            geometry: ImportedGeometry::Indexed(meshes.indices(quad, 0, 0..count)?),
+            vertex_inputs: vec![meshes.vertex_input(mesh, 0)?],
+            geometry: ImportedGeometry::Indexed(meshes.indices(mesh, 0, range)?),
         };
         KEPT.with_borrow_mut(|kept| kept.snapshots.push(meshes));
         Ok(inputs)
@@ -467,7 +472,7 @@ impl Game {
 impl PreparedFeature for Game {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         let inputs = match self.0.scenario {
-            Scenario::Mesh => self.mesh_inputs()?,
+            Scenario::Mesh | Scenario::Chunk => self.mesh_inputs()?,
             Scenario::Constants => self.constants_inputs(context)?,
             Scenario::Zeros => self.zeros_inputs(),
             Scenario::Water => return self.record_water(),

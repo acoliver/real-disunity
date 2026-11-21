@@ -45,22 +45,25 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
+    EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
-    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
-    FrameTerrainError, FrameTerrainHandle, GameBuffer, GameBufferDeclaration, GameBufferUsage,
-    GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameResourceError, GameResources,
-    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel,
-    OcclusionDepth, PassTarget, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
-    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
+    FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
+    FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
+    FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
+    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
+    GamePasses, GameReadback, GameResourceError, GameResources, GameSampler, GameTargets,
+    GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape, LevelAccess, OcclusionDepth,
+    PassTarget, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
+    TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
+    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
 pub use stock_plan::StockPlanStatistics;
 pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
 use validation::{validate_clear, validate_reflection_extent};
-
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
     CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
@@ -660,6 +663,7 @@ impl FrameRenderer {
                 &mut combined,
             )?;
         }
+        self.record_game_work(encoder)?;
         self.publish_snapshots(encoder, schedule.request);
         self.stage_temporal_history(encoder, &frame)
     }
@@ -706,7 +710,8 @@ impl FrameRenderer {
                 operations: &[],
             },
             features,
-        )
+        )?;
+        self.record_game_work(encoder)
     }
 }
 

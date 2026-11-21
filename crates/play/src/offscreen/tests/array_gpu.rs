@@ -209,9 +209,11 @@ fn a_stored_array_with_a_mip_chain_uploads_every_level_of_every_layer() {
 
 #[test]
 fn an_array_the_engine_has_no_texture_format_for_reaches_the_device_by_its_graphics_format() {
-    // As the managed engine stores GraphicsFormat 87: `format` zero, four bytes a texel, and two
-    // layers of 2x2 texels each followed by its 1x1 second level.
-    let layer = |base: [u8; 4], next: [u8; 4]| [base.repeat(4), next.to_vec()].concat();
+    // As the managed engine stores GraphicsFormat 87: `format` zero, four bytes a texel in the
+    // order blue, green, red, alpha, and two layers of 2x2 texels each followed by its 1x1 second
+    // level.
+    let bgra = |[red, green, blue, alpha]: [u8; 4]| [blue, green, red, alpha];
+    let layer = |base: [u8; 4], next: [u8; 4]| [bgra(base).repeat(4), bgra(next).to_vec()].concat();
     let stored = PlayerTexture {
         graphics_format: 87,
         ..array(

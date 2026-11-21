@@ -31,10 +31,12 @@ mod contact;
 mod contours;
 pub(crate) mod decals;
 pub(crate) use contours::ContourDraw;
+pub(crate) use lent_meshes::{LentLevel, LentMesh};
 mod deferred;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
+mod lent_meshes;
 mod lod_material;
 mod mesh_arena;
 use mesh_arena::GpuMesh;
@@ -275,6 +277,8 @@ struct Retained {
     /// The table as the game's passes are lent it, made on first use and dropped whenever
     /// `textures` changes.
     lent_textures: RefCell<Option<std::rc::Rc<[Texture]>>>,
+    /// The mesh table as the game's passes are lent it, kept the same way.
+    lent_meshes: RefCell<Option<std::rc::Rc<[lent_meshes::LentMesh]>>>,
     placeholder: Texture,
     sampler: Sampler,
     material_uniforms: Vec<Buffer>,
@@ -479,6 +483,7 @@ impl SceneGpu {
                 contact_heights,
                 textures,
                 lent_textures: RefCell::new(None),
+                lent_meshes: RefCell::new(None),
                 placeholder,
                 sampler,
                 material_uniforms,

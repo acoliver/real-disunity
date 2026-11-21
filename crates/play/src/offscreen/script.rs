@@ -142,6 +142,16 @@ struct Globals {
     dirty: bool,
 }
 
+/// The renderers a culling record sorted, as indices into the snapshot's renderers.
+#[derive(Default)]
+pub(super) struct Culled {
+    /// The renderers of the layer mask inside the view volume: what a drawing list draws from.
+    pub(super) kept: Vec<usize>,
+    /// The renderers of the layer mask wholly outside the view volume. Only a shadow list reads
+    /// them, since a caster out of the camera's view can still shadow what it sees.
+    pub(super) outside_view: Vec<usize>,
+}
+
 /// What the commands of a frame have set so far.
 pub(super) struct Script {
     /// What the draws after a `SetRenderTarget` go to.
@@ -155,8 +165,12 @@ pub(super) struct Script {
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
-    /// The renderers each culling record kept, as indices into the snapshot's renderers.
-    pub(super) culls: BTreeMap<u64, Vec<usize>>,
+    /// The renderers each culling record's layer mask kept, as indices into the snapshot's
+    /// renderers: those inside the camera's view volume, which a drawing list draws, and those
+    /// outside it, from which a shadow list casts whether or not the camera sees them.
+    pub(super) culls: BTreeMap<u64, Arc<Culled>>,
+    /// The culling mask each culling record gave, which picks the main light of its draws.
+    pub(super) cull_masks: BTreeMap<u64, u32>,
     /// The renderer lists made so far.
     pub(super) lists: BTreeMap<u64, RendererListDesc>,
     /// The renderers a list asked the frame to hold, and whether it could.
@@ -186,6 +200,7 @@ impl Script {
             },
             temporaries: Temporaries::default(),
             culls: BTreeMap::new(),
+            cull_masks: BTreeMap::new(),
             lists: BTreeMap::new(),
             renderers: BTreeMap::new(),
             mesh_draws: 0,

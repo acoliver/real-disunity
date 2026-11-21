@@ -10,7 +10,7 @@ using static GraphicsTestSupport;
 /// follows each setter, and offscreen work is recorded in call order.</summary>
 internal static unsafe class WorldGraphicsTests
 {
-    private const uint Material = 0, Global = 1, Block = 2;
+    private const uint Material = 0, Global = 1, Block = 2, SlotBlock = 4;
 
     public static void Run()
     {
@@ -19,6 +19,8 @@ internal static unsafe class WorldGraphicsTests
         {
             MaterialSettersReachTheWorld();
             Console.WriteLine("PASS: a material's float, integer, color, vector, texture, offset, scale, keyword, queue and pass setters reach its world material");
+            NamedTexturesTheWorldCannotHoldAreSentAsNotSent();
+            Console.WriteLine("PASS: a destroyed or empty texture set on a material is sent as named and not sent, and null stays no texture");
             MaterialStateBeforeItsFirstUseIsSentWhole();
             Console.WriteLine("PASS: a material that was set before it had a world material is sent whole when it gets one");
             MaterialCopiesAndShaderChangesFollow();
@@ -29,6 +31,10 @@ internal static unsafe class WorldGraphicsTests
             Console.WriteLine("PASS: a RenderTexture's description reaches the world on Create, keeps its id across Release and goes with Destroy");
             RendererSlotsAndBlocksReachTheWorld();
             Console.WriteLine("PASS: a mesh renderer sends the world material of each slot and its property block");
+            SlotBlocksReachTheWorldPerMaterialIndex();
+            SlotBlocksReachTheWorldUpToTheLastSlot();
+            Console.WriteLine("PASS: a property block reaches its own slot up to index 63, and index 64 stays in managed memory");
+            Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             CameraRenderRecordsOffscreenWork();
             Console.WriteLine("PASS: Camera.Render with a target texture records CameraRender, and without one records nothing");
             BlitAndCopyRecordInOrder();
@@ -133,6 +139,24 @@ internal static unsafe class WorldGraphicsTests
         Expect.That(splat.texture_kind == 2 && splat.texture == target.WorldId, "a render texture property names the world render texture");
         material.SetTexture("_Splat", null!);
         Expect.That(Read(Material, link.Id, "_Splat").texture_kind == 0, "a null texture is no texture");
+    }
+
+    private static void NamedTexturesTheWorldCannotHoldAreSentAsNotSent()
+    {
+        const uint none = 0, unsent = 5;
+        var material = new Material(NewShader("Test/World/Unsent"));
+        var link = material.WorldLink;
+        var destroyed = new RenderTexture(4, 4, 0);
+        UnityEngine.Object.DestroyImmediate(destroyed);
+        material.SetTexture("_Destroyed", destroyed);
+        material.SetTexture("_Empty", new Texture2D(0, 0));
+        material.SetTexture("_Null", null!);
+        var held = new (string Property, uint Kind)[] { ("_Destroyed", unsent), ("_Empty", unsent), ("_Null", none) };
+        foreach (var (property, kind) in held)
+        {
+            var slot = Read(Material, link.Id, property);
+            Expect.That(slot.present == 16 && slot.texture_kind == kind && slot.texture == 0, $"{property} is sent as kind {kind}, got {slot.texture_kind}");
+        }
     }
 
     private static void MaterialStateBeforeItsFirstUseIsSentWhole()
@@ -258,7 +282,70 @@ internal static unsafe class WorldGraphicsTests
         var other = new MaterialPropertyBlock();
         other.SetFloat("_Single", 1f);
         renderer.SetPropertyBlock(other, 0);
-        Expect.That(Read(Block, renderer.Handle, "_Single").present == 0, "a block for one material index stays in managed memory");
+        Expect.Near(1f, Read(SlotBlock, SlotTarget(renderer, 0), "_Single").float_value, "a block for one material index reaches that slot's block");
+        Expect.That(Read(Block, renderer.Handle, "_Single").present == 0, "a block for one material index is not the all-material block");
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 1), "_Single").present == 0, "and not another slot's block");
+        Expect.That(!renderer.HasPropertyBlock(), "a block for one material index is not the block of every material");
+    }
+
+    private static ulong SlotTarget(Renderer renderer, uint index)
+    {
+        ulong target;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slot_block_target(DisunityHost.WorldHandle, renderer.Handle, index, &target));
+        return target;
+    }
+
+    private static void SlotBlocksReachTheWorldPerMaterialIndex()
+    {
+        var renderer = NewMeshRenderer();
+        renderer.sharedMaterials = new[] { new Material(NewShader("Test/World/Slot")), new Material(NewShader("Test/World/Slot")) };
+        var texture = new Texture2D(4, 4);
+        var slotBlock = new MaterialPropertyBlock();
+        slotBlock.SetTexture("_MainTex", texture);
+        slotBlock.SetFloat("_Fade", 0.25f);
+        renderer.SetPropertyBlock(slotBlock, 1);
+        var second = Read(SlotBlock, SlotTarget(renderer, 1), "_MainTex");
+        Expect.That(second.present == 16 && second.texture_kind == 1 && second.texture == texture.RendererIdentity, "the block of material 1 names its texture");
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 0), "_MainTex").present == 0, "the block of material 0 does not");
+        Expect.That(Read(Block, renderer.Handle, "_MainTex").present == 0, "the block of every material does not");
+
+        var every = new MaterialPropertyBlock();
+        every.SetFloat("_Fade", 0.75f);
+        renderer.SetPropertyBlock(every);
+        Expect.Near(0.25f, Read(SlotBlock, SlotTarget(renderer, 1), "_Fade").float_value, "the block of material 1 keeps its own value beside the block of every material");
+        Expect.Near(0.75f, Read(Block, renderer.Handle, "_Fade").float_value, "the block of every material is its own");
+
+        var replacement = new MaterialPropertyBlock();
+        replacement.SetFloat("_Other", 2f);
+        renderer.SetPropertyBlock(replacement, 1);
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 1), "_MainTex").present == 0, "setting a block for a material replaces the earlier one");
+        Expect.Near(2f, Read(SlotBlock, SlotTarget(renderer, 1), "_Other").float_value, "the replacement reaches the world");
+
+        renderer.SetPropertyBlock(null, 1);
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 1), "_Other").present == 0, "clearing the block of a material removes it from the world");
+        Expect.Near(0.75f, Read(Block, renderer.Handle, "_Fade").float_value, "and keeps the block of every material");
+
+        renderer.SetPropertyBlock(slotBlock, 200);
+        var held = new MaterialPropertyBlock();
+        renderer.GetPropertyBlock(held, 200);
+        Expect.That(held.HasFloat("_Fade"), "a block for an index no slot can hold is kept and read back");
+    }
+
+    private static void SlotBlocksReachTheWorldUpToTheLastSlot()
+    {
+        var renderer = NewMeshRenderer();
+        var block = new MaterialPropertyBlock();
+        block.SetFloat("_Fade", 0.5f);
+        renderer.SetPropertyBlock(block, 2);
+        renderer.SetPropertyBlock(block, 63);
+        Expect.Near(0.5f, Read(SlotBlock, SlotTarget(renderer, 2), "_Fade").float_value, "the block of material 2 reaches the world under its own index");
+        Expect.Near(0.5f, Read(SlotBlock, SlotTarget(renderer, 63), "_Fade").float_value, "the block of the last slot, 63, reaches the world");
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 1), "_Fade").present == 0, "and no other slot holds it");
+
+        renderer.SetPropertyBlock(block, 64);
+        var held = new MaterialPropertyBlock();
+        renderer.GetPropertyBlock(held, 64);
+        Expect.That(held.HasFloat("_Fade"), "the first index past the last slot is kept in managed memory and read back");
     }
 
     private static Camera NewCamera() => DisunityHost.CreateGameObject().AddComponent<Camera>();

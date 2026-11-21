@@ -1,5 +1,7 @@
 //! Property layers: the first layer that names a value wins, highest first.
 
+use std::collections::BTreeMap;
+
 use worldrunner_render_program::ids::{MaterialId, RendererId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
@@ -50,6 +52,29 @@ fn a_value_comes_from_the_highest_layer_that_names_it() {
 }
 
 #[test]
+fn a_slot_block_sits_above_the_renderers_block_for_the_draws_of_its_slot_only() {
+    let mut rig = Rig::new();
+    let mut frame = fixture(&mut rig, 1 << 1);
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    renderer.block = layer(&[("_Tint", [0.0, 0.0, 1.0, 1.0])]);
+    renderer
+        .slot_blocks
+        .insert(0, layer(&[("_Tint", [0.0, 1.0, 0.0, 1.0])]));
+    assert_eq!(tint(&mut rig, &frame), GREEN, "the block of the drawn slot");
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.slot_blocks = BTreeMap::from([(1, layer(&[("_Tint", [0.0, 1.0, 0.0, 1.0])]))]);
+    assert_eq!(tint(&mut rig, &frame), BLUE, "the block of another slot");
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.slot_blocks = BTreeMap::from([(0, layer(&[("_Other", [0.0, 1.0, 0.0, 1.0])]))]);
+    assert_eq!(
+        tint(&mut rig, &frame),
+        BLUE,
+        "a slot block that does not name the property leaves the renderer's block"
+    );
+}
+
+#[test]
 fn the_camera_values_sit_below_the_renderers_per_draw_values() {
     let mut rig = Rig::new();
     let mut frame = fixture(&mut rig, 1 << 1);
@@ -68,5 +93,38 @@ fn the_camera_values_sit_below_the_renderers_per_draw_values() {
         tint(&mut rig, &frame),
         [255, 255, 0, 255],
         "collapsed: only the clear color"
+    );
+}
+
+#[test]
+fn a_slot_block_sits_below_the_per_draw_and_camera_values() {
+    let mut rig = Rig::new();
+    let mut frame = fixture(&mut rig, 1 << 1);
+    // A slot block that collapses the quad with `_Place`, which only the values above it
+    // can override. The caller's per-draw `_Place` shows the quad in the material's color.
+    let collapse = layer(&[("_Place", [0.0, 0.0, 0.0, 0.0])]);
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    renderer.slot_blocks.insert(0, collapse);
+    assert_eq!(tint(&mut rig, &frame), RED, "the caller's per-draw values");
+
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.per_draw = PropertyLayer::default();
+    frame
+        .cameras
+        .get_mut(&worldrunner_render_program::ids::CameraId(1))
+        .unwrap()
+        .values = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    assert_eq!(tint(&mut rig, &frame), RED, "the camera's values");
+
+    frame
+        .cameras
+        .get_mut(&worldrunner_render_program::ids::CameraId(1))
+        .unwrap()
+        .values = PropertyLayer::default();
+    assert_eq!(
+        tint(&mut rig, &frame),
+        [255, 255, 0, 255],
+        "with nothing above it the slot block collapses the quad"
     );
 }

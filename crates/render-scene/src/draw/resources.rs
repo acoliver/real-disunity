@@ -190,9 +190,10 @@ pub(super) fn upload_terrain(
 ) -> Result<Option<GpuTerrain>, DrawError> {
     let (prepared, previous) = sources;
     let queue = authority.queue();
-    let Some(terrain) = scene.terrain() else {
+    let Some(shared) = scene.shared_terrain() else {
         return Ok(None);
     };
+    let terrain = shared.as_ref();
     let prepared = prepared.expect("prepared terrain matches scene");
     let mesh = &prepared.mesh;
     let uniform = &prepared.uniform;
@@ -242,6 +243,7 @@ pub(super) fn upload_terrain(
             })
             .collect(),
         layered: layered.clone(),
+        scene: shared.clone(),
     });
     let (lod, streaming) = terrain_geometry(device, authority, scene, mesh, previous);
     Ok(Some(GpuTerrain {

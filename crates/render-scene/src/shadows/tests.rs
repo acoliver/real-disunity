@@ -13,6 +13,7 @@ mod fixture;
 mod forward_split;
 mod game_shadows;
 mod game_terrain;
+mod game_terrain_extent;
 mod game_terrain_shadows;
 mod geometry;
 mod hdr;

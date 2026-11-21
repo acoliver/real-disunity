@@ -37,14 +37,17 @@
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 mod camera;
 mod declared_textures;
+mod engine;
 mod environment;
 mod frame_start;
 mod lent;
+mod level_import;
 mod occlusion;
 mod pass_target;
 mod plan;
 mod registry;
 mod resources;
+mod scene_meshes;
 mod scene_textures;
 mod shadows;
 mod snapshots;
@@ -53,8 +56,14 @@ mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
+pub(crate) use engine::SceneSources;
+pub use engine::{
+    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
+    FULLSCREEN_TRIANGLE_WGSL, LayerShape, TerrainMaterialArrayError, TerrainMaterialChannel,
+};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;
+pub use level_import::LevelAccess;
 pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
 pub use pass_target::PassTarget;
 pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes_frame_depth};
@@ -62,10 +71,15 @@ pub(crate) use plan::{place_after_prepass, reconcile_loads};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
 pub use resources::{
-    GameBuffer, GameBufferDeclaration, GameBufferUsage, GameResourceError, GameResources,
-    GameSampler, GameTexture,
+    GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
+    GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,
 };
-pub use scene_textures::{FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle};
+pub use scene_meshes::{
+    FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle, SceneMeshSlot,
+};
+pub use scene_textures::{
+    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameWaterNormalError,
+};
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub use snapshots::{
     FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
@@ -90,6 +104,25 @@ impl super::FrameRenderer {
                 .map(|metadata| metadata.passes.lend_occlusion()),
         );
         self.game.environment.publish(self.lend_environment());
+    }
+
+    /// Records the block transfers and readbacks the game's features asked of their resources
+    /// into `encoder`'s frame. Every route calls it after the passes it encodes, so the work
+    /// lands after the frame's (or the depth prefix's) passes and before its submission. A depth
+    /// prefix submitted ahead of the frame records everything queued by then, so that work lands
+    /// before the rest of the frame's passes.
+    ///
+    /// # Errors
+    /// [`FrameError`](worldrunner_render_post::FrameError) when a transfer is refused or
+    /// `encoder` is not a frame being recorded.
+    pub(crate) fn record_game_work(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        for resources in &self.game.resources {
+            resources.record_work(encoder)?;
+        }
+        Ok(())
     }
 }
 

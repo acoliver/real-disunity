@@ -93,6 +93,14 @@ struct Slot {
     location: Option<(BatchKey, usize)>,
 }
 
+/// What cached views of the placements and their buffers depend on, read together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    pub edits: u64,
+    pub content: u64,
+    pub skinned: bool,
+}
+
 /// The state of the placements and tables that what batches draw and cached batch bounds derive
 /// from. Placement edits and table changes only raise their counters, so an equal stamp means
 /// neither moved.
@@ -208,6 +216,15 @@ impl Instances {
     /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
     pub fn edits(&self) -> u64 {
         self.sum(&self.totals.edits, InstanceBatch::edits)
+    }
+
+    /// `edits`, `content_generation` and `has_skinned_batches`, read together from the kept sums.
+    pub fn stamp(&self) -> Stamp {
+        Stamp {
+            edits: self.edits(),
+            content: self.content_generation(),
+            skinned: self.has_skinned_batches(),
+        }
     }
 
     /// What the cached bounds of every batch and the materials and levels they draw depend on:

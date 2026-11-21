@@ -33,7 +33,7 @@ struct Arguments {
     fixed_dt: Option<Duration>,
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
-    /// The frames of a headless player run whose screen image is written, and the files.
+    /// The frames of a headless player run whose composed frame is written, and the files.
     screens: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
@@ -174,7 +174,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 /// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
 /// Each `--arg` is one argument of the player's command line, after its executable path.
 /// With `--screen` the run is headless, at `--size` (else the window's default), and writes
-/// the screen the player's offscreen work drew into after each frame named.
+/// after each frame named the composed frame: the screen the player's offscreen work drew into
+/// with the game's UI over it, as a window's capture shows it.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());

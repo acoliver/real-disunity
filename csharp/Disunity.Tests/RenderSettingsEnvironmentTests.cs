@@ -150,6 +150,9 @@ internal static unsafe class RenderSettingsEnvironmentTests
                 ["ambient_mode"] = 1, ["ambient_sky"] = Floats(1f, 0.9f, 0.8f, 0.7f), ["ambient_equator"] = Floats(0.6f, 0.5f, 0.4f, 0.3f),
                 ["ambient_ground"] = Floats(0.2f, 0.1f, 0.05f, 0.02f), ["ambient_intensity"] = 1.5, ["ambient_probe"] = Floats(Enumerable.Range(0, 27).Select(i => i * 0.5f).ToArray()),
                 ["reflection_mode"] = 1, ["reflection_intensity"] = 0.75, ["custom_reflection"] = 0, ["skybox_reflection"] = 1,
+                ["reflection_bounces"] = 1, ["reflection_resolution"] = 128, ["fog_enabled"] = false, ["fog_color"] = Floats(0.5f, 0.5f, 0.5f, 1f),
+                ["fog_mode"] = 3, ["fog_density"] = 0.01, ["fog_start"] = 0, ["fog_end"] = 300, ["subtractive_shadow_color"] = Floats(0.42f, 0.478f, 0.627f, 1f),
+                ["halo_strength"] = 0.5, ["flare_strength"] = 1, ["flare_fade_speed"] = 3, ["sun"] = null, ["skybox_material"] = null,
             };
         return plan.ToJsonString();
     }

@@ -84,7 +84,10 @@ impl<'a> Textures<'a> {
     /// texture's sampler is the one it was uploaded with.
     pub fn resolve(&mut self, texture: &TextureRef) -> Option<(TextureId, Option<SamplerState>)> {
         match *texture {
-            TextureRef::None | TextureRef::Global(_) | TextureRef::Temporary(_) => None,
+            TextureRef::None
+            | TextureRef::Unsent
+            | TextureRef::Global(_)
+            | TextureRef::Temporary(_) => None,
             TextureRef::Render(id) => self.render.get(&id).map(|description| {
                 self.used.insert(id);
                 (
@@ -105,6 +108,7 @@ impl<'a> Textures<'a> {
     fn why_unresolved(texture: &TextureRef) -> &'static str {
         match texture {
             TextureRef::None => "no texture set",
+            TextureRef::Unsent => "a texture the engine did not send",
             TextureRef::Global(_) => "a global the host does not resolve",
             TextureRef::Temporary(_) => "a temporary render texture outside recorded work",
             TextureRef::Render(_) => "a render texture that no longer exists",
@@ -117,10 +121,11 @@ impl<'a> Textures<'a> {
 
     /// Why a draw that reads a stand-in for `texture`, which resolves to nothing, reads one: the
     /// reference names a texture the host does not hold. `None` for no texture at all, which the
-    /// world cannot tell from one that did not reach it.
+    /// game's data leaves null.
     fn why_missing(&self, texture: &TextureRef) -> Option<StandInReason> {
         match texture {
             TextureRef::None => None,
+            TextureRef::Unsent => Some(StandInReason::NotLoaded),
             TextureRef::Asset(identity) => Some(
                 self.refused
                     .get(identity)
@@ -246,6 +251,22 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
     layer_with_defaults(properties, textures, &[], None)
 }
 
+/// The layers of a renderer's slot blocks, by slot index. A block of a slot at or past `slots`, the
+/// number of slots the renderer draws, is left out, as no draw reads its textures.
+pub fn slot_layers(
+    blocks: &BTreeMap<u32, ShaderProperties>,
+    slots: usize,
+    textures: &mut Textures<'_>,
+) -> BTreeMap<usize, PropertyLayer> {
+    blocks
+        .iter()
+        .filter_map(|(slot, block)| {
+            let slot = usize::try_from(*slot).ok().filter(|slot| *slot < slots)?;
+            Some((slot, layer(block, textures)))
+        })
+        .collect()
+}
+
 /// Binds each of a material's `bindings` (property name, buffer) that `uploaded` holds to its
 /// name in `layer`. A buffer the host does not hold, as one destroyed after it was bound, is left
 /// unbound, so a draw that reads it is left out and counted by the name.
@@ -269,6 +290,15 @@ pub struct Undeclared<'a> {
     pub declared: &'a [String],
 }
 
+/// Why a slot that names no readable texture reads the shader's declared default: the game's data
+/// leaves it null, or names a texture the engine did not send.
+fn default_reason(texture: &TextureRef) -> StandInReason {
+    match texture {
+        TextureRef::Unsent => StandInReason::NotLoaded,
+        _ => StandInReason::DeclaredDefault,
+    }
+}
+
 /// The layer of a material's `properties`, where a texture property that `defaults` names (the
 /// shader's declared default texture) and that the material sets to no texture, or lists no
 /// slot for, reads the default. A property set to a texture the frame cannot read keeps no
@@ -289,12 +319,13 @@ pub fn layer_with_defaults(
             layer
                 .textures
                 .insert(name.clone(), TextureInput { texture, sampler });
-        } else if let (TextureRef::None, Some((_, texture))) = (&slot.texture, default_of(name)) {
-            // The world cannot say whether the material names no texture or named one that did not
-            // reach it, so the stand-in is not called unset.
-            stand_in(&mut layer, name, *texture, StandInReason::UnsetOrNotLoaded);
+        } else if slot.texture.is_unbound()
+            && let Some((_, texture)) = default_of(name)
+        {
+            stand_in(&mut layer, name, *texture, default_reason(&slot.texture));
             textures.count_unresolved(name, DEFAULT_READ);
-        } else if let (TextureRef::None, Some(rule)) = (&slot.texture, undeclared)
+        } else if slot.texture.is_unbound()
+            && let Some(rule) = undeclared
             && !rule.declared.iter().any(|held| held == name)
         {
             stand_in(&mut layer, name, rule.texture, StandInReason::Undeclared);

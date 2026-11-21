@@ -3,6 +3,7 @@
 mod cache;
 mod lazy_snapshots;
 mod pins;
+mod post_water_depth;
 mod rebind;
 mod water_draws;
 

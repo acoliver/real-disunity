@@ -115,7 +115,10 @@ impl<F: super::StageFactory> super::PostChain<F> {
     /// the depth prepass. Its `plan` is called for each frame as for any retained feature, and
     /// for each geometry prefix through [`Self::plan_prefix_features`]; the prefix prepares and
     /// draws it. A frame that completes the prefix neither prepares nor draws it again when the
-    /// prefix completed every entry it declares, and runs it as usual otherwise.
+    /// prefix completed every entry it declares, and runs it as usual otherwise. A participant
+    /// that plans no pass into a prefix takes no part in that prefix: the prefix neither prepares
+    /// nor draws it, and the frame prepares, commits and finishes it as an ordinary feature, as a
+    /// frame drawn whole does whenever it plans no pass.
     ///
     /// # Errors
     /// As [`Self::register`].
@@ -135,11 +138,12 @@ impl<F: super::StageFactory> super::PostChain<F> {
     }
 
     /// Plans the prefix participants into the pass list of the next geometry prefix, after the
-    /// prefix's own passes, and keeps their declarations for
-    /// [`Self::encode_geometry_prefix`]. The caller orders the list.
+    /// prefix's own passes, and keeps the declarations of those that planned a pass for
+    /// [`Self::encode_geometry_prefix`]. The caller orders the list, and discards the plan with
+    /// [`Self::discard_prefix_plan`] when it cannot.
     ///
     /// # Errors
-    /// The first participant's planning error.
+    /// The first participant's planning error, which keeps no plan.
     pub fn plan_prefix_features(
         &mut self,
         passes: &mut Vec<PassDeclaration>,
@@ -149,11 +153,26 @@ impl<F: super::StageFactory> super::PostChain<F> {
         let mut planned = Vec::new();
         for (index, feature) in self.features.iter().enumerate() {
             if feature.prefix {
-                planned.push((index, feature.source.plan(passes, views)?));
+                let declaration = feature.source.plan(passes, views)?;
+                if !declaration.passes.is_empty() {
+                    planned.push((index, declaration));
+                }
             }
         }
         self.planned_prefix = Some(planned);
         Ok(())
+    }
+
+    /// Whether [`Self::plan_prefix_features`] planned participants that no geometry prefix has
+    /// encoded yet.
+    pub fn has_prefix_plan(&self) -> bool {
+        self.planned_prefix.is_some()
+    }
+
+    /// Drops the declarations [`Self::plan_prefix_features`] kept, for a prefix that will not be
+    /// encoded, so no later prefix encodes with them.
+    pub fn discard_prefix_plan(&mut self) {
+        self.planned_prefix = None;
     }
 
     /// Takes out every retained feature but the prefix participants planned for this prefix,

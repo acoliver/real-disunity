@@ -9,7 +9,8 @@ use worldrunner_render_plan::SceneSpecularConvention;
 pub enum EnvironmentConsumer {
     /// The surface reflections (screen-space reflection fallback and forward reflection).
     Reflections,
-    /// Water, lent only when no reflection cube is installed.
+    /// Water, lent only when no reflection cube is installed, and whether or not the stock
+    /// passes draw the water.
     Water,
 }
 
@@ -67,7 +68,8 @@ pub struct FrameEnvironmentHandle(Lent<Option<FrameEnvironment>>);
 
 impl FrameEnvironmentHandle {
     /// The environment of the frame now being prepared; `None` when the host installed no
-    /// environment cube for the reflections or water.
+    /// environment cube for the reflections or water. A water cube is lent even while
+    /// `WaterDraws::Suppressed` keeps the stock passes from drawing the water.
     ///
     /// # Errors
     /// [`FrameInputError::OutsideFrame`] outside a frame, and [`FrameInputError::NotPrepared`]
@@ -83,6 +85,10 @@ impl FrameEnvironmentHandle {
 
 impl crate::compositor::FrameRenderer {
     /// The installed cube of the reflections, else of water; `None` without either.
+    ///
+    /// The water cube is lent from the installed water, not from the water the stock passes
+    /// draw: a game that suppresses the stock water draws still installed that water's
+    /// environment, for its own water passes to sample.
     pub(crate) fn lend_environment(&self) -> Option<FrameEnvironment> {
         let [reflections, water] = self.environment_conventions;
         let (views, intensity_micro, convention, consumer) =

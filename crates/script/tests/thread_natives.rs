@@ -78,9 +78,7 @@ fn policy() -> SchedulerPolicy {
 /// The natives are registered with the scheduler, before the first source is added.
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
-    scripts
-        .register_scheduler_with(&names(), &policy())
-        .unwrap();
+    scripts.register_scheduler(&names(), &policy()).unwrap();
     scripts.add_source("game", &GRANTS).unwrap();
     scripts
         .run(
@@ -217,7 +215,7 @@ fn a_source_set_from_lua_is_kept_by_persisted_and_by_a_save() {
     let options = SaveOptions {
         persisted: Some(PERSIST),
     };
-    let saved = scripts.save_with(&[], &[], &options).unwrap();
+    let saved = scripts.save(&[], &[], &options).unwrap();
     let schedules: Vec<_> = saved
         .schedules
         .iter()

@@ -1,6 +1,8 @@
 //! Threads resume in the middle of their functions after a save and restore (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -44,14 +46,17 @@ const PERMANENTS: [&str; 3] = ["Main", "Inner", "Wait"];
 fn game(script: &str) -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts.run("game", "game.lua", script.as_bytes()).unwrap();
@@ -76,7 +81,11 @@ fn started() -> GameScripts {
 
 /// Saves `scripts` and restores the save into a fresh state that ran the same scripts.
 fn reload(scripts: &GameScripts) -> GameScripts {
-    let snapshot = through_json(&scripts.save(&ROOTS, &PERMANENTS).unwrap());
+    let snapshot = through_json(
+        &scripts
+            .save(&ROOTS, &PERMANENTS, &SaveOptions::default())
+            .unwrap(),
+    );
     let mut fresh = game(GAME);
     fresh.restore(&snapshot, &PERMANENTS).unwrap();
     fresh
@@ -141,7 +150,11 @@ make()
         .unwrap();
     scripts.advance(0).unwrap();
     scripts.advance(10).unwrap();
-    let snapshot = through_json(&scripts.save(&ROOTS, &["Slow"]).unwrap());
+    let snapshot = through_json(
+        &scripts
+            .save(&ROOTS, &["Slow"], &SaveOptions::default())
+            .unwrap(),
+    );
     let mut fresh = game(script);
     fresh.restore(&snapshot, &["Slow"]).unwrap();
     fresh.advance(10).unwrap();
@@ -170,29 +183,8 @@ fn scripts_cannot_reach_the_debug_library() {
 }
 
 #[test]
-fn a_chunk_the_rewrite_refuses_fails_to_load_with_the_reason() {
+fn statement_level_assert_and_dbg_calls_are_stripped_at_load() {
     let mut scripts = game(GAME);
-    let error = scripts
-        .run("game", "bad.lua", b"local __lrs = 1")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("bad.lua"), "{error}");
-    assert!(error.contains("cannot be made resumable"), "{error}");
-
-    let message = scripts
-        .eval_json(
-            "game",
-            r#"local f, message = load("local __lrs = 1", "=bad") return { f == nil, message }"#,
-        )
-        .unwrap();
-    assert_eq!(message[0], serde_json::json!(true));
-    assert!(message[1].as_str().unwrap().contains("=bad"), "{message}");
-}
-
-#[test]
-fn statement_level_assert_and_dbg_calls_can_be_stripped_at_load() {
-    let mut scripts = game(GAME);
-    scripts.strip_debug_calls(true);
     scripts
         .run(
             "game",
@@ -204,10 +196,12 @@ fn statement_level_assert_and_dbg_calls_can_be_stripped_at_load() {
         scripts.eval_json("game", "return Kept").unwrap(),
         serde_json::json!(1)
     );
-    let mut strict = game(GAME);
-    let error = strict
-        .run("game", "strip.lua", b"assert(false, 'kept')")
+    let error = scripts
+        .run("game", "kept.lua", b"local value = assert(false, 'kept')")
         .unwrap_err()
         .to_string();
-    assert!(error.contains("kept"), "{error}");
+    assert!(
+        error.contains("kept"),
+        "an assert inside an expression stays: {error}"
+    );
 }

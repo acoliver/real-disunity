@@ -15,8 +15,6 @@
 //! is saved as the function it was spawned with, which may be a closure, and its arguments.
 //! Finished coroutines are saved as finished, and a suspended coroutine that a thread or the
 //! data holds is saved where it stopped.
-//!
-//! Snapshots written before all state was one graph still restore (see [`GameScripts::restore`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
@@ -24,30 +22,8 @@ use lua_resume::capture::Snapshot;
 use mlua::{Function, Lua, MultiValue, Thread, Value};
 
 use crate::error::ScriptError;
-use crate::legacy::{argument_root, current, function_root};
 use crate::original::{GameScripts, lookup, segments};
 use crate::threads::{Restored, ThreadRecord, Wake};
-
-/// One saved Lua value in the format that predates the graph. Snapshots are read in this format
-/// and never written in it.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
-pub enum Saved {
-    Nil,
-    Boolean(bool),
-    Integer(i64),
-    /// IEEE-754 bits, so every float, including NaN and infinities, round-trips exactly.
-    Float(u64),
-    /// Lua strings are bytes.
-    String(Vec<u8>),
-    /// An index into [`LuaSnapshot::tables`].
-    Table(usize),
-    /// A native, by its registered path.
-    Native(String),
-    /// A permanent, by its global path.
-    Permanent(String),
-    /// An index into [`LuaSnapshot::threads`].
-    Thread(usize),
-}
 
 /// When a saved thread runs next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -55,9 +31,6 @@ pub enum SavedWake {
     NextAdvance,
     At(u64),
     UntilWoken,
-    /// A coroutine that had finished, in snapshots that predate the graph; it restores as
-    /// finished.
-    Finished,
 }
 
 /// A scheduler thread and when it runs next. Its frames are in [`LuaSnapshot::graph`].
@@ -67,19 +40,11 @@ pub struct SavedThread {
     /// For a thread that had not run, how many arguments it starts with. Its function and
     /// arguments are roots of the graph. A thread that had run has `None`; its coroutines are
     /// the graph's captured threads, in the order of the threads that have run.
-    #[serde(default)]
     pub start: Option<usize>,
-    /// The function of a thread that had not run, in the format that predates the graph.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub function: Option<Saved>,
-    /// Its arguments, in the same format.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<Saved>,
 }
 
 /// How a saved thread is scheduled besides when it wakes: its clock, the wait it is in, the
-/// game's flags and the kind of native it is parked in. Snapshots that predate it have none, and
-/// their threads are sleepers on the default clock.
+/// game's flags and the kind of native it is parked in.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct ThreadSchedule {
     /// The name of the thread's clock; none is the default clock.
@@ -102,54 +67,30 @@ pub struct SaveOptions {
     pub persisted: Option<i64>,
 }
 
-/// One saved table in the format that predates the graph.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-pub struct SavedTable {
-    pub entries: Vec<(Saved, Saved)>,
-    pub metatable: Option<Saved>,
-}
-
 /// Saved roots, scheduler threads and everything they reach.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct LuaSnapshot {
     /// The roots, the start of every thread that had not run, and all values they reach.
-    #[serde(default)]
     pub graph: Snapshot,
     /// Scheduler threads in the order they would run.
-    #[serde(default)]
     pub threads: Vec<SavedThread>,
-    /// The scheduler clock, in milliseconds.
-    #[serde(default)]
-    pub clock: u64,
-    /// How each of `threads` is scheduled, in the same order. Missing for older snapshots.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// How each of `threads` is scheduled, in the same order.
     pub schedules: Vec<ThreadSchedule>,
-    /// The time of every clock by name. Missing for older snapshots, which have `clock` only.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// The time of every clock by name, in milliseconds.
     pub clocks: Vec<(String, u64)>,
-    /// Roots in the format that predates the graph.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roots: Vec<(String, Saved)>,
-    /// Tables in the format that predates the graph.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tables: Vec<SavedTable>,
 }
 
 impl GameScripts {
-    /// Saves the values at `roots`, treating everything under `permanents` as code.
-    pub fn save(&self, roots: &[&str], permanents: &[&str]) -> Result<LuaSnapshot, ScriptError> {
-        self.save_with(roots, permanents, &SaveOptions::default())
-    }
-
-    /// Saves like [`save`](Self::save), keeping the scheduler threads `options` selects.
-    pub fn save_with(
+    /// Saves the values at `roots`, treating everything under `permanents` as code, and the
+    /// scheduler threads `options` selects.
+    pub fn save(
         &self,
         roots: &[&str],
         permanents: &[&str],
         options: &SaveOptions,
     ) -> Result<LuaSnapshot, ScriptError> {
         let names = permanent_names(self.lua(), self.natives(), permanents)?;
-        let (records, clock, clocks) = {
+        let (records, clocks) = {
             let scheduler = self.scheduler().lock().expect("scheduler");
             if scheduler.is_running() {
                 return Err(refused("cannot save from inside a scheduler thread".into()));
@@ -175,7 +116,7 @@ impl GameScripts {
                 .iter()
                 .map(|clock| (clock.name.clone(), clock.now))
                 .collect::<Vec<_>>();
-            (records, scheduler.now(), times)
+            (records, times)
         };
         let unstarted: Vec<(usize, Thread)> = records
             .iter()
@@ -202,10 +143,8 @@ impl GameScripts {
         Ok(LuaSnapshot {
             graph,
             threads,
-            clock,
             schedules,
             clocks,
-            ..LuaSnapshot::default()
         })
     }
 
@@ -216,13 +155,16 @@ impl GameScripts {
         snapshot: &LuaSnapshot,
         permanents: &[&str],
     ) -> Result<(), ScriptError> {
-        let snapshot = current(snapshot)?;
+        if snapshot.schedules.len() != snapshot.threads.len() {
+            return Err(refused(format!(
+                "the snapshot has {} threads and {} schedules",
+                snapshot.threads.len(),
+                snapshot.schedules.len()
+            )));
+        }
         let lua = self.lua().clone();
         let names = permanent_names(&lua, self.natives(), permanents)?;
-        let live = snapshot
-            .threads
-            .iter()
-            .any(|thread| thread.wake != SavedWake::Finished);
+        let live = !snapshot.threads.is_empty();
         if live && !self.scheduler().lock().expect("scheduler").is_idle() {
             return Err(refused(
                 "cannot restore threads into a scheduler that already has threads".into(),
@@ -238,10 +180,8 @@ impl GameScripts {
         let restored = self.restore_graph(&snapshot.graph, &known)?;
         let mut scheduled = Vec::new();
         let mut running = restored.threads.iter();
-        for (index, saved) in snapshot.threads.iter().enumerate() {
-            let Some(wake) = wake_of(saved.wake) else {
-                continue;
-            };
+        let saved_threads = snapshot.threads.iter().zip(&snapshot.schedules);
+        for (index, (saved, schedule)) in saved_threads.enumerate() {
             let (thread, start) = match saved.start {
                 Some(count) => {
                     let standin = standins[index].clone().expect("a stand-in");
@@ -257,8 +197,8 @@ impl GameScripts {
             scheduled.push(Restored {
                 thread,
                 start,
-                wake,
-                schedule: snapshot.schedules.get(index).cloned().unwrap_or_default(),
+                wake: wake_of(saved.wake),
+                schedule: schedule.clone(),
             });
         }
         for (root, value) in &restored.roots {
@@ -268,12 +208,9 @@ impl GameScripts {
         }
         if live {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
-            let mut times = snapshot.clocks.clone();
-            if times.is_empty() {
-                let default = scheduler.clocks[0].name.clone();
-                times.push((default, snapshot.clock));
-            }
-            scheduler.restore(&times, scheduled).map_err(refused)?;
+            scheduler
+                .restore(&snapshot.clocks, scheduled)
+                .map_err(refused)?;
         }
         Ok(())
     }
@@ -305,40 +242,43 @@ fn thread_starts(
                 Wake::UntilWoken => SavedWake::UntilWoken,
             },
             start,
-            function: None,
-            args: Vec::new(),
         });
     }
     (threads, running)
 }
 
-fn wake_of(wake: SavedWake) -> Option<Wake> {
+fn wake_of(wake: SavedWake) -> Wake {
     match wake {
-        SavedWake::NextAdvance => Some(Wake::NextAdvance),
-        SavedWake::At(at) => Some(Wake::At(at)),
-        SavedWake::UntilWoken => Some(Wake::UntilWoken),
-        SavedWake::Finished => None,
+        SavedWake::NextAdvance => Wake::NextAdvance,
+        SavedWake::At(at) => Wake::At(at),
+        SavedWake::UntilWoken => Wake::UntilWoken,
     }
 }
 
-/// A coroutine for each saved thread that has no frames in the graph: one that had not run gets
-/// a thread to be given its function once the graph is restored, and a finished one is run to
-/// completion. Threads that had run are `None`.
+/// A coroutine for each saved thread that had not run, to be given its function once the graph
+/// is restored. Threads that had run are `None`; their frames are in the graph.
 fn standin_threads(lua: &Lua, saved: &[SavedThread]) -> Result<Vec<Option<Thread>>, ScriptError> {
     let nothing = lua.create_function(|_, ()| Ok(()))?;
-    let mut threads = Vec::new();
-    for thread in saved {
-        threads.push(if thread.wake == SavedWake::Finished {
-            let done = lua.create_thread(nothing.clone())?;
-            done.resume::<()>(())?;
-            Some(done)
-        } else if thread.start.is_some() {
-            Some(lua.create_thread(nothing.clone())?)
-        } else {
-            None
-        });
-    }
-    Ok(threads)
+    saved
+        .iter()
+        .map(|thread| {
+            thread
+                .start
+                .map(|_| lua.create_thread(nothing.clone()))
+                .transpose()
+                .map_err(ScriptError::from)
+        })
+        .collect()
+}
+
+/// The name of the root that holds the function scheduler thread `index` starts with.
+fn function_root(index: usize) -> String {
+    format!("scheduler thread {index} function")
+}
+
+/// The name of the root that holds argument `n` (from 1) of scheduler thread `index`.
+fn argument_root(index: usize, n: usize) -> String {
+    format!("scheduler thread {index} argument {n}")
 }
 
 fn is_start_root(name: &str) -> bool {

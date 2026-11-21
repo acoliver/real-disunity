@@ -1,9 +1,7 @@
-//! Opt-in loader behaviour for scripts written for another engine's Lua: integer division,
-//! chunks the rewrite refuses, and chunk names that are reused (#147).
+//! How the loader prepares a game's chunks: integer division, chunks the rewrite refuses, and
+//! chunk names that are reused (#147).
 
-use worldrunner_script::{
-    DivisionSemantics, GameScripts, NameCollisions, RefusedChunks, SchedulerNames, ScriptConfig,
-};
+use worldrunner_script::{GameScripts, SaveOptions, SchedulerNames, SchedulerPolicy, ScriptConfig};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -14,29 +12,23 @@ const NAMES: [&str; 6] = [
     "GameTime",
 ];
 
-fn with_division(division: DivisionSemantics) -> GameScripts {
+fn scripts() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
-    scripts.set_division(division).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts
-}
-
-fn scripts() -> GameScripts {
-    with_division(DivisionSemantics::Stock)
-}
-
-fn integer_dividing() -> GameScripts {
-    with_division(DivisionSemantics::IntegerTruncating)
 }
 
 fn eval(scripts: &mut GameScripts, code: &str) -> serde_json::Value {
@@ -44,15 +36,8 @@ fn eval(scripts: &mut GameScripts, code: &str) -> serde_json::Value {
 }
 
 #[test]
-fn division_is_stock_by_default() {
-    let mut scripts = scripts();
-    scripts.run("game", "d.lua", b"Q = 7 / 2").unwrap();
-    assert_eq!(eval(&mut scripts, "return Q"), serde_json::json!(3.5));
-}
-
-#[test]
 fn a_game_chunk_divides_integers_as_integers_truncating_toward_zero() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     scripts
         .run(
             "game",
@@ -73,7 +58,7 @@ fn a_game_chunk_divides_integers_as_integers_truncating_toward_zero() {
 
 #[test]
 fn division_by_an_integer_zero_raises_a_lua_error_naming_the_cause() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     let caught = scripts
         .run(
             "game",
@@ -95,7 +80,7 @@ fn division_by_an_integer_zero_raises_a_lua_error_naming_the_cause() {
 
 #[test]
 fn text_compiled_with_load_divides_the_same_way() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     let value = eval(
         &mut scripts,
         "local f = load('return 7 / 2') return { math.type(f()), f(), load('return 7.0 / 2')() }",
@@ -105,7 +90,7 @@ fn text_compiled_with_load_divides_the_same_way() {
 
 #[test]
 fn a_division_operand_may_be_any_expression_and_metamethods_still_apply() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     scripts
         .run(
             "game",
@@ -123,26 +108,15 @@ fn a_division_operand_may_be_any_expression_and_metamethods_still_apply() {
 
 #[test]
 fn code_evaluated_by_the_host_divides_the_same_way() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     assert_eq!(eval(&mut scripts, "return 7 / 2"), serde_json::json!(3));
     assert_eq!(eval(&mut scripts, "return 7 / 2"), serde_json::json!(3));
     assert_eq!(eval(&mut scripts, "return 8 / 2.0"), serde_json::json!(4.0));
 }
 
 #[test]
-fn the_division_option_cannot_change_once_chunks_are_loaded() {
-    let mut scripts = scripts();
-    scripts.run("game", "d.lua", b"Q = 1").unwrap();
-    let error = scripts
-        .set_division(DivisionSemantics::IntegerTruncating)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("before"), "{error}");
-}
-
-#[test]
 fn scripts_cannot_reach_natives_through_the_division_function() {
-    let mut scripts = integer_dividing();
+    let mut scripts = scripts();
     let value = eval(&mut scripts, "return type(__lr_div)");
     assert_eq!(value, serde_json::json!("function"));
     let natives = eval(&mut scripts, "return load('return Sleep')() == nil");
@@ -161,8 +135,8 @@ function Main()
 end
 "#;
 
-fn sleepy(division: DivisionSemantics) -> GameScripts {
-    let mut scripts = with_division(division);
+fn sleepy() -> GameScripts {
+    let mut scripts = scripts();
     scripts
         .run("game", "sleepy.lua", SLEEPY.as_bytes())
         .unwrap();
@@ -171,19 +145,23 @@ fn sleepy(division: DivisionSemantics) -> GameScripts {
 
 #[test]
 fn a_restored_thread_continues_with_the_same_division() {
-    let division = DivisionSemantics::IntegerTruncating;
-    let mut original = sleepy(division);
+    let mut original = sleepy();
     original
         .run("game", "start.lua", b"CreateGameTimeThread(Main)")
         .unwrap();
     original.advance(0).unwrap();
     original.advance(5).unwrap();
     let snapshot: worldrunner_script::LuaSnapshot = serde_json::from_str(
-        &serde_json::to_string(&original.save(&["Log"], &["Main"]).unwrap()).unwrap(),
+        &serde_json::to_string(
+            &original
+                .save(&["Log"], &["Main"], &SaveOptions::default())
+                .unwrap(),
+        )
+        .unwrap(),
     )
     .unwrap();
 
-    let mut restored = sleepy(division);
+    let mut restored = sleepy();
     restored.restore(&snapshot, &["Main"]).unwrap();
     restored.advance(5).unwrap();
     restored.advance(10).unwrap();
@@ -196,20 +174,8 @@ fn a_restored_thread_continues_with_the_same_division() {
 const REFUSED: &[u8] = b"local __lrs = 1\nSplit = 7 / 2";
 
 #[test]
-fn a_refused_chunk_fails_by_default() {
+fn a_refused_chunk_loads_plain_and_is_reported() {
     let mut scripts = scripts();
-    let error = scripts
-        .run("game", "plain.lua", REFUSED)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("cannot be made resumable"), "{error}");
-    assert!(scripts.plain_chunks().is_empty());
-}
-
-#[test]
-fn a_refused_chunk_loads_plain_when_allowed_and_is_reported() {
-    let mut scripts = integer_dividing();
-    scripts.set_refused_chunks(RefusedChunks::LoadPlain);
     scripts.run("game", "plain.lua", REFUSED).unwrap();
     assert_eq!(eval(&mut scripts, "return Split"), serde_json::json!(3));
     let plain = scripts.plain_chunks();
@@ -226,44 +192,34 @@ fn a_refused_chunk_loads_plain_when_allowed_and_is_reported() {
 
 #[test]
 fn a_chunk_that_does_not_parse_is_never_loaded_plain() {
-    let mut scripts = integer_dividing();
-    scripts.set_refused_chunks(RefusedChunks::LoadPlain);
+    let mut scripts = scripts();
     assert!(scripts.run("game", "syntax.lua", b"x = = 1").is_err());
     assert!(scripts.plain_chunks().is_empty());
 }
 
 #[test]
-fn two_texts_under_one_chunk_name_are_an_error() {
+fn a_collision_loads_plain_and_leaves_the_first_chunk_resumable() {
     let mut scripts = scripts();
     scripts.run("game", "a.lua", b"X = 1").unwrap();
     scripts.run("game", "a.lua", b"X = 1").unwrap();
-    let error = scripts
-        .run("game", "a.lua", b"X = 2")
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("a.lua"), "{error}");
-    assert!(error.contains("another chunk"), "{error}");
-    assert_eq!(eval(&mut scripts, "return X"), serde_json::json!(1));
-
-    let loaded = eval(
-        &mut scripts,
-        "local one = load('return 1', '=n') local two, message = load('return 2', '=n')
-         return { one ~= nil, two == nil, message }",
+    assert!(
+        scripts.plain_chunks().is_empty(),
+        "the same text is no collision"
     );
-    assert_eq!(loaded[0], serde_json::json!(true));
-    assert_eq!(loaded[1], serde_json::json!(true));
-    assert!(loaded[2].as_str().unwrap().contains("=n"), "{loaded}");
-}
-
-#[test]
-fn a_collision_can_load_plain_and_leave_the_first_chunk_resumable() {
-    let mut scripts = scripts();
-    scripts.set_name_collisions(NameCollisions::LoadPlain);
-    scripts.run("game", "a.lua", b"X = 1").unwrap();
     scripts.run("game", "a.lua", b"X = 2").unwrap();
     assert_eq!(eval(&mut scripts, "return X"), serde_json::json!(2));
     let plain = scripts.plain_chunks();
     assert!(plain["a.lua"].contains("another chunk"), "{plain:?}");
+    let restore = scripts.import_sources().restore_sources();
+    assert!(restore.get("a.lua").is_some(), "the first tree is kept");
+
+    let loaded = eval(
+        &mut scripts,
+        "local one = load('return 1', '=n') local two = load('return 2', '=n')
+         return { one(), two() }",
+    );
+    assert_eq!(loaded, serde_json::json!([1, 2]));
+    assert!(scripts.plain_chunks().contains_key("=n"));
 }
 
 #[test]

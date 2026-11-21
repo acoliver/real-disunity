@@ -118,6 +118,7 @@ fn prepare(
             bindings: &[],
             imports,
             sets,
+            topology: wgpu::PrimitiveTopology::TriangleList,
             geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
             instances: 0..1,
             owners: &[],

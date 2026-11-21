@@ -12,6 +12,31 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
+    ///  2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
+    ///  `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
+    ///  read, `generation` is the generation the caller already holds; the call fills in everything,
+    ///  `present` is zero when the identity has no stored texture, and `changed` is nonzero when the
+    ///  stored sampler is newer than the generation passed.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunitySampler
+    {
+        /// <summary>
+        ///  Starts at 1 when the texture is first stored and rises each time a write changes a value.
+        /// </summary>
+        public ulong generation;
+        public uint wrap_u;
+        public uint wrap_v;
+        public uint wrap_w;
+        public uint filter;
+        public uint aniso_level;
+        public uint present;
+        public uint changed;
+        public float mip_bias;
+    }
+
+    /// <summary>
     ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
     ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
     ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
@@ -322,6 +347,36 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The environment lighting of a world. A section a scene or a script never wrote reads with its
+    ///  `*_set` flag 0 and the values of a new scene; writing a section with its flag 0 puts it back to
+    ///  unwritten, whatever its other fields hold. Colours are linear RGBA. `ambient_mode` is 0 skybox,
+    ///  1 trilight, 3 flat or 4 custom, and `reflection_mode` 0 skybox or 1 custom. `ambient_probe`
+    ///  holds the nine coefficients of red, then of green, then of blue. A reflection cube is a texture
+    ///  kind and identity as `DisunityTextureSlot` gives them (0 none, 1 a stored texture, 2 a render
+    ///  texture). `padding` is zero.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityEnvironment
+    {
+        public uint ambient_set;
+        public uint ambient_mode;
+        public float ambient_intensity;
+        public uint reflection_set;
+        public uint reflection_mode;
+        public float reflection_intensity;
+        public uint custom_kind;
+        public uint skybox_kind;
+        public ulong custom_texture;
+        public ulong skybox_texture;
+        public fixed float ambient_sky[4];
+        public fixed float ambient_equator[4];
+        public fixed float ambient_ground[4];
+        public fixed float ambient_flat[4];
+        public fixed float ambient_probe[27];
+        public uint padding;
+    }
+
+    /// <summary>
     ///  What a shader holds. `has_source` is 1 when the shader has a source, whose file is
     ///  `file_length` bytes of the text after the name and whose object is `path_id` there. On input
     ///  `text_capacity` is the capacity of the text a caller passes; on output it is the length of the
@@ -364,8 +419,12 @@ namespace Disunity.Native
     /// <summary>
     ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
     ///  `GraphicsFormat` value. `dimension` is its `TextureDimension` (2D, 3D, cube, 2D array or cube
-    ///  array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube). `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
-    ///  with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
+    ///  array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube).
+    ///  `auto_generate_mips` is 1 when the host regenerates the smaller mip levels whenever the texture
+    ///  is drawn into and 0 when only a generate-mips record fills them. `wrap_*`, `filter`,
+    ///  `aniso_level` and `mip_bias` are the sampler, with the values of `DisunitySampler`.
+    ///  `padding` keeps `generation` 8-byte aligned and is ignored. `generation` is ignored on input
+    ///  and starts at 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityRenderTexture
@@ -378,12 +437,14 @@ namespace Disunity.Native
         public uint srgb;
         public uint dimension;
         public uint volume_depth;
+        public uint auto_generate_mips;
         public uint wrap_u;
         public uint wrap_v;
         public uint wrap_w;
         public uint filter;
         public uint aniso_level;
         public float mip_bias;
+        public uint padding;
         public ulong generation;
     }
 
@@ -404,7 +465,10 @@ namespace Disunity.Native
     ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
     ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
     ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
-    ///  does (0 none, 1 asset, 2 render texture); a blit draws with `material` (0 for none) and
+    ///  does (0 none, 1 asset, 2 render texture, 4 temporary render texture), and write the target
+    ///  that `target_kind` names: 0 for the render texture `target`, 1 for the temporary render
+    ///  texture whose property name id is the low 32 bits of `target`. A camera render ignores
+    ///  `target_kind`. A blit draws with `material` (0 for none) and
     ///  `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
     ///  `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
     ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
@@ -420,6 +484,7 @@ namespace Disunity.Native
         public uint kind;
         public ulong camera;
         public ulong target;
+        public uint target_kind;
         public uint source_kind;
         public ulong source;
         public ulong material;
@@ -438,8 +503,8 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
-    ///  by the identity the host knows it by (a player texture identity) and 2 for a world render
-    ///  texture by its id.
+    ///  by the identity the host knows it by (a player texture identity), 2 for a world render
+    ///  texture by its id and 4 for a temporary render texture by its property name id.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureSlot
@@ -518,6 +583,78 @@ namespace Disunity.Native
         public uint rendering_layer_test;
         public uint padding;
         public ulong cull;
+    }
+
+    /// <summary>
+    ///  A shadow query. The light's and the camera's matrices travel in the call's `matrices` pointer
+    ///  (32 floats: the light's local-to-world matrix, then the camera's projection times view
+    ///  matrix), column-major. `light_kind` is the `LightType` number. `caster_count` is the number of
+    ///  casters at the call's `casters` pointer. The directional fields are the split index and count,
+    ///  the three split ratios, the shadow map resolution and the near plane offset; `face` and
+    ///  `fov_bias` are for a point light.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowRequest
+    {
+        public uint query;
+        public uint light_kind;
+        public float light_range;
+        public float light_spot_angle;
+        public float camera_x;
+        public float camera_y;
+        public float camera_z;
+        public float shadow_distance;
+        public uint culling_mask;
+        public uint caster_count;
+        public uint split_index;
+        public uint split_count;
+        public float ratio_x;
+        public float ratio_y;
+        public float ratio_z;
+        public uint resolution;
+        public float near_plane_offset;
+        public uint face;
+        public float fov_bias;
+    }
+
+    /// <summary>
+    ///  A renderer a culling kept: the world-space box, the shadow casting mode (0 casts none) and the
+    ///  layer.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowCaster
+    {
+        public float min_x;
+        public float min_y;
+        public float min_z;
+        public float max_x;
+        public float max_y;
+        public float max_z;
+        public uint casting_mode;
+        public uint layer;
+    }
+
+    /// <summary>
+    ///  The answer to a query. `found` is 1 when casters affect the light and 0 when none does, and
+    ///  then the rest is zero. `plane_count` planes are written to the output buffer. The box of a
+    ///  bounds query and the culling sphere of a directional split are here; the matrices and planes
+    ///  are in the output buffer.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowResult
+    {
+        public uint found;
+        public uint plane_count;
+        public float min_x;
+        public float min_y;
+        public float min_z;
+        public float max_x;
+        public float max_y;
+        public float max_z;
+        public float sphere_x;
+        public float sphere_y;
+        public float sphere_z;
+        public float sphere_radius;
     }
 
     [StructLayout(LayoutKind.Sequential)]

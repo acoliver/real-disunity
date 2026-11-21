@@ -70,11 +70,13 @@ fn options() -> ViewerOptions {
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
+        texture_tiers: None,
         gpu_timing: false,
         adapter_callback: None,
         cadence: PresentationCadence::default(),
         ssr: None,
         render_clock: RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
         title: "Presentation budget regression".into(),
         size: [8, 8],
         camera: SceneCamera {

@@ -28,7 +28,10 @@ mod caster_edits;
 mod celestial;
 mod compaction;
 mod contact;
+mod contours;
 pub(crate) mod decals;
+pub(crate) use contours::ContourDraw;
+mod deferred;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
@@ -39,6 +42,7 @@ mod pages;
 pub(crate) mod pass_statistics;
 mod programs;
 mod publication;
+mod raw;
 mod retained;
 pub use retained::reflections_enabled;
 mod effect_statistics;
@@ -53,14 +57,21 @@ pub use geometry_statistics::{
 };
 pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
+mod terrain_draws;
 mod terrain_runtime;
+mod water_draws;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
-pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
+pub use streaming::{
+    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
+    TerrainChunkViewError, TerrainGeometryRequest,
+};
+pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
+pub use water_draws::WaterDraws;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
@@ -78,6 +89,8 @@ enum Route {
     Prepass,
     /// The capture terms: objects and terrain only.
     Capture,
+    /// The G-buffer slot: objects and terrain only.
+    Gbuffer,
 }
 
 #[cfg(test)]
@@ -228,6 +241,9 @@ struct GpuLod {
 #[derive(Debug)]
 struct GpuMesh {
     lods: Vec<GpuLod>,
+    /// Keeps the chain's buffers counted under `ResourceClass::Mesh` while the mesh is resident.
+    /// The levels hold plain buffer handles, because draws and streaming clone them.
+    _census: Vec<worldrunner_render_gpu::census::CensusEntry>,
 }
 
 /// The terrain surface, as the one draw it has become.
@@ -262,7 +278,11 @@ struct GpuTerrain {
 #[derive(Debug)]
 struct Retained {
     contact_heights: Buffer,
-    textures: Vec<Texture>,
+    /// Scene textures, counted under `ResourceClass::Texture` while resident.
+    textures: Vec<worldrunner_render_gpu::census::Tracked<Texture>>,
+    /// The table as the game's passes are lent it, made on first use and dropped whenever
+    /// `textures` changes.
+    lent_textures: RefCell<Option<std::rc::Rc<[Texture]>>>,
     placeholder: Texture,
     sampler: Sampler,
     material_uniforms: Vec<Buffer>,
@@ -289,13 +309,15 @@ pub struct SceneGpu {
     frame_slots: Vec<(Buffer, BindGroup)>,
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
-    materials: Vec<BindGroup>,
+    /// The lighting records the material uniforms index, for deferred lighting.
+    lighting_records: crate::gbuffer::lighting::SceneRecords,
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
+    instance_history: std::rc::Rc<RefCell<Vec<crate::instances::history::Candidate>>>,
     frame: std::rc::Rc<Cell<Option<FrameUniform>>>,
     drawing_frame: RefCell<
         Option<(
@@ -305,9 +327,13 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The pairs the batches draw, until a placement or table changes.
+    drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
+    /// Whether the stock passes draw the terrain; selected by the renderer each frame.
+    terrain_draws: Cell<TerrainDraws>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
     player: programs::PlayerWork,
@@ -325,6 +351,22 @@ fn mesh_selections(scene: &RenderScene) -> Vec<MeshSelection> {
 }
 
 impl SceneGpu {
+    /// Every resident scene texture by table index, as one shared snapshot that stays the same
+    /// object until an append or a texture replacement changes the table.
+    pub(crate) fn lent_textures(&self) -> std::rc::Rc<[Texture]> {
+        self.retained
+            .lent_textures
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                self.retained
+                    .textures
+                    .iter()
+                    .map(|texture| (**texture).clone())
+                    .collect()
+            })
+            .clone()
+    }
+
     /// Uploads every texture, material, mesh and placement of one scene.
     ///
     /// # Errors
@@ -368,15 +410,17 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms, material_imports) = resources::scene_materials(
+        let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
             device,
             queue,
             scene,
-            pipelines,
-            (&views, &placeholder_view),
-            &contact_heights,
+            &resources::MaterialBindings {
+                views: &views,
+                placeholder: &placeholder_view,
+                heights: &contact_heights,
+            },
         );
-        let meshes = upload_meshes(device, queue, &prepared.meshes);
+        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
                 device,
@@ -419,7 +463,7 @@ impl SceneGpu {
             frame_buffer: frame_slots[0].0.clone(),
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            materials,
+            lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
             meshes,
             mesh_selection: prepared.selection,
@@ -428,10 +472,13 @@ impl SceneGpu {
                 .counted(authority.census().clone()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
+            instance_history: std::rc::Rc::default(),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            drawn_pair_memo: RefCell::default(),
             gather: compaction::Shared::default(),
             terrain,
+            terrain_draws: Cell::new(TerrainDraws::Stock),
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
             player: programs::PlayerWork::default(),
@@ -439,6 +486,7 @@ impl SceneGpu {
             retained: Retained {
                 contact_heights,
                 textures,
+                lent_textures: RefCell::new(None),
                 placeholder,
                 sampler,
                 material_uniforms,
@@ -464,45 +512,6 @@ impl SceneGpu {
         queue.write_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
     }
 
-    /// Records every draw of the scene into one render pass.
-    /// Raw rendering does not publish selection or statistics; use composition for that.
-    ///
-    /// The frame group is bound once for the whole pass rather than per draw,
-    /// which is sound only because all four object pipelines were built from
-    /// one pipeline layout: pipelines sharing a layout do not invalidate each
-    /// other's bind groups.
-    ///
-    /// Terrain's layout differs, but only from group one onwards: it holds the
-    /// very same frame layout at group zero. Bind groups survive a pipeline
-    /// switch for every slot up to the first the two layouts disagree on, so
-    /// the frame binding made here outlives the switch to the terrain pipeline
-    /// and only group one is invalidated — which both paths set themselves
-    /// anyway. Terrain draws last so that this reasoning is needed in one
-    /// direction only.
-    /// Scenes with celestial meshes require [`crate::compositor::encode_scene`] or
-    /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
-    ///
-    /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws, and when resident
-    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
-    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
-    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
-    /// them for their own pass instead.
-    pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
-        assert!(
-            self.celestial.is_none(),
-            "celestial meshes require compositor::encode_scene or encode_resident"
-        );
-        assert!(
-            !self
-                .sky
-                .as_ref()
-                .is_some_and(crate::sky::Sky::requires_preparation),
-            "physical skies require compositor preparation"
-        );
-        self.draw_color(pass, pipelines, None);
-    }
-
     pub(crate) fn draw_prepass(
         &self,
         pass: &mut RenderPass<'_>,
@@ -514,6 +523,62 @@ impl SceneGpu {
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
             .drawn
+    }
+
+    /// Records the terrain and objects the camera selected into the G-buffer slot with
+    /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
+    /// the one the prepass and the colour pass draw. In observation the caller publishes
+    /// nothing for it; when the frame renders from the G-buffer it stands in for the colour
+    /// pass's draw of the same surfaces.
+    pub(crate) fn draw_gbuffer(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        group: &BindGroup,
+    ) -> ColorDraw {
+        pass.set_bind_group(3, group, &[]);
+        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer)
+    }
+
+    /// Records what Opaque still draws when the frame renders from the G-buffer: the sky, the
+    /// celestial meshes and the dynamic meshes, which have no G-buffer producer, over the lit
+    /// colour with `pipelines`, the colour pass's pipelines. Terrain and objects were stored
+    /// in the G-buffer and lit before this pass. Returns the sky's draw count.
+    pub(crate) fn draw_forward_remainder(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+    ) -> DrawCount {
+        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
+            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
+        }
+        let frame = self.drawing_uniform();
+        let selected = self.selected_pipelines(pipelines, &frame);
+        let frame_group = self.drawing_frame_group();
+        self.draw_forward_tail(pass, &frame_group, &selected)
+    }
+
+    /// The forward pass's draws after terrain and objects.
+    fn draw_forward_tail(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame_group: &BindGroup,
+        pipelines: &ScenePipelines,
+    ) -> DrawCount {
+        let mut sky_count = DrawCount::default();
+        if let Some(sky) = &self.sky {
+            sky_count = sky.draw_targets(pass, frame_group, pipelines.sky_targets());
+        }
+        if let Some(meshes) = &self.celestial {
+            self.sky
+                .as_ref()
+                .expect("celestial atmosphere")
+                .bind_background(pass, frame_group);
+            meshes.draw(pass, pipelines.sky_targets());
+        }
+        self.dynamic
+            .draw(pass, self.drawing_frame_slot(), pipelines);
+        sky_count
     }
 
     pub(crate) fn draw_shadowed(
@@ -591,24 +656,15 @@ impl SceneGpu {
         let frame_group = self.drawing_frame_group();
         let drawn = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
-        let mut sky_count = DrawCount::default();
-        if route == Route::Forward {
-            if let Some(sky) = &self.sky {
-                sky_count = sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
-            }
-            if let Some(meshes) = &self.celestial {
-                self.sky
-                    .as_ref()
-                    .expect("celestial atmosphere")
-                    .bind_background(pass, &frame_group);
-                meshes.draw(pass, pipelines.sky_targets());
-            }
-            self.dynamic
-                .draw(pass, self.drawing_frame_slot(), pipelines);
-        }
+        let sky_count = if route == Route::Forward {
+            self.draw_forward_tail(pass, &frame_group, pipelines)
+        } else {
+            DrawCount::default()
+        };
         ColorDraw {
             drawn,
             terrain,
+            terrain_bound,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),
             ssao: ReceiverBindings::new(

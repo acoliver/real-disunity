@@ -62,9 +62,9 @@ pub(crate) fn depth_format(bits: u8) -> Result<Option<wgpu::TextureFormat>, Offs
     })
 }
 
-/// The depth format of the depth buffer of `bits` under a color texture. Unity's 24-bit and
-/// 32-bit depth buffers carry 8 bits of stencil, which a draw may test and write; 16 bits is
-/// depth alone. A device without `DEPTH32FLOAT_STENCIL8` gets a 32-bit buffer with no stencil.
+/// The depth format of the depth buffer of `bits` under a color texture. This engine gives 24
+/// and 32 bits an 8-bit stencil aspect, which a draw may test and write; 16 bits is depth
+/// alone. A device without `DEPTH32FLOAT_STENCIL8` gets a 32-bit buffer with no stencil.
 pub(crate) fn depth_format_with_stencil(
     bits: u8,
     features: wgpu::Features,

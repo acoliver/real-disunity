@@ -31,6 +31,32 @@ pub(super) async fn context(
     Ok(GpuContext::from_adapter_with_features(adapter, required | timing).await?)
 }
 
+/// A device made before the window for the viewer and `caller` together: timestamps when
+/// `requested` and offered, as [`context`] makes them, and block compression where offered, since
+/// the scene that decides whether it is required is not loaded yet.
+pub(crate) async fn shared_context(
+    adapter: wgpu::Adapter,
+    requested: bool,
+    caller: &worldrunner_render_gpu::device::DeviceRequirements,
+) -> Result<GpuContext, ViewerError> {
+    let timing = if requested && adapter.features().contains(features()) {
+        features()
+    } else {
+        wgpu::Features::empty()
+    };
+    let viewer = worldrunner_render_gpu::device::DeviceRequirements {
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ..worldrunner_render_gpu::device::DeviceRequirements::default()
+    };
+    Ok(GpuContext::from_adapter_shared(
+        adapter,
+        timing,
+        worldrunner_render_post::TimingMode::Disabled,
+        &viewer.union(caller),
+    )
+    .await?)
+}
+
 impl Renderer {
     pub(super) fn collect_timing(&self, host: &mut RetainedHost) -> Result<(), ViewerError> {
         if !host.options.gpu_timing {
@@ -93,7 +119,7 @@ mod tests {
 
     #[test]
     fn unusable_counter_pairs_are_typed_unavailable_instead_of_completed_measurements() {
-        let pass_id = crate::PassId::Geometry(crate::PassSlot::Opaque);
+        let pass_id = crate::PassId::Geometry(crate::PassEntry::new(crate::PassSlot::Opaque));
         let result = observation(crate::FrameTiming {
             frame_id: 7,
             passes: vec![crate::PassTiming {

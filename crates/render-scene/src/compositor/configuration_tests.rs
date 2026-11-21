@@ -124,14 +124,14 @@ use worldrunner_render_post::{AdaptiveExposure, BufferReadback, Readback};
 fn initial_allocation_reports_loss_before_success_or_validation_failure() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for fail in [false, true] {
-        let context = pollster::block_on(GpuContext::request()).unwrap();
+        let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
         let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
         let result = ConfiguredFrameRenderer::new_with(
             &context,
             settings,
             AllocationBudget(4096),
             |settings| {
-                let renderer = allocate(&context, settings, None, None);
+                let renderer = allocate(&context, settings, Carried::default());
                 context
                     .submission()
                     .report_device_loss("injected allocation loss".into());
@@ -160,8 +160,8 @@ fn initial_allocation_reports_loss_before_success_or_validation_failure() {
 #[test]
 fn foreign_device_is_rejected_before_validation_or_allocation() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let owner = pollster::block_on(GpuContext::request()).unwrap();
-    let foreign = pollster::block_on(GpuContext::request()).unwrap();
+    let owner = pollster::block_on(GpuContext::request_for_test()).unwrap();
+    let foreign = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut renderer =
         ConfiguredFrameRenderer::new(&owner, settings.clone(), AllocationBudget(4096)).unwrap();
@@ -518,4 +518,95 @@ fn authored_reflection_composition_changes_override_retained_service_selection()
 
 fn ssr_intensity(renderer: &FrameRenderer) -> u32 {
     renderer.ssr.as_ref().unwrap().environment_intensity_micro
+}
+
+#[test]
+fn contour_id_reservation_is_opt_in_and_counts_three_multisampled_slots() {
+    let limits = wgpu::Limits::default();
+    for samples in [1, 4] {
+        let mut settings =
+            RendererConfiguration::legacy([32, 24], wgpu::TextureFormat::Rgba8UnormSrgb);
+        settings.frame.samples = samples;
+        assert!(!settings.contour_ids);
+        let disabled = settings.allocations().validate(&limits).unwrap();
+        settings.contour_ids = true;
+        let enabled = settings.allocations().validate(&limits).unwrap();
+        assert_eq!(enabled - disabled, 32 * 24 * u64::from(samples) * 3);
+        settings.contour_ids = false;
+        assert_eq!(settings.allocations().validate(&limits).unwrap(), disabled);
+    }
+}
+
+#[test]
+fn frame_targets_count_as_render_targets_through_a_resize_until_the_renderer_drops() {
+    use worldrunner_render_gpu::census::ResourceClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    // Each test context has its own authority, so only this renderer counts here.
+    let context = GpuContext::shared_for_test().unwrap();
+    let census = context.submission().census().clone();
+    let limits = context.device().limits();
+    let mut settings = RendererConfiguration::legacy([64, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(64 << 20))
+            .unwrap();
+    let small = census.snapshot().get(ResourceClass::RenderTarget);
+    assert!(small > 0);
+    // Admission counts CPU-side entries too; the census counts GPU bytes only.
+    assert!(small <= renderer.resident_bytes(&limits).unwrap());
+    settings.frame.size = [128, 64];
+    renderer.reconfigure(&context, settings).unwrap();
+    context
+        .device()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    renderer.collect();
+    let large = census.snapshot().get(ResourceClass::RenderTarget);
+    assert!(large > small, "{large} after a 4x resize, {small} before");
+    drop(renderer);
+    assert_eq!(census.snapshot().get(ResourceClass::RenderTarget), 0);
+}
+
+#[test]
+fn lent_environment_is_the_installed_reflection_cube_else_water() {
+    use crate::compositor::EnvironmentConsumer;
+    use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
+    let maps = uploaded_reflection_maps(&context);
+    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    settings.ssr = Some(worldrunner_render_plan::SceneSsr::default());
+    settings.water = vec![environment_water_body()];
+    let mut renderer =
+        ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1_000_000)).unwrap();
+    assert!(renderer.state.current().lend_environment().is_none());
+    let (cube, _) = maps.views().unwrap();
+    for (consumers, expected) in [
+        (Water, EnvironmentConsumer::Water),
+        (Reflections, EnvironmentConsumer::Reflections),
+        (Both, EnvironmentConsumer::Reflections),
+    ] {
+        renderer.clear_environment(context.device());
+        renderer
+            .set_scene_environment(context.device(), &maps, consumers)
+            .unwrap();
+        let lent = renderer.state.current().lend_environment().unwrap();
+        assert_eq!(lent.consumer, expected);
+        assert_eq!(&lent.texture, cube.texture());
+        assert_eq!(lent.cube.texture(), cube.texture());
+        assert_eq!(lent.mip_count, 2);
+        assert!((lent.radiance_scale - 2.0).abs() < f32::EPSILON);
+        assert_eq!(lent.convention, maps.convention());
+        // The level the consumers sample for a roughness is the level filtered for it.
+        for mip in 0..lent.mip_count {
+            #[expect(clippy::cast_precision_loss, reason = "two levels")]
+            let level = mip as f32;
+            assert!((lent.level(lent.level_roughness(mip)) - level).abs() < 1e-6);
+        }
+    }
+    renderer.clear_environment(context.device());
+    assert!(renderer.state.current().lend_environment().is_none());
 }

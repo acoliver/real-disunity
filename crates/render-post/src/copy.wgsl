@@ -1,3 +1,5 @@
+override bottom_first: bool = false;
+
 @group(0) @binding(0) var source: texture_2d<f32>;
 
 struct VertexOutput {
@@ -17,6 +19,9 @@ fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
 @fragment
 fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     let size = textureDimensions(source);
-    let texel = min(vec2<u32>(input.uv * vec2<f32>(size)), size - vec2<u32>(1));
+    var texel = min(vec2<u32>(input.uv * vec2<f32>(size)), size - vec2<u32>(1));
+    if bottom_first {
+        texel.y = size.y - 1u - texel.y;
+    }
     return textureLoad(source, vec2<i32>(texel), 0);
 }

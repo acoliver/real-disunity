@@ -12,7 +12,7 @@
 //! pass a native it holds to others. Sources share one namespace and can replace each other's
 //! functions, as they could in the original engine.
 //!
-//! The instruction budget covers coroutines too: see [`crate::coroutines`].
+//! The instruction budget covers coroutines too: see [`ScriptConfig::instruction_budget`].
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -111,6 +111,12 @@ impl GameScripts {
         path: &str,
         function: Function,
     ) -> Result<(), ScriptError> {
+        self.check_native_registration(path)?;
+        self.natives.insert(path.into(), function);
+        Ok(())
+    }
+
+    pub(crate) fn check_native_registration(&self, path: &str) -> Result<(), ScriptError> {
         if !self.sources.is_empty() {
             return Err(refused(format!(
                 "native {path} registered after sources were added"
@@ -128,7 +134,6 @@ impl GameScripts {
                 "native {path} nests with native {other}; a path is a function or a namespace"
             )));
         }
-        self.natives.insert(path.into(), function);
         Ok(())
     }
 

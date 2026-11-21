@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use worldrunner_render_post::AttachmentLoad;
 use worldrunner_render_post::contracts::{
-    ColorAttachment, ResourceUse, SamplerBinding, Semantic, TextureBinding, TextureBindingKind,
-    UseKind,
+    CheckedSampler, CheckedView, ColorAttachment, RasterId, ResourceUse, SamplerBinding, Semantic,
+    TextureBinding, TextureBindingKind, UseKind,
 };
 
 use crate::binding::{
@@ -49,10 +49,10 @@ struct Varying {
     return textureSampleLevel(source, source_sampler, in.uv, 0.0);
 }";
 
-/// A resample of the first level of `source` over the first level of the target, whose bind
+/// A draw of one level of a source over one level of a target with the built-in program, whose bind
 /// group waits for the finish like the other steps' do.
 pub(super) struct ResampleStep {
-    pub(super) id: worldrunner_render_post::contracts::RasterId,
+    pub(super) id: RasterId,
     pub(super) color: ColorAttachment,
     pub(super) program: GraphicsProgram,
     pub(super) texture: TextureBinding,
@@ -98,7 +98,7 @@ fn stage(entry: &str, kind: StageKind) -> Result<StageProgram, ProgramError> {
 }
 
 /// The built-in program, made when the first resample needs it.
-fn program(svc: &mut Services<'_>) -> Result<GraphicsProgram, OffscreenError> {
+pub(super) fn program(svc: &mut Services<'_>) -> Result<GraphicsProgram, OffscreenError> {
     if let Some(program) = svc.resample.as_ref() {
         return Ok(program.clone());
     }
@@ -158,16 +158,34 @@ pub(super) fn resample_step(
     let target_view = svc
         .tracker
         .cell_view(color, (0, 0), wgpu::TextureAspect::All, after)?;
+    let source = (view, sample_type, svc.samplers.get(state));
+    let color = ColorAttachment {
+        view: target_view,
+        before: Some(before),
+        load: AttachmentLoad::Load,
+        store: wgpu::StoreOp::Store,
+        resolve: None,
+    };
+    Ok(sampled_draw(
+        raster_id("offscreen blit", index),
+        program,
+        source,
+        color,
+    ))
+}
+
+/// The draw of the 2D `view` over `color`, read as `sample_type` through `sampler`: the step every
+/// use of the built-in program plans, whose bind group waits for the finish.
+pub(super) fn sampled_draw(
+    id: RasterId,
+    program: GraphicsProgram,
+    (view, sample_type, sampler): (CheckedView, wgpu::TextureSampleType, CheckedSampler),
+    color: ColorAttachment,
+) -> Step {
     let visibility = wgpu::ShaderStages::FRAGMENT;
-    Ok(Step::Resample(Box::new(ResampleStep {
-        id: raster_id("offscreen blit", index),
-        color: ColorAttachment {
-            view: target_view,
-            before: Some(before),
-            load: AttachmentLoad::Load,
-            store: wgpu::StoreOp::Store,
-            resolve: None,
-        },
+    Step::Resample(Box::new(ResampleStep {
+        id,
+        color,
         program,
         uses: vec![ResourceUse::read(view.clone(), UseKind::Sampled)],
         texture: TextureBinding {
@@ -181,7 +199,7 @@ pub(super) fn resample_step(
         sampler: SamplerBinding {
             binding: 1,
             visibility,
-            sampler: svc.samplers.get(state),
+            sampler,
         },
-    })))
+    }))
 }

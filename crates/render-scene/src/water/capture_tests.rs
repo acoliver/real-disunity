@@ -319,9 +319,9 @@ fn capture(
         |feature, pass| match recorder {
             Recorder::Nothing => {}
             Recorder::Live => feature.draw(
-                &worldrunner_render_post::DrawContext {
-                    slot: PassSlot::TransparentWater,
-                },
+                &worldrunner_render_post::DrawContext::new(PassEntry::new(
+                    PassSlot::TransparentWater,
+                )),
                 pass,
             ),
         },
@@ -423,9 +423,9 @@ fn the_body_draw_changes_every_target_in_every_case() {
     }
     for case in cases() {
         for &samples in &counts {
-            let equal = compare(&context, &case, samples);
+            let drawn_images = compare(&context, &case, samples);
             println!(
-                "WATER-CAPTURE adapter={adapter:?} case={} options={} samples={samples} images={equal}",
+                "WATER-CAPTURE adapter={adapter:?} case={} options={} samples={samples} images={drawn_images}",
                 case.name, case.options
             );
         }
@@ -526,15 +526,15 @@ fn the_shared_depth_body_draw_changes_every_target() {
         depth: DepthMode::Shared,
         shadow: None,
     };
-    let equal = compare_prepared(
+    let drawn_images = compare_prepared(
         &context,
         &case,
         (&renderer, setup),
         "default at 1 sample with shared depth",
     );
-    assert_eq!(equal, 6, "six images are compared at one sample");
+    assert_eq!(drawn_images, 6, "six images are compared at one sample");
     println!(
-        "WATER-CAPTURE adapter={adapter:?} depth=Shared format=Depth32FloatStencil8 case={} options={} samples=1 images={equal}",
+        "WATER-CAPTURE adapter={adapter:?} depth=Shared format=Depth32FloatStencil8 case={} options={} samples=1 images={drawn_images}",
         case.name, case.options
     );
 }
@@ -634,7 +634,7 @@ fn compare_shadowed(
         depth: DepthMode::Independent,
         shadow: Some(shadow),
     };
-    let equal = compare_prepared(context, case, (&renderer, setup), &name);
+    let drawn_images = compare_prepared(context, case, (&renderer, setup), &name);
     let inputs = |shadow| (DepthMode::Independent, shadow);
     let shadowed = capture(context, &renderer, inputs(Some(shadow)), Recorder::Live);
     let unshadowed = capture(context, &renderer, inputs(None), Recorder::Live);
@@ -644,7 +644,7 @@ fn compare_shadowed(
         "{name}: the shadow group changed no pixel of the resolved scene colour"
     );
     println!(
-        "WATER-CAPTURE adapter={adapter:?} shadow=cascade case={} options={} samples={samples} images={equal} shadow_changed_pixels={changed}",
+        "WATER-CAPTURE adapter={adapter:?} shadow=cascade case={} options={} samples={samples} images={drawn_images} shadow_changed_pixels={changed}",
         case.name, case.options
     );
     shadowed.resolved

@@ -8,6 +8,7 @@ use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
 use crate::upload::upload_buffer;
+use worldrunner_render_gpu::submission::{FrameOwner, Publications};
 #[cfg(test)]
 use worldrunner_render_shadow::{DepthFragmentState, DepthPipelineDescriptor};
 use worldrunner_render_shadow::{
@@ -229,20 +230,66 @@ pub(crate) fn depth_source() -> String {
         .into_owned()
 }
 
-#[derive(Debug)]
 pub(super) struct ShadowMap {
     pub depth: DepthMap,
+    /// Detached when replaced; recorded frames keep the census entry through completion.
+    census_owner: Option<FrameOwner<worldrunner_render_gpu::census::CensusEntry>>,
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
     slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     pub(super) sampler: wgpu::Sampler,
 }
 
+impl std::fmt::Debug for ShadowMap {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShadowMap")
+            .field("depth", &self.depth)
+            .field("census_owned", &self.census_owner.is_some())
+            .field("uniform", &self.uniform)
+            .field("group", &self.group)
+            .field("slots", &self.slots)
+            .field("sampler", &self.sampler)
+            .finish()
+    }
+}
+
 impl ShadowMap {
+    /// Set 2 of the receivers that sample this map, with the Opaque depth when relief cards
+    /// reject against it.
+    pub fn receiver_groups(
+        &self,
+        scheduler: &crate::compositor::FrameRenderer,
+        device: &wgpu::Device,
+        card_depth: Option<&worldrunner_render_post::AttachmentView>,
+    ) -> crate::scene_metadata::receiver::SetTwo {
+        scheduler.shadow_groups(
+            device,
+            (
+                &self.group,
+                crate::scene_metadata::receiver::ShadowInputs {
+                    uniform: &self.uniform,
+                    depth: self.depth.receiver_view(),
+                    sampler: &self.sampler,
+                },
+            ),
+            card_depth,
+        )
+    }
+
     pub fn select_frame_slot(&mut self, slot: usize) {
         self.uniform = self.slots[slot].0.clone();
         self.group = self.slots[slot].1.clone();
     }
+
+    pub fn retain(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+    ) -> Result<(), worldrunner_render_gpu::submission::SubmitError> {
+        let owner = self.census_owner.as_ref().expect("live shadow map owner");
+        Publications::retain_lease(encoder, &owner.lease())
+    }
+
     pub fn new(
         context: &crate::device::GpuContext,
         settings: DirectionalShadowSettings,
@@ -250,27 +297,7 @@ impl ShadowMap {
         layers: u32,
     ) -> Result<Self, DepthMapError> {
         let device = context.device();
-        let max_resolution = u64::from(super::MAX_SHADOW_RESOLUTION);
-        let depth = DepthMap::new(
-            device,
-            DepthMapDescriptor {
-                label: Some("directional shadow depth"),
-                resolution: settings.resolution,
-                layers,
-                receiver_dimension: ReceiverDimension::D2Array,
-                readback: cfg!(test),
-                budget: DepthMapBudget {
-                    max_resolution: super::MAX_SHADOW_RESOLUTION,
-                    max_layers: 4,
-                    max_texture_bytes: max_resolution * max_resolution * 4 * 4,
-                    max_readback_bytes: if cfg!(test) {
-                        max_resolution * max_resolution * 4
-                    } else {
-                        0
-                    },
-                },
-            },
-        )?;
+        let depth = shadow_depth_map(device, settings, layers)?;
         let sampler = settings.configuration().comparison_sampler(device);
         let slots: Vec<_> = (0..3)
             .map(|_| {
@@ -302,14 +329,52 @@ impl ShadowMap {
                 (uniform, group)
             })
             .collect();
+        let census = context.submission().census().track(
+            worldrunner_render_gpu::census::ResourceClass::ShadowMap,
+            worldrunner_render_gpu::census::texture_bytes(depth.texture()),
+        );
+        let census_owner = FrameOwner::new(census, context.submission());
         Ok(Self {
             depth,
+            census_owner: Some(census_owner),
             uniform: slots[0].0.clone(),
             group: slots[0].1.clone(),
             slots,
             sampler,
         })
     }
+}
+
+impl Drop for ShadowMap {
+    fn drop(&mut self) {
+        if let Some(owner) = self.census_owner.take() {
+            owner.detach();
+        }
+    }
+}
+
+fn shadow_depth_map(
+    device: &wgpu::Device,
+    settings: DirectionalShadowSettings,
+    layers: u32,
+) -> Result<DepthMap, DepthMapError> {
+    let maximum = u64::from(super::MAX_SHADOW_RESOLUTION);
+    DepthMap::new(
+        device,
+        DepthMapDescriptor {
+            label: Some("directional shadow depth"),
+            resolution: settings.resolution,
+            layers,
+            receiver_dimension: ReceiverDimension::D2Array,
+            readback: cfg!(test),
+            budget: DepthMapBudget {
+                max_resolution: super::MAX_SHADOW_RESOLUTION,
+                max_layers: 4,
+                max_texture_bytes: maximum * maximum * 4 * 4,
+                max_readback_bytes: if cfg!(test) { maximum * maximum * 4 } else { 0 },
+            },
+        },
+    )
 }
 
 #[cfg(test)]
@@ -351,7 +416,7 @@ pub(super) fn uniform_bytes_with_sampling(
         worldrunner_render_plan::SceneShadowFilter::Bilinear2 => -1.0,
     };
     // The unused word stores reduction so the default uniform bytes stay unchanged.
-    let reduction = micro_unit(1_000_000 - sampling.strength_micro);
+    let reduction = strength_reduction(sampling);
     values.extend([
         cascades.multiplier,
         settings.normal_bias_meters,
@@ -365,11 +430,7 @@ pub(super) fn uniform_bytes_with_sampling(
             f32::from(u16::try_from(cascades.matrices.len()).expect("four cascades"))
         },
         cascades.blend,
-        if cascades.recurrence.is_some() {
-            2.0
-        } else {
-            f32::from(u8::from(cascades.camera_splits))
-        },
+        cascades.selection().uniform_word(),
         cascades.near,
     ]);
     values.extend(cascades.splits);
@@ -463,6 +524,12 @@ pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> 
     } else {
         (object, terrain)
     }
+}
+
+/// How much less than the whole shadow the receivers apply: the uniform stores it, and the
+/// receivers apply `1 - ` it.
+pub(super) fn strength_reduction(sampling: worldrunner_render_plan::SceneShadowSampling) -> f32 {
+    micro_unit(1_000_000 - sampling.strength_micro)
 }
 
 fn micro_unit(value: u32) -> f32 {

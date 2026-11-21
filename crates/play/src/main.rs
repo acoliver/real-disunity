@@ -6,8 +6,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
-    play_player_window, prepare, prepare_player, run_player_with,
+    Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
+    ScheduledKey, ScreenOutput, SuppliedGlobal, key_code, play_player_window, prepare,
+    prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -20,7 +21,8 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--gpu-work on|off]
+            [--screen FRAME:FILE.png]... [--gpu-work on|off] [--depth reversed|forward]
+            [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -31,14 +33,21 @@ struct Arguments {
     fixed_dt: Option<Duration>,
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
+    /// The frames of a headless player run whose screen image is written, and the files.
+    screens: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
     plugins: Vec<PathBuf>,
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
-    /// Whether a headless player run does its offscreen work on a device.
+    /// Whether a player run, headless or in a window, does its offscreen work on a device.
     gpu_work: GpuWork,
+    /// The depth range `--depth` names; without it the environment and then the player's default
+    /// choose (see `DepthRange::choose`).
+    depth: Option<DepthRange>,
+    /// The globals `--global` supplies for the run, in the order given.
+    globals: Vec<SuppliedGlobal>,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -98,6 +107,14 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .captures
                 .push((number(frame, "--capture frame")?, file.into()));
         }
+        "--screen" => {
+            let (frame, file) = value
+                .split_once(':')
+                .ok_or_else(|| format!("--screen `{value}` is not FRAME:FILE"))?;
+            arguments
+                .screens
+                .push((number(frame, "--screen frame")?, file.into()));
+        }
         "--font" => arguments.font = Some(value.into()),
         "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
@@ -109,6 +126,27 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 "off" => GpuWork::Off,
                 _ => return Err(format!("--gpu-work `{value}` is on or off")),
             };
+        }
+        "--depth" => {
+            arguments.depth = Some(
+                DepthRange::from_name(value)
+                    .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
+            );
+        }
+        "--global" => {
+            let global = SuppliedGlobal::parse(value)
+                .map_err(|reason| format!("--global `{value}`: {reason}"))?;
+            if arguments
+                .globals
+                .iter()
+                .any(|held| held.name() == global.name())
+            {
+                return Err(format!(
+                    "--global `{value}`: {} is given twice",
+                    global.name()
+                ));
+            }
+            arguments.globals.push(global);
         }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
@@ -135,29 +173,43 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 /// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
 /// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
 /// Each `--arg` is one argument of the player's command line, after its executable path.
+/// With `--screen` the run is headless, at `--size` (else the window's default), and writes
+/// the screen the player's offscreen work drew into after each frame named.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
-    let windowed =
-        arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
-    // The window opens at `--size`, else at the size the live loop defaults to.
-    let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
+    let screens = !arguments.screens.is_empty();
+    let windowed = !screens
+        && (arguments.size.is_some()
+            || !arguments.keys.is_empty()
+            || !arguments.captures.is_empty());
+    // The window opens at `--size`, else at the size the live loop defaults to; a headless run
+    // that writes the screen has the same size, which the player reads as its own screen.
+    let size = arguments.size.unwrap_or(WINDOW_SIZE);
+    // The one place the environment is read: the request and the GPU work get this value.
+    let depth = DepthRange::choose(
+        arguments.depth,
+        std::env::var(REVERSED_DEPTH_ENV).ok().as_deref(),
+    )?;
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
-        screen,
+        screen: (windowed || screens).then_some(size),
         plugins: &arguments.plugins,
+        depth,
+        globals: &arguments.globals,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {
             title: format!("Disunity: {}", data.display()),
-            size: arguments.size.unwrap_or(WINDOW_SIZE),
+            size,
             fixed_dt: arguments.fixed_dt,
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
             keys: scheduled_keys(&arguments.keys),
+            gpu_work: arguments.gpu_work,
         };
         let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);
@@ -165,11 +217,16 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    run_player_with(
+    let output = screens.then(|| ScreenOutput {
+        size,
+        files: arguments.screens.clone(),
+    });
+    run_player_screens(
         &prepared,
         arguments.frames.unwrap_or(1),
         dt,
         arguments.gpu_work,
+        output.as_ref(),
     )
     .map_err(|error| error.to_string())
 }
@@ -221,6 +278,25 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
     Ok(())
 }
 
+/// A screen image comes from a headless player run with the offscreen work on a device.
+fn check_screens(arguments: &Arguments) -> Result<(), String> {
+    if arguments.screens.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--screen applies only to --player".into());
+    }
+    if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
+        return Err(
+            "--screen writes from a headless run, which takes no --key or --capture".into(),
+        );
+    }
+    if arguments.gpu_work == GpuWork::Off {
+        return Err("--screen needs --gpu-work on".into());
+    }
+    Ok(())
+}
+
 /// Native plugin directories apply to a player's imports; an original game has none.
 fn check_plugins(arguments: &Arguments) -> Result<(), String> {
     if arguments.player.is_none() && !arguments.plugins.is_empty() {
@@ -229,8 +305,28 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
     Ok(())
 }
 
+/// `--global` values start the offscreen work of a player's frames, in a window and headless
+/// alike, so it needs a player and a run that does that work.
+fn check_globals(arguments: &Arguments) -> Result<(), String> {
+    if arguments.globals.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--global applies only to --player".into());
+    }
+    if matches!(arguments.gpu_work, GpuWork::Off) {
+        return Err(
+            "--global needs the offscreen work of a player: --gpu-work on, which is the default"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
+    check_screens(&arguments)?;
+    check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -370,6 +466,151 @@ mod tests {
     }
 
     #[test]
+    fn depth_is_named_by_the_option_or_left_to_the_environment_and_the_player_default() {
+        use worldrunner_play::DepthRange;
+        assert_eq!(
+            parsed(&["--player", "Game_Data"]).expect("parses").depth,
+            None
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "forward"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Forward)
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--depth", "reversed"])
+                .expect("parses")
+                .depth,
+            Some(DepthRange::Reversed)
+        );
+        assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
+    }
+
+    #[test]
+    fn global_options_supply_named_values_in_the_order_given() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--global",
+            "unity_LightData=1,1,1,1",
+            "--global",
+            "_Other=0.5,2",
+        ])
+        .expect("parses");
+        let names: Vec<_> = arguments
+            .globals
+            .iter()
+            .map(worldrunner_play::SuppliedGlobal::name)
+            .collect();
+        assert_eq!(names, ["unity_LightData", "_Other"]);
+        let bits = |index: usize| arguments.globals[index].value().map(f32::to_bits);
+        assert_eq!(bits(0), [1.0_f32; 4].map(f32::to_bits));
+        assert_eq!(bits(1), [0.5_f32, 2.0, 0.0, 0.0].map(f32::to_bits));
+        let none = parsed(&["--player", "Game_Data"]).expect("parses");
+        assert!(none.globals.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_global_option_is_refused_naming_the_option_and_the_value() {
+        for value in [
+            "unity_LightData",
+            "unity_LightData=",
+            "unity_LightData=1,2,3,4,5",
+            "unity_LightData=1,x",
+            "9name=1",
+            "a b=1",
+            "a=nan",
+        ] {
+            let error = parsed(&["--player", "Game_Data", "--global", value])
+                .err()
+                .unwrap_or_else(|| panic!("`{value}` parsed"));
+            assert!(error.starts_with(&format!("--global `{value}`")), "{error}");
+        }
+        let twice = parsed(&["--global", "a=1", "--global", "a=2"])
+            .err()
+            .unwrap();
+        assert!(
+            twice.contains("`a=2`") && twice.contains("given twice"),
+            "{twice}"
+        );
+        assert!(parsed(&["--player", "Game_Data", "--global"]).is_err());
+    }
+
+    #[test]
+    fn a_global_reaches_a_player_that_does_its_offscreen_work_headless_or_in_a_window() {
+        for extra in [
+            &[][..],
+            &["--size", "64x64"][..],
+            &["--key", "1:w:down"][..],
+            &["--capture", "1:out.png"][..],
+            &["--gpu-work", "on", "--size", "64x64"][..],
+        ] {
+            let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            assert_eq!(super::check_globals(&arguments), Ok(()), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn a_windowed_player_with_a_global_is_not_refused_for_it() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--size",
+            "64x64",
+            "--global",
+            "a=1",
+        ])
+        .expect("parses");
+        // The run goes on to read the player's data, which does not exist here; the refusal of
+        // `--global` is not what stops it.
+        let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
+        assert!(!error.contains("--global"), "{error}");
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_with_no_gpu_work() {
+        for extra in [&[][..], &["--size", "64x64"][..]] {
+            let mut args = vec![
+                "--player",
+                "Game_Data",
+                "--global",
+                "a=1",
+                "--gpu-work",
+                "off",
+            ];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert!(
+                error.starts_with("--global needs") && error.contains("--gpu-work on"),
+                "{error}"
+            );
+            let error = super::play(parsed(&args).expect("parses")).unwrap_err();
+            assert!(error.starts_with("--global needs"), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_that_is_not_a_player() {
+        for args in [
+            &["snake", "--global", "a=1"][..],
+            &["--global", "a=1"][..],
+            &["pong", "--size", "64x64", "--global", "a=1"][..],
+        ] {
+            let arguments = parsed(args).expect("parses");
+            let error = super::check_globals(&arguments).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+            let error = super::play(parsed(args).expect("parses")).unwrap_err();
+            assert_eq!(error, "--global applies only to --player", "{args:?}");
+        }
+        let plain = parsed(&["snake", "--size", "64x64"]).expect("parses");
+        assert_eq!(super::check_globals(&plain), Ok(()));
+    }
+
+    #[test]
     fn repeated_plugins_options_keep_their_order() {
         let arguments = parsed(&[
             "--player",
@@ -401,6 +642,54 @@ mod tests {
         let player = parsed(&["--player", "Game_Data", "--plugins", "/a"]).expect("parses");
         assert!(super::check_plugins(&player).is_ok());
         assert!(super::check_plugins(&parsed(&["snake"]).expect("parses")).is_ok());
+    }
+
+    #[test]
+    fn repeated_screen_options_keep_their_frames_and_files_in_order() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--screen",
+            "3:a.png",
+            "--screen",
+            "10:dir/b.png",
+        ])
+        .expect("parses");
+        assert_eq!(
+            arguments.screens,
+            [
+                (3, std::path::PathBuf::from("a.png")),
+                (10, std::path::PathBuf::from("dir/b.png"))
+            ]
+        );
+        assert!(parsed(&["--player", "Game_Data", "--screen", "a.png"]).is_err());
+        assert!(parsed(&["--player", "Game_Data", "--screen", "x:a.png"]).is_err());
+    }
+
+    fn checked(args: &[&str]) -> Result<(), String> {
+        super::check_screens(&parsed(args).expect("parses"))
+    }
+
+    #[test]
+    fn a_screen_belongs_to_a_headless_player_run_with_gpu_work_on() {
+        let screen = ["--player", "Game_Data", "--screen", "0:a.png"];
+        assert!(checked(&screen).is_ok());
+        assert!(checked(&[&screen[..], &["--size", "64x32", "--frames", "2"]].concat()).is_ok());
+        assert!(
+            checked(&["snake", "--screen", "0:a.png"]).is_err(),
+            "not a game's"
+        );
+        for window in [
+            ["--capture", "0:w.png"],
+            ["--key", "0:w:down"],
+            ["--gpu-work", "off"],
+        ] {
+            assert!(
+                checked(&[&screen[..], &window[..]].concat()).is_err(),
+                "{window:?}"
+            );
+        }
+        assert!(checked(&["--player", "Game_Data", "--capture", "0:w.png"]).is_ok());
     }
 
     #[test]

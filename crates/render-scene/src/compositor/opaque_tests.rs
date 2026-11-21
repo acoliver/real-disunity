@@ -1,4 +1,8 @@
 use super::*;
+use worldrunner_render_post::FrameError;
+
+#[path = "opaque/early_tests.rs"]
+mod early;
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, SceneAlphaMode, SceneGeometry, SceneMaterial, SceneMaterialParts,
     SceneMesh, SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneTerrain,
@@ -131,9 +135,11 @@ fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
         report.layouts[0].attachment_limit,
         limits.max_color_attachments
     );
-    assert_eq!(report.layouts[0].record_count, 1);
-    assert_eq!(report.layouts[0].record_limit, 65_536);
-    assert_eq!(report.layouts[1].record_limit, 65_536);
+    // The one material is the neutral standard model, record 0, which the count excludes.
+    assert_eq!(report.layouts[0].record_count, 0);
+    assert_eq!(report.layouts[1].record_count, 0);
+    assert_eq!(report.layouts[0].record_limit, 65_535);
+    assert_eq!(report.layouts[1].record_limit, 255);
     assert!(report.layouts[0].admitted);
 }
 
@@ -173,39 +179,51 @@ fn unsupported_samples_and_record_overflow_are_typed() {
         Err(OpaqueAdmissionError::UnsupportedSampleCount { observed: 4 })
     ));
     assert_eq!(
-        validate_record_count(65_537, MaterialIdFormat::Rgba16Uint),
+        validate_record_count(65_536, RecordIndex::Wide),
         Err(OpaqueAdmissionError::RecordOverflow {
-            records: 65_537,
-            limit: 65_536,
+            records: 65_536,
+            limit: 65_535,
+        })
+    );
+    assert_eq!(validate_record_count(255, RecordIndex::Compact), Ok(()));
+    assert_eq!(
+        validate_record_count(256, RecordIndex::Compact),
+        Err(OpaqueAdmissionError::RecordOverflow {
+            records: 256,
+            limit: 255,
         })
     );
 }
 
 #[test]
-fn only_forward_and_the_single_sample_gbuffer_observation_are_admitted() {
+fn only_forward_and_the_single_sample_gbuffer_paths_are_admitted() {
+    use crate::gbuffer::GbufferUse;
     use worldrunner_render_plan::{
         SceneOpaqueFamily, SceneOpaqueMode, SceneOpaqueStorage, SceneOpaqueVisibility,
     };
     for samples in [1, 2, 4, 8] {
         assert_eq!(
             admit_path(SceneOpaquePath::Forward, samples).ok(),
-            Some(false)
+            Some(None)
         );
     }
-    assert_eq!(
-        admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, 1).ok(),
-        Some(true)
-    );
-    for samples in [2, 4, 8] {
-        match admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, samples) {
-            Err(PostError::Frame(FrameError::FeaturePreparation { feature, reason })) => {
-                assert_eq!(feature, "opaque G-buffer");
-                assert_eq!(
-                    reason,
-                    OpaqueAdmissionError::UnsupportedSampleCount { observed: samples }.to_string()
-                );
+    for (path, usage) in [
+        (SceneOpaquePath::GBUFFER_OBSERVATION, GbufferUse::Observe),
+        (SceneOpaquePath::GBUFFER_RENDER, GbufferUse::Render),
+    ] {
+        assert_eq!(admit_path(path, 1).ok(), Some(Some(usage)));
+        for samples in [2, 4, 8] {
+            match admit_path(path, samples) {
+                Err(PostError::Frame(FrameError::FeaturePreparation { feature, reason })) => {
+                    assert_eq!(feature, "opaque G-buffer");
+                    assert_eq!(
+                        reason,
+                        OpaqueAdmissionError::UnsupportedSampleCount { observed: samples }
+                            .to_string()
+                    );
+                }
+                other => panic!("{usage:?} at {samples} samples: {other:?}"),
             }
-            other => panic!("{samples} samples: {other:?}"),
         }
     }
     let other = SceneOpaquePath::experiment(

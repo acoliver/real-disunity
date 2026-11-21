@@ -56,16 +56,21 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     /// <summary>Queues a culling of the world's renderers with the parameters and returns a handle to the result. The record
     /// reaches the world's offscreen list at <see cref="Submit"/>, in order with the commands executed before and after. Parameters
     /// that did not come from <see cref="Camera.TryGetCullingParameters(out ScriptableCullingParameters)"/> throw
-    /// <see cref="InvalidOperationException"/>. The result has no visible lights or probes (the engine has no light culling).</summary>
+    /// <see cref="InvalidOperationException"/>. The visible lights are found at this call, not at <see cref="Submit"/>: the
+    /// result lists the enabled lights on active GameObjects, whatever their layer, that are directional or whose
+    /// range sphere is not wholly outside the planes of the culling matrix, directional lights first (see
+    /// <see cref="CullingResults"/>). The engine has no offscreen vertex lights or reflection probes to report.</summary>
     public CullingResults Cull(ref ScriptableCullingParameters parameters)
     {
         if (parameters.CameraHandle == 0) throw new InvalidOperationException("ScriptableRenderContext.Cull: the parameters did not come from a camera");
         var id = WorldGraphics.NextHandle();
         var copy = parameters;
+        var lights = VisibleLightSet.Collect(parameters);
         lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
-        return new CullingResults { Handle = id };
+        return new CullingResults { Handle = id, Lights = lights, Casters = new ShadowCasterSet(parameters) };
     }
-    /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target, read now. The
+    /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target (its target texture, or the
+    /// color and depth buffers <see cref="Camera.SetTargetBuffers(RenderBuffer, RenderBuffer)"/> set), read now. The
     /// record reaches the world's offscreen list at <see cref="Submit"/>. A null camera throws <see cref="ArgumentNullException"/>, a
     /// destroyed one <see cref="InvalidOperationException"/>, and <paramref name="stereoSetup"/> <see cref="NotSupportedException"/>
     /// because the engine has no stereo rendering.</summary>
@@ -73,9 +78,9 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     {
         ArgumentNullException.ThrowIfNull(camera);
         if (stereoSetup) throw new NotSupportedException("ScriptableRenderContext.SetupCameraProperties: stereo setup is not supported, the engine has no stereo rendering");
-        var (view, projection, target) = camera.SetupValues();
+        var (view, projection, target, buffers) = camera.SetupValues();
         var handle = camera.Handle;
-        lock (Pending) Pending.Add(() => WorldGraphics.RecordSetupCamera(handle, view, projection, target));
+        lock (Pending) Pending.Add(() => WorldGraphics.RecordSetupCamera(handle, view, projection, target, buffers));
     }
     /// <summary>Does nothing: it makes canvas geometry available to the camera's culling, and the engine draws canvases
     /// itself from the world's canvas renderers, so the pipeline has no geometry to ask for (the engine's choice).</summary>
@@ -96,9 +101,11 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         foreach (var script in RenderObjectScripts().ToList()) Disunity.Hosting.ScriptMessages.Invoke(script, "OnRenderObject");
     }
 
+    /// <summary>The scripts that define the message are picked by type first, so a script that cannot answer costs no read of its
+    /// enabled state and the world's other objects are not visited: a pipeline asks once for each camera it renders.</summary>
     private static IEnumerable<MonoBehaviour> RenderObjectScripts() =>
-        Object.FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)
-            .Where(script => script.isActiveAndEnabled && Disunity.Hosting.ScriptMessages.Defines(script.GetType(), "OnRenderObject"));
+        Disunity.Hosting.DisunityHost.LiveScripts()
+            .Where(script => Disunity.Hosting.ScriptMessages.Defines(script.GetType(), "OnRenderObject") && script.isActiveAndEnabled);
 
     public void DrawRenderers(CullingResults cullingResults, ref DrawingSettings drawingSettings, ref FilteringSettings filteringSettings) =>
         throw Unsupported("DrawRenderers");
@@ -144,6 +151,12 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
                 drawing.overrideMaterialPassIndex),
         };
     }
+
+    /// <summary>Accepts the shadow caster culling a pipeline asks for after it has fitted its shadow maps, and computes nothing: the
+    /// engine culls the casters of each light when <see cref="CreateShadowRendererList"/> makes its list, from the split's planes and
+    /// sphere, so the infos a pipeline passes are not read. A default culling result throws <see cref="ArgumentException"/>.</summary>
+    public void CullShadowCasters(CullingResults cullingResults, ShadowCastersCullingInfos infos) =>
+        RequireCulling(cullingResults, "cullingResults");
 
     /// <summary>Makes a list of the shadow casters a culling result kept for one light, inside the split's culling planes and
     /// sphere, and returns it. The light index is a position among the visible lights and must not be negative. A default

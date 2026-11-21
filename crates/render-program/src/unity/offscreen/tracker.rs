@@ -18,6 +18,7 @@ use worldrunner_render_post::contracts::{
 use crate::ids::TextureId;
 
 use super::error::OffscreenError;
+use super::views::{ViewCache, ViewCounts, ViewKey};
 
 /// The allocations of a texture in the registry. A depth-only render texture has no color; its
 /// `primary` allocation, the one copies, readbacks and samples use, is its depth.
@@ -36,9 +37,11 @@ pub(super) struct Tracker {
     pub(super) registry: ResourceRegistry,
     lease: FrameLease,
     textures: HashMap<TextureId, Imported>,
+    primaries: HashMap<TextureId, wgpu::Texture>,
     cells: BTreeMap<(AllocationKey, u32, u32), u32>,
     counters: BTreeMap<AllocationKey, u32>,
     buffers: HashMap<wgpu::Buffer, AllocationKey>,
+    views: ViewCache,
 }
 
 impl Tracker {
@@ -47,14 +50,37 @@ impl Tracker {
             registry: ResourceRegistry::default(),
             lease,
             textures: HashMap::new(),
+            primaries: HashMap::new(),
             cells: BTreeMap::new(),
             counters: BTreeMap::new(),
             buffers: HashMap::new(),
+            views: ViewCache::default(),
         }
+    }
+
+    /// The textures the frame has planned a write of, which a later frame finds written.
+    pub(super) fn written_textures(&self) -> Vec<TextureId> {
+        self.textures
+            .iter()
+            .filter(|(_, imported)| self.counters.contains_key(&imported.primary))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Whether the frame has not planned a write of `id`: not imported, or imported and not written.
+    pub(super) fn is_unwritten(&self, id: TextureId) -> bool {
+        self.textures
+            .get(&id)
+            .is_none_or(|imported| !self.counters.contains_key(&imported.primary))
     }
 
     pub(super) fn imported(&self, id: TextureId) -> Option<Imported> {
         self.textures.get(&id).copied()
+    }
+
+    /// The texture of the runtime that `imported(id).primary` stands for.
+    pub(super) fn primary_texture(&self, id: TextureId) -> Option<&wgpu::Texture> {
+        self.primaries.get(&id)
     }
 
     /// Imports a texture the first time the frame uses it.
@@ -80,12 +106,18 @@ impl Tracker {
             primary,
             color: color_key,
             depth: depth_key,
-            layers: texture.depth_or_array_layers(),
+            // A volume is one cell however deep it is: its levels are bound whole, in a 3D view.
+            layers: if texture.dimension() == wgpu::TextureDimension::D3 {
+                1
+            } else {
+                texture.depth_or_array_layers()
+            },
             mips: texture.mip_level_count(),
             size: [texture.width(), texture.height()],
             format: texture.format(),
         };
         self.textures.insert(id, imported);
+        self.primaries.insert(id, texture.clone());
         Ok(imported)
     }
 
@@ -122,8 +154,34 @@ impl Tracker {
         aspect: wgpu::TextureAspect,
         version: u32,
     ) -> Result<CheckedView, ContractError> {
-        self.registry
-            .view(key, TextureRange::single(cell.0, cell.1, aspect), version)
+        let range = TextureRange::single(cell.0, cell.1, aspect);
+        self.shared_view(key, range, version, None)
+    }
+
+    /// How the build's draws got their texture views.
+    pub(super) fn view_counts(&self) -> ViewCounts {
+        self.views.counts()
+    }
+
+    /// The view of `range` at `version`, made once for the build and shared by every draw that
+    /// binds it. A `dimension` of `None` is the registry's choice for the range.
+    fn shared_view(
+        &self,
+        key: AllocationKey,
+        range: TextureRange,
+        version: u32,
+        dimension: Option<wgpu::TextureViewDimension>,
+    ) -> Result<CheckedView, ContractError> {
+        let cache_key = ViewKey {
+            allocation: key,
+            range: range.clone(),
+            version,
+            dimension,
+        };
+        self.views.get_or_make(cache_key, || match dimension {
+            Some(dimension) => self.registry.view_dimension(key, range, version, dimension),
+            None => self.registry.view(key, range, version),
+        })
     }
 
     /// A view of every mip and layer of a texture, in the dimension its binding declares.
@@ -150,8 +208,7 @@ impl Tracker {
             layers: 0..imported.layers,
             aspect: wgpu::TextureAspect::All,
         };
-        self.registry
-            .view_dimension(imported.primary, range, version, dimension)
+        self.shared_view(imported.primary, range, version, Some(dimension))
     }
 
     /// A view of one mip of one layer of a texture, in the dimension its binding declares.
@@ -163,7 +220,7 @@ impl Tracker {
         version: u32,
     ) -> Result<CheckedView, ContractError> {
         let range = TextureRange::single(cell.0, cell.1, wgpu::TextureAspect::All);
-        self.registry.view_dimension(key, range, version, dimension)
+        self.shared_view(key, range, version, Some(dimension))
     }
 
     pub(super) fn cell(&self, key: AllocationKey, mip: u32, layer: u32) -> u32 {
@@ -172,10 +229,10 @@ impl Tracker {
 
     /// The version of each level, from the base, a draw binds of a texture. A level is bound when
     /// its layers agree and it holds what the frame last wrote to it: the base level's version,
-    /// or a write of its own (a mip chain written one level at a time, as a depth pyramid is).
-    /// The first level never written while the base was is where the binding stops: the engine
-    /// writes the base level of a render texture and generates no other, so that level holds
-    /// nothing the frame made.
+    /// or a write of its own (a mip chain written one level at a time, as a depth pyramid is, or
+    /// generated from a base an earlier frame wrote). The first level never written while the
+    /// base was is where the binding stops: the engine writes the base level of a render texture
+    /// and generates no other, so that level holds nothing the frame made.
     ///
     /// # Errors
     /// Fails with `MixedVersions` when the layers of the base level differ, since no level can be
@@ -195,13 +252,26 @@ impl Tracker {
         let mut versions = vec![base];
         for mip in 1..imported.mips {
             match level(mip) {
-                Some(version) if version == base || (version != 0 && base != 0) => {
+                Some(version) if version == base || version != 0 => {
                     versions.push(version);
                 }
                 _ => break,
             }
         }
         Ok(versions)
+    }
+
+    /// Takes one new version for every layer of `mip`, for passes that write a level together,
+    /// and returns it. A level whose layers were written at one point is one a sampled read can
+    /// bind whole.
+    pub(super) fn write_level(&mut self, key: AllocationKey, mip: u32, layers: u32) -> u32 {
+        let counter = self.counters.entry(key).or_insert(0);
+        *counter += 1;
+        let after = *counter;
+        for layer in 0..layers {
+            self.cells.insert((key, mip, layer), after);
+        }
+        after
     }
 
     /// Takes the next version of a cell, and returns the one it had.

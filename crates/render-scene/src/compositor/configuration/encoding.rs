@@ -2,7 +2,9 @@
 use super::{ConfiguredFrameRenderer, FrameRenderer};
 use worldrunner_render_post::{AttachmentView, FrameError, PostError};
 
-/// Restricted stock composition. Custom features need a separately inventoried builder.
+/// Restricted stock composition. It runs the stock frame and the features the configuration
+/// inventoried in [`RendererConfiguration::game_passes`](super::RendererConfiguration::game_passes);
+/// no other feature reaches a frame through it.
 ///
 /// ```compile_fail
 /// # use worldrunner_render_scene::compositor::FrameEncoding;
@@ -14,6 +16,10 @@ use worldrunner_render_post::{AttachmentView, FrameError, PostError};
 /// ```
 pub struct FrameEncoding<'a>(&'a mut FrameRenderer);
 impl FrameRenderer {
+    /// The game's declared targets of this generation; none are declared without an inventory.
+    pub(crate) fn game_targets(&self) -> crate::compositor::GameTargets {
+        crate::compositor::GameTargets::new(self.game.store.clone().unwrap_or_default())
+    }
     pub(crate) fn timing_state(&self) -> worldrunner_render_post::TimingState {
         self.chain.timing_state()
     }
@@ -118,6 +124,11 @@ impl ConfiguredFrameRenderer {
     pub fn targets(&self) -> &worldrunner_render_post::FrameTargets {
         self.state.current().targets()
     }
+    /// The targets the game's factories declared, as the live generation holds them. A
+    /// renderer built from a clone of the inventory has targets of its own.
+    pub fn game_targets(&self) -> crate::compositor::GameTargets {
+        self.state.current().game_targets()
+    }
     /// The projection jitter the configuration selected, `None` when the scene passes render
     /// unjittered. Derived from the settings on construction and on every reconfiguration.
     pub fn projection_jitter(&self) -> Option<worldrunner_render_post::ProjectionJitter> {
@@ -187,6 +198,30 @@ impl FrameEncoding<'_> {
         frame: crate::frame::FrameUniform,
     ) -> Result<(), FrameError> {
         super::super::encode_scene(self.0, device, encoder, scene, attachments, frame)
+    }
+    /// The pass that shows a game screen named `resource` in the renderer's scene colour format.
+    /// Build it once and reuse it for every frame that shows a screen.
+    ///
+    /// # Errors
+    /// Fails when the device cannot build the composite for that format.
+    pub fn game_screen_pass(
+        &self,
+        device: &wgpu::Device,
+        resource: worldrunner_render_post::ResourceRef,
+    ) -> Result<super::super::GameScreenPass, FrameError> {
+        super::super::GameScreenPass::new(&*self.0, device, resource)
+    }
+    /// Encodes a frame whose scene is the game's screen, in place of
+    /// [`Self::encode_scene`]'s stock scene. The scene's admitted offscreen operations run before
+    /// the screen is sampled; its UI overlay draws over it in the output stage.
+    pub fn encode_game_screen(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &mut crate::draw::SceneGpu,
+        frame: super::super::GameScreenFrame<'_>,
+    ) -> Result<(), FrameError> {
+        super::super::game_screen_frame::encode_game_screen(self.0, device, encoder, scene, frame)
     }
     pub fn render_depth_fitted(
         &mut self,

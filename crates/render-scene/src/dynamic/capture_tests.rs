@@ -472,7 +472,7 @@ impl Attachments {
 fn render(
     context: &GpuContext,
     (formats, samples): (&[TextureFormat], u32),
-    draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
+    draw: impl FnOnce(worldrunner_render_gpu::submission::RecordingRenderPass<'_>),
 ) -> Vec<Vec<u8>> {
     render_cleared(context, (formats, samples), None, draw)
 }
@@ -482,7 +482,7 @@ fn render_cleared(
     context: &GpuContext,
     (formats, samples): (&[TextureFormat], u32),
     clear: Option<wgpu::Color>,
-    draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
+    draw: impl FnOnce(worldrunner_render_gpu::submission::RecordingRenderPass<'_>),
 ) -> Vec<Vec<u8>> {
     let device = context.device();
     let attachments = Attachments::new(device, formats, samples);
@@ -491,8 +491,41 @@ fn render_cleared(
         .iter()
         .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
         .collect();
-    let colors: Vec<_> = attachments
-        .views
+    let colors = capture_colors(&attachments.views, formats, &resolve_views, clear, samples);
+    let mut encoder = context.submission().begin(device).unwrap();
+    {
+        let pass = worldrunner_render_gpu::submission::RecordingRenderPass::begin(
+            &mut encoder,
+            &wgpu::RenderPassDescriptor {
+                label: Some("unlit capture"),
+                color_attachments: &colors,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &attachments.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..wgpu::RenderPassDescriptor::default()
+            },
+        )
+        .unwrap();
+        draw(pass);
+    }
+    let staging = copy_results(device, &mut encoder, attachments.results());
+    let index = encoder.finish().submit().unwrap();
+    read_results(device, index, staging)
+}
+
+fn capture_colors<'a>(
+    views: &'a [TextureView],
+    formats: &[TextureFormat],
+    resolved: &'a [TextureView],
+    clear: Option<wgpu::Color>,
+    samples: u32,
+) -> Vec<Option<wgpu::RenderPassColorAttachment<'a>>> {
+    views
         .iter()
         .zip(formats)
         .enumerate()
@@ -500,7 +533,7 @@ fn render_cleared(
             Some(wgpu::RenderPassColorAttachment {
                 view,
                 depth_slice: None,
-                resolve_target: resolve_views.get(index),
+                resolve_target: resolved.get(index),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(match (index, clear) {
                         (0, Some(clear)) => clear,
@@ -514,27 +547,7 @@ fn render_cleared(
                 },
             })
         })
-        .collect();
-    let mut encoder = context.submission().begin(device).unwrap();
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("unlit capture"),
-            color_attachments: &colors,
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &attachments.depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            ..wgpu::RenderPassDescriptor::default()
-        });
-        draw(&mut pass);
-    }
-    let staging = copy_results(device, &mut encoder, attachments.results());
-    let index = encoder.finish().submit().unwrap();
-    read_results(device, index, staging)
+        .collect()
 }
 
 /// Copies each single-sample attachment into a mappable buffer with its rows padded.
@@ -651,14 +664,14 @@ fn capture_expecting(
     )
     .unwrap();
     gpu.set_frame(context.queue(), FrameUniform::unlit(&view));
-    let bind_screen = |pass: &mut wgpu::RenderPass<'_>| {
+    let bind_screen = |pass: &mut worldrunner_render_gpu::submission::RecordingRenderPass<'_>| {
         if let Some(screen) = &built.screen {
             pass.set_bind_group(3, screen, &[]);
         }
     };
-    let scene = render(context, (&built.formats, config.samples), |pass| {
-        bind_screen(pass);
-        gpu.draw(pass, &built.pipelines);
+    let scene = render(context, (&built.formats, config.samples), |mut pass| {
+        bind_screen(&mut pass);
+        gpu.draw(pass, &built.pipelines).unwrap();
     });
     let untouched = render(context, (&built.formats, config.samples), |_| {});
     assert_eq!(scene.len(), built.formats.len());

@@ -1,16 +1,24 @@
 //! Scene-local instance identity and deterministic sparse placement storage.
 
 pub(crate) mod batch;
+#[cfg(test)]
+mod contour_tests;
 pub(crate) mod fade;
+pub(crate) mod history;
+mod ready_memo;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
+mod staged_uploads;
+#[cfg(test)]
+pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_plan::{
     RenderScene, SceneMaterial, SceneObject, SceneTransform, SceneValidationError,
 };
@@ -81,6 +89,24 @@ struct Slot {
     location: Option<(BatchKey, usize)>,
 }
 
+/// What cached views of the placements and their buffers depend on, read together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    pub edits: u64,
+    pub content: u64,
+    pub skinned: bool,
+}
+
+/// The state of the placements and tables that what batches draw and cached batch bounds derive
+/// from. Placement edits and table changes only raise their counters, so an equal stamp means
+/// neither moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LayoutStamp {
+    edits: u64,
+    tables: u64,
+    meshes: usize,
+}
+
 #[derive(Debug)]
 pub(crate) struct Instances {
     scene: u64,
@@ -101,6 +127,13 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    /// Counts the changes to the material tables and mesh bounds that are not placement edits.
+    tables: u64,
+    /// The state in which every batch's cached bounds were last found current.
+    bounds_current: std::cell::Cell<Option<LayoutStamp>>,
+    ready: ready_memo::ReadyMemo,
+    pub contours: worldrunner_render_plan::SceneContours,
+    pub contour_members: BTreeMap<(BatchKey, usize), u8>,
     /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
     pub(crate) census: worldrunner_render_gpu::census::MemoryCensus,
 }
@@ -150,6 +183,14 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            tables: 0,
+            bounds_current: std::cell::Cell::new(None),
+            ready: ready_memo::ReadyMemo::default(),
+            contours: scene
+                .effects()
+                .map(|effects| effects.contours().clone())
+                .unwrap_or_default(),
+            contour_members: BTreeMap::new(),
             census: worldrunner_render_gpu::census::MemoryCensus::new(),
         };
         for object in scene.geometry().objects() {
@@ -165,7 +206,58 @@ impl Instances {
         self.batches.values().map(InstanceBatch::edits).sum()
     }
 
-    /// Whether any batch draws a skinned mesh.
+    /// `edits`, `content_generation` and `has_skinned_batches` from one pass over the batches.
+    pub fn stamp(&self) -> Stamp {
+        self.batches
+            .values()
+            .fold(Stamp::default(), |stamp, batch| Stamp {
+                edits: stamp.edits + batch.edits(),
+                content: stamp.content + batch.content(),
+                skinned: stamp.skinned || batch.skin.is_some(),
+            })
+    }
+
+    /// What the cached bounds of every batch and the materials and levels they draw depend on:
+    /// the placements, the material tables and mesh bounds that `extend_resources` and
+    /// `forget_mesh_bounds` change, and the selection of every mesh, of which there are
+    /// `mesh_count`.
+    pub(crate) fn layout_stamp(&self, mesh_count: usize) -> LayoutStamp {
+        LayoutStamp {
+            edits: self.edits(),
+            tables: self.tables,
+            meshes: mesh_count,
+        }
+    }
+
+    /// Whether every batch's cached bounds were found current in the state `stamp` names.
+    pub(crate) fn bounds_current_at(&self, stamp: LayoutStamp) -> bool {
+        self.bounds_current.get() == Some(stamp)
+    }
+
+    /// Records that every batch's cached bounds are current in the state `stamp` names.
+    pub(crate) fn set_bounds_current_at(&self, stamp: LayoutStamp) {
+        self.bounds_current.set(Some(stamp));
+    }
+
+    /// Makes the next view check every batch's cached bounds, as every view once did.
+    #[cfg(test)]
+    pub(crate) fn recheck_bounds(&self) {
+        self.bounds_current.set(None);
+    }
+
+    /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
+    pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
+        self.ready.check(&self.batches, owner)
+    }
+
+    /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
+    #[cfg(test)]
+    pub fn ready_scans(&self) -> usize {
+        self.ready.scans()
+    }
+
+    /// Whether any batch draws a skinned mesh; `stamp` reads the same fact in its pass.
+    #[cfg(test)]
     pub fn has_skinned_batches(&self) -> bool {
         self.batches.values().any(|batch| batch.skin.is_some())
     }
@@ -206,10 +298,12 @@ impl Instances {
             fade::Fade::new(material, &[])
         }));
         self.mesh_count = mesh_count;
+        self.tables += 1;
     }
 
     /// Discards the cached placement bounds of every batch that draws `mesh`.
     pub fn forget_mesh_bounds(&mut self, mesh: usize) {
+        self.tables += 1;
         for ((_, batch_mesh, _), batch) in &mut self.batches {
             if *batch_mesh == mesh {
                 batch.forget_bounds();
@@ -235,6 +329,7 @@ impl Instances {
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         object.transform().validate()?;
+        self.contours.validate_id(object.contour_id())?;
         let descriptor = self.skin.check(&object)?;
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let material =
@@ -272,7 +367,23 @@ impl Instances {
             self.slots.len() - 1
         });
         self.slots[slot].location = Some((key, position));
+        if object.contour_id() != 0 {
+            self.contour_members
+                .insert((key, position), object.contour_id());
+        }
         Ok(self.handle(slot))
+    }
+
+    pub fn set_contours(
+        &mut self,
+        contours: worldrunner_render_plan::SceneContours,
+    ) -> Result<(), SceneValidationError> {
+        contours.validate()?;
+        for &id in self.contour_members.values() {
+            contours.validate_id(id)?;
+        }
+        self.contours = contours;
+        Ok(())
     }
 
     pub fn handles(&self) -> impl Iterator<Item = InstanceHandle> + '_ {
@@ -322,6 +433,7 @@ impl Instances {
             .expect("instance generation exhausted");
         slot.location = None;
         self.free.insert(handle.slot);
+        self.contour_members.remove(&(key, position));
         self.batches
             .get_mut(&key)
             .expect("live batch")
@@ -350,6 +462,7 @@ impl Instances {
     ) -> Result<(), InstanceError> {
         let (key, position) = self.location(handle)?;
         object.transform().validate()?;
+        self.contours.validate_id(object.contour_id())?;
         let batch = self.batches.get_mut(&key).expect("live batch");
         let old = batch.get(position).0;
         if old.mesh() != object.mesh() || old.material() != object.material() {
@@ -357,6 +470,12 @@ impl Instances {
         }
         let descriptor = self.skin.check(&object)?;
         batch.set_object(position, object);
+        if object.contour_id() == 0 {
+            self.contour_members.remove(&(key, position));
+        } else {
+            self.contour_members
+                .insert((key, position), object.contour_id());
+        }
         if let Some(descriptor) = descriptor {
             batch.set_skin(position, descriptor);
         }

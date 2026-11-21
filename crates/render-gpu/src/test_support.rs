@@ -171,6 +171,98 @@ pub fn install_fail_fast_handlers(device: &Device) {
     }));
 }
 
+/// A second thread polling `device` that is held inside a mapping callback. wgpu-core fires a
+/// poll's mapping callbacks before the submission callbacks it collected in the same poll, so
+/// work submitted before [`HeldPoller::start`] is complete on the GPU while its completion
+/// bookkeeping has not run. The device must not be polled elsewhere before `start` returns.
+pub struct HeldPoller {
+    release: std::sync::mpsc::Sender<()>,
+    poller: std::thread::JoinHandle<()>,
+    _held: wgpu::Buffer,
+}
+
+impl HeldPoller {
+    /// Starts the poller and returns once it is held.
+    ///
+    /// # Panics
+    /// When the mapping or the poll fails.
+    #[must_use]
+    pub fn start(device: &Device) -> Self {
+        use std::sync::mpsc;
+        let held = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("held mapping"),
+            size: 4,
+            usage: wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let (entered, entered_signal) = mpsc::channel();
+        let (release, release_signal) = mpsc::channel::<()>();
+        held.slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                result.unwrap();
+                entered.send(()).unwrap();
+                release_signal.recv().unwrap();
+            });
+        let poller = {
+            let device = device.clone();
+            std::thread::spawn(move || {
+                device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            })
+        };
+        entered_signal.recv().unwrap();
+        Self {
+            release,
+            poller,
+            _held: held,
+        }
+    }
+
+    /// Lets the held poll run its remaining callbacks after `delay`, from another thread, and
+    /// returns that thread. Join it, then call [`Self::join`].
+    #[must_use]
+    pub fn release_after(&self, delay: std::time::Duration) -> std::thread::JoinHandle<()> {
+        let release = self.release.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            release.send(()).unwrap();
+        })
+    }
+
+    /// Waits for the held poll to finish.
+    ///
+    /// # Panics
+    /// When the poller thread panicked.
+    pub fn join(self) {
+        self.poller.join().unwrap();
+    }
+}
+
+/// The largest count in `0..=cap` for which `submits` succeeds, with its refusal of the count
+/// after it, or `None` when `cap` itself succeeds.
+///
+/// Counts the command buffers a recorded unit costs on Metal: wgpu-hal's Metal queue refuses, as
+/// a lost device, the command buffer after its 4096 created and not submitted
+/// (`MAX_COMMAND_BUFFERS`), so the largest number of units one frame of a fresh device submits
+/// falls as each unit costs more. Other backends have no such cap. `submits` must succeed for
+/// every count below one it succeeds for.
+pub fn largest_submitting_count<E>(
+    cap: usize,
+    mut submits: impl FnMut(usize) -> Result<(), E>,
+) -> (usize, Option<E>) {
+    let Err(mut refusal) = submits(cap) else {
+        return (cap, None);
+    };
+    let (mut submitted, mut refused) = (0, cap);
+    while refused - submitted > 1 {
+        let middle = usize::midpoint(submitted, refused);
+        match submits(middle) {
+            Ok(()) => submitted = middle,
+            Err(error) => (refused, refusal) = (middle, error),
+        }
+    }
+    (submitted, Some(refusal))
+}
+
 // Loss, foreign-queue and retirement tests must own their device's polling lifecycle.
 #[cfg(test)]
 pub(crate) fn fresh_device() -> (Device, Queue) {

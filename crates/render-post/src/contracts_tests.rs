@@ -7,6 +7,15 @@ mod view_formats;
 #[path = "contracts_read_only_depth.rs"]
 mod read_only_depth;
 
+#[path = "contracts_volumes.rs"]
+mod volumes;
+
+#[path = "contracts_initialized_allocation.rs"]
+mod initialized_allocation;
+
+#[path = "contracts_prepared_writes.rs"]
+mod prepared_writes;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();
@@ -156,14 +165,20 @@ fn encode_stock_fixture(
     compiled
         .encode_stock_pass(
             0,
-            crate::PassSlot::DepthNormalPrepass,
+            crate::PassEntry::new(crate::PassSlot::DepthNormalPrepass),
             encoder,
             None,
             |_| {},
         )
         .unwrap();
     compiled
-        .encode_stock_pass(1, crate::PassSlot::Opaque, encoder, None, |_| {})
+        .encode_stock_pass(
+            1,
+            crate::PassEntry::new(crate::PassSlot::Opaque),
+            encoder,
+            None,
+            |_| {},
+        )
         .unwrap();
 }
 

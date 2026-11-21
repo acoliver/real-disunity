@@ -36,6 +36,39 @@ let title: String = scripts.call("MapTitle", ())?;
 - **Coroutines run under the budget.** Instructions inside coroutines, however deeply nested, count against the budget of the `run` or `call` that resumed them. `coroutine.resume` returns an error's message without a stack traceback, as Lua's does; an error value that is not a string arrives as its text.
 - `run` compiles source text only, and `run_patched` applies the file's patches first. `call` invokes a function in the shared namespace, as the engine calls a game's entry points; each `run` and `call` gets the full instruction budget.
 
+## Explicit monotonic input
+
+`GameScripts::register_monotonic_millis(name, input)` registers a source-granted
+native before sources are added. `MonotonicInput` is an
+`Arc<dyn Fn() -> std::io::Result<std::time::Duration> + Send + Sync>`.
+The duration is an absolute sample since the supplier's fixed monotonic origin,
+not a frame delta. The supplier guarantees nondecreasing values; equal samples
+and zero are valid. The script crate never opens a physical source or depends on
+the managed runtime.
+
+Registration checks the usual name, duplicate and lifecycle rules, then reads and
+validates one sample and discards it. Each zero-argument call reads exactly once
+and returns exactly one Lua integer, flooring fractional milliseconds. Extra
+arguments, including nil, fail before any read. The accepted range is
+`0..=i64::MAX` milliseconds. Source errors and out-of-range samples fail with
+operation context. There is no cached value, fallback, clamp, origin subtraction
+or positive offset. Adding a deadline beyond the signed integer range is outside
+the supported arithmetic domain.
+
+Input reads do not advance, reset or pause scheduler clocks, and scheduler changes
+do not alter the input. A consumer that stores zero and waits on that stored value
+without rereading can remain parked even after the source becomes positive.
+
+A composition root can explicitly open
+`worldrunner_disunity_runtime::KernelMonotonic` and capture its `sample` method in
+the input callback. It reads Linux `CLOCK_MONOTONIC`, macOS `mach_absolute_time`
+with an immutable positive timebase, or Windows `GetTickCount64`. It preserves
+the whole OS-origin sample, including zero, without initializing a managed host,
+world, signal stack or viewer. OS errors are explicit, malformed values and
+conversion overflow are `InvalidData`, and other targets return `Unsupported`.
+Resolution and suspend behavior depend on the OS. This capability does not promise
+another runtime's epoch or restore behavior across machine restarts.
+
 ## Threads and timers
 
 Original engines run game logic in coroutines that sleep on the game clock. `GameScripts` has one scheduler, and the game binds its functions under the names its original engine used, as natives granted like any other:
@@ -65,6 +98,8 @@ let failures = scripts.advance(tick_ms)?;
 | `now()` | The scheduler clock in milliseconds. |
 
 `advance(ms)` moves every unpaused clock and runs every thread due by then, in order of wake time and then of scheduling. A thread sees its clock at its wake time, so one that sleeps again within the advanced span runs again within it. `sleep(0)` and any other plain `coroutine.yield` wait for the next ordinary advance or selected-clock step for that thread's clock, so a loop of zero sleeps cannot spin within one. Each resume has the full instruction budget. An error ends only the thread that raised it and is returned in the advance's failure list; the other threads keep running. `sleep` outside a scheduler thread is an error.
+
+Each clock owns a `u32` pause mask, initially zero. `GameScripts::clock_pause_mask(name)` reads it; `clock_paused(name)` is true exactly when the mask is nonzero. `pause_clock(name, bits)` ORs bits into the mask, and `resume_clock(name, bits)` clears those bits. Both return the new mask, and bits zero leave the mask unchanged. `set_clock_paused(name, true)` has exactly the effect of `pause_clock(name, 1)`; `set_clock_paused(name, false)` clears every bit. All five pause APIs return `ScriptError::Sandbox` with `no clock named {name}` for an unknown clock, including mutations with zero bits.
 
 `advance_clock(name, ms)` steps only the named clock. It preserves pause state, dispatches only the selected clock's due work and releases only that clock's deferred work. Other clocks stay stationary and their threads do not run, even when overdue. A selected paused clock neither moves nor runs threads. Unknown names and overflow of the selected unpaused clock are errors; an unselected clock at `u64::MAX` does not prevent the step. For a policy with clocks `["game", "real"]`, the host can run real-time work without advancing game time:
 

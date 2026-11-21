@@ -8,8 +8,10 @@ pub use adapter::{AdapterClass, AdapterIdentity};
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 
+/// The scene device request against an adapter offering `available` limits: the one place that
+/// says what every scene device (production and test) asks for.
 fn requirements(
-    adapter: &Adapter,
+    available: &wgpu::Limits,
     required_features: Features,
     timing: worldrunner_render_post::TimingMode,
 ) -> worldrunner_render_gpu::device::DeviceRequirements {
@@ -17,20 +19,21 @@ fn requirements(
         required_features,
         // Full SSR depth chains share the trace stage with receiver metadata.
         required_limits: wgpu::Limits {
-            max_texture_array_layers: adapter.limits().max_texture_array_layers,
-            max_color_attachment_bytes_per_sample: adapter
-                .limits()
+            max_texture_array_layers: available.max_texture_array_layers,
+            max_color_attachment_bytes_per_sample: available
                 .max_color_attachment_bytes_per_sample
                 .min(64),
-            max_sampled_textures_per_shader_stage: adapter
-                .limits()
+            max_sampled_textures_per_shader_stage: available
                 .max_sampled_textures_per_shader_stage
                 .min(32),
             ..Default::default()
         },
-        // Lets frame validation use adapter-reported sample counts (2x and 8x).
+        // Lets frame validation use adapter-reported sample counts (2x and 8x). wgpu filters
+        // 32-bit float textures only on a device with FLOAT32_FILTERABLE, whatever the adapter's
+        // format flags say, so a game pass sampling an R32Float copy linearly needs it on.
         optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
             | Features::DEPTH32FLOAT_STENCIL8
+            | Features::FLOAT32_FILTERABLE
             | if timing == worldrunner_render_post::TimingMode::Optional {
                 timing.features()
             } else {
@@ -71,6 +74,7 @@ pub struct GpuContext {
     adapter: Adapter,
     device: Device,
     submission: worldrunner_render_gpu::submission::SubmissionAuthority,
+    unavailable_optional_limits: Vec<String>,
 }
 
 impl GpuContext {
@@ -144,14 +148,38 @@ impl GpuContext {
         required_features: Features,
         timing: worldrunner_render_post::TimingMode,
     ) -> Result<Self, DeviceError> {
+        Self::from_adapter_shared(
+            adapter,
+            required_features,
+            timing,
+            &worldrunner_render_gpu::device::DeviceRequirements::default(),
+        )
+        .await
+    }
+
+    /// As [`Self::from_adapter_with_timing`], for a device another user shares, such as a
+    /// player's offscreen work: the device also meets `caller`'s requirements, each limit at the
+    /// more demanding of the scene's value and the caller's, and every feature either asks for.
+    ///
+    /// # Errors
+    /// As [`Self::from_adapter_with_timing`], and when the adapter cannot meet the caller's
+    /// required features or limits.
+    pub async fn from_adapter_shared(
+        adapter: Adapter,
+        required_features: Features,
+        timing: worldrunner_render_post::TimingMode,
+        caller: &worldrunner_render_gpu::device::DeviceRequirements,
+    ) -> Result<Self, DeviceError> {
         let required_features = required_features
             | if timing == worldrunner_render_post::TimingMode::Required {
                 timing.features()
             } else {
                 Features::empty()
             };
-        let available = adapter.features();
-        let missing = required_features.difference(available);
+        let requirements = requirements(&adapter.limits(), required_features, timing).union(caller);
+        let missing = requirements
+            .required_features
+            .difference(adapter.features());
         if !missing.is_empty() {
             return Err(DeviceError::MissingFeatures {
                 adapter: adapter.get_info().name,
@@ -159,12 +187,10 @@ impl GpuContext {
             });
         }
 
-        let (device, queue, _) = worldrunner_render_gpu::device::request_device(
-            &adapter,
-            &requirements(&adapter, required_features, timing),
-        )
-        .await
-        .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
+        let (device, queue, negotiated) =
+            worldrunner_render_gpu::device::request_device(&adapter, &requirements)
+                .await
+                .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;
 
         let submission =
             worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
@@ -176,7 +202,16 @@ impl GpuContext {
             adapter,
             device,
             submission,
+            unavailable_optional_limits: negotiated.unavailable_optional_limits,
         })
+    }
+
+    /// Why a preferred limit profile was not granted, one line per limit the adapter could not
+    /// meet; empty when it was granted or none was asked for. The device then has the required
+    /// limits, and work that needs the preferred ones is left out by name.
+    #[must_use]
+    pub fn unavailable_optional_limits(&self) -> &[String] {
+        &self.unavailable_optional_limits
     }
 
     /// Returns the device, for creating resources and pipelines.

@@ -65,11 +65,13 @@ fn supplied_content(extent: [u32; 2]) -> TestContent {
         name: "synthetic".into(),
         class: crate::AdapterClass::Integrated,
         backend: wgpu::Backend::Metal,
+        memory: None,
     };
     host.resolve_initial_content(InitialContext {
         adapter: &adapter,
         surface_extent: extent,
         display: None,
+        presentable_backends: None,
     })
     .unwrap();
     TestContent {

@@ -64,6 +64,7 @@ pub(super) fn pending_survives_resize_and_surface_recovery(
         event_loop.owned_display_handle(),
         window,
         SceneSource::Live,
+        None,
     ))
     .unwrap();
     let records = Rc::new(RefCell::new(Records::default()));

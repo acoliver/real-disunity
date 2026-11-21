@@ -34,6 +34,7 @@ fn texture(world: &mut World) -> RenderTextureId {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -50,6 +51,7 @@ fn setup(camera: ComponentHandle, target: TargetRef) -> OffscreenWork {
         view: matrix(-1.0),
         projection: matrix(0.5),
         target,
+        buffers: None,
     }
 }
 
@@ -86,6 +88,17 @@ fn every_context_record(camera: ComponentHandle, id: RenderTextureId) -> Vec<Off
         setup(camera, TargetRef::Render(id)),
         cull(1, camera, planes(6)),
         cull(2, camera, Vec::new()),
+        OffscreenWork::SetViewport {
+            rect: [-1.5, 2.0, 640.0, 0.25],
+        },
+        OffscreenWork::EnableScissor {
+            rect: [4.0, 4.0, 56.0, 56.0],
+        },
+        OffscreenWork::DisableScissor,
+        OffscreenWork::SetDepthBias {
+            bias: 1.0,
+            slope_bias: 2.5,
+        },
     ]
 }
 
@@ -175,8 +188,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_eight_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 8);
+fn the_wire_version_is_fifteen_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 15);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);
@@ -318,6 +331,7 @@ fn camera_setup_keeps_the_bits_of_its_matrices() {
         view: odd,
         projection: odd.map(|v| -v),
         target: TargetRef::CameraTarget,
+        buffers: None,
     };
     let back = decode_work(&encode_work(&record).unwrap()).unwrap();
     let OffscreenWork::SetupCamera {

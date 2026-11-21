@@ -141,9 +141,8 @@ fn a_texture_slot_names_a_render_texture_a_stored_texture_or_nothing() {
     assert_eq!(
         layer.textures["_Render"].sampler,
         Some(SamplerState {
-            wrap_u: Wrap::Repeat,
-            wrap_v: Wrap::Repeat,
-            filter: Filter::Bilinear,
+            wrap_w: Wrap::Repeat,
+            ..SamplerState::new(Wrap::Repeat, Wrap::Repeat, Filter::Bilinear)
         })
     );
     assert_eq!(layer.textures["_Stored"].sampler, None);

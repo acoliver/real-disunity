@@ -10,6 +10,13 @@ namespace UnityEngine;
 /// </summary>
 public partial class Material
 {
+    /// <summary>Every texture property of this material that holds a texture, by property name (a property whose ID this
+    /// process did not name reads as "#ID"), in name order.</summary>
+    internal IEnumerable<(string Property, Texture Texture)> HeldTextures() => _properties.Textures
+        .Where(pair => pair.Value.Texture is not null)
+        .Select(pair => (Shader.PropertyName(pair.Key) ?? $"#{pair.Key}", pair.Value.Texture!))
+        .OrderBy(held => held.Item1, StringComparer.Ordinal);
+
     public bool HasProperty(string name) => HasProperty(Shader.PropertyToID(name));
     public bool HasProperty(int nameID) => _properties.Has(nameID);
     public bool HasFloat(string name) => HasFloat(Shader.PropertyToID(name));
@@ -48,9 +55,36 @@ public partial class Material
     public void SetTexture(string name, RenderTexture value, RenderTextureSubElement element) => SetTexture(Shader.PropertyToID(name), value, element);
     public void SetTexture(int nameID, RenderTexture value, RenderTextureSubElement element) => _properties.Textures[nameID] = new(value, element);
     public void SetBuffer(string name, ComputeBuffer value) => SetBuffer(Shader.PropertyToID(name), value);
-    public void SetBuffer(int nameID, ComputeBuffer value) => _properties.Buffers[nameID] = value;
+    public void SetBuffer(int nameID, ComputeBuffer value)
+    {
+        _properties.Buffers[nameID] = value;
+        if (_world.IsCurrent) SendBuffer(_world, nameID, value);
+    }
+
     public void SetBuffer(string name, GraphicsBuffer value) => SetBuffer(Shader.PropertyToID(name), value);
-    public void SetBuffer(int nameID, GraphicsBuffer value) => _properties.Buffers[nameID] = value;
+
+    /// <summary>A <see cref="GraphicsBuffer"/> has no world buffer, so it is kept here and not sent; a compute buffer that was
+    /// sent under the same name is unbound from the world's material.</summary>
+    public void SetBuffer(int nameID, GraphicsBuffer value)
+    {
+        _properties.Buffers[nameID] = value;
+        if (_world.IsCurrent) SendBuffer(_world, nameID, null);
+    }
+
+    /// <summary>Binds the world's buffer of <paramref name="buffer"/> to the property in <paramref name="target"/>, or removes the
+    /// binding for a null or released buffer. A material with no world material sends nothing: it sends all when it gets one.</summary>
+    private static void SendBuffer(WorldGraphics.Link target, int nameID, ComputeBuffer? buffer)
+    {
+        if (Shader.PropertyName(nameID) is not { } name) return;
+        WorldGraphics.WriteMaterialBuffer(target, name, buffer is { } held && held.IsValid() ? held.WorldLink.Id : 0);
+    }
+
+    /// <summary>Sends every compute buffer the material holds to its world material, which was just made or just cleared.</summary>
+    private void SendBuffers(WorldGraphics.Link target)
+    {
+        foreach (var (id, value) in _properties.Buffers)
+            if (value is ComputeBuffer buffer) SendBuffer(target, id, buffer);
+    }
     public void SetConstantBuffer(string name, ComputeBuffer value, int offset, int size) => SetConstantBuffer(Shader.PropertyToID(name), value, offset, size);
     public void SetConstantBuffer(int nameID, ComputeBuffer value, int offset, int size) => _properties.ConstantBuffers[nameID] = new(value, offset, size);
     public void SetConstantBuffer(string name, GraphicsBuffer value, int offset, int size) => SetConstantBuffer(Shader.PropertyToID(name), value, offset, size);

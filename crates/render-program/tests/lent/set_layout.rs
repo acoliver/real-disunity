@@ -21,7 +21,8 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime, TargetSignature,
+    Import, ImportTable, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
+    TargetSignature,
 };
 
 use crate::common::{SIZE, no_cull};
@@ -222,6 +223,7 @@ fn draw_with(
                 bindings: &[],
                 imports: &[],
                 sets: &[],
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
                 instances: 0..1,
                 owners: &[],
@@ -322,4 +324,131 @@ fn a_declaration_that_is_not_one_set_is_refused_by_name() {
         ..declare(0, "frame.tint", uniform())
     });
     assert_eq!(runtime.external_set(elsewhere).unwrap().set, 2);
+}
+
+/// The imports an engine lends for its set: the same resources as [`group`] builds by hand.
+fn imports(frame: &Frame) -> ImportTable {
+    let named = |name: &str| EngineSemantic::named(name);
+    let texture = |name: &str, view: &wgpu::TextureView| {
+        Import::texture(named(name), view.texture().clone(), view.clone())
+    };
+    ImportTable::new()
+        .with(Import::buffer(named("frame.tint"), frame.tint.clone()))
+        .with(Import::buffer(named("frame.table"), frame.table.clone()))
+        .with(texture("frame.ambient", &frame.ambient))
+        .with(Import::sampler(named("frame.point"), frame.point.clone()))
+        .with(texture("frame.shadow", &frame.shadow))
+        .with(Import::sampler(
+            named("frame.compare"),
+            frame.compare.clone(),
+        ))
+}
+
+#[test]
+fn the_runtime_builds_an_external_group_from_imports_and_the_draw_reads_it() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let engine = frame(&gpu);
+    let lent = runtime.external_set(frame_set()).unwrap();
+    let group = runtime
+        .prepare_external_set(&lent, &imports(&engine))
+        .unwrap();
+    assert_eq!(group.set(), 0);
+    let draw = draw_with(&mut runtime, std::slice::from_ref(&lent));
+    let target = gpu.texture(SIZE, RGBA32, 1);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    gpu.pass_binding(
+        &[Attachment {
+            view: &view,
+            resolve: None,
+            clear: wgpu::Color::TRANSPARENT,
+        }],
+        &|pass| group.bind(pass),
+        &[&draw],
+    );
+    let texels: Vec<f32> = gpu
+        .read(&target)
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .collect();
+    for texel in texels.chunks_exact(4) {
+        assert_eq!(texel, [AMBIENT, 1.0, TINT, TABLE]);
+    }
+}
+
+#[test]
+fn an_external_group_is_refused_by_name_for_a_missing_or_unsuitable_import() {
+    let gpu = Gpu::new();
+    let runtime = gpu.runtime();
+    let engine = frame(&gpu);
+    let lent = runtime.external_set(frame_set()).unwrap();
+    let missing = ImportTable::new().with(Import::buffer(
+        EngineSemantic::named("frame.tint"),
+        engine.tint.clone(),
+    ));
+    assert_eq!(
+        runtime.prepare_external_set(&lent, &missing).err(),
+        Some(ProgramError::MissingImport {
+            semantic: "frame.table".to_owned(),
+            set: 0,
+            binding: 1,
+        })
+    );
+    // A buffer where the set declares a texture.
+    let wrong = imports(&engine).with(Import::buffer(
+        EngineSemantic::named("frame.ambient"),
+        engine.tint.clone(),
+    ));
+    assert!(matches!(
+        runtime.prepare_external_set(&lent, &wrong).err(),
+        Some(ProgramError::WrongResource {
+            set: 0,
+            binding: 2,
+            ..
+        })
+    ));
+    // The uniform held to its declared minimum size.
+    let short = imports(&engine).with(Import::buffer(
+        EngineSemantic::named("frame.tint"),
+        gpu.floats(wgpu::BufferUsages::UNIFORM, &[TINT, 0.0]),
+    ));
+    assert!(matches!(
+        runtime.prepare_external_set(&lent, &short).err(),
+        Some(ProgramError::BufferTooSmall {
+            set: 0,
+            binding: 0,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_depth_texture_suits_an_unfilterable_float_declaration() {
+    let gpu = Gpu::new();
+    let runtime = gpu.runtime();
+    let engine = frame(&gpu);
+    let lent = runtime.external_set(frame_set()).unwrap();
+    // The depth texture at the unfilterable `R32Float` binding: wgpu reads it as a float.
+    let depth = imports(&engine).with(Import::texture(
+        EngineSemantic::named("frame.ambient"),
+        engine.shadow.texture().clone(),
+        engine.shadow.clone(),
+    ));
+    runtime.prepare_external_set(&lent, &depth).unwrap();
+    // A filterable float declaration still refuses it.
+    let mut filterable = frame_set();
+    filterable.bindings[2].kind = ResourceKind::Texture {
+        dimension: wgpu::TextureViewDimension::D2,
+        sample: wgpu::TextureSampleType::Float { filterable: true },
+        multisampled: false,
+    };
+    let lent = runtime.external_set(filterable).unwrap();
+    assert!(matches!(
+        runtime.prepare_external_set(&lent, &depth).err(),
+        Some(ProgramError::WrongResource {
+            set: 0,
+            binding: 2,
+            ..
+        })
+    ));
 }

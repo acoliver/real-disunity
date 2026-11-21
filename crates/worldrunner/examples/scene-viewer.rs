@@ -259,11 +259,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frames_in_flight: 2,
             present_mode: PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
+            texture_tiers: None,
             gpu_timing: false,
             adapter_callback: None,
             cadence: worldrunner_scene_viewer::PresentationCadence::default(),
             ssr: None,
             render_clock: worldrunner_scene_viewer::RenderClock::default(),
+            game: worldrunner_scene_viewer::GameRendering::default(),
             frame_profile: frame_profile(),
             camera: SceneCamera {
                 vertical_fov_millidegrees: 60_000,

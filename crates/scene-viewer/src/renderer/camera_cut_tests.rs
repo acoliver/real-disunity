@@ -1,4 +1,5 @@
 use super::*;
+use crate::renderer::game_screen::ViewMisses;
 use crate::{CameraContinuity, RetainedHost, RetainedUpdate, TemporalHistoryReset};
 use worldrunner_render_plan::{SceneAntiAlias, SceneEffectsParts};
 
@@ -43,6 +44,7 @@ fn setup_with_scene(
         frame_profile: profile,
         shadows,
         render_clock: crate::RenderClock::Fixed(std::time::Duration::ZERO),
+        game: crate::GameRendering::default(),
         ..crate::tests::options()
     };
     let mut host = RetainedHost::new(scene, options).unwrap();
@@ -101,7 +103,9 @@ fn retained_cut_resets_warm_history_and_jitter_before_first_submission() {
         .frame
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
-    let prepared = renderer.encode_frame(&view, None, &output, None).unwrap();
+    let prepared = renderer
+        .encode_frame(&view, (None, None), &output, None, ViewMisses::default())
+        .unwrap();
     renderer
         .execution
         .submit_prepared(ready, prepared, &renderer.context)
@@ -180,7 +184,7 @@ fn retained_cut_survives_abandoned_and_cancelled_frames() {
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
     renderer
-        .encode_frame(&view, None, &output, None)
+        .encode_frame(&view, (None, None), &output, None, ViewMisses::default())
         .unwrap()
         .cancel();
     drop(ready);

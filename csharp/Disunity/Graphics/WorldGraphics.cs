@@ -86,6 +86,14 @@ internal static unsafe partial class WorldGraphics
         fixed (byte* pointer = bytes) Check(NativeBindings.disunity_shader_keyword_write(target.World, scope, target.Id, pointer, (uint)bytes.Length, enabled ? 1u : 0u));
     }
 
+    /// <summary>Binds the world's compute buffer <paramref name="buffer"/> to a property name of a material as a structured buffer; 0
+    /// removes the binding.</summary>
+    internal static void WriteMaterialBuffer(Link material, string name, ulong buffer)
+    {
+        var bytes = Encoding.UTF8.GetBytes(name);
+        fixed (byte* pointer = bytes) Check(NativeBindings.disunity_material_set_buffer(material.World, material.Id, pointer, (uint)bytes.Length, buffer));
+    }
+
     internal static void ClearProperties(uint scope, Link target) => Check(NativeBindings.disunity_shader_properties_clear(target.World, scope, target.Id));
 
     /// <summary>Sends the current value of property <paramref name="id"/> of <paramref name="store"/>.</summary>
@@ -132,7 +140,7 @@ internal static unsafe partial class WorldGraphics
     {
         var scale = store.Scales.GetValueOrDefault(id, Vector2.one);
         var offset = store.Offsets.GetValueOrDefault(id, Vector2.zero);
-        var (kind, texture) = store.Textures.TryGetValue(id, out var binding) ? TextureOf(binding.Texture) : (TextureNone, 0UL);
+        var (kind, texture) = store.Textures.TryGetValue(id, out var binding) ? TextureOf(binding.Texture, Shader.PropertyName(id) ?? "") : (TextureNone, 0UL);
         return new DisunityTextureSlot { kind = kind, texture = texture, scale_x = Finite(scale.x), scale_y = Finite(scale.y), offset_x = Finite(offset.x), offset_y = Finite(offset.y) };
     }
 
@@ -149,16 +157,46 @@ internal static unsafe partial class WorldGraphics
         if (scope == ScopeGlobal) SendGlobalArrays(store);
     }
 
-    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels by the identity the host
-    /// draws it by, a <see cref="RenderTexture"/> by its world id, anything else, including null, as no texture.</summary>
+    /// <summary>The most bytes the host stores for one texture, which its store call refuses to exceed.</summary>
+    private const long MaxStoredTextureBytes = 1L << 29;
+
+    /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels, a
+    /// <see cref="Texture2DArray"/>, a <see cref="Cubemap"/> or a <see cref="Texture3D"/> by the identity the host draws it by, a
+    /// <see cref="RenderTexture"/> by its world id, anything else, including null and a destroyed texture, as no texture.</summary>
     internal static (uint Kind, ulong Texture) TextureOf(Texture? texture) => texture switch
     {
         Texture2D { width: > 0, height: > 0 } plain when plain => (TextureAsset, plain.RendererIdentity),
+        Texture2DArray array when array => StoredOf(array, array.ByteLength, array.depth, () => array.RendererIdentity),
+        Cubemap cube when cube => StoredOf(cube, cube.ByteLength, 6, () => cube.RendererIdentity),
+        Texture3D volume when volume => StoredOf(volume, volume.ByteLength, volume.mipmapCount == 1 ? volume.depth : 1, () => volume.RendererIdentity),
         RenderTexture target when target => (TextureRender, target.WorldId),
         _ => (TextureNone, 0UL),
     };
 
-    /// <summary>The same as <see cref="TextureOf"/> for a call that cannot draw with another kind of texture: a texture the
+    /// <summary>A texture of layers (the layers of an array, the faces of a cube or the slices of a volume) the host can store by its
+    /// identity, or no texture for one it cannot: no bytes, bytes that are not whole <paramref name="layers"/> (a plan's raw size
+    /// may not be; a volume with a mip chain is not made of equal slices, so it passes one layer) or more than the host stores,
+    /// which would otherwise make the property write throw. The first such texture is named in a warning.</summary>
+    private static (uint Kind, ulong Texture) StoredOf(Texture texture, int bytes, int layers, Func<ulong> identity)
+    {
+        var problem = bytes == 0 ? "holds no bytes"
+            : bytes > MaxStoredTextureBytes ? $"holds {bytes} bytes, more than the host stores"
+            : bytes % layers != 0 ? $"holds {bytes} bytes, which are not {layers} equal layers" : null;
+        if (problem is null) return (TextureAsset, identity());
+        UndrawnCalls.NoteTextureUnstored(texture.name, problem);
+        return (TextureNone, 0UL);
+    }
+
+    /// <summary>The same as <see cref="TextureOf(Texture?)"/>, and a texture that is not null and is sent as none is noted under
+    /// <paramref name="property"/> with the reason (see <see cref="UnsentTextures"/>).</summary>
+    internal static (uint Kind, ulong Texture) TextureOf(Texture? texture, string property)
+    {
+        var sent = TextureOf(texture);
+        if (sent.Kind == TextureNone) UnsentTextures.Note(property, texture);
+        return sent;
+    }
+
+    /// <summary>The same as <see cref="TextureOf(Texture?)"/> for a call that cannot draw with another kind of texture: a texture the
     /// world cannot hold throws, naming <paramref name="member"/>.</summary>
     internal static (uint Kind, ulong Texture) RequireTexture(Texture? texture, string member, string role)
     {
@@ -181,6 +219,27 @@ internal static unsafe partial class WorldGraphics
 
     internal static void DestroyRenderTexture(Link texture) => Check(NativeBindings.disunity_render_texture_destroy(texture.World, texture.Id));
 
+    /// <summary>The render textures a camera draws into when its buffers were set: the world ids of the color textures in output
+    /// order and of the depth texture (0 for none).</summary>
+    internal readonly record struct CameraBuffers(ulong[] Colors, ulong Depth);
+
+    /// <summary>Sets the camera's target buffers, which replace its target texture, or removes them when there are no colors.</summary>
+    internal static void WriteCameraBuffers(ulong camera, ulong[] colors, ulong depth)
+    {
+        fixed (ulong* list = colors)
+            Check(NativeBindings.disunity_camera_target_buffers_write(DisunityHost.WorldHandle, camera, colors.Length == 0 ? null : list, (uint)colors.Length, depth));
+    }
+
+    /// <summary>The camera's target buffers, or null when it has none.</summary>
+    internal static CameraBuffers? ReadCameraBuffers(ulong camera)
+    {
+        var colors = stackalloc ulong[8];
+        uint count;
+        ulong depth = 0;
+        Check(NativeBindings.disunity_camera_target_buffers_read(DisunityHost.WorldHandle, camera, colors, &count, &depth));
+        return count == 0 ? null : new CameraBuffers(new Span<ulong>(colors, (int)count).ToArray(), depth);
+    }
+
     /// <summary>Records a camera's render into a render texture.</summary>
     internal static void RecordCameraRender(ulong camera, ulong target)
     {
@@ -188,21 +247,31 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }
 
-    internal static void RecordBlit((uint Kind, ulong Texture) source, ulong target, ulong material, int pass)
+    /// <summary>The target kinds a recorded blit or copy writes: a render texture by its world id, or a temporary render
+    /// texture by its property name id.</summary>
+    internal const uint TargetRender = 0, TargetTemporary = 1;
+
+    /// <summary>The texture kind of a temporary render texture named by its property name id, which only recorded blit and copy
+    /// sources and globals set by recorded work take.</summary>
+    internal const uint TextureTemporary = 4;
+
+    internal static void RecordBlit((uint Kind, ulong Texture) source, (uint Kind, ulong Target) target, ulong material, int pass)
     {
         var work = new DisunityOffscreenWork
         {
-            kind = WorkBlit, source_kind = source.Kind, source = source.Texture, target = target, material = material, pass = pass,
+            kind = WorkBlit, source_kind = source.Kind, source = source.Texture, target_kind = target.Kind, target = target.Target,
+            material = material, pass = pass,
         };
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }
 
-    internal static void RecordCopy((uint Kind, ulong Texture) source, uint sourceElement, uint sourceMip, ulong target, uint targetElement, uint targetMip)
+    internal static void RecordCopy((uint Kind, ulong Texture) source, uint sourceElement, uint sourceMip, (uint Kind, ulong Target) target,
+        uint targetElement, uint targetMip)
     {
         var work = new DisunityOffscreenWork
         {
             kind = WorkCopyTexture, source_kind = source.Kind, source = source.Texture, source_element = sourceElement, source_mip = sourceMip,
-            target = target, target_element = targetElement, target_mip = targetMip,
+            target_kind = target.Kind, target = target.Target, target_element = targetElement, target_mip = targetMip,
         };
         Check(NativeBindings.disunity_offscreen_record(World, &work));
     }

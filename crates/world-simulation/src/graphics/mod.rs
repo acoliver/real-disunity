@@ -12,9 +12,11 @@
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
 mod active_pass;
+mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
+pub mod environment;
 mod material;
 mod offscreen;
 mod properties;
@@ -26,17 +28,19 @@ pub mod snapshot;
 pub mod snapshot_wire;
 
 pub use active_pass::ActivePass;
+pub use camera_buffers::CameraBuffers;
 pub use commands::{MAX_COLOR_TARGETS, TargetRef};
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
     WorldComputeBuffer, WorldComputeShader,
 };
 pub use context::MAX_CULL_PLANES;
+pub use environment::Environment;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
-    MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
-    ShaderProperties, TextureRef, TextureSlot,
+    BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND,
+    MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue, ShaderProperties, TextureRef, TextureSlot,
 };
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};
@@ -83,6 +87,8 @@ pub enum GraphicsError {
     InvalidOffscreen,
     #[error("the camera of offscreen work must be a live camera component")]
     NotCamera,
+    #[error("a camera's buffers name one to eight color render textures, none twice")]
+    InvalidCameraBuffers,
     #[error("the compute shader id is stale")]
     StaleComputeShader,
     #[error("the compute buffer id is stale")]
@@ -107,6 +113,8 @@ pub enum GraphicsError {
     UnknownReadback,
     #[error("the pixel data must hold width * height * 4 floats")]
     ReadbackLength,
+    #[error("an environment's intensities are not negative")]
+    InvalidEnvironment,
 }
 
 impl GraphicsError {
@@ -206,6 +214,8 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The scene's ambient light and default reflection.
+    environment: Environment,
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
@@ -218,6 +228,9 @@ pub(crate) struct GraphicsState {
     /// The render textures destroyed after a record of the frame named them; the frame's snapshot
     /// keeps their descriptions.
     retired_textures: std::collections::BTreeMap<RenderTextureId, WorldRenderTexture>,
+    /// The target buffers of the cameras whose scripts set them. An entry outlives its camera
+    /// until the next set, and a read answers only for a live camera.
+    camera_buffers: std::collections::BTreeMap<crate::ComponentHandle, CameraBuffers>,
 }
 
 impl GraphicsState {
@@ -239,12 +252,14 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
             lists: std::collections::BTreeSet::new(),
             active_pass: None,
             readbacks: readback::Readbacks::new(),
             retired_textures: std::collections::BTreeMap::new(),
+            camera_buffers: std::collections::BTreeMap::new(),
         }
     }
 }

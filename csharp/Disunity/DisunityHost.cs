@@ -37,6 +37,8 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
+        WhiteRenderers.Reset();
+        UnsentTextures.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try
@@ -234,6 +236,7 @@ public static partial class DisunityHost
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
                 UndrawnCalls.Reset();
+                UnityEngine.Rendering.ShadowCasterCache.Invalidate();
                 RenderSettings.Reset();
                 global::UnityEngine.LowLevel.PlayerLoop.Reset();
                 RemoveMainThreadContext();
@@ -248,10 +251,13 @@ public static partial class DisunityHost
         EnsureLoaded();
         if (!IsLoaded) throw new InvalidOperationException("no world is loaded");
     }
-    internal static void ThrowIfError(DisunityResult result)
+    internal static void ThrowIfError(DisunityResult result) => ThrowIfError(result, null);
+    /// <summary>Throws the world's error, with <paramref name="subject"/> after it when the caller names what it was setting.</summary>
+    internal static void ThrowIfError(DisunityResult result, string? subject)
     {
         if (result.code == 0) return;
-        throw new DisunityException(result.code, (DisunityErrorReason)result.detail, FetchErrorMessage());
+        var message = FetchErrorMessage();
+        throw new DisunityException(result.code, (DisunityErrorReason)result.detail, subject is null ? message : $"{message} ({subject})");
     }
     private static unsafe string FetchErrorMessage()
     {

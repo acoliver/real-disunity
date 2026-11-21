@@ -4,7 +4,8 @@ using UnityEngine.Rendering;
 using static GraphicsTestSupport;
 
 /// <summary>Camera.Render with a target records offscreen work and without one refuses to draw to the screen;
-/// Camera.RenderWithShader completes without drawing until the native draw surface exists.</summary>
+/// Camera.RenderWithShader completes without drawing until the native draw surface exists; Camera.SetTargetBuffers gives the
+/// camera the buffers it draws into.</summary>
 internal static class CameraRenderTests
 {
     private const string Note = "draws nothing yet: the engine has no draw surface";
@@ -22,8 +23,10 @@ internal static class CameraRenderTests
             Console.WriteLine("PASS: Camera.RenderWithShader validates the shader, returns and notes once");
             DestroyedCameraThrows();
             Console.WriteLine("PASS: Camera.Render and RenderWithShader throw on a destroyed camera");
-            SetTargetBuffersReturns();
-            Console.WriteLine("PASS: Camera.SetTargetBuffers validates, returns, leaves targetTexture unchanged and notes once");
+            SetTargetBuffersRecordsTheBuffers();
+            Console.WriteLine("PASS: Camera.SetTargetBuffers records the color and depth buffers of both overloads, replaces targetTexture and is replaced by it");
+            SetTargetBuffersRefusesWhatItCannotDrawInto();
+            Console.WriteLine("PASS: Camera.SetTargetBuffers refuses buffers a pass cannot draw into, by name, and keeps the buffers it had");
         }
         finally
         {
@@ -95,22 +98,99 @@ internal static class CameraRenderTests
         Expect.That(Catches(() => camera.RenderWithShader(shader, "")), "RenderWithShader on a destroyed camera");
     }
 
-    private static void SetTargetBuffersReturns()
+    private static WorldGraphics.CameraBuffers? Buffers(Camera camera) => WorldGraphics.ReadCameraBuffers(camera.Handle);
+
+    private static void BuffersAre(Camera camera, RenderTexture[] colors, RenderTexture? depth, string what)
+    {
+        var held = Buffers(camera);
+        Ensure(held is not null, $"{what}: the camera has buffers");
+        Expect.Sequence(colors.Select(color => color.WorldId), held!.Value.Colors, $"{what}: the color textures in order");
+        Expect.Equal(depth?.WorldId ?? 0UL, held.Value.Depth, $"{what}: the depth texture");
+    }
+
+    /// <summary>Both overloads give the world the color buffers in order and the depth buffer, which replace the target texture, and
+    /// setting the target texture replaces them again.</summary>
+    private static void SetTargetBuffersRecordsTheBuffers()
     {
         DisunityHost.UnloadWorld();
         DisunityHost.LoadWorld();
         var camera = NewCamera();
         var target = new RenderTexture(16, 16, 0);
-        camera.targetTexture = target;
-        var depth = new RenderTexture(16, 16, 24).depthBuffer;
-        Expect.Throws<ArgumentNullException>(() => camera.SetTargetBuffers((RenderBuffer[])null!, depth), "null color buffers");
+        var colors = new[] { new RenderTexture(16, 16, 0), new RenderTexture(16, 16, 0), new RenderTexture(16, 16, 0) };
+        var depth = new RenderTexture(16, 16, 24);
+        Expect.Throws<ArgumentNullException>(() => camera.SetTargetBuffers((RenderBuffer[])null!, depth.depthBuffer), "null color buffers");
+        Ensure(Buffers(camera) is null, "a refused call sets nothing");
         using var log = new LogRecorder();
-        camera.SetTargetBuffers(target.colorBuffer, depth);
-        camera.SetTargetBuffers(new[] { target.colorBuffer, target.colorBuffer }, depth);
-        Ensure(camera.targetTexture == target, "targetTexture is unchanged");
-        Ensure(Notes(log, "Camera.SetTargetBuffers") == 1, $"one note across both overloads: {string.Join("|", log.Messages)}");
+
+        camera.targetTexture = target;
+        camera.SetTargetBuffers(colors[0].colorBuffer, depth.depthBuffer);
+        BuffersAre(camera, [colors[0]], depth, "the single overload");
+        Ensure(camera.targetTexture == null && camera.activeTexture == null, "the buffers replace targetTexture");
+
+        camera.SetTargetBuffers(colors.Select(color => color.colorBuffer).ToArray(), depth.depthBuffer);
+        BuffersAre(camera, colors, depth, "the array overload");
+        Ensure(colors.All(color => color.IsCreated()) && depth.IsCreated(), "the textures are created in the world");
+
+        camera.targetTexture = target;
+        Ensure(Buffers(camera) is null && camera.targetTexture == target, "a target texture replaces the buffers");
+
+        camera.SetTargetBuffers(colors.Select(color => color.colorBuffer).ToArray(), default);
+        BuffersAre(camera, colors, null, "no depth buffer");
+        camera.targetTexture = null;
+        Ensure(Buffers(camera) is null && camera.targetTexture == null, "a null target texture removes the buffers");
+
+        camera.SetTargetBuffers(colors.Select(color => color.colorBuffer).ToArray(), depth.depthBuffer);
+        camera.enabled = false;
+        camera.depth = 3;
+        BuffersAre(camera, colors, depth, "the buffers survive other settings");
+        Ensure(Notes(log, "Camera.SetTargetBuffers") == 0, $"no note of an undrawn call: {string.Join("|", log.Messages)}");
+
+        var copy = NewCamera();
+        copy.CopyFrom(camera);
+        BuffersAre(copy, colors, depth, "CopyFrom");
+        var other = NewCamera();
+        other.targetTexture = target;
+        copy.CopyFrom(other);
+        Ensure(Buffers(copy) is null && copy.targetTexture == target, "CopyFrom of a camera with a target texture replaces the buffers");
+
+        var error = Expect.Catch<NotSupportedException>(() => camera.Render(), "a render of a camera with buffers outside a pipeline");
+        Ensure(error.Message.Contains("SetTargetBuffers"), $"the message names the call: {error.Message}");
         UnityEngine.Object.DestroyImmediate(camera);
-        Expect.That(Catches(() => camera.SetTargetBuffers(target.colorBuffer, depth)), "SetTargetBuffers on a destroyed camera");
+        Expect.That(Catches(() => camera.SetTargetBuffers(colors[0].colorBuffer, depth.depthBuffer)), "SetTargetBuffers on a destroyed camera");
+    }
+
+    /// <summary>The engine refuses what a pass cannot draw into, by name, and a refused call leaves the buffers as they were.</summary>
+    private static void SetTargetBuffersRefusesWhatItCannotDrawInto()
+    {
+        var camera = NewCamera();
+        var color = new RenderTexture(16, 16, 0);
+        var depth = new RenderTexture(16, 16, 24);
+        camera.SetTargetBuffers(color.colorBuffer, depth.depthBuffer);
+        var many = Enumerable.Range(0, 9).Select(_ => new RenderTexture(16, 16, 0)).ToArray();
+        var nine = many.Select(texture => texture.colorBuffer).ToArray();
+        var narrow = new RenderTexture(8, 16, 0);
+        var short_ = new RenderTexture(16, 8, 24);
+        var destroyed = new RenderTexture(16, 16, 0);
+        var destroyedBuffer = destroyed.colorBuffer;
+        UnityEngine.Object.DestroyImmediate(destroyed);
+        var refused = new (string What, Action Call)[]
+        {
+            ("no color buffers", () => camera.SetTargetBuffers(Array.Empty<RenderBuffer>(), depth.depthBuffer)),
+            ("nine color buffers", () => camera.SetTargetBuffers(nine, depth.depthBuffer)),
+            ("one texture twice", () => camera.SetTargetBuffers([color.colorBuffer, color.colorBuffer], depth.depthBuffer)),
+            ("a depth buffer as a color buffer", () => camera.SetTargetBuffers(depth.depthBuffer, depth.depthBuffer)),
+            ("a color buffer as the depth buffer", () => camera.SetTargetBuffers(color.colorBuffer, color.colorBuffer)),
+            ("no color buffer", () => camera.SetTargetBuffers(default(RenderBuffer), depth.depthBuffer)),
+            ("a destroyed texture", () => camera.SetTargetBuffers(destroyedBuffer, depth.depthBuffer)),
+            ("a color buffer of another size", () => camera.SetTargetBuffers([color.colorBuffer, narrow.colorBuffer], depth.depthBuffer)),
+            ("a depth buffer of another size", () => camera.SetTargetBuffers(color.colorBuffer, short_.depthBuffer)),
+        };
+        foreach (var (what, call) in refused)
+        {
+            Expect.Throws<ArgumentException>(call, what);
+            BuffersAre(camera, [color], depth, $"{what} leaves the buffers");
+        }
+        GC.KeepAlive(many);
     }
 
     private static bool Catches(Action call)

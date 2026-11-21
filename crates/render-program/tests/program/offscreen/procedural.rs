@@ -13,7 +13,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::UndeclaredDefaultDraws;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, Material, OffscreenFrame, ProceduralDraw, Record,
+    Attachment, Attachments, Clear, DrawRaster, Material, OffscreenFrame, ProceduralDraw, Record,
     UndeclaredTextures,
 };
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
@@ -32,7 +32,7 @@ const MARK: ShaderId = ShaderId(1);
 const TEST: ShaderId = ShaderId(2);
 const SIZE: u32 = 8;
 
-/// What Unity's grey default 2D texture is in RGBA8.
+/// What the grey default 2D texture is in RGBA8.
 const GREY_TEXEL: [u8; 4] = [128, 128, 128, 255];
 
 /// The shader text: the vertex stage covers clip x from -1 to `right`, the fragment stage writes
@@ -93,7 +93,16 @@ fn parameters(textured: bool) -> VariantParameters {
 
 /// A one-pass shader over generated vertices whose pass state is `state`.
 fn generated(right: f32, textured: bool, state: impl Fn(&mut ShaderState)) -> ProgramShader {
-    let mut spec = variant(&[], &wgsl(right, textured), "fs_main", parameters(textured));
+    generated_from(&wgsl(right, textured), textured, state)
+}
+
+/// A one-pass shader of the given WGSL text over generated vertices, whose pass state is `state`.
+pub(super) fn generated_from(
+    text: &str,
+    textured: bool,
+    state: impl Fn(&mut ShaderState),
+) -> ProgramShader {
+    let mut spec = variant(&[], text, "fs_main", parameters(textured));
     spec.channels = Vec::new();
     let mut synthetic = no_cull(shader(
         &[],
@@ -108,15 +117,12 @@ fn generated(right: f32, textured: bool, state: impl Fn(&mut ShaderState)) -> Pr
     ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap()
 }
 
-fn whole(texture: TextureId) -> Attachments {
+pub(super) fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
-    Attachments {
-        color: attachment,
-        depth: attachment,
-    }
+    Attachments::single(attachment, attachment)
 }
 
-fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
+pub(super) fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
     let mut properties = layer(&[("_Tint", tint)]);
     properties
         .values
@@ -126,12 +132,14 @@ fn material(shader: ShaderId, tint: [f32; 4], reference: f32) -> Material {
         keywords: Vec::new(),
         properties,
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }
 
 fn draw(material: u64) -> Record {
     Record::Procedural(Arc::new(ProceduralDraw {
+        raster: DrawRaster::default(),
         target: whole(TARGET),
         values: PropertyLayer::default(),
         per_draw: PropertyLayer::default(),
@@ -144,7 +152,7 @@ fn draw(material: u64) -> Record {
     }))
 }
 
-fn clear(color: [f64; 4]) -> Record {
+pub(super) fn clear(color: [f64; 4]) -> Record {
     Record::Clear {
         target: whole(TARGET),
         clear: Clear {

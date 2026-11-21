@@ -20,7 +20,7 @@ use worldrunner_unity_serialized::shader_parameters::{
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
     ComputeBufferId, ComputeShaderId, MaterialId, OffscreenWork, PropertyValue, RenderTextureId,
-    TextureRef,
+    TargetRef, TextureRef,
 };
 
 use super::flush::host;
@@ -158,7 +158,7 @@ fn blit_and_read(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target: drawn,
+            target: TargetRef::Render(drawn),
             material: Some(material),
             pass,
         })
@@ -273,14 +273,17 @@ fn an_array_longer_than_the_pass_declares_leaves_that_draw_out_by_name_and_no_ot
 
     let outcome = flush(&mut host, &mut world);
 
-    assert_eq!(failures(&outcome), [("record:Constant", 1)]);
+    assert_eq!(failures(&outcome), [("record:Blit:Constant", 1)]);
     assert_eq!(
-        outcome.report.causes.get("record:Constant/ArrayTooLong"),
+        outcome
+            .report
+            .causes
+            .get("record:Blit:Constant/ArrayTooLong"),
         Some(&1)
     );
     assert_eq!(
-        outcome.report.examples["record:Constant/ArrayTooLong"],
-        "property _Colors has 3 elements, its declaration 2"
+        outcome.report.examples["record:Blit:Constant/ArrayTooLong"],
+        "shader synthetic pass 0: property _Colors has 3 elements, its declaration 2"
     );
     assert_eq!(world.take_texture_pixels(fitting), Some(halves(RED, GREEN)));
     assert_eq!(

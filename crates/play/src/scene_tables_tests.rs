@@ -6,6 +6,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_scene_viewer::{ObjectId, SceneObjectEdit};
 
+use crate::GpuWork;
 use crate::retained_driver::{PlayerWindow, viewer_options};
 use crate::scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables};
 
@@ -680,6 +681,7 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         max_frames: None,
         capture_frames: BTreeSet::new(),
         keys: Vec::new(),
+        gpu_work: GpuWork::Off,
     };
     let options: ViewerOptions = viewer_options(&window);
     let mut viewer = RetainedHost::new(SceneTables::initial_scene(None).unwrap(), options).unwrap();
@@ -715,3 +717,6 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
 
 #[path = "scene_tables_tests/lit.rs"]
 mod lit;
+
+#[path = "scene_tables_tests/substitution.rs"]
+mod substitution;

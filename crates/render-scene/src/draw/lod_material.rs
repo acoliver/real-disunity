@@ -152,18 +152,23 @@ pub(super) struct ObjectView {
 
 impl SceneGpu {
     /// Records the view's objects with render pipelines the caller built, one for each pipeline
-    /// index. Only tests draw this way; the scene's passes use
+    /// index, and a bind group for each material (see
+    /// [`PreparedObjects::material_groups`](crate::object::prepared::PreparedObjects::material_groups)).
+    /// Only tests draw this way; the scene's passes use
     /// [`draw_objects_prepared`](Self::draw_objects_prepared).
     #[cfg(test)]
     pub(crate) fn draw_objects(
         &self,
         pass: &mut RenderPass<'_>,
         frame_group: &BindGroup,
-        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
+        (pipelines, materials): (
+            &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
+            &[BindGroup],
+        ),
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, shadow_matrix);
-        let mut sink = FixedSink::new(pass, pipelines, &self.materials);
+        let mut sink = FixedSink::new(pass, pipelines, materials);
         let objects = self.record_selection(
             &mut sink,
             (shadow_matrix, &view.frame),
@@ -180,11 +185,9 @@ impl SceneGpu {
         frame_group: &BindGroup,
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> ObjectView {
+        let owner = worldrunner_render_gpu::submission::Publications::current();
         assert!(
-            self.instances
-                .batches
-                .values()
-                .all(|batch| !batch.has_pending()),
+            self.instances.ready_for(owner.as_ref()),
             "flush instance updates before drawing"
         );
         let frame = self

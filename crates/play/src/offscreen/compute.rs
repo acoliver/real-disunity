@@ -316,11 +316,23 @@ impl Prepared {
 }
 
 /// The compute buffers of a flush, on the GPU. Each is uploaded from the contents the snapshot
-/// holds the first time a dispatch binds it, so a later dispatch sees what an earlier one wrote.
+/// holds the first time a dispatch binds it or a material the frame draws with names it, so a
+/// later dispatch sees what an earlier one wrote and a draw and a dispatch share one buffer.
 #[derive(Default)]
 pub struct GpuBuffers {
     held: BTreeMap<ComputeBufferId, (BufferHandle, Vec<u8>)>,
+    /// The buffers a dispatch bound, which are the ones read back after the flush.
+    dispatched: BTreeSet<ComputeBufferId>,
     constants: Vec<BufferHandle>,
+}
+
+/// The compute buffers the materials of a snapshot bind, on the GPU.
+#[derive(Debug, Default)]
+pub struct MaterialBuffers {
+    /// The handle of each buffer, by the id a material names it by.
+    pub handles: BTreeMap<ComputeBufferId, BufferHandle>,
+    /// How many buffers a material names that the runtime could not upload.
+    pub refused: usize,
 }
 
 impl GpuBuffers {
@@ -328,6 +340,7 @@ impl GpuBuffers {
     pub fn bound(&self) -> impl Iterator<Item = (ComputeBufferId, BufferHandle, &[u8])> {
         self.held
             .iter()
+            .filter(|(id, _)| self.dispatched.contains(id))
             .map(|(id, (handle, original))| (*id, *handle, original.as_slice()))
     }
 
@@ -337,6 +350,31 @@ impl GpuBuffers {
             .values()
             .map(|(handle, _)| *handle)
             .chain(self.constants.iter().copied())
+    }
+
+    /// Uploads the buffers the materials of `snapshot` bind, ahead of the frame that draws with
+    /// them. A buffer the snapshot no longer holds (destroyed after the material bound it) is
+    /// left out: a draw that needs it is left out and counted by the property's name.
+    pub fn upload_material_buffers(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        snapshot: &GraphicsSnapshot,
+    ) -> MaterialBuffers {
+        let mut found = MaterialBuffers::default();
+        let named = snapshot
+            .materials
+            .values()
+            .flat_map(|material| material.buffers.iter().map(|(_, id)| *id));
+        for id in named {
+            match self.upload(runtime, snapshot, id) {
+                Ok(handle) => {
+                    found.handles.insert(id, handle);
+                }
+                Err("StaleBuffer") => {}
+                Err(_) => found.refused += 1,
+            }
+        }
+        found
     }
 
     fn upload(
@@ -381,6 +419,7 @@ impl GpuBuffers {
             let handle = self
                 .upload(runtime, snapshot, *buffer)
                 .map_err(str::to_owned)?;
+            self.dispatched.insert(*buffer);
             if let Some((_, original)) = self.held.get(buffer)
                 && let Some(entry) = trace.buffers.last_mut()
             {
@@ -424,7 +463,7 @@ fn textures(
         let id = match texture {
             TextureRef::Render(id) => Some(ids::render_texture(*id)),
             TextureRef::Asset(identity) => ids::stored_texture(*identity),
-            TextureRef::None | TextureRef::Global(_) => None,
+            TextureRef::None | TextureRef::Global(_) | TextureRef::Temporary(_) => None,
         };
         texture_source(texture).clone_into(&mut entry.source);
         entry.texture = id;
@@ -499,7 +538,10 @@ fn images(
         texture_source(texture).clone_into(&mut entry.source);
         let id = match texture {
             TextureRef::Render(id) => Some(ids::render_texture(*id)),
-            TextureRef::Asset(_) | TextureRef::Global(_) | TextureRef::None => None,
+            TextureRef::Asset(_)
+            | TextureRef::Global(_)
+            | TextureRef::Temporary(_)
+            | TextureRef::None => None,
         };
         entry.texture = id;
         let Some(id) = id else {
@@ -563,6 +605,7 @@ fn texture_source(texture: &TextureRef) -> &'static str {
         TextureRef::Render(_) => "render",
         TextureRef::Asset(_) => "asset",
         TextureRef::Global(_) => "global",
+        TextureRef::Temporary(_) => "temporary",
         TextureRef::None => "none",
     }
 }

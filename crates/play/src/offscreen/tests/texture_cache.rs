@@ -87,6 +87,9 @@ fn filled(generation: u64, texel: [u8; 4]) -> PlayerTexture {
         linear: true,
         generation,
         distance_spread: 0,
+        depth: 0,
+        dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+        graphics_format: 0,
         bytes: texel.repeat(TEXTURE_LEN / 4),
     }
 }
@@ -110,7 +113,7 @@ fn blitting(textures: &[u64]) -> GraphicsSnapshot {
         world
             .record_offscreen(OffscreenWork::Blit {
                 source: TextureRef::Asset(identity),
-                target: drawn,
+                target: TargetRef::Render(drawn),
                 material: None,
                 pass: 0,
             })
@@ -289,7 +292,7 @@ fn clear_blit_and_read(world: &mut World, drawn: RenderTextureId) -> u64 {
         },
         OffscreenWork::Blit {
             source: TextureRef::Asset(A),
-            target: drawn,
+            target: TargetRef::Render(drawn),
             material: None,
             pass: 0,
         },

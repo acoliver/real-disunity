@@ -187,8 +187,34 @@ pub struct CompiledRaster {
 /// Stock schedules select a geometry identity at encode time, without owned labels.
 pub(crate) struct StockRaster {
     pub(super) passes: Vec<RasterPass>,
+    /// The copy writes the frame's preparation makes before the first pass.
+    pub(super) prepared: Vec<ResourceUse>,
 }
 impl StockRaster {
+    /// The version each prepared write makes, in the order of the frame's views.
+    #[cfg(test)]
+    pub(crate) fn prepared_versions(&self) -> Vec<u32> {
+        self.prepared
+            .iter()
+            .map(|usage| usage.view.version())
+            .collect()
+    }
+    /// Retains the leases of what the frame's preparation writes and offers each write to the
+    /// capture the frame belongs to, as a pass's writes are offered before it is encoded.
+    pub(crate) fn validate_prepared_writes(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+    ) -> Result<(), ContractError> {
+        for usage in &self.prepared {
+            usage.view.retain_lease(encoder)?;
+        }
+        super::capture::validate_writes(
+            encoder,
+            self.prepared
+                .iter()
+                .map(|usage| super::capture::write_key(usage.view.allocation())),
+        )
+    }
     #[cfg(test)]
     pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)
@@ -209,13 +235,13 @@ impl StockRaster {
     pub(crate) fn encode_stock_pass(
         &self,
         index: usize,
-        slot: crate::PassSlot,
+        entry: crate::PassEntry,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
         self.passes[index].validate_writes(encoder)?;
-        let label = crate::PassId::Geometry(slot).encoder_label();
+        let label = crate::PassId::Geometry(entry).encoder_label();
         self.passes[index].encode_named(encoder, stamp, label.as_ref(), draw);
         Ok(())
     }

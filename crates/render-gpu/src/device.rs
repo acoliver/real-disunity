@@ -11,6 +11,33 @@ pub struct DeviceRequirements {
     pub optional_limits: Option<Limits>,
 }
 
+impl DeviceRequirements {
+    /// What one device must offer to serve both `self`'s user and `other`'s: every feature
+    /// either asks for, and each limit at the more demanding of the two values. A side without a
+    /// preferred profile contributes its required limits to the other's profile, so the combined
+    /// profile still meets both sides' requirements.
+    #[must_use]
+    pub fn union(self, other: &Self) -> Self {
+        let optional_limits = match (&self.optional_limits, &other.optional_limits) {
+            (None, None) => None,
+            (mine, theirs) => Some(
+                mine.as_ref()
+                    .unwrap_or(&self.required_limits)
+                    .clone()
+                    .or_better_values_from(theirs.as_ref().unwrap_or(&other.required_limits)),
+            ),
+        };
+        Self {
+            required_features: self.required_features | other.required_features,
+            optional_features: self.optional_features | other.optional_features,
+            required_limits: self
+                .required_limits
+                .or_better_values_from(&other.required_limits),
+            optional_limits,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NegotiatedDevice {
     pub enabled_features: Features,
@@ -120,3 +147,7 @@ pub(crate) fn headless_descriptor(flags: wgpu::InstanceFlags) -> wgpu::InstanceD
     }
     descriptor
 }
+
+#[cfg(test)]
+#[path = "device_tests.rs"]
+mod tests;

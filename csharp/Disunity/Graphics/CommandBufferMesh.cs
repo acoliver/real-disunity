@@ -27,48 +27,59 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentNullException.ThrowIfNull(material);
-        ThrowIfDestroyed(mesh, material);
-        ThrowIfSubMeshOutside(mesh, submeshIndex);
-        if (shaderPass < -1) throw new ArgumentException($"{DrawMeshMember}: shader pass {shaderPass} is below -1", nameof(shaderPass));
-        if (properties is not null) ThrowIfUnsent(properties.Properties);
-        var block = properties is { isEmpty: false } ? CopyOf(properties.Properties) : null;
-        Record(() => DrawMeshNow(mesh, matrix, material, submeshIndex, shaderPass, block));
+        var block = CheckedBlock(mesh, material, (submeshIndex, shaderPass), properties, DrawMeshMember);
+        Record(() => DrawNow(mesh, matrix, material, (submeshIndex, shaderPass), block, DrawMeshMember, () => 1));
     }
 
-    private static void ThrowIfDestroyed(Mesh mesh, Material material)
+    /// <summary>What a mesh draw refuses when it is called: a destroyed mesh or material, a sub-mesh the mesh lacks, a shader pass
+    /// below -1 and a property block with values that cannot be sent. Returns the copy of the block to record with the draw, or
+    /// null when the block is null or empty.</summary>
+    private static PropertyStore? CheckedBlock(Mesh mesh, Material material, (int Submesh, int Pass) draw, MaterialPropertyBlock? properties, string member)
     {
-        if (!mesh) throw new ArgumentException($"{DrawMeshMember}: the mesh was destroyed", nameof(mesh));
-        if (!material) throw new ArgumentException($"{DrawMeshMember}: the material was destroyed", nameof(material));
+        ThrowIfDestroyed(mesh, material, member);
+        ThrowIfSubMeshOutside(mesh, draw.Submesh, member);
+        if (draw.Pass < -1) throw new ArgumentException($"{member}: shader pass {draw.Pass} is below -1", "shaderPass");
+        if (properties is not null) ThrowIfUnsent(properties.Properties, member);
+        return properties is { isEmpty: false } ? CopyOf(properties.Properties) : null;
     }
 
-    private static void ThrowIfSubMeshOutside(Mesh mesh, int submeshIndex)
+    private static void ThrowIfDestroyed(Mesh mesh, Material material, string member)
+    {
+        if (!mesh) throw new ArgumentException($"{member}: the mesh was destroyed", nameof(mesh));
+        if (!material) throw new ArgumentException($"{member}: the material was destroyed", nameof(material));
+    }
+
+    private static void ThrowIfSubMeshOutside(Mesh mesh, int submeshIndex, string member)
     {
         if (submeshIndex < 0 || submeshIndex >= mesh.subMeshCount)
-            throw new ArgumentException($"{DrawMeshMember}: sub-mesh {submeshIndex} is outside the mesh's {mesh.subMeshCount} sub-meshes", nameof(submeshIndex));
+            throw new ArgumentException($"{member}: sub-mesh {submeshIndex} is outside the mesh's {mesh.subMeshCount} sub-meshes", nameof(submeshIndex));
     }
 
     /// <summary>The draw as the buffer runs it. Both objects and the sub-mesh are checked again before the identity or the
     /// world's material is asked for, because either would store or make a resource for a draw the world cannot show: the
-    /// mesh or material may be destroyed, or the mesh may have lost the sub-mesh, since recording. Everything that can throw
-    /// comes before the block is staged, so a refused draw leaves nothing for the next one.</summary>
-    private static void DrawMeshNow(Mesh mesh, Matrix4x4 matrix, Material material, int submeshIndex, int shaderPass, PropertyStore? block)
+    /// mesh or material may be destroyed, or the mesh may have lost the sub-mesh, since recording. <paramref name="instances"/>
+    /// is asked for after those checks, so a draw whose count cannot be had is refused before anything reaches the world.
+    /// Everything that can throw comes before the block is staged, so a refused draw leaves nothing for the next one.</summary>
+    private static void DrawNow(Mesh mesh, Matrix4x4 matrix, Material material, (int Submesh, int Pass) draw, PropertyStore? block, string member,
+        Func<uint> instances)
     {
-        ThrowIfDestroyed(mesh, material);
-        ThrowIfSubMeshOutside(mesh, submeshIndex);
+        ThrowIfDestroyed(mesh, material, member);
+        ThrowIfSubMeshOutside(mesh, draw.Submesh, member);
+        var count = instances();
         var (identity, world) = (mesh.RendererIdentity, material.WorldLink.Id);
         if (block is not null) WorldGraphics.StageDrawBlock(block);
-        WorldGraphics.RecordDrawMesh(identity, matrix, world, submeshIndex, shaderPass);
+        WorldGraphics.RecordDrawMesh(identity, matrix, world, draw, count);
     }
 
     /// <summary>A draw's block reaches the host as floats, integers, vectors, matrices and textures; arrays and buffers have no
     /// way there, so a block that holds one throws rather than draw without it.</summary>
-    private static void ThrowIfUnsent(PropertyStore block)
+    private static void ThrowIfUnsent(PropertyStore block, string member)
     {
         var kind = block.FloatArrays.Count > 0 || block.VectorArrays.Count > 0 || block.ColorArrays.Count > 0 || block.MatrixArrays.Count > 0
             ? "an array"
             : block.Buffers.Count > 0 || block.ConstantBuffers.Count > 0 ? "a buffer" : null;
         if (kind is not null)
-            throw new NotSupportedException($"{DrawMeshMember}(properties): a property block that holds {kind} is not supported yet");
+            throw new NotSupportedException($"{member}(properties): a property block that holds {kind} is not supported yet");
     }
 
     private static PropertyStore CopyOf(PropertyStore source)

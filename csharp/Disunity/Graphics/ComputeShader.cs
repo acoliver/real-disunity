@@ -109,6 +109,7 @@ public sealed class ComputeShader : Object
         Kernel(kernelIndex, nameof(SetBuffer));
         ArgumentNullException.ThrowIfNull(buffer);
         WorldCompute.BindBuffer(WorldLink, (uint)kernelIndex, name, buffer.WorldLink);
+        buffer.NoteKernelBinding();
     }
 
     public void SetBuffer(int kernelIndex, int nameID, ComputeBuffer buffer) => SetBuffer(kernelIndex, NameOf(nameID), buffer);
@@ -117,7 +118,7 @@ public sealed class ComputeShader : Object
     public void SetTexture(int kernelIndex, string name, Texture texture)
     {
         Kernel(kernelIndex, nameof(SetTexture));
-        WorldCompute.SetTexture(WorldLink, kernelIndex, name, WorldGraphics.TextureOf(texture));
+        WorldCompute.SetTexture(WorldLink, kernelIndex, name, WorldGraphics.TextureOf(texture, name));
     }
 
     public void SetTexture(int kernelIndex, int nameID, Texture texture) => SetTexture(kernelIndex, NameOf(nameID), texture);

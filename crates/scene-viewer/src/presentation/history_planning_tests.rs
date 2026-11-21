@@ -42,6 +42,7 @@ fn presentation(context: &GpuContext, options: &crate::ViewerOptions) -> Present
         options.frame_profile,
         None,
         &PresentationPolicy {
+            game: crate::GameRendering::default(),
             receiver_gradients:
                 worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: options.presentation_budget,
@@ -136,7 +137,7 @@ fn replace_profile(
 #[test]
 fn post_enable_disable_and_collected_replacement_match_live_budget() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let mut options = options();
     let mut presentation = presentation(&context, &options);
     let initial = planned(

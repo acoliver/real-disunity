@@ -205,11 +205,13 @@ pub(crate) fn options() -> ViewerOptions {
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
+        texture_tiers: None,
         gpu_timing: false,
         adapter_callback: None,
         cadence: crate::PresentationCadence::default(),
         ssr: None,
         render_clock: crate::RenderClock::default(),
+        game: crate::GameRendering::default(),
         camera: SceneCamera {
             vertical_fov_millidegrees: 60_000,
             near_plane_millimeters: 100,

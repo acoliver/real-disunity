@@ -28,7 +28,9 @@ namespace Disunity.Native
     ///  for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
     ///  bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
     ///  use Unity's flag values, and `target_texture` is the id of a world render texture (0 for the
-    ///  screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. Custom matrices have their own calls. Boolean settings are 0 or 1.
+    ///  screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. A nonzero
+    ///  `target_texture` replaces the camera's target buffers (`disunity_camera_target_buffers_write`); a
+    ///  zero one leaves them as they are. Custom matrices have their own calls. Boolean settings are 0 or 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityCamera
@@ -684,7 +686,26 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per texel), or zero.
+    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is
+    ///  zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of
+    ///  the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per
+    ///  texel), or zero.
+    ///
+    ///  `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
+    ///  2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
+    ///  writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
+    ///  value is refused, and the record reads back with the value it was stored with.
+    ///
+    ///  `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
+    ///  of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
+    ///  after another, each as long as the others and each holding its own mip chain, so `length` is a
+    ///  whole multiple of `depth`. A 3D texture's `bytes` are its mip levels one after another, each
+    ///  level holding its slices one after another and having half the width, height and depth of the
+    ///  one before (at least one), so only a 3D texture of one level has a `length` that is a whole
+    ///  multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
+    ///  `graphics_format`, the engine's `GraphicsFormat` value, because its layers need not have a
+    ///  `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. The host draws
+    ///  all four shapes. `reserved` is zero.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureInfo
@@ -705,31 +726,10 @@ namespace Disunity.Native
         public uint length;
         public uint present;
         public uint distance_spread;
-    }
-
-    /// <summary>
-    ///  How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
-    ///  2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
-    ///  `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
-    ///  read, `generation` is the generation the caller already holds; the call fills in everything,
-    ///  `present` is zero when the identity has no stored texture, and `changed` is nonzero when the
-    ///  stored sampler is newer than the generation passed.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunitySampler
-    {
-        /// <summary>
-        ///  Starts at 1 when the texture is first stored and rises each time a write changes a value.
-        /// </summary>
-        public ulong generation;
-        public uint wrap_u;
-        public uint wrap_v;
-        public uint wrap_w;
-        public uint filter;
-        public uint aniso_level;
-        public uint present;
-        public uint changed;
-        public float mip_bias;
+        public uint depth;
+        public uint graphics_format;
+        public uint dimension;
+        public uint reserved;
     }
 
 }

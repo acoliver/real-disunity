@@ -16,6 +16,7 @@ use super::error::OffscreenError;
 use super::frame::{OffscreenFrame, ProceduralDraw};
 use super::list_steps::{self, Loads};
 use super::plan::{DrawSpec, Services, VertexPlan};
+use super::raster::{self, PassRaster};
 use super::steps::{CameraDraw, Globals, Step, counted, keywords, raster_id};
 
 /// The raster step of a procedural draw: one draw for each pass that plans, into the draw's
@@ -27,8 +28,10 @@ pub(super) fn procedural_step(
     globals: Globals<'_>,
     draw: &ProceduralDraw,
 ) -> Result<Step, OffscreenError> {
-    let target = list_steps::usable(svc, draw.target)?;
-    let signature = list_steps::signature(svc, target)?;
+    let target = list_steps::usable(svc, draw.target.clone())?;
+    let signature = list_steps::signature(svc, &target)?;
+    let size = list_steps::target_size(svc, &target)?;
+    let raster = raster::resolve(&draw.raster, size, svc.reversed_depth);
     let material = frame
         .materials
         .get(&draw.material)
@@ -36,7 +39,7 @@ pub(super) fn procedural_step(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(draw.material))?;
-    // The same six places a list item's values come from; a procedural draw has no property block.
+    // The same seven places a list item's values come from; a procedural draw has no property block.
     let block = PropertyLayer::default();
     let layers = [
         &draw.per_draw,
@@ -45,9 +48,12 @@ pub(super) fn procedural_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let mut draws = Vec::new();
-    for selector in &draw.passes {
+    // A scissor with no texel in it leaves nothing to draw.
+    let passes = raster.map_or(&[][..], |_| draw.passes.as_slice());
+    for selector in passes {
         let spec = DrawSpec {
             shader,
             keywords: keywords(material, globals),
@@ -59,7 +65,8 @@ pub(super) fn procedural_step(
         if planned.is_err() {
             svc.constants.rollback(mark);
         }
-        if let Some(planned) = counted(svc, &spec, planned)? {
+        if let Some(mut planned) = counted(svc, &spec, planned)? {
+            planned.raster = raster.unwrap_or_default();
             draws.push(planned);
         }
     }
@@ -70,7 +77,7 @@ pub(super) fn procedural_step(
     let pass = list_steps::attachments_pass(
         svc,
         raster_id("offscreen procedural", index),
-        target,
+        &target,
         &loads,
         &draws,
     )?;
@@ -90,16 +97,16 @@ fn generated(
 ) -> Result<CameraDraw, OffscreenError> {
     // The vertex stage is checked before any constant or texture is planned, so a pass that reads
     // vertex inputs is refused by that cause even when it also lacks a texture.
-    let (entry, state) = svc.choose(spec)?;
-    let inputs = entry.vertex_input_count();
+    let chosen = svc.choose(spec)?;
+    let inputs = chosen.entry.vertex_input_count();
     if inputs > 0 {
         return Err(OffscreenError::ProceduralVertexInputs {
             shader: spec.shader,
-            pass: entry.pass,
+            pass: chosen.entry.pass,
             inputs,
         });
     }
-    let plan = svc.plan_chosen(spec, entry, state)?;
+    let plan = svc.plan_chosen(spec, chosen)?;
     Ok(CameraDraw {
         shader: spec.shader,
         mesh: None,
@@ -121,5 +128,6 @@ fn generated(
         signature,
         front_face: draw.front_face,
         index_use: None,
+        raster: PassRaster::default(),
     })
 }

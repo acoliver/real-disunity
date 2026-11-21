@@ -45,6 +45,8 @@ mod shadowed;
 mod snapshot_capture;
 #[path = "game_passes/snapshot_game.rs"]
 mod snapshot_game;
+#[path = "game_passes/snapshot_gaps.rs"]
+mod snapshot_gaps;
 #[path = "game_passes/snapshot_water.rs"]
 mod snapshot_water;
 #[path = "game_passes/snapshots.rs"]

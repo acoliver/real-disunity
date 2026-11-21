@@ -17,7 +17,7 @@ fn device_error_observer_does_not_retain_the_context_queue() {
 #[test]
 fn device_error_observer_reports_loss_to_the_host_and_submission_authority() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let errors = super::device_errors(context.device(), context.submission());
     context.device().destroy();
     context

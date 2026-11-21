@@ -15,6 +15,7 @@ pub mod player_builtins;
 pub mod player_channels;
 mod player_compute;
 pub mod player_compute_report;
+pub mod player_environment;
 pub mod player_files;
 mod player_font_files;
 mod player_graphics;

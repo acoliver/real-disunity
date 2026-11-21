@@ -39,7 +39,6 @@ pub(crate) struct Calls {
     ) -> R,
     pub(crate) buffer_info:
         unsafe extern "C" fn(u64, u64, *mut native::DisunityComputeBufferInfo) -> R,
-    pub(crate) buffer_read: unsafe extern "C" fn(u64, u64, u64, *mut u8, u32) -> R,
     pub(crate) buffer_write: unsafe extern "C" fn(u64, u64, u64, *const u8, u32) -> R,
     pub(crate) kernel_size: unsafe extern "C" fn(u64, u64, u32, u32, u32, u32) -> R,
     pub(crate) pixels_write: unsafe extern "C" fn(u64, u64, *const f32, u32) -> R,
@@ -72,7 +71,6 @@ impl Calls {
             keyword: symbol(library, b"disunity_shader_keyword_read\0")?,
             compute_shader: symbol(library, b"disunity_compute_shader_read\0")?,
             buffer_info: symbol(library, b"disunity_compute_buffer_info\0")?,
-            buffer_read: symbol(library, b"disunity_compute_buffer_read\0")?,
             buffer_write: symbol(library, b"disunity_compute_buffer_write\0")?,
             kernel_size: symbol(library, b"disunity_compute_kernel_size_write\0")?,
             pixels_write: symbol(library, b"disunity_render_texture_pixels_write\0")?,

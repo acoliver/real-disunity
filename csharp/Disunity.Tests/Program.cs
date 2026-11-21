@@ -484,6 +484,7 @@ BatchRendererGroupTests.Run();
 BatchCullingTests.Run();
 RenderSettingsTests.Run();
 RenderSettingsEnvironmentTests.Run();
+SceneRenderSettingsTests.Run();
 SetupCameraTests.Run();
 ReflectionProbeTests.Run();
 GuiContentTests.Run();

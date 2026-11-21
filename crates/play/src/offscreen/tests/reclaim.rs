@@ -724,3 +724,6 @@ fn mixed_pressure_evicts_old_source_and_target_but_preserves_a_global_target() {
 
 #[path = "reclaim/pending_completion.rs"]
 mod pending_completion;
+
+#[path = "reclaim/slot_blocks.rs"]
+mod slot_blocks;

@@ -127,9 +127,18 @@ fn group_rejection_and_acceptance_hold_for_every_box_inside_the_group() {
     assert!(decided.iter().all(|&count| count > 100), "{decided:?}");
 }
 
+/// The bits of each coordinate, with every NaN as one value: an optimised build may give a
+/// NaN another sign or payload, and no test of a box reads more of a NaN than that it is one.
 fn bits(bounds: Bounds) -> [u32; 6] {
+    let bits = |value: f32| {
+        if value.is_nan() {
+            f32::NAN.to_bits()
+        } else {
+            value.to_bits()
+        }
+    };
     [bounds.min, bounds.max]
-        .map(|point| point.to_array().map(f32::to_bits))
+        .map(|point| point.to_array().map(bits))
         .concat()
         .try_into()
         .unwrap()

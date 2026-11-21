@@ -63,7 +63,11 @@ fn scan(
             shape.fill(mesh, instances, &object, &mut boxes);
             let bounds = placement::placement(&boxes, shape.reliefs(), stretch);
             let admitted = visible
-                && (!view.casters_only || object.casts_shadow())
+                && if view.casters_only {
+                    object.casts_shadow()
+                } else {
+                    !object.shadow_only()
+                }
                 && frustum.intersects_reference(bounds)
                 && view
                     .slice
@@ -454,6 +458,62 @@ fn tree_walk_shared_levels_and_caster_fit_equal_the_full_scan() {
         edit(&mut instances, &mut rng, &mut added);
     }
     assert!(!added.is_empty());
+}
+
+/// Makes about one placement in `every` shadow-only, and turns back about as many, so the
+/// cameras and the cascades disagree about them. A non-casting placement may be shadow-only
+/// too: it then draws in neither view.
+fn toggle_shadow_only(instances: &mut Instances, rng: &mut Rng, every: usize) {
+    let handles: Vec<InstanceHandle> = instances.handles().collect();
+    for _ in 0..handles.len() / every {
+        let handle = handles[rng.index(handles.len())];
+        let Ok((object, _)) = instances.get(handle) else {
+            continue;
+        };
+        let shadow_only = !object.shadow_only();
+        instances
+            .set_object(handle, object.with_shadow_only(shadow_only))
+            .unwrap();
+    }
+}
+
+/// Shadow-only placements leave the camera views and stay in the cascades, in the full scan
+/// and in the tree walk alike, as placements turn shadow-only and back between frames.
+#[test]
+fn shadow_only_placements_leave_the_cameras_alike_in_the_walk_and_the_full_scan() {
+    let source = world(3_000, 24, 31);
+    let fades = reference_fades(&source);
+    let mut instances = Instances::new(&source);
+    let meshes: Vec<_> = source
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect();
+    let mut rng = Rng::new(31);
+    let mut added = Vec::new();
+    toggle_shadow_only(&mut instances, &mut rng, 4);
+    let shadow_only = || {
+        instances
+            .handles()
+            .filter(|&handle| {
+                instances
+                    .get(handle)
+                    .is_ok_and(|(object, _)| object.shadow_only())
+            })
+            .count()
+    };
+    assert!(shadow_only() > 0);
+    for round in 0..4_u16 {
+        let both = (&instances, fades.as_slice());
+        for _ in 0..3 {
+            assert_frame_matches_scan(both, &meshes, &random_frame(&mut rng), None);
+        }
+        let frame = super::large_scene::walk(round * 9);
+        assert_frame_matches_scan(both, &meshes, &frame, None);
+        toggle_shadow_only(&mut instances, &mut rng, 10);
+        edit(&mut instances, &mut rng, &mut added);
+    }
 }
 
 /// The slot counts of every leaf of every batch's tree.

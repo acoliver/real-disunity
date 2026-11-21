@@ -153,8 +153,12 @@ pub struct Renderer {
     pub mesh: MeshId,
     pub materials: Vec<MaterialId>,
     pub layer: u32,
-    /// The renderer's property block.
+    /// The renderer's property block, which every slot's draws read.
     pub block: PropertyLayer,
+    /// The property block of single slots, by slot index. A slot's draws read its block above
+    /// `block`, so it wins over `block` for a name both set. A slot without an entry reads
+    /// `block` alone.
+    pub slot_blocks: BTreeMap<usize, PropertyLayer>,
     /// The values the caller supplies for this renderer's draws, such as its matrices, under
     /// the names its shaders use.
     pub per_draw: PropertyLayer,

@@ -1,5 +1,6 @@
 use super::lod_material::{scene, selection_frame};
 use super::*;
+use crate::draw::PreparedTextureReplacement;
 use crate::offscreen::OffscreenTarget;
 
 fn rebuilds_after(
@@ -203,6 +204,42 @@ fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
             .unwrap();
         assert_eq!(pipelines.object_runtime_stats(), built, "already prepared");
     }
+}
+
+#[test]
+fn replacing_a_materials_texture_prepares_the_pair_list_again() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let source = scene(true);
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let objects = pipelines.object_context();
+    gpu.prepare_object_context(objects).unwrap();
+    let pairs = gpu.drawn_pairs().len();
+    assert!(pairs > 0);
+    let before = gpu.objects.lookups();
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(gpu.objects.lookups(), before, "the list is remembered");
+
+    let replacement =
+        PreparedTextureReplacement::new(&source, TextureHandle::from_raw(0), &texture(0x07e0))
+            .unwrap();
+    gpu.replace_texture_prepared(
+        context.device(),
+        context.submission(),
+        &pipelines,
+        &replacement,
+    )
+    .unwrap();
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(
+        gpu.objects.lookups() - before,
+        pairs,
+        "the pipelines bind the old texture, so every pair is prepared again"
+    );
+    gpu.prepare_object_context(objects).unwrap();
+    assert_eq!(gpu.objects.lookups() - before, pairs);
 }
 
 #[test]

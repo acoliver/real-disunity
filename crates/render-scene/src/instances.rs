@@ -30,12 +30,6 @@ use crate::pipeline::PipelineKey;
 pub(crate) use batch::InstanceBatch;
 pub(crate) use lookup::Ascending;
 
-#[cfg(test)]
-thread_local! {
-    /// How many times a counter was added up over every batch on this thread.
-    pub(crate) static SUMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 /// Opaque identity of one placement in one resident scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InstanceHandle {
@@ -128,11 +122,12 @@ pub(crate) struct Instances {
     pub fades: Vec<fade::Fade>,
     #[cfg(test)]
     pub fade_cull_disabled: bool,
+    /// Every batch is made by `batch_for`, which counts it in `totals` and `skinned`; a batch put
+    /// in the map any other way is outside those sums.
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
-    /// The sums of the counters of the batches that `add` created, which are `linked` of them.
+    /// The sums of the counters of the batches.
     totals: totals::Totals,
-    linked: usize,
-    /// How many of the linked batches draw a skinned mesh.
+    /// How many batches draw a skinned mesh.
     skinned: usize,
     /// Counts the changes to the material tables and mesh bounds that are not placement edits.
     tables: u64,
@@ -191,7 +186,6 @@ impl Instances {
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
             totals: totals::Totals::default(),
-            linked: 0,
             skinned: 0,
             tables: 0,
             bounds_current: std::cell::Cell::new(None),
@@ -246,7 +240,7 @@ impl Instances {
 
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
     pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
-        self.ready.check(&self.batches, self.ready_totals(), owner)
+        self.ready.check(&self.batches, &self.totals, owner)
     }
 
     /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
@@ -257,11 +251,6 @@ impl Instances {
 
     /// Whether any batch draws a skinned mesh.
     pub fn has_skinned_batches(&self) -> bool {
-        if !self.every_batch_linked() {
-            #[cfg(test)]
-            SUMS.with(|sums| sums.set(sums.get() + 1));
-            return self.batches.values().any(|batch| batch.skin.is_some());
-        }
         debug_assert_eq!(
             self.skinned > 0,
             self.batches.values().any(|batch| batch.skin.is_some())
@@ -281,25 +270,8 @@ impl Instances {
         self.sum(&self.totals.history, InstanceBatch::history_version)
     }
 
-    /// The scene's totals as the stamp of what `ready_for` reads, or `None` when a batch was
-    /// put in the map by hand and the totals do not cover it.
-    fn ready_totals(&self) -> Option<&totals::Totals> {
-        self.every_batch_linked().then_some(&self.totals)
-    }
-
-    /// Whether the totals cover every batch, as they do for all that `add` makes.
-    fn every_batch_linked(&self) -> bool {
-        self.linked == self.batches.len()
-    }
-
-    /// `tally`, which equals the sum of `counter` over the batches, or that sum itself when a
-    /// batch was put in the map by hand and the tally does not cover it.
+    /// `tally`, which equals the sum of `counter` over the batches.
     fn sum(&self, tally: &totals::Tally, counter: fn(&InstanceBatch) -> u64) -> u64 {
-        if !self.every_batch_linked() {
-            #[cfg(test)]
-            SUMS.with(|sums| sums.set(sums.get() + 1));
-            return self.batches.values().map(counter).sum();
-        }
         debug_assert_eq!(tally.get(), self.batches.values().map(counter).sum::<u64>());
         tally.get()
     }
@@ -385,21 +357,7 @@ impl Instances {
                 index: object.material().raw(),
             })?;
         let key = (pipeline, mesh, material);
-        let batch = match self.batches.entry(key) {
-            Entry::Occupied(batch) => batch.into_mut(),
-            Entry::Vacant(vacant) => {
-                let skinned = self.skin.is_skinned(mesh);
-                let mut batch = if skinned {
-                    InstanceBatch::skinned()
-                } else {
-                    InstanceBatch::default()
-                };
-                batch.count_in(&self.totals);
-                self.linked += 1;
-                self.skinned += usize::from(skinned);
-                vacant.insert(batch)
-            }
-        };
+        let batch = self.batch_for(key);
         let position = batch.add(object, visible);
         if let Some(descriptor) = descriptor {
             batch.set_skin(position, descriptor);
@@ -417,6 +375,30 @@ impl Instances {
                 .insert((key, position), object.contour_id());
         }
         Ok(self.handle(slot))
+    }
+
+    /// The batch at `key`, made and counted in the scene's sums when the key has none.
+    fn batch_for(&mut self, key: BatchKey) -> &mut InstanceBatch {
+        match self.batches.entry(key) {
+            Entry::Occupied(batch) => batch.into_mut(),
+            Entry::Vacant(vacant) => {
+                let skinned = self.skin.is_skinned(key.1);
+                let mut batch = if skinned {
+                    InstanceBatch::skinned()
+                } else {
+                    InstanceBatch::default()
+                };
+                batch.count_in(&self.totals);
+                self.skinned += usize::from(skinned);
+                vacant.insert(batch)
+            }
+        }
+    }
+
+    /// Makes the batch at `key` with no placement in it, as a batch left empty by removals is.
+    #[cfg(test)]
+    pub(crate) fn add_empty_batch(&mut self, key: BatchKey) {
+        self.batch_for(key);
     }
 
     pub fn set_contours(

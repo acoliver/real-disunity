@@ -183,9 +183,9 @@ internal static unsafe class Texture3DWorldTests
         material.SetTexture("_3DDirt", doomed);
         IdentityOnMaterial(material, "_3DDirt");
         UnityEngine.Object.DestroyImmediate(doomed);
-        Expect.That(WorldGraphics.TextureOf(doomed) == (0u, 0UL), "a destroyed volume is no texture");
+        Expect.That(WorldGraphics.TextureOf(doomed) == (5u, 0UL), "a destroyed volume is named and not sent");
         material.SetTexture("_Gone", doomed);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 0, "a destroyed volume sent to a slot is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 5, "a destroyed volume sent to a slot is named and not sent");
     }
 
     private static void AVolumeTheHostCannotStoreIsNoTextureAndIsNamed()
@@ -196,7 +196,7 @@ internal static unsafe class Texture3DWorldTests
         var material = NewMaterial("Test/Volume/Huge");
         var probe = new Texture2D(1, 1).RendererIdentity;
         material.SetTexture("_VolumeTex", huge);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_VolumeTex").texture_kind == 0, "a volume beyond the host's limit is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_VolumeTex").texture_kind == 5, "a volume beyond the host's limit is named and not sent");
         Expect.That(new Texture2D(1, 1).RendererIdentity == probe + 1, "it takes no identity");
         Expect.That(log.Messages.Any(m => m.Contains("'Huge'") && m.Contains("more than the host stores")), "the warning names the volume");
     }

@@ -83,3 +83,16 @@ fn a_list_out_of_order_is_only_rechecked() {
     let missing = verified.missing(7, CURRENT, &keys(&[3, 1, 9]));
     assert!(missing.contains(&(0, 0, 9)), "{missing:?}");
 }
+
+#[test]
+fn new_figures_do_not_keep_the_keys_remembered_at_the_old_ones() {
+    let verified = Verified::default();
+    verified.remember(7, CURRENT, &keys(&[1, 2]));
+    verified.remember(8, CURRENT, &keys(&[4]));
+    assert_eq!(
+        verified.missing(8, CURRENT, &keys(&[1, 2, 4])),
+        keys(&[1, 2])
+    );
+    verified.remember(8, BOTH, &keys(&[5]));
+    assert_eq!(verified.missing(8, BOTH, &keys(&[4, 5])), keys(&[4]));
+}

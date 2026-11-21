@@ -157,7 +157,7 @@ pub(super) fn capture(
         })
         .collect();
     let shadow = setup.shadow.as_ref().map(|_| (0, frame.view_projection));
-    let mut selected = gpu.select_objects(shadow, &frame);
+    let mut selected = (*gpu.select_objects(shadow, &frame)).clone();
     if cull == Cull::ForceEmpty {
         selected.ranges.clear();
     }

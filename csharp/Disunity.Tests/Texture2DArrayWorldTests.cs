@@ -155,9 +155,9 @@ internal static unsafe class Texture2DArrayWorldTests
         material.SetTexture("_Atlas", doomed);
         IdentityOnMaterial(material, "_Atlas");
         UnityEngine.Object.DestroyImmediate(doomed);
-        Expect.That(WorldGraphics.TextureOf(doomed) == (0u, 0UL), "a destroyed array is no texture");
+        Expect.That(WorldGraphics.TextureOf(doomed) == (5u, 0UL), "a destroyed array is named and not sent");
         material.SetTexture("_Gone", doomed);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 0, "a destroyed array sent to a slot is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 5, "a destroyed array sent to a slot is named and not sent");
     }
 
     private static void AnUnmappedFormatStillStoresItsRawBytesAndFormat()
@@ -180,7 +180,7 @@ internal static unsafe class Texture2DArrayWorldTests
         {
             var odd = NewMaterial("Test/Array/Uneven");
             odd.SetTexture("_Atlas", uneven);
-            Expect.That(ReadProperty(Material, odd.WorldLink.Id, "_Atlas").texture_kind == 0, "an array that is not whole layers is no texture");
+            Expect.That(ReadProperty(Material, odd.WorldLink.Id, "_Atlas").texture_kind == 5, "an array that is not whole layers is named and not sent");
             Expect.That(unevenLog.Messages.Any(m => m.Contains("'Uneven'") && m.Contains("not 3 equal layers")), "the warning names the array and the layers");
         }
 
@@ -190,7 +190,7 @@ internal static unsafe class Texture2DArrayWorldTests
         var material = NewMaterial("Test/Array/Huge");
         var probe = new Texture2D(1, 1).RendererIdentity;
         material.SetTexture("_Atlas", huge);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Atlas").texture_kind == 0, "an array beyond the host's limit is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Atlas").texture_kind == 5, "an array beyond the host's limit is named and not sent");
         Expect.That(new Texture2D(1, 1).RendererIdentity == probe + 1, "it takes no identity");
         Expect.That(log.Messages.Any(m => m.Contains("'Huge'") && m.Contains("more than the host stores")), "the warning names the array");
     }

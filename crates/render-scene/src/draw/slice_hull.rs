@@ -185,17 +185,6 @@ pub(super) struct CascadeSlice {
 }
 
 impl CascadeSlice {
-    /// The generation of the hull for `matrix`, without copying the hull; none exactly when
-    /// `for_matrix` is none.
-    pub fn generation_for(&self, matrix: Mat4) -> Option<u64> {
-        let bits = matrix.to_cols_array().map(f32::to_bits);
-        self.current
-            .borrow()
-            .as_ref()
-            .filter(|(stored, _)| *stored == bits)
-            .map(|_| self.generation.get())
-    }
-
     /// The hull for `matrix`, with its generation; none when the view has no slice for it.
     pub fn for_matrix(&self, matrix: Mat4) -> Option<(SliceHull, u64)> {
         let bits = matrix.to_cols_array().map(f32::to_bits);
@@ -204,6 +193,16 @@ impl CascadeSlice {
             .as_ref()
             .filter(|(stored, _)| *stored == bits)
             .map(|(_, hull)| (hull.clone(), self.generation.get()))
+    }
+
+    /// The generation `for_matrix` returns with its hull, without copying the hull.
+    pub fn generation_for(&self, matrix: Mat4) -> Option<u64> {
+        let bits = matrix.to_cols_array().map(f32::to_bits);
+        self.current
+            .borrow()
+            .as_ref()
+            .filter(|(stored, _)| *stored == bits)
+            .map(|_| self.generation.get())
     }
 }
 
@@ -324,6 +323,23 @@ mod tests {
             min: Vec3::new(low[0], low[1], 0.0),
             max: Vec3::new(high[0], high[1], 1.0),
         }
+    }
+
+    #[test]
+    fn the_generation_alone_is_that_of_the_hull_for_the_same_matrix_only() {
+        let slice = CascadeSlice::default();
+        let matrix = Mat4::from_scale(Vec3::splat(0.5));
+        assert_eq!(slice.generation_for(matrix), None);
+        *slice.current.borrow_mut() = Some((matrix.to_cols_array().map(f32::to_bits), square(0.5)));
+        slice.generation.set(7);
+        for probe in [matrix, Mat4::IDENTITY] {
+            assert_eq!(
+                slice.generation_for(probe),
+                slice.for_matrix(probe).map(|(_, generation)| generation)
+            );
+        }
+        assert_eq!(slice.generation_for(matrix), Some(7));
+        assert_eq!(slice.generation_for(Mat4::IDENTITY), None);
     }
 
     #[test]

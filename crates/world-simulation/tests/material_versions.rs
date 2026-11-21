@@ -375,3 +375,40 @@ fn a_snapshot_with_a_material_as_each_draw_saw_it_round_trips_through_the_wire()
     let snapshot = GraphicsSnapshot::take(&mut world).unwrap();
     assert_eq!(decode(&encode(&snapshot).unwrap()).unwrap(), snapshot);
 }
+
+#[test]
+fn take_offscreen_returns_the_copies_that_the_records_name() {
+    let mut world = world();
+    let shader = shader(&mut world, "Terrain/PostProcess");
+    let material = world.create_material(shader).unwrap();
+    let (first, second) = (render_texture(&mut world), render_texture(&mut world));
+    let target = render_texture(&mut world);
+    world
+        .edit_material(material, texture("_PrimaryTex", first))
+        .unwrap();
+    world
+        .record_offscreen(blit(first, target, material))
+        .unwrap();
+    world
+        .edit_material(material, texture("_PrimaryTex", second))
+        .unwrap();
+    world
+        .record_offscreen(blit(second, target, material))
+        .unwrap();
+    let (work, copies) = world.take_offscreen();
+    assert_eq!(work.len(), 2);
+    assert_eq!(
+        named(&work[1]),
+        material,
+        "the last blit names the material"
+    );
+    let copy = named(&work[0]);
+    assert_ne!(copy, material);
+    let held = copies[&copy].properties.texture("_PrimaryTex").unwrap();
+    assert_eq!(held.texture, TextureRef::Render(first));
+    assert_eq!(copies.len(), 1, "the live material is not a copy");
+    assert!(
+        world.take_offscreen().1.is_empty(),
+        "a frame's copies are taken once"
+    );
+}

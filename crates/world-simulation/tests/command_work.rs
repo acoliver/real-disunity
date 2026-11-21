@@ -120,8 +120,8 @@ fn every_command_is_recorded_and_taken_in_call_order() {
         world.record_offscreen(record).unwrap();
     }
     assert_eq!(world.offscreen_work(), records.as_slice());
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn commands_interleave_with_other_offscreen_work_in_call_order() {
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), records);
+    assert_eq!(world.take_offscreen().0, records);
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn a_target_that_names_a_destroyed_render_texture_is_refused() {
             GraphicsError::StaleRenderTexture
         );
     }
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn targets_of_a_name_the_world_does_not_track_are_accepted() {
         Some(TargetRef::CameraTarget),
     );
     world.record_offscreen(record.clone()).unwrap();
-    assert_eq!(world.take_offscreen(), [record]);
+    assert_eq!(world.take_offscreen().0, [record]);
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn a_clear_with_a_value_that_is_not_finite_is_refused() {
             GraphicsError::NotFinite
         );
     }
-    assert_eq!(world.take_offscreen().len(), 1);
+    assert_eq!(world.take_offscreen().0.len(), 1);
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn global_values_need_a_name_and_finite_numbers() {
     for (record, error) in refused {
         assert_eq!(graphics_error(world.record_offscreen(record)), error);
     }
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn a_temporary_is_allocated_with_a_description_the_world_accepts() {
     world
         .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 5 })
         .unwrap();
-    assert_eq!(world.take_offscreen().len(), 2);
+    assert_eq!(world.take_offscreen().0.len(), 2);
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn commands_share_the_frame_cap() {
     }
     let over = world.record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 });
     assert!(matches!(over, Err(WorldError::CapacityExceeded(_))));
-    assert_eq!(world.take_offscreen().len(), MAX_OFFSCREEN_WORK);
+    assert_eq!(world.take_offscreen().0.len(), MAX_OFFSCREEN_WORK);
 }
 
 fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot {

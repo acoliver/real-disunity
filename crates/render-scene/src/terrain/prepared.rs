@@ -40,6 +40,9 @@ pub(crate) struct Resources {
     /// Albedo, normal and roughness-metallic arrays with their array views.
     pub palettes: Vec<(Texture, TextureView)>,
     pub layered: Option<Arc<ResidentSource>>,
+    /// The scene's own shared terrain, whose surface table names the textures that the engine
+    /// copies into a game's material arrays.
+    pub scene: Arc<worldrunner_render_plan::SceneTerrain>,
 }
 
 /// The page cache and one page table, which the pages surfaces read.

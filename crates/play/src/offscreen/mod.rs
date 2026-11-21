@@ -57,6 +57,7 @@ mod census;
 mod compute;
 mod defaults;
 mod depth_range;
+mod environment;
 mod flush;
 mod frame;
 mod holdings;
@@ -71,6 +72,7 @@ mod pixels;
 mod probe;
 mod procedural_draw;
 mod properties;
+mod raster;
 mod records;
 mod report;
 mod screen;
@@ -106,6 +108,7 @@ pub use compute::{
 };
 pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
 pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
+pub use environment::{SPEC_CUBE0, add_environment};
 pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,

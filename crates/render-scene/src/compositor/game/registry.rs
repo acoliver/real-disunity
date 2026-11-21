@@ -1,6 +1,10 @@
 //! The inventory of a game's feature factories, and their registration on each renderer
 //! generation.
 use super::camera::FrameCameraHandle;
+use super::environment::FrameEnvironmentHandle;
+use super::occlusion::FrameOcclusionHandle;
+use super::resources::{GameResources, SharedTextures};
+use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
 use super::targets::{GameTargets, TargetDeclaration, TargetStore};
@@ -8,7 +12,7 @@ use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
-use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
     FrameFeature, PassDeclaration, PostError, PrepareContext, PreparedFeature,
@@ -16,9 +20,13 @@ use worldrunner_render_post::{
 
 /// What a factory is given to build the feature of one renderer generation.
 pub struct GameBuild<'a> {
-    /// The device, queue and submission authority the renderer was built on, for a program
-    /// runtime or any other resource the feature owns.
+    /// The device, queue and submission authority the renderer was built on. A feature that
+    /// keeps its resources with the renderer declares them to [`Self::resources`] instead.
     pub context: &'a GpuContext,
+    /// The buffers, textures and samplers the factory declares, and the program runtime its
+    /// features draw with, created and owned by this generation and shared by the factory's
+    /// depth-prefix and ordinary features.
+    pub resources: GameResources,
     /// The frame the generation renders: extents, format and samples.
     pub frame: FrameConfig,
     /// The targets the inventory declares, resolved for this generation.
@@ -30,6 +38,14 @@ pub struct GameBuild<'a> {
     pub terrain: FrameTerrainHandle,
     /// The stock shadow cascades of the frame in flight, published by the shadowed route.
     pub shadows: FrameShadowHandle,
+    /// The stock ambient occlusion of the frame in flight, set as each frame begins encoding.
+    pub occlusion: FrameOcclusionHandle,
+    /// The installed specular environment cube of the frame in flight, set before each frame
+    /// plans.
+    pub environment: FrameEnvironmentHandle,
+    /// The scene's resident textures, lent in every frame and in a depth prefix submitted ahead
+    /// of the frame.
+    pub scene_textures: FrameSceneTexturesHandle,
     /// The opaque snapshots of the frame in flight, published once the frame is planned and only
     /// when a pass of it declared a read of them.
     pub snapshots: FrameSnapshotHandle,
@@ -51,6 +67,12 @@ pub trait GameFeatureFactory: Send + Sync {
         Vec::new()
     }
 
+    /// The bytes [`GameBuild::resources`] may hold: its declared buffers and textures with what
+    /// its program runtime allocates. None by default.
+    fn resource_budget(&self) -> AllocationBudget {
+        AllocationBudget(0)
+    }
+
     /// The frame's opaque snapshots that this contribution's passes may read. The default reads
     /// none, and then a renderer with no water, reflection or depth-tested overlay allocates no
     /// snapshots at all. A factory that samples them states it here so that the renderer reserves
@@ -68,6 +90,41 @@ pub trait GameFeatureFactory: Send + Sync {
     /// # Errors
     /// Whatever refuses the feature; the renderer is not built.
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError>;
+
+    /// Builds the feature that adds the game's passes after the depth prepass
+    /// ([`GamePlace::AfterDepthPrepass`](worldrunner_render_post::GamePlace::AfterDepthPrepass)),
+    /// or `None`, the default, for a game that adds none.
+    ///
+    /// These passes complete the depth prefix that the depth pyramid, the occlusion metadata,
+    /// SSAO and shadow depth fitting read, so a route that submits that prefix ahead of the frame
+    /// runs them inside it. That is why they belong to a feature of their own: the renderer plans
+    /// and prepares it once for the prefix, with only the prefix's passes in the list, and does
+    /// not prepare or draw it again in the rest of the frame. In a frame drawn whole it plans,
+    /// prepares and draws like the ordinary feature. It is built before the ordinary feature of
+    /// the same generation, from the same `context` except that `context.targets` plans only
+    /// this place, and it is prepared before it in a frame drawn whole.
+    ///
+    /// A depth-prefix feature reads the lent terrain only; shadow, occlusion and environment
+    /// inputs are `NotPrepared` there. A route that submits the prefix ahead of the frame lends
+    /// `context.terrain` inside the prefix, before this feature prepares, with the chunks the
+    /// rest of the frame lends. It prepares this feature before the frame publishes
+    /// `context.shadows`, `context.occlusion` and `context.environment`, so there each refuses
+    /// with `NotPrepared`, and the shadow casters of a fitted frame draw after it. The opaque
+    /// snapshots (`context.snapshots`) are written after Opaque, so no pass of this feature can
+    /// declare a read of them.
+    ///
+    /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
+    /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with
+    /// `FrameError::MissingPass`; check the pass list for `PassSlot::DepthNormalPrepass` first.
+    ///
+    /// # Errors
+    /// Whatever refuses the feature; the renderer is not built.
+    fn build_depth_prefix(
+        &self,
+        _context: &GameBuild<'_>,
+    ) -> Result<Option<Box<dyn FrameFeature>>, FrameError> {
+        Ok(None)
+    }
 }
 
 /// The inventoried game contributions of a renderer configuration. Empty by default, in which
@@ -181,17 +238,35 @@ impl GamePasses {
             &self.declarations(),
             frame.size,
         ));
+        let shared = SharedTextures::default();
         for factory in &self.factories {
-            let feature = factory.build(&GameBuild {
+            let resources = GameResources::new(
+                context.device(),
+                context.submission(),
+                factory.resource_budget(),
+                shared.clone(),
+            );
+            renderer.game.resources.push(resources.clone());
+            let build = |targets: GameTargets| GameBuild {
                 context,
+                resources: resources.clone(),
                 frame,
-                targets: GameTargets::new(store.clone())
-                    .with_snapshot_reads(factory.snapshot_reads()),
+                targets: targets.with_snapshot_reads(factory.snapshot_reads()),
                 camera: renderer.game_camera.clone(),
                 terrain: renderer.game_terrain.clone(),
                 shadows: renderer.game.shadows.clone(),
+                occlusion: renderer.game.occlusion.clone(),
+                environment: renderer.game.environment.clone(),
+                scene_textures: renderer.game_textures.clone(),
                 snapshots: renderer.game.snapshots.clone(),
-            })?;
+            };
+            let prefix =
+                factory.build_depth_prefix(&build(GameTargets::for_depth_prefix(store.clone())))?;
+            let feature = factory.build(&build(GameTargets::new(store.clone())))?;
+            if let Some(prefix) = prefix {
+                renderer.chain.register_prefix(context.device(), prefix)?;
+                renderer.game.features += 1;
+            }
             renderer.chain.register(
                 context.device(),
                 Box::new(Registered {
@@ -217,6 +292,12 @@ pub(crate) struct Installed {
     pub(crate) store: Option<Arc<TargetStore>>,
     /// Where the shadowed route lends its cascades to the features of this generation.
     pub(crate) shadows: FrameShadowHandle,
+    /// Where every route lends its ambient occlusion to the features of this generation.
+    pub(crate) occlusion: FrameOcclusionHandle,
+    /// Where every route lends its specular environment to the features of this generation.
+    pub(crate) environment: FrameEnvironmentHandle,
+    /// Each factory's declared resources, released with this generation.
+    pub(crate) resources: Vec<GameResources>,
     /// Where the renderer lends the frame's opaque snapshots to the features of this generation.
     pub(crate) snapshots: FrameSnapshotHandle,
     /// The snapshots the inventory's factories declared they read, which this generation
@@ -316,5 +397,29 @@ impl FrameRenderer {
             .store
             .as_ref()
             .map_or_else(Vec::new, |store| store.write_keys())
+    }
+
+    /// The writes the game's passes after the depth prepass add to a capture's prefix: each
+    /// target's texture, imported as [`Self::game_capture_imports`] imports it for the suffix,
+    /// since those passes may attach any of them. A renderer whose game has no depth-prefix
+    /// feature adds none. The prefix publishes none of the game's bookkeeping; the suffix, which
+    /// lists the prefix's entries as completed, does.
+    ///
+    /// # Errors
+    /// [`FrameError`] when the renderer's registry refuses a texture.
+    pub(crate) fn capture_prefix_game_keys(
+        &mut self,
+    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
+        if !self.chain.has_prefix_features() {
+            return Ok(Vec::new());
+        }
+        let game = self.game_capture_imports();
+        let imports: Vec<_> = game
+            .iter()
+            .map(|(texture, initial)| (texture, *initial))
+            .collect();
+        self.chain
+            .capture_write_keys_initial(&imports)
+            .map_err(FrameError::from)
     }
 }

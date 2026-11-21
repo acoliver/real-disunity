@@ -5,7 +5,7 @@
 //! levels and statistics equal those of a scan over every slot. A placement's level and fade
 //! outcome depend on the eye and not on the view, so every view of a frame shares them
 //! through each batch's level memo.
-use std::cell::Ref;
+use std::cell::{Ref, RefCell};
 
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::SceneObject;
@@ -18,7 +18,7 @@ use super::{
 use crate::draw::slice_hull::LightMap;
 use crate::instances::fade::Fade;
 use crate::instances::slot_bounds::{Level, LevelKey, Node, SlotBounds};
-use crate::instances::{BatchKey, InstanceBatch, Instances};
+use crate::instances::{BatchKey, Instances, LayoutStamp};
 
 /// What every view of one frame selects from. It holds only shared references to plain data
 /// and atomics, so views may select on several threads at once.
@@ -31,18 +31,113 @@ pub(in crate::draw) struct Placements<'a> {
     relief: bool,
     eye_millimeters: [i64; 3],
     fade_eye: Vec3,
+    /// The epoch under which the batches' level memos hold the outcomes for this eye.
+    epoch: u8,
+    /// Live placements in every batch, which every view considers.
+    live: usize,
 }
 
 /// Slots in a leaf up to which a view tests them one by one instead of classifying the leaf.
 pub(super) const SMALL_LEAF: usize = 4;
 
+/// The placements of one batch by slot, none where a slot is free.
+type Placed<'a> = &'a [Option<(SceneObject, bool)>];
+
 struct IndexedBatch<'a> {
     key: BatchKey,
-    placements: &'a [Option<(SceneObject, bool)>],
+    placements: Placed<'a>,
+    /// What each slot is to a view, in one byte per slot (see `CAMERA` and `CASTER`).
+    flags: &'a [u8],
     bounds: &'a SlotBounds,
     largest_relief: f32,
     /// What can fade out a placement of the batch.
     fade_reach: FadeReach,
+    /// Whether the batch has so few live placements, up to `SMALL_LEAF`, that its tree is one
+    /// small leaf, which a view tests slot by slot without walking the tree.
+    small: bool,
+}
+
+/// A slot's flag when a camera view may draw it: it is visible and not shadow-only.
+const CAMERA: u8 = 1;
+/// A slot's flag when a view of casters may draw it: it is visible and casts a shadow.
+const CASTER: u8 = 2;
+
+/// The flags of a placement. A view tests one byte of a dense list per slot instead of reading
+/// each placement, which is far larger and lies in memory of its own.
+fn flags(placement: Option<&(SceneObject, bool)>) -> u8 {
+    placement.map_or(0, |(object, visible)| {
+        (u8::from(*visible && !object.shadow_only()) * CAMERA)
+            | (u8::from(*visible && object.casts_shadow()) * CASTER)
+    })
+}
+
+/// What a view reads of each batch besides its placements and bounds, in the order of the
+/// batches. None of it depends on the eye or the view, so it holds from one frame to the next
+/// until a placement or a table changes, and a frame then reads it from one dense list instead
+/// of deriving it from every batch.
+#[derive(Debug, Default)]
+pub(in crate::draw) struct PlacementRows {
+    at: Option<LayoutStamp>,
+    rows: Vec<Row>,
+    live: usize,
+    /// The flags of every batch's slots, one batch after another.
+    flags: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Row {
+    key: BatchKey,
+    /// Where this batch's flags start in the list of every batch's, and how many it has.
+    flags_at: usize,
+    slots: usize,
+    largest_relief: f32,
+    fade_reach: FadeReach,
+    small: bool,
+}
+
+impl PlacementRows {
+    /// Makes the rows those of `instances` in the state `stamp` names, from the bounds and
+    /// placements of its batches in order, which `refresh_all` has made current.
+    fn refresh<'b>(
+        &mut self,
+        stamp: LayoutStamp,
+        instances: &Instances,
+        meshes: &[MeshSelection],
+        batches: impl ExactSizeIterator<Item = (&'b SlotBounds, Placed<'b>)>,
+    ) {
+        if self.at == Some(stamp) && self.rows.len() == batches.len() {
+            debug_assert!(
+                instances
+                    .batches
+                    .keys()
+                    .eq(self.rows.iter().map(|row| &row.key)),
+                "batches are never removed, and a new one changes the stamp or the count"
+            );
+            return;
+        }
+        // A mesh's slots fade placements the same whichever material the placement draws with.
+        let mut slot_reaches: Vec<Option<FadeReach>> = vec![None; meshes.len()];
+        self.rows.clear();
+        self.flags.clear();
+        self.live = 0;
+        for ((&key, _), (bounds, placements)) in instances.batches.iter().zip(batches) {
+            let slot_reach = *slot_reaches[key.1]
+                .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
+            let live = bounds.tree().len();
+            self.live += live;
+            self.rows.push(Row {
+                key,
+                flags_at: self.flags.len(),
+                slots: placements.len(),
+                largest_relief: largest_relief(bounds.reliefs()),
+                fade_reach: slot_reach.with(instances.fades[key.2]),
+                small: live <= SMALL_LEAF,
+            });
+            self.flags
+                .extend(placements.iter().map(Option::as_ref).map(flags));
+        }
+        self.at = Some(stamp);
+    }
 }
 
 #[cfg(test)]
@@ -55,12 +150,13 @@ fn fade_cull_disabled(_: &Instances) -> bool {
     false
 }
 
-/// Refreshes every batch's bounds, tree and level memo for this eye, then lends the
+/// Refreshes every batch's bounds and tree and the memo of levels for this eye, then lends the
 /// placements to `select`.
 pub(in crate::draw) fn with_placements<R>(
     instances: &Instances,
     meshes: &[MeshSelection],
     (eye_millimeters, fade_eye): ([i64; 3], Vec3),
+    rows: &RefCell<PlacementRows>,
     select: impl FnOnce(&Placements<'_>) -> R,
 ) -> R {
     let fade_cull_disabled = fade_cull_disabled(instances);
@@ -70,29 +166,31 @@ pub(in crate::draw) fn with_placements<R>(
         fade_cull_disabled,
     };
     placement::refresh_all(instances, meshes);
-    for batch in instances.batches.values() {
-        batch.bounds.borrow_mut().prepare_levels(key);
-    }
-    let borrowed: Vec<(BatchKey, &InstanceBatch, Ref<'_, SlotBounds>)> = instances
+    let epoch = instances.level_epoch(key);
+    let borrowed: Vec<(Ref<'_, SlotBounds>, Placed<'_>)> = instances
         .batches
-        .iter()
-        .map(|(&key, batch)| (key, batch, batch.bounds.borrow()))
+        .values()
+        .map(|batch| (batch.bounds.borrow(), batch.slots()))
         .collect();
-    // A mesh's slots fade placements the same whichever material the placement draws with.
-    let mut slot_reaches: Vec<Option<FadeReach>> = vec![None; meshes.len()];
+    let mut rows = rows.borrow_mut();
+    rows.refresh(
+        instances.layout_stamp(meshes.len()),
+        instances,
+        meshes,
+        borrowed.iter().map(|(bounds, slots)| (&**bounds, *slots)),
+    );
     let placements = Placements {
         batches: borrowed
             .iter()
-            .map(|(key, batch, bounds)| {
-                let slot_reach = *slot_reaches[key.1]
-                    .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
-                IndexedBatch {
-                    key: *key,
-                    placements: batch.slots(),
-                    bounds,
-                    largest_relief: largest_relief(bounds.reliefs()),
-                    fade_reach: slot_reach.with(instances.fades[key.2]),
-                }
+            .zip(&rows.rows)
+            .map(|((bounds, placements), row)| IndexedBatch {
+                key: row.key,
+                placements,
+                flags: &rows.flags[row.flags_at..row.flags_at + row.slots],
+                bounds,
+                largest_relief: row.largest_relief,
+                fade_reach: row.fade_reach,
+                small: row.small,
             })
             .collect(),
         meshes,
@@ -104,6 +202,8 @@ pub(in crate::draw) fn with_placements<R>(
             .any(|extent| extent[1] != 0.0),
         eye_millimeters,
         fade_eye,
+        epoch,
+        live: rows.live,
     };
     select(&placements)
 }
@@ -112,6 +212,9 @@ impl Selection {
     /// Selects the placements this view's `matrix`, slice and caster filter admit.
     pub fn select(&mut self, placements: &Placements<'_>, matrix: Mat4) {
         self.reset(placements.meshes);
+        // Traversal covers allocated slots; removed slots contribute neither selection work nor
+        // statistics.
+        self.stats.considered = placements.live;
         let frustum = Frustum::new(matrix);
         let light = LightMap::new(matrix);
         let stretch = if placements.relief {
@@ -123,20 +226,15 @@ impl Selection {
             frustum: &frustum,
             light: &light,
             stretch,
+            flag: if self.casters_only { CASTER } else { CAMERA },
         };
         let mut admitted = Vec::new();
         let mut stack = Vec::new();
         for batch in &placements.batches {
-            let tree = batch.bounds.tree();
-            // Traversal covers allocated slots; removed slots contribute neither
-            // selection work nor statistics.
-            self.stats.considered += tree.len();
-            if let Some(Node::Leaf { slots, .. }) = tree.root().map(|root| tree.node(root))
-                && slots.len() <= SMALL_LEAF
-            {
+            if batch.small {
                 // The slots of a lone small leaf ascend, so they are tested and emitted in
                 // place, without the list and sort of a walk.
-                for &slot in slots {
+                for &slot in batch.bounds.tree().slots() {
                     if self.admits_slot(batch, slot, view, Passed::default()) {
                         self.push_level(placements, batch, slot);
                     }
@@ -170,15 +268,7 @@ impl Selection {
         view: ViewTests<'_>,
         passed: Passed,
     ) -> bool {
-        let (object, visible) = batch.placements[slot as usize]
-            .as_ref()
-            .expect("live instance");
-        *visible
-            && if self.casters_only {
-                object.casts_shadow()
-            } else {
-                !object.shadow_only()
-            }
+        batch.flags[slot as usize] & view.flag != 0
             && self.admits(view.frustum, view.light, passed, || {
                 placement::placement(
                     batch.bounds.boxes(slot as usize),
@@ -243,6 +333,8 @@ struct ViewTests<'a> {
     light: &'a LightMap,
     /// The view's relief ray stretch.
     stretch: f32,
+    /// The flag a slot must have for the view to draw it.
+    flag: u8,
 }
 
 impl Placements<'_> {
@@ -262,7 +354,7 @@ impl Placements<'_> {
 
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
-        batch.bounds.levels().get_or_compute(slot, || {
+        batch.bounds.levels().get_or_compute(self.epoch, slot, || {
             let (object, _) = batch.placements[slot].as_ref().expect("live instance");
             let inputs = batch.bounds.inputs(slot);
             let distance = distance_squared(
@@ -318,6 +410,7 @@ impl Selection {
             instances,
             meshes,
             (eye_millimeters, fade_eye),
+            &RefCell::default(),
             |placements| self.select(placements, matrix),
         );
     }

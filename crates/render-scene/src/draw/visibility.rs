@@ -8,7 +8,7 @@ use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
 pub(super) use casters::{caster_matrix, caster_placement};
 pub(super) use frustum::{Frustum, Region};
-pub(super) use select::with_placements;
+pub(super) use select::{PlacementRows, with_placements};
 
 mod casters;
 mod fade;

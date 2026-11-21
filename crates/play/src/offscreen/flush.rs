@@ -44,7 +44,9 @@ use super::ids;
 use super::pass_notes;
 use super::pixels::{self, Copied, PixelAnswer, Wanted};
 use super::probe::{BeforeDispatch, Probe};
-use super::screen::{ScreenImage, writes_screen};
+#[cfg(test)]
+use super::screen::ScreenImage;
+use super::screen::writes_screen;
 use super::sink::BufferSink;
 use super::trace::WorkTrace;
 
@@ -288,11 +290,16 @@ impl OffscreenHost {
         }
     }
 
-    /// Whether work has drawn into the screen since [`read_screen`](Self::read_screen) last
-    /// gave its image.
+    /// Whether work has drawn into the screen since the last
+    /// [`take_screen_written`](Self::take_screen_written).
     #[must_use]
     pub fn screen_written(&self) -> bool {
         self.screen_written
+    }
+
+    /// Whether work has drawn into the screen since the last call, which starts the count again.
+    pub fn take_screen_written(&mut self) -> bool {
+        std::mem::take(&mut self.screen_written)
     }
 
     /// Tells the host that the operations the last [`frame`](Self::frame) gave were submitted, so
@@ -301,7 +308,8 @@ impl OffscreenHost {
         self.screen_written |= std::mem::take(&mut self.frame_writes_screen);
     }
 
-    /// Reads the screen back: the image the screen holds now, which `frame` numbers. The copy is
+    /// Reads the screen back: the image the screen holds now, which `frame` numbers. Tests read
+    /// what draws left in the screen with it; a run writes its screens from the GPU texture. The copy is
     /// submitted and waited for on its own, after every submission before it. A refusal is the
     /// reason, for the caller to count (see the `screen` module), and leaves the screen marked as
     /// written.
@@ -309,6 +317,7 @@ impl OffscreenHost {
     /// # Errors
     /// Fails with the reason when the screen has no storage, the copy cannot be made or read, or
     /// the screen is not four 8-bit channels.
+    #[cfg(test)]
     pub fn read_screen(&mut self, frame: u64) -> Result<ScreenImage, String> {
         // The frame that stages the copy is not begun yet, so storage can still be released.
         self.make_room_to_read(ids::screen_color());
@@ -333,7 +342,7 @@ impl OffscreenHost {
             .resolve(submission)
             .map_err(|_| pixels::REFUSED_NOT_READ)?;
         let screen = ScreenImage::from_gpu_rows(&image, frame)?;
-        self.screen_written = false;
+        self.take_screen_written();
         Ok(screen)
     }
 

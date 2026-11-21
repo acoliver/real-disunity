@@ -209,18 +209,22 @@ fn play_screen_fixture(gpu: &PlayerGpu, frames: u64) {
 }
 
 #[test]
-fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_image_alone() {
+fn a_frame_that_clears_the_screen_numbers_it_and_frames_after_it_leave_the_number_alone() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
     let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
-    assert!(gpu.screen().is_none(), "nothing drew yet");
+    assert_eq!(gpu.drawn_screen(), None, "nothing drew yet");
 
     play_screen_fixture(&gpu, 4);
 
-    let image = gpu.screen().expect("the clear was read back");
+    assert_eq!(
+        gpu.drawn_screen(),
+        Some(0),
+        "both clears were in the first frame's work"
+    );
+    let image = gpu.offscreen.borrow_mut().read_screen(0).unwrap();
     assert_eq!((image.width, image.height), (8, 4));
-    assert_eq!(image.frame, 0, "both clears were in the first frame's work");
     assert!(
         image
             .rgba
@@ -229,14 +233,8 @@ fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_
         "the screen is yellow all over"
     );
     let report = gpu.report();
-    assert_eq!((report.frames, report.screen_reads), (4, 1));
-    assert!(report.screen_reads_refused.is_empty());
+    assert_eq!(report.frames, 4);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
-    assert!(
-        report
-            .screen_line()
-            .starts_with("[gpu] screen images read back 1, refused 0")
-    );
 }
 
 #[test]
@@ -247,9 +245,8 @@ fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
 
     play_screen_fixture(&gpu, 2);
 
-    assert!(gpu.screen().is_none());
+    assert_eq!(gpu.drawn_screen(), None);
     let report = gpu.report();
-    assert_eq!(report.screen_reads, 0);
     assert!(
         report
             .skipped_by_kind
@@ -260,7 +257,7 @@ fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
 }
 
 #[test]
-fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame() {
+fn a_screen_taken_away_after_a_flush_wrote_it_gives_the_next_frame_no_number() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
     let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
@@ -278,21 +275,7 @@ fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame()
     gpu.set_screen(None);
     gpu.frame(&mut host).unwrap();
 
-    assert!(gpu.screen().is_none());
-    assert_eq!(gpu.report().screen_reads, 0);
-}
-
-#[test]
-fn a_screen_readback_that_was_refused_is_counted_by_its_reason() {
-    let report = GpuWorkReport {
-        screen_reads: 3,
-        screen_reads_refused: BTreeMap::from([("over the storage budget".to_owned(), 2)]),
-        ..GpuWorkReport::default()
-    };
-    assert_eq!(
-        report.screen_line(),
-        "[gpu] screen images read back 3, refused 2 (over the storage budget: 2)"
-    );
+    assert_eq!(gpu.drawn_screen(), None);
 }
 
 #[test]
@@ -460,8 +443,9 @@ fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
         before,
         "the viewer's frame submits it, not the player"
     );
-    assert!(
-        gpu.screen().is_none(),
+    assert_eq!(
+        gpu.drawn_screen(),
+        None,
         "nothing has drawn into the screen yet"
     );
     assert!(!gpu.offscreen.borrow().screen_written());
@@ -506,10 +490,9 @@ fn the_window_reads_nothing_back_from_the_screen_it_shows() {
         !screen.submitted(),
         "the viewer's frame wrote it, not a flush"
     );
-    assert!(gpu.screen().is_none(), "no image was made of it");
+    assert_eq!(gpu.drawn_screen(), None, "a window frame numbers nothing");
     let report = gpu.report();
-    assert_eq!((report.screen_reads, report.frames_with_work), (0, 1));
-    assert!(report.screen_reads_refused.is_empty());
+    assert_eq!(report.frames_with_work, 1);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
 }
 

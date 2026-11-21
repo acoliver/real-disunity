@@ -511,12 +511,12 @@ fn screens_due<'a>(
     if files.is_empty() {
         return Ok((frame, files));
     }
-    let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
+    let drawn = gpu.and_then(PlayerGpu::drawn_screen).ok_or_else(|| {
         PlayError::Invalid(format!(
             "no screen image after frame {frame}: no work has drawn into the screen yet"
         ))
     })?;
-    Ok((image.frame, files))
+    Ok((drawn, files))
 }
 
 /// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest
@@ -529,11 +529,15 @@ fn write_screens(
     screen: Option<&ScreenOutput>,
 ) -> Result<(), PlayError> {
     let (drawn, files) = screens_due(gpu, frame, screen)?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    // `check_screen` refuses a run with a screen and no device, so both are here.
     match (composer, gpu) {
-        (Some(composer), Some(gpu)) if !files.is_empty() => {
-            composer.write(host, gpu, drawn, &files)
-        }
-        _ => Ok(()),
+        (Some(composer), Some(gpu)) => composer.write(host, gpu, drawn, &files),
+        _ => Err(PlayError::Invalid(format!(
+            "screen frame {frame} is due and the run has no device to compose it on"
+        ))),
     }
 }
 

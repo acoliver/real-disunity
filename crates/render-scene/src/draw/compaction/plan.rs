@@ -39,8 +39,19 @@ impl Plan {
     /// Returns `None` when the records would not fit a draw's instance range.
     pub fn new(ranges: &[SelectedRange]) -> Option<Self> {
         let mut order: Vec<&SelectedRange> = ranges.iter().collect();
-        order.sort_by_key(|range| (range.key, range.lod));
-        let mut plan = Self::default();
+        if order.is_sorted_by_key(|range| range.key) {
+            // A selection lists its batches in key order, so only the levels within each
+            // batch need ordering; a stable sort of each run gives the (batch, LOD) order.
+            for run in order.chunk_by_mut(|a, b| a.key == b.key) {
+                run.sort_by_key(|range| range.lod);
+            }
+        } else {
+            order.sort_by_key(|range| (range.key, range.lod));
+        }
+        let mut plan = Self {
+            copies: Vec::with_capacity(ranges.len()),
+            ..Self::default()
+        };
         for range in order {
             let start = plan.total;
             let end = start.checked_add(range.slots.end - range.slots.start)?;
@@ -71,8 +82,18 @@ impl Plan {
     /// runs longer than [`RUN_RECORDS`] split.
     pub fn runs(&self, base: impl Fn(BatchKey) -> u32) -> Vec<Run> {
         let mut merged: Vec<Run> = Vec::with_capacity(self.copies.len());
+        // Copies of one batch are adjacent, so the batch's base is looked up once per batch.
+        let mut last: Option<(BatchKey, u32)> = None;
         for copy in &self.copies {
-            let source = base(copy.key)
+            let batch_base = match last {
+                Some((key, batch_base)) if key == copy.key => batch_base,
+                _ => {
+                    let batch_base = base(copy.key);
+                    last = Some((copy.key, batch_base));
+                    batch_base
+                }
+            };
+            let source = batch_base
                 .checked_add(copy.source.start)
                 .expect("mirror records fit u32");
             let count = copy.source.end - copy.source.start;

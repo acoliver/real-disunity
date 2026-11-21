@@ -162,3 +162,67 @@ fn scaled_ceilings_admit_exactly_the_distances_the_rational_test_admits() {
         }
     }
 }
+
+/// The squared distance as it was computed in 128-bit signed arithmetic throughout.
+fn distance_squared_reference(position: [i64; 3], eye: [i64; 3]) -> Option<u128> {
+    position
+        .into_iter()
+        .zip(eye)
+        .try_fold(0_u128, |sum, (position, eye)| {
+            let delta = (i128::from(position) - i128::from(eye)).unsigned_abs();
+            sum.checked_add(delta * delta)
+        })
+}
+
+#[test]
+fn squared_distances_equal_the_wide_computation_around_the_narrow_limit() {
+    let limit = 1_i64 << 31;
+    let values = [
+        0,
+        1,
+        -1,
+        999,
+        limit - 1,
+        limit,
+        limit + 1,
+        -limit + 1,
+        -limit,
+        -limit - 1,
+        3 * limit,
+        i64::from(i32::MAX),
+        i64::from(i32::MIN),
+        i64::MAX / 3,
+        i64::MIN / 3,
+        i64::MAX,
+        i64::MIN,
+    ];
+    let mut checked = 0;
+    for &x in &values {
+        for &y in &values {
+            for &z in &values {
+                for eye in [
+                    [0, 0, 0],
+                    [x, y, z],
+                    [y, z.saturating_neg(), 5],
+                    [limit, -limit, 7],
+                ] {
+                    // Only the sums of squares of 2^64-wide differences overflow.
+                    if let Some(expected) = distance_squared_reference([x, y, z], eye) {
+                        assert_eq!(distance_squared([x, y, z], eye), expected);
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 10_000);
+}
+
+#[test]
+#[should_panic(expected = "squared placement distance exceeds u128 millimetres")]
+fn a_squared_distance_beyond_u128_still_panics() {
+    let _ = distance_squared(
+        [i64::MIN, i64::MIN, i64::MIN],
+        [i64::MAX, i64::MAX, i64::MAX],
+    );
+}

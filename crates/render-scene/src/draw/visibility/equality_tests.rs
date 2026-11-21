@@ -64,11 +64,11 @@ fn scan(
             let bounds = placement::placement(&boxes, shape.reliefs(), stretch);
             let admitted = visible
                 && (!view.casters_only || object.casts_shadow())
-                && frustum.intersects(bounds)
+                && frustum.intersects_reference(bounds)
                 && view
                     .slice
                     .as_ref()
-                    .is_none_or(|slice| slice.overlaps(bounds, matrix));
+                    .is_none_or(|slice| slice.overlaps_reference(bounds, matrix));
             let position = object.transform().position_millimeters;
             let lod = reference_lod(
                 mesh,
@@ -454,6 +454,63 @@ fn tree_walk_shared_levels_and_caster_fit_equal_the_full_scan() {
         edit(&mut instances, &mut rng, &mut added);
     }
     assert!(!added.is_empty());
+}
+
+/// The slot counts of every leaf of every batch's tree.
+fn leaf_sizes(instances: &Instances) -> std::collections::BTreeSet<usize> {
+    use crate::instances::slot_bounds::Node;
+    let mut sizes = std::collections::BTreeSet::new();
+    for batch in instances.batches.values() {
+        let bounds = batch.bounds.borrow();
+        let tree = bounds.tree();
+        let mut stack: Vec<usize> = tree.root().into_iter().collect();
+        while let Some(index) = stack.pop() {
+            match tree.node(index) {
+                Node::Inner { children, .. } => stack.extend(children),
+                Node::Leaf { slots, .. } => {
+                    sizes.insert(slots.len());
+                }
+            }
+        }
+    }
+    sizes
+}
+
+/// Worlds whose batches hold a few placements each, as a scene of many small prop batches
+/// does, so the leaves on both sides of the size below which a view tests slots one by one
+/// are selected like the full scan, with and without edits.
+#[test]
+fn leaves_of_every_size_around_the_one_by_one_threshold_equal_the_full_scan() {
+    let mut seen = std::collections::BTreeSet::new();
+    for (placements, seed) in [(60, 21), (150, 22), (400, 23), (900, 24)] {
+        let source = world(placements, 24, seed);
+        let fades = reference_fades(&source);
+        let meshes: Vec<_> = source
+            .geometry()
+            .meshes()
+            .iter()
+            .map(MeshSelection::new)
+            .collect();
+        let mut instances = Instances::new(&source);
+        let mut rng = Rng::new(seed);
+        let mut added = Vec::new();
+        for round in 0..3_u16 {
+            for step in 0..5_u16 {
+                let frame = if step < 3 {
+                    super::large_scene::walk(round * 11 + step * 5)
+                } else {
+                    random_frame(&mut rng)
+                };
+                assert_frame_matches_scan((&instances, &fades), &meshes, &frame, None);
+            }
+            seen.extend(leaf_sizes(&instances));
+            edit(&mut instances, &mut rng, &mut added);
+        }
+    }
+    assert!(
+        (1..=select::SMALL_LEAF + 1).all(|size| seen.contains(&size)),
+        "leaf sizes seen: {seen:?}"
+    );
 }
 
 mod edit_tests;

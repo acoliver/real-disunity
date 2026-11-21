@@ -10,10 +10,12 @@ use std::cell::Ref;
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::SceneObject;
 
+use super::fade::FadeReach;
 use super::placement::{self, largest_relief};
 use super::{
     Bounds, Frustum, MeshSelection, Passed, Selection, distance_squared, relief_ray_stretch,
 };
+use crate::draw::slice_hull::LightMap;
 use crate::instances::fade::Fade;
 use crate::instances::slot_bounds::{Level, LevelKey, Node, SlotBounds};
 use crate::instances::{BatchKey, InstanceBatch, Instances};
@@ -31,11 +33,16 @@ pub(in crate::draw) struct Placements<'a> {
     fade_eye: Vec3,
 }
 
+/// Slots in a leaf up to which a view tests them one by one instead of classifying the leaf.
+pub(super) const SMALL_LEAF: usize = 4;
+
 struct IndexedBatch<'a> {
     key: BatchKey,
     placements: &'a [Option<(SceneObject, bool)>],
     bounds: &'a SlotBounds,
     largest_relief: f32,
+    /// What can fade out a placement of the batch.
+    fade_reach: FadeReach,
 }
 
 #[cfg(test)]
@@ -71,14 +78,21 @@ pub(in crate::draw) fn with_placements<R>(
         .iter()
         .map(|(&key, batch)| (key, batch, batch.bounds.borrow()))
         .collect();
+    // A mesh's slots fade placements the same whichever material the placement draws with.
+    let mut slot_reaches: Vec<Option<FadeReach>> = vec![None; meshes.len()];
     let placements = Placements {
         batches: borrowed
             .iter()
-            .map(|(key, batch, bounds)| IndexedBatch {
-                key: *key,
-                placements: batch.slots(),
-                bounds,
-                largest_relief: largest_relief(bounds.reliefs()),
+            .map(|(key, batch, bounds)| {
+                let slot_reach = *slot_reaches[key.1]
+                    .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
+                IndexedBatch {
+                    key: *key,
+                    placements: batch.slots(),
+                    bounds,
+                    largest_relief: largest_relief(bounds.reliefs()),
+                    fade_reach: slot_reach.with(instances.fades[key.2]),
+                }
             })
             .collect(),
         meshes,
@@ -99,84 +113,136 @@ impl Selection {
     pub fn select(&mut self, placements: &Placements<'_>, matrix: Mat4) {
         self.reset(placements.meshes);
         let frustum = Frustum::new(matrix);
+        let light = LightMap::new(matrix);
         let stretch = if placements.relief {
             relief_ray_stretch(matrix)
         } else {
             1.0
         };
+        let view = ViewTests {
+            frustum: &frustum,
+            light: &light,
+            stretch,
+        };
         let mut admitted = Vec::new();
         let mut stack = Vec::new();
         for batch in &placements.batches {
+            let tree = batch.bounds.tree();
             // Traversal covers allocated slots; removed slots contribute neither
             // selection work nor statistics.
-            self.stats.considered += batch.bounds.tree().len();
+            self.stats.considered += tree.len();
+            if let Some(Node::Leaf { slots, .. }) = tree.root().map(|root| tree.node(root))
+                && slots.len() <= SMALL_LEAF
+            {
+                // The slots of a lone small leaf ascend, so they are tested and emitted in
+                // place, without the list and sort of a walk.
+                for &slot in slots {
+                    if self.admits_slot(batch, slot, view, Passed::default()) {
+                        self.push_level(placements, batch, slot);
+                    }
+                }
+                continue;
+            }
             admitted.clear();
-            self.admit(
-                batch,
-                (&frustum, matrix, stretch),
-                &mut stack,
-                &mut admitted,
-            );
+            self.admit(batch, view, &mut stack, &mut admitted);
             admitted.sort_unstable();
             for &slot in &admitted {
-                let slot = slot as usize;
-                if let Level::Drawn(lod) = placements.level(batch, slot) {
-                    self.push(batch.key, lod, slot);
-                }
+                self.push_level(placements, batch, slot);
             }
         }
         self.stats.culled = self.stats.considered - self.stats.drawn_per_lod.iter().sum::<usize>();
     }
 
+    /// Emits `slot` at the level it draws at, unless every fragment of it is faded out.
+    fn push_level(&mut self, placements: &Placements<'_>, batch: &IndexedBatch<'_>, slot: u32) {
+        let slot = slot as usize;
+        if let Level::Drawn(lod) = placements.level(batch, slot) {
+            self.push(batch.key, lod, slot);
+        }
+    }
+
+    /// Whether `slot` is visible, casts when only casters count, is not shadow-only when the
+    /// view is a camera, and has bounds the view admits, given the tests its group `passed`.
+    fn admits_slot(
+        &self,
+        batch: &IndexedBatch<'_>,
+        slot: u32,
+        view: ViewTests<'_>,
+        passed: Passed,
+    ) -> bool {
+        let (object, visible) = batch.placements[slot as usize]
+            .as_ref()
+            .expect("live instance");
+        *visible
+            && if self.casters_only {
+                object.casts_shadow()
+            } else {
+                !object.shadow_only()
+            }
+            && self.admits(view.frustum, view.light, passed, || {
+                placement::placement(
+                    batch.bounds.boxes(slot as usize),
+                    batch.bounds.reliefs(),
+                    view.stretch,
+                )
+            })
+    }
+
     /// Collects the slots of `batch` that are visible, cast when only casters count, are not
-    /// shadow-only when the view is a camera, and whose bounds the view admits, skipping groups no placement of which it can admit.
+    /// shadow-only when the view is a camera, and whose bounds the view admits, skipping groups
+    /// no placement of which it can admit.
     fn admit(
         &self,
         batch: &IndexedBatch<'_>,
-        (frustum, matrix, stretch): (&Frustum, Mat4, f32),
+        view: ViewTests<'_>,
         stack: &mut Vec<(usize, Passed)>,
         admitted: &mut Vec<u32>,
     ) {
         let tree = batch.bounds.tree();
         // Each placement grows by at most the largest relief, so the grown group box holds
         // every grown placement box: rounding of subtraction and addition is monotone.
-        let growth = Vec3::splat(batch.largest_relief * stretch);
+        let growth = Vec3::splat(batch.largest_relief * view.stretch);
         stack.clear();
         stack.extend(tree.root().map(|root| (root, Passed::default())));
         while let Some((index, passed)) = stack.pop() {
             let node = tree.node(index);
-            let [min, max] = node.bounds();
-            let group = Bounds { min, max }.expanded(growth);
-            let Some(passed) = self.classify(frustum, matrix, group, passed) else {
-                continue;
+            let passed = match node {
+                // A few slots cost less to test one by one than their group costs to classify.
+                Node::Leaf { slots, .. } if slots.len() <= SMALL_LEAF => passed,
+                _ => {
+                    let [min, max] = node.bounds();
+                    let group = Bounds { min, max }.expanded(growth);
+                    let Some(passed) = self.classify(view.frustum, view.light, group, passed)
+                    else {
+                        continue;
+                    };
+                    passed
+                }
             };
             match node {
                 Node::Inner { children, .. } => {
                     stack.extend(children.map(|child| (child, passed)));
                 }
                 Node::Leaf { slots, .. } => {
-                    admitted.extend(slots.iter().copied().filter(|&slot| {
-                        let (object, visible) = batch.placements[slot as usize]
-                            .as_ref()
-                            .expect("live instance");
-                        *visible
-                            && if self.casters_only {
-                                object.casts_shadow()
-                            } else {
-                                !object.shadow_only()
-                            }
-                            && self.admits(frustum, matrix, passed, || {
-                                placement::placement(
-                                    batch.bounds.boxes(slot as usize),
-                                    batch.bounds.reliefs(),
-                                    stretch,
-                                )
-                            })
-                    }));
+                    admitted.extend(
+                        slots
+                            .iter()
+                            .copied()
+                            .filter(|&slot| self.admits_slot(batch, slot, view, passed)),
+                    );
                 }
             }
         }
     }
+}
+
+/// What one view tests placements against.
+#[derive(Clone, Copy)]
+struct ViewTests<'a> {
+    frustum: &'a Frustum,
+    light: &'a LightMap,
+    /// The view's relief ray stretch.
+    stretch: f32,
 }
 
 impl Placements<'_> {
@@ -205,6 +271,7 @@ impl Placements<'_> {
             );
             let lod = MeshSelection::level(distance, inputs.ceilings);
             if !self.fade_cull_disabled
+                && batch.fade_reach.applies(inputs.fade.band)
                 && self.meshes[batch.key.1].fade_empty(
                     self.fades,
                     object.material(),

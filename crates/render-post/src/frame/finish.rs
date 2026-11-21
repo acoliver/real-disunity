@@ -54,6 +54,19 @@ impl PrepareContext<'_> {
                     retained.push(source.0.clone());
                     continue;
                 }
+                Staged::TextureCopy {
+                    source,
+                    destination,
+                    size,
+                } => {
+                    run = None;
+                    self.encoder.copy_texture_to_texture(
+                        super::prepare::borrowed(source),
+                        super::prepare::borrowed(destination),
+                        *size,
+                    );
+                    continue;
+                }
                 Staged::Dispatch {
                     label,
                     pipeline,

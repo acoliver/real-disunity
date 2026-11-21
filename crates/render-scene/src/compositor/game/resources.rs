@@ -223,6 +223,11 @@ impl GameResources {
         self.runtime.borrow_mut()
     }
 
+    /// Names this factory's store in the engine's records of who holds a shared resource.
+    pub(super) fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Bytes of the declared buffers and textures.
     pub fn bytes(&self) -> u64 {
         self.store.borrow().bytes
@@ -231,7 +236,7 @@ impl GameResources {
     /// Admits `bytes` more against the budget, which the program runtime counts too: what the
     /// declared resources hold is in its ledger, so one budget bounds both. The hold keeps the
     /// bytes counted while the resource lives.
-    fn admit(&self, label: &str, bytes: u64) -> Result<ExternalHold, GameResourceError> {
+    pub(super) fn admit(&self, label: &str, bytes: u64) -> Result<ExternalHold, GameResourceError> {
         self.fits(label, bytes)?;
         self.runtime
             .borrow()

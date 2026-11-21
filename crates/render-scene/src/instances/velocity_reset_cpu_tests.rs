@@ -16,7 +16,14 @@ fn previous_uploads(batch: &mut InstanceBatch) -> Vec<(u64, Vec<u8>)> {
 }
 
 fn batch() -> InstanceBatch {
-    let mut batch = InstanceBatch::default();
+    filled(InstanceBatch::default())
+}
+
+fn skinned_batch() -> InstanceBatch {
+    filled(InstanceBatch::skinned())
+}
+
+fn filled(mut batch: InstanceBatch) -> InstanceBatch {
     let object = SceneObject::new(
         SceneTransform {
             position_millimeters: [0; 3],
@@ -132,8 +139,7 @@ fn repeated_flush_cpu_restores_current_and_preserves_other_staged_slots() {
 #[test]
 fn repeated_flush_cpu_restores_skin_without_transform_edits() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut batch = batch();
-    batch.skin = Some(SkinStream::default());
+    let mut batch = skinned_batch();
     for slot in 0..2 {
         batch.set_skin(slot, [0, 0, 2, 0]);
     }

@@ -47,6 +47,9 @@ struct IndexedBatch<'a> {
     largest_relief: f32,
     /// What can fade out a placement of the batch.
     fade_reach: FadeReach,
+    /// Whether the batch has so few live placements, up to `SMALL_LEAF`, that its tree is one
+    /// small leaf, which a view tests slot by slot without walking the tree.
+    small: bool,
 }
 
 /// What a view reads of each batch besides its placements and bounds, in the order of the
@@ -65,6 +68,7 @@ struct Row {
     key: BatchKey,
     largest_relief: f32,
     fade_reach: FadeReach,
+    small: bool,
 }
 
 impl PlacementRows {
@@ -94,12 +98,13 @@ impl PlacementRows {
         for ((&key, _), bounds) in instances.batches.iter().zip(bounds) {
             let slot_reach = *slot_reaches[key.1]
                 .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
-            let tree = bounds.tree();
-            self.live += tree.len();
+            let live = bounds.tree().len();
+            self.live += live;
             self.rows.push(Row {
                 key,
                 largest_relief: largest_relief(bounds.reliefs()),
                 fade_reach: slot_reach.with(instances.fades[key.2]),
+                small: live <= SMALL_LEAF,
             });
         }
         self.at = Some(stamp);
@@ -155,6 +160,7 @@ pub(in crate::draw) fn with_placements<R>(
                 bounds,
                 largest_relief: row.largest_relief,
                 fade_reach: row.fade_reach,
+                small: row.small,
             })
             .collect(),
         meshes,
@@ -194,13 +200,10 @@ impl Selection {
         let mut admitted = Vec::new();
         let mut stack = Vec::new();
         for batch in &placements.batches {
-            let tree = batch.bounds.tree();
-            if let Some(Node::Leaf { slots, .. }) = tree.root().map(|root| tree.node(root))
-                && slots.len() <= SMALL_LEAF
-            {
+            if batch.small {
                 // The slots of a lone small leaf ascend, so they are tested and emitted in
                 // place, without the list and sort of a walk.
-                for &slot in slots {
+                for &slot in batch.bounds.tree().slots() {
                     if self.admits_slot(batch, slot, view, Passed::default()) {
                         self.push_level(placements, batch, slot);
                     }

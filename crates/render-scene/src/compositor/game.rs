@@ -96,7 +96,9 @@ impl super::FrameRenderer {
 
     /// Records the block transfers and readbacks the game's features asked of their resources
     /// into `encoder`'s frame. Every route calls it after the passes it encodes, so the work
-    /// lands after the frame's (or the depth prefix's) passes and before its submission.
+    /// lands after the frame's (or the depth prefix's) passes and before its submission. A depth
+    /// prefix submitted ahead of the frame records everything queued by then, so that work lands
+    /// before the rest of the frame's passes.
     ///
     /// # Errors
     /// [`FrameError`](worldrunner_render_post::FrameError) when a transfer is refused or

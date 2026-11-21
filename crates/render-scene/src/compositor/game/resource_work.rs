@@ -3,9 +3,13 @@
 //!
 //! Game code runs in `prepare`, `commit` and `finish_draws` and gets no encoder, so the work is
 //! queued here in the order asked and the renderer records it into the frame's encoder after
-//! the frame's passes ([`GameResources::record_work`]). A transfer asked in a frame is sampled
-//! from the next frame on; a readback holds what the frame left. Work recorded into a frame that
-//! is cancelled is queued again for the next frame.
+//! the frame's passes ([`GameResources::record_work`]). On a route that encodes the frame in one
+//! piece, a transfer asked in a frame is sampled from the next frame on and a readback holds what
+//! the frame left. A route that submits the depth prefix ahead of the frame also records the
+//! queue at the end of the prefix, before the rest of the frame's passes: the frame's later
+//! passes sample the transfers recorded there, and the readbacks recorded there hold the levels
+//! as they were before those passes ran. Work recorded into a frame that is cancelled is queued
+//! again for the next frame.
 //!
 //! Readbacks are diagnostics. Each copies one level into a staging buffer of its own, admitted
 //! against the factory's budget with everything else the store holds, through the program
@@ -143,13 +147,17 @@ impl GameResources {
     /// Asks for the blocks `source` holds, one texel of an `Rg32Uint` or `Rgba32Uint` image of
     /// the runtime per block, to be moved into a level and layer of a declared block-compressed
     /// texture. The renderer records the transfer after the passes of the frame being prepared,
-    /// or of the next frame when none is.
+    /// or of the next frame when none is, or at the end of a depth prefix that a route submits
+    /// ahead of the frame when the prefix is encoded first.
     ///
     /// # Errors
-    /// [`GameResourceError::Foreign`] for another store's texture and
+    /// Only [`GameResourceError::Foreign`] for another store's texture and
     /// [`GameResourceError::Transfer`] for a texture that is not block-compressed or a mip or
-    /// layer outside it. The rest of the transfer's rules (the source's format, usage and
-    /// region, the extent) are checked as the frame records it, which fails then.
+    /// layer outside it. The rest of the transfer's rules (render-program's
+    /// `BlockTransferError`s: the source's format, usage and region, the block size, the
+    /// extent) are checked as a frame records it: that frame fails with
+    /// [`FrameError::FeaturePreparation`] naming the texture and the rule, the transfer is
+    /// dropped, and the next frame renders.
     pub fn transfer_block_image(
         &self,
         source: &BlockSource,
@@ -198,7 +206,9 @@ impl GameResources {
     /// Asks for a copy of one level of a declared texture, taken with
     /// [`Self::take_read_back`] after the frame. The renderer records it after the passes of
     /// the frame being prepared, or of the next frame when none is, so it holds what that frame
-    /// left, including transfers asked before it.
+    /// left, including transfers asked before it. A route that submits the depth prefix ahead
+    /// of the frame records what is queued by then at the end of the prefix instead, so such a
+    /// readback holds the level as it was before the rest of the frame's passes ran.
     ///
     /// # Errors
     /// [`GameResourceError::Foreign`] for another store's texture,
@@ -329,10 +339,10 @@ impl GameResources {
         outcome
     }
 
-    /// Records the work asked since the last frame into `encoder`'s frame, after its passes:
-    /// what was recorded into cancelled frames first, then the rest in the order asked. A
-    /// readback that cannot be recorded fails its ticket; a transfer that cannot fails the
-    /// frame, and the work asked after it waits for the next frame.
+    /// Records the work asked since the last frame into `encoder`'s frame (or depth prefix),
+    /// after its passes: what was recorded into cancelled frames first, then the rest in the
+    /// order asked. A readback that cannot be recorded fails its ticket; a transfer that cannot
+    /// fails the frame and is dropped, and the work asked after it waits for the next frame.
     ///
     /// # Errors
     /// [`FrameError`] when the encoder is not a frame being recorded, and when a transfer is

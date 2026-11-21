@@ -217,8 +217,9 @@ impl FrameRenderer {
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
         // Prefix features prepare after this, so they read the chunks the suffix will lend. The
-        // suffix publishes again with its colour target's extent, which must equal the metadata's
-        // or the two segments select different chunks.
+        // suffix publishes again with its colour target's extent. The frame's terrain is
+        // selected once, for the metadata's extent, so a suffix with another extent fails its
+        // own terrain preparation (`StreamingSelectionConflict`) before it can publish.
         self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();

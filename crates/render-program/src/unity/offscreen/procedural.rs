@@ -50,6 +50,7 @@ pub(super) fn procedural_step(
         globals.layer,
         &material.below_globals,
     ];
+    let cells = list_steps::written(svc, &target)?;
     let mut draws = Vec::new();
     // A scissor with no texel in it leaves nothing to draw.
     let passes = raster.map_or(&[][..], |_| draw.passes.as_slice());
@@ -61,7 +62,8 @@ pub(super) fn procedural_step(
             layers: Layers::new(&layers),
         };
         let mark = svc.constants.mark();
-        let planned = generated(svc, &spec, draw, signature);
+        let planned = generated(svc, &spec, draw, signature)
+            .and_then(|planned| list_steps::refuse_feedback(planned, &cells));
         if planned.is_err() {
             svc.constants.rollback(mark);
         }

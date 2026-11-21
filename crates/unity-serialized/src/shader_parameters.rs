@@ -10,7 +10,7 @@ use std::ops::RangeInclusive;
 use crate::{
     SerializedError,
     cursor::Cursor,
-    shader_program::{BindChannels, PlayerSubProgram, Program},
+    shader_program::{BindChannels, PlayerSubProgram, Program, ProgramParameters, ValueParam},
     shader_records::{RECORD_VERSION, invalid, program_table},
 };
 
@@ -110,6 +110,68 @@ pub struct ResourceBinding {
 pub struct VariantParameters {
     pub constant_buffers: Vec<ConstantBuffer>,
     pub bindings: Vec<ResourceBinding>,
+}
+
+impl VariantParameters {
+    /// Adds the members of a program's common parameters to the constant buffers of the same
+    /// name.
+    ///
+    /// A Unity 6 player stores the members that every variant of a program shares once, in the
+    /// program's common parameters, which name buffers and members by index into the pass's
+    /// `names`. A variant's own entry leaves them out: the Old World player's
+    /// `Mohawk/Terrain/TerrainTextureSplatPVT` lists its `UnityPerDraw` buffer with no members,
+    /// while the program's common parameters give `unity_ObjectToWorld`, `unity_WorldToObject`
+    /// and `unity_WorldTransformParams` for it at the offsets its 752 bytes need. A buffer with
+    /// members on both sides is marked partial in the common parameters.
+    ///
+    /// A member the variant's buffer already has by name keeps the variant's own. A common buffer
+    /// that no buffer of the variant shares a name with is not bound by the variant and adds
+    /// nothing, and so is a name the table does not list. Struct arrays of the common parameters
+    /// are not added; none has been measured.
+    #[must_use]
+    pub fn with_common(mut self, common: &ProgramParameters, names: &[(String, i32)]) -> Self {
+        let name_of = |index: i32| {
+            names
+                .iter()
+                .find(|(_, held)| *held == index)
+                .map(|(name, _)| name.as_str())
+        };
+        for shared in &common.constant_buffers {
+            let Some(buffer) = name_of(shared.name_index).and_then(|name| {
+                self.constant_buffers
+                    .iter_mut()
+                    .find(|held| held.name == name)
+            }) else {
+                continue;
+            };
+            let vectors = shared.vectors.iter().map(|param| (param, false));
+            let matrices = shared.matrices.iter().map(|param| (param, true));
+            for (param, is_matrix) in vectors.chain(matrices) {
+                let Some(name) = name_of(param.name_index) else {
+                    continue;
+                };
+                if buffer.members.iter().all(|held| held.name != name) {
+                    buffer.members.push(common_member(name, param, is_matrix));
+                }
+            }
+        }
+        self
+    }
+}
+
+/// A common parameter as a player member: a vector has `dimension` components and a matrix
+/// `dimension` rows of four.
+fn common_member(name: &str, param: &ValueParam, is_matrix: bool) -> BufferMember {
+    let dimension = i32::from(param.dimension);
+    BufferMember {
+        name: name.to_owned(),
+        kind: i32::from(param.kind),
+        rows: if is_matrix { dimension } else { 1 },
+        columns: if is_matrix { 4 } else { dimension },
+        is_matrix,
+        array_size: param.array_size,
+        offset: param.index,
+    }
 }
 
 /// Fewest bytes of a member: its name's length word and six more words.

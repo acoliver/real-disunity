@@ -84,6 +84,13 @@ fn placed_casting(
 /// The world copies the renderers of the layers that camera renders name, and only those, so the
 /// scene also has a camera render of every layer into a texture of its own.
 pub(super) fn scene(world: &mut World, view: Mat4, mask: u32) {
+    scene_with_planes(world, view, mask, Vec::new());
+}
+
+/// Like [`scene`], with the planes of the volume that culling result 5 keeps. A world holds each
+/// culling result id once, so a test that wants planes asks for them here and records no second
+/// result 5.
+pub(super) fn scene_with_planes(world: &mut World, view: Mat4, mask: u32, planes: Vec<[f32; 4]>) {
     let target = render_texture(world, [8, 8]);
     let object = super::support::object(world, 0, Vec3::ZERO, Quat::IDENTITY);
     let camera = world
@@ -97,7 +104,7 @@ pub(super) fn scene(world: &mut World, view: Mat4, mask: u32) {
         })
         .unwrap();
     setup(world, camera, view, TargetRef::Render(target));
-    cull(world, 5, mask, Vec::new());
+    cull(world, 5, mask, planes);
 }
 
 fn setup(world: &mut World, camera: ComponentHandle, view: Mat4, target: TargetRef) {
@@ -633,10 +640,12 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
         ]))
     );
     // The clip depth takes (z + w) / 2, so the translation's z of 3 becomes 2 and z scales by half.
+    // The player's stages negate clip Y, so the matrix negates it first: y scales by -1 and the
+    // translation's y of 2 becomes -2.
     assert_eq!(
         values.get("unity_MatrixVP"),
         Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, 2.0, 2.0, 1.0
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, -2.0, 2.0, 1.0
         ]))
     );
     assert_eq!(
@@ -661,10 +670,11 @@ fn a_draw_list_takes_the_clip_depth_the_settings_say() {
     let adapted = run_with(&mut world, &settings, |_| {});
     let values = &lists(&adapted)[0].values.values;
     // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
+    // Y is negated for the player's stages, as in the forward case.
     assert_eq!(
         values.get("unity_MatrixVP"),
         Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, 2.0, -1.0, 1.0
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, -2.0, -1.0, 1.0
         ]))
     );
 }

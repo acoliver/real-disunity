@@ -47,10 +47,11 @@ fn a_perspective_camera_clips_a_point_as_worked_out_by_hand() {
     //   x = f / aspect * 0.5 = 0.25,  y = f * 0.5 = 0.5,  w = 2,
     //   z (OpenGL) = -(far + near) / (far - near) * -2 - 2 * far * near / (far - near)
     //              = 202 / 99 - 200 / 99 = 2 / 99,
-    // and the Vulkan depth is (z + w) / 2 = 1 + 1 / 99.
+    // and the Vulkan depth is (z + w) / 2 = 1 + 1 / 99. The matrix negates Y ahead of the
+    // player's stages, which negate it again, so the clip Y is -0.5.
     let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
     let found = clip(&view, 2.0, [1.5, 2.5, 5.0]);
-    assert_close(&found, &[0.25, 0.5, 1.0 + 1.0 / 99.0, 2.0]);
+    assert_close(&found, &[0.25, -0.5, 1.0 + 1.0 / 99.0, 2.0]);
 }
 
 #[test]
@@ -84,11 +85,12 @@ fn an_orthographic_camera_maps_its_half_height_and_aspect_to_the_clip_edges() {
         ..Camera::default()
     };
     let view = view(settings, Vec3::ZERO, Quat::IDENTITY);
-    // Half the width is 4 at an aspect of 2. The edge at x = 4, y = 2 is clip (1, 1), and w stays 1.
+    // Half the width is 4 at an aspect of 2. The edge at x = 4, y = 2 is clip (1, -1), the Y
+    // negated for the player's stages, and w stays 1.
     let found = clip(&view, 2.0, [4.0, 2.0, 10.5]);
     // z = 10.5 is the middle of the box from 0.5 to 20.5: OpenGL z = -2 / 20 * -10.5 - 21 / 20 = 0,
     // and Vulkan (z + 1) / 2 = 0.5.
-    assert_close(&found, &[1.0, 1.0, 0.5, 1.0]);
+    assert_close(&found, &[1.0, -1.0, 0.5, 1.0]);
 }
 
 #[test]
@@ -99,9 +101,10 @@ fn matrices_a_script_set_replace_the_derived_ones() {
         ..perspective_90()
     };
     let view = view(settings, Vec3::new(9.0, 9.0, 9.0), Quat::IDENTITY);
-    // The view and the projection are the identity, so only the depth remap is left: (z + 1) / 2.
+    // The view and the projection are the identity, so only the Y negation and the depth remap
+    // are left: (z + 1) / 2.
     let found = clip(&view, 1.0, [0.5, 0.25, 0.5]);
-    assert_close(&found, &[0.5, 0.25, 0.75, 1.0]);
+    assert_close(&found, &[0.5, -0.25, 0.75, 1.0]);
 }
 
 #[test]

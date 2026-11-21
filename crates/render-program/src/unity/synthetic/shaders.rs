@@ -7,6 +7,9 @@ use super::{
 };
 use crate::unity::offscreen::frame::{ChannelFormat, Mesh, MeshChannel, MeshIndices, SubMesh};
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
+use worldrunner_unity_serialized::shader_program::{
+    ConstantBuffer as ProgramBuffer, ProgramParameters, ValueParam,
+};
 
 /// A vertex stage that places its position by the draw constants `_Place` (scale x, scale y,
 /// offset x, offset y), and fragment stages that return the material's `_Tint`, or the tint with
@@ -557,6 +560,42 @@ pub fn camera_pass_three_outputs() -> SyntheticShader {
 /// One pass tagged `Alpha` that combines the textures `_First` and `_Second` as [`COMBINE`] says.
 pub fn camera_pass_combining() -> SyntheticShader {
     camera_pass_reading_with(COMBINE, combine_parameters())
+}
+
+/// One pass tagged `Alpha` that tints, as [`camera_passes`] does, whose variant lists the vertex
+/// stage's `Draw` buffer with no members. The pass's name table and its vertex program's common
+/// parameters give `_Place` in `Draw`, as the Unity 6 player stores a member that every variant of
+/// a program shares.
+pub fn camera_pass_with_common_place() -> SyntheticShader {
+    let mut parameters = tint_parameters();
+    parameters.constant_buffers[1].members.clear();
+    let mut synthetic = no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![variant(&[], TINT, "fs_main", parameters)],
+        }],
+    ));
+    let pass = &mut synthetic.shader.parsed.sub_shaders[0].passes[0];
+    pass.name_indices = vec![("Draw".to_owned(), 7), ("_Place".to_owned(), 9)];
+    pass.programs.vertex.common_parameters = ProgramParameters {
+        constant_buffers: vec![ProgramBuffer {
+            name_index: 7,
+            matrices: Vec::new(),
+            vectors: vec![ValueParam {
+                name_index: 9,
+                index: 0,
+                array_size: 0,
+                kind: 0,
+                dimension: 4,
+            }],
+            structs: Vec::new(),
+            size: 16,
+            partial: true,
+        }],
+        ..ProgramParameters::default()
+    };
+    synthetic
 }
 
 /// One pass tagged `Alpha` that tints, and one tagged `Gamma` that samples the albedo texture.

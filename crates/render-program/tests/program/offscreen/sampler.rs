@@ -3,6 +3,7 @@
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::TextureInput;
 use worldrunner_render_program::sampler::{Filter, SamplerCache, SamplerState, Wrap};
+use worldrunner_render_program::unity::offscreen::FeedbackLoopDraws;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::shader::PassSelector;
 
@@ -144,8 +145,7 @@ fn a_texture_a_higher_layer_names_replaces_the_one_below() {
 }
 
 #[test]
-fn a_pass_that_samples_the_texture_it_renders_into_is_refused_by_the_executor() {
-    use worldrunner_render_post::contracts::ContractError;
+fn a_draw_that_samples_the_texture_it_renders_into_is_left_out_before_the_executor() {
     let mut rig = Rig::new();
     let mut frame = shifted(&mut rig, None);
     frame
@@ -162,17 +162,18 @@ fn a_pass_that_samples_the_texture_it_renders_into_is_refused_by_the_executor() 
             },
         );
     let operations = rig.build(&frame).unwrap();
-    let encoder = rig.gpu.authority.begin(&rig.gpu.device).unwrap();
-    let error = operations.admit(&encoder).err().unwrap();
-    let hazard = |error: &ContractError| match error {
-        ContractError::Pass { source, .. } => matches!(**source, ContractError::Hazard(_)),
-        _ => false,
-    };
-    assert!(
-        matches!(&error, worldrunner_render_program::unity::offscreen::OffscreenError::Contract(c) if hazard(c)),
-        "{error}"
+    assert_eq!(
+        operations.feedback_loop_draws(),
+        vec![FeedbackLoopDraws {
+            texture: TARGET,
+            draws: 1
+        }]
     );
+    // The planner left the draw out, so the contract's hazard check has nothing to refuse.
+    let encoder = rig.gpu.authority.begin(&rig.gpu.device).unwrap();
+    let admitted = operations.admit(&encoder).unwrap();
     encoder.finish().cancel();
+    drop(admitted);
 }
 
 fn trilinear(wrap_w: Wrap, anisotropy: u16) -> SamplerState {

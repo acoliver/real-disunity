@@ -4,10 +4,13 @@
 //! to the file `XTASK_CHANGED_FILES` names; the gate computes it, so a change cannot narrow
 //! it. Each path maps to the workspace crate whose directory holds it, longest match first,
 //! and every crate that depends on one of those, directly or not and dev-dependencies
-//! included, is affected too. The shared build configuration, xtask itself and any
-//! non-documentation path outside every crate (assets, data, `csharp/`) test everything, as
-//! does a run without the variable. Documentation alone runs no Rust tests. Lint and build
-//! always cover the whole profile, and the full suite runs every night.
+//! included, is affected too. A path under `csharp/` selects the packages whose Rust sources
+//! refer to `csharp/` (the rule of `csharp::check`, so a new referrer is picked up) and
+//! their dependents; when no package refers to `csharp/` it tests everything. The shared
+//! build configuration, xtask itself and any other non-documentation path outside every
+//! crate (assets, data) test everything, as does a run without the variable. Documentation
+//! alone runs no Rust tests. Lint and build always cover the whole profile, and the full
+//! suite runs every night.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -23,6 +26,7 @@ const EVERYTHING_FILES: &[&str] = &[
     "deny.toml",
 ];
 const EVERYTHING_DIRS: &[&str] = &[".cargo/", "crates/xtask/"];
+const CSHARP_DIR: &str = "csharp/";
 const DOC_DIRS: &[&str] = &[
     "docs/",
     "dev-docs/",
@@ -39,6 +43,8 @@ const DOC_DIRS: &[&str] = &[
 pub struct Graph {
     pub dirs: BTreeMap<String, String>,
     pub dependencies: BTreeMap<String, BTreeSet<String>>,
+    /// The workspace packages whose Rust sources refer to `csharp/`.
+    pub csharp_referrers: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,7 +79,7 @@ impl Selection {
     }
 }
 
-pub fn graph(data: &Metadata) -> Graph {
+pub fn graph(data: &Metadata) -> Result<Graph, String> {
     let root = data.workspace_root.to_string_lossy().replace('\\', "/");
     let members: Vec<_> = data
         .packages
@@ -81,7 +87,10 @@ pub fn graph(data: &Metadata) -> Graph {
         .filter(|p| data.workspace_members.contains(&p.id))
         .collect();
     let names: BTreeSet<&str> = members.iter().map(|p| p.name.as_str()).collect();
-    let mut graph = Graph::default();
+    let mut graph = Graph {
+        csharp_referrers: crate::csharp::referring_packages(data)?,
+        ..Graph::default()
+    };
     for package in members {
         let manifest = package.manifest_path.to_string_lossy().replace('\\', "/");
         let relative = manifest.strip_prefix(&root).unwrap_or(&manifest);
@@ -106,7 +115,7 @@ pub fn graph(data: &Metadata) -> Graph {
             .collect();
         graph.dependencies.insert(package.name.clone(), internal);
     }
-    graph
+    Ok(graph)
 }
 
 fn is_doc(path: &str) -> bool {
@@ -131,6 +140,7 @@ pub fn select(changed: &[String], graph: &Graph) -> Selection {
         .map(|p| p.trim().replace('\\', "/"))
         .filter(|p| !p.is_empty())
         .collect();
+    let mut csharp_path = None;
     for path in &paths {
         if EVERYTHING_FILES.contains(&path.as_str())
             || EVERYTHING_DIRS.iter().any(|d| path.starts_with(d))
@@ -138,7 +148,10 @@ pub fn select(changed: &[String], graph: &Graph) -> Selection {
             return Selection::Everything(format!("{path} changed"));
         }
         if owner(path, graph).is_none() && !is_doc(path) {
-            return Selection::Everything(format!("{path} changed, outside every crate"));
+            if !path.starts_with(CSHARP_DIR) {
+                return Selection::Everything(format!("{path} changed, outside every crate"));
+            }
+            csharp_path.get_or_insert(path);
         }
     }
     let mut affected: BTreeSet<String> = paths
@@ -146,6 +159,20 @@ pub fn select(changed: &[String], graph: &Graph) -> Selection {
         .filter_map(|p| owner(p, graph))
         .map(str::to_owned)
         .collect();
+    if let Some(path) = csharp_path {
+        // Without a known referrer the C# change would select nothing, which proves nothing.
+        let referrers: Vec<_> = graph
+            .csharp_referrers
+            .iter()
+            .filter(|name| graph.dirs.contains_key(*name))
+            .collect();
+        if referrers.is_empty() {
+            return Selection::Everything(format!(
+                "{path} changed and no package refers to csharp/"
+            ));
+        }
+        affected.extend(referrers.into_iter().cloned());
+    }
     if affected.is_empty() {
         return Selection::Nothing;
     }
@@ -169,10 +196,10 @@ pub fn from_env(data: &Metadata) -> Selection {
         return Selection::Everything("no XTASK_CHANGED_FILES (not a hub gate)".into());
     };
     match std::fs::read_to_string(&file) {
-        Ok(text) => select(
-            &text.lines().map(str::to_owned).collect::<Vec<_>>(),
-            &graph(data),
-        ),
+        Ok(text) => match graph(data) {
+            Ok(graph) => select(&text.lines().map(str::to_owned).collect::<Vec<_>>(), &graph),
+            Err(error) => Selection::Everything(format!("cannot find csharp/ referrers: {error}")),
+        },
         Err(error) => Selection::Everything(format!("cannot read XTASK_CHANGED_FILES: {error}")),
     }
 }
@@ -229,6 +256,11 @@ mod tests {
         ])
     }
 
+    fn with_csharp_referrers(mut graph: Graph, referrers: &[&str]) -> Graph {
+        graph.csharp_referrers = referrers.iter().map(|r| (*r).to_owned()).collect();
+        graph
+    }
+
     fn names(s: &Selection) -> Vec<String> {
         match s {
             Selection::Crates(n) => n.iter().cloned().collect(),
@@ -266,8 +298,8 @@ mod tests {
             "Cargo.lock",
             "Cargo.toml",
             "crates/xtask/src/lib.rs",
-            "csharp/A.cs",
             "assets/x.png",
+            "data/y.json",
             ".cargo/config.toml",
         ] {
             assert!(
@@ -275,6 +307,65 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn a_csharp_change_tests_the_referring_packages_and_their_dependents() {
+        let graph = with_csharp_referrers(sample(), &["a"]);
+        assert_eq!(
+            names(&select(
+                &paths(&["csharp/Disunity/Input.cs", "csharp/Play/Play.csproj"]),
+                &graph
+            )),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn a_csharp_change_with_a_crate_change_tests_the_union() {
+        let graph = with_csharp_referrers(sample(), &["a"]);
+        assert_eq!(
+            names(&select(
+                &paths(&["csharp/A.cs", "crates/c/src/lib.rs"]),
+                &graph
+            )),
+            ["a", "b", "c", "d"]
+        );
+    }
+
+    #[test]
+    fn a_csharp_change_does_not_soften_the_paths_that_test_everything() {
+        let graph = with_csharp_referrers(sample(), &["a"]);
+        for other in ["Cargo.lock", "assets/x.png", "crates/xtask/src/lib.rs"] {
+            assert!(
+                matches!(
+                    select(&paths(&["csharp/A.cs", other]), &graph),
+                    Selection::Everything(_)
+                ),
+                "{other}"
+            );
+            assert!(
+                matches!(select(&paths(&[other]), &graph), Selection::Everything(_)),
+                "{other}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_csharp_change_tests_everything_when_no_package_refers_to_csharp() {
+        assert!(matches!(
+            select(&paths(&["csharp/A.cs"]), &sample()),
+            Selection::Everything(_)
+        ));
+    }
+
+    #[test]
+    fn csharp_documentation_alone_tests_nothing() {
+        let graph = with_csharp_referrers(sample(), &["a"]);
+        assert_eq!(
+            select(&paths(&["csharp/README.md"]), &graph),
+            Selection::Nothing
+        );
     }
 
     #[test]

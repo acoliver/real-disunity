@@ -29,7 +29,7 @@ fn depth_plan() -> Plan {
 
 /// The quad scene with the water body in its effects, which the renderer must be configured with
 /// the same bodies to draw.
-fn water_scene() -> RenderScene {
+pub(super) fn water_scene() -> RenderScene {
     let source = quad_scene();
     let effects = effects().with_water_bodies(vec![water_body()]).unwrap();
     source
@@ -94,7 +94,8 @@ fn a_game_reading_depths_gets_them_when_the_water_is_suppressed_and_no_water_pas
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 3
+            device_depth_slots: 3,
+            post_water_device_depth_slots: 0,
         },
         "the banks the game declared"
     );
@@ -109,7 +110,8 @@ fn a_game_reading_depths_gets_them_beside_the_stock_water_passes() {
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 3
+            device_depth_slots: 3,
+            post_water_device_depth_slots: 0,
         },
         "the device depth bank is owned alongside the water's banks"
     );

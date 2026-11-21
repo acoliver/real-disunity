@@ -1,11 +1,11 @@
-use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+use worldrunner_render_gpu::census::{ResourceClass, Tracked};
 use worldrunner_render_program::runtime::ImportTable;
 
 use super::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
-    GpuLod, GpuMesh, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture,
-    TextureHandle, TextureView, TextureViewDescriptor, upload_buffer, upload_palette_array,
-    upload_texture, upload_type_grid,
+    GpuLod, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle,
+    TextureView, TextureViewDescriptor, upload_buffer, upload_palette_array, upload_texture,
+    upload_type_grid,
 };
 
 pub(super) fn allocate_frame_slots(
@@ -168,64 +168,6 @@ pub(super) type MaterialUpload = (
     Vec<ImportTable>,
     crate::gbuffer::records::LightingRecordTable,
 );
-
-/// Uploads already packed mesh levels without processing source geometry.
-pub(super) fn upload_meshes(
-    device: &Device,
-    queue: &Queue,
-    census: &MemoryCensus,
-    meshes: &[super::prepared::PreparedMesh],
-) -> Vec<GpuMesh> {
-    meshes
-        .iter()
-        .map(|mesh| {
-            let lods: Vec<GpuLod> = mesh
-                .lods
-                .iter()
-                .map(|lod| upload_lod(device, queue, lod))
-                .collect();
-            let census = lods
-                .iter()
-                .flat_map(|lod| lod.transition.iter().chain([&lod.vertices, &lod.indices]))
-                .map(|buffer| census.track(ResourceClass::Mesh, buffer.size()))
-                .collect();
-            GpuMesh {
-                lods,
-                _census: census,
-            }
-        })
-        .collect()
-}
-
-fn upload_lod(device: &Device, queue: &Queue, lod: &super::prepared::PreparedLod) -> GpuLod {
-    GpuLod {
-        layout: lod.layout,
-        transition: lod.transition.as_ref().map(|bytes| {
-            upload_buffer(
-                device,
-                queue,
-                "mesh card complement",
-                BufferUsages::VERTEX,
-                bytes,
-            )
-        }),
-        vertices: upload_buffer(
-            device,
-            queue,
-            "mesh vertices",
-            BufferUsages::VERTEX,
-            &lod.vertices,
-        ),
-        indices: upload_buffer(
-            device,
-            queue,
-            "mesh indices",
-            BufferUsages::INDEX,
-            &lod.indices,
-        ),
-        index_count: lod.index_count,
-    }
-}
 
 /// Builds the single terrain draw: its mesh, its uniform and its bind group.
 ///
@@ -422,8 +364,6 @@ pub(super) fn post_settings(
 
 fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMesh) -> GpuLod {
     GpuLod {
-        layout: crate::object::layout::GeometryLayout::Static,
-        transition: None,
         vertices: upload_buffer(
             device,
             queue,

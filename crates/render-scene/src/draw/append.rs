@@ -15,9 +15,8 @@ use worldrunner_render_plan::{
     SceneTexture, SkeletonHandle, TextureHandle,
 };
 
-use super::resources::{
-    GroupInputs, material_imports, table_index, upload_meshes, upload_textures,
-};
+use super::mesh_arena::upload_meshes;
+use super::resources::{GroupInputs, material_imports, table_index, upload_textures};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::instances::skin::{SkinNeed, skin_needs};
@@ -549,7 +548,7 @@ impl SceneGpu {
             };
             new_material_uploads(device, queue, (&inputs, &mut records), &prepared.materials)
         };
-        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
+        let meshes = upload_meshes(device, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
         self.resource_counters
             .append(&prepared.texture_bytes(), &prepared.mesh_bytes());
@@ -653,7 +652,7 @@ impl SceneGpu {
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
-        queue: &wgpu::Queue,
+        _queue: &wgpu::Queue,
         replacement: PreparedMeshReplacement,
     ) -> Result<(), DrawError> {
         let index = replacement.index;
@@ -672,7 +671,6 @@ impl SceneGpu {
         let bytes = mesh_payload_bytes(&replacement.mesh);
         let uploaded = upload_meshes(
             device,
-            queue,
             &self.instances.census,
             std::slice::from_ref(&replacement.mesh),
         )

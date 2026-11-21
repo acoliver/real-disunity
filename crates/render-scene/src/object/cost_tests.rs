@@ -4,9 +4,9 @@
 //! then, for each selected range (one batch of instances at one level of detail): the instance
 //! buffer, the previous-instance buffer when the pipelines write velocity, one draw per material
 //! slot, and a pipeline, a material group, a vertex buffer or an index buffer only when it differs
-//! from the one bound before. Ranges of one mesh level share its vertex and index buffers, so
-//! consecutive ranges of one mesh bind them once. A steady-state frame builds nothing on the program
-//! runtime.
+//! from the one bound before. Mesh levels share the chunks of buffers an upload packs them into, so
+//! consecutive ranges bind the vertex and index buffers once until the chunk changes. A steady-state
+//! frame builds nothing on the program runtime.
 
 use std::ops::Range;
 
@@ -177,7 +177,7 @@ fn through_runtime_runs(
 
 /// Eight cards with eight different keys, one batch each: eight pipelines, eight material
 /// groups and the frame group, and per batch its instance buffer and one draw. The cards use two
-/// meshes (plain and impostor) in two runs, so their vertex and index buffers bind twice.
+/// meshes (plain and impostor) that share one chunk, so their vertex and index buffers bind once.
 #[test]
 fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
     let scene = scenes::scene(&scenes::base_specs());
@@ -187,12 +187,12 @@ fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
         Counted {
             pipelines: 8,
             groups: 1 + 8,
-            vertex_buffers: 8 + 2,
-            index_buffers: 2,
+            vertex_buffers: 8 + 1,
+            index_buffers: 1,
             draws: 8,
         }
     );
-    assert_eq!(counted.total(), 37);
+    assert_eq!(counted.total(), 35);
 }
 
 /// A velocity pipeline adds the previous-instance buffer to every batch and nothing else.
@@ -208,7 +208,7 @@ fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
             ..plain
         }
     );
-    assert_eq!(recorded.total(), 45);
+    assert_eq!(recorded.total(), 43);
 }
 
 /// Cards with one key and a material each share the pipeline bind and rebind their material
@@ -414,8 +414,8 @@ fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_not
 
 /// Twelve batches of one pipeline key that differ only in mesh (three) and material (four) are
 /// recorded by the walk mesh by mesh, which binds a material's group for each of them. Grouped,
-/// the pass binds each of the four materials once and every draw still draws once with its own
-/// buffers.
+/// the pass binds each of the four materials once, and the three meshes share a chunk, so the
+/// vertex and index buffers bind once in either order.
 #[test]
 fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch() {
     let scene = scenes::grid(3, 4);
@@ -427,7 +427,7 @@ fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch
             pipelines: 1,
             groups: 1 + 12,
             vertex_buffers: walk.vertex_buffers,
-            index_buffers: 3,
+            index_buffers: 1,
             draws: 12,
         },
         "the walk binds a material's group for every batch: {walk:?}"
@@ -438,10 +438,10 @@ fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch
             pipelines: 1,
             groups: 1 + 4,
             vertex_buffers: grouped.vertex_buffers,
-            index_buffers: 12,
+            index_buffers: 1,
             draws: 12,
         },
-        "grouped, each material binds once and each mesh binds for each material: {grouped:?}"
+        "grouped, each material binds once and the meshes' chunk binds once: {grouped:?}"
     );
     println!(
         "OBJECT-COST-ORDER walk={walk:?} grouped={grouped:?} (a command costs what wgpu validates: \
@@ -450,10 +450,10 @@ fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch
 }
 
 /// How many multi-draws the grouped pass could record, with the walk's batches as they are: none
-/// fewer than it draws. A mesh level owns its vertex and index buffers and a batch owns its
-/// instance buffer, so no two consecutive draws of the scene share every buffer, and a multi-draw
-/// of one run would replace each draw. A moving-camera frame over a compacted view shares one
-/// instance buffer between batches, which leaves only the mesh buffers between a material's draws.
+/// fewer than it draws. A batch owns its instance buffer, so no two consecutive draws of the
+/// scene share every buffer even though the meshes share theirs, and a multi-draw of one run
+/// would replace each draw. A moving-camera frame over a compacted view shares one instance
+/// buffer between batches, where the meshes' shared buffers make a material's draws one run.
 #[test]
 fn every_grouped_draw_of_the_test_scenes_is_a_run_of_its_own() {
     let cases = [

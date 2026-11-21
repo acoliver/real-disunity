@@ -14,8 +14,9 @@ namespace Disunity.Play;
 /// "persistent": directory, "arguments": [the player's command line after its executable path],
 /// "first_texture": 1, "plugins": [extra native plugin directories], "callback_cache": directory for rewritten game assemblies,
 /// "quality": {"names": [...], "current": 0},
+/// "project": {"color_space": "linear", "lights_use_linear_intensity": false, "lights_use_color_temperature": false},
 /// "scenes": [{"name": ..., "path": ..., "plan": path or null, "error": why it has no plan}]}</c>, with the scene and
-/// resource plans, the player identity and its quality levels (when it defines any)
+/// resource plans, the player identity, its quality levels (when it defines any) and its project color space (when its settings layout is known)
 /// <c>unity-import</c> writes. <c>scenes</c> lists the player's build in build order for <c>SceneManager</c>. Each step writes a line
 /// to standard error, so the first one that fails is the last line written.
 /// </summary>
@@ -51,6 +52,7 @@ internal static class PlayerRun
         Log($"command line: {string.Join(' ', commandLine)}");
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);
+        if (PlayerProjectGraphics.Apply(request) is { } graphics) Log(graphics);
         // The player runs without a window; it reports the renderer's guaranteed limits and the formats it draws into,
         // not a device of zeros.
         DisunityHost.SetGraphicsDevice(PlayerDevice.Of(request));

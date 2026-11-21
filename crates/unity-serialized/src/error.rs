@@ -56,6 +56,8 @@ pub enum SerializedError {
     },
     #[error("byte {value} at offset {offset} is not a boolean")]
     InvalidBool { offset: usize, value: u8 },
+    #[error("the {what} is {value}, which is not a known value")]
+    InvalidEnum { what: &'static str, value: i32 },
     #[error("the string at offset {offset} has no terminating zero byte")]
     UnterminatedString { offset: usize },
     #[error("the string at offset {offset} is not UTF-8")]

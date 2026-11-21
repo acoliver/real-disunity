@@ -138,7 +138,13 @@ fn depth_fit_observation(policy: crate::shadows::sdsm::AdoptionPolicy) {
     .unwrap();
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
     resident
-        .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+        .render_depth_fitted_host(
+            &context,
+            &view(),
+            (&color, &depth),
+            (Some(3), false, &[]),
+            &mut frame,
+        )
         .unwrap();
     assert_eq!(
         resident.gpu.statistics().effects.ssao.prepass,

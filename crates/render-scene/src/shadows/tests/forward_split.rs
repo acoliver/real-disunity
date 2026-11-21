@@ -107,7 +107,13 @@ fn fitted_frame(context: &GpuContext, adoption: AdoptionPolicy, observed: bool) 
     let (color, depth) = attachments(&frame);
     executed_during(|| {
         resident
-            .render_depth_fitted_with(context, &view(), (&color, &depth), 3, &mut frame)
+            .render_depth_fitted_host(
+                context,
+                &view(),
+                (&color, &depth),
+                (Some(3), false, &[]),
+                &mut frame,
+            )
             .unwrap();
     })
 }

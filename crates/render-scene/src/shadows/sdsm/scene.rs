@@ -94,21 +94,6 @@ impl ShadowedScene {
         result
     }
 
-    /// Uses a host's retained stock frame profile, including HDR and screen effects.
-    pub fn render_depth_fitted_with(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        source_frame: u64,
-        scheduler: &mut crate::compositor::FrameRenderer,
-    ) -> Result<Option<AdoptedFit>, ShadowError> {
-        std::mem::swap(&mut self.scheduler, scheduler);
-        let result = self.render_depth_fitted(context, view, attachments, source_frame);
-        std::mem::swap(&mut self.scheduler, scheduler);
-        result
-    }
-
     pub fn last_depth_fit(&self) -> Option<AdoptedFit> {
         self.depth_fitting.as_ref().and_then(|state| state.current)
     }
@@ -117,25 +102,9 @@ impl ShadowedScene {
         self.depth_fitting.as_ref().map(|state| state.settings)
     }
 
+    /// Fits with a host's retained stock frame profile, including HDR and screen effects,
+    /// replaying requested opaque terms in the fitted frame's drawing transaction.
     pub fn render_depth_fitted_host(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        frame: (Option<u64>, bool),
-        scheduler: &mut crate::compositor::FrameRenderer,
-    ) -> Result<Option<AdoptedFit>, ShadowError> {
-        self.render_depth_fitted_host_terms(
-            context,
-            view,
-            attachments,
-            (frame.0, frame.1, &[]),
-            scheduler,
-        )
-    }
-
-    /// Replays requested opaque terms in the fitted frame's drawing transaction.
-    pub fn render_depth_fitted_host_terms(
         &mut self,
         context: &GpuContext,
         view: &SceneView,

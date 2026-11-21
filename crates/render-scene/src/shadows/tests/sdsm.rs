@@ -388,7 +388,13 @@ fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
         let source_before = frame.depth_statistics_source().unwrap().unwrap();
         crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
         let fit = renderer
-            .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                (&color, &depth),
+                (Some(3), false, &[]),
+                &mut frame,
+            )
             .unwrap();
         if adoption == AdoptionPolicy::SameFrameCapture {
             assert_eq!(fit.unwrap().source_frame, 3);

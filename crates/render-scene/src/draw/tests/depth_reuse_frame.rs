@@ -359,7 +359,13 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
     )
     .unwrap();
     let fit = shadowed
-        .render_depth_fitted_with(context, &view, (&color, &depth), 0, &mut scheduler)
+        .render_depth_fitted_host(
+            context,
+            &view,
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut scheduler,
+        )
         .unwrap()
         .unwrap();
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));

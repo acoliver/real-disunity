@@ -363,7 +363,13 @@ fn depth_fitted_frame(
     )
     .unwrap();
     let fit = renderer
-        .render_depth_fitted_with(context, view, (&color, &depth), 0, &mut frame)
+        .render_depth_fitted_host(
+            context,
+            view,
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut frame,
+        )
         .map_err(|error| format!("{error:?}"))?
         .expect("the same-frame fit adopts");
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));

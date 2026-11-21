@@ -458,7 +458,13 @@ fn fitted_capture(
     )
     .unwrap();
     let fit = renderer
-        .render_depth_fitted_with(context, view, (&color, &depth), 10, &mut frame)
+        .render_depth_fitted_host(
+            context,
+            view,
+            (&color, &depth),
+            (Some(10), false, &[]),
+            &mut frame,
+        )
         .unwrap_or_else(|error| panic!("{path:?}: {error:?}"));
     assert_eq!(fit.map(|fit| fit.source_frame), Some(10), "{path:?}");
     context

@@ -67,6 +67,22 @@ fn record_sources() -> Vec<&'static str> {
     files
 }
 
+/// The element type and the length of a field type: a fixed array `[f32; 4]` is `f32` and 4, any
+/// other type is itself and 1.
+fn array_of(kind: &str) -> (&str, usize) {
+    let Some(inner) = kind
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return (kind, 1);
+    };
+    let (element, length) = inner.split_once(';').expect("array length");
+    (
+        element.trim(),
+        length.trim().parse().expect("a literal array length"),
+    )
+}
+
 fn append_record(record: &str, module: &str, managed: &mut String, native: &mut String) {
     let name = record
         .split("pub struct ")
@@ -99,6 +115,7 @@ fn append_record(record: &str, module: &str, managed: &mut String, native: &mut 
             .split_once(':')
             .expect("scalar field");
         let kind = kind.trim().trim_end_matches(',');
+        let (kind, length) = array_of(kind);
         let size = match kind {
             "u64" | "i64" | "f64" => 8,
             "u32" | "i32" | "f32" => 4,
@@ -109,7 +126,7 @@ fn append_record(record: &str, module: &str, managed: &mut String, native: &mut 
         writeln!(managed, "        if (Marshal.OffsetOf<{name}>(\"{field}\").ToInt32() != {offset}) throw new InvalidOperationException(\"{name}.{field} offset\");").unwrap();
         actual_offsets.push(format!("std::mem::offset_of!({module}::{name}, {field})"));
         expected_offsets.push(offset.to_string());
-        offset += size;
+        offset += size * length;
         count += 1;
     }
     writeln!(

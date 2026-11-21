@@ -31,6 +31,8 @@ pub use crate::budget::Holding;
 pub use crate::create::TextureShape;
 pub use crate::dispatch::{DispatchRequest, ImportedDispatch, PreparedDispatch};
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::external_group::ExternalGroup;
+pub use crate::external_hold::ExternalHold;
 pub use crate::import::{
     BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,
     ImportedTexture, ImportedVertexInput,
@@ -38,7 +40,9 @@ pub use crate::import::{
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, ExternalSet, GraphicsProgram};
-pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
+pub use crate::readback::{
+    MappingTargetRead, PendingBufferRead, PendingTargetRead, TargetImage, TextureLevel,
+};
 pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
 pub use crate::resources::{
     BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,

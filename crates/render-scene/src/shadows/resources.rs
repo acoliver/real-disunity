@@ -416,7 +416,7 @@ pub(super) fn uniform_bytes_with_sampling(
         worldrunner_render_plan::SceneShadowFilter::Bilinear2 => -1.0,
     };
     // The unused word stores reduction so the default uniform bytes stay unchanged.
-    let reduction = micro_unit(1_000_000 - sampling.strength_micro);
+    let reduction = strength_reduction(sampling);
     values.extend([
         cascades.multiplier,
         settings.normal_bias_meters,
@@ -524,6 +524,12 @@ pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> 
     } else {
         (object, terrain)
     }
+}
+
+/// How much less than the whole shadow the receivers apply: the uniform stores it, and the
+/// receivers apply `1 - ` it.
+pub(super) fn strength_reduction(sampling: worldrunner_render_plan::SceneShadowSampling) -> f32 {
+    micro_unit(1_000_000 - sampling.strength_micro)
 }
 
 fn micro_unit(value: u32) -> f32 {

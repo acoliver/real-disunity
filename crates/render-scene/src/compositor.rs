@@ -45,11 +45,16 @@ pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfigur
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
 pub use game::{
-    CascadeSelection, ColorOutput, DepthAccess, FrameCamera, FrameCameraHandle, FrameShadowError,
+    CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
+    FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
+    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
     FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
-    FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
-    GameTargets, PassTarget, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
-    TargetDeclaration, TargetExtent, TargetLifetime, join_pass,
+    FrameTerrainError, FrameTerrainHandle, GameBlockDestination, GameBuffer, GameBufferDeclaration,
+    GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec, GamePasses,
+    GameReadback, GameResourceError, GameResources, GameSampler, GameTargets, GameTexture,
+    GameTextureDeclaration, GameTextureLevel, LevelAccess, OcclusionDepth, PassTarget,
+    ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration,
+    TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -105,6 +110,8 @@ pub struct FrameRenderer {
     game_camera: FrameCameraHandle,
     /// The streamed terrain of the frame being encoded, which the game's features read.
     game_terrain: FrameTerrainHandle,
+    /// Where every route lends the scene's resident textures to the game's features.
+    game_textures: game::FrameSceneTexturesHandle,
     /// Whether the stock passes draw the scene's terrain.
     terrain_draws: TerrainDraws,
     /// Whether the stock passes draw the scene's water.
@@ -170,6 +177,7 @@ impl FrameRenderer {
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
+            game_textures: game::FrameSceneTexturesHandle::default(),
             terrain_draws: TerrainDraws::Stock,
             water_draws: WaterDraws::Stock,
             water: None,
@@ -582,8 +590,12 @@ impl FrameRenderer {
         self.game_camera
             .set(&FrameCamera::of(&frame, self.frame_slot));
         self.validate_environment_conventions(frame.specular_convention)?;
-        let (passes, views) = plan;
+        let listed = self.with_prefix_prepass(encoder, plan)?;
+        let (passes, views) = listed.as_ref().map_or(plan, |(passes, views)| {
+            (passes.as_slice(), views.as_slice())
+        });
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
+        self.publish_game_inputs();
         let depth_mode = if passes
             .iter()
             .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
@@ -649,6 +661,7 @@ impl FrameRenderer {
                 &mut combined,
             )?;
         }
+        self.record_game_work(encoder)?;
         self.publish_snapshots(encoder, schedule.request);
         self.stage_temporal_history(encoder, &frame)
     }
@@ -695,7 +708,8 @@ impl FrameRenderer {
                 operations: &[],
             },
             features,
-        )
+        )?;
+        self.record_game_work(encoder)
     }
 }
 

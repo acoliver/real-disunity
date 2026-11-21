@@ -81,22 +81,56 @@ fn a_frame_sized_chain_is_checked_against_the_frame_it_resolves_to() {
 }
 
 #[test]
-fn a_renderable_target_with_a_chain_is_refused_by_name() {
-    let declaration = TargetDeclaration::new(
-        "painted",
+fn a_renderable_target_may_carry_a_chain_to_one_texel() {
+    for format in [
         wgpu::TextureFormat::Rgba8Unorm,
-        TargetExtent::Fixed([8, 8]),
+        wgpu::TextureFormat::Rgba16Float,
+        wgpu::TextureFormat::R32Float,
+    ] {
+        let full = TargetDeclaration::new("painted", format, TargetExtent::Fixed([16, 4])).mips(5);
+        assert_eq!(validate(&full, [64, 48]), Ok(()), "{format:?}");
+        let beyond =
+            TargetDeclaration::new("painted", format, TargetExtent::Fixed([16, 4])).mips(6);
+        assert_eq!(
+            validate(&beyond, [64, 48]).unwrap_err(),
+            "game target painted: mip count 6 is outside 1..=5 for the extent 16x4",
+            "{format:?}"
+        );
+    }
+    let frame_sized = TargetDeclaration::new(
+        "painted",
+        wgpu::TextureFormat::Rgba16Float,
+        TargetExtent::Frame,
     )
-    .mips(2);
+    .mips(6);
+    assert_eq!(validate(&frame_sized, [64, 48]), Ok(()));
+    assert!(validate(&frame_sized, [16, 16]).is_err());
+}
+
+#[test]
+fn a_chain_on_a_format_that_cannot_render_is_refused_by_name() {
+    for format in [
+        wgpu::TextureFormat::Rg11b10Ufloat,
+        wgpu::TextureFormat::Depth32Float,
+    ] {
+        let declaration =
+            TargetDeclaration::new("painted", format, TargetExtent::Fixed([8, 8])).mips(2);
+        assert_eq!(
+            validate(&declaration, [64, 48]).unwrap_err(),
+            "game target painted: format is not a renderable colour format",
+            "{format:?}"
+        );
+    }
+}
+
+#[test]
+fn a_range_of_mips_names_each_subresource_of_the_layer() {
+    let chain = TargetDeclaration::new("chain", BC4, TargetExtent::Fixed([8, 8]))
+        .mips(4)
+        .layers(2);
     assert_eq!(
-        validate(&declaration, [64, 48]).unwrap_err(),
-        "game target painted: a renderable target has one mip; mip chains are for \
-         block-compressed copy targets"
+        chain.mip_range(1, 1..3).collect::<Vec<_>>(),
+        [chain.mip(1, 1), chain.mip(1, 2)]
     );
-    let single = TargetDeclaration::new(
-        "painted",
-        wgpu::TextureFormat::Rgba8Unorm,
-        TargetExtent::Fixed([8, 8]),
-    );
-    assert_eq!(validate(&single, [64, 48]), Ok(()));
+    assert_eq!(chain.mip_range(0, 2..2).count(), 0);
 }

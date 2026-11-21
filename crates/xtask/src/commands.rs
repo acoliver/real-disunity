@@ -143,10 +143,14 @@ pub fn standalone(root: &Path, command: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Policy, source-size and formatting. Under the hub gate the profiles share one checkout,
+/// so the first to pass them spares the others (see [`crate::preflight`]).
 fn preflight(root: &Path) -> Result<(), String> {
-    crate::policy::check(root)?;
-    crate::source_size::check(root)?;
-    run_command(root, "cargo", &["fmt", "--all", "--check"])
+    crate::preflight::run(root, || {
+        crate::policy::check(root)?;
+        crate::source_size::check(root)?;
+        run_command(root, "cargo", &["fmt", "--all", "--check"])
+    })
 }
 
 /// Strict lint enforces the complexity limits and type-checks every target, so the CI profiles

@@ -18,7 +18,7 @@ using MethodImplAttributes = Mono.Cecil.MethodImplAttributes;
 /// </summary>
 internal static class CallbackAssembly
 {
-    public static byte[] Build(bool marked = true, bool enumDefault = false)
+    public static byte[] Build(bool marked = true, bool enumDefault = false, Action<ModuleDefinition>? extend = null)
     {
         // Writing the enum default needs Dep, which only exists in memory here.
         var resolver = new DependencyResolver(DefineDependency());
@@ -40,6 +40,7 @@ internal static class CallbackAssembly
         AddFactory(holder, "MakeInstance", callback, constructor, OpCodes.Ldarg_0, markedInstance, takesHolder: true);
         AddFactory(holder, "MakeClosed", callback, constructor, OpCodes.Ldarg_0, markedMethod, takesHolder: true);
         if (enumDefault) AddEnumDefault(holder);
+        extend?.Invoke(module);
         return Write(assembly);
     }
 

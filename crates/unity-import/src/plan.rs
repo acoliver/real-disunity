@@ -58,6 +58,10 @@ pub struct ScenePlan {
     /// only when the player's tag manager lists some; a project plan leaves the list empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sorting_layers: Vec<PlanSortingLayer>,
+    /// The scene's ambient light and default reflection, from the render settings of a player
+    /// scene that has them. Project plans and prefab plans carry none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<crate::player_environment::PlanEnvironment>,
     /// What the plan leaves out of the scene as authored, one line each. Only player plans
     /// leave anything out; a project plan fails instead.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -291,6 +295,13 @@ pub enum PlanAsset {
         #[serde(flatten)]
         material: crate::player_materials::PlanMaterial,
     },
+    /// A cube of six square faces a player scene's render settings name, planned as a 2D texture
+    /// is: `format` is the `TextureFormat` value, and the bytes are the six faces in the order
+    /// +X, -X, +Y, -Y, +Z, -Z, each with its whole mip chain, named in place.
+    Cubemap {
+        #[serde(flatten)]
+        texture: crate::player_sprites::Texture2DAsset,
+    },
     /// A texture a sprite of a player scene draws, with its pixels named in place (see
     /// [`crate::player_sprites::plan_scene_texture`]).
     Texture2D {
@@ -357,6 +368,7 @@ pub fn plan_scene(project: &Project, path: &Path) -> Result<ScenePlan, PlanError
         axes: input_axes(project)?,
         layers: Vec::new(),
         sorting_layers: Vec::new(),
+        environment: None,
         differences: Vec::new(),
     })
 }

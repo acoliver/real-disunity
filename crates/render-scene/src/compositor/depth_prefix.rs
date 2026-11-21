@@ -1,8 +1,12 @@
 use super::FrameRenderer;
 use std::borrow::Cow;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan,
+    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, GamePlace,
+    PassDeclaration, PassEntry, PassSlot,
 };
+
+/// A frame's pass list and the views it attaches.
+type ListedPlan = (Vec<PassDeclaration>, Vec<AttachmentView>);
 
 fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
     features
@@ -213,8 +217,9 @@ impl FrameRenderer {
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
         // Prefix features prepare after this, so they read the chunks the suffix will lend. The
-        // suffix publishes again with its colour target's extent, which must equal the metadata's
-        // or the two segments select different chunks.
+        // suffix publishes again with its colour target's extent. The frame's terrain is
+        // selected once, for the metadata's extent, so a suffix with another extent fails its
+        // own terrain preparation (`StreamingSelectionConflict`) before it can publish.
         self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();
@@ -222,6 +227,10 @@ impl FrameRenderer {
         let mut requested = Vec::new();
         let mut operations = Vec::new();
         let mut extra = None;
+        // The resident textures are scene content, not a product of the frame, so the prefix's
+        // game passes may sample them.
+        self.publish_game_textures(gpu);
+        self.plan_game_prefix(frame, &mut passes, &mut views)?;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);
             views.extend_from_slice(plan.views);
@@ -261,7 +270,93 @@ impl FrameRenderer {
                 operations: &operations,
             },
             &mut features,
-        )
+        )?;
+        self.record_game_work(encoder)
+    }
+
+    /// Plans the game's passes after the depth prepass into the prefix, immediately after the
+    /// prepass and before the depth levels that read it, with the camera of the frame the prefix
+    /// belongs to, and with the loads the frame that completes the prefix plans them with. A
+    /// renderer whose game has no depth-prefix feature plans nothing.
+    ///
+    /// # Errors
+    /// [`FrameError`] when a depth-prefix feature refuses to plan, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when it planned passes into a prefix
+    /// that has none.
+    fn plan_game_prefix(
+        &mut self,
+        frame: &crate::frame::FrameUniform,
+        passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(), FrameError> {
+        if !self.chain.has_prefix_features() {
+            return Ok(());
+        }
+        self.game_camera
+            .set(&super::FrameCamera::of(frame, self.frame_slot));
+        let stock = passes.len();
+        self.chain.plan_prefix_features(passes, views)?;
+        super::game::place_after_prepass(passes, stock)
+    }
+
+    /// The caller's passes and views for the rest of a frame whose depth prefix, encoded
+    /// separately in `encoder`'s frame, ran game passes after the prepass while the frame's own
+    /// plan has no prepass (a renderer without screen-space metadata, whose prefix is the depth
+    /// fitting's): `plan` with the prefix's prepass and the views it attaches. The game's passes
+    /// after the prepass then plan in the frame as they planned in the prefix, so the frame lists
+    /// them as completed and its later passes load what they wrote, as in a frame that plans the
+    /// prepass itself. `None` leaves `plan` as it is.
+    ///
+    /// # Errors
+    /// [`FrameError`] when `encoder` is not a checked transaction encoder, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when the prefix ran game passes without
+    /// one.
+    pub(super) fn with_prefix_prepass(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+    ) -> Result<Option<ListedPlan>, FrameError> {
+        let (passes, views) = plan;
+        let lists = |passes: &[PassDeclaration], slot| passes.iter().any(|pass| pass.slot == slot);
+        if self.ssao.is_some() || lists(passes, PassSlot::DepthNormalPrepass) {
+            return Ok(None);
+        }
+        let Some(prefix) = self.chain.geometry_prefix_plan(encoder)? else {
+            return Ok(None);
+        };
+        if !lists(prefix.passes, PassSlot::Game(GamePlace::AfterDepthPrepass)) {
+            return Ok(None);
+        }
+        let prepass = prefix
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .ok_or(FrameError::MissingPass(PassEntry::new(
+                PassSlot::DepthNormalPrepass,
+            )))?;
+        let mut views = views.to_vec();
+        for attachment in prepass
+            .color
+            .iter()
+            .chain(&prepass.additional_colors)
+            .chain(&prepass.depth)
+        {
+            if views
+                .iter()
+                .any(|view| view.resource() == attachment.resource)
+            {
+                continue;
+            }
+            let view = prefix
+                .views
+                .iter()
+                .find(|view| view.resource() == attachment.resource)
+                .expect("a validated prefix has a view for each attachment");
+            views.push(view.clone());
+        }
+        let mut passes = passes.to_vec();
+        passes.push(prepass.clone());
+        Ok(Some((passes, views)))
     }
 
     fn encode_prefix_plan(

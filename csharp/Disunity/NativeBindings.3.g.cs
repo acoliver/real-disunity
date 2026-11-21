@@ -11,6 +11,24 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
+        /// <summary>
+        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
+        /// <summary>
         ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
         ///  caller checks the pass against the shader's pass count; the world holds none.
         /// </summary>
@@ -289,6 +307,17 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_take(ulong world, DisunityOffscreenWork* records, uint capacity, uint* count);
+        /// <summary>
+        ///  Writes the scope target of the property block of one material slot of a mesh renderer to
+        ///  `target`, for the shader property calls with scope 4. The block holds the values the draws of
+        ///  that slot take above the renderer's all-slot block (scope 2) and the slot's material. The
+        ///  material index is below 64 and may name a slot the renderer has no material for yet.
+        ///
+        ///  # Safety
+        ///  `target` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slot_block_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_slot_block_target(ulong world, ulong renderer_handle, uint material_index, ulong* target);
         /// <summary>
         ///  Sets a float property, replacing the value of the same name.
         ///

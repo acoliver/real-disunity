@@ -8,7 +8,7 @@
 //! Destroying a resource that something still names is allowed, which is the engine's choice:
 //! the name goes stale instead of keeping the resource alive. A stale id reads as an error
 //! ([`GraphicsError::StaleShader`] and its siblings). A texture property that names a destroyed
-//! render texture reads as [`TextureRef::None`] through [`World::live_texture`]. Offscreen work
+//! render texture reads as [`TextureRef::Unsent`] through [`World::live_texture`]. Offscreen work
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
 mod active_pass;

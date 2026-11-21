@@ -555,7 +555,7 @@ fn a_render_texture_with_a_mip_chain_is_sampled_at_the_level_the_camera_wrote() 
     camera_render(&mut world, a);
     blit_and_copy(&mut world, (a, b, c));
     let (adapted, operations, reads) = rig.frame(&mut world, &[b, c]);
-    assert_eq!(adapted.report.failures["draw:SampledWrittenLevelsOnly"], 3);
+    assert_eq!(adapted.report.notes["draw:SampledWrittenLevelsOnly"], 3);
     assert!(
         !adapted
             .report

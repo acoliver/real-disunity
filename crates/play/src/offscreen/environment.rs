@@ -29,9 +29,7 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_world_simulation::graphics::environment::{
     Ambient, AmbientMode, Environment, PROBE_COEFFICIENTS, Reflection,
 };
-use worldrunner_world_simulation::graphics::{
-    PropertyValue as WorldValue, TextureRef, TextureSlot,
-};
+use worldrunner_world_simulation::graphics::{PropertyValue as WorldValue, TextureSlot};
 
 use super::builtins::{SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C, SPEC_CUBE0_HDR};
 use super::properties::{Textures, set_value};
@@ -77,7 +75,7 @@ fn add_reflection(layer: &mut PropertyLayer, reflection: &Reflection, textures: 
     }
     let held = layer.textures.contains_key(SPEC_CUBE0) || layer.stand_ins.contains_key(SPEC_CUBE0);
     let source = reflection.source();
-    if held || *source == TextureRef::None {
+    if held || source.is_unbound() {
         return;
     }
     let slot = TextureSlot {

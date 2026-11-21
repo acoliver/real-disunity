@@ -229,12 +229,10 @@ impl World {
     fn check_compute_value(&self, value: &PropertyValue) -> Result<(), WorldError> {
         value.validate()?;
         match value {
-            PropertyValue::Texture(_, slot) if slot.texture != TextureRef::None => {
-                match &slot.texture {
-                    TextureRef::Global(_) => Ok(()),
-                    other => self.check_texture(other),
-                }
-            }
+            PropertyValue::Texture(_, slot) if !slot.texture.is_unbound() => match &slot.texture {
+                TextureRef::Global(_) => Ok(()),
+                other => self.check_texture(other),
+            },
             _ => Ok(()),
         }
     }

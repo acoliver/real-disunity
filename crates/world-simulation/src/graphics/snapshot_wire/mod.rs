@@ -26,9 +26,10 @@ use codec::{Reader, Wire, Writer};
 /// The version of the encoding this module reads and writes.
 ///
 /// Version 16 added the property block of each material slot to a renderer
-/// (`RendererView::slot_blocks`). Version 17 added the renderers of each camera render and
-/// culling record: `set_only_renderers`, `renderer_sets` and `record_sets` of the snapshot.
-pub const WIRE_VERSION: u32 = 17;
+/// (`RendererView::slot_blocks`). Version 17 added texture slot kind 5, a texture the world
+/// holds as null (main's null-slots census). Version 18 added the renderers of each camera render
+/// and culling record: `set_only_renderers`, `renderer_sets` and `record_sets` of the snapshot.
+pub const WIRE_VERSION: u32 = 18;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 

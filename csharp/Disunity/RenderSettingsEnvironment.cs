@@ -142,7 +142,7 @@ namespace UnityEngine
                 lock (Gate)
                 {
                     SetReflection(r => (r->custom_kind, r->custom_texture) = (kind, identity));
-                    _state.CustomReflection = kind == 0 ? null : value;
+                    _state.CustomReflection = WorldGraphics.IsUnbound(kind) ? null : value;
                 }
             }
         }
@@ -178,8 +178,8 @@ namespace UnityEngine
                 (record.custom_kind, record.custom_texture) = custom;
                 (record.skybox_kind, record.skybox_texture) = skybox;
                 WriteRecord(&record);
-                _state.CustomReflection = custom.Kind == 0 ? null : scene.Custom;
-                _state.SkyboxReflection = skybox.Kind == 0 ? null : scene.Skybox;
+                _state.CustomReflection = WorldGraphics.IsUnbound(custom.Kind) ? null : scene.Custom;
+                _state.SkyboxReflection = WorldGraphics.IsUnbound(skybox.Kind) ? null : scene.Skybox;
             }
         }
     }

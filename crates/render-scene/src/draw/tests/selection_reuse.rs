@@ -93,6 +93,101 @@ fn caster_fits_are_reused_until_a_placement_changes() {
     assert_eq!(gpu.caster_fits.computed.get(), 2);
 }
 
+/// Receivers of one frame, each reaching the quad at the origin at a different depth and
+/// moving a little every frame, as the cascades of a walking camera do.
+fn receivers(frame: u16) -> Vec<glam::Mat4> {
+    (0..4_u16)
+        .map(|cascade| {
+            let depth = 0.2 + 0.1 * f32::from(cascade) + 0.01 * f32::from(frame);
+            glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, -depth))
+                * glam::Mat4::from_scale(glam::Vec3::splat(0.05))
+        })
+        .collect()
+}
+
+fn fitted(gpu: &SceneGpu, receivers: &[glam::Mat4]) -> Vec<[u32; 16]> {
+    let mut fits = receivers.to_vec();
+    gpu.caster_matrices(&mut fits);
+    fits.iter()
+        .map(|fit| fit.to_cols_array().map(f32::to_bits))
+        .collect()
+}
+
+fn fresh_fits(gpu: &SceneGpu, receivers: &[glam::Mat4]) -> Vec<[u32; 16]> {
+    receivers
+        .iter()
+        .map(|&receiver| {
+            crate::draw::visibility::caster_matrix(
+                &gpu.instances,
+                &gpu.mesh_selection,
+                None,
+                receiver,
+            )
+            .to_cols_array()
+            .map(f32::to_bits)
+        })
+        .collect()
+}
+
+#[test]
+fn cascade_fits_follow_the_receivers_and_placements_frame_after_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    let computed = |gpu: &SceneGpu| gpu.caster_fits.computed.get();
+    for frame in 0..5 {
+        let receivers = receivers(frame);
+        let before = computed(&gpu);
+        assert_eq!(fitted(&gpu, &receivers), fresh_fits(&gpu, &receivers));
+        assert_eq!(
+            computed(&gpu) - before,
+            4,
+            "frame {frame}: a fit per cascade"
+        );
+        assert_eq!(fitted(&gpu, &receivers), fresh_fits(&gpu, &receivers));
+        assert_eq!(
+            computed(&gpu) - before,
+            4,
+            "frame {frame}: a repeat is reused"
+        );
+    }
+    let receivers = receivers(4);
+    let untouched = fresh_fits(&gpu, &receivers);
+    assert_ne!(untouched[0], untouched[1], "the cascades fit differently");
+    let handle = gpu.instance_handles().next().unwrap();
+    let toward = SceneTransform {
+        position_millimeters: [0, 0, -9_000],
+        ..*gpu.instance(handle).unwrap().0.transform()
+    };
+    gpu.set_instance_transform(handle, toward).unwrap();
+    let before = computed(&gpu);
+    let edited = fitted(&gpu, &receivers);
+    assert_eq!(edited, fresh_fits(&gpu, &receivers));
+    assert_ne!(edited, untouched, "the moved caster changes the fits");
+    assert_eq!(computed(&gpu) - before, 4, "an edit refits every cascade");
+    // Fewer cascades than before reuse the fits made for the same receivers.
+    assert_eq!(fitted(&gpu, &receivers[..2]), edited[..2]);
+    assert_eq!(computed(&gpu) - before, 4);
+    // A different receiver is fitted afresh whatever the cache holds.
+    let next = receivers_after(&receivers);
+    assert_eq!(fitted(&gpu, &next[..3]), fresh_fits(&gpu, &next[..3]));
+    assert_eq!(computed(&gpu) - before, 7);
+}
+
+fn receivers_after(receivers: &[glam::Mat4]) -> Vec<glam::Mat4> {
+    receivers
+        .iter()
+        .map(|&receiver| glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, -0.05)) * receiver)
+        .collect()
+}
+
 #[test]
 fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
     let _session = crate::test_support::SceneTestSession::acquire();

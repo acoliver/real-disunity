@@ -207,10 +207,12 @@ impl CascadeViews {
         let count = self.matrices.len();
         self.slices.clear();
         for index in 0..count {
-            let receiver = self.receiver_matrix(index, count, view, settings, sun)?;
-            let matrix = valid(gpu.caster_matrix(receiver))?;
+            self.matrices[index] = self.receiver_matrix(index, count, view, settings, sun)?;
+        }
+        gpu.caster_matrices(&mut self.matrices);
+        for index in 0..count {
+            let matrix = valid(self.matrices[index])?;
             self.depth_bias[index] = normalized_depth_bias(settings, matrix)?;
-            self.matrices[index] = matrix;
             let slice = self.camera_splits.then(|| self.slice_corners(index, view));
             self.slices.push(slice);
         }

@@ -144,6 +144,7 @@ fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
         materials: vec![MaterialId(material)],
         layer: layer_index,
         block: PropertyLayer::default(),
+        slot_blocks: std::collections::BTreeMap::new(),
         per_draw: layer(&[("_Place", place)]),
     }
 }

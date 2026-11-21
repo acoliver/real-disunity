@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::{
-    player_identity::{PlayerIdentity, player_identity, player_quality, player_scene_paths},
+    player_identity::{
+        PlayerIdentity, player_identity, player_project_graphics, player_quality,
+        player_scene_paths,
+    },
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
     script_layouts::{ScriptLayouts, parse_script_layouts},
@@ -14,6 +17,7 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::offscreen::{DepthRange, SuppliedGlobal};
+use crate::plan_differences::shader_difference_lines;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
 use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
 
@@ -87,6 +91,14 @@ pub fn prepare_player(
         resources.entries.len(),
         resources.assets.len()
     );
+    let differences: Vec<String> = [&plan.differences, &resources.differences]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+    for line in shader_difference_lines(&differences) {
+        eprintln!("{line}");
+    }
     let resources_path = output.join("resources.json");
     write(
         &resources_path,
@@ -186,8 +198,8 @@ fn plan_build_scenes(
     Ok(scene_entries(&paths, &plans))
 }
 
-/// Writes the bridge's request: the player's paths, plans, identity, command line arguments
-/// and quality levels. Each game keeps its preferences in its own
+/// Writes the bridge's request: the player's paths, plans, identity, command line arguments,
+/// quality levels and project graphics settings. Each game keeps its preferences in its own
 /// `persistent/<company>/<product>` directory under `output`. `plans` are the scene plan and
 /// the resource plan; `launch` is the build's scene list and the command line.
 fn write_request(
@@ -223,6 +235,9 @@ fn write_request(
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
+    }
+    if let Some(project) = player_project_graphics(data)? {
+        body["project"] = serde_json::json!(project);
     }
     write(&request, body.to_string().as_bytes())?;
     Ok(request)

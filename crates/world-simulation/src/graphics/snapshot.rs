@@ -57,7 +57,18 @@ pub struct RendererView {
     /// was destroyed.
     pub materials: Vec<Option<MaterialId>>,
     pub render_queue: Option<i32>,
+    /// The values that override every slot's material.
     pub property_block: Option<ShaderProperties>,
+    /// The values that override one slot's material, by slot index. A slot's draws read its own
+    /// block first, then `property_block`, then the material.
+    pub slot_blocks: BTreeMap<u32, ShaderProperties>,
+}
+
+impl RendererView {
+    /// Every property block the renderer holds: the all-slot block, then each slot's.
+    pub fn blocks(&self) -> impl Iterator<Item = &ShaderProperties> {
+        self.property_block.iter().chain(self.slot_blocks.values())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -416,5 +427,6 @@ fn renderer_view(
             .collect(),
         render_queue: renderer.render_queue,
         property_block: renderer.property_block.clone(),
+        slot_blocks: renderer.slot_blocks.clone(),
     })
 }

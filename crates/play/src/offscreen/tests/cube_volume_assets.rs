@@ -212,6 +212,75 @@ fn a_volume_in_the_four_byte_data_format_goes_up_as_rgba8_in_the_colour_space_it
 }
 
 #[test]
+fn a_cube_in_graphics_format_87_is_stored_blue_first_and_goes_up_red_first() {
+    // Six 1x1 faces of four bytes: texel k holds the bytes 4k..4k+3 as blue, green, red and alpha,
+    // so it goes up as 4k+2, 4k+1, 4k and 4k+3.
+    let stored = PlayerTexture {
+        format: 0,
+        graphics_format: 87,
+        ..cube(0, 1, 1, (0..24).collect())
+    };
+    let made = texture_of(TextureId(3), &stored, None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::Cube);
+    assert_eq!(made.graphics_format, 4, "RGBA8 in sRGB");
+    let red_first: Vec<u8> = (0..6_u8)
+        .flat_map(|k| [4 * k + 2, 4 * k + 1, 4 * k, 4 * k + 3])
+        .collect();
+    assert_eq!(made.bytes, red_first);
+}
+
+#[test]
+fn a_volume_in_graphics_format_87_is_stored_blue_first_and_goes_up_red_first() {
+    // 2x1x2 texels and a 1x1x1 second level, five texels of four bytes: texel k holds the bytes
+    // 4k..4k+3 as blue, green, red and alpha, so it goes up as 4k+2, 4k+1, 4k and 4k+3.
+    let stored = PlayerTexture {
+        format: 0,
+        graphics_format: 87,
+        ..volume(0, (2, 1, 2), 2, (0..20).collect())
+    };
+    let made = texture_of(TextureId(5), &stored, None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::D3(2));
+    assert_eq!(made.graphics_format, 4, "RGBA8 in sRGB");
+    let red_first: Vec<u8> = (0..5_u8)
+        .flat_map(|k| [4 * k + 2, 4 * k + 1, 4 * k, 4 * k + 3])
+        .collect();
+    assert_eq!(made.bytes, red_first);
+}
+
+#[test]
+fn a_four_byte_data_volume_keeps_its_bytes_in_the_order_they_are_stored() {
+    // GraphicsFormat 88 stores red, green, blue and alpha, and is the one four-byte format that
+    // is not exchanged.
+    let stored = PlayerTexture {
+        graphics_format: 88,
+        ..volume(0, (1, 1, 2), 1, (0..8).collect())
+    };
+    let made = texture_of(TextureId(5), &stored, None, false).unwrap();
+    assert_eq!(made.bytes, (0..8).collect::<Vec<u8>>());
+}
+
+#[test]
+fn a_plain_2d_texture_in_graphics_format_87_is_refused_because_it_has_no_texture_format() {
+    // A plain texture is read through its TextureFormat, and 87 has none, so no 2D texture holds
+    // it: only arrays, cubes and volumes do, and each of those exchanges its bytes.
+    let stored = PlayerTexture {
+        format: 0,
+        graphics_format: 87,
+        width: 1,
+        height: 1,
+        depth: 1,
+        dimension: TextureDimension::D2,
+        ..texture(0, false, vec![0, 1, 2, 3])
+    };
+    assert_eq!(
+        texture_of(TextureId(2), &stored, None, false).unwrap_err(),
+        PlayerTextureError::Unsupported {
+            format: "TextureFormat 0".into()
+        }
+    );
+}
+
+#[test]
 fn a_volume_whose_bytes_are_not_its_chain_or_whose_format_is_not_texels_is_refused_by_name() {
     let short = volume(4, (2, 1, 4), 3, vec![0; 43]);
     assert_eq!(

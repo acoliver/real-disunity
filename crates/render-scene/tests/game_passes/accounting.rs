@@ -24,6 +24,8 @@ const LARGER: [u32; 2] = [96, 72];
 const FIXED_BLOCK_BYTES: u64 = 64 * 64 * 8;
 /// The bytes of the fixed backing in BC4 with three mips: 64, 32 and 16 blocks a side.
 const FIXED_CHAIN_BYTES: u64 = (64 * 64 + 32 * 32 + 16 * 16) * 8;
+/// The bytes of the fixed backing with three mips: 256, 128 and 64 texels a side of four bytes.
+const FIXED_RENDERABLE_CHAIN_BYTES: u64 = (256 * 256 + 128 * 128 + 64 * 64) * 4;
 
 /// A game that owns targets and draws nothing.
 #[derive(Clone, Copy, Debug)]
@@ -357,7 +359,7 @@ fn a_block_target_with_a_mip_chain_is_charged_every_mip() {
 }
 
 #[test]
-fn a_mip_count_outside_the_chain_or_on_a_renderable_target_is_refused_by_name() {
+fn a_mip_count_outside_the_chain_or_on_a_format_that_cannot_render_is_refused_by_name() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let refusal = |context: &GpuContext, ledger: Ledger| {
         let Err(error) = ConfiguredFrameRenderer::new(
@@ -380,16 +382,72 @@ fn a_mip_count_outside_the_chain_or_on_a_renderable_target_is_refused_by_name() 
     }
     let full = Ledger { mips: 9, ..BLOCKS };
     renderer(&block_context(), settings(SIZE, full.passes()), 1 << 28);
-    let renderable = refusal(
-        &context(),
+    // Both counts are refused for a renderable colour target the same way.
+    for mips in [0, 10] {
+        let error = refusal(
+            &context(),
+            Ledger {
+                mips,
+                ..Ledger::FIXED_ONLY
+            },
+        );
+        assert!(
+            error.contains("game target ledger")
+                && error.contains(&format!("mip count {mips} is outside 1..=9")),
+            "{error}"
+        );
+    }
+    for format in [
+        wgpu::TextureFormat::Rg11b10Ufloat,
+        wgpu::TextureFormat::Depth32Float,
+    ] {
+        let error = refusal(
+            &context(),
+            Ledger {
+                format,
+                mips: 2,
+                ..Ledger::FIXED_ONLY
+            },
+        );
+        assert!(
+            error.contains("game target ledger")
+                && error.contains("not a renderable colour format"),
+            "{format:?}: {error}"
+        );
+    }
+}
+
+#[test]
+fn a_renderable_target_with_a_mip_chain_is_charged_every_mip() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = context();
+    let plain = charged(&context, &settings(SIZE, GamePasses::new()));
+    let live = settings(
+        SIZE,
         Ledger {
-            mips: 2,
+            mips: 3,
             ..Ledger::FIXED_ONLY
-        },
+        }
+        .passes(),
     );
+    assert_eq!(
+        charged(&context, &live),
+        plain + FIXED_RENDERABLE_CHAIN_BYTES
+    );
+    let peak = 2 * plain + FIXED_RENDERABLE_CHAIN_BYTES;
+    let mut fits = renderer(&context, live.clone(), peak);
+    let backing = fits.game_targets().texture("ledger").unwrap();
+    assert_eq!(backing.mip_level_count(), 3);
+    assert_eq!(
+        backing.usage(),
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
+    );
+    fits.reconfigure(&context, recolored(&live)).unwrap();
+    assert_eq!(fits.game_targets().texture("ledger").unwrap(), backing);
+    let mut tight = renderer(&context, live.clone(), peak - 1);
+    let error = tight.reconfigure(&context, recolored(&live)).unwrap_err();
     assert!(
-        renderable.contains("game target ledger")
-            && renderable.contains("renderable target has one mip"),
-        "{renderable}"
+        matches!(error, ConfigurationError::Budget { required, .. } if required == peak),
+        "{error:?}"
     );
 }

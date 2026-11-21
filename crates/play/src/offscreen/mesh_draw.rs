@@ -9,6 +9,7 @@
 //! The mesh, its channels, the material's constants and textures and the render state of the pass
 //! are then the ones a list draw gives them. The record's instance count goes to each item.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use worldrunner_render_program::layers::PropertyLayer;
@@ -16,7 +17,6 @@ use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Re
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{MaterialId as WorldMaterialId, ShaderProperties};
 
-use super::builtins::draw_layer;
 use super::frame::{Mapper, Skip};
 use super::ids;
 use super::lists::IMAGE_FRONT_FACE;
@@ -62,7 +62,8 @@ impl Mapper<'_> {
                 block: block.map_or_else(PropertyLayer::default, |block| {
                     layer(block, &mut self.textures)
                 }),
-                per_draw: draw_layer(matrix),
+                slot_blocks: BTreeMap::new(),
+                per_draw: self.layerless_draw(matrix),
             },
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
@@ -78,6 +79,7 @@ impl Mapper<'_> {
                     material: Some(named),
                     pass: PassSelector::Index(pass),
                     instances,
+                    per_draw: PropertyLayer::default(),
                 })
                 .collect(),
         }))])

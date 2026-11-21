@@ -153,8 +153,12 @@ pub struct Renderer {
     pub mesh: MeshId,
     pub materials: Vec<MaterialId>,
     pub layer: u32,
-    /// The renderer's property block.
+    /// The renderer's property block, which every slot's draws read.
     pub block: PropertyLayer,
+    /// The property block of single slots, by slot index. A slot's draws read its block above
+    /// `block`, so it wins over `block` for a name both set. A slot without an entry reads
+    /// `block` alone.
+    pub slot_blocks: BTreeMap<usize, PropertyLayer>,
     /// The values the caller supplies for this renderer's draws, such as its matrices, under
     /// the names its shaders use.
     pub per_draw: PropertyLayer,
@@ -249,6 +253,9 @@ pub struct ListDraw {
     pub pass: PassSelector,
     /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
     pub instances: u32,
+    /// The values the list gives this draw alone, such as a light factor that depends on the
+    /// culling result the draw came from. They win over the renderer's own `per_draw` values.
+    pub per_draw: PropertyLayer,
 }
 
 /// The raster state a script set for the draws of a record, over the state their passes resolve.

@@ -114,7 +114,8 @@ wire_struct!(RendererView {
     shadow_casting_mode,
     materials,
     render_queue,
-    property_block
+    property_block,
+    slot_blocks
 });
 
 const WORK_CAMERA_RENDER: u8 = 0;

@@ -17,7 +17,9 @@ pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
 pub use prepare::PrepareContext;
 use prepare::Staged;
-pub use prepared::{PreparedAccess, PreparedCommands, PreparedRefusal, PreparedWrite};
+pub use prepared::{
+    PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {

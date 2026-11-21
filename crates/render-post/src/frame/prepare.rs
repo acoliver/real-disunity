@@ -126,8 +126,11 @@ impl<'a> PrepareContext<'a> {
             bytes,
         });
     }
-    /// Stages one compute dispatch, encoded in its own compute pass after the copies and
-    /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    /// Stages one compute dispatch of `pipeline` with `group` at set 0, encoded after the copies
+    /// and dispatches staged before it, so it reads bytes uploaded or copied earlier in this
+    /// context. It shares a compute pass with the compute work staged just before and after it,
+    /// inside a debug group of `label`, so `pipeline` must use no other group. A copy staged
+    /// between two dispatches ends the pass, so the second dispatch starts a new one.
     ///
     /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
     /// owns over its own buffers and textures. Work that writes or reads views of the frame, or

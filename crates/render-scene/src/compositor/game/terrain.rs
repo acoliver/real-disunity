@@ -69,6 +69,10 @@ impl FrameTerrainHandle {
     }
 
     /// Records what `gpu` prepared for this frame's view. Outside a frame nothing is lent.
+    ///
+    /// A frame's terrain is selected for one raster extent. A second publication in the same
+    /// frame with another `viewport` lends `View(ViewMismatch)`, and the routes fail their own
+    /// terrain preparation before they publish.
     pub(crate) fn publish(
         &self,
         gpu: &SceneGpu,

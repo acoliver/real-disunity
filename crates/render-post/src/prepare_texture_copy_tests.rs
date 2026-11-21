@@ -214,6 +214,71 @@ fn a_texture_copy_staged_after_a_dispatch_copies_what_the_dispatch_wrote() {
 }
 
 #[test]
+fn a_texture_copy_between_two_dispatches_stays_between_them() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let authority = crate::test_authority(&queue);
+    let written = texture(
+        &device,
+        (WIDTH, 1, 1),
+        wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+    );
+    let sampled = texture(
+        &device,
+        (WIDTH, 1, 1),
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+    let doubled = storage(&device, 16);
+    let copied = buffer(&device, 16);
+    let fill = pipeline(&device, FILL_TEXTURE);
+    let double = pipeline(&device, DOUBLE_TEXTURE);
+    let written_view = written.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampled_view = sampled.create_view(&wgpu::TextureViewDescriptor::default());
+    let fill_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("fill texture"),
+        layout: &fill.get_bind_group_layout(0),
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&written_view),
+        }],
+    });
+    let double_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("double texture"),
+        layout: &double.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&sampled_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: doubled.as_entire_binding(),
+            },
+        ],
+    });
+    let prepared = authority
+        .prepare(&device, |encoder, _| {
+            let mut context = PrepareContext::new(&device, encoder)?;
+            context.dispatch("fill texture", &fill, &fill_group, [1, 1, 1]);
+            context.copy_texture(
+                info(&written, 0, 0, 0),
+                info(&sampled, 0, 0, 0),
+                extent(WIDTH, 1),
+            );
+            context.dispatch("double texture", &double, &double_group, [1, 1, 1]);
+            context.copy_buffer_region((&doubled, 0), (&copied, 0), 16);
+            context.finish();
+            Ok::<_, FrameError>(())
+        })
+        .unwrap();
+    prepared.submit().unwrap();
+    let expected: Vec<u8> = [200_u32, 202, 204, 206]
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect();
+    assert_eq!(bytes(&device, &queue, &copied), expected);
+}
+
+#[test]
 fn a_texture_copy_takes_the_mip_origin_and_layer_it_is_given() {
     let (device, queue) = crate::gpu_tests::gpu();
     let authority = crate::test_authority(&queue);

@@ -103,8 +103,9 @@ After an intentional ABI change:
    Revision 19 adds `disunity_environment_read` and `disunity_environment_write`, which move the
    world's environment lighting (the ambient light and the default reflection, with a set flag
    for each section) in the 224-byte `DisunityEnvironment`, and carries the environment in the
-   graphics snapshot.
-   Native and managed hosts reject
+   graphics snapshot. Revision 20 adds the property block of one material slot of a mesh
+   renderer: shader property scope 4 and `disunity_mesh_renderer_slot_block_target`,
+   which gives the target of a renderer's slot. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

@@ -1,12 +1,12 @@
-//! What a prepared dispatch costs in command buffers when a frame records it as prepared
-//! commands. wgpu-core opens two for each compute pass and Metal refuses the one after its 4096 not
-//! submitted, so the largest number of dispatches one frame of a fresh device submits counts them
-//! (`largest_submitting_count`). Other backends have no such cap and every count submits.
+//! What a prepared dispatch costs in command buffers. wgpu-core opens two for each compute pass
+//! and Metal refuses the one after its 4096 not submitted, so the largest number of dispatches one
+//! frame of a fresh device submits counts them (`largest_submitting_count`). Other backends have no
+//! such cap and every count submits.
 
 use std::sync::{Arc, Mutex};
 
 use worldrunner_render_gpu::test_support::largest_submitting_count;
-use worldrunner_render_post::{PrepareContext, PreparedCommands};
+use worldrunner_render_post::PreparedCommands;
 use worldrunner_render_program::runtime::BoundResource;
 
 use crate::common::{Gpu, texture, writer_dispatch, writer_program};
@@ -24,10 +24,13 @@ const COUNTER: &str = "
 
 #[derive(Clone, Copy)]
 enum Unit {
-    /// [`PrepareContext::dispatch`] of a counting kernel.
-    Context,
-    /// A runtime's prepared dispatch, recorded as its [`PreparedCommands`].
+    /// A compute pass of its own with one dispatch of a counting kernel.
+    RawPass,
+    /// A runtime's prepared dispatch, recorded with [`PreparedCommands::record`].
     Prepared,
+    /// A runtime's prepared dispatch, recorded with its compute form into one compute pass every
+    /// unit shares, as a frame records a run of prepared dispatches.
+    SharedPass,
 }
 
 /// Submits one frame of `units` dispatches recorded as `unit` on a fresh device; `None` when the
@@ -48,25 +51,32 @@ fn submit(unit: Unit, units: usize) -> Option<Result<(), Vec<String>>> {
             .push(format!("lost: {reason:?} {message}"));
     });
     let mut frame = gpu.authority.begin(&gpu.device).unwrap();
-    match unit {
-        Unit::Context => {
-            let (pipeline, group) = counter(&gpu.device);
-            let mut context = PrepareContext::new(&gpu.device, &mut frame).unwrap();
-            for _ in 0..units {
-                context.dispatch("count", &pipeline, &group, [1, 1, 1]);
-            }
-            context.finish();
+    if let Unit::RawPass = unit {
+        let (pipeline, group) = counter(&gpu.device);
+        for _ in 0..units {
+            let mut pass = frame.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
         }
-        Unit::Prepared => {
-            let blocks: Vec<Vec<u8>> = bc4_blocks().iter().map(|block| block.bytes()).collect();
-            let mut runtime = gpu.runtime();
-            let image = texture(&mut runtime, wgpu::TextureFormat::Rg32Uint, GRID, 1, 1);
-            let program = writer_program(&runtime, GRID, &blocks).unwrap();
-            let bindings = [BoundResource::texture(0, 0, image)];
-            let dispatch = runtime
-                .prepare_dispatch(&writer_dispatch(&program, &bindings, GRID, &blocks))
-                .unwrap();
-            PreparedCommands::retain(&dispatch, &frame).unwrap();
+    } else {
+        let blocks: Vec<Vec<u8>> = bc4_blocks().iter().map(|block| block.bytes()).collect();
+        let mut runtime = gpu.runtime();
+        let image = texture(&mut runtime, wgpu::TextureFormat::Rg32Uint, GRID, 1, 1);
+        let program = writer_program(&runtime, GRID, &blocks).unwrap();
+        let bindings = [BoundResource::texture(0, 0, image)];
+        let dispatch = runtime
+            .prepare_dispatch(&writer_dispatch(&program, &bindings, GRID, &blocks))
+            .unwrap();
+        PreparedCommands::retain(&dispatch, &frame).unwrap();
+        if let Unit::SharedPass = unit {
+            let compute = PreparedCommands::compute(&dispatch)
+                .expect("a prepared dispatch has a compute form");
+            let mut pass = frame.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            for _ in 0..units {
+                compute.record_in_pass(&mut pass, "dispatch").unwrap();
+            }
+        } else {
             for _ in 0..units {
                 PreparedCommands::record(&dispatch, &mut frame, "dispatch").unwrap();
             }
@@ -116,22 +126,32 @@ fn counter(device: &wgpu::Device) -> (wgpu::ComputePipeline, wgpu::BindGroup) {
 }
 
 #[test]
-fn a_prepared_dispatch_recorded_as_prepared_commands_costs_no_more_than_a_context_dispatch() {
+fn a_prepared_dispatch_recorded_on_its_own_costs_what_a_compute_pass_of_its_own_costs() {
     if Gpu::new().is_none() {
         return;
     }
     let (largest, refusal) =
-        largest_submitting_count(CAP, |units| submit(Unit::Context, units).unwrap());
+        largest_submitting_count(CAP, |units| submit(Unit::RawPass, units).unwrap());
     if let Some(refusal) = refusal {
         assert!(
             refusal.iter().any(|error| error.starts_with("lost:")),
-            "the frame after {largest} dispatches was refused for another reason than the command \
+            "the frame after {largest} passes was refused for another reason than the command \
              buffer cap: {refusal:?}"
         );
     }
     assert_eq!(
         submit(Unit::Prepared, largest).unwrap(),
         Ok(()),
-        "one frame submits {largest} context dispatches but not as many prepared ones"
+        "one frame submits {largest} compute passes but not as many prepared dispatches"
     );
+}
+
+/// Recorded with its compute form into a pass the frame shares, a prepared dispatch costs no
+/// command buffer of its own: more of them than Metal's cap would hold at two each submit.
+#[test]
+fn prepared_dispatches_recorded_into_one_pass_cost_that_pass_alone() {
+    if Gpu::new().is_none() {
+        return;
+    }
+    assert_eq!(submit(Unit::SharedPass, CAP).unwrap(), Ok(()));
 }

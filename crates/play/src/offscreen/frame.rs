@@ -25,7 +25,7 @@ use worldrunner_world_simulation::presentation::CameraClear;
 use super::bounds::Bounds;
 use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, blit_layer,
-    camera_layer, draw_layer,
+    camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
@@ -831,7 +831,7 @@ impl<'a> Mapper<'a> {
             layer: view.layer,
             block,
             slot_blocks,
-            per_draw: draw_layer(&view.local_to_world),
+            per_draw: self.renderer_draw(&view.local_to_world, view.layer),
         })
     }
 

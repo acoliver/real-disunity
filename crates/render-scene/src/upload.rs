@@ -238,11 +238,13 @@ pub fn upload_texture(
     if let Some(cube) = prepared.cube() {
         return upload_cube(device, queue, cube);
     }
+    // The engine copies resident textures into the terrain material arrays it lends a game, so
+    // none is uploaded twice.
     TextureUpload::new(&[texture_layer(prepared)], 0, TextureKind::D2)?.upload(
         device,
         queue,
         "material-texture",
-        TextureUsages::empty(),
+        TextureUsages::COPY_SRC,
     )
 }
 
@@ -255,8 +257,18 @@ pub(crate) fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture,
 
 /// Creates the neutral texture bound where a material omits an optional map.
 pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
-    let mips = packed_mips(TextureFormat::Rgba8Unorm, 1, 1, 1, &PLACEHOLDER_TEXEL)
-        .expect("constant texel layout");
+    texel_texture(device, queue, "placeholder", PLACEHOLDER_TEXEL)
+}
+
+/// A one-texel `Rgba8Unorm` texture of `texel`.
+pub(crate) fn texel_texture(
+    device: &Device,
+    queue: &Queue,
+    label: &'static str,
+    texel: [u8; 4],
+) -> Texture {
+    let mips =
+        packed_mips(TextureFormat::Rgba8Unorm, 1, 1, 1, &texel).expect("constant texel layout");
     TextureUpload::new(
         &[TextureLayer {
             format: TextureFormat::Rgba8Unorm,
@@ -268,7 +280,7 @@ pub fn placeholder_texture(device: &Device, queue: &Queue) -> Texture {
         TextureKind::D2,
     )
     .expect("constant texel layout")
-    .upload(device, queue, "placeholder", TextureUsages::empty())
+    .upload(device, queue, label, TextureUsages::empty())
     .expect("constant texture supported")
 }
 

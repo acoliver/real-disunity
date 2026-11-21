@@ -578,7 +578,7 @@ fn a_render_texture_description_is_validated() {
 }
 
 #[test]
-fn a_destroyed_render_texture_is_stale_and_reads_as_no_texture() {
+fn a_destroyed_render_texture_is_stale_and_reads_as_a_texture_not_sent() {
     let mut world = world();
     let id = world.create_render_texture(target()).unwrap();
     assert_eq!(
@@ -590,7 +590,10 @@ fn a_destroyed_render_texture_is_stale_and_reads_as_no_texture() {
         graphics_error(world.render_texture(id).map(drop)),
         GraphicsError::StaleRenderTexture
     );
-    assert_eq!(world.live_texture(TextureRef::Render(id)), TextureRef::None);
+    assert_eq!(
+        world.live_texture(TextureRef::Render(id)),
+        TextureRef::Unsent
+    );
     assert_eq!(
         world.live_texture(TextureRef::Asset(1 << 40)),
         TextureRef::Asset(1 << 40)

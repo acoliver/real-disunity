@@ -8,17 +8,25 @@
 //! publications that follow a frame change. The scan also reads the asking transaction and its
 //! status. The stamp sums counters that never fall and batches are never removed, so an equal
 //! stamp means no counter moved.
+//!
+//! A scan that finds every batch idle (nothing waiting for upload, a current buffer, nothing
+//! pending in the history) is true for every transaction, since an idle batch reads none of
+//! them. Only a change of a counter ends that, so a later transaction at the same stamp is
+//! answered without a scan.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
 
+use super::totals::Totals;
 use super::{BatchKey, InstanceBatch};
 
 #[derive(Debug, Default)]
 pub(super) struct ReadyMemo {
     passed: RefCell<Option<Passed>>,
+    /// The stamp at which a scan found every batch idle, which is ready for any owner.
+    idle: Cell<Option<Stamp>>,
     #[cfg(test)]
     scans: std::cell::Cell<usize>,
 }
@@ -31,6 +39,15 @@ struct Stamp {
 }
 
 impl Stamp {
+    fn of_totals(totals: &Totals) -> Self {
+        Self {
+            edits: totals.edits.get(),
+            content: totals.content.get(),
+            history: totals.history.get(),
+        }
+    }
+
+    /// The same sums added up over `batches`, which `of_totals` must equal.
     fn of(batches: &BTreeMap<BatchKey, InstanceBatch>) -> Self {
         batches.values().fold(
             Self {
@@ -72,14 +89,17 @@ impl ReadyMemo {
     pub fn check(
         &self,
         batches: &BTreeMap<BatchKey, InstanceBatch>,
+        totals: &Totals,
         owner: Option<&Publications>,
     ) -> bool {
-        let stamp = Stamp::of(batches);
-        if self
-            .passed
-            .borrow()
-            .as_ref()
-            .is_some_and(|passed| passed.answers(owner, stamp))
+        let stamp = Stamp::of_totals(totals);
+        debug_assert_eq!(stamp, Stamp::of(batches));
+        if self.idle.get() == Some(stamp)
+            || self
+                .passed
+                .borrow()
+                .as_ref()
+                .is_some_and(|passed| passed.answers(owner, stamp))
         {
             return true;
         }
@@ -87,6 +107,9 @@ impl ReadyMemo {
         self.scans.set(self.scans.get() + 1);
         let ready = batches.values().all(|batch| batch.ready_for(owner));
         if ready {
+            if batches.values().all(InstanceBatch::is_idle) {
+                self.idle.set(Some(stamp));
+            }
             *self.passed.borrow_mut() = Some(Passed {
                 owner: owner.map(|owner| (owner.clone(), owner.status())),
                 stamp,

@@ -16,12 +16,10 @@ use worldrunner_render_scene::{
         ColorOutput, DepthAccess, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 /// Six vertices of a clip-space rectangle `[x0, y0, x1, y1]` at depth `z`.
 fn rectangle(name: &str, rect: [f32; 4], z: f32) -> String {

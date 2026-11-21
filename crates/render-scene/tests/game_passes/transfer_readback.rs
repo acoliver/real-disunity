@@ -20,13 +20,11 @@ use worldrunner_render_scene::{
         GamePasses, GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, GameTextureLevel, PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 
 /// The float target: two layers of 8 x 4 texels. The pass writes layer 1.
 const FLOAT: &str = "work.float";

@@ -14,12 +14,10 @@ use worldrunner_render_scene::{
         GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
         TerrainMaterialChannel,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedFeature};
 
 const PREFIX_TARGET: &str = "lent.prefix";
 

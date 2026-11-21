@@ -1,8 +1,8 @@
 use super::*;
 use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_resident},
-    executor::{PassEntry, PassId, PassSlot, TimingMode},
+    compositor::{FrameRenderer, encode_resident}
 };
+use worldrunner_render_post::{PassEntry, PassId, PassSlot, TimingMode};
 
 #[test]
 fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {

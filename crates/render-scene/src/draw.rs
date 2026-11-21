@@ -16,9 +16,9 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, placeholder_with_view, upload_buffer, upload_palette_array, upload_texture,
-    upload_type_grid,
+    FRAME_GROUP, placeholder_with_view, upload_palette_array, upload_texture, upload_type_grid,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 
 mod append;
 pub use append::{

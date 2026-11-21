@@ -11,13 +11,11 @@ use worldrunner_render_scene::{
         EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, GameBuild,
         GameFeatureFactory, GamePasses, WaterDraws,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        PassDeclaration, PrepareContext, PreparedFeature,
-    },
     sky::preparation::{EnvironmentPreparation, PreparedEnvironmentMaps, encode},
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        PassDeclaration, PrepareContext, PreparedFeature};
 
 type Seen = Arc<Mutex<Vec<Result<Option<FrameEnvironment>, FrameInputError>>>>;
 

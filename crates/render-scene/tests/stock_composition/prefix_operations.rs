@@ -13,13 +13,11 @@ use std::{
 };
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
-    executor::{
-        AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
-        OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
-    },
     frame::FrameUniform,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
+        OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture};
 
 struct ClearRetained {
     texture: wgpu::Texture,
@@ -35,7 +33,7 @@ impl FrameOperations for ClearRetained {
         &self,
         _: Option<&TimingState>,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+    ) -> Result<(), worldrunner_render_post::FrameError> {
         self.calls.set(self.calls.get() + 1);
         let view = self
             .texture
@@ -63,7 +61,7 @@ fn encode_suffix(
     uniform: &FrameUniform,
     sampler: &mut Sampler,
     retained: &AttachmentView,
-) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+) -> Result<(), worldrunner_render_post::FrameError> {
     let device = frame.context.device();
     let mut stock = prepare_stock_scene(
         &mut frame.renderer,
@@ -111,7 +109,7 @@ fn encode_composed(
         &AttachmentView,
         &FrameUniform,
     ),
-) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+) -> Result<(), worldrunner_render_post::FrameError> {
     let (prefix, contribution, operation, sampler, retained, uniform) = inputs;
     let device = frame.context.device();
     prefix.encode(

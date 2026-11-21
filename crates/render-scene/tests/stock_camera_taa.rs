@@ -10,16 +10,14 @@ use worldrunner_render_scene::{
     compositor::{FrameRenderer, encode_scene, prepare_stock_scene},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{
-        AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
-        color_texture,
-    },
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
     test_support::SceneTestSession,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
+        color_texture};
 
 struct CameraTaaFrame {
     context: GpuContext,

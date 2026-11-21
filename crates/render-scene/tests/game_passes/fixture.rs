@@ -14,12 +14,12 @@ use worldrunner_render_scene::{
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap};
 
 pub const SIZE: [u32; 2] = [64, 48];
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -302,7 +302,7 @@ impl Rig {
             wgpu::Features::empty(),
             |settings| {
                 settings.frame = FrameConfig::new(size, hdr, 1);
-                settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
+                settings.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
                 settings.ssao = Some(ssao);
                 configure(settings);
             },

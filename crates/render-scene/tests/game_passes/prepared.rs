@@ -26,12 +26,10 @@ use worldrunner_render_scene::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedAccess, PreparedFeature, ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PrepareContext, PreparedAccess, PreparedFeature, ResourceRef};
 
 pub const BLOCKS: &str = "blocks.height";
 /// A name no declaration makes.

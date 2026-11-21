@@ -25,13 +25,11 @@ use worldrunner_render_scene::{
         GameTextureDeclaration, PassTarget, TargetDeclaration, TargetExtent,
     },
     draw::PreparedTextureReplacement,
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 
 const BUDGET: u64 = 1 << 16;
 /// The green the declared texture holds.

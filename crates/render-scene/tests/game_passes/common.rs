@@ -9,9 +9,9 @@ use worldrunner_render_program::module::{
 };
 use worldrunner_render_program::runtime::{GraphicsProgram, ProgramRuntime};
 use worldrunner_render_scene::{
-    executor::{FrameError, PassEntry},
-    wgpu::{self, util::DeviceExt},
+    wgpu::{self, util::DeviceExt}
 };
+use worldrunner_render_post::{FrameError, PassEntry};
 
 /// Counts a game keeps for its test.
 #[derive(Default)]

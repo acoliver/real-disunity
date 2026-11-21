@@ -8,12 +8,10 @@ use worldrunner_render_scene::{
         ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
         TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef};
 
 const PAD: &str = "pad";
 /// A stock attachment's name, which a game may also choose for a target of its own.

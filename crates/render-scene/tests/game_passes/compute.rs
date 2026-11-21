@@ -28,12 +28,10 @@ use worldrunner_render_scene::{
         GamePasses, GameResources, GameTargets, LevelAccess, PassTarget, TargetDeclaration,
         TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature};
 
 const FLOAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 const SEED: &str = "compute.seed";

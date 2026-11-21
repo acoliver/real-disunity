@@ -24,13 +24,11 @@ use worldrunner_render_scene::{
         FrameOcclusion, FrameOcclusionHandle, FrameShadowHandle, FrameShadows, GameBuild,
         GameFeatureFactory, GamePassSpec, GamePasses, OcclusionDepth, PassTarget,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-        FrameFeature, GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext,
-        PreparedFeature, Readback,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
+        FrameFeature, GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext,
+        PreparedFeature, Readback};
 
 /// Green where the occlusion at the centre leaves the flat quad unoccluded, blue always.
 const OCCLUSION_WGSL: &str = "

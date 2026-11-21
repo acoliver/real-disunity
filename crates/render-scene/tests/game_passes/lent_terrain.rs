@@ -8,9 +8,9 @@ use super::lent_terrain_game::{
 };
 use worldrunner_render_scene::{
     compositor::{FrameInputError, TerrainMaterialArrayError, TerrainMaterialChannel},
-    executor::{FrameError, PrepareContext},
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{FrameError, PrepareContext};
 // ---------------------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------------------

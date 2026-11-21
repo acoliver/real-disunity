@@ -2,7 +2,8 @@
 mod spirv_modules;
 
 use spirv_modules::{GLSL, Problems, bit_search, module, op, resources, search};
-use worldrunner_unity_import::shader_prep::{ResourceBinding, check_with_naga, prepare};
+use worldrunner_unity_import::shader_prep::check_with_naga;
+use worldrunner_unity_serialized::spirv_prep::{ResourceBinding, prepare};
 
 /// Whether `words` contains the instruction `instruction`.
 fn contains(words: &[u32], instruction: &[u32]) -> bool {

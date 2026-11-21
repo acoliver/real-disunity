@@ -28,14 +28,12 @@ use worldrunner_render_scene::{
         TargetDeclaration, TargetExtent, TerrainMaterialArrayError, TerrainMaterialChannel,
     },
     draw::{PreparedAppend, SceneGpu},
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
     frame::FrameUniform,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 
 pub(super) const OUT: &str = "lent.terrain";
 const ENTRY: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);

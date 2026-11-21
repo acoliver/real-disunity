@@ -6,12 +6,10 @@ use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
-    executor::{
-        AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry,
-        PassSlot, ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry,
+        PassSlot, ResourceRef};
 
 pub(super) fn assert_retry(context: &GpuContext, source: &RenderScene) {
     let mut scene = Scene::new(context, source);

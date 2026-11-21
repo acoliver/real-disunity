@@ -5,9 +5,9 @@ use super::fixture::{Rig, SIZE, quad_scene};
 use super::snapshot_game::{DEPTH_PROBE, LINEAR_PASS, Plan, SnapGame, read_texels, texel};
 use super::snapshots::{COLOR, COVERED, DEPTHS, UNCOVERED};
 use worldrunner_render_scene::{
-    compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics},
-    executor::{FrameConfig, FrameError},
+    compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics}
 };
+use worldrunner_render_post::{FrameConfig, FrameError};
 
 const LINEAR: SnapshotReads = SnapshotReads {
     linear_depth: true,

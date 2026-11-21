@@ -24,13 +24,11 @@ use worldrunner_render_scene::{
         GamePassSpec, GamePasses, GameResources, GameSampler, GameTargets, PassTarget,
         TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 
 const OUT: &str = "arrays.out";
 const ARRAY: &str = "arrays.scene";

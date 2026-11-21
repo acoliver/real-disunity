@@ -19,13 +19,11 @@ use worldrunner_render_scene::{
         ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
         PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
     shadows::ShadowedScene,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 /// A target that two passes of the depth prefix and one pass of the rest of the frame each write
 /// a band of, read by a later pass of the frame.

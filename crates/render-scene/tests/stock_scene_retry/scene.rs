@@ -4,12 +4,12 @@ use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer, encode_scene},
     device::GpuContext,
     draw::{ObjectRecording, SceneGpu},
-    executor::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture},
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
 
 pub(super) struct Scene {
     pub frame: FrameRenderer,

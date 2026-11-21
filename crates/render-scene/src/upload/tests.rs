@@ -9,7 +9,7 @@
 
 use super::{
     FRAME_GROUP, MATERIAL_GROUP, frame_bind_group_layout, material_bind_group_layout,
-    placeholder_texture, upload_buffer, upload_texture,
+    placeholder_texture, upload_texture,
 };
 use crate::device::GpuContext;
 use crate::frame::FRAME_UNIFORM_BYTES;
@@ -19,6 +19,7 @@ use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BindingResource, BufferUsages, Device, ErrorFilter,
     TextureView, TextureViewDescriptor,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_plan::{SceneTexture, TextureColorSpace, TextureEncoding};
 
 const SUPPORTED_FORMATS: [(u32, u32, TextureColorSpace); 6] = [

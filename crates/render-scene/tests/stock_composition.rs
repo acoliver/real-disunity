@@ -22,15 +22,13 @@ use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
     draw::{PassDrawStatistics, SceneGpu},
-    executor::{
-        AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
-        PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
-    },
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
+        PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture};
 
 const NEAR_METRES: f32 = 0.1;
 const FAR_METRES: f32 = 20.0;

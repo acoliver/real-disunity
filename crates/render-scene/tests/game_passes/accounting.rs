@@ -9,12 +9,10 @@ use worldrunner_render_scene::{
         TargetDeclaration, TargetExtent,
     },
     device::GpuContext,
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-        FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
+        FrameFeature, PassDeclaration, PrepareContext, PreparedFeature};
 
 const FIXED: [u32; 2] = [256, 256];
 /// The bytes of the fixed backing: 256 by 256 texels of four bytes.

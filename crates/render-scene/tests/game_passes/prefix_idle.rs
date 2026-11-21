@@ -6,12 +6,10 @@ use super::shadowed::{capture, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_scene::{
     compositor::{GameBuild, GameFeatureFactory, GamePasses},
-    executor::{
-        BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
-        PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
+        PreparedFeature};
 
 /// How often the frames prepared, committed and finished the depth-prefix feature.
 type Calls = Arc<Mutex<[u32; 3]>>;

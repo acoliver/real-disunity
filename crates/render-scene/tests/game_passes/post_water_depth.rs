@@ -12,9 +12,9 @@ use worldrunner_render_plan::{RenderScene, SceneWaterBody, SceneWaterSettings, S
 use worldrunner_render_scene::{
     compositor::{
         FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics, WaterDraws,
-    },
-    executor::{FrameConfig, FrameError},
+    }
 };
+use worldrunner_render_post::{FrameConfig, FrameError};
 
 /// Pixels the writer's left half and the quad's footprint split four ways.
 const LEFT_QUAD: (usize, usize) = (20, 24);

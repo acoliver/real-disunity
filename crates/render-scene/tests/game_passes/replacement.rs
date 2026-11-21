@@ -5,9 +5,9 @@ use super::fixture::{FORMAT, Rig, SIZE};
 use super::layers::{ARRAY, HISTORY};
 use super::persistence::{assert_filled, fill_all, rig};
 use worldrunner_render_scene::{
-    executor::{FrameConfig, FrameError},
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{FrameConfig, FrameError};
 
 const LARGE: [u32; 2] = [128, 96];
 

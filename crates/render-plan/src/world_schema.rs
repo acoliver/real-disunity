@@ -4,12 +4,8 @@
 //! change is a proper rotation: `(x, y, z) -> (x, -z, y)`. Apply it to both
 //! mesh vectors and placements, never to just one side of a placed mesh.
 
-pub use worldrunner_world_schema::{
-    EnvironmentInstance, EnvironmentOrientation, EnvironmentPlacement, TerrainDocument,
-    TerrainMaterialSlot, WorldCoordinateFrame,
-};
-
 use crate::{SceneRotation, SceneTransform, SceneValidationError, SceneVertex};
+use worldrunner_world_schema::WorldCoordinateFrame;
 
 /// Converts a position or vector from schema XYZ to scene east/north/elevation.
 /// Fails if negating the south component cannot be represented.

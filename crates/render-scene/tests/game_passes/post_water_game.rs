@@ -15,12 +15,10 @@ use worldrunner_render_scene::{
         GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
         PostWaterDepth, SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 /// What the game saw, in the order it saw it.
 #[derive(Default)]

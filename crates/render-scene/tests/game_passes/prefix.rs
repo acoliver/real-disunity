@@ -19,14 +19,12 @@ use worldrunner_render_scene::{
         ColorOutput, DepthAccess, FrameOcclusionHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets, PassTarget, prepass_writes_frame_depth,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
     frame::metadata::FrameProduct,
     shadows::sdsm::DepthRange,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 /// The central square of the screen at device depth `depth`, nearer the camera than the stock
 /// quad behind it, with a view-space normal that faces the camera and covers the pixel.

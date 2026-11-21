@@ -4,7 +4,9 @@ use super::layers::{self, ARRAY, LayersGame};
 use super::prepared;
 use super::strip::{NAMES, StripGame, knobs};
 use std::sync::Arc;
-use worldrunner_render_scene::{compositor::GamePasses, executor::FrameError};
+use worldrunner_render_scene::{compositor::GamePasses
+};
+use worldrunner_render_post::{FrameError};
 
 #[test]
 fn a_program_for_other_attachments_than_its_pass_is_refused_by_name_before_anything_records() {

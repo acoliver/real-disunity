@@ -22,17 +22,15 @@ use worldrunner_render_scene::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
     shadows::{
         DirectionalShadowSettings, ShadowedScene,
         sdsm::{AdoptedFit, AdoptionPolicy, RangeFit, SdsmSettings},
     },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 use worldrunner_render_shadow::{MinimumSpanPolicy, SplitPolicy};
 
 const FILL_GREEN_WGSL: &str = "

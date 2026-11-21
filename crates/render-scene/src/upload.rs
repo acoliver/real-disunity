@@ -276,13 +276,6 @@ pub(crate) fn texel_texture(
     .expect("constant texture supported")
 }
 
-/// Uploads already-encoded bytes into a buffer of the requested usage.
-///
-/// Every caller in this crate encodes its own bytes, because the ban on
-/// unsafe code rules out casting a struct to a byte slice. That keeps the
-/// layout explicit in Rust and testable without a GPU.
-pub use worldrunner_render_gpu::resource::upload_buffer;
-
 #[cfg(test)]
 mod tests;
 

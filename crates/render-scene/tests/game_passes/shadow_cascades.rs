@@ -7,12 +7,10 @@ use worldrunner_render_scene::{
         ColorOutput, FrameInputError, FrameShadowHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef};
 
 type Seen = Arc<Mutex<Vec<Result<usize, FrameInputError>>>>;
 

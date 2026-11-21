@@ -8,9 +8,9 @@ use super::snapshot_game::{
 };
 use worldrunner_render_scene::{
     compositor::{FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics},
-    executor::{FrameConfig, FrameError},
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{FrameConfig, FrameError};
 
 /// A pixel the quad covers, and one it does not.
 pub const COVERED: (usize, usize) = (32, 24);

@@ -2,10 +2,10 @@ use super::scene::Scene;
 use worldrunner_render_scene::{
     compositor::FeatureTarget,
     device::GpuContext,
-    executor::{FrameConfig, Readback},
     gbuffer::GbufferTarget,
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{FrameConfig, Readback};
 
 const TOLERANCE_UV: f32 = 1e-3;
 

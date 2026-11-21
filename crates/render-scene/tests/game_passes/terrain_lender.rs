@@ -19,13 +19,11 @@ use worldrunner_render_scene::{
         TerrainDraws,
     },
     draw::{TerrainChunkDraw, TerrainChunkEdge},
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
     geometry::{VERTEX_STRIDE, vertex_attributes},
-    wgpu::{self, util::DeviceExt},
+    wgpu::{self, util::DeviceExt}
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 const TERRAIN: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
 const GREEN: [u8; 4] = [0, 255, 0, 255];

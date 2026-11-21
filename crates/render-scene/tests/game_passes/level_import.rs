@@ -21,13 +21,11 @@ use worldrunner_render_scene::{
         GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, LevelAccess, PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        ResourceRef};
 
 /// The four-layer target the kernel writes layer 2 of, through a one-layer import.
 const LAYERS: &str = "level.layers";

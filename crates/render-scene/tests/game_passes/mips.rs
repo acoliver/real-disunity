@@ -26,12 +26,10 @@ use worldrunner_render_scene::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedAccess, PreparedFeature, ResourceRef,
-    },
-    wgpu,
+    wgpu
 };
+use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+        GamePlace, PassDeclaration, PrepareContext, PreparedAccess, PreparedFeature, ResourceRef};
 
 pub const CHAIN: &str = "mips.height";
 /// The red each mip's blocks decode to, in 255ths: distinct, so a read of the wrong level shows.

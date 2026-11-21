@@ -11,6 +11,18 @@ mod composition;
 mod fixture;
 #[path = "game_passes/layers.rs"]
 mod layers;
+#[path = "game_passes/lent.rs"]
+mod lent;
+#[path = "game_passes/lent_engine.rs"]
+mod lent_engine;
+#[path = "game_passes/lent_prefix.rs"]
+mod lent_prefix;
+#[path = "game_passes/lent_terrain.rs"]
+mod lent_terrain;
+#[path = "game_passes/lent_terrain_budget.rs"]
+mod lent_terrain_budget;
+#[path = "game_passes/lent_terrain_game.rs"]
+mod lent_terrain_game;
 #[path = "game_passes/level_import.rs"]
 mod level_import;
 #[path = "game_passes/lighting.rs"]

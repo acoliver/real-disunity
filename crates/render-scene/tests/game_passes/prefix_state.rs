@@ -488,8 +488,8 @@ fn inside_a_separate_prefix_the_prefix_feature_reads_the_lent_terrain_and_textur
         captured[0],
         "shadow Err(NotPrepared), occlusion Err(NotPrepared), environment Err(NotPrepared), \
          terrain Ok(false), textures Ok(1)",
-        "inside a prefix only the terrain (this scene has none) and the resident scene textures \
-         are lent: the cascades are not fitted and SSAO has not run"
+        "inside a prefix the terrain (this scene has none) and the resident scene textures are \
+         lent: the cascades are not fitted and SSAO has not run"
     );
 }
 

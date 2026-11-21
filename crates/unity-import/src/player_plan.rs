@@ -79,7 +79,7 @@ pub fn plan_player_scene(
         planner.add_object(&mut source, root, None)?;
     }
     let objects = planner.plan_objects(&mut source, layouts)?;
-    let environment = plan_environment(&mut source, &path)?;
+    let environment = plan_environment(&mut source, &planner, &path, &objects)?;
     planner.differences.append(&mut source.differences);
     Ok(ScenePlan {
         scene: scene.to_owned(),
@@ -442,16 +442,25 @@ impl<'t> PlayerPlanner<'t> {
         if camera.is_null() {
             return None;
         }
-        let planned = (camera.file_id == 0)
-            .then(|| self.index.get(&camera.path_id))
-            .flatten();
-        if let Some(&Target::Component(object, component)) = planned {
-            return Some([object, component]);
+        let planned = self.planned_component(camera);
+        if planned.is_none() {
+            self.differences.push(format!(
+                "{owner}: the canvas renders through a camera the plan does not hold"
+            ));
         }
-        self.differences.push(format!(
-            "{owner}: the canvas renders through a camera the plan does not hold"
-        ));
-        None
+        planned
+    }
+
+    /// The `[object, component]` of the planned component a same-file reference names, or
+    /// `None` for any other reference.
+    pub(crate) fn planned_component(&self, pptr: PPtr) -> Option<[usize; 2]> {
+        let planned = (pptr.file_id == 0)
+            .then(|| self.index.get(&pptr.path_id))
+            .flatten();
+        match planned {
+            Some(&Target::Component(object, component)) => Some([object, component]),
+            _ => None,
+        }
     }
 
     /// A mesh filter or a renderer of meshes as its plan component, and any other engine class

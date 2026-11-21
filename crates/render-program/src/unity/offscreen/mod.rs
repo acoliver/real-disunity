@@ -31,6 +31,7 @@ mod sampling;
 mod slot_dimension;
 mod steps;
 mod storage_buffers;
+mod texel_size;
 mod textures;
 mod tracker;
 mod views;
@@ -146,6 +147,12 @@ impl OffscreenState {
     /// runtime's budget has left, since the constants are storage the runtime holds.
     pub fn set_constants_total_limit(&mut self, bytes: u64) {
         self.constants_total_limit = Some(bytes);
+    }
+
+    /// The name the source of shader `id` declares, if the state holds it.
+    #[must_use]
+    pub fn shader_name(&self, id: ShaderId) -> Option<&str> {
+        self.shaders.get(&id).map(ProgramShader::name)
     }
 
     pub fn add_shader(&mut self, id: ShaderId, shader: ProgramShader) {

@@ -1,5 +1,5 @@
 //! The mesh renderers a frame shows, for a host that draws 3D objects next to the sprites.
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::extraction::{selected_camera, view_basis};
 use crate::graphics::{
@@ -17,9 +17,9 @@ pub struct MeshObject {
     /// The renderer identity of the mesh contents, the one the host reads them by.
     pub mesh: u64,
     /// What each material slot draws with, one per material the renderer holds. A slot with a
-    /// live material draws with that material's current colour and main texture, as the
-    /// renderer's property block overrides them; any other slot draws with the renderer's
-    /// `drawn` record.
+    /// live material draws with that material's current colour and main texture, as the slot's
+    /// own property block and then the renderer's property block override them; any other slot
+    /// draws with the renderer's `drawn` record.
     pub slots: Vec<DrawnMaterial>,
     /// The layer of the renderer's object, which a camera's culling mask tests.
     pub layer: u32,
@@ -31,6 +31,8 @@ pub struct MeshObject {
     /// The shader values that override the materials' for this renderer, as a property block
     /// does.
     pub property_block: Option<ShaderProperties>,
+    /// The shader values that override one slot's material, by slot index, above `property_block`.
+    pub slot_blocks: BTreeMap<u32, ShaderProperties>,
 }
 
 /// Lists, in component order, every enabled mesh renderer on an active object whose mesh filter
@@ -74,7 +76,13 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             .enumerate()
             .map(|(slot, material)| {
                 let fallback = renderer.drawn.get(slot).copied().unwrap_or_default();
-                drawn_slot(world, *material, renderer.property_block.as_ref(), fallback)
+                let blocks = [
+                    u32::try_from(slot)
+                        .ok()
+                        .and_then(|slot| renderer.slot_blocks.get(&slot)),
+                    renderer.property_block.as_ref(),
+                ];
+                drawn_slot(world, *material, blocks, fallback)
             })
             .collect();
         objects.push(MeshObject {
@@ -86,6 +94,7 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             materials,
             render_queue: renderer.render_queue,
             property_block: renderer.property_block.clone(),
+            slot_blocks: renderer.slot_blocks.clone(),
         });
     }
     Ok(objects)
@@ -96,7 +105,8 @@ fn live_material(world: &World, material: Option<MaterialId>) -> Option<Material
 }
 
 /// What a slot draws with now. A slot with a live world material takes the colour and main
-/// texture the material and the renderer's property block hold, the way the managed
+/// texture the slot's own block, the renderer's all-slot block (`blocks`, highest first) and the
+/// material hold, in that order, the way the managed
 /// `Renderer.DrawnOf` reads them when the shared materials are set (csharp/Disunity/RendererDrawn.cs):
 /// `_Color` if there is one, else `_BaseColor`, else white, with negative channels as 0; and the
 /// main texture's asset identity, 0 for a texture that is not an asset. A slot with no live
@@ -105,13 +115,13 @@ fn live_material(world: &World, material: Option<MaterialId>) -> Option<Material
 fn drawn_slot(
     world: &World,
     material: Option<MaterialId>,
-    block: Option<&ShaderProperties>,
+    blocks: [Option<&ShaderProperties>; 2],
     fallback: DrawnMaterial,
 ) -> DrawnMaterial {
     let Some(material) = material.and_then(|id| world.material(id).ok()) else {
         return fallback;
     };
-    let sets = [block, Some(&material.properties)];
+    let sets = [blocks[0], blocks[1], Some(&material.properties)];
     let color = sets
         .iter()
         .flatten()

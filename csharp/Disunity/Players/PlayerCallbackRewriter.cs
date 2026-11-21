@@ -7,10 +7,11 @@ namespace Disunity.Hosting;
 /// <param name="Image">The rewritten assembly image, or null when the assembly is unchanged.</param>
 /// <param name="Sites">How many delegate constructions were replaced.</param>
 /// <param name="Failure">
-/// Why an assembly with sites could not be rewritten (Cecil needs a type that no assembly in the search directory
-/// defines), or null.
+/// Why an assembly with sites or job registration code could not be rewritten (Cecil needs a type that no assembly in
+/// the search directory defines), or null.
 /// </param>
-public sealed record CallbackRewrite(byte[]? Image, int Sites, string? Failure = null);
+/// <param name="SelfAccess">Whether the image also names its own assembly in an <c>IgnoresAccessChecksTo</c> attribute (<see cref="Disunity.Hosting.SelfAccess"/>).</param>
+public sealed record CallbackRewrite(byte[]? Image, int Sites, string? Failure = null, bool SelfAccess = false);
 
 /// <summary>
 /// Rewrites a game assembly so the delegates it makes for static methods marked <c>MonoPInvokeCallback</c> are
@@ -18,7 +19,8 @@ public sealed record CallbackRewrite(byte[]? Image, int Sites, string? Failure =
 /// that way, and each C# binding defines its own attribute class, so the marker is the attribute's type name in any
 /// namespace. A site is <c>ldnull; ldftn M; newobj D::.ctor(object, native int)</c> with a static, marked <c>M</c>
 /// defined in the same assembly; the <c>newobj</c> becomes <c>call NativeCallbacks.Keep&lt;D&gt;(object, native int)</c>,
-/// which takes the same operands and leaves the same delegate on the stack.
+/// which takes the same operands and leaves the same delegate on the stack. An assembly that holds job registration
+/// code also gets <see cref="SelfAccess"/>, in the same image.
 /// </summary>
 public static class PlayerCallbackRewriter
 {
@@ -51,25 +53,32 @@ public static class PlayerCallbackRewriter
         {
             if (!module.Attributes.HasFlag(ModuleAttributes.ILOnly)) return Unchanged;
             var sites = Sites(module).ToList();
-            if (sites.Count == 0) return Unchanged;
-            var keep = KeepMethod(module);
-            foreach (var (instruction, delegateType) in sites)
-            {
-                var instance = new GenericInstanceMethod(keep);
-                instance.GenericArguments.Add(delegateType);
-                instruction.OpCode = OpCodes.Call;
-                instruction.Operand = instance;
-            }
+            var selfAccess = SelfAccess.IsNeeded(module);
+            if (sites.Count == 0 && !selfAccess) return Unchanged;
+            if (sites.Count > 0) ReplaceSites(module, sites);
+            if (selfAccess) SelfAccess.Grant(module);
             try
             {
                 using var output = new MemoryStream();
                 module.Write(output);
-                return new CallbackRewrite(output.ToArray(), sites.Count);
+                return new CallbackRewrite(output.ToArray(), sites.Count, SelfAccess: selfAccess);
             }
             catch (Exception error) when (error is ResolutionException or AssemblyResolutionException)
             {
                 return new CallbackRewrite(null, sites.Count, error.Message);
             }
+        }
+    }
+
+    private static void ReplaceSites(ModuleDefinition module, List<(Instruction Create, TypeReference Delegate)> sites)
+    {
+        var keep = KeepMethod(module);
+        foreach (var (instruction, delegateType) in sites)
+        {
+            var instance = new GenericInstanceMethod(keep);
+            instance.GenericArguments.Add(delegateType);
+            instruction.OpCode = OpCodes.Call;
+            instruction.Operand = instance;
         }
     }
 

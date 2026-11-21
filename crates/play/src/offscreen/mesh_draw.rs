@@ -9,6 +9,7 @@
 //! The mesh, its channels, the material's constants and textures and the render state of the pass
 //! are then the ones a list draw gives them. The record's instance count goes to each item.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use worldrunner_render_program::layers::PropertyLayer;
@@ -62,6 +63,7 @@ impl Mapper<'_> {
                 block: block.map_or_else(PropertyLayer::default, |block| {
                     layer(block, &mut self.textures)
                 }),
+                slot_blocks: BTreeMap::new(),
                 per_draw: draw_layer(matrix),
             },
         );

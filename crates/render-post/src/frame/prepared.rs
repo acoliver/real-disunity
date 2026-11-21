@@ -30,7 +30,7 @@ pub trait PreparedCommands {
     /// The owner's refusal of the retention; nothing is staged then.
     fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), PreparedRefusal>;
     /// Records the commands. Called when the frame's preparation finishes, in staging order, with
-    /// the `label` they were staged as.
+    /// the `label` they were staged as, for commands without a compute form ([`Self::compute`]).
     ///
     /// The commands name themselves with `label` in GPU captures: a compute or render pass they
     /// open takes it as the pass label, and commands outside a pass go inside an encoder debug
@@ -44,6 +44,35 @@ pub trait PreparedCommands {
     fn record(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        label: &str,
+    ) -> Result<(), PreparedRefusal>;
+    /// The commands as compute work alone, when they are: the frame then records them with
+    /// [`PreparedCompute::record_in_pass`] into one compute pass with the compute work staged
+    /// just before and after them, instead of calling [`Self::record`]. `None`, the default, for
+    /// commands that record outside a pass, such as copies; they end the shared pass.
+    fn compute(&self) -> Option<&dyn PreparedCompute> {
+        None
+    }
+}
+
+/// Prepared commands that are compute work alone ([`PreparedCommands::compute`]).
+///
+/// The frame records a run of compute work staged one after another into one compute pass: wgpu
+/// gives each dispatch of a compute pass its own usage scope and the barriers it needs after the
+/// dispatches before it, so a dispatch reads what the one before it wrote, while a pass of its
+/// own would cost two command buffers held until the frame submits.
+pub trait PreparedCompute {
+    /// Records the commands into `pass`, a compute pass the frame shares among the compute work
+    /// staged next to them. The commands name themselves with a debug group of `label` pushed and
+    /// popped on `pass`, and set every bind group their pipelines use: a group an earlier command
+    /// of the pass set stays bound.
+    ///
+    /// # Errors
+    /// The owner's refusal to record them, as for [`PreparedCommands::record`]; the frame then
+    /// fails with it.
+    fn record_in_pass(
+        &self,
+        pass: &mut wgpu::ComputePass<'_>,
         label: &str,
     ) -> Result<(), PreparedRefusal>;
 }
@@ -322,5 +351,16 @@ pub(super) fn record(
 ) -> Result<(), FrameError> {
     commands
         .record(encoder, label)
+        .map_err(|refusal| FrameError::PreparedRefused { label, refusal })
+}
+
+/// Records staged prepared compute work into the compute pass of its run, named `label`.
+pub(super) fn record_in_pass(
+    pass: &mut wgpu::ComputePass<'_>,
+    label: &'static str,
+    commands: &dyn PreparedCompute,
+) -> Result<(), FrameError> {
+    commands
+        .record_in_pass(pass, label)
         .map_err(|refusal| FrameError::PreparedRefused { label, refusal })
 }

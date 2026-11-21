@@ -31,6 +31,7 @@ pub struct PassTarget {
     colors: Vec<wgpu::TextureFormat>,
     depth: Option<PassDepth>,
     samples: u32,
+    extent: Option<[u32; 2]>,
 }
 
 impl PassTarget {
@@ -58,6 +59,7 @@ impl PassTarget {
             .iter()
             .chain(&pass.additional_colors)
             .chain(&pass.depth);
+        let extent = attachments.clone().map(|attachment| attachment.size).next();
         Ok(Self {
             entry,
             colors: pass
@@ -75,6 +77,7 @@ impl PassTarget {
                 .map(|attachment| attachment.samples)
                 .next()
                 .unwrap_or(1),
+            extent,
         })
     }
 
@@ -93,6 +96,13 @@ impl PassTarget {
 
     pub fn samples(&self) -> u32 {
         self.samples
+    }
+
+    /// The extent in texels of every attachment of the pass, which is also the viewport and
+    /// scissor of a draw into it: the mip's extent for a pass that renders into a lower mip of a
+    /// target.
+    pub fn extent(&self) -> Option<[u32; 2]> {
+        self.extent
     }
 
     /// Whether a draw into the pass writes depth.

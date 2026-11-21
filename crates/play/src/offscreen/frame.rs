@@ -33,7 +33,7 @@ use super::environment::add_environment;
 use super::ids;
 use super::mips::AutoMips;
 use super::properties::{
-    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults,
+    Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults, slot_layers,
     split_below_globals,
 };
 use super::script::Script;
@@ -823,11 +823,13 @@ impl<'a> Mapper<'a> {
             .map_or_else(PropertyLayer::default, |block| {
                 layer(block, &mut self.textures)
             });
+        let slot_blocks = slot_layers(&view.slot_blocks, slots.len(), &mut self.textures);
         Ok(Renderer {
             mesh: ids::mesh(view.mesh),
             materials: slots,
             layer: view.layer,
             block,
+            slot_blocks,
             per_draw: draw_layer(&view.local_to_world),
         })
     }

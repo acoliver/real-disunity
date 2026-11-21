@@ -274,6 +274,41 @@ fn a_stored_volume_with_a_mip_chain_uploads_each_level_with_its_own_depth() {
     );
 }
 
+/// A texel as the four-byte `GraphicsFormat` 87 stores it: blue, green, red, alpha.
+fn bgra([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
+    [blue, green, red, alpha]
+}
+
+/// `stored` as a record in `GraphicsFormat` 87, which has no `TextureFormat`.
+fn four_byte(stored: PlayerTexture) -> PlayerTexture {
+    PlayerTexture {
+        format: 0,
+        graphics_format: 87,
+        ..stored
+    }
+}
+
+#[test]
+fn a_cube_stored_blue_first_in_graphics_format_87_is_sampled_red_first() {
+    let stored = four_byte(cube(1, 1, BASE.iter().flat_map(|c| bgra(*c)).collect()));
+    assert_eq!(
+        blitted("cubebase", "_Cube", [6, SIDE], stored),
+        columns(SIDE, &BASE)
+    );
+}
+
+#[test]
+fn a_volume_stored_blue_first_in_graphics_format_87_is_sampled_red_first() {
+    let slices = [RED, GREEN, BLUE, YELLOW];
+    // Four slices of 2x2 texels, one colour each.
+    let bytes = slices.iter().flat_map(|c| bgra(*c).repeat(4)).collect();
+    let stored = four_byte(volume(2, 4, 1, bytes));
+    assert_eq!(
+        blitted("volumeslices", "_Volume", [SIDE, SIDE], stored),
+        columns(SIDE, &slices)
+    );
+}
+
 #[test]
 fn a_cube_that_is_not_made_of_six_equal_faces_is_refused_and_counted_by_format() {
     // Five faces of RGBA32 texels in a record that says six.
@@ -326,7 +361,7 @@ fn assert_mismatch_is_named(pass: &str, property: &str, stored: PlayerTexture) {
     let (pixels, failures) = blit(pass, property, [SIDE, SIDE], stored);
     assert_eq!(
         failures,
-        BTreeMap::from([("record:SlotDimensionMismatch".to_owned(), 1)]),
+        BTreeMap::from([("record:Blit:SlotDimensionMismatch".to_owned(), 1)]),
         "{failures:?}"
     );
     assert!(

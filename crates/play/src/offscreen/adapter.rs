@@ -20,8 +20,8 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState, Refusal,
 };
 use worldrunner_world_simulation::graphics::{
-    ComputeBufferId, OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource,
-    TextureRef,
+    ComputeBufferId, OffscreenWork, PropertyValue, RendererView, ShaderId as WorldShaderId,
+    ShaderSource, TextureRef,
 };
 
 use super::assets::Assets;
@@ -34,6 +34,7 @@ use super::frame::{
 };
 use super::holdings;
 use super::ids;
+use super::record_names;
 use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use super::stand_ins::StandInReason;
@@ -399,12 +400,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
         .materials
         .values()
         .map(|material| &material.properties)
-        .chain(
-            snapshot
-                .renderers
-                .iter()
-                .filter_map(|r| r.property_block.as_ref()),
-        )
+        .chain(snapshot.renderers.iter().flat_map(RendererView::blocks))
         .chain(snapshot.global.iter().map(|global| &global.properties));
     for properties in properties {
         for (_, slot) in &properties.textures {
@@ -483,8 +479,9 @@ pub(super) fn blit_mesh() -> Mesh {
 }
 
 /// Builds the frame's operations. When the frame as a whole is refused, the parts the state
-/// refuses are left out and counted in the report by the name of their error. A refusal that names
-/// a record is settled by building that record alone. A refusal that names none builds first each
+/// refuses are left out and counted in the report by the name of their error (a record also by its
+/// kind, and by the shader and pass it draws with when it has a material). A refusal that names a
+/// record is settled by building that record alone. A refusal that names none builds first each
 /// render texture (with the records that name it), then each record on its own. What is left is
 /// built together.
 ///
@@ -647,7 +644,9 @@ fn drop_record_refused_alone(
     let Err(error) = state.check(runtime, arena, &alone) else {
         return false;
     };
-    adapted.report.fail("record", &error);
+    let kind = format!("record:{}", record_names::kind(record));
+    let note = record_names::drawn_with(record, &adapted.frame, state);
+    adapted.report.fail_with(&kind, note.as_deref(), &error);
     adapted.report.built = adapted.report.built.saturating_sub(1);
     adapted.frame.records.remove(index);
     true
@@ -741,7 +740,9 @@ fn drop_unusable_records(
         match state.check(runtime, arena, &alone) {
             Ok(()) => kept.push(record),
             Err(error) => {
-                adapted.report.fail("record", &error);
+                let kind = format!("record:{}", record_names::kind(&record));
+                let note = record_names::drawn_with(&record, &adapted.frame, state);
+                adapted.report.fail_with(&kind, note.as_deref(), &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

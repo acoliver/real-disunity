@@ -5,22 +5,26 @@ use std::time::{Duration, Instant};
 
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_post::contracts::AsyncReadback;
 
 use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
 use crate::resources::{BufferHandle, TargetHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
 
-/// The pixels of a render target's color texture, rows tightly packed.
+/// One level of a texture or a render target's color texture, rows tightly packed: rows of
+/// texels, or rows of blocks for a block-compressed format.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetImage {
+    /// The level's extent in texels; a block-compressed level's rows cover whole blocks.
     pub size: [u32; 2],
     pub format: wgpu::TextureFormat,
     pub bytes: Vec<u8>,
 }
 
 impl TargetImage {
-    /// The bytes of the pixel at column `x` and row `y`, counted from the top.
+    /// The bytes of the pixel at column `x` and row `y`, counted from the top, of an
+    /// uncompressed format.
     #[must_use]
     pub fn pixel(&self, x: u32, y: u32) -> &[u8] {
         let texel = self.bytes.len() / (self.size[0] as usize * self.size[1] as usize);
@@ -108,36 +112,190 @@ impl PendingBufferRead {
     }
 }
 
-/// A render target copy recorded into a frame, to be resolved once the frame has been
-/// submitted.
-#[must_use = "resolve the readback after submitting the frame it was recorded in"]
-pub struct PendingTargetRead {
-    staged: Staged,
+/// One mip level of one array layer (or, for a 3D texture, one slice of the level) of a
+/// texture.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextureLevel {
+    pub layer: u32,
+    pub mip: u32,
+}
+
+impl TextureLevel {
+    /// The staging bytes a readback of this level of `texture` admits.
+    ///
+    /// # Errors
+    /// As [`ProgramRuntime::read_lent_texture`] refuses the level or the texture.
+    pub fn readback_bytes(self, texture: &wgpu::Texture) -> Result<u64, ProgramError> {
+        Ok(LevelCopy::of(texture, self)?.staging_bytes())
+    }
+}
+
+/// The copy of one level of a texture into a staging buffer, in rows of blocks.
+#[derive(Clone, Copy, Debug)]
+struct LevelCopy {
+    /// The level's logical extent in texels.
+    size: [u32; 2],
+    /// The level's extent in blocks (texels for an uncompressed format).
+    blocks: [u32; 2],
+    block_bytes: u32,
+    /// The texels copied: the level's physical extent, whole blocks.
+    extent: wgpu::Extent3d,
+}
+
+impl LevelCopy {
+    fn of(texture: &wgpu::Texture, level: TextureLevel) -> Result<Self, ProgramError> {
+        let format = texture.format();
+        let refuse = |why: String| Err(ProgramError::Readback(why));
+        if level.mip >= texture.mip_level_count() {
+            return refuse(format!(
+                "mip {} is outside the {} mips of the texture",
+                level.mip,
+                texture.mip_level_count()
+            ));
+        }
+        let size = texture
+            .size()
+            .mip_level_size(level.mip, texture.dimension());
+        if level.layer >= size.depth_or_array_layers {
+            return refuse(format!(
+                "layer {} is outside the {} layers of mip {}",
+                level.layer, size.depth_or_array_layers, level.mip
+            ));
+        }
+        let block_bytes = format
+            .block_copy_size(None)
+            .ok_or_else(|| ProgramError::Readback(format!("{format:?} cannot be copied")))?;
+        if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+            return refuse("the texture was not made with COPY_SRC".to_owned());
+        }
+        if texture.sample_count() != 1 {
+            return refuse("a multisampled texture cannot be copied".to_owned());
+        }
+        let physical = size.physical_size(format);
+        let (block_width, block_height) = format.block_dimensions();
+        Ok(Self {
+            size: [size.width, size.height],
+            blocks: [physical.width / block_width, physical.height / block_height],
+            block_bytes,
+            extent: wgpu::Extent3d {
+                width: physical.width,
+                height: physical.height,
+                depth_or_array_layers: 1,
+            },
+        })
+    }
+
+    fn row(self) -> u32 {
+        self.blocks[0] * self.block_bytes
+    }
+
+    fn padded_row(self) -> u32 {
+        self.row().next_multiple_of(ROW_ALIGNMENT)
+    }
+
+    fn staging_bytes(self) -> u64 {
+        u64::from(self.padded_row()) * u64::from(self.blocks[1])
+    }
+
+    fn layout(self, format: wgpu::TextureFormat) -> ImageLayout {
+        ImageLayout {
+            size: self.size,
+            format,
+            row: self.row() as usize,
+            padded_row: self.padded_row() as usize,
+        }
+    }
+}
+
+/// How a level's rows sit in the staging buffer and in the image made from it.
+#[derive(Clone, Copy, Debug)]
+struct ImageLayout {
     size: [u32; 2],
     format: wgpu::TextureFormat,
+    /// Bytes of one row of texels, or of blocks for a block-compressed format.
     row: usize,
     padded_row: usize,
 }
 
+impl ImageLayout {
+    fn image(self, staged: &[u8]) -> TargetImage {
+        let bytes = staged
+            .chunks_exact(self.padded_row)
+            .flat_map(|line| &line[..self.row])
+            .copied()
+            .collect();
+        TargetImage {
+            size: self.size,
+            format: self.format,
+            bytes,
+        }
+    }
+}
+
+/// A texture copy recorded into a frame, to be resolved once the frame has been submitted.
+#[must_use = "resolve the readback after submitting the frame it was recorded in"]
+pub struct PendingTargetRead {
+    staged: Staged,
+    layout: ImageLayout,
+}
+
 impl PendingTargetRead {
-    /// The target's color texture as of the recorded copy, rows tightly packed.
+    /// The copied level as of the recorded copy, rows tightly packed.
     ///
     /// # Errors
     /// Fails on device loss, a timeout or a mapping failure.
     pub fn resolve(self, submission: wgpu::SubmissionIndex) -> Result<TargetImage, ProgramError> {
-        let (size, format) = (self.size, self.format);
-        let (row, padded_row) = (self.row, self.padded_row);
+        let layout = self.layout;
         let staged = self.staged.resolve(submission)?;
-        let bytes = staged
-            .chunks_exact(padded_row)
-            .flat_map(|line| &line[..row])
-            .copied()
-            .collect();
-        Ok(TargetImage {
-            size,
-            format,
-            bytes,
+        Ok(layout.image(&staged))
+    }
+
+    /// Starts reading the copy without waiting, through render-post's [`AsyncReadback`]: call
+    /// it once the frame that recorded the copy has been submitted.
+    /// [`MappingTargetRead::try_finish`] gives the image once the GPU has completed that frame
+    /// and the host has polled the device.
+    ///
+    /// # Errors
+    /// Fails when the map cannot be asked for.
+    pub fn begin(self) -> Result<MappingTargetRead, ProgramError> {
+        let mapping = AsyncReadback::begin(&self.staged.buffer)
+            .map_err(|error| ProgramError::Readback(error.to_string()))?;
+        Ok(MappingTargetRead {
+            staged: self.staged,
+            layout: self.layout,
+            mapping: Some(mapping),
         })
+    }
+}
+
+/// A texture copy whose staging buffer is being mapped. Dropping it gives the staging buffer
+/// and its reservation back.
+#[must_use = "finish the readback or drop it"]
+pub struct MappingTargetRead {
+    staged: Staged,
+    layout: ImageLayout,
+    /// The map, until the image is delivered or the map fails.
+    mapping: Option<AsyncReadback>,
+}
+
+impl MappingTargetRead {
+    /// The copied level, once the buffer is mapped; `None` while the map is pending. It is
+    /// delivered once.
+    ///
+    /// # Errors
+    /// Fails on device loss, a mapping failure and when the image was already delivered.
+    pub fn try_finish(&mut self) -> Result<Option<TargetImage>, ProgramError> {
+        self.staged.authority.check_device()?;
+        let mapping = self
+            .mapping
+            .as_mut()
+            .ok_or_else(|| ProgramError::Readback("the read was already delivered".to_owned()))?;
+        let read = mapping.try_read();
+        if !matches!(read, Ok(None)) {
+            self.mapping = None;
+        }
+        let staged = read.map_err(|error| ProgramError::Readback(error.to_string()))?;
+        Ok(staged.map(|staged| self.layout.image(&staged)))
     }
 }
 
@@ -193,7 +351,8 @@ impl ProgramRuntime {
         self.copy_texture(
             encoder,
             &target.color.texture,
-            self.store.target_reservation(handle)?,
+            TextureLevel::default(),
+            vec![self.store.target_reservation(handle)?],
         )
     }
 
@@ -213,48 +372,67 @@ impl ProgramRuntime {
         self.copy_texture(
             encoder,
             &entry.texture,
-            self.store.texture_reservation(handle)?,
+            TextureLevel::default(),
+            vec![self.store.texture_reservation(handle)?],
         )
+    }
+
+    /// Records a copy of one level of a texture another owner holds and keeps counted, as
+    /// `read_texture` does for a texture of the runtime: the level's rows of texels, or of
+    /// blocks for a block-compressed format. The staging buffer is admitted against this
+    /// runtime's budget and held by the frame until it is cancelled, dropped or completed on the
+    /// GPU; wgpu keeps the texture alive for the copy.
+    ///
+    /// # Errors
+    /// Fails on a level outside the texture, a texture without `COPY_SRC`, a format that cannot
+    /// be copied, an encoder that is not the authority's or a lost device.
+    pub fn read_lent_texture(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        level: TextureLevel,
+    ) -> Result<PendingTargetRead, ProgramError> {
+        self.recording(encoder)?;
+        self.copy_texture(encoder, texture, level, Vec::new())
     }
 
     fn copy_texture(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
-        reservation: Arc<Reservation>,
+        level: TextureLevel,
+        mut shares: Vec<Arc<Reservation>>,
     ) -> Result<PendingTargetRead, ProgramError> {
-        let (width, height) = (texture.width(), texture.height());
-        let texel = texture.format().block_copy_size(None).ok_or_else(|| {
-            ProgramError::Readback(format!("{:?} cannot be copied", texture.format()))
-        })?;
-        let row = width * texel;
-        let padded_row = row.next_multiple_of(ROW_ALIGNMENT);
+        let copy = LevelCopy::of(texture, level)?;
         let mut allocations = AllocationSet::default();
-        allocations.readback("render-program readback", [width, height], texel, 1);
-        let staged = self.staging(u64::from(padded_row) * u64::from(height), allocations)?;
-        self.hold_for_frame(encoder, vec![reservation, staged.reservation.clone()])?;
+        allocations.readback("render-program readback", copy.blocks, copy.block_bytes, 1);
+        let staged = self.staging(copy.staging_bytes(), allocations)?;
+        shares.push(staged.reservation.clone());
+        self.hold_for_frame(encoder, shares)?;
         encoder.copy_texture_to_buffer(
-            texture.as_image_copy(),
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: level.mip,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: level.layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
             wgpu::TexelCopyBufferInfo {
                 buffer: &staged.buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(padded_row),
-                    rows_per_image: Some(height),
+                    bytes_per_row: Some(copy.padded_row()),
+                    rows_per_image: Some(copy.blocks[1]),
                 },
             },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            copy.extent,
         );
         Ok(PendingTargetRead {
             staged,
-            size: [width, height],
-            format: texture.format(),
-            row: row as usize,
-            padded_row: padded_row as usize,
+            layout: copy.layout(texture.format()),
         })
     }
 

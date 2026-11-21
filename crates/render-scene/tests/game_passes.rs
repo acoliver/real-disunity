@@ -7,6 +7,8 @@ mod accounting;
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/compute.rs"]
+mod compute;
 #[path = "game_passes/fixture.rs"]
 mod fixture;
 #[path = "game_passes/layers.rs"]

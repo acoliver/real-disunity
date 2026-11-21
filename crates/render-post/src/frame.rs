@@ -3,11 +3,14 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod compute;
 mod finish;
 mod frozen;
 mod game;
 mod operations;
 mod prepared;
+pub(crate) use compute::ComputeStaging;
+pub use compute::{ComputeDeclaration, StorageWrite};
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
@@ -138,6 +141,11 @@ pub struct PassDeclaration {
     /// Additional indexed color outputs after location zero.
     pub additional_colors: Vec<AttachmentDeclaration>,
     pub depth: Option<AttachmentDeclaration>,
+    /// Present for a compute pass: an entry with no attachments where the frame records, in one
+    /// compute pass, the work its features stage for it with
+    /// [`PrepareContext::record_in_compute_pass`], and which writes the subresources the
+    /// declaration names through storage images.
+    pub compute: Option<ComputeDeclaration>,
 }
 impl PassDeclaration {
     pub const fn new(slot: PassSlot) -> Self {
@@ -150,6 +158,7 @@ impl PassDeclaration {
             color: None,
             additional_colors: Vec::new(),
             depth: None,
+            compute: None,
         }
     }
     pub const fn entry(&self) -> PassEntry {
@@ -288,6 +297,21 @@ pub enum FrameError {
         label: &'static str,
         refusal: PreparedRefusal,
     },
+    /// Prepared commands were staged for an entry that is not a compute pass the frame records:
+    /// a render pass, or a compute pass a completed geometry prefix already encoded.
+    #[error(
+        "prepared commands {label} were staged for {entry}, which is not a compute pass the frame records"
+    )]
+    NotComputePass {
+        label: &'static str,
+        entry: PassEntry,
+    },
+    /// Prepared commands staged for a compute pass have no compute form to record in it.
+    #[error("prepared commands {label} have no compute form for the compute pass {entry}")]
+    NotComputeWork {
+        label: &'static str,
+        entry: PassEntry,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -377,6 +401,10 @@ pub(crate) fn validate_frame_inputs(
     for (index, pass) in passes.iter().enumerate() {
         outputs.refuse_writes(pass)?;
         produced.extend(outputs.left_before(index));
+        if let Some(compute) = &pass.compute {
+            compute::validate_compute_pass(pass, compute, features, &mut produced)?;
+            continue;
+        }
         let attachments: Vec<_> = pass
             .color
             .iter()
@@ -475,13 +503,7 @@ fn validate_attachments(
             return Err(FrameError::AttachmentContract(pass.entry()));
         }
         if produced.contains_key(&attachment.resource)
-            && matches!(
-                attachment.resource.name,
-                "opaque snapshot color"
-                    | "opaque snapshot depth"
-                    | "opaque snapshot device depth"
-                    | "post-water depth"
-            )
+            && WRITTEN_ONCE.contains(&attachment.resource.name)
         {
             return Err(FrameError::AttachmentHazard(attachment.resource));
         }
@@ -499,6 +521,14 @@ fn validate_attachments(
     }
     Ok(())
 }
+/// Stock products a frame writes once: no pass may write them again after their writer.
+const WRITTEN_ONCE: [&str; 4] = [
+    "opaque snapshot color",
+    "opaque snapshot depth",
+    "opaque snapshot device depth",
+    "post-water depth",
+];
+
 fn validate_attachment_shapes(
     pass: &PassDeclaration,
     attachments: &[&AttachmentDeclaration],
@@ -601,6 +631,8 @@ pub struct PrepareContext<'a> {
     preparing: bool,
     /// The views the staged prepared commands write, in staging order.
     prepared_written: Vec<ResourceRef>,
+    /// The compute passes the frame records and the work staged for each.
+    compute: compute::ComputeStaging,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -618,6 +650,7 @@ impl<'a> PrepareContext<'a> {
             completed: Vec::new(),
             preparing: false,
             prepared_written: Vec::new(),
+            compute: compute::ComputeStaging::default(),
         })
     }
     /// Whether a validated geometry prefix already encoded this entry in the same frame.
@@ -945,7 +978,7 @@ pub(crate) fn validate_views(
             return Err(FrameError::AttachmentView(attachment.resource));
         }
     }
-    Ok(())
+    compute::validate_storage_views(passes, views)
 }
 
 /// Complete borrowed geometry contract, validated before feature preparation.

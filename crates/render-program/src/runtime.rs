@@ -35,7 +35,7 @@ pub use crate::external_group::ExternalGroup;
 pub use crate::external_hold::ExternalHold;
 pub use crate::import::{
     BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,
-    ImportedTexture, ImportedVertexInput,
+    ImportedTexture, ImportedVertexInput, whole_range,
 };
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};

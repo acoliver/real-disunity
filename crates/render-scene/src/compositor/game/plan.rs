@@ -182,21 +182,11 @@ impl GameTargets {
         if let Some(access) = spec.depth {
             pass.depth = Some(depth_attachment(spec, access, &source)?);
         }
-        let mut reads = self.pass_reads(spec);
+        let mut reads = self.subresource_reads(&spec.reads, &spec.mip_reads);
         for resource in &reads {
             added.push(self.view(*resource)?);
         }
-        if !self.snapshot_reads().covers(spec.snapshots) {
-            return Err(FrameError::FeaturePreparation {
-                feature: "frame snapshots",
-                reason: format!(
-                    "pass {} reads {:?}, but its factory declared {:?} in snapshot_reads",
-                    spec.entry(),
-                    spec.snapshots,
-                    self.snapshot_reads()
-                ),
-            });
-        }
+        self.check_snapshot_reads(spec.entry(), spec.snapshots)?;
         let feature = feature_pass(&pass)?;
         let fresh = new_views(views, added)?;
         views.extend(fresh);
@@ -206,16 +196,38 @@ impl GameTargets {
         Ok(FeaturePass { reads, ..feature })
     }
 
-    /// The subresources a pass samples: every mip of each layer it reads, then the single mips it
-    /// names, once each.
-    fn pass_reads(&self, spec: &GamePassSpec) -> Vec<ResourceRef> {
-        let mut reads = self.layer_reads(&spec.reads);
-        for mip in &spec.mip_reads {
+    /// The subresources a pass samples: every mip of each layer of `layers`, then the single
+    /// mips of `mips`, once each.
+    pub(super) fn subresource_reads(
+        &self,
+        layers: &[ResourceRef],
+        mips: &[ResourceRef],
+    ) -> Vec<ResourceRef> {
+        let mut reads = self.layer_reads(layers);
+        for mip in mips {
             if !reads.contains(mip) {
                 reads.push(*mip);
             }
         }
         reads
+    }
+
+    /// Refuses a pass `entry` that reads snapshots its factory did not declare.
+    pub(super) fn check_snapshot_reads(
+        &self,
+        entry: PassEntry,
+        reads: SnapshotReads,
+    ) -> Result<(), FrameError> {
+        if self.snapshot_reads().covers(reads) {
+            return Ok(());
+        }
+        Err(FrameError::FeaturePreparation {
+            feature: "frame snapshots",
+            reason: format!(
+                "pass {entry} reads {reads:?}, but its factory declared {:?} in snapshot_reads",
+                self.snapshot_reads()
+            ),
+        })
     }
 
     /// The stock pass whose attachments a pass in `spec`'s place takes: the depth/normal prepass
@@ -455,7 +467,7 @@ impl GameTargets {
 /// left out when it is the same texture, and refused when it is not: a game's target that shares
 /// a name with another attachment of the frame, such as a stock one, would otherwise stand in
 /// for it and the pass would use the wrong texture.
-fn new_views(
+pub(super) fn new_views(
     views: &[AttachmentView],
     added: Vec<AttachmentView>,
 ) -> Result<Vec<AttachmentView>, FrameError> {

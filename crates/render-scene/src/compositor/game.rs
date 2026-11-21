@@ -36,6 +36,7 @@
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 mod camera;
+mod compute;
 mod declared_textures;
 mod environment;
 mod frame_start;
@@ -53,6 +54,7 @@ mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use compute::GameComputeSpec;
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
 pub use lent::FrameInputError;

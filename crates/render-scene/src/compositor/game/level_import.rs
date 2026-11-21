@@ -3,6 +3,7 @@
 //! kernel writes) without making a view of its own.
 use super::GameTargets;
 use super::resources::{GameLevel, GameResourceError};
+use worldrunner_render_post::contracts::TextureRange;
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::Import;
 
@@ -51,7 +52,8 @@ impl GameTargets {
 }
 
 /// `level` of `texture`, named `label` in refusals, as a 2D view of that one mip of that one
-/// layer, for the binding sourced from `semantic`.
+/// layer, for the binding sourced from `semantic`. The import states the level as its range, so
+/// a dispatch may bind other levels of the texture beside it and writes only that level.
 pub(super) fn import_level(
     label: &str,
     texture: &wgpu::Texture,
@@ -100,11 +102,12 @@ pub(super) fn import_level(
         array_layer_count: Some(1),
         ..wgpu::TextureViewDescriptor::default()
     });
-    Ok(Import::texture_view(
+    Ok(Import::texture_range(
         semantic,
         texture.clone(),
         view,
         wgpu::TextureViewDimension::D2,
+        TextureRange::single(level.mip, level.layer, wgpu::TextureAspect::All),
     ))
 }
 

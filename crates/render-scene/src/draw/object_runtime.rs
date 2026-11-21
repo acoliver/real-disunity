@@ -27,6 +27,9 @@ use super::{DrawnObjects, SceneGpu, SelectionPublication};
 use crate::object::layout::{GeometryLayout, vertex_layout};
 use crate::object::prepared::{DrawOrder, PreparedObjects};
 use crate::object::program::Context;
+use grouping::{BufferTable, GroupKey, grouped};
+
+mod grouping;
 
 /// The buffers the walk has named since the last draw, which the next draw must set.
 #[derive(Clone, Copy, Default)]
@@ -146,34 +149,31 @@ pub(super) struct PreparedSink<'a, P: ?Sized> {
     held: Option<Vec<Held>>,
 }
 
-/// What the walk has named for the draws that follow.
+/// What the walk has named for the draws that follow, as positions in the tables the sink
+/// keeps: a draw holds three small numbers instead of three handles.
 #[derive(Default)]
 struct Names {
-    instances: Option<Rc<Instances>>,
-    vertices: Option<Buffer>,
-    indices: Option<Buffer>,
+    /// The vertex, index and current-instance buffers the walk has named, once each. They are
+    /// kept apart, since a walk alternates between naming vertices and indices, and each kind
+    /// repeats itself far more than the kinds together.
+    vertex_buffers: BufferTable,
+    index_buffers: BufferTable,
+    current_buffers: BufferTable,
+    /// The instances each naming gave, with the number of their current buffer in
+    /// `current_buffers`.
+    instances: Vec<(Instances, u32)>,
+    current_instances: Option<u32>,
+    vertices: Option<u32>,
+    indices: Option<u32>,
 }
 
 /// A draw a grouped pass holds, with the buffers the walk named for it.
 struct Held {
     draw: Draw,
-    vertices: Buffer,
-    indices: Buffer,
-    instances: Rc<Instances>,
-}
-
-impl Held {
-    /// Draws that share a pipeline, then a material, then buffers sort together. A stable sort
-    /// leaves the walk's order among draws that tie.
-    fn grouping(&self, other: &Self) -> std::cmp::Ordering {
-        let key = |held: &Self| (held.draw.pipeline, held.draw.geometry, held.draw.material);
-        key(self)
-            .cmp(&key(other))
-            .then_with(|| self.vertices.cmp(&other.vertices))
-            .then_with(|| self.draw.base_vertex.cmp(&other.draw.base_vertex))
-            .then_with(|| self.indices.cmp(&other.indices))
-            .then_with(|| self.instances.current.cmp(&other.instances.current))
-    }
+    /// Positions in the sink's `Names`.
+    vertices: u32,
+    indices: u32,
+    instances: u32,
 }
 
 /// The pass, the pipelines and the state a draw is recorded with.
@@ -229,18 +229,41 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
         self
     }
 
-    /// Records the draws a grouped sink holds.
+    /// Records the draws a grouped sink holds, those that share a pipeline, then a material,
+    /// then buffers together and those that tie in the order the walk named them.
     pub(super) fn finish(mut self) {
-        let Some(mut held) = self.held.take() else {
+        let Some(held) = self.held.take() else {
             return;
         };
-        held.sort_by(Held::grouping);
-        for draw in held {
+        let names = &self.names;
+        let (vertex_ranks, index_ranks, current_ranks) = (
+            names.vertex_buffers.ranks(),
+            names.index_buffers.ranks(),
+            names.current_buffers.ranks(),
+        );
+        let keys: Vec<GroupKey> = held
+            .iter()
+            .map(|held| GroupKey {
+                pipeline: held.draw.pipeline,
+                geometry: held.draw.geometry,
+                material: held.draw.material,
+                vertices: vertex_ranks[held.vertices as usize],
+                base_vertex: held.draw.base_vertex,
+                indices: index_ranks[held.indices as usize],
+                instances: current_ranks[names.instances[held.instances as usize].1 as usize],
+            })
+            .collect();
+        for position in grouped(&keys) {
+            let held = &held[position as usize];
             // The walk's names say nothing about the order recorded here; the pass leaves out
             // what the buffers it holds already are.
             self.recorder.pass.named = Named::ALL;
-            self.recorder
-                .record(draw.draw, &draw.vertices, &draw.indices, &draw.instances);
+            self.recorder.record(
+                held.draw.clone(),
+                names.vertex_buffers.get(held.vertices),
+                names.index_buffers.get(held.indices),
+                &names.instances[held.instances as usize].0,
+            );
         }
     }
 
@@ -325,48 +348,49 @@ impl<P: PassCommands + ?Sized> Recorder<'_, P> {
 
 impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
     fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>) {
-        self.names.instances = Some(Rc::new(Instances {
-            current: current.clone(),
-            previous: previous.cloned(),
-            skin: skin.cloned(),
-        }));
+        let names = &mut self.names;
+        let current_buffer = names.current_buffers.number(current);
+        names.instances.push((
+            Instances {
+                current: current.clone(),
+                previous: previous.cloned(),
+                skin: skin.cloned(),
+            },
+            current_buffer,
+        ));
+        names.current_instances =
+            Some(u32::try_from(names.instances.len() - 1).expect("few namings"));
         self.recorder.pass.named.instances = true;
     }
 
     fn vertices(&mut self, vertices: &Buffer) {
-        self.names.vertices = Some(vertices.clone());
+        self.names.vertices = Some(self.names.vertex_buffers.number(vertices));
         self.recorder.pass.named.vertices = true;
     }
 
     fn indices(&mut self, indices: &Buffer) {
-        self.names.indices = Some(indices.clone());
+        self.names.indices = Some(self.names.index_buffers.number(indices));
         self.recorder.pass.named.indices = true;
     }
 
     fn draw(&mut self, draw: Draw) {
-        let instances = self
-            .names
-            .instances
-            .as_ref()
-            .expect("a draw names its instances");
-        let vertices = self
-            .names
-            .vertices
-            .as_ref()
-            .expect("a draw names its vertices");
-        let indices = self
-            .names
-            .indices
-            .as_ref()
-            .expect("a draw names its indices");
+        let names = &self.names;
+        let instances = names.current_instances.expect("a draw names its instances");
+        let vertices = names.vertices.expect("a draw names its vertices");
+        let indices = names.indices.expect("a draw names its indices");
         match &mut self.held {
             Some(held) => held.push(Held {
                 draw,
-                vertices: vertices.clone(),
-                indices: indices.clone(),
-                instances: instances.clone(),
+                vertices,
+                indices,
+                instances,
             }),
-            None => self.recorder.record(draw, vertices, indices, instances),
+            None => self.recorder.record(
+                draw,
+                names.vertex_buffers.get(vertices),
+                names.index_buffers.get(indices),
+                &names.instances[instances as usize].0,
+            ),
         }
     }
 }

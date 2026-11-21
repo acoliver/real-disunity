@@ -4,7 +4,7 @@ use worldrunner_disunity_ffi::{
     abi::*, camera::*, graphics::*, graphics_offscreen::*, graphics_properties::*,
     mesh_renderer::*, sprites::*, with_native_world,
 };
-use worldrunner_world_simulation::graphics::{MaterialId, ShaderId};
+use worldrunner_world_simulation::graphics::{MaterialId, ShaderId, TextureRef};
 
 const SCOPE_MATERIAL: u32 = 0;
 const SCOPE_GLOBAL: u32 = 1;
@@ -293,6 +293,38 @@ fn a_texture_slot_carries_asset_render_and_none_with_scale_and_offset() {
             [2.0_f32, 3.0, 0.5, 0.25].map(f32::to_bits)
         );
     }
+}
+
+#[test]
+fn a_texture_slot_of_kind_five_names_a_texture_the_engine_did_not_send() {
+    let world = new_world();
+    let id = material(world);
+    let (name, length) = text("_Splat");
+    let unsent = DisunityTextureSlot {
+        kind: 5,
+        ..DisunityTextureSlot::default()
+    };
+    unsafe {
+        let written =
+            disunity_shader_texture_write(world, SCOPE_MATERIAL, id, name, length, &unsent);
+        assert_eq!(written.code, 0);
+    }
+    with_native_world(world, |native| {
+        let held = native.material(MaterialId::from_bits(id)).unwrap();
+        let slot = held.properties.texture("_Splat").unwrap();
+        assert_eq!(slot.texture, TextureRef::Unsent);
+    })
+    .unwrap();
+    let read = read_property(world, SCOPE_MATERIAL, id, "_Splat");
+    assert_eq!((read.texture_kind, read.texture), (5, 0));
+    let named = DisunityTextureSlot {
+        kind: 5,
+        texture: 7,
+        ..DisunityTextureSlot::default()
+    };
+    let refused =
+        unsafe { disunity_shader_texture_write(world, SCOPE_MATERIAL, id, name, length, &named) };
+    assert_ne!(refused.code, 0, "an unsent slot carries no identity");
 }
 
 #[test]

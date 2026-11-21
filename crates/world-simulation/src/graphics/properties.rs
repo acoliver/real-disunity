@@ -25,8 +25,21 @@ pub enum TextureRef {
     /// globals that recorded work sets take one; materials, property blocks, the global state
     /// itself and compute bindings refuse it.
     Temporary(i32),
-    /// No texture.
+    /// No texture: the property is null in the game's own data.
     None,
+    /// A texture the data names that the engine did not send: a destroyed render texture, a
+    /// texture the engine could not store or one the importer did not build. Every use reads it
+    /// as [`TextureRef::None`]; only the host's stand-in census tells the two apart.
+    Unsent,
+}
+
+impl TextureRef {
+    /// Whether the reference names no texture a host can read: [`TextureRef::None`] and
+    /// [`TextureRef::Unsent`], which every use treats alike.
+    #[must_use]
+    pub fn is_unbound(&self) -> bool {
+        matches!(self, Self::None | Self::Unsent)
+    }
 }
 
 /// A texture property: the texture and the scale and offset the material applies to it.

@@ -9,6 +9,7 @@ use worldrunner_render_gpu::submission::{Publications, TransactionStatus};
 use super::skin_stream::SkinStream;
 use super::slot_bounds::SlotBounds;
 use super::staged_uploads::StagedUploads;
+use super::totals::Totals;
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
 
 #[derive(Debug, Default)]
@@ -35,6 +36,9 @@ pub(crate) struct InstanceBatch {
     /// copy of the buffer contents can tell that it is stale. Previous-transform bytes are
     /// rewritten a frame after an edit without `edits` changing.
     content: u64,
+    /// The scene's sums of the counters above and of the history's, which this batch raises
+    /// together with its own.
+    totals: Totals,
 }
 
 impl InstanceBatch {
@@ -56,7 +60,7 @@ impl InstanceBatch {
             .as_mut()
             .expect("a skinned batch has a skin stream");
         stream.set(position, descriptor);
-        self.edits += 1;
+        self.edited();
         self.dirty.insert(position);
     }
 
@@ -102,7 +106,7 @@ impl InstanceBatch {
             position
         });
         self.placements[position] = Some((object, visible));
-        self.edits += 1;
+        self.edited();
         self.bounds.get_mut().invalidate(position);
         self.history.add(position);
         self.pack(position);
@@ -115,7 +119,7 @@ impl InstanceBatch {
 
     pub fn remove(&mut self, position: usize) {
         self.placements[position] = None;
-        self.edits += 1;
+        self.edited();
         self.bounds.get_mut().invalidate(position);
         self.free.insert(position);
         self.dirty.remove(&position);
@@ -129,7 +133,7 @@ impl InstanceBatch {
 
     pub fn set_object(&mut self, position: usize, object: SceneObject) {
         self.placements[position].as_mut().expect("live instance").0 = object;
-        self.edits += 1;
+        self.edited();
         self.bounds.get_mut().invalidate(position);
         self.pack(position);
     }
@@ -146,7 +150,25 @@ impl InstanceBatch {
 
     pub fn set_visible(&mut self, position: usize, visible: bool) {
         self.placements[position].as_mut().expect("live instance").1 = visible;
+        self.edited();
+    }
+
+    /// Counts this batch's changes, past and future, in the scene's `totals` as well.
+    pub fn count_in(&mut self, totals: &Totals) {
+        totals.edits.add(self.edits);
+        totals.content.add(self.content);
+        self.history.count_in(&totals.history);
+        self.totals = totals.clone();
+    }
+
+    fn edited(&mut self) {
         self.edits += 1;
+        self.totals.edits.add(1);
+    }
+
+    fn staged_content(&mut self) {
+        self.content += 1;
+        self.totals.content.add(1);
     }
 
     pub fn edits(&self) -> u64 {
@@ -166,7 +188,7 @@ impl InstanceBatch {
     /// edit so a cached view selection is not reused.
     pub fn forget_bounds(&mut self) {
         *self.bounds.get_mut() = SlotBounds::default();
-        self.edits += 1;
+        self.edited();
     }
 
     /// Scans all allocated slots, excluding removed slots from selection and
@@ -241,6 +263,36 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
+    /// Whether `ready_for` is true for every owner and whatever a transaction has staged: the
+    /// batch holds no bytes, or its buffer is current, no slot waits for upload and the history
+    /// has nothing pending.
+    pub fn is_idle(&self) -> bool {
+        self.bytes.is_empty()
+            || (self.dirty.is_empty() && self.buffer_valid.get() && !self.history.has_pending())
+    }
+
+    /// Whether the buffers hold every slot, the previous-transform buffer too when it is kept and
+    /// the skin stream when the batch has one, so `grow` has nothing to make.
+    fn buffers_fit(&self, track_previous: bool) -> bool {
+        let size = self.bytes.len() as u64;
+        let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
+            buffer.as_deref().is_some_and(|b| b.size() >= size)
+        };
+        fits(&self.buffer)
+            && (!track_previous || fits(&self.previous))
+            && self.skin.as_ref().is_none_or(SkinStream::fits)
+    }
+
+    /// Whether `flush_prepared` would find nothing to write, copy or allocate: no slot is
+    /// waiting for upload, the buffers are current and hold every slot, and the history has
+    /// nothing pending.
+    fn is_settled(&self, track_previous: bool) -> bool {
+        self.dirty.is_empty()
+            && self.buffer_valid.get()
+            && !self.history.has_pending()
+            && self.buffers_fit(track_previous || self.previous.is_some())
+    }
+
     /// Keeps copies needed by this encoder and edits still owed if its transaction cancels.
     fn prune_published(&mut self, owner: &Publications) {
         let pending: BTreeSet<usize> = self
@@ -313,6 +365,9 @@ pub(crate) fn flush_prepared(
     census: &MemoryCensus,
     track_previous: bool,
 ) -> (Vec<Range<u32>>, Option<super::history::Candidate>) {
+    if batch.is_settled(track_previous) {
+        return (Vec::new(), None);
+    }
     let owner = context.publications();
     batch.prune_published(&owner);
     let writes = batch.pending_ranges_for(Some(&owner));
@@ -361,7 +416,7 @@ fn stage_uploads(
     ranges: &[Range<u32>],
     previous: &[(u64, Vec<u8>)],
 ) {
-    batch.content += 1;
+    batch.staged_content();
     if let Some(buffer) = batch.previous.as_deref() {
         for (start, bytes) in previous {
             context.upload_buffer(buffer, *start, bytes);
@@ -407,17 +462,16 @@ fn grow(
     census: &MemoryCensus,
     track_previous: bool,
 ) {
-    let device = context.device().clone();
     let size = batch.bytes.len() as u64;
+    if batch.buffers_fit(track_previous) {
+        return;
+    }
+    let device = context.device().clone();
     let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
         buffer.as_deref().is_some_and(|b| b.size() >= size)
     };
     let current_fits = fits(&batch.buffer);
     let previous_fits = !track_previous || fits(&batch.previous);
-    let skin_fits = batch.skin.as_ref().is_none_or(SkinStream::fits);
-    if current_fits && previous_fits && skin_fits {
-        return;
-    }
     let capacity = size
         .checked_next_power_of_two()
         .expect("instance buffer size overflow");
@@ -456,7 +510,7 @@ fn grow(
         stream.buffer = Some(create("retained skin instances", skin_capacity(capacity)));
     }
     batch.buffer_valid.set(false);
-    batch.content += 1;
+    batch.staged_content();
 }
 
 /// Bytes of a skin stream buffer beside an instance buffer of `instance_capacity` bytes: the same
@@ -469,6 +523,9 @@ fn skin_capacity(instance_capacity: u64) -> u64 {
 #[cfg(test)]
 #[path = "ready_memo_tests.rs"]
 mod ready_memo_tests;
+#[cfg(test)]
+#[path = "totals_tests.rs"]
+mod totals_tests;
 #[cfg(test)]
 #[path = "velocity_reset_cpu_tests.rs"]
 mod velocity_reset_cpu_tests;

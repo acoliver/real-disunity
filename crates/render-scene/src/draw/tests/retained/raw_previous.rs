@@ -18,11 +18,14 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::of(&scene(SceneAlphaMode::Opaque, false, 1))
+    }
+
+    fn of(source: &RenderScene) -> Self {
         let context = context();
         let authority = SubmissionAuthority::new(context.queue().clone());
-        let source = scene(SceneAlphaMode::Opaque, false, 1);
         let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-        let gpu = SceneGpu::upload(context.device(), &authority, &source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(context.device(), &authority, source, &pipelines).unwrap();
         let handle = gpu.instance_handles().next().unwrap();
         gpu.set_frame(context.queue(), temporal_frame());
         let targets = attachments(&context);
@@ -48,6 +51,21 @@ impl Fixture {
             .unwrap();
         self.assert_unpublished();
         prepared
+    }
+
+    /// Uploads the instances in one transaction and submits it without drawing, since the
+    /// velocity pass draws no skinned geometry.
+    fn submit_flush_only(&mut self) {
+        self.authority
+            .prepare(self.context.device(), |encoder, _| {
+                self.gpu
+                    .flush_instances_encoded(self.context.device(), encoder)?;
+                Ok::<_, TransactionError>(())
+            })
+            .unwrap()
+            .submit()
+            .unwrap();
+        self.assert_unpublished();
     }
 
     fn raw_only(&self) -> PreparedFrame {
@@ -279,12 +297,11 @@ fn repeated_encoded_flush_restores_submitted_transform_before_raw_colour() {
 #[test]
 fn repeated_encoded_flush_restores_submitted_skin_descriptor() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::of(&crate::draw::tests::skinning::posed(0));
     let original = [0_u32, 0, 2, 0];
     let batch = fixture.gpu.instances.batches.values_mut().next().unwrap();
-    batch.skin = Some(crate::instances::skin_stream::SkinStream::default());
     batch.set_skin(0, original);
-    fixture.submit();
+    fixture.submit_flush_only();
     let expected = original
         .into_iter()
         .flat_map(u32::to_le_bytes)

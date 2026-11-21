@@ -16,8 +16,8 @@ const REASONS: usize = 8;
 pub enum WhiteReason {
     /// The renderer lists no material slot.
     NoMaterialSlot,
-    /// The managed host sent texture identity 0: the material is unset or its main texture is
-    /// not a pixel-backed texture. The two cases are not told apart until the ABI says which.
+    /// The slot's live material has no asset main texture, so the world gives the slot texture
+    /// identity 0: the material is unset or its main texture is not a pixel-backed texture.
     TextureZero,
     /// The managed host has not stored the texels of the texture the slot names.
     TexelsNotStored,

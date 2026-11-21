@@ -10,8 +10,9 @@ use worldrunner_world_simulation::presentation::{Camera, LightKind, LightSetting
 
 use super::super::builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS,
-    add_main_light, add_screen_size, camera_layer, draw_layer,
+    PROJECTION_PARAMS, SCREEN_PARAMS, SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C,
+    SPEC_CUBE0_HDR, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size,
+    camera_layer, draw_layer,
 };
 use super::super::camera::projection;
 use super::super::depth_range::DepthRange;
@@ -21,7 +22,7 @@ use super::support::{
     transform, world,
 };
 use worldrunner_render_program::ids::CameraId;
-use worldrunner_world_simulation::graphics::OffscreenWork;
+use worldrunner_world_simulation::graphics::{OffscreenWork, PropertyValue as WorldValue};
 
 /// The bit patterns of a matrix, so that a copy is compared exactly.
 fn bits(matrix: &[f32; 16]) -> [u32; 16] {
@@ -190,6 +191,65 @@ fn a_frame_of_a_world_with_a_sun_starts_its_globals_with_the_main_light() {
     let camera = &adapted.frame.cameras[&CameraId(0)].values;
     assert!(camera.values.get(MAIN_LIGHT_POSITION).is_none());
     assert!(camera.values.get(MAIN_LIGHT_COLOR).is_none());
+}
+
+/// The names the host gives a default, with the value each holds: a flat ambient light of 0.3 in
+/// the fourth component of the first-order terms, nothing in the second-order terms, and the
+/// neutral decode (1, 1, 0, 0) for the reflection probe.
+const AMBIENT_DEFAULTS: [(&str, [f32; 4]); 8] = [
+    (SH_AR, [0.0, 0.0, 0.0, 0.3]),
+    (SH_AG, [0.0, 0.0, 0.0, 0.3]),
+    (SH_AB, [0.0, 0.0, 0.0, 0.3]),
+    (SH_BR, [0.0; 4]),
+    (SH_BG, [0.0; 4]),
+    (SH_BB, [0.0; 4]),
+    (SH_C, [0.0; 4]),
+    (SPEC_CUBE0_HDR, [1.0, 1.0, 0.0, 0.0]),
+];
+
+/// The frame of a world with one camera render and no light.
+fn unlit_camera_frame(world: &mut worldrunner_world_simulation::World) -> super::super::Adapted {
+    let target = render_texture(world, [4, 4]);
+    let camera = camera(world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    world
+        .record_offscreen(OffscreenWork::CameraRender { camera, target })
+        .unwrap();
+    let snapshot = snapshot(world);
+    adapt(
+        &snapshot,
+        &available(&snapshot, 1, &[]),
+        &Settings::default(),
+    )
+}
+
+#[test]
+fn a_frame_with_no_light_starts_its_globals_with_the_default_ambient() {
+    let mut world = world();
+    let adapted = unlit_camera_frame(&mut world);
+    let globals = &adapted.frame.globals;
+    for (name, expected) in AMBIENT_DEFAULTS {
+        assert_close(&vector(globals, name), &expected);
+    }
+    // Like the main light, the default is a fallback in the globals and not in the camera's own
+    // values, so a game that sets the names wins.
+    let camera = &adapted.frame.cameras[&CameraId(0)].values;
+    for (name, _) in AMBIENT_DEFAULTS {
+        assert!(camera.values.get(name).is_none(), "{name}");
+    }
+}
+
+#[test]
+fn a_global_the_world_holds_keeps_its_value_and_the_other_ambient_names_get_defaults() {
+    let mut world = world();
+    world
+        .set_global_property(WorldValue::Vector(SH_AR.into(), [1.0, 2.0, 3.0, 4.0]))
+        .unwrap();
+    let adapted = unlit_camera_frame(&mut world);
+    let globals = &adapted.frame.globals;
+    assert_close(&vector(globals, SH_AR), &[1.0, 2.0, 3.0, 4.0]);
+    for (name, expected) in &AMBIENT_DEFAULTS[1..] {
+        assert_close(&vector(globals, name), expected);
+    }
 }
 
 #[test]

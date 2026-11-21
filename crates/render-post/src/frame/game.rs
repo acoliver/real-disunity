@@ -5,12 +5,25 @@ use super::{FrameError, PassDeclaration, PassEntry, PrepareContext};
 /// Where a game's own pass sits among the stock passes of a forward frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GamePlace {
+    /// Immediately after the depth/normal prepass, before the depth pyramid, the occlusion
+    /// metadata and SSAO read what it wrote. These passes load and write the prepass's depth and
+    /// colour products, and their depth writes complete the depth with the prepass's, so every
+    /// reader of the depth prefix sees what the game drew here. In a frame whose depth prefix is
+    /// submitted ahead of the rest, they run in that prefix.
+    AfterDepthPrepass,
     /// Immediately before the first Opaque entry, after the G-buffer and its lighting when the
     /// frame has them. Opaque loads what these passes left in the attachments they share.
     BeforeOpaque,
     /// Immediately after the last Opaque entry, before the contour IDs and the opaque snapshots,
     /// so the snapshots include what these passes drew.
     AfterOpaque,
+    /// After the opaque snapshot passes (the contour IDs, the colour snapshot and the depth
+    /// snapshots) and before the water, the temporal-mask producers and every other transparent
+    /// pass. The frame has the snapshots of the opaque scene by now, so a pass here samples them
+    /// and draws over the lit opaque colour that the transparent passes then draw over. It needs
+    /// no snapshot of its own to be placed here; it orders after the snapshot writers only when
+    /// it declares a read of one.
+    AfterOpaqueSnapshots,
     /// After the transparent passes and the post-water depth, before the reflection and
     /// screen-space passes that follow transparency.
     AfterTransparent,

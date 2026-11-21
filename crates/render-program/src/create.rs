@@ -6,6 +6,7 @@ use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_gpu::texture::{TextureKind, TextureLayer, TextureUpload, packed_mips};
+use worldrunner_render_gpu::volume::{VolumeUpload, packed_volume_levels};
 
 use crate::bind::Snapshot;
 use crate::binding::BindingAddress;
@@ -152,80 +153,138 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D2, size, 1, format, bytes)
+        self.create_source_texture(
+            label,
+            SourceShape::flat(TextureKind::D2, size, 1),
+            format,
+            bytes,
+        )
     }
 
-    /// Uploads the base level of a cube of six `edge` by `edge` faces, sampled through a cube
-    /// view. `bytes` holds the faces one after the other in the order +X, -X, +Y, -Y, +Z, -Z,
-    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    /// Uploads a cube of six `edge` by `edge` faces, each with `mips` levels, sampled through a
+    /// cube view. `bytes` holds the faces one after the other in the order +X, -X, +Y, -Y, +Z, -Z,
+    /// each holding its levels from the base level down, every level tightly packed as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. All levels are counted against
+    /// the budget.
     ///
     /// # Errors
-    /// Fails when `bytes` is not exactly the six faces, or the upload plan or device refuses the
-    /// texture, as for a 2D texture.
+    /// Fails when `bytes` is not exactly the six faces of `mips` levels, `mips` is zero or more
+    /// than the edge has, or the upload plan or device refuses the texture, as for a 2D texture.
     pub fn create_texture_cube(
         &mut self,
         label: &str,
         edge: u32,
+        mips: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Cube, [edge, edge], 6, format, bytes)
+        let shape = SourceShape {
+            kind: TextureKind::Cube,
+            size: [edge, edge],
+            faces: 6,
+            mips,
+        };
+        self.create_source_texture(label, shape, format, bytes)
     }
 
-    /// Uploads the base level of a 2D array of `layers` layers of `size`, sampled through an
+    /// Uploads a 2D array of `layers` layers of `size`, each with `mips` levels, sampled through an
     /// array view even when there is one layer. `bytes` holds the layers one after the other,
-    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    /// each holding its levels from the base level down, every level tightly packed as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. All levels are counted against
+    /// the budget.
     ///
     /// # Errors
-    /// Fails when `bytes` is not exactly the `layers` layers, `layers` is zero, or the upload plan
-    /// or device refuses the texture, as for a 2D texture.
+    /// Fails when `bytes` is not exactly the `layers` layers of `mips` levels, `layers` is zero,
+    /// `mips` is zero or more than the size has, or the upload plan or device refuses the
+    /// texture, as for a 2D texture.
     pub fn create_texture_array(
         &mut self,
         label: &str,
         size: [u32; 2],
         layers: u32,
+        mips: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::Array, size, layers, format, bytes)
+        let shape = SourceShape {
+            kind: TextureKind::Array,
+            size,
+            faces: layers,
+            mips,
+        };
+        self.create_source_texture(label, shape, format, bytes)
     }
 
-    /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
-    /// [`create_texture_2d`](Self::create_texture_2d) takes one. The texture is sampled through a
-    /// 3D view. A deeper volume has no upload.
+    /// Uploads a 3D texture of `size` (width, height and depth) with `mips` levels, sampled
+    /// through a 3D view. `bytes` holds the levels one after the other from the base level, each
+    /// holding its slices one after the other and as wide, as high and as deep as the base level
+    /// shifted down (at least one texel), every slice tightly packed as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes a level. All levels are counted
+    /// against the budget. Block-compressed formats are not uploaded as volumes.
     ///
     /// # Errors
-    /// Fails as for a 2D texture, and when the device's 3D extent limit is below the slice.
+    /// Fails when `bytes` is not exactly the levels, an extent or `mips` is zero, `mips` is more
+    /// than the size has, the format is not an uncompressed color format, or the device's 3D
+    /// extent limit is below the size.
     pub fn create_texture_3d(
         &mut self,
         label: &str,
-        size: [u32; 2],
+        size: [u32; 3],
+        mips: u32,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
-        self.create_source_texture(label, TextureKind::D3, size, 1, format, bytes)
+        self.authority.check_device()?;
+        let levels = packed_volume_levels(format, size, mips, bytes)?;
+        let needed: usize = levels.iter().map(|level| level.bytes.len()).sum();
+        if bytes.len() != needed {
+            return Err(ProgramError::TextureData {
+                size: [size[0], size[1]],
+                format,
+                needed,
+                given: bytes.len(),
+            });
+        }
+        let upload = VolumeUpload::new(format, &levels)?;
+        let mut allocations = AllocationSet::default();
+        allocations.volume("render-program texture", size, format, mips);
+        let note = Note::new(
+            label,
+            format!("{}x{}x{} {format:?}", size[0], size[1], size[2]),
+        );
+        let reservation = self.admit(allocations, note)?;
+        let texture = self.guarded(|| {
+            upload.upload(
+                &self.device,
+                self.authority.queue(),
+                label,
+                wgpu::TextureUsages::COPY_SRC,
+            )
+        })??;
+        Ok(self.store.add_texture(entry(texture), reservation))
     }
 
-    /// The upload of a 2D texture (one layer), a one-slice 3D texture, a cube (six) or an array
-    /// (`faces`), `size` being one face.
+    /// The upload of a 2D texture (one layer), a cube (six) or an array (`faces`), each face
+    /// holding `mips` levels, `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,
-        kind: TextureKind,
-        size: [u32; 2],
-        faces: u32,
+        shape: SourceShape,
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
+        let SourceShape {
+            kind,
+            size,
+            faces,
+            mips: levels,
+        } = shape;
         self.authority.check_device()?;
         let block = format
             .block_copy_size(None)
             .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
             .ok_or_else(|| ProgramError::Gpu(format!("{format:?} is not a color format")))?;
-        let (block_width, block_height) = format.block_dimensions();
-        let face_len = size[0].div_ceil(block_width) as usize
-            * size[1].div_ceil(block_height) as usize
-            * block as usize;
+        let face_len = chain_len(format, shape, block);
         let needed = face_len * faces as usize;
         if bytes.len() != needed {
             return Err(ProgramError::TextureData {
@@ -241,7 +300,7 @@ impl ProgramRuntime {
                     format,
                     size[0],
                     size[1],
-                    1,
+                    levels,
                     &bytes[face * face_len..(face + 1) * face_len],
                 )
             })
@@ -261,7 +320,7 @@ impl ProgramRuntime {
             "render-program texture",
             [size[0], size[1], faces],
             format,
-            [1, 1],
+            [levels, 1],
             1,
         );
         let note = Note::new(label, format!("{}x{} {format:?}", size[0], size[1]));
@@ -277,7 +336,7 @@ impl ProgramRuntime {
         let entry = match kind {
             TextureKind::Cube => entry_viewed(texture, wgpu::TextureViewDimension::Cube),
             TextureKind::Array => entry_viewed(texture, wgpu::TextureViewDimension::D2Array),
-            TextureKind::D2 | TextureKind::D3 => entry(texture),
+            TextureKind::D2 => entry(texture),
         };
         Ok(self.store.add_texture(entry, reservation))
     }
@@ -450,8 +509,13 @@ impl ProgramRuntime {
     }
 
     /// The wgpu texture behind a handle, for work the runtime does not record itself, such as
-    /// reading a block-compressed texture back. The result shares wgpu's reference-counted
-    /// texture; the runtime still counts its storage in the budget until the handle is released.
+    /// sampling it after the submission that writes it or reading a block-compressed texture
+    /// back. The result shares wgpu's reference-counted texture; the runtime still counts its
+    /// storage in the budget until the handle is released. Drop the clone when the allocation
+    /// is replaced: the runtime cannot track references the caller retains.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown handle.
     pub fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }
@@ -583,4 +647,40 @@ fn padded(bytes: &[u8]) -> Cow<'_, [u8]> {
     let mut owned = bytes.to_vec();
     owned.resize(bytes.len().next_multiple_of(4), 0);
     Cow::Owned(owned)
+}
+
+/// What an upload of a source texture holds: `faces` layers or cube faces, each of `size` with
+/// `mips` levels.
+#[derive(Clone, Copy)]
+struct SourceShape {
+    kind: TextureKind,
+    size: [u32; 2],
+    faces: u32,
+    mips: u32,
+}
+
+impl SourceShape {
+    /// A texture whose faces have the base level alone.
+    fn flat(kind: TextureKind, size: [u32; 2], faces: u32) -> Self {
+        Self {
+            kind,
+            size,
+            faces,
+            mips: 1,
+        }
+    }
+}
+
+/// The bytes of one face's levels, base level first, each tightly packed in blocks of `block`
+/// bytes. Levels are as wide as the base level shifted down, and at least one texel.
+fn chain_len(format: wgpu::TextureFormat, shape: SourceShape, block: u32) -> usize {
+    let (block_width, block_height) = format.block_dimensions();
+    let level = |side: u32, level: u32| side.checked_shr(level).unwrap_or(0).max(1);
+    (0..shape.mips)
+        .map(|mip| {
+            level(shape.size[0], mip).div_ceil(block_width) as usize
+                * level(shape.size[1], mip).div_ceil(block_height) as usize
+                * block as usize
+        })
+        .sum()
 }

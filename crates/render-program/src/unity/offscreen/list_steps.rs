@@ -17,6 +17,7 @@ use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Clear, DrawList, OffscreenFrame};
 use super::plan::Services;
+use super::raster::{self, PassRaster};
 use super::steps::{
     CameraDraw, Globals, Look, Step, planned_draw, push_use, raster_id, require_render_texture,
 };
@@ -332,23 +333,35 @@ pub(super) fn clear_step(
     }))
 }
 
-/// A list: the draws the items plan to, in order, into the attachments, loading what they hold.
-pub(super) fn list_step(
+/// The size in texels of the attachments of `target`: of the first color at its mip, or of the
+/// depth when it has no color.
+pub(super) fn target_size(
+    svc: &Services<'_>,
+    target: &Attachments,
+) -> Result<[u32; 2], OffscreenError> {
+    let attachment = target
+        .colors
+        .first()
+        .or(target.depth.as_ref())
+        .ok_or_else(|| {
+            OffscreenError::Unknown("a color or depth buffer to draw into".to_owned())
+        })?;
+    Ok(size_at(
+        svc.textures.get(attachment.texture)?.size,
+        attachment.mip,
+    ))
+}
+
+/// The draws the items of `list` plan to, in order, each with the raster state `raster` and the
+/// formats of `signature`.
+fn list_draws(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-    index: usize,
     globals: Globals<'_>,
     list: &DrawList,
-) -> Result<Step, OffscreenError> {
-    let target = usable(svc, list.target.clone())?;
-    let signature = signature(svc, &target)?;
-    let cells = written(svc, &target)?;
-    let (unmatched, missing_texture, missing_channel, feedback_loop) = (
-        svc.counts.unmatched,
-        svc.counts.missing_texture,
-        svc.counts.missing_channel,
-        svc.counts.feedback_loop,
-    );
+    (signature, raster): (TargetSignature, PassRaster),
+    cells: &[Written],
+) -> Result<Vec<CameraDraw>, OffscreenError> {
     let mut draws = Vec::new();
     for item in &list.draws {
         let renderer = frame
@@ -367,18 +380,46 @@ pub(super) fn list_step(
         let look = Look {
             selector: &item.pass,
             values: &list.values,
+            own: Some(&item.per_draw),
             front_face: list.front_face,
             globals,
             signature,
-            written: &cells,
+            written: cells,
         };
         if let Some(mut draw) =
             planned_draw(svc, frame, &look, (material, item.renderer, item.slot))?
         {
             draw.geometry.instances = 0..item.instances;
+            draw.raster = raster;
             draws.push(draw);
         }
     }
+    Ok(draws)
+}
+
+/// A list: the draws the items plan to, in order, into the attachments, loading what they hold. A
+/// scissor with no texel in it leaves nothing to draw.
+pub(super) fn list_step(
+    svc: &mut Services<'_>,
+    frame: &OffscreenFrame,
+    index: usize,
+    globals: Globals<'_>,
+    list: &DrawList,
+) -> Result<Step, OffscreenError> {
+    let target = usable(svc, list.target.clone())?;
+    let signature = signature(svc, &target)?;
+    let size = target_size(svc, &target)?;
+    let cells = written(svc, &target)?;
+    let (unmatched, missing_texture, missing_channel, feedback_loop) = (
+        svc.counts.unmatched,
+        svc.counts.missing_texture,
+        svc.counts.missing_channel,
+        svc.counts.feedback_loop,
+    );
+    let draws = match raster::resolve(&list.raster, size, svc.reversed_depth) {
+        Some(raster) => list_draws(svc, frame, globals, list, (signature, raster), &cells)?,
+        None => Vec::new(),
+    };
     svc.counts.current = super::CameraCauses::default();
     if let Some(texture) = primary(&target) {
         svc.counts.lists.push(ListDraws {

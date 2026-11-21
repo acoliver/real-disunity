@@ -167,16 +167,16 @@ impl World {
         Ok(chain)
     }
 
-    /// The live rectangles and canvases of `nodes`, keyed by object.
+    /// The rectangles and canvases of `nodes`, keyed by object. An object awaiting destruction
+    /// keeps its parts until the frame retires it, as every handle stays usable until then. A
+    /// component destroyed on its own no longer counts.
     fn ui_parts_of(&self, nodes: &[ObjectHandle]) -> Result<UiInputs, WorldError> {
         let mut rects = BTreeMap::new();
         let mut canvases = BTreeMap::new();
         for &node in nodes {
-            if self.lifetime.objects.contains(&node) {
-                continue;
-            }
+            let node_pending = self.lifetime.objects.contains(&node);
             for &handle in &self.live_object(node)?.components {
-                if self.lifetime.components.contains(&handle) {
+                if !node_pending && self.lifetime.components.contains(&handle) {
                     continue;
                 }
                 match self.component(handle)?.desc {

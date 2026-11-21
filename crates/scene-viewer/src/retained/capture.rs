@@ -16,6 +16,15 @@ pub struct RetainedCaptureObservation {
     pub temporal_history_reset: super::TemporalHistoryReset,
 }
 
+/// Metadata frozen from the frame submitted for a capture.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CaptureCompletion {
+    pub(crate) frame: u64,
+    pub(crate) time: std::time::Duration,
+    pub(crate) scene: super::statistics::SceneStatistics,
+    pub(crate) temporal_history_reset: super::TemporalHistoryReset,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedCaptureOutcome {
     Completed {
@@ -113,27 +122,19 @@ impl Captures {
             RetainedEvent::Capture { id: event_id, outcome: RetainedCaptureOutcome::Cancelled, .. } if *event_id == id))
     }
 
-    pub(crate) fn complete(
-        &mut self,
-        id: u64,
-        frame: u64,
-        time: std::time::Duration,
-        image: RgbaImage,
-        scene: &super::statistics::SceneStatistics,
-        temporal_history_reset: super::TemporalHistoryReset,
-    ) {
+    pub(crate) fn complete(&mut self, id: u64, completion: &CaptureCompletion, image: RgbaImage) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
             id,
             generation,
             outcome: RetainedCaptureOutcome::Completed {
-                frame,
-                time,
+                frame: completion.frame,
+                time: completion.time,
                 image,
                 observation: Box::new(RetainedCaptureObservation {
                     generation,
-                    scene: *scene,
-                    temporal_history_reset,
+                    scene: completion.scene,
+                    temporal_history_reset: completion.temporal_history_reset,
                 }),
             },
         });
@@ -160,23 +161,21 @@ impl Captures {
     pub(crate) fn complete_recipe(
         &mut self,
         id: u64,
-        frame: u64,
-        time: std::time::Duration,
+        completion: &CaptureCompletion,
         products: RetainedCaptureProducts,
-        scene: &super::statistics::SceneStatistics,
-        temporal_history_reset: super::TemporalHistoryReset,
     ) {
+        let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
             id,
-            generation: self.outstanding[&id],
+            generation,
             outcome: RetainedCaptureOutcome::RecipeCompleted {
-                frame,
-                time,
+                frame: completion.frame,
+                time: completion.time,
                 products: Box::new(products),
                 observation: Box::new(RetainedCaptureObservation {
-                    generation: self.outstanding[&id],
-                    scene: *scene,
-                    temporal_history_reset,
+                    generation,
+                    scene: completion.scene,
+                    temporal_history_reset: completion.temporal_history_reset,
                 }),
             },
         });

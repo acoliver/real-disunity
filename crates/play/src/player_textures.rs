@@ -35,6 +35,11 @@ impl PlayerTextures {
         self.generations.get(&identity).copied().unwrap_or(0)
     }
 
+    /// Whether the managed host stored texture `identity` and its conversion failed.
+    pub(crate) fn conversion_failed(&self, identity: u64) -> bool {
+        self.failures.contains_key(&identity)
+    }
+
     pub(crate) fn unavailable_reason(&self, identity: u64) -> String {
         if identity < FIRST_PLAYER_TEXTURE {
             return "scene texture identity is absent from the sprite textures".into();

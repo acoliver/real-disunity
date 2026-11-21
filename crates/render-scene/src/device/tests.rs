@@ -124,6 +124,7 @@ fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
         adapter,
         device,
         submission: worldrunner_render_gpu::submission::SubmissionAuthority::new(queue),
+        unavailable_optional_limits: Vec::new(),
     };
     let mut bloom = post_bloom_tests::bloom();
     bloom.recipe.as_mut().unwrap().terminal = worldrunner_render_plan::SceneBloomTerminal::Reject;
@@ -238,6 +239,124 @@ fn gpu_optional_timestamp_device_enables_only_available_capability() {
         PassTimer::new(context.device(), context.queue(), TimingMode::Required).is_ok(),
         available
     );
+}
+
+#[test]
+fn a_device_shared_with_another_user_meets_its_requirements_and_the_scenes() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let available = adapter.limits();
+    // A caller that needs larger buffers than the default, and prefers more storage images.
+    let buffer = (wgpu::Limits::default().max_buffer_size * 2).min(available.max_buffer_size);
+    let caller = DeviceRequirements {
+        required_limits: wgpu::Limits {
+            max_buffer_size: buffer,
+            ..wgpu::Limits::default()
+        },
+        optional_features: Features::FLOAT32_FILTERABLE,
+        ..DeviceRequirements::default()
+    };
+    let filterable = adapter.features().contains(Features::FLOAT32_FILTERABLE);
+    let context = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ))
+    .unwrap();
+    let limits = context.device().limits();
+    assert_eq!(limits.max_buffer_size, buffer, "the caller's limit");
+    assert_eq!(
+        limits.max_texture_array_layers, available.max_texture_array_layers,
+        "the scene's limit"
+    );
+    assert_eq!(
+        context
+            .device()
+            .features()
+            .contains(Features::FLOAT32_FILTERABLE),
+        filterable,
+        "the caller's optional feature where offered"
+    );
+}
+
+#[test]
+fn a_shared_device_reports_a_preferred_profile_it_could_not_grant() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let too_large = adapter.limits().max_texture_dimension_2d + 1;
+    let caller = DeviceRequirements {
+        optional_limits: Some(wgpu::Limits {
+            max_texture_dimension_2d: too_large,
+            ..wgpu::Limits::default()
+        }),
+        ..DeviceRequirements::default()
+    };
+    let context = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ))
+    .unwrap();
+    let report = context.unavailable_optional_limits();
+    assert!(
+        report
+            .iter()
+            .any(|line| line.contains("max_texture_dimension_2d")),
+        "the refused preferred limit is named: {report:?}"
+    );
+    assert!(
+        context.device().limits().max_texture_dimension_2d < too_large,
+        "the device has the required limits"
+    );
+}
+
+#[test]
+fn a_shared_device_refuses_a_callers_missing_feature_by_name() {
+    use worldrunner_render_gpu::device::DeviceRequirements;
+    use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let name = adapter.get_info().name;
+    let flag = Features::all()
+        .difference(adapter.features())
+        .features_wgpu
+        .iter()
+        .next()
+        .expect("no adapter offers every native feature");
+    let mut absent = Features::empty();
+    absent.features_wgpu = flag;
+    let caller = DeviceRequirements {
+        required_features: absent,
+        ..DeviceRequirements::default()
+    };
+    let refused = pollster::block_on(GpuContext::from_adapter_shared(
+        adapter,
+        Features::empty(),
+        TimingMode::Disabled,
+        &caller,
+    ));
+    match refused {
+        Err(super::DeviceError::MissingFeatures { adapter, missing }) => {
+            assert_eq!(adapter, name);
+            assert_eq!(missing, absent);
+        }
+        other => panic!("expected the caller's missing feature by name, got {other:?}"),
+    }
 }
 
 use super::{GpuContext, REQUIRED_FEATURES};
@@ -375,4 +494,121 @@ fn required_gpu_missing_features_are_not_silently_dropped() {
         }
         other => panic!("must reject requirements before requesting a device, got {other}"),
     }
+}
+
+#[test]
+fn the_scene_device_asks_for_float32_filtering_where_the_adapter_offers_it() {
+    use worldrunner_render_gpu::device::negotiate;
+    use worldrunner_render_post::TimingMode;
+    let limits = wgpu::Limits::default();
+    let request = super::requirements(&limits, REQUIRED_FEATURES, TimingMode::Disabled);
+    for offered in [false, true] {
+        let available = REQUIRED_FEATURES
+            | Features::DEPTH32FLOAT_STENCIL8
+            | if offered {
+                Features::FLOAT32_FILTERABLE
+            } else {
+                Features::empty()
+            };
+        let negotiated = negotiate(available, &limits, &request)
+            .expect("an adapter without the optional feature still gets a device");
+        assert_eq!(
+            negotiated
+                .enabled_features
+                .contains(Features::FLOAT32_FILTERABLE),
+            offered,
+            "FLOAT32_FILTERABLE is enabled exactly where offered: {:?}",
+            negotiated.enabled_features
+        );
+        assert!(
+            negotiated
+                .enabled_features
+                .contains(REQUIRED_FEATURES | Features::DEPTH32FLOAT_STENCIL8),
+            "the other features are unchanged: {:?}",
+            negotiated.enabled_features
+        );
+    }
+}
+
+/// A shader that samples an `R32Float` texture (such as a copy of device depth) through a linear
+/// sampler declares it `Float { filterable: true }`. wgpu treats 32-bit float formats as
+/// unfilterable unless the device enabled `FLOAT32_FILTERABLE`, whatever the adapter reports.
+#[test]
+fn the_engine_device_binds_r32float_to_a_filtering_sampler_where_the_adapter_offers_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let offered = context
+        .adapter()
+        .features()
+        .contains(Features::FLOAT32_FILTERABLE);
+    let device = context.device();
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("r32float filtered"),
+        size: wgpu::Extent3d {
+            width: 2,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::R32Float,
+        usage: TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("linear clamp"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..wgpu::SamplerDescriptor::default()
+    });
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("filterable float and filtering sampler"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("r32float through linear"),
+        layout: &layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    let error = pollster::block_on(scope.pop());
+    assert_eq!(
+        error.is_none(),
+        offered,
+        "an R32Float view binds to a filterable binding exactly where FLOAT32_FILTERABLE is \
+         offered: {error:?}"
+    );
+    assert_eq!(
+        device.features().contains(Features::FLOAT32_FILTERABLE),
+        offered,
+        "the engine device enables FLOAT32_FILTERABLE exactly where the adapter offers it"
+    );
 }

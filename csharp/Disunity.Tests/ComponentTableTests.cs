@@ -15,6 +15,7 @@ internal static class ComponentTableTests
         {
             TableIndexesByOwnerAndKey();
             RemovingDropsEveryIndex();
+            KindIndexFollowsTheTable();
             HostQueriesCostTheirObject();
         }
         finally { DisunityHost.UnloadWorld(); }
@@ -61,6 +62,31 @@ internal static class ComponentTableTests
         table.Clear();
         Expect.That(table.Count == 0 && table.Of(a).Count == 0 && !table.TryKeyOf(kept, out _), "clear empties every index");
         Console.WriteLine("PASS: removing a component drops it from every index of the table");
+    }
+
+    private static void KindIndexFollowsTheTable()
+    {
+        var table = new ComponentTable<MonoBehaviour>();
+        var a = new GameObject("kind a");
+        var early = Owned(a);
+        table.Add(9, early);
+        var other = new Other { gameObject = a };
+        table.Add(8, other);
+        var late = Owned(a);
+        Expect.Sequence([early], table.OfKind<Marker>(), "a kind asked for after an add lists what the table held");
+        var version = table.VersionOfKind<Marker>();
+        table.Add(7, late);
+        Expect.Sequence([early, late], table.OfKind<Marker>(), "a member added later is listed in the order the members were built");
+        Expect.That(table.VersionOfKind<Marker>() != version, "adding a member changes the kind's version");
+        version = table.VersionOfKind<Marker>();
+        table.Add(6, new Other { gameObject = a });
+        Expect.Equal(version, table.VersionOfKind<Marker>(), "adding a component of another kind leaves the version");
+        Expect.That(table.Remove(9) && table.VersionOfKind<Marker>() != version, "removing a member changes the version");
+        Expect.Sequence([late], table.OfKind<Marker>(), "the removed member is not listed");
+        Expect.Equal(2, table.OfKind<Other>().Length, "each kind lists its own members");
+        table.Clear();
+        Expect.Equal(0, table.OfKind<Marker>().Length, "clear empties the kind");
+        Console.WriteLine("PASS: the component table lists the components of a kind in build order and versions each kind");
     }
 
     private static void HostQueriesCostTheirObject()

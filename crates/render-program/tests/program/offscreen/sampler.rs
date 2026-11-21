@@ -34,7 +34,7 @@ fn point(wrap: Wrap) -> SamplerState {
 /// - clamp: white, white
 /// - repeat: 1/8 and 3/8 give red and green
 /// - mirror: 7/8 and 5/8 give white and blue.
-fn shifted(rig: &mut Rig, sampler: Option<SamplerState>) -> OffscreenFrame {
+pub fn shifted(rig: &mut Rig, sampler: Option<SamplerState>) -> OffscreenFrame {
     let mut frame = fixture(rig, 1 << 1);
     frame.render_textures = vec![texture(10, [4, 1])];
     frame.cameras.get_mut(&CameraId(1)).unwrap().pass = gamma();

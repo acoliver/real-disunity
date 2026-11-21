@@ -34,6 +34,7 @@ fn quad(world: &mut World, tint: [f32; 4], place: [f32; 4]) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, renderer);

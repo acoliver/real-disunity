@@ -62,6 +62,9 @@ internal static unsafe class CommandWireReader
             17 => $"DrawProcedural matrix={input.Floats(16)} material={input.U64()} pass={input.I32()} topology={input.U8()} vertices={input.U32()} instances={input.U32()}",
             18 => $"Viewport rect={input.Floats(4)}",
             19 => $"GenerateMips texture={input.U64()}",
+            20 => $"Scissor rect={input.Floats(4)}",
+            21 => "ScissorOff",
+            22 => $"DepthBias bias={input.F32().ToString("R", CultureInfo.InvariantCulture)} slope={input.F32().ToString("R", CultureInfo.InvariantCulture)}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");

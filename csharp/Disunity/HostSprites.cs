@@ -29,7 +29,7 @@ public static partial class DisunityHost
     // Sprite identities to what a sprite over a managed texture has beyond the native content. Like the names, they
     // outlive the Sprite object so a sprite read back from a renderer is complete.
     private static readonly Dictionary<ulong, SpriteDetails> SpriteDetailTable = new();
-    private static readonly Dictionary<ulong, WeakReference<Texture2D>> PlayerTextures = new();
+    private static readonly Dictionary<ulong, WeakReference<Texture>> PlayerTextures = new();
     private static ulong _nextPlayerTexture = FirstPlayerTextureIdentity;
 
     /// <summary>The renderer identity of the first player texture. Scene textures count up from the identity the
@@ -42,12 +42,12 @@ public static partial class DisunityHost
         lock (SpriteDetailTable) return SpriteDetailTable.GetValueOrDefault(spriteIdentity);
     }
 
-    internal static ulong AllocatePlayerTextureIdentity(Texture2D texture)
+    internal static ulong AllocatePlayerTextureIdentity(Texture texture)
     {
         lock (PlayerTextures)
         {
             var identity = _nextPlayerTexture++;
-            PlayerTextures[identity] = new WeakReference<Texture2D>(texture);
+            PlayerTextures[identity] = new WeakReference<Texture>(texture);
             return identity;
         }
     }
@@ -64,11 +64,12 @@ public static partial class DisunityHost
             return UndrawnTextures.GetValue(texture, _ => new System.Runtime.CompilerServices.StrongBox<ulong>(_nextPlayerTexture++)).Value;
     }
 
-    /// <summary>The player texture that has this renderer identity, while it is alive.</summary>
+    /// <summary>The 2D player texture that has this renderer identity, while it is alive. A texture array has one too and is
+    /// not returned here, as a sprite never covers one.</summary>
     internal static Texture2D? PlayerTexture(ulong identity)
     {
         lock (PlayerTextures)
-            return PlayerTextures.TryGetValue(identity, out var weak) && weak.TryGetTarget(out var texture) ? texture : null;
+            return PlayerTextures.TryGetValue(identity, out var weak) && weak.TryGetTarget(out var texture) ? texture as Texture2D : null;
     }
 
     public static Sprite CreateSprite(ulong textureIdentity, uint textureWidth, uint textureHeight,

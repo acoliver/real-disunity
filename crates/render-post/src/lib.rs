@@ -225,11 +225,19 @@ pub use upscale::SpatialUpscale;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
+mod frame_mip_tests;
+#[cfg(test)]
 mod frame_tests;
 #[cfg(test)]
 mod post_upload_staging_tests;
 #[cfg(test)]
 mod prepare_context_tests;
+#[cfg(test)]
+mod prepared_command_buffers_tests;
+#[cfg(test)]
+mod prepared_run_tests;
+#[cfg(test)]
+mod prepared_test_support;
 #[cfg(test)]
 mod upload_staging_limit_tests;
 #[cfg(test)]
@@ -238,7 +246,8 @@ pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
     FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
-    PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedCompute,
+    PreparedFeature, PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;
@@ -257,7 +266,7 @@ pub use chain::{
     BufferSpec, Operation, PostChain, Resources, Stage, StageFactory, StageSet, StageTarget,
     TimingState,
 };
-pub use copy::CopyOutput;
+pub use copy::{CopyOutput, CopySource};
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
 pub use targets::{
     FrameConfig, FrameTargets, SceneDepth, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT,

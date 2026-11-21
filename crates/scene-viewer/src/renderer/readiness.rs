@@ -1,3 +1,4 @@
+use super::game_screen::ViewMisses;
 use super::texture_tiers::TextureTiers;
 use super::{Presentation, Renderer, Resident, ViewerError, required_features};
 use crate::RetainedHost;
@@ -35,11 +36,14 @@ impl Renderer {
             .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
 
+    /// Checks the retained host's page and geometry waits against `view`. The result belongs to
+    /// the frame that will show this view: its misses go to that frame's encode, not to the
+    /// renderer.
     pub(super) fn retained_pages_ready(
         &mut self,
         host: &mut RetainedHost,
         view: &worldrunner_render_scene::SceneView,
-    ) -> Result<bool, ViewerError> {
+    ) -> Result<ViewReadiness, ViewerError> {
         let needs_pages = host.readiness.page_wait
             || host
                 .captures
@@ -53,6 +57,10 @@ impl Renderer {
                     r.1 == host.readiness.published && host.captures.geometry.contains(&r.0)
                 });
         host.captures.geometry_ready = !needs_geometry || self.view_geometry_ready(view)?;
+        let misses = ViewMisses {
+            pages: needs_pages && !ready,
+            geometry: !host.captures.geometry_ready,
+        };
         if ready {
             host.readiness.page_wait = false;
         }
@@ -62,7 +70,34 @@ impl Renderer {
         if !host.readiness.page_wait && !host.readiness.geometry_wait {
             host.readiness.ready = host.readiness.published;
         }
-        Ok(ready)
+        Ok(ViewReadiness {
+            pages_ready: ready,
+            misses,
+        })
+    }
+}
+
+/// What the host's readiness check found for one view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ViewReadiness {
+    /// The view's terrain pages are resident, so a capture that waits on them may proceed.
+    pub(super) pages_ready: bool,
+    /// What the view still lacks, for the frame that shows it.
+    pub(super) misses: ViewMisses,
+}
+
+impl Renderer {
+    pub(super) fn admit_retained_offscreen(
+        &mut self,
+        host: &mut RetainedHost,
+    ) -> Result<bool, ViewerError> {
+        let serial = self.context.submission().submitted_serial();
+        self.publish_retained(host)?;
+        if serial != self.context.submission().submitted_serial() {
+            return Ok(false);
+        }
+        self.reject_offscreen_depth_fitting(host)?;
+        Ok(true)
     }
 }
 

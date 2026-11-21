@@ -33,7 +33,7 @@ impl GpuContext {
             self.adapter.features(),
             &self.adapter.limits(),
             &requirements(
-                &self.adapter,
+                &self.adapter.limits(),
                 required,
                 worldrunner_render_post::TimingMode::Disabled,
             ),
@@ -63,7 +63,7 @@ impl GpuContext {
             });
         }
         let gpu = TestGpu::shared(&requirements(
-            &adapter,
+            &adapter.limits(),
             required_features,
             worldrunner_render_post::TimingMode::Disabled,
         ))
@@ -73,6 +73,7 @@ impl GpuContext {
             adapter: gpu.adapter,
             device: gpu.device,
             submission: SubmissionAuthority::new(gpu.queue),
+            unavailable_optional_limits: Vec::new(),
         })
     }
 }

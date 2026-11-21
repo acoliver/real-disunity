@@ -22,14 +22,22 @@ pub struct Attachment<'a> {
 
 impl Gpu {
     pub fn new() -> Self {
+        Self::with_optional_features(wgpu::Features::empty())
+    }
+
+    /// A device with each of `optional` the adapter offers enabled.
+    pub fn with_optional_features(optional: wgpu::Features) -> Self {
         let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("these tests need a GPU adapter");
         eprintln!("render-program tests adapter: {}", adapter.get_info().name);
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
-                .expect("the adapter gives a device");
+        let requirements = DeviceRequirements {
+            optional_features: optional,
+            ..DeviceRequirements::default()
+        };
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+            .expect("the adapter gives a device");
         Self {
             device,
             authority: SubmissionAuthority::new(queue),
@@ -93,6 +101,24 @@ impl Gpu {
         groups: &[(u32, &wgpu::BindGroup)],
         draws: &[&PreparedProgramDraw],
     ) -> wgpu::SubmissionIndex {
+        self.pass_binding(
+            attachments,
+            &|pass| {
+                for (set, group) in groups {
+                    pass.set_bind_group(*set, *group, &[]);
+                }
+            },
+            draws,
+        )
+    }
+
+    /// One pass into `attachments` that `bind` sets the owner's groups in before the draws.
+    pub fn pass_binding(
+        &self,
+        attachments: &[Attachment<'_>],
+        bind: &dyn Fn(&mut wgpu::RenderPass<'_>),
+        draws: &[&PreparedProgramDraw],
+    ) -> wgpu::SubmissionIndex {
         let mut frame = self.authority.begin(&self.device).unwrap();
         for draw in draws {
             draw.retain(&frame).unwrap();
@@ -117,9 +143,7 @@ impl Gpu {
                 color_attachments: &colors,
                 ..wgpu::RenderPassDescriptor::default()
             });
-            for (set, group) in groups {
-                pass.set_bind_group(*set, *group, &[]);
-            }
+            bind(&mut pass);
             for draw in draws {
                 draw.record(&mut pass);
             }

@@ -50,6 +50,10 @@ pub struct RendererConfiguration {
     /// Whether the stock passes draw the scene's terrain. A game that draws it with its own
     /// passes suppresses the stock draws; the terrain stays resident and updated either way.
     pub terrain_draws: super::TerrainDraws,
+    /// Whether the stock passes draw the scene's water. A game that draws it with its own
+    /// passes suppresses the stock draws; the water stays resident, with its environment and
+    /// surface inputs kept up to date, either way.
+    pub water_draws: super::WaterDraws,
 }
 impl RendererConfiguration {
     /// Request-owned replay targets, charged to the host capture reservation.
@@ -77,6 +81,7 @@ impl RendererConfiguration {
             additional: AllocationSet::default(),
             game_passes: super::GamePasses::default(),
             terrain_draws: super::TerrainDraws::Stock,
+            water_draws: super::WaterDraws::Stock,
         }
     }
     pub fn allocations(&self) -> AllocationSet {
@@ -179,8 +184,10 @@ impl RendererConfiguration {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
         self.validate_opaque(&context.device().limits())?;
-        self.game_passes
-            .validate(self.frame.size, &context.device().limits())?;
+        self.game_passes.validate(
+            self.frame.size,
+            (&context.device().limits(), context.device().features()),
+        )?;
         if self.contour_ids {
             crate::contours::validate_format(
                 context
@@ -597,6 +604,11 @@ impl ConfiguredFrameRenderer {
     /// What the stock frame plan cache did, across the renderers this configuration replaced.
     pub fn stock_plan_statistics(&self) -> crate::compositor::StockPlanStatistics {
         self.state.current().stock_plan_statistics()
+    }
+    /// How much opaque snapshot storage the live generation holds. A renderer with no water,
+    /// reflections, depth-tested overlay or game that reads snapshots holds none.
+    pub fn snapshot_statistics(&self) -> crate::compositor::SnapshotStatistics {
+        self.state.current().snapshot_statistics()
     }
     pub fn generation(&self) -> u64 {
         self.state.generation()

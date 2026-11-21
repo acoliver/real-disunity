@@ -43,8 +43,11 @@ const MESH: u64 = (1 << 41) + 5;
 const OTHER_MESH: u64 = (1 << 41) + 6;
 
 mod block;
+mod buffers;
 mod declared;
 mod persistent;
+mod raster;
+mod screen;
 
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
 /// the material's `_Tint` and one that writes its `_Over`.
@@ -114,6 +117,7 @@ fn synthetic(file: &str) -> SyntheticShader {
             layers
         }
         "sampled" => block::sampled_passes(),
+        "instanced" => buffers::instanced_passes(),
         name if name.starts_with("declared_") => declared::passes(name),
         other => panic!("no synthetic shader {other}"),
     }

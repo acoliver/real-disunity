@@ -43,7 +43,7 @@ pub(super) fn body(far: bool) -> SceneWaterBody {
 }
 
 /// A camera 1.7 m above the water plane looking along +y: the lower part of the image is water.
-fn frame(size: u32) -> FrameUniform {
+pub(super) fn frame(size: u32) -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, -10_000, 1_700],
@@ -232,7 +232,7 @@ pub(super) fn scene_bytes(context: &GpuContext, renderer: &FrameRenderer) -> Vec
     .unwrap()
 }
 
-fn read_mask(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[u8; 2]> {
+pub(super) fn read_mask(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[u8; 2]> {
     let device = context.device();
     let (width, height) = (texture.width(), texture.height());
     let pitch = (width * 2).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
@@ -418,4 +418,24 @@ fn the_mask_pass_follows_the_water_pass_only_with_a_mask_and_the_producer() {
     );
     let one_sample = plain(&context, true);
     assert_eq!(planned(&context, &one_sample, false), (water.to_vec(), 1));
+}
+
+#[test]
+fn a_scene_whose_water_differs_from_the_installed_water_is_refused_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let renderer = plain(&context, false);
+    renderer
+        .validate_water(&[body(false)])
+        .expect("the installed body matches");
+    for scene in [&[][..], &[body(true)][..]] {
+        assert_eq!(
+            renderer.validate_water(scene),
+            Err(FrameError::WaterSettings(
+                "the scene's water bodies differ from the water the renderer was configured with"
+            )),
+            "{} scene bodies",
+            scene.len()
+        );
+    }
 }

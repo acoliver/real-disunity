@@ -144,6 +144,7 @@ fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
         materials: vec![MaterialId(material)],
         layer: layer_index,
         block: PropertyLayer::default(),
+        slot_blocks: std::collections::BTreeMap::new(),
         per_draw: layer(&[("_Place", place)]),
     }
 }
@@ -635,3 +636,6 @@ fn a_render_texture_with_a_depth_buffer_exports_its_colour() {
     );
     recording.finish().cancel();
 }
+
+mod game_screen;
+mod shadowed;

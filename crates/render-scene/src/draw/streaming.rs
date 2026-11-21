@@ -1,7 +1,8 @@
 pub(crate) mod casters;
 mod chunk_view;
 pub use chunk_view::{
-    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
+    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
+    TerrainChunkViewError,
 };
 mod culling;
 mod meshes;
@@ -592,8 +593,14 @@ impl SceneGpu {
         context.finish();
         Ok(())
     }
-    /// Prepares the stock streamed terrain selection inside the scene's frame transaction.
-    /// Stock scene preparation already performs this step.
+    /// Whether the scene has terrain, streamed or not.
+    pub(crate) fn has_terrain(&self) -> bool {
+        self.terrain.is_some()
+    }
+
+    /// Prepares the stock streamed terrain selection inside the scene's frame transaction. Stock
+    /// scene preparation already performs this step; frames that replace stock scene draws call it
+    /// so a retained residency request still advances.
     ///
     /// # Errors
     /// Returns a frame error for a foreign transaction, a conflicting view, or a

@@ -13,7 +13,6 @@ use worldrunner_render_program::unity::offscreen::frame::{ProceduralDraw, Record
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{DrawTopology, MaterialId as WorldMaterialId};
 
-use super::builtins::draw_layer;
 use super::frame::{Mapper, Skip};
 use super::lists::IMAGE_FRONT_FACE;
 
@@ -27,7 +26,7 @@ impl Mapper<'_> {
         topology: DrawTopology,
         (vertices, instances): (u32, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
             Ok(one) if one < passes => one..one + 1,
@@ -39,9 +38,10 @@ impl Mapper<'_> {
             return Ok(Vec::new());
         }
         Ok(vec![Record::Procedural(Arc::new(ProceduralDraw {
+            raster,
             target,
             values,
-            per_draw: draw_layer(matrix),
+            per_draw: self.layerless_draw(matrix),
             front_face: IMAGE_FRONT_FACE,
             material: named,
             passes: passes.map(PassSelector::Index).collect(),

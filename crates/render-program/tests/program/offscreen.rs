@@ -3,6 +3,7 @@
 
 mod blit;
 mod block_sources;
+mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;
@@ -19,16 +20,20 @@ mod lists;
 mod mips;
 mod multiple_targets;
 mod procedural;
+mod raster_override;
 mod resample;
 mod resolve;
 mod rig;
 mod sampler;
 mod shapes;
 mod source_array;
+mod stand_ins;
 mod stencil;
 mod storage;
+mod texel_size;
 mod undeclared;
 mod undeclared_cube;
 mod undeclared_volume;
 mod unfilterable;
+mod views;
 mod volume;

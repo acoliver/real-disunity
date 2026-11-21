@@ -26,6 +26,8 @@ pub use live::{
 };
 mod clock;
 pub use clock::RenderClock;
+mod game_screen;
+pub use game_screen::{GAME_SCREEN, GameScreen};
 mod camera;
 mod capture_pool;
 mod presentation;
@@ -37,6 +39,8 @@ pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan
 pub use window_size::{DisplayInfo, WindowMode, WindowSizeUnit};
 mod renderer;
 mod retained;
+mod start;
+pub use start::{SharedGpu, ViewerStart};
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
@@ -111,7 +115,7 @@ pub struct ViewerOptions {
     /// Shader clock, wall time by default.
     pub render_clock: RenderClock,
     /// What the game adds to the stock render: its own passes and targets, and whether the stock
-    /// passes draw the scene's terrain. The default adds nothing.
+    /// passes draw the scene's terrain and water. The default adds nothing.
     pub game: GameRendering,
 }
 
@@ -126,6 +130,8 @@ pub struct GameRendering {
     pub passes: worldrunner_render_scene::compositor::GamePasses,
     /// Whether the stock passes draw the scene's terrain. The terrain stays resident either way.
     pub terrain_draws: worldrunner_render_scene::compositor::TerrainDraws,
+    /// Whether the stock passes draw the scene's water. The water stays resident either way.
+    pub water_draws: worldrunner_render_scene::compositor::WaterDraws,
 }
 
 /// Presentation policy, independent of GPU submission admission.
@@ -186,8 +192,21 @@ pub enum ViewerError {
     Surface(#[from] wgpu::CreateSurfaceError),
     #[error("no presentation-compatible GPU adapter: {0}")]
     Adapter(#[from] wgpu::RequestAdapterError),
+    #[error(
+        "selected adapter backend {backend:?} is excluded by the effective instance backend mask {enabled:?}"
+    )]
+    SelectedBackendDisallowed {
+        backend: wgpu::Backend,
+        enabled: wgpu::Backends,
+    },
+    #[error("selected adapter backend {backend:?} was absent from presentability observations")]
+    SelectedBackendMissing { backend: wgpu::Backend },
     #[error(transparent)]
     Device(#[from] worldrunner_render_scene::device::DeviceError),
+    #[error("the player's offscreen work could not join the frame: {0}")]
+    Offscreen(String),
+    #[error("the shared GPU adapter {adapter} cannot present to the window's surface")]
+    SharedSurface { adapter: String },
     #[error("surface does not support requested present mode {0:?}")]
     UnsupportedPresentMode(wgpu::PresentMode),
     #[error("surface has no supported sRGB presentation format")]

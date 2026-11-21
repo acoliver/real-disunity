@@ -21,13 +21,14 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
     CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc,
-    TargetRef, TextureRef, WorldRenderTexture,
+    TargetRef, TextureRef, WorldRenderTexture, WorldSampler, dimension,
 };
 
 use super::assets::sampler_of_world;
 use super::frame::{Mapper, RendererSkip, Skip};
 use super::ids;
 use super::properties::set_value;
+use super::raster::RasterScript;
 
 /// The temporary render textures of a frame: the live one under each property name id, and every
 /// allocation's description. An id is the name id and the number of allocations of that name before
@@ -70,9 +71,45 @@ pub fn temporary_ids(work: &[OffscreenWork]) -> BTreeSet<TextureId> {
     temporaries.described.into_keys().collect()
 }
 
+/// The `GraphicsFormat` of the screen's colour: four 8-bit channels stored sRGB.
+const SCREEN_COLOR_FORMAT: u32 = 4;
+/// The depth bits of the screen's depth buffer.
+const SCREEN_DEPTH_BITS: u32 = 24;
+
+/// The screen's texture as the frame describes it: a colour format with depth bits, as a camera's
+/// render texture has. It holds its contents from frame to frame, as a render texture of the world
+/// does, until the screen's size changes.
+struct Screen {
+    texture: WorldRenderTexture,
+}
+
+impl Screen {
+    fn new([width, height]: [u32; 2]) -> Self {
+        let texture = WorldRenderTexture {
+            width,
+            height,
+            format: SCREEN_COLOR_FORMAT,
+            depth_bits: SCREEN_DEPTH_BITS,
+            mip_count: 1,
+            auto_generate_mips: false,
+            srgb: true,
+            dimension: dimension::TEX_2D,
+            volume_depth: 1,
+            sampler: WorldSampler::default(),
+            generation: 0,
+        };
+        Self { texture }
+    }
+
+    fn describe(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
+        (texture == ids::screen_color()).then_some(&self.texture)
+    }
+}
+
 /// The camera a script set up: where its draws go when a target names the camera's own (its
-/// target texture, or the buffers a script set), the view and the projection (column-major OpenGL
-/// matrices, as the world holds them) the draws use, and the camera's rectangle of its target.
+/// target texture, or the buffers a script set; with neither, the screen of the host), the view
+/// and the projection (column-major OpenGL matrices, as the world holds them) the draws use, and
+/// the camera's rectangle of its target.
 pub(super) struct CameraSetup {
     pub(super) target: TargetRef,
     /// The buffers the camera drew into when the script set it up, which are its target when it
@@ -91,7 +128,7 @@ struct TargetSet {
 }
 
 /// Whether a viewport of `rect` (x, y, width, height in pixels) covers a target of `size`.
-fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
+pub(super) fn covers(rect: [f32; 4], size: [u32; 2]) -> bool {
     let [x, y, width, height] = rect.map(f64::from);
     let [target_width, target_height] = size.map(f64::from);
     x <= 0.0 && y <= 0.0 && x + width >= target_width && y + height >= target_height
@@ -112,26 +149,37 @@ pub(super) struct Script {
     /// The rectangle in pixels (x, y, width, height) the draws after a `SetViewport` cover on every
     /// attachment of the bound set, until a target or a camera setup binds targets again. `None` is
     /// the whole target.
-    viewport: Option<[f32; 4]>,
+    pub(super) viewport: Option<[f32; 4]>,
+    /// The scissor and the depth bias of the draws that follow.
+    pub(super) raster: RasterScript,
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
     /// The renderers each culling record kept, as indices into the snapshot's renderers.
     pub(super) culls: BTreeMap<u64, Vec<usize>>,
+    /// The culling mask each culling record gave, which picks the main light of its draws.
+    pub(super) cull_masks: BTreeMap<u64, u32>,
     /// The renderer lists made so far.
     pub(super) lists: BTreeMap<u64, RendererListDesc>,
     /// The renderers a list asked the frame to hold, and whether it could.
     pub(super) renderers: BTreeMap<usize, Result<(), RendererSkip>>,
     /// How many mesh draws have made a renderer of their own.
     pub(super) mesh_draws: u64,
+    /// The screen of the host, if it has one.
+    screen: Option<Screen>,
 }
 
 impl Script {
     /// The state at the start of a frame, with the globals the world holds.
-    pub(super) fn new(globals: PropertyLayer, keywords: &[String]) -> Self {
+    pub(super) fn new(
+        globals: PropertyLayer,
+        keywords: &[String],
+        screen: Option<[u32; 2]>,
+    ) -> Self {
         Self {
             target: None,
             viewport: None,
+            raster: RasterScript::default(),
             camera: None,
             globals: Globals {
                 layer: globals,
@@ -140,9 +188,11 @@ impl Script {
             },
             temporaries: Temporaries::default(),
             culls: BTreeMap::new(),
+            cull_masks: BTreeMap::new(),
             lists: BTreeMap::new(),
             renderers: BTreeMap::new(),
             mesh_draws: 0,
+            screen: screen.map(Screen::new),
         }
     }
 }
@@ -167,6 +217,9 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
         OffscreenWork::SetViewport { .. } => "SetViewport",
+        OffscreenWork::EnableScissor { .. } => "EnableScissor",
+        OffscreenWork::DisableScissor => "DisableScissor",
+        OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
@@ -186,7 +239,10 @@ impl Mapper<'_> {
             | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
             | OffscreenWork::SetViewProjection { .. }
-            | OffscreenWork::SetViewport { .. } => {
+            | OffscreenWork::SetViewport { .. }
+            | OffscreenWork::EnableScissor { .. }
+            | OffscreenWork::DisableScissor
+            | OffscreenWork::SetDepthBias { .. } => {
                 self.set_state(work)?;
                 Ok(Vec::new())
             }
@@ -297,6 +353,7 @@ impl Mapper<'_> {
                 self.set_view_projection(view, projection);
             }
             OffscreenWork::SetViewport { rect } => self.script.viewport = Some(*rect),
+            raster if self.script.raster.apply(raster) => {}
             _ => unreachable!("{} makes a record", kind(work)),
         }
         Ok(())
@@ -338,7 +395,9 @@ impl Mapper<'_> {
         Ok(Some((name.clone(), TextureInput { texture, sampler })))
     }
 
-    /// The texture a target names, or `None` for no target.
+    /// The texture a target names for `role`, or `None` for no target. The camera target is the
+    /// target of the camera set up, and the screen when that camera has no texture or none is set
+    /// up.
     pub(super) fn resolve_target(&self, target: &TargetRef) -> Result<Option<TextureId>, Skip> {
         match *target {
             TargetRef::None => Ok(None),
@@ -357,7 +416,7 @@ impl Mapper<'_> {
                 .ok_or(Skip::UnknownTemporary),
             TargetRef::CameraTarget => {
                 match self.script.camera.as_ref().map(|camera| camera.target) {
-                    Some(TargetRef::CameraTarget) | None => Err(Skip::UnboundTarget),
+                    Some(TargetRef::CameraTarget) | None => self.screen_texture().map(Some),
                     Some(own) => self.resolve_target(&own),
                 }
             }
@@ -419,8 +478,17 @@ impl Mapper<'_> {
         Ok(())
     }
 
-    /// The targets a clear or a draw goes to. A draw is refused while a recorded viewport leaves
-    /// part of them uncovered, because the offscreen host draws every pass over its whole target.
+    /// The screen's texture, which serves as colour and as depth.
+    fn screen_texture(&self) -> Result<TextureId, Skip> {
+        match self.script.screen {
+            None => Err(Skip::UnboundTarget),
+            Some(_) => Ok(ids::screen_color()),
+        }
+    }
+
+    /// The targets a clear goes to. A clear is refused while a recorded viewport leaves part of
+    /// them uncovered, because the offscreen host clears a whole target. A draw takes
+    /// [`draw_target`](Self::draw_target), which maps a partial viewport.
     pub(super) fn bound_target(&self) -> Result<Attachments, Skip> {
         let target = self.script.target.clone().ok_or(Skip::UnboundTarget)?;
         match (self.script.viewport, self.target_size()) {
@@ -435,12 +503,21 @@ impl Mapper<'_> {
         self.described(texture).map_or(0, |held| held.mip_count)
     }
 
-    /// What a texture of the frame is: a temporary the commands allocated or a render texture of
-    /// the snapshot.
+    /// What a texture of the frame is: a temporary the commands allocated, the screen or a render
+    /// texture of the snapshot.
     pub(super) fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
-        self.script.temporaries.described.get(&texture).or_else(|| {
+        self.held(texture).or_else(|| {
             ids::render_texture_of(texture).and_then(|id| self.snapshot.render_textures.get(&id))
         })
+    }
+
+    /// What a texture the frame holds is: a temporary the commands allocated or the screen.
+    fn held(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
+        self.script
+            .temporaries
+            .described
+            .get(&texture)
+            .or_else(|| self.script.screen.as_ref()?.describe(texture))
     }
 
     /// The size in pixels of the bound target: of the color attachment's mip, or of the depth
@@ -508,6 +585,7 @@ impl Mapper<'_> {
             depth: depth_texture.map(at),
         });
         self.script.viewport = None;
+        self.script.raster.end_scissor();
         Ok(())
     }
 
@@ -576,27 +654,32 @@ impl Mapper<'_> {
             viewport,
         });
         self.script.viewport = None;
+        self.script.raster.end_scissor();
+        // A target that cannot be named leaves nothing bound, so the next clear or draw is refused
+        // instead of reaching the target an earlier command bound.
         let set = match self.resolve_set(&target) {
             Ok(set) => set,
-            // A camera of the screen or of a texture that is gone has no target to bind.
-            Err(_) if buffers.is_none() => return Ok(()),
             Err(skip) => {
                 self.script.target = None;
-                return Err(skip);
+                // A camera of a screen the host lacks or of a texture that is gone has no target
+                // to bind; only buffers that cannot be named refuse the setup.
+                return if buffers.is_none() { Ok(()) } else { Err(skip) };
             }
         };
         if let Err(skip) = self.check_colors(&set.colors, 0) {
             self.script.target = None;
             return Err(skip);
         }
-        if !set.colors.is_empty() || set.depth.is_some() {
-            let whole = |texture| Attachment { texture, mip: 0 };
-            self.note_depth_size(&set.colors, set.depth, 0);
-            self.script.target = Some(Attachments {
-                colors: set.colors.into_iter().map(whole).collect(),
-                depth: set.depth.map(whole),
-            });
+        if set.colors.is_empty() && set.depth.is_none() {
+            self.script.target = None;
+            return Ok(());
         }
+        let whole = |texture| Attachment { texture, mip: 0 };
+        self.note_depth_size(&set.colors, set.depth, 0);
+        self.script.target = Some(Attachments {
+            colors: set.colors.into_iter().map(whole).collect(),
+            depth: set.depth.map(whole),
+        });
         Ok(())
     }
 
@@ -624,11 +707,12 @@ impl Mapper<'_> {
         }
     }
 
-    /// The specs of the temporary render textures that `records` use, which the frame makes.
-    pub(super) fn temporary_specs(&self, used: &BTreeSet<TextureId>) -> Vec<RenderTextureSpec> {
+    /// The specs of the render textures the frame holds (its temporaries and the screen) that
+    /// `used` names, which the frame makes.
+    pub(super) fn held_specs(&self, used: &BTreeSet<TextureId>) -> Vec<RenderTextureSpec> {
         used.iter()
             .filter_map(|id| {
-                let desc = self.script.temporaries.described.get(id)?;
+                let desc = self.held(*id)?;
                 Some(RenderTextureSpec {
                     id: *id,
                     size: [desc.width, desc.height],

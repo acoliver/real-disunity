@@ -16,6 +16,7 @@ mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
+pub mod environment;
 mod material;
 mod offscreen;
 mod properties;
@@ -34,11 +35,12 @@ pub use compute::{
     WorldComputeBuffer, WorldComputeShader,
 };
 pub use context::MAX_CULL_PLANES;
+pub use environment::Environment;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
-    MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
-    ShaderProperties, TextureRef, TextureSlot,
+    BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND,
+    MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue, ShaderProperties, TextureRef, TextureSlot,
 };
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};
@@ -111,6 +113,8 @@ pub enum GraphicsError {
     UnknownReadback,
     #[error("the pixel data must hold width * height * 4 floats")]
     ReadbackLength,
+    #[error("an environment's intensities are not negative")]
+    InvalidEnvironment,
 }
 
 impl GraphicsError {
@@ -210,6 +214,8 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The scene's ambient light and default reflection.
+    environment: Environment,
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
@@ -246,6 +252,7 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
             lists: std::collections::BTreeSet::new(),

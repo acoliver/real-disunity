@@ -82,6 +82,7 @@ pub(crate) fn plan_prefab(
         axes: Vec::new(),
         layers: Vec::new(),
         sorting_layers: Vec::new(),
+        environment: None,
         differences: planner.differences,
     })
 }

@@ -6,7 +6,8 @@ use std::sync::Arc;
 use worldrunner_render_program::ids::{MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, GlobalState, ListDraw, OffscreenFrame, Record,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, GlobalState, ListDraw, OffscreenFrame,
+    Record,
 };
 use worldrunner_render_program::unity::offscreen::{FeedbackLoopDraws, ListDraws};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -16,7 +17,7 @@ use super::rig::{BLUE, CLEAR, GREEN, RED, Rig, ZERO, layer, pixel, quad, source,
 
 const NEAR: TextureId = TextureId(11);
 
-fn whole(texture: TextureId) -> Attachments {
+pub fn whole(texture: TextureId) -> Attachments {
     let attachment = Some(Attachment { texture, mip: 0 });
     Attachments::single(attachment, attachment)
 }
@@ -29,18 +30,20 @@ fn clear_to(color: [f64; 4]) -> Clear {
     }
 }
 
-fn item(renderer: u64, material: Option<u64>) -> ListDraw {
+pub fn item(renderer: u64, material: Option<u64>) -> ListDraw {
     ListDraw {
         renderer: RendererId(renderer),
         slot: 0,
         material: material.map(MaterialId),
         pass: alpha(),
         instances: 1,
+        per_draw: PropertyLayer::default(),
     }
 }
 
-fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
+pub fn list(target: Attachments, draws: Vec<ListDraw>) -> Record {
     Record::Draws(Arc::new(DrawList {
+        raster: DrawRaster::default(),
         target,
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,
@@ -130,6 +133,24 @@ fn items_draw_in_the_order_the_list_gives_them() {
     assert_eq!(pixel(&render(&mut rig, &frame), 8, (4, 4)), BLUE);
     frame.records = vec![list(whole(TARGET), vec![item(2, None), item(1, None)])];
     assert_eq!(pixel(&render(&mut rig, &frame), 8, (4, 4)), RED);
+}
+
+#[test]
+fn a_list_items_own_values_win_over_its_renderers_for_that_item_only() {
+    let mut rig = Rig::new();
+    // Renderer 1 sits over the left half. An item with values moves it over the whole target and
+    // an item with none draws it where the renderer puts it.
+    let moved = ListDraw {
+        per_draw: layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]),
+        ..item(1, None)
+    };
+    let frame = frame_of(&mut rig, vec![list(whole(TARGET), vec![moved])]);
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (6, 3)), RED, "moved over the right half");
+    let mut rig = Rig::new();
+    let frame = frame_of(&mut rig, vec![list(whole(TARGET), vec![item(1, None)])]);
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (6, 3)), ZERO, "an item with no values");
 }
 
 #[test]

@@ -10,9 +10,10 @@ namespace UnityEngine;
 /// </summary>
 internal static class GraphicsFormats
 {
-    /// <summary>The project's color space, which picks the sRGB or linear variant of a default format.
-    /// The engine has no player settings yet and assumes Linear, as URP projects use.</summary>
-    internal static ColorSpace ActiveColorSpace { get; set; } = ColorSpace.Linear;
+    /// <summary>The project's color space, which picks the sRGB or linear variant of a default format. It is the
+    /// color space the host set through <see cref="QualitySettings"/>, the one place it sets it. Before the host sets
+    /// one the engine assumes Linear, as URP projects use.</summary>
+    internal static ColorSpace ActiveColorSpace => QualitySettings.HostColorSpace ?? ColorSpace.Linear;
 
     private readonly record struct RenderEntry(RenderTextureFormat Format, GraphicsFormat Linear, GraphicsFormat Srgb);
 
@@ -199,6 +200,18 @@ internal static class GraphicsFormats
         foreach (var entry in TextureTable)
             if (entry.Format == format) return linear ? entry.Linear : entry.Srgb;
         throw new NotSupportedException($"TextureFormat.{format} has no GraphicsFormat mapping yet");
+    }
+
+    /// <summary>The <see cref="TextureFormat"/> whose layout a player's texture in <paramref name="graphics"/> uses, or <c>null</c>
+    /// when the format has none the engine can allocate, in which case the texture keeps its planned size as raw bytes.</summary>
+    internal static TextureFormat? LayoutOf(GraphicsFormat graphics)
+    {
+        try
+        {
+            var format = ToTextureFormat(graphics);
+            return TexelFormats.CanAllocate(format) && !TexelFormats.IsCrunched(format) ? format : null;
+        }
+        catch (NotSupportedException) { return null; }
     }
 
     /// <summary>The texture format that stores a graphics format.</summary>

@@ -201,7 +201,7 @@ impl Content for Session<'_> {
         self.host.options.window_mode
     }
     fn window_on_top(&self) -> bool {
-        self.host.window_on_top
+        self.host.window_level == winit::window::WindowLevel::AlwaysOnTop
     }
     fn size(&self) -> [u32; 2] {
         self.host.options.size

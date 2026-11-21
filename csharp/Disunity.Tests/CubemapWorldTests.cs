@@ -164,9 +164,9 @@ internal static unsafe class CubemapWorldTests
         material.SetTexture("_SkyCubemap", doomed);
         IdentityOnMaterial(material, "_SkyCubemap");
         UnityEngine.Object.DestroyImmediate(doomed);
-        Expect.That(WorldGraphics.TextureOf(doomed) == (0u, 0UL), "a destroyed cubemap is no texture");
+        Expect.That(WorldGraphics.TextureOf(doomed) == (5u, 0UL), "a destroyed cubemap is named and not sent");
         material.SetTexture("_Gone", doomed);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 0, "a destroyed cubemap sent to a slot is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_Gone").texture_kind == 5, "a destroyed cubemap sent to a slot is named and not sent");
     }
 
     private static void ACubemapTheHostCannotStoreIsNoTextureAndIsNamed()
@@ -177,7 +177,7 @@ internal static unsafe class CubemapWorldTests
         var material = NewMaterial("Test/Cube/Huge");
         var probe = new Texture2D(1, 1).RendererIdentity;
         material.SetTexture("_SkyCubemap", huge);
-        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_SkyCubemap").texture_kind == 0, "a cubemap beyond the host's limit is no texture");
+        Expect.That(ReadProperty(Material, material.WorldLink.Id, "_SkyCubemap").texture_kind == 5, "a cubemap beyond the host's limit is named and not sent");
         Expect.That(new Texture2D(1, 1).RendererIdentity == probe + 1, "it takes no identity");
         Expect.That(log.Messages.Any(m => m.Contains("'Huge'") && m.Contains("more than the host stores")), "the warning names the cubemap");
     }

@@ -743,12 +743,24 @@ impl PlayerGpu {
     /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
     /// counted in the report and shows nothing.
     pub(crate) fn game_screen(&self) -> Option<GameScreen> {
+        self.offered_screen(false)
+    }
+
+    /// [`Self::game_screen`] for the player's own frames, whose work the player submitted and waited
+    /// for: the screen has contents once any of that work drew into it, which is when
+    /// [`Self::screen`] has an image. `None` before then.
+    pub(crate) fn written_screen(&self) -> Option<GameScreen> {
+        self.screen()?;
+        self.offered_screen(true)
+    }
+
+    fn offered_screen(&self, written: bool) -> Option<GameScreen> {
         let host = self.offscreen.borrow();
         let (texture, flushed) = host.screen_texture()?;
         if self.screen_size.get() != Some([texture.width(), texture.height()]) {
             return None;
         }
-        GameScreen::new(texture, flushed)
+        GameScreen::new(texture, flushed || written)
             .map_err(|error| {
                 *self
                     .report

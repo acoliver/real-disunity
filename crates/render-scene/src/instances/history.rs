@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
 
 use worldrunner_render_gpu::submission::Publications;
 
+use super::totals::Tally;
 use crate::geometry::INSTANCE_BYTES as STRIDE;
 
 type Bytes = [u8; STRIDE];
@@ -27,6 +28,15 @@ struct State {
     serial: u64,
     /// Rises with every change to what `History::ready` reads, from any caller.
     version: u64,
+    /// The scene's tally of every batch's `version`.
+    total: Tally,
+}
+
+impl State {
+    fn changed(&mut self) {
+        self.version += 1;
+        self.total.add(1);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -55,9 +65,16 @@ pub(crate) struct Candidate {
 }
 
 impl History {
+    /// Counts this history's changes, past and future, in `total` as well.
+    pub fn count_in(&mut self, total: &Tally) {
+        let mut state = self.state.borrow_mut();
+        total.add(state.version);
+        state.total = total.clone();
+    }
+
     pub fn add(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
-        state.version += 1;
+        state.changed();
         state.revision += 1;
         let revision = state.revision;
         let length = (slot + 1).max(state.slots.len());
@@ -75,7 +92,7 @@ impl History {
 
     pub fn edit(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
-        state.version += 1;
+        state.changed();
         state.revision += 1;
         let revision = state.revision;
         state.slots[slot]
@@ -87,7 +104,7 @@ impl History {
 
     pub fn remove(&mut self, slot: usize) {
         let mut state = self.state.borrow_mut();
-        state.version += 1;
+        state.changed();
         state.slots[slot] = None;
         state.pending.remove(&slot);
         state.settling.remove(&slot);
@@ -163,7 +180,7 @@ impl History {
             .copied()
             .collect();
         state.serial += 1;
-        state.version += 1;
+        state.changed();
         let records = frontier
             .into_iter()
             .filter_map(|slot| {
@@ -232,7 +249,7 @@ pub(crate) struct Changes(Rc<RefCell<State>>);
 
 impl Changes {
     pub fn record(&self) {
-        self.0.borrow_mut().version += 1;
+        self.0.borrow_mut().changed();
     }
 }
 
@@ -294,7 +311,7 @@ impl Candidate {
     /// Acknowledges previous bytes only after the upload's actual encoder was enqueued.
     pub fn acknowledge_previous(&self, full: bool) {
         let mut state = self.state.borrow_mut();
-        state.version += 1;
+        state.changed();
         for record in self
             .records
             .iter()
@@ -312,7 +329,7 @@ impl Candidate {
     /// Called exclusively by a submitted final-colour publication.
     pub fn publish(self) {
         let mut state = self.state.borrow_mut();
-        state.version += 1;
+        state.changed();
         for record in self.records.iter() {
             let Some(slot) = state.slots.get_mut(record.slot).and_then(Option::as_mut) else {
                 continue;

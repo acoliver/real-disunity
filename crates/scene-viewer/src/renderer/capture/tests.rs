@@ -224,8 +224,10 @@ impl Harness {
     }
     fn dedicated() -> Self {
         // These probes observe retirement before polling or exercise session shutdown.
-        let context =
-            pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+        let context = pollster::block_on(GpuContext::request_with_features_for_test(
+            wgpu::Features::empty(),
+        ))
+        .unwrap();
         Self::with_context(context, FrameProfile::Legacy, crate::presentation::COLOR)
     }
     fn with_context(

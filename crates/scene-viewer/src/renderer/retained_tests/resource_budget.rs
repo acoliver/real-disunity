@@ -64,8 +64,10 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
 impl Budgeted {
     /// `headroom` is the budget left above the presentation's own storage and the initial scene.
     fn new(headroom: u64) -> Self {
-        let context =
-            pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+        let context = pollster::block_on(GpuContext::request_with_features_for_test(
+            wgpu::Features::empty(),
+        ))
+        .unwrap();
         let initial = scene_bytes_of(&context);
         let mut presentation = presentation(&context, initial + headroom);
         let baseline = presentation

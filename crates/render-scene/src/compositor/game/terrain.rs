@@ -101,8 +101,9 @@ fn lend(
 }
 
 impl crate::compositor::FrameRenderer {
-    /// Lends the frame's prepared terrain to the game's features, when there are any. Call it
-    /// after the route prepares the frame's terrain, with the same frame and raster extent.
+    /// Lends the frame's prepared terrain, and the scene's resident textures, to the game's
+    /// features, when there are any. Call it after the route prepares the frame's terrain, with
+    /// the same frame and raster extent.
     pub(crate) fn publish_game_terrain(
         &self,
         gpu: &SceneGpu,
@@ -112,5 +113,6 @@ impl crate::compositor::FrameRenderer {
         if self.game.features > 0 {
             self.game_terrain.publish(gpu, frame, viewport);
         }
+        self.publish_game_textures(gpu);
     }
 }

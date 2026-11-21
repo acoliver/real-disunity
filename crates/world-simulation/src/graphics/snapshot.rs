@@ -16,9 +16,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    CameraBuffers, ComputeBufferId, ComputeShaderId, GlobalShaderState, MaterialId, OffscreenWork,
-    RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer, WorldComputeShader,
-    WorldMaterial, WorldRenderTexture, WorldShader,
+    CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
+    OffscreenWork, RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer,
+    WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
 use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
@@ -66,6 +66,8 @@ pub struct GraphicsSnapshot {
     /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
+    /// The scene's ambient light and default reflection, copied with the global state.
+    pub environment: Environment,
     /// The frame's records, in call order.
     pub work: Vec<OffscreenWork>,
     /// The live cameras that camera renders, camera setups and culls name.
@@ -109,6 +111,7 @@ impl GraphicsSnapshot {
             return Ok(snapshot);
         }
         snapshot.global = Some(world.global_shader_state().clone());
+        snapshot.environment = world.live_environment();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;

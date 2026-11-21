@@ -3,6 +3,8 @@
 use super::camera::FrameCameraHandle;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
+use super::resources::{GameResources, SharedTextures};
+use super::scene_textures::FrameSceneTexturesHandle;
 use super::shadows::{FrameShadowHandle, FrameShadows};
 use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
 use super::targets::{GameTargets, TargetDeclaration, TargetStore};
@@ -10,7 +12,7 @@ use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
-use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
     FrameFeature, PassDeclaration, PostError, PrepareContext, PreparedFeature,
@@ -18,9 +20,13 @@ use worldrunner_render_post::{
 
 /// What a factory is given to build the feature of one renderer generation.
 pub struct GameBuild<'a> {
-    /// The device, queue and submission authority the renderer was built on, for a program
-    /// runtime or any other resource the feature owns.
+    /// The device, queue and submission authority the renderer was built on. A feature that
+    /// keeps its resources with the renderer declares them to [`Self::resources`] instead.
     pub context: &'a GpuContext,
+    /// The buffers, textures and samplers the factory declares, and the program runtime its
+    /// features draw with, created and owned by this generation and shared by the factory's
+    /// depth-prefix and ordinary features.
+    pub resources: GameResources,
     /// The frame the generation renders: extents, format and samples.
     pub frame: FrameConfig,
     /// The targets the inventory declares, resolved for this generation.
@@ -37,6 +43,9 @@ pub struct GameBuild<'a> {
     /// The installed specular environment cube of the frame in flight, set before each frame
     /// plans.
     pub environment: FrameEnvironmentHandle,
+    /// The scene's resident textures, lent in every frame and in a depth prefix submitted ahead
+    /// of the frame.
+    pub scene_textures: FrameSceneTexturesHandle,
     /// The opaque snapshots of the frame in flight, published once the frame is planned and only
     /// when a pass of it declared a read of them.
     pub snapshots: FrameSnapshotHandle,
@@ -56,6 +65,12 @@ pub trait GameFeatureFactory: Send + Sync {
     /// The targets this contribution owns, for the allocation budget and the store.
     fn targets(&self) -> Vec<TargetDeclaration> {
         Vec::new()
+    }
+
+    /// The bytes [`GameBuild::resources`] may hold: its declared buffers and textures with what
+    /// its program runtime allocates. None by default.
+    fn resource_budget(&self) -> AllocationBudget {
+        AllocationBudget(0)
     }
 
     /// The frame's opaque snapshots that this contribution's passes may read. The default reads
@@ -223,9 +238,18 @@ impl GamePasses {
             &self.declarations(),
             frame.size,
         ));
+        let shared = SharedTextures::default();
         for factory in &self.factories {
+            let resources = GameResources::new(
+                context.device(),
+                context.submission(),
+                factory.resource_budget(),
+                shared.clone(),
+            );
+            renderer.game.resources.push(resources.clone());
             let build = |targets: GameTargets| GameBuild {
                 context,
+                resources: resources.clone(),
                 frame,
                 targets: targets.with_snapshot_reads(factory.snapshot_reads()),
                 camera: renderer.game_camera.clone(),
@@ -233,6 +257,7 @@ impl GamePasses {
                 shadows: renderer.game.shadows.clone(),
                 occlusion: renderer.game.occlusion.clone(),
                 environment: renderer.game.environment.clone(),
+                scene_textures: renderer.game_textures.clone(),
                 snapshots: renderer.game.snapshots.clone(),
             };
             let prefix =
@@ -271,6 +296,8 @@ pub(crate) struct Installed {
     pub(crate) occlusion: FrameOcclusionHandle,
     /// Where every route lends its specular environment to the features of this generation.
     pub(crate) environment: FrameEnvironmentHandle,
+    /// Each factory's declared resources, released with this generation.
+    pub(crate) resources: Vec<GameResources>,
     /// Where the renderer lends the frame's opaque snapshots to the features of this generation.
     pub(crate) snapshots: FrameSnapshotHandle,
     /// The snapshots the inventory's factories declared they read, which this generation

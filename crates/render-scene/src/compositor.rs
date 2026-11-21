@@ -47,11 +47,13 @@ pub(crate) use game::terrain_probe;
 pub use game::{
     CascadeSelection, ColorOutput, DepthAccess, EnvironmentConsumer, FrameCamera,
     FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle,
-    FrameSnapshots, FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory,
-    GamePassSpec, GamePasses, GameTargets, OcclusionDepth, PassTarget, ShadowCascade,
-    SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration, TargetExtent,
-    TargetLifetime, join_pass, prepass_writes_frame_depth,
+    FrameOcclusionHandle, FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle,
+    FrameShadowHandle, FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
+    FrameTerrainError, FrameTerrainHandle, GameBuffer, GameBufferDeclaration, GameBufferUsage,
+    GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameResourceError, GameResources,
+    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel,
+    OcclusionDepth, PassTarget, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
+    TargetDeclaration, TargetExtent, TargetLifetime, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -107,6 +109,8 @@ pub struct FrameRenderer {
     game_camera: FrameCameraHandle,
     /// The streamed terrain of the frame being encoded, which the game's features read.
     game_terrain: FrameTerrainHandle,
+    /// Where every route lends the scene's resident textures to the game's features.
+    game_textures: game::FrameSceneTexturesHandle,
     /// Whether the stock passes draw the scene's terrain.
     terrain_draws: TerrainDraws,
     /// Whether the stock passes draw the scene's water.
@@ -172,6 +176,7 @@ impl FrameRenderer {
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
+            game_textures: game::FrameSceneTexturesHandle::default(),
             terrain_draws: TerrainDraws::Stock,
             water_draws: WaterDraws::Stock,
             water: None,

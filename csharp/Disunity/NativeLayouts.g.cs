@@ -565,6 +565,23 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("float_count").ToInt32() != 4) throw new InvalidOperationException("DisunityComputeBindingsInfo.float_count offset");
         if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("text_length").ToInt32() != 8) throw new InvalidOperationException("DisunityComputeBindingsInfo.text_length offset");
         if (Marshal.SizeOf<DisunityComputeBindingsInfo>() != 12 || typeof(DisunityComputeBindingsInfo).GetFields().Length != 3) throw new InvalidOperationException("DisunityComputeBindingsInfo layout");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_set").ToInt32() != 0) throw new InvalidOperationException("DisunityEnvironment.ambient_set offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_mode").ToInt32() != 4) throw new InvalidOperationException("DisunityEnvironment.ambient_mode offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_intensity").ToInt32() != 8) throw new InvalidOperationException("DisunityEnvironment.ambient_intensity offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("reflection_set").ToInt32() != 12) throw new InvalidOperationException("DisunityEnvironment.reflection_set offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("reflection_mode").ToInt32() != 16) throw new InvalidOperationException("DisunityEnvironment.reflection_mode offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("reflection_intensity").ToInt32() != 20) throw new InvalidOperationException("DisunityEnvironment.reflection_intensity offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("custom_kind").ToInt32() != 24) throw new InvalidOperationException("DisunityEnvironment.custom_kind offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("skybox_kind").ToInt32() != 28) throw new InvalidOperationException("DisunityEnvironment.skybox_kind offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("custom_texture").ToInt32() != 32) throw new InvalidOperationException("DisunityEnvironment.custom_texture offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("skybox_texture").ToInt32() != 40) throw new InvalidOperationException("DisunityEnvironment.skybox_texture offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_sky").ToInt32() != 48) throw new InvalidOperationException("DisunityEnvironment.ambient_sky offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_equator").ToInt32() != 64) throw new InvalidOperationException("DisunityEnvironment.ambient_equator offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_ground").ToInt32() != 80) throw new InvalidOperationException("DisunityEnvironment.ambient_ground offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_flat").ToInt32() != 96) throw new InvalidOperationException("DisunityEnvironment.ambient_flat offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("ambient_probe").ToInt32() != 112) throw new InvalidOperationException("DisunityEnvironment.ambient_probe offset");
+        if (Marshal.OffsetOf<DisunityEnvironment>("padding").ToInt32() != 220) throw new InvalidOperationException("DisunityEnvironment.padding offset");
+        if (Marshal.SizeOf<DisunityEnvironment>() != 224 || typeof(DisunityEnvironment).GetFields().Length != 16) throw new InvalidOperationException("DisunityEnvironment layout");
         if (Marshal.OffsetOf<DisunityShaderInfo>("path_id").ToInt32() != 0) throw new InvalidOperationException("DisunityShaderInfo.path_id offset");
         if (Marshal.OffsetOf<DisunityShaderInfo>("name_length").ToInt32() != 8) throw new InvalidOperationException("DisunityShaderInfo.name_length offset");
         if (Marshal.OffsetOf<DisunityShaderInfo>("file_length").ToInt32() != 12) throw new InvalidOperationException("DisunityShaderInfo.file_length offset");
@@ -750,7 +767,7 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 18;
+    internal const uint Version = 19;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

@@ -626,6 +626,23 @@ impl GameTargets {
             .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))
     }
 
+    /// The texture of a declared target through [`Self::sampled_view`], for the binding sourced
+    /// from `semantic` in a draw or set that samples it.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentView`] for a name no declaration made.
+    pub fn import(
+        &self,
+        name: &'static str,
+        semantic: worldrunner_render_program::binding::EngineSemantic,
+    ) -> Result<worldrunner_render_program::runtime::Import, FrameError> {
+        Ok(worldrunner_render_program::runtime::Import::texture(
+            semantic,
+            self.texture(name)?,
+            self.sampled_view(name)?,
+        ))
+    }
+
     /// The view a pass that reads the target binds: every layer and every mip, which is what a
     /// pass's read of a layer declares it samples. It is a 2D view of a one-layer target and a
     /// 2D array of several, as wgpu's default view is and as a program binding of the texture

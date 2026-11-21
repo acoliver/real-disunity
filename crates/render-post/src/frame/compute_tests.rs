@@ -554,7 +554,7 @@ fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey,
     }
     let publication = WriteKey::Resident(1);
     let suffix: Vec<_> = owned.iter().copied().chain([publication]).collect();
-    let writes = CaptureWrites::new([], suffix, owned).unwrap();
+    let contract = CaptureWrites::new([], suffix, owned).unwrap();
 
     let (passes, features) = frame();
     let views = rig.views();
@@ -580,7 +580,12 @@ fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey,
         .collect();
     let authority = SubmissionAuthority::new(rig.queue.clone());
     let continuation = authority
-        .begin_capture(&rig.device, writes, (), |_, _, ()| Ok::<_, FrameError>(()))
+        .begin_capture(
+            &rig.device,
+            contract,
+            (),
+            |_, _, ()| Ok::<_, FrameError>(()),
+        )
         .unwrap()
         .submit()
         .unwrap();
@@ -607,7 +612,6 @@ fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey,
             .submit()
             .unwrap()
             .finish(&rig.device, |_, _| Ok::<_, ()>(()))
-            .map(|_| ())
             .map_err(|_| unreachable!("the capture finishes")),
         Err(error) => {
             authority.drain_captures(&rig.device).unwrap();
@@ -630,10 +634,12 @@ fn a_compute_pass_writes_in_a_capture_only_the_allocations_the_capture_declares(
 
     let (refused, chain_key, log) = captured(false);
     let undeclared = match &refused {
-        Err(CaptureError::Write(WriteError::Undeclared(key)))
-        | Err(CaptureError::Preparation(FrameError::ResourceContract(
-            ContractError::CaptureWrite(WriteError::Undeclared(key)),
-        ))) => Some(*key),
+        Err(
+            CaptureError::Write(WriteError::Undeclared(key))
+            | CaptureError::Preparation(FrameError::ResourceContract(ContractError::CaptureWrite(
+                WriteError::Undeclared(key),
+            ))),
+        ) => Some(*key),
         other => panic!("the compute pass's write of the chain is not declared: {other:?}"),
     };
     assert_eq!(undeclared, Some(chain_key));

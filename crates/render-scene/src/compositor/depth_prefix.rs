@@ -220,6 +220,8 @@ impl FrameRenderer {
         // suffix publishes again with its colour target's extent. The frame's terrain is
         // selected once, for the metadata's extent, so a suffix with another extent fails its
         // own terrain preparation (`StreamingSelectionConflict`) before it can publish.
+        // The same call lends the resident textures and meshes, which are scene content, not a
+        // product of the frame, so the prefix's game passes may sample them.
         self.publish_game_terrain(gpu, frame, prefix.source.size);
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.schedule.passes.clone();
@@ -227,9 +229,6 @@ impl FrameRenderer {
         let mut requested = Vec::new();
         let mut operations = Vec::new();
         let mut extra = None;
-        // The resident textures are scene content, not a product of the frame, so the prefix's
-        // game passes may sample them.
-        self.publish_game_textures(gpu);
         self.plan_game_prefix(frame, &mut passes, &mut views)?;
         if let Some((plan, features)) = contribution {
             passes.extend_from_slice(plan.passes);

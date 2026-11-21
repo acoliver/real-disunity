@@ -45,7 +45,7 @@ use crate::{
     player::{GpuWork, window_gpu},
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
-    player_ui::PlayerUi,
+    player_ui::{PlayerUi, graphic_textures},
     scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
@@ -420,17 +420,12 @@ impl PlayerRetainedDriver {
         objects: &[worldrunner_disunity_runtime::MeshObjectView],
         ui: &worldrunner_render_plan::ui::UiPresentation,
     ) -> Result<(), PlayError> {
-        let images = ui
-            .draws
-            .iter()
-            .filter(|draw| draw.kind == worldrunner_render_plan::ui::UiDrawKind::Graphic)
-            .filter_map(|draw| draw.texture);
         let shown = objects
             .iter()
             .filter_map(|object| object.slots.first())
             .map(|slot| slot.texture)
             .filter(|texture| *texture != 0)
-            .chain(images);
+            .chain(graphic_textures(ui));
         self.player_textures
             .refresh(&self.host, shown, &mut self.sprites)?;
         self.meshes.refresh(&self.host, objects)

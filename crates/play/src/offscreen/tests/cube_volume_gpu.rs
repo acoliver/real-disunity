@@ -326,7 +326,7 @@ fn assert_mismatch_is_named(pass: &str, property: &str, stored: PlayerTexture) {
     let (pixels, failures) = blit(pass, property, [SIDE, SIDE], stored);
     assert_eq!(
         failures,
-        BTreeMap::from([("record:SlotDimensionMismatch".to_owned(), 1)]),
+        BTreeMap::from([("record:Blit:SlotDimensionMismatch".to_owned(), 1)]),
         "{failures:?}"
     );
     assert!(

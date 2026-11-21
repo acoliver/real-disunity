@@ -401,6 +401,7 @@ PhysicsMaterialTests.Run();
 UiTests.Run();
 PoolTests.Run();
 RectTransformMemberTests.Run();
+DestroyedRectTests.Run();
 CanvasMemberTests.Run();
 SortingLayerTests.Run();
 CanvasCameraModeTests.Run();

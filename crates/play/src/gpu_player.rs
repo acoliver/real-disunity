@@ -526,23 +526,12 @@ impl PlayerGpu {
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::headless_with_inputs(
-            data,
-            &inputs,
-            run_settings(depth, supplied, stand_in_look_from_env()),
-        )
-    }
-
-    fn headless_with_inputs(
-        data: &Path,
-        inputs: &PlayerStartupInputs,
-        settings: Settings,
-    ) -> Result<Self, String> {
+        let settings = run_settings(depth, supplied, stand_in_look_from_env());
         let instance = headless_gpu_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        Self::headless_on_adapter(&adapter, data, inputs, settings)
+        Self::headless_on_adapter(&adapter, data, &inputs, settings)
     }
 
     fn headless_on_adapter(
@@ -582,22 +571,9 @@ impl PlayerGpu {
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        Self::shared_with_inputs(
-            source,
-            data,
-            &inputs,
-            run_settings(depth, supplied, stand_in_look_from_env()),
-        )
-    }
-
-    fn shared_with_inputs(
-        source: &mut dyn DeviceSource,
-        data: &Path,
-        inputs: &PlayerStartupInputs,
-        settings: Settings,
-    ) -> Result<Self, String> {
+        let settings = run_settings(depth, supplied, stand_in_look_from_env());
         let adapter = source.adapter()?;
-        Self::shared_on_adapter(source, &adapter, data, inputs, settings)
+        Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
     }
 
     fn shared_on_adapter(

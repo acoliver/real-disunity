@@ -10,7 +10,7 @@ internal struct CullingPlanes
 
 /// <summary>
 /// The culling volume of one shadow split: up to 10 planes, a culling sphere and the near plane. Plain data; the
-/// engine fills it in only when it culls shadows, which it does not yet.
+/// shadow queries of <see cref="CullingResults"/> fill it in for a directional, spot or point light.
 /// </summary>
 public struct ShadowSplitData : IEquatable<ShadowSplitData>
 {

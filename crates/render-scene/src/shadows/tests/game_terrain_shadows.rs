@@ -5,7 +5,7 @@
 use super::refresh::depth_layers;
 use super::*;
 use crate::compositor::{
-    ColorOutput, DepthAccess, FrameCameraHandle, FrameShadowError, FrameShadowHandle, FrameShadows,
+    ColorOutput, DepthAccess, FrameCameraHandle, FrameInputError, FrameShadowHandle, FrameShadows,
     FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
     GameTargets, PassTarget, TerrainDraws,
 };
@@ -81,7 +81,7 @@ struct Out {
 #[derive(Clone, Debug, PartialEq)]
 struct Lent {
     chunks: Result<Option<usize>, FrameTerrainError>,
-    cascades: Result<usize, FrameShadowError>,
+    cascades: Result<usize, FrameInputError>,
 }
 
 type Seen = Arc<Mutex<Vec<Lent>>>;

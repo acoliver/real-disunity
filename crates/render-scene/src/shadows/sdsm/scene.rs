@@ -304,6 +304,7 @@ impl ShadowedScene {
         keys: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
         let mut prefix = keys;
+        prefix.extend(self.scheduler.capture_prefix_game_keys()?);
         if self
             .scheduler
             .gbuffer

@@ -5,7 +5,9 @@ use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
-pub(super) use casters::{caster_matrix, caster_placement};
+#[cfg(test)]
+pub(super) use casters::caster_matrix;
+pub(super) use casters::{CasterScan, FitScratch, caster_placement};
 pub(super) use select::with_placements;
 
 mod casters;

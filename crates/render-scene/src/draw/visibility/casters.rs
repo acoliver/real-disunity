@@ -1,5 +1,6 @@
 //! Shadow caster bounds, and the depth fit that extends a cascade toward the light over its
 //! casters.
+use std::cell::Ref;
 use std::collections::BinaryHeap;
 
 use glam::{Mat4, Vec3};
@@ -31,58 +32,83 @@ pub(in crate::draw) fn caster_placement(
     })
 }
 
-/// Extend only the toward-light depth end of the authored receiver volume.
-/// XY coverage and its far end stay fixed. Casters beyond the original near
-/// plane must also fit the depth projection, not merely survive CPU culling.
+/// Capacity the nearest-first search keeps between scans, so a frame's fits allocate only
+/// while the search outgrows the largest one before it.
+#[derive(Debug, Default)]
+pub(in crate::draw) struct FitScratch {
+    heap: BinaryHeap<Candidate>,
+}
+
+/// Every batch's casters, borrowed once to fit any number of receivers, as the cascades of a
+/// frame do. Placements and bounds do not change while the scan is held, which keeps the
+/// batch bounds borrowed.
+pub(in crate::draw) struct CasterScan<'a> {
+    instances: &'a Instances,
+    meshes: &'a [MeshSelection],
+    scratch: &'a mut FitScratch,
+    /// Built by the first fit, so a scan that fits nothing refreshes and borrows nothing.
+    casters: Option<Vec<Casters<'a>>>,
+}
+
+impl<'a> CasterScan<'a> {
+    pub(in crate::draw) fn new(
+        instances: &'a Instances,
+        meshes: &'a [MeshSelection],
+        scratch: &'a mut FitScratch,
+    ) -> Self {
+        Self {
+            instances,
+            meshes,
+            scratch,
+            casters: None,
+        }
+    }
+
+    /// Extend only the toward-light depth end of the authored receiver volume.
+    /// XY coverage and its far end stay fixed. Casters beyond the original near
+    /// plane must also fit the depth projection, not merely survive CPU culling.
+    pub(in crate::draw) fn matrix(&mut self, terrain: Option<Bounds>, receiver: Mat4) -> Mat4 {
+        let (instances, meshes) = (self.instances, self.meshes);
+        let casters = self.casters.get_or_insert_with(|| {
+            placement::refresh_all(instances, meshes);
+            instances
+                .batches
+                .values()
+                .map(|batch| Casters {
+                    placements: batch.slots(),
+                    bounds: batch.bounds.borrow(),
+                })
+                .collect()
+        });
+        let near = fit_near(
+            casters,
+            receiver,
+            terrain.map_or(0.0, |bounds| caster_near(bounds, receiver)),
+            &mut self.scratch.heap,
+        );
+        let scale = (1.0 - near).recip();
+        let mut remap = Mat4::IDENTITY;
+        remap.z_axis.z = scale;
+        remap.w_axis.z = -near * scale;
+        remap * receiver
+    }
+}
+
+/// The fit of one receiver against every caster, with nothing reused from another fit.
+#[cfg(test)]
 pub(in crate::draw) fn caster_matrix(
     instances: &Instances,
     meshes: &[MeshSelection],
     terrain: Option<Bounds>,
     receiver: Mat4,
 ) -> Mat4 {
-    placement::refresh_all(instances, meshes);
-    let borrowed: Vec<_> = instances
-        .batches
-        .values()
-        .map(|batch| (batch.slots(), batch.bounds.borrow()))
-        .collect();
-    let casters: Vec<Casters<'_>> = borrowed
-        .iter()
-        .map(|(placements, bounds)| Casters { placements, bounds })
-        .collect();
-    let near = fit_near(
-        &casters,
-        receiver,
-        terrain.map_or(0.0, |bounds| caster_near(bounds, receiver)),
-    );
-    let scale = (1.0 - near).recip();
-    let mut remap = Mat4::IDENTITY;
-    remap.z_axis.z = scale;
-    remap.w_axis.z = -near * scale;
-    remap * receiver
-}
-
-/// Capacity the nearest-first search keeps between scans.
-#[derive(Debug, Default)]
-pub(in crate::draw) struct FitScratch;
-
-/// Every batch's casters, ready to fit any number of receivers.
-pub(in crate::draw) struct CasterScan;
-
-impl CasterScan {
-    pub(in crate::draw) fn new(_: &Instances, _: &[MeshSelection], _: &mut FitScratch) -> Self {
-        Self
-    }
-
-    pub(in crate::draw) fn matrix(&mut self, _: Option<Bounds>, receiver: Mat4) -> Mat4 {
-        receiver
-    }
+    CasterScan::new(instances, meshes, &mut FitScratch::default()).matrix(terrain, receiver)
 }
 
 /// One batch's placements and refreshed bounds.
 struct Casters<'a> {
     placements: &'a [Option<(SceneObject, bool)>],
-    bounds: &'a SlotBounds,
+    bounds: Ref<'a, SlotBounds>,
 }
 
 impl Casters<'_> {
@@ -100,6 +126,7 @@ impl Casters<'_> {
 
 /// A tree node waiting to be examined, ordered so the node reaching furthest toward the
 /// light comes first and the fit converges early.
+#[derive(Debug)]
 struct Candidate {
     light: Bounds,
     batch: usize,
@@ -153,10 +180,15 @@ fn is_negative_zero(value: f32) -> bool {
 /// skipping nodes that cannot lower it. A negative minimum is unique whatever the order. A zero
 /// minimum after a `-0.0` reach takes its sign from the order of `f32::min` calls, so that case
 /// repeats the scan in batch and slot order.
-fn fit_near(casters: &[Casters<'_>], receiver: Mat4, start: f32) -> f32 {
+fn fit_near(
+    casters: &[Casters<'_>],
+    receiver: Mat4,
+    start: f32,
+    heap: &mut BinaryHeap<Candidate>,
+) -> f32 {
     let mut near = start;
     let mut negative_zero = is_negative_zero(start);
-    let mut heap = BinaryHeap::new();
+    heap.clear();
     let consider = |heap: &mut BinaryHeap<Candidate>, near: f32, batch: usize, node: usize| {
         let [min, max] = casters[batch].bounds.tree().node(node).bounds();
         let light = Bounds { min, max }.transformed_enclosing(receiver);
@@ -166,7 +198,7 @@ fn fit_near(casters: &[Casters<'_>], receiver: Mat4, start: f32) -> f32 {
     };
     for (batch, casters) in casters.iter().enumerate() {
         if let Some(root) = casters.bounds.tree().root() {
-            consider(&mut heap, near, batch, root);
+            consider(heap, near, batch, root);
         }
     }
     while let Some(candidate) = heap.pop() {
@@ -177,7 +209,7 @@ fn fit_near(casters: &[Casters<'_>], receiver: Mat4, start: f32) -> f32 {
         match batch.bounds.tree().node(candidate.node) {
             Node::Inner { children, .. } => {
                 for child in children {
-                    consider(&mut heap, near, candidate.batch, child);
+                    consider(heap, near, candidate.batch, child);
                 }
             }
             Node::Leaf { slots, .. } => {
@@ -218,10 +250,11 @@ pub(super) fn caster_near(bounds: Bounds, receiver: Mat4) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use worldrunner_render_plan::{MaterialHandle, MeshHandle, SceneRotation, SceneTransform};
 
     /// One batch whose casters have exactly `boxes` as bounds.
-    fn batch(boxes: &[[Vec3; 2]]) -> (Vec<Option<(SceneObject, bool)>>, SlotBounds) {
+    fn batch(boxes: &[[Vec3; 2]]) -> (Vec<Option<(SceneObject, bool)>>, RefCell<SlotBounds>) {
         let transform = SceneTransform {
             position_millimeters: [0; 3],
             rotation: SceneRotation::IDENTITY,
@@ -242,7 +275,26 @@ mod tests {
             (0..boxes.len()).map(|slot| (slot, &transform)),
             |_, stored, _| stored[0] = *next.next().unwrap(),
         );
-        (vec![Some((object, true)); boxes.len()], bounds)
+        (
+            vec![Some((object, true)); boxes.len()],
+            RefCell::new(bounds),
+        )
+    }
+
+    fn casters_of<'a>(
+        batches: &[&'a (Vec<Option<(SceneObject, bool)>>, RefCell<SlotBounds>)],
+    ) -> Vec<Casters<'a>> {
+        batches
+            .iter()
+            .map(|&(placements, bounds)| Casters {
+                placements,
+                bounds: bounds.borrow(),
+            })
+            .collect()
+    }
+
+    fn fit(casters: &[Casters<'_>], receiver: Mat4, start: f32) -> f32 {
+        fit_near(casters, receiver, start, &mut BinaryHeap::new())
     }
 
     #[test]
@@ -262,7 +314,7 @@ mod tests {
             .min
             .z
         ));
-        let casters = [&first, &second].map(|(placements, bounds)| Casters { placements, bounds });
+        let casters = casters_of(&[&first, &second]);
         let scan = casters.iter().fold(0.0_f32, |near, batch| {
             (0..batch.placements.len())
                 .filter_map(|slot| batch.near(slot, receiver))
@@ -274,19 +326,12 @@ mod tests {
                     .filter_map(|slot| batch.near(slot, receiver))
                     .fold(near, f32::min)
             });
-            assert_eq!(
-                fit_near(&casters, receiver, start).to_bits(),
-                expected.to_bits()
-            );
+            assert_eq!(fit(&casters, receiver, start).to_bits(), expected.to_bits());
         }
         assert_eq!(scan.abs().to_bits(), 0.0_f32.to_bits());
         // A negative reach anywhere decides the fit whatever the order.
         let deep = batch(&[[Vec3::new(0.0, 0.0, -2.0), Vec3::new(0.1, 0.1, 0.5)]]);
-        let casters =
-            [&first, &second, &deep].map(|(placements, bounds)| Casters { placements, bounds });
-        assert_eq!(
-            fit_near(&casters, receiver, 0.0).to_bits(),
-            (-2.0_f32).to_bits()
-        );
+        let casters = casters_of(&[&first, &second, &deep]);
+        assert_eq!(fit(&casters, receiver, 0.0).to_bits(), (-2.0_f32).to_bits());
     }
 }

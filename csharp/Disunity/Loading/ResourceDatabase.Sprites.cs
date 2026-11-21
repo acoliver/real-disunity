@@ -24,17 +24,7 @@ internal sealed partial class ResourceDatabase
         return array;
     }
 
-    private Cubemap Cube(JsonElement asset)
-    {
-        var name = asset.Str("name");
-        var data = asset.GetProperty("data");
-        var plan = new PlayerCubemap(asset.GetProperty("width").GetInt32(), asset.GetProperty("height").GetInt32(), asset.GetProperty("format").GetInt32(),
-            Linear: asset.GetProperty("color_space").GetInt32() == 0, MipCount: asset.GetProperty("mip_count").GetInt32(), DataSize: data.GetProperty("size").GetInt64());
-        var cube = Cubemap.FromPlayer(name, plan);
-        ReadBytes($"cubemap {name}", Path.Combine(_directory, data.Str("file")), data.GetProperty("offset").GetInt64(), cube.PixelBytes);
-        PlayerSprites.ApplySampler(cube, asset);
-        return cube;
-    }
+    private Cubemap Cube(JsonElement asset) => PlayerSprites.BuildCubemap(asset, _directory);
 
     private Texture3D Volume(JsonElement asset)
     {

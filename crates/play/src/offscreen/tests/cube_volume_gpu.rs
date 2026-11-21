@@ -25,12 +25,12 @@ use super::gpu::SIDE;
 /// `TextureFormat` RGBA32, and colours whose channels are 0 or 255, which are exact in sRGB and in
 /// linear.
 const RGBA32: u32 = 4;
-const RED: [u8; 4] = [255, 0, 0, 255];
-const GREEN: [u8; 4] = [0, 255, 0, 255];
-const BLUE: [u8; 4] = [0, 0, 255, 255];
-const CYAN: [u8; 4] = [0, 255, 255, 255];
-const MAGENTA: [u8; 4] = [255, 0, 255, 255];
-const YELLOW: [u8; 4] = [255, 255, 0, 255];
+pub(super) const RED: [u8; 4] = [255, 0, 0, 255];
+pub(super) const GREEN: [u8; 4] = [0, 255, 0, 255];
+pub(super) const BLUE: [u8; 4] = [0, 0, 255, 255];
+pub(super) const CYAN: [u8; 4] = [0, 255, 255, 255];
+pub(super) const MAGENTA: [u8; 4] = [255, 0, 255, 255];
+pub(super) const YELLOW: [u8; 4] = [255, 255, 0, 255];
 const WHITE: [u8; 4] = [255, 255, 255, 255];
 
 /// The vertex stage every pass here shares: a blit over the whole target.
@@ -124,6 +124,22 @@ pub(super) fn cube_base_passes() -> SyntheticShader {
     passes(Slot::Cube, [CUBE_HEAD, CUBE_BASE], "fs_base")
 }
 
+/// The cube pass of `cube_base_passes` reading the property the host's environment binds.
+pub(super) fn spec_cube_passes() -> SyntheticShader {
+    no_cull(synthetic_shader(
+        &[],
+        &[PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(
+                &[],
+                &format!("{CUBE_HEAD}{VERTEX}{CUBE_BASE}"),
+                "fs_base",
+                cube_blit_parameters("unity_SpecCube0"),
+            )],
+        }],
+    ))
+}
+
 pub(super) fn cube_top_passes() -> SyntheticShader {
     passes(Slot::Cube, [CUBE_HEAD, CUBE_TOP], "fs_top")
 }
@@ -138,7 +154,7 @@ pub(super) fn volume_levels_passes() -> SyntheticShader {
 
 /// A stored cube of `side` by `side` faces with `mips` levels in RGBA32, whose bytes are `bytes`:
 /// the six faces one after the other, each followed by the rest of its levels.
-fn cube(side: u32, mips: u32, bytes: Vec<u8>) -> PlayerTexture {
+pub(super) fn cube(side: u32, mips: u32, bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
         format: RGBA32,
         width: side,
@@ -177,7 +193,7 @@ fn blit(
 }
 
 /// What a target of `colors.len()` columns shows when column `c` is `colors[c]`, in every row.
-fn columns(rows: u32, colors: &[[u8; 4]]) -> Vec<f32> {
+pub(super) fn columns(rows: u32, colors: &[[u8; 4]]) -> Vec<f32> {
     (0..rows)
         .flat_map(|_| {
             colors
@@ -196,8 +212,8 @@ fn blitted(pass: &str, property: &str, size: [u32; 2], stored: PlayerTexture) ->
 
 /// A cube of 2x2 faces with a second 1x1 level: face `f` is `BASE[f]` and its second level is
 /// `TOP[f]`.
-const BASE: [[u8; 4]; 6] = [RED, GREEN, BLUE, CYAN, MAGENTA, YELLOW];
-const TOP: [[u8; 4]; 6] = [YELLOW, MAGENTA, CYAN, BLUE, GREEN, RED];
+pub(super) const BASE: [[u8; 4]; 6] = [RED, GREEN, BLUE, CYAN, MAGENTA, YELLOW];
+pub(super) const TOP: [[u8; 4]; 6] = [YELLOW, MAGENTA, CYAN, BLUE, GREEN, RED];
 
 fn two_level_cube() -> PlayerTexture {
     let bytes = (0..6)

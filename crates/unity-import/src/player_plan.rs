@@ -34,6 +34,7 @@ use crate::{
     components::RectTransform,
     plan::{PlanComponent, PlanObject, PlanSortingLayer, ScenePlan},
     player_animators::plan_animator,
+    player_environment::plan_environment,
     player_files::PlayerFiles,
     player_graphics::{plan_camera, plan_canvas, plan_canvas_group, plan_light},
     player_scripts::script_fields,
@@ -78,6 +79,7 @@ pub fn plan_player_scene(
         planner.add_object(&mut source, root, None)?;
     }
     let objects = planner.plan_objects(&mut source, layouts)?;
+    let environment = plan_environment(&mut source, &path)?;
     planner.differences.append(&mut source.differences);
     Ok(ScenePlan {
         scene: scene.to_owned(),
@@ -89,6 +91,7 @@ pub fn plan_player_scene(
         axes: Vec::new(),
         layers: names.layers,
         sorting_layers: names.sorting_layers,
+        environment,
         differences: planner.differences,
     })
 }

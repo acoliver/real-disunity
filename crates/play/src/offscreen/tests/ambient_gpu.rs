@@ -15,15 +15,15 @@ use super::lights_gpu::{filled, halves, quad, record, two_lists};
 use super::support::{camera, snapshot, world};
 use crate::offscreen::{Report, SH_AR, Settings};
 
-const ARGB32: u32 = 8;
+pub(super) const ARGB32: u32 = 8;
 /// The flat ambient the engine gives when nothing sets the names.
-const DEFAULT: f32 = 0.3;
+pub(super) const DEFAULT: f32 = 0.3;
 const WORLD: f32 = 0.8;
 const RECORDED: f32 = 0.6;
 
 /// `found` equals `expected` to within one step of an 8-bit channel. 0.3 sits halfway between two
 /// 8-bit values (76.5 of 255), and the adapter may round either way.
-fn assert_texels(found: &[f32], expected: &[f32]) {
+pub(super) fn assert_texels(found: &[f32], expected: &[f32]) {
     assert_eq!(found.len(), expected.len());
     for (index, (found, expected)) in found.iter().zip(expected).enumerate() {
         assert!(
@@ -34,7 +34,7 @@ fn assert_texels(found: &[f32], expected: &[f32]) {
 }
 
 /// Flushes the world's frame and reads the whole of `drawn`, with the report of the flush.
-fn flush_and_read(mut world: World, drawn: RenderTextureId) -> (Vec<f32>, Report) {
+pub(super) fn flush_and_read(mut world: World, drawn: RenderTextureId) -> (Vec<f32>, Report) {
     let directory = tempfile::tempdir().unwrap();
     let settings = Settings {
         light_modes: vec!["Alpha".to_owned()],
@@ -55,7 +55,7 @@ fn flush_and_read(mut world: World, drawn: RenderTextureId) -> (Vec<f32>, Report
     (world.take_texture_pixels(request).unwrap(), outcome.report)
 }
 
-fn camera_render() -> (World, RenderTextureId) {
+pub(super) fn camera_render() -> (World, RenderTextureId) {
     let mut world = world();
     let drawn = target(&mut world, ARGB32);
     quad(&mut world, "ambient", 0, [1.0, 1.0, 0.0, 0.0]);

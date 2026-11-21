@@ -1,7 +1,9 @@
+use crate::compositor::ColorDepth;
+
 use super::{
-    AttachmentView, BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext,
-    SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene,
-    cascades, lent, light_frame, refresh, resources, sdsm, terrain_caster,
+    BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext, SceneEffects, SceneGpu,
+    ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene, cascades, lent, light_frame,
+    refresh, resources, sdsm, terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -16,6 +18,36 @@ struct ShadowFrameResources<'a> {
     effects: &'a SceneEffects,
     settings: DirectionalShadowSettings,
     shadows_enabled: bool,
+    /// Player offscreen work the frame admitted, run before its first pass.
+    offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
+}
+
+/// The renderer a frame schedules through, or the one the scene retains when none is given,
+/// and the depth range and fit to cascade by, when the frame is depth-fitted.
+pub(super) struct FitInput<'a> {
+    pub(super) scheduler: Option<&'a mut crate::compositor::FrameRenderer>,
+    pub(super) fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+}
+
+/// What the cascade preparation encodes into and looks through.
+struct ShadowWorkContext<'a> {
+    context: &'a GpuContext,
+    view: &'a SceneView,
+    encoder: &'a mut wgpu::CommandEncoder,
+}
+
+/// The device context and the encoder the schedule's contour planning records against.
+#[derive(Clone, Copy)]
+struct ContextEncoder<'a> {
+    context: &'a GpuContext,
+    encoder: &'a wgpu::CommandEncoder,
+}
+
+/// The scene state a shadow schedule is completed from.
+#[derive(Clone, Copy)]
+struct ScheduledScene<'a> {
+    gpu: &'a SceneGpu,
+    frame: &'a SceneFrame,
 }
 
 struct SceneFrame {
@@ -44,21 +76,18 @@ impl ShadowedScene {
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
+        attachments: ColorDepth<'_>,
         encoder: &mut wgpu::CommandEncoder,
-        input: (
-            Option<&mut crate::compositor::FrameRenderer>,
-            Option<(sdsm::DepthRange, sdsm::RangeFit)>,
-        ),
+        input: FitInput<'_>,
     ) -> Result<(), ShadowError> {
         let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
-        let scheduler = input.0.as_deref().unwrap_or(&self.scheduler);
-        scheduler.validate_opaque_depth(attachments.1)?;
+        let scheduler = input.scheduler.as_deref().unwrap_or(&self.scheduler);
+        scheduler.validate_opaque_depth(attachments.depth)?;
         scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let (scheduler, fitting) = input;
+        let FitInput { scheduler, fitting } = input;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         let mut resources = ShadowFrameResources {
             gpu: &mut self.gpu,
@@ -69,27 +98,35 @@ impl ShadowedScene {
             effects: &self.effects,
             settings: self.settings,
             shadows_enabled: self.shadows_enabled,
+            offscreen,
         };
         let scene =
             resources.prepare_scene_frame(context, view, attachments, encoder, scheduler)?;
         let shadow = resources.prepare_shadow_work(
-            (context, view, encoder),
+            ShadowWorkContext {
+                context,
+                view,
+                encoder,
+            },
             &scene.frame,
             fitting,
             &mut next_refresh,
-            attachments.0.size(),
+            attachments.color.size(),
         )?;
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         map.retain(encoder)?;
         let work = shadow.complete_shadow_schedule(
-            (context, encoder),
+            ContextEncoder { context, encoder },
             attachments,
             scheduler,
-            (&*resources.gpu, &scene),
+            ScheduledScene {
+                gpu: &*resources.gpu,
+                frame: &scene,
+            },
             map,
         )?;
-        resources.encode_schedule(context, encoder, scheduler, scene, (work, offscreen))?;
+        resources.encode_schedule(context, encoder, scheduler, scene, work)?;
         if let Some(map) = replacement {
             self.map = map;
         }
@@ -103,11 +140,11 @@ impl ShadowFrameResources<'_> {
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
+        attachments: ColorDepth<'_>,
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<SceneFrame, ShadowError> {
-        let (color, depth) = attachments;
+        let ColorDepth { color, depth } = attachments;
         ShadowedScene::validate_scheduler(scheduler, self.pipelines, self.effects)?;
         scheduler.prepare_receiver_gradients(
             context.device(),
@@ -146,13 +183,17 @@ impl ShadowFrameResources<'_> {
 
     fn prepare_shadow_work(
         &self,
-        context_view_encoder: (&GpuContext, &SceneView, &mut wgpu::CommandEncoder),
+        work_context: ShadowWorkContext<'_>,
         frame: &FrameUniform,
         fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         next_refresh: &mut refresh::RefreshCache,
         size: [u32; 2],
     ) -> Result<ShadowWork, ShadowError> {
-        let (context, view, encoder) = context_view_encoder;
+        let ShadowWorkContext {
+            context,
+            view,
+            encoder,
+        } = work_context;
         let mut cascades = ShadowedScene::prepare_cascades(
             (self.gpu, self.effects, self.settings),
             view,
@@ -182,12 +223,9 @@ impl ShadowFrameResources<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
         scene: SceneFrame,
-        work: (
-            ShadowScheduleWork<'_>,
-            Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
-        ),
+        work: ShadowScheduleWork<'_>,
     ) -> Result<(), ShadowError> {
-        let (work, offscreen) = work;
+        let offscreen = self.offscreen.take();
         let ShadowScheduleWork {
             shadow,
             groups,
@@ -246,14 +284,15 @@ impl ShadowFrameResources<'_> {
 impl ShadowWork {
     fn complete_shadow_schedule<'a>(
         self,
-        context: (&GpuContext, &wgpu::CommandEncoder),
-        attachments: (&AttachmentView, &AttachmentView),
+        context: ContextEncoder<'_>,
+        attachments: ColorDepth<'_>,
         scheduler: &mut crate::compositor::FrameRenderer,
-        scene: (&SceneGpu, &SceneFrame),
+        scene: ScheduledScene<'_>,
         map: &'a ShadowMap,
     ) -> Result<ShadowScheduleWork<'a>, ShadowError> {
-        let (context, encoder) = context;
-        let ((color, depth), (gpu, scene)) = (attachments, scene);
+        let ContextEncoder { context, encoder } = context;
+        let ColorDepth { color, depth } = attachments;
+        let ScheduledScene { gpu, frame: scene } = scene;
         let card_depth = scene.selected.card_reject().then_some(depth);
         let groups = map.receiver_groups(scheduler, context.device(), card_depth);
         let mut schedule = crate::compositor::ShadowSchedule::new(

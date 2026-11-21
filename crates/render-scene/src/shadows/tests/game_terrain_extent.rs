@@ -37,7 +37,15 @@ fn render_prefix_then_suffix(
                 &frame,
                 &metadata,
             )?;
-            renderer.encode_fitted(context, &view(), (&color, &depth), encoder, (None, None))
+            let attachments = crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            };
+            let input = crate::shadows::frame::FitInput {
+                scheduler: None,
+                fitting: None,
+            };
+            renderer.encode_fitted(context, &view(), attachments, encoder, input)
         })
         .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
     prepared.submit()?;

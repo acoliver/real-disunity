@@ -414,9 +414,10 @@ struct SceneRefs<'a, 'p> {
 }
 
 /// The scene colour and depth attachments of one frame.
-struct ColorDepth<'a> {
-    color: &'a AttachmentView,
-    depth: &'a AttachmentView,
+#[derive(Clone, Copy)]
+pub(crate) struct ColorDepth<'a> {
+    pub(crate) color: &'a AttachmentView,
+    pub(crate) depth: &'a AttachmentView,
 }
 
 fn prepare_scene_draw<'a, 'b>(

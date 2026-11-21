@@ -4,9 +4,10 @@ use super::{
     SdsmSettings,
 };
 use crate::{
+    compositor::ColorDepth,
     device::GpuContext,
     frame::{FrameUniform, metadata::FrameProduct},
-    shadows::{ShadowError, ShadowedScene},
+    shadows::{ShadowError, ShadowedScene, frame::FitInput},
     view::SceneView,
 };
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
@@ -424,13 +425,15 @@ impl ShadowedScene {
                     fitting.reducer().write_key(),
                 )?);
                 self.refuse_programs()?;
-                self.encode_fitted(
-                    context,
-                    input.view,
-                    input.attachments,
-                    encoder,
-                    (None, current.map(|fit| (fit.depth, state.settings.range))),
-                )?;
+                let attachments = ColorDepth {
+                    color: input.attachments.0,
+                    depth: input.attachments.1,
+                };
+                let fitting = FitInput {
+                    scheduler: None,
+                    fitting: current.map(|fit| (fit.depth, state.settings.range)),
+                };
+                self.encode_fitted(context, input.view, attachments, encoder, fitting)?;
                 self.encode_term_captures(context.device(), encoder, input.terms)?;
                 Ok::<_, ShadowError>(())
             })

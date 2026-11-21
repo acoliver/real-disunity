@@ -71,6 +71,7 @@ pub use settings::{DirectionalShadowSettings, MAX_SHADOW_RESOLUTION};
 use worldrunner_render_plan::{RenderScene, SceneEffects};
 use worldrunner_render_post::{AttachmentView, BorrowedFeature};
 
+use crate::compositor::ColorDepth;
 use crate::device::GpuContext;
 use crate::draw::{DrawError, SceneGpu};
 use crate::frame::{FrameError, FrameUniform};
@@ -453,7 +454,15 @@ impl ShadowedScene {
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
         self.refuse_programs()?;
-        self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+        let attachments = ColorDepth {
+            color: attachments.0,
+            depth: attachments.1,
+        };
+        let input = frame::FitInput {
+            scheduler,
+            fitting: None,
+        };
+        self.encode_fitted(context, view, attachments, encoder, input)
     }
 
     /// Admitted player program draws are drawn by the configured compositor only. Admitted
@@ -476,13 +485,15 @@ impl ShadowedScene {
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
         self.refuse_programs()?;
-        self.encode_fitted(
-            context,
-            view,
-            attachments,
-            encoder,
-            (None, Some((fitting.0.depth, fitting.1))),
-        )
+        let attachments = ColorDepth {
+            color: attachments.0,
+            depth: attachments.1,
+        };
+        let input = frame::FitInput {
+            scheduler: None,
+            fitting: Some((fitting.0.depth, fitting.1)),
+        };
+        self.encode_fitted(context, view, attachments, encoder, input)
     }
 
     fn prepare_cascades(

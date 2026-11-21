@@ -198,9 +198,15 @@ pub fn streamed_terrain_scene() -> RenderScene {
 /// Straight down from five metres, so depth is linear in height: the ground plane is at
 /// `(5 - 0.1) / (10 - 0.1)`.
 pub fn view(size: [u32; 2]) -> SceneView {
+    view_from(5000, size)
+}
+
+/// [`view`] from `height_millimeters` above the ground plane, which stays inside the 10 m far
+/// plane below 10 000: the ground plane's linear depth is the height in metres.
+pub fn view_from(height_millimeters: i64, size: [u32; 2]) -> SceneView {
     SceneView::orthographic_with_up(
         CameraPose {
-            eye_millimeters: [0, 0, 5000],
+            eye_millimeters: [0, 0, height_millimeters],
             target_millimeters: [0, 0, 0],
         },
         OrthographicLens {
@@ -224,6 +230,7 @@ pub struct Rig {
     pub gpu: SceneGpu,
     pub pipelines: ScenePipelines,
     frame: FrameUniform,
+    size: [u32; 2],
 }
 
 impl Rig {
@@ -326,6 +333,7 @@ impl Rig {
             gpu,
             pipelines,
             frame,
+            size,
         }
     }
 
@@ -369,6 +377,20 @@ impl Rig {
         self.encode(&mut encoder)?;
         encoder.finish().submit().unwrap();
         Ok(self.read(self.renderer.targets().texture()))
+    }
+
+    /// Draws one frame in the host's frame `slot`, as seen from `height_millimeters`, submits it
+    /// and returns the frame's colour. Every slot has its own frame uniform on the scene.
+    pub fn render_in_slot(
+        &mut self,
+        slot: usize,
+        height_millimeters: i64,
+    ) -> Result<Vec<[u8; 4]>, FrameError> {
+        self.renderer.select_frame_slot(slot);
+        self.gpu.select_frame_slot(slot);
+        self.frame = FrameUniform::unlit(&view_from(height_millimeters, self.size));
+        self.gpu.set_frame(self.context.queue(), self.frame);
+        self.render()
     }
 
     /// Draws one frame and cancels it before submission.

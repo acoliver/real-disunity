@@ -55,7 +55,7 @@ impl FrameRenderer {
             != requested
         {
             return Err(FrameError::WaterSettings(
-                "resident/profile settings mismatch; water requires HDR",
+                "the scene's water bodies differ from the water the renderer was configured with",
             ));
         }
         Ok(())

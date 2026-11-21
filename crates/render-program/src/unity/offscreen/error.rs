@@ -9,6 +9,9 @@ use crate::unity::layout::LayoutError;
 use crate::unity::shader::ResolveError;
 use crate::unity::state::StateError;
 
+use super::frame::RenderDimension;
+use super::slot_dimension;
+
 #[derive(Debug, thiserror::Error)]
 pub enum OffscreenError {
     #[error(transparent)]
@@ -60,6 +63,16 @@ pub enum OffscreenError {
     },
     #[error("texture {0:?} is 3D, which only a kernel reads or writes, so no record can name it")]
     VolumeInGraph(TextureId),
+    #[error("texture {0:?} is 3D, so its mip levels cannot be generated")]
+    MipsOfVolume(TextureId),
+    #[error(
+        "the mip levels of texture {texture:?} cannot be generated: {format:?} is not a color \
+         format the device filters as floating-point or unorm values"
+    )]
+    MipsOfFormat {
+        texture: TextureId,
+        format: wgpu::TextureFormat,
+    },
     #[error("shader {0:?} is not registered")]
     UnknownShader(ShaderId),
     #[error("material {0:?} is not in the frame")]
@@ -76,6 +89,15 @@ pub enum OffscreenError {
     NotRenderTexture(TextureId),
     #[error("no layer names the texture {name}")]
     MissingTexture { name: String },
+    #[error("no layer names the structured buffer {name}")]
+    MissingBuffer { name: String },
+    #[error("the structured buffer {name} at set {set} binding {binding} {why}")]
+    UnsupportedBuffer {
+        name: String,
+        set: u32,
+        binding: u32,
+        why: String,
+    },
     #[error(
         "mesh {mesh:?} has no channel {channel} for the shader input {input}, which the shader \
          reads"
@@ -115,6 +137,42 @@ pub enum OffscreenError {
         texture: TextureId,
         mip: u32,
         element: u32,
+    },
+    #[error("no operation of the frame writes mip {mip} of element {element} of {texture:?}")]
+    NotWritten {
+        texture: TextureId,
+        mip: u32,
+        element: u32,
+    },
+    #[error("{0:?} is exported twice")]
+    ExportedTwice(worldrunner_render_post::ResourceRef),
+    #[error(
+        "{resource:?} names mip {} of layer {}, but the export is mip {mip} of element {element}",
+        .resource.mip,
+        .resource.layer
+    )]
+    ExportNamesAnotherSubresource {
+        resource: worldrunner_render_post::ResourceRef,
+        mip: u32,
+        element: u32,
+    },
+    #[error(
+        "the shader reads {name} as a 2D texture and texture {texture:?} is a 2D array of {layers} layers"
+    )]
+    FlatSlotOverArray {
+        name: String,
+        texture: TextureId,
+        layers: u32,
+    },
+    #[error(
+        "the shader reads {name} as {} and texture {texture:?} is {stored}",
+        slot_dimension::view_name(*.declared)
+    )]
+    SlotDimensionMismatch {
+        name: String,
+        texture: TextureId,
+        declared: wgpu::TextureViewDimension,
+        stored: RenderDimension,
     },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },
@@ -165,5 +223,35 @@ impl OffscreenError {
                 | Self::ConstantsOverBudget { .. }
                 | Self::Program(ProgramError::DeviceLost(_))
         )
+    }
+}
+
+/// A frame the state refused, with the record of the frame that caused it when one did.
+///
+/// A refusal names a record when the state met the error while planning that record, so the record
+/// is among those the frame lists. A refusal from anywhere else (a render texture, the frame's
+/// constants, a read after the records) names none.
+#[derive(Debug)]
+pub struct Refusal {
+    pub error: OffscreenError,
+    /// The index in `OffscreenFrame::records` of the record the state was planning.
+    pub record: Option<usize>,
+}
+
+impl Refusal {
+    pub(super) fn at(record: usize, error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: Some(record),
+        }
+    }
+}
+
+impl From<OffscreenError> for Refusal {
+    fn from(error: OffscreenError) -> Self {
+        Self {
+            error,
+            record: None,
+        }
     }
 }

@@ -7,7 +7,9 @@ use worldrunner_unity_serialized::shader_parameters::DescriptorSlot;
 use super::layout::LayoutError;
 use super::module::{Reflected, ResourceBinding, StageKind, StageParameters, stage_bit};
 use super::source::{At, Source};
-use crate::binding::{self, BindingAddress, BindingSource, ResourceKind, StorageAccess};
+use crate::binding::{
+    self, BindingAddress, BindingSource, EngineSemantic, ResourceKind, StorageAccess,
+};
 
 /// What kind of resource a parameter declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,12 +266,35 @@ fn chosen(declared: &[Declared], set: u32, binding: u32, kind: StageKind) -> Opt
         .or_else(|| at_slot().next())
 }
 
+/// The engine semantic a graphics stage's comparison sampler at a set and binding is lent under.
+///
+/// A comparison sampler is the one resource the runtime cannot create for a program, so the
+/// draw's owner supplies it: the offscreen path binds the shadow-map sampler it chooses, and any
+/// other draw of the program must import one by this name.
+#[must_use]
+pub(crate) fn comparison_semantic(set: u32, binding: u32) -> EngineSemantic {
+    EngineSemantic::named(format!("unity.comparison_sampler.{set}.{binding}"))
+}
+
+/// Where the resource of `resource_kind` in a stage of `kind` comes from. A comparison sampler of
+/// a graphics stage is lent by the draw; every other resource, and a comparison sampler of a
+/// compute stage, which no owner lends, is unnamed.
+fn source_of(resource_kind: &ResourceKind, at: BindingAddress, kind: StageKind) -> BindingSource {
+    match (resource_kind, kind) {
+        (
+            ResourceKind::Sampler(SamplerBindingType::Comparison),
+            StageKind::Vertex | StageKind::Fragment,
+        ) => BindingSource::Engine(comparison_semantic(at.set, at.binding)),
+        _ => BindingSource::Unnamed,
+    }
+}
+
 /// The neutral declarations of a stage's Unity resources.
 ///
 /// Unity's classes name a kind of resource but not a sample type, access or comparison
 /// sampler, so each class that matches what the module declares at its address takes the
 /// module's own full kind. Every resource the module uses is checked here, in the module's
-/// order, as Unity names the failure: a resource no parameter declares, one that the
+/// order, and each failure is named: a resource no parameter declares, one that the
 /// parameters bind for other stages only, and one whose class is not the module's kind.
 ///
 /// A declaration is visible to the stage and to the stages its bits name. One that names other
@@ -316,15 +341,80 @@ pub(crate) fn resource_layout(
         let resource_kind = used
             .and_then(|resource| ResourceKind::of_binding_type(&resource.ty, 0))
             .unwrap_or_else(|| item.class.unchecked_kind());
+        let at = BindingAddress {
+            set: item.set,
+            binding: item.binding,
+        };
         bindings.push(binding::ResourceBinding {
-            at: BindingAddress {
-                set: item.set,
-                binding: item.binding,
-            },
-            source: BindingSource::Unnamed,
+            at,
+            source: source_of(&resource_kind, at, kind),
             visibility: kind.visibility() | item.visibility(),
             kind: resource_kind,
         });
     }
     Ok(binding::ResourceLayout::new(bindings))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn comparison_sampler() -> Reflected {
+        Reflected {
+            set: 0,
+            binding: 7,
+            name: "sampler_LinearClampCompare".to_owned(),
+            ty: BindingType::Sampler(SamplerBindingType::Comparison),
+            min_size: 0,
+        }
+    }
+
+    fn declared() -> Declared {
+        Declared {
+            set: 0,
+            binding: 7,
+            class: Class::Sampler,
+            stages: None,
+        }
+    }
+
+    fn source(reflected: Reflected, kind: StageKind) -> BindingSource {
+        let layout = resource_layout(&[declared()], &[reflected], kind).unwrap();
+        layout.bindings.into_iter().next().unwrap().source
+    }
+
+    #[test]
+    fn a_comparison_sampler_of_a_graphics_stage_is_lent_by_the_draw() {
+        for kind in [StageKind::Vertex, StageKind::Fragment] {
+            assert_eq!(
+                source(comparison_sampler(), kind),
+                BindingSource::Engine(comparison_semantic(0, 7)),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(
+            comparison_semantic(0, 7).name(),
+            "unity.comparison_sampler.0.7"
+        );
+    }
+
+    #[test]
+    fn a_comparison_sampler_of_a_compute_stage_has_no_one_to_lend_it() {
+        assert_eq!(
+            source(comparison_sampler(), StageKind::Compute),
+            BindingSource::Unnamed
+        );
+    }
+
+    #[test]
+    fn a_filtering_sampler_is_the_runtimes_to_fill() {
+        let filtering = Reflected {
+            ty: BindingType::Sampler(SamplerBindingType::Filtering),
+            ..comparison_sampler()
+        };
+        assert_eq!(
+            source(filtering, StageKind::Fragment),
+            BindingSource::Unnamed
+        );
+    }
 }

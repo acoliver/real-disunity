@@ -185,6 +185,17 @@ pub(super) struct CascadeSlice {
 }
 
 impl CascadeSlice {
+    /// The generation of the hull for `matrix`, without copying the hull; none exactly when
+    /// `for_matrix` is none.
+    pub fn generation_for(&self, matrix: Mat4) -> Option<u64> {
+        let bits = matrix.to_cols_array().map(f32::to_bits);
+        self.current
+            .borrow()
+            .as_ref()
+            .filter(|(stored, _)| *stored == bits)
+            .map(|_| self.generation.get())
+    }
+
     /// The hull for `matrix`, with its generation; none when the view has no slice for it.
     pub fn for_matrix(&self, matrix: Mat4) -> Option<(SliceHull, u64)> {
         let bits = matrix.to_cols_array().map(f32::to_bits);
@@ -271,6 +282,9 @@ impl SceneGpu {
         (pipeline, frame): (&PreparedPipeline, &wgpu::BindGroup),
         (index, matrix): (u32, Mat4),
     ) -> DrawCount {
+        if !self.casts_terrain_shadows() {
+            return DrawCount::default();
+        }
         let Some(keep) = self.terrain_caster_selection(index, matrix) else {
             return DrawCount::default();
         };
@@ -340,5 +354,30 @@ mod tests {
         assert!(!diamond.overlaps(bounds([1.1, -0.1], [1.5, 0.1]), Mat4::IDENTITY));
         let shifted = Mat4::from_translation(Vec3::new(-0.7, -0.7, 0.0));
         assert!(diamond.overlaps(bounds([0.6, 0.6], [0.9, 0.9]), shifted));
+    }
+
+    #[test]
+    fn generation_for_answers_exactly_when_for_matrix_does() {
+        let slice = CascadeSlice::default();
+        let matrix = Mat4::from_translation(Vec3::new(0.25, -0.5, 2.0));
+        let other = Mat4::from_translation(Vec3::new(0.25, -0.5, 2.5));
+        let agree = |slice: &CascadeSlice, matrix: Mat4| {
+            assert_eq!(
+                slice.generation_for(matrix),
+                slice.for_matrix(matrix).map(|(_, generation)| generation)
+            );
+            slice.generation_for(matrix)
+        };
+        assert_eq!(agree(&slice, matrix), None);
+        *slice.current.borrow_mut() = Some((matrix.to_cols_array().map(f32::to_bits), square(0.5)));
+        slice.generation.set(3);
+        assert_eq!(agree(&slice, matrix), Some(3));
+        assert_eq!(agree(&slice, other), None);
+        // One bit of one element is a different matrix.
+        let mut nudged = matrix.to_cols_array();
+        nudged[12] = nudged[12].next_up();
+        assert_eq!(agree(&slice, Mat4::from_cols_array(&nudged)), None);
+        slice.generation.set(4);
+        assert_eq!(agree(&slice, matrix), Some(4));
     }
 }

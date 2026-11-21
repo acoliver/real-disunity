@@ -132,6 +132,7 @@ fn gpu_sloped_receivers_keep_reflections_at_every_supported_sample_count_and_wat
                 frame: frame(),
                 color_source: None,
                 depth_source: None,
+                device_depth: false,
             };
             let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();
             feature.commit(&mut prepare);

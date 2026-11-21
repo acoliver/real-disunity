@@ -8,6 +8,17 @@ use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 /// Most planes one culling result holds.
 pub const MAX_CULL_PLANES: usize = 10;
 
+/// A viewport's components are finite and its width and height are not negative.
+fn check_viewport(rect: &[f32; 4]) -> Result<(), WorldError> {
+    if !rect.iter().all(|value| value.is_finite()) {
+        Err(GraphicsError::NotFinite.into())
+    } else if rect[2] < 0.0 || rect[3] < 0.0 {
+        Err(GraphicsError::InvalidOffscreen.into())
+    } else {
+        Ok(())
+    }
+}
+
 impl World {
     /// Checks a context record; other work is the offscreen list's own to check.
     pub(super) fn check_context(&self, work: &OffscreenWork) -> Result<(), WorldError> {
@@ -58,6 +69,16 @@ impl World {
             }
             OffscreenWork::SetViewProjection { view, projection } => {
                 if view.iter().chain(projection).all(|value| value.is_finite()) {
+                    Ok(())
+                } else {
+                    Err(GraphicsError::NotFinite.into())
+                }
+            }
+            OffscreenWork::SetViewport { rect } | OffscreenWork::EnableScissor { rect } => {
+                check_viewport(rect)
+            }
+            OffscreenWork::SetDepthBias { bias, slope_bias } => {
+                if bias.is_finite() && slope_bias.is_finite() {
                     Ok(())
                 } else {
                     Err(GraphicsError::NotFinite.into())

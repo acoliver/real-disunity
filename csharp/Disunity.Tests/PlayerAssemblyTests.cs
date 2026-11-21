@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
@@ -151,7 +153,10 @@ internal static class PlayerAssemblyTests
             SyntheticField.Class("thing", missing),
             SyntheticField.Class("calls", internalType),
             SyntheticField.Class("listed", listedMissing));
-        game.MethodRef(gameObject, "SetActive", 1);
+        var setActive = new BlobBuilder();
+        new BlobEncoder(setActive).MethodSignature(isInstanceMethod: true).Parameters(1,
+            result => result.Void(), parameters => parameters.AddParameter().Type().Boolean());
+        game.MemberRef(gameObject, "SetActive", setActive);
         game.MethodRef(gameObject, "SetActive", 3);
         game.MethodRef(gameObject, "DoesNotExist", 0);
         game.FieldRef(gameObject, "missingField");
@@ -373,9 +378,9 @@ internal static class PlayerAssemblyTests
         var expected = new[]
         {
             "UnityEngine.Events.IPersistentCalls - Game",
-            "UnityEngine.GameObject DoesNotExist(0 parameters) Game",
-            "UnityEngine.GameObject SetActive(3 parameters) Game",
-            "UnityEngine.GameObject missingField Game",
+            "UnityEngine.GameObject instance DoesNotExist(): System.Void Game",
+            "UnityEngine.GameObject instance SetActive(System.Int32, System.Int32, System.Int32): System.Void Game",
+            "UnityEngine.GameObject missingField: System.Int32 Game",
             "UnityEngine.GameObject+NotNested - Game",
             "UnityEngine.NotImplementedThing - Game",
         };

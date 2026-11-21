@@ -75,15 +75,15 @@ fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_nam
         BTreeMap::from([
             ("_NotUploaded: asset not readable by the host".to_owned(), 1),
             (
-                "_Nothing: no texture set and not declared, Unity's default grey read".to_owned(),
+                "_Nothing: no texture set and not declared, grey default read".to_owned(),
                 1
             ),
         ])
     );
 }
 
-/// Unity binds its grey default texture to a texture property that nothing sets and the shader
-/// does not declare; one the shader declares reads its declared default, and one whose default
+/// A texture property that nothing sets and the shader does not declare reads the grey default
+/// texture; one the shader declares reads its declared default, and one whose default
 /// the host does not supply stays unset, as does any when the host registered no defaults.
 #[test]
 fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
@@ -126,7 +126,7 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
         BTreeMap::from([
             ("_Declared: no texture set".to_owned(), 1),
             (
-                "_UserLut: no texture set and not declared, Unity's default grey read".to_owned(),
+                "_UserLut: no texture set and not declared, grey default read".to_owned(),
                 1
             ),
         ])
@@ -142,10 +142,11 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     );
 }
 
-/// A cube slot nothing sets and no shader declares, as the URP blit program's `_BlitCubeTexture`
-/// is, reads the grey cube when the host registered it and stays missing when it did not.
+/// A cube or 3D slot nothing sets and no shader declares, as the URP blit program's
+/// `_BlitCubeTexture` is, reads the grey cube or volume when the host registered it and stays
+/// missing when it did not.
 #[test]
-fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered_it() {
+fn the_frame_carries_the_grey_cube_and_volume_only_when_the_host_registered_them() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     blit(&mut world, TextureRef::Render(target), target, None, 0);
@@ -157,9 +158,21 @@ fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered
         UndeclaredTextures {
             d2: Some(DefaultTexture::Grey.id()),
             cube: Some(DefaultTexture::GreyCube.id()),
+            d3: Some(DefaultTexture::Grey3d.id()),
         }
     );
     assert_ne!(DefaultTexture::Grey.id(), DefaultTexture::GreyCube.id());
+    assert_ne!(DefaultTexture::Grey.id(), DefaultTexture::Grey3d.id());
+    available.default_textures.remove(&DefaultTexture::Grey3d);
+    let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(
+        adapted.frame.undeclared_textures,
+        UndeclaredTextures {
+            d2: Some(DefaultTexture::Grey.id()),
+            cube: Some(DefaultTexture::GreyCube.id()),
+            d3: None,
+        }
+    );
     available.default_textures.remove(&DefaultTexture::GreyCube);
     let adapted = adapt(&snapshot, &available, &settings());
     assert_eq!(
@@ -167,6 +180,7 @@ fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered
         UndeclaredTextures {
             d2: Some(DefaultTexture::Grey.id()),
             cube: None,
+            d3: None,
         }
     );
     available.default_textures.clear();
@@ -189,6 +203,7 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
         srgb: false,
         dimension: 2,
         volume_depth: 1,
+        auto_generate_mips: false,
         sampler: WorldSampler {
             wrap_u: 1,
             wrap_v: 2,
@@ -215,9 +230,8 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
     assert_eq!(
         adapted.frame.globals.textures["_Lookup"].sampler,
         Some(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Mirror,
-            filter: Filter::Point,
+            wrap_w: Wrap::Repeat,
+            ..SamplerState::new(Wrap::Clamp, Wrap::Mirror, Filter::Point)
         })
     );
 }

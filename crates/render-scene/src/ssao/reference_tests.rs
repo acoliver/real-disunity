@@ -91,6 +91,33 @@ fn gpu_bilateral_weights_match_cpu_and_production_two_axis_wiring() {
     );
 }
 
+#[test]
+fn gpu_bilateral_filter_preserves_constant_occlusion_exactly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let size = [11, 9];
+    let depths: Vec<_> = (0..99)
+        .map(|i| 2.0 + f32::from(u16::try_from((i * 7) % 13).unwrap()) * 0.03125)
+        .collect();
+    let depth = upload(&context, size, &depths);
+    for value in [0.0_f32, 0.125, 0.25, 0.37, 0.5, 1.0] {
+        let input = upload(&context, size, &[value; 99]);
+        for axis in [[1, 0], [0, 1]] {
+            let pipeline = pipeline(context.device(), &crate::ssao::bilateral::source(axis));
+            let group = group(context.device(), &pipeline, None, &[&depth, &input]);
+            let output = texture(context.device(), size, wgpu::TextureFormat::R32Float);
+            draw(&context, &pipeline, &group, &output);
+            for (pixel, actual) in read(&context, &output).into_iter().enumerate() {
+                assert_eq!(
+                    actual.to_bits(),
+                    value.to_bits(),
+                    "constant {value}, axis {axis:?}, pixel {pixel}: {actual}"
+                );
+            }
+        }
+    }
+}
+
 fn half(value: i16) -> u16 {
     match value {
         -8 => 0xc800,

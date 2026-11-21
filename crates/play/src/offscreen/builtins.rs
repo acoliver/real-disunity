@@ -34,8 +34,11 @@
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
-//!   `render-program`'s conventions tests measured. Whether the player expects a reversed depth
-//!   range is not known, so depth is not reversed.
+//!   `render-program`'s conventions tests measured, with depth running the way the run's
+//!   [`DepthRange`](super::DepthRange) says: forward (near 0, far w), or reversed (near w, far 0),
+//!   which is the player's default (see that type for the evidence). The projection builtins
+//!   `glstate_matrix_projection` and `_ZBufferParams` are not supplied (see "Left missing"), so
+//!   a shader that reads them gets zero whichever range the run uses.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
 //! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the
@@ -50,7 +53,12 @@
 //!   vector, so the direction is a unit vector from the surface toward the light; it multiplies
 //!   the diffuse and specular terms by `color.xyz` with no other intensity, so the colour holds the
 //!   light's colour times its intensity. No stage reads either fourth component, which is 0 here.
+//!   They are the fallback in the frame's starting globals: a value the world's globals hold, or
+//!   that a command buffer sets later with `SetGlobalVector`, replaces them from that place on.
 //!   The light's colour temperature is not applied: nothing here says how the player converts it.
+//! * `unity_SHAr`, `unity_SHAg`, `unity_SHAb`, `unity_SHBr`, `unity_SHBg`, `unity_SHBb`, `unity_SHC`
+//!   and `unity_SpecCube0_HDR` are the default ambient of [`add_ambient`], in the frame's starting
+//!   globals like the main light (see "Left missing" for what it is and is not).
 //! * `unity_OrthoParams` (2,766 variants) carries 1 in its fourth component for a view whose
 //!   projection has no perspective divide and 0 for one that has it ([`view_layer`]). In the same
 //!   shaders (`Mohawk/StandardShader`, `LakeShader`) the fragment stage compares that component
@@ -97,24 +105,30 @@
 //!   evidence that the engine sets it in the way the common ones are set. The projection ones
 //!   would also need a choice between the engine layer's projection and the one adjusted for the
 //!   graphics API, which nothing here measures.
-//! * The other lighting and shadow values (the `LightShadows` buffer, `unity_SHAr` and the other
-//!   spherical harmonics 1,040, `unity_SpecCube0_HDR` 1,552, `unity_LightData` 1,472): they
-//!   depend on shadow maps, probes and additional lights that no offscreen record carries.
+//! * The other lighting and shadow values (the `LightShadows` buffer and `unity_LightData` 1,472):
+//!   they depend on shadow maps and additional lights that no offscreen record carries.
+//!   `unity_SHAr` and the other spherical harmonics (1,040 variants) and `unity_SpecCube0_HDR`
+//!   (1,552) are not left to render-program either: [`add_ambient`] gives them an engine
+//!   default, because a shader that reads them as zero draws black. The default is flat (0.3 in
+//!   the fourth component of `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in the rest) and
+//!   (1, 1, 0, 0) for `unity_SpecCube0_HDR`, a neutral decode chosen without a measured
+//!   convention. It stands until the scene's authored ambient is carried to the host.
 //! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
 //! * `<texture>_ST` (7,265 of the 38,160 texture bindings have a four-float member of that
-//!   name) and `<texture>_TexelSize` (1,980): the world carries a texture slot's scale and
-//!   offset, and the member that holds them has the texture's name plus `_ST`, but the order of
-//!   its four floats is in nothing the repository defines. `render-program` supplies
-//!   `_TexelSize` for a blit's source only.
+//!   name): the world carries a texture slot's scale and offset, and the member that holds them
+//!   has the texture's name plus `_ST`, but the order of its four floats is in nothing the
+//!   repository defines. `<texture>_TexelSize` (1,980) is not left to the host:
+//!   `render-program` fills it with the size of the texture bound under `<texture>`.
 
 use glam::{Mat4, Vec4};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
-use crate::scene_light::main_light_index;
+use super::depth_range::DepthRange;
+use crate::scene_light::{AMBIENT_SKY_IRRADIANCE, main_light_index};
 use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
 pub const OBJECT_TO_WORLD: &str = "unity_ObjectToWorld";
@@ -128,6 +142,14 @@ pub const ORTHO_PARAMS: &str = "unity_OrthoParams";
 pub const PROJECTION_PARAMS: &str = "_ProjectionParams";
 pub const SCREEN_PARAMS: &str = "_ScreenParams";
 pub const WORLD_TRANSFORM_PARAMS: &str = "unity_WorldTransformParams";
+pub const SH_AR: &str = "unity_SHAr";
+pub const SH_AG: &str = "unity_SHAg";
+pub const SH_AB: &str = "unity_SHAb";
+pub const SH_BR: &str = "unity_SHBr";
+pub const SH_BG: &str = "unity_SHBg";
+pub const SH_BB: &str = "unity_SHBb";
+pub const SH_C: &str = "unity_SHC";
+pub const SPEC_CUBE0_HDR: &str = "unity_SpecCube0_HDR";
 
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
@@ -158,17 +180,22 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     layer
 }
 
-/// The values of a camera that draws into a target `aspect` wide over high.
+/// The values of a camera that draws into a target `aspect` wide over high, with depth running as
+/// `depth` says.
 #[must_use]
-pub fn camera_layer(view: &CameraView, aspect: f32) -> PropertyLayer {
-    view_layer(&world_to_camera(view), &projection(&view.settings, aspect))
+pub fn camera_layer(view: &CameraView, aspect: f32, depth: DepthRange) -> PropertyLayer {
+    view_layer(
+        &world_to_camera(view),
+        &projection(&view.settings, aspect),
+        depth,
+    )
 }
 
 /// The values of a view from the world to the camera `world_to_camera` and the OpenGL projection
-/// `projection`, which a script sets as they are.
+/// `projection`, which a script sets as they are, with depth running as `depth` says.
 #[must_use]
-pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
-    let view_projection = clip_from_gl() * *projection * *world_to_camera;
+pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) -> PropertyLayer {
+    let view_projection = clip_from_gl(depth) * *projection * *world_to_camera;
     let position: Vec4 = world_to_camera.inverse().w_axis;
     let mut layer = PropertyLayer::default();
     layer
@@ -198,11 +225,17 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
 /// A light's forward axis shorter than this points in no direction.
 const SHORTEST_AXIS: f32 = 1.0e-6;
 
-/// Adds the main light of `lights` to a camera's values: `_MainLightPosition` is the unit
+/// Adds the main light of `lights` to a layer as its fallback: `_MainLightPosition` is the unit
 /// direction from a surface toward the light and `_MainLightColor` the light's colour times its
 /// intensity, each with 0 in the fourth component. The main light is the one the retained scene
 /// follows ([`main_light_index`]). With no directional light, or one whose forward axis has no
-/// length, both stay missing.
+/// length, both stay missing. A name the layer already holds keeps its value.
+///
+/// A frame adds its light to the globals the script starts from, below every global the world or
+/// the script sets, so a light the game's own pipeline sets as a global replaces the host's at
+/// the place in the frame where it sets it (see `Mapper::new`).
+/// A default a shader declares for either name sits below the globals too (see
+/// `split_below_globals`), so the host's light is not hidden by it.
 pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let Some(index) = main_light_index(lights.iter().map(|light| &light.settings)) else {
         return;
@@ -216,14 +249,56 @@ pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let toward = -forward / length;
     let [r, g, b, _] = light.settings.color;
     let intensity = light.settings.intensity;
-    layer.values.set(
-        MAIN_LIGHT_POSITION,
-        PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
-    );
-    layer.values.set(
-        MAIN_LIGHT_COLOR,
-        PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
-    );
+    if layer.values.get(MAIN_LIGHT_POSITION).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_POSITION,
+            PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
+        );
+    }
+    if layer.values.get(MAIN_LIGHT_COLOR).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_COLOR,
+            PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
+        );
+    }
+}
+
+/// The neutral decode of `unity_SpecCube0_HDR` the default ambient gives: no repository evidence
+/// measures how the player decodes its reflection probe, so the value is chosen as 1 for the two
+/// scale terms and 0 for the others.
+const NEUTRAL_SPEC_CUBE_HDR: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
+
+/// Adds the engine's default ambient lighting to a layer, for each name the layer holds no value
+/// for: a flat ambient light of [`AMBIENT_SKY_IRRADIANCE`] in the fourth component of
+/// `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in `unity_SHBr`, `unity_SHBg`, `unity_SHBb`
+/// and `unity_SHC`, and (1, 1, 0, 0) in `unity_SpecCube0_HDR`.
+///
+/// This is an engine default for a frame in which nothing sets these names, and nothing more.
+/// The scene's authored ambient does not reach the plan, the world or the host yet, and the
+/// repository has no measured convention for packing a probe into spherical harmonics, so the
+/// ambient is flat. (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
+/// Without any value these names pack as zero and the scene shaders of the Old World player draw
+/// black.
+///
+/// A frame adds the default to the globals its script starts from, next to the main light (see
+/// `Mapper::new`), so a global the world holds and a `SetGlobalVector` of the script replace it.
+pub fn add_ambient(layer: &mut PropertyLayer) {
+    let flat = [0.0, 0.0, 0.0, AMBIENT_SKY_IRRADIANCE];
+    let defaults = [
+        (SH_AR, flat),
+        (SH_AG, flat),
+        (SH_AB, flat),
+        (SH_BR, [0.0; 4]),
+        (SH_BG, [0.0; 4]),
+        (SH_BB, [0.0; 4]),
+        (SH_C, [0.0; 4]),
+        (SPEC_CUBE0_HDR, NEUTRAL_SPEC_CUBE_HDR),
+    ];
+    for (name, value) in defaults {
+        if layer.values.get(name).is_none() {
+            layer.values.set(name, PropertyValue::Vector(value));
+        }
+    }
 }
 
 /// Adds the size in pixels of the target a view draws into: `_ScreenParams` holds the width and

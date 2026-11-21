@@ -58,6 +58,8 @@ fn global_snapshot(arrays: &[u8]) -> Vec<u8> {
     body.extend_from_slice(&[0; 4 + 20]);
     body.extend_from_slice(arrays);
     body.extend_from_slice(&0_u64.to_le_bytes());
+    // No environment ambient or reflection.
+    body.extend_from_slice(&[0; 2]);
     // Empty work, cameras, lights, renderers, compute shaders and compute buffers.
     body.extend_from_slice(&[0; 24]);
     let mut bytes = b"DGSN".to_vec();
@@ -110,9 +112,9 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_nine_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 9);
-    for old in [4, 5, 6, 7, 8_u32] {
+fn the_version_is_sixteen_and_older_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 16);
+    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());
         assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));
@@ -184,6 +186,7 @@ fn every_location() -> GraphicsSnapshot {
         keywords: Vec::new(),
         disabled_passes: Vec::new(),
         properties: properties.clone(),
+        buffers: Vec::new(),
         generation: 1,
     };
     snapshot.materials.insert(
@@ -194,9 +197,11 @@ fn every_location() -> GraphicsSnapshot {
         local_to_world: [0.0; 16],
         mesh: 5,
         layer: 0,
+        shadow_casting_mode: 1,
         materials: vec![None],
         render_queue: None,
         property_block: Some(properties.clone()),
+        slot_blocks: std::collections::BTreeMap::new(),
     });
     snapshot.work = vec![
         OffscreenWork::SetGlobal(PropertyValue::VectorArray(

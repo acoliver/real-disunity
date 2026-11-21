@@ -1,20 +1,22 @@
 //! Shader property values and keywords on a material, in the global shader state or in a
 //! renderer's property block. A scope number and a target pick the holder: scope 0 is the
 //! material whose id is `target`, scope 1 the global state (`target` is ignored), scope 2 the
-//! property block of the mesh renderer component `target` and scope 3 the block of the next
-//! mesh draw a command buffer records (`target` is ignored; `disunity_offscreen_draw_mesh`
-//! takes it). Keywords have no draw scope.
+//! property block of the mesh renderer component `target` (the block of every material slot),
+//! scope 3 the block of the next mesh draw a command buffer records (`target` is ignored;
+//! `disunity_offscreen_draw_mesh` takes it) and scope 4 the block of one material slot of a
+//! mesh renderer, whose `target` is the token `disunity_mesh_renderer_slot_block_target` gives
+//! for the renderer and the material index. Keywords have no draw scope and no block scopes.
 use crate::{
     DisunityResult,
     callbacks::mutate,
     errors::AbiError,
     graphics::text,
-    mesh_renderer::{renderer, set_renderer},
+    mesh_renderer::{renderer, renderer_at, set_renderer},
     store::Session,
     textures::FIRST_PLAYER_TEXTURE,
 };
 use worldrunner_world_simulation::{
-    ComponentHandle,
+    ComponentHandle, MAX_RENDERER_MATERIALS,
     graphics::{
         MAX_PROPERTY_ARRAY_ELEMENTS, MaterialEdit, MaterialId, PropertyValue, RenderTextureId,
         ShaderProperties, TextureRef, TextureSlot,
@@ -25,16 +27,25 @@ const SCOPE_MATERIAL: u32 = 0;
 const SCOPE_GLOBAL: u32 = 1;
 const SCOPE_BLOCK: u32 = 2;
 const SCOPE_DRAW: u32 = 3;
+const SCOPE_SLOT_BLOCK: u32 = 4;
+
+/// The bits of a slot block token that hold the renderer handle; the bits above hold the
+/// material index plus one.
+const TOKEN_HANDLE_BITS: u32 = 48;
 
 const TEXTURE_NONE: u32 = 0;
 const TEXTURE_ASSET: u32 = 1;
 const TEXTURE_RENDER: u32 = 2;
 /// A global texture, which only compute bindings name; the name travels beside the record.
 pub(crate) const TEXTURE_GLOBAL: u32 = 3;
+/// A temporary render texture by the property name id it was allocated under, as the bits of the
+/// `int` in the low 32 bits. Only recorded blit and copy sources and globals set by recorded work
+/// take one; the world refuses it elsewhere.
+const TEXTURE_TEMPORARY: u32 = 4;
 
 /// A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
-/// by the identity the host knows it by (a player texture identity) and 2 for a world render
-/// texture by its id.
+/// by the identity the host knows it by (a player texture identity), 2 for a world render
+/// texture by its id and 4 for a temporary render texture by its property name id.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityTextureSlot {
@@ -54,8 +65,11 @@ pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiErro
         TEXTURE_RENDER if texture != 0 => {
             Ok(TextureRef::Render(RenderTextureId::from_bits(texture)))
         }
+        TEXTURE_TEMPORARY => u32::try_from(texture)
+            .map(|bits| TextureRef::Temporary(bits.cast_signed()))
+            .map_err(|_| "a temporary render texture's name id is a 32-bit int".into()),
         _ => Err(
-            "a texture is none (0), a player texture identity (1) or a render texture (2)".into(),
+            "a texture is none (0), a player texture identity (1), a render texture (2) or a temporary render texture (4)".into(),
         ),
     }
 }
@@ -67,6 +81,7 @@ pub(crate) fn texture_parts(texture: &TextureRef) -> (u32, u64) {
         TextureRef::Asset(identity) => (TEXTURE_ASSET, *identity),
         TextureRef::Render(id) => (TEXTURE_RENDER, id.to_bits()),
         TextureRef::Global(_) => (TEXTURE_GLOBAL, 0),
+        TextureRef::Temporary(name_id) => (TEXTURE_TEMPORARY, u64::from(name_id.cast_unsigned())),
     }
 }
 
@@ -85,7 +100,52 @@ enum Scope {
     Material(MaterialId),
     Global,
     Block(ComponentHandle),
+    SlotBlock(ComponentHandle, u32),
     Draw,
+}
+
+/// The scope target of the block of material slot `material_index` of the mesh renderer
+/// `handle`. The handle must fit the low 48 bits and the index must be a slot a renderer can
+/// hold.
+fn slot_block_token(handle: u64, material_index: u32) -> Result<u64, AbiError> {
+    if handle >> TOKEN_HANDLE_BITS != 0 || material_index >= MAX_RENDERER_MATERIALS {
+        return Err("a slot block names a renderer handle and a material index below 64".into());
+    }
+    Ok(handle | ((u64::from(material_index) + 1) << TOKEN_HANDLE_BITS))
+}
+
+fn slot_block_parts(token: u64) -> Result<(u64, u32), AbiError> {
+    let handle = token & ((1 << TOKEN_HANDLE_BITS) - 1);
+    let index = u32::try_from(token >> TOKEN_HANDLE_BITS)
+        .ok()
+        .and_then(|bits| bits.checked_sub(1))
+        .filter(|index| *index < MAX_RENDERER_MATERIALS)
+        .ok_or("a slot block target comes from disunity_mesh_renderer_slot_block_target")?;
+    Ok((handle, index))
+}
+
+/// Writes the scope target of the property block of one material slot of a mesh renderer to
+/// `target`, for the shader property calls with scope 4. The block holds the values the draws of
+/// that slot take above the renderer's all-slot block (scope 2) and the slot's material. The
+/// material index is below 64 and may name a slot the renderer has no material for yet.
+///
+/// # Safety
+/// `target` is writable for one value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_mesh_renderer_slot_block_target(
+    world: u64,
+    renderer_handle: u64,
+    material_index: u32,
+    target: *mut u64,
+) -> DisunityResult {
+    if target.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        renderer(s, renderer_handle)?;
+        unsafe { *target = slot_block_token(renderer_handle, material_index)? };
+        Ok(())
+    })
 }
 
 fn scope_of(session: &Session, scope: u32, target: u64) -> Result<Scope, AbiError> {
@@ -93,9 +153,13 @@ fn scope_of(session: &Session, scope: u32, target: u64) -> Result<Scope, AbiErro
         SCOPE_MATERIAL => Ok(Scope::Material(MaterialId::from_bits(target))),
         SCOPE_GLOBAL => Ok(Scope::Global),
         SCOPE_BLOCK => Ok(Scope::Block(renderer(session, target)?.0)),
+        SCOPE_SLOT_BLOCK => {
+            let (handle, index) = slot_block_parts(target)?;
+            Ok(Scope::SlotBlock(renderer(session, handle)?.0, index))
+        }
         SCOPE_DRAW => Ok(Scope::Draw),
         _ => Err(
-            "a shader scope is 0 (material), 1 (global), 2 (property block) or 3 (next mesh draw)"
+            "a shader scope is 0 (material), 1 (global), 2 (property block), 3 (next mesh draw) or 4 (slot property block)"
                 .into(),
         ),
     }
@@ -113,6 +177,17 @@ fn apply(session: &mut Session, scope: Scope, value: PropertyValue) -> Result<()
             current
                 .property_block
                 .get_or_insert_with(ShaderProperties::default)
+                .set(value)
+                .map_err(worldrunner_world_simulation::WorldError::from)?;
+            set_renderer(session, handle, current)?;
+        }
+        Scope::SlotBlock(handle, index) => {
+            session.native.check_property(&value)?;
+            let mut current = renderer_at(session, handle)?;
+            current
+                .slot_blocks
+                .entry(index)
+                .or_default()
                 .set(value)
                 .map_err(worldrunner_world_simulation::WorldError::from)?;
             set_renderer(session, handle, current)?;
@@ -360,6 +435,11 @@ pub extern "C" fn disunity_shader_properties_clear(
                 current.property_block = None;
                 set_renderer(s, handle, current)?;
             }
+            Scope::SlotBlock(handle, index) => {
+                let mut current = crate::mesh_renderer::renderer_at(s, handle)?;
+                current.slot_blocks.remove(&index);
+                set_renderer(s, handle, current)?;
+            }
             Scope::Draw => s.draw_block = ShaderProperties::default(),
         }
         Ok(())
@@ -391,7 +471,7 @@ pub unsafe extern "C" fn disunity_shader_keyword_write(
                 .native
                 .edit_material(id, MaterialEdit::Keyword { name, enabled })?,
             Scope::Global => s.native.set_global_keyword(&name, enabled)?,
-            Scope::Block(_) | Scope::Draw => {
+            Scope::Block(_) | Scope::SlotBlock(..) | Scope::Draw => {
                 return Err("a property block has no keywords".into());
             }
         }
@@ -420,7 +500,7 @@ pub unsafe extern "C" fn disunity_shader_keyword_read(
         let on = match scope_of(s, scope, target)? {
             Scope::Material(id) => s.native.material(id)?.keywords.contains(&name),
             Scope::Global => s.native.global_shader_state().keywords.contains(&name),
-            Scope::Block(_) | Scope::Draw => {
+            Scope::Block(_) | Scope::SlotBlock(..) | Scope::Draw => {
                 return Err("a property block has no keywords".into());
             }
         };
@@ -501,6 +581,13 @@ pub unsafe extern "C" fn disunity_shader_property_read(
             Scope::Block(handle) => {
                 let current = crate::mesh_renderer::renderer_at(s, handle)?;
                 read_values(&current.property_block.unwrap_or_default(), &name)
+            }
+            Scope::SlotBlock(handle, index) => {
+                let current = crate::mesh_renderer::renderer_at(s, handle)?;
+                read_values(
+                    &current.slot_blocks.get(&index).cloned().unwrap_or_default(),
+                    &name,
+                )
             }
             Scope::Draw => read_values(&s.draw_block, &name),
         };

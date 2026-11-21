@@ -38,6 +38,19 @@ pub enum RenderDimension {
     Unknown(u32),
 }
 
+impl std::fmt::Display for RenderDimension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::D2 => f.write_str("a 2D texture"),
+            Self::D2Array(layers) => write!(f, "a 2D array of {layers} layers"),
+            Self::D3(depth) => write!(f, "a 3D texture of {depth} slices"),
+            Self::Cube => f.write_str("a cube"),
+            Self::CubeArray(cubes) => write!(f, "a cube array of {cubes} cubes"),
+            Self::Unknown(code) => write!(f, "a texture of unknown dimension {code}"),
+        }
+    }
+}
+
 impl RenderDimension {
     /// The array layers, or the slices of a volume, the storage holds: 1 for a plain texture, 6
     /// for a cube and none for a dimension the host could not map.
@@ -76,7 +89,9 @@ impl RenderDimension {
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
-/// creates the texture again when anything but the id changes.
+/// creates the texture again, empty, when a field that shapes its storage changes (see
+/// [`same_storage`](Self::same_storage)). A rise of `generation` alone, which is what a sampler
+/// edit makes, keeps the texture and its contents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
@@ -99,6 +114,20 @@ impl RenderTextureSpec {
     pub const fn layers(&self) -> u32 {
         self.dimension.layers()
     }
+
+    /// Whether a texture made from `self` can serve `other`: every field but `generation` is
+    /// the same, so the storage has the same shape, format and size and keeps what it holds.
+    /// `generation` is how the host says the texture was edited, and a sampler edit changes no
+    /// storage. The one rule that decides when storage is made again, for the state's creation
+    /// of the texture and for its count of the bytes a frame would add.
+    #[must_use]
+    pub fn same_storage(&self, other: &Self) -> bool {
+        let without_generation = |spec: &Self| Self {
+            generation: 0,
+            ..spec.clone()
+        };
+        without_generation(self) == without_generation(other)
+    }
 }
 
 /// A material: a shader, keywords and properties.
@@ -110,6 +139,10 @@ pub struct Material {
     /// The values of properties the material does not set, which the host derives from what its
     /// shader declares and the material's textures. They sit below the material's own.
     pub fallback: PropertyLayer,
+    /// The declared defaults of the names the host fills in the globals, such as the main light.
+    /// They sit below every global, so a value the world, the script or the host puts in the
+    /// globals wins over the default the shader declares.
+    pub below_globals: PropertyLayer,
     pub render_queue: i32,
 }
 
@@ -120,8 +153,12 @@ pub struct Renderer {
     pub mesh: MeshId,
     pub materials: Vec<MaterialId>,
     pub layer: u32,
-    /// The renderer's property block.
+    /// The renderer's property block, which every slot's draws read.
     pub block: PropertyLayer,
+    /// The property block of single slots, by slot index. A slot's draws read its block above
+    /// `block`, so it wins over `block` for a name both set. A slot without an entry reads
+    /// `block` alone.
+    pub slot_blocks: BTreeMap<usize, PropertyLayer>,
     /// The values the caller supplies for this renderer's draws, such as its matrices, under
     /// the names its shaders use.
     pub per_draw: PropertyLayer,
@@ -200,12 +237,39 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
+    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
+    pub instances: u32,
+}
+
+/// The raster state a script set for the draws of a record, over the state their passes resolve.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DrawRaster {
+    /// The rectangle in texels of the attachments that clips the draws: x, y, width and height
+    /// from column 0 and row 0 at the attachments' mip, the corner a script calls the bottom
+    /// left (the engine draws a scene's lowest part in row 0). `None` clips nothing. The part of
+    /// the rectangle outside the attachments is dropped, and a rectangle with no texel left draws
+    /// nothing.
+    pub scissor: Option<[f32; 4]>,
+    /// The rectangle in texels of the attachments that the draws' clip space maps to: x, y, width
+    /// and height from column 0 and row 0 at the attachments' mip, the corner a script calls the
+    /// bottom left. `None` maps clip space to the whole attachments. A rectangle that is not
+    /// inside the attachments, or that has no area, draws nothing.
+    pub viewport: Option<[f32; 4]>,
+    /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
+    /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
+    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
+    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
+    /// to triangles only; a line list is drawn without it.
+    pub depth_bias: [f32; 2],
 }
 
 /// A list of draws into attachments.
 #[derive(Clone, Debug)]
 pub struct DrawList {
     pub target: Attachments,
+    /// The raster state of the whole list.
+    pub raster: DrawRaster,
     /// The values of the view the list draws with, below the renderer's per-draw values and above
     /// the renderer's property block.
     pub values: PropertyLayer,
@@ -221,6 +285,8 @@ pub struct DrawList {
 #[derive(Clone, Debug)]
 pub struct ProceduralDraw {
     pub target: Attachments,
+    /// The raster state of the draw.
+    pub raster: DrawRaster,
     /// The values of the view the draw uses, as a list's are.
     pub values: PropertyLayer,
     /// The draw's own values, such as its object matrix, below the view's.
@@ -264,6 +330,15 @@ pub enum Record {
         target_element: u32,
         target_mip: u32,
     },
+    /// Generates mips 1 to N of a render texture from its mip 0: each level is the 2x2 box
+    /// average of the level above it, made by a linear downsample of every layer or cube face on
+    /// its own. The texture must be a color render texture of a format the device filters; a 3D
+    /// texture and any other format are refused ([`MipsOfVolume`](super::OffscreenError::MipsOfVolume),
+    /// [`MipsOfFormat`](super::OffscreenError::MipsOfFormat)). Afterwards every level of every layer counts as written
+    /// at that point, so a later draw that samples the texture binds all of its levels.
+    GenerateMips {
+        texture: TextureId,
+    },
     /// Sets the parts of the attachments that `clear` names.
     Clear {
         target: Attachments,
@@ -304,8 +379,10 @@ pub struct OffscreenFrame {
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
     /// The textures a texture slot reads when no layer sets it and the shader does not declare
-    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
-    /// each as it does any source texture. A draw that reads one is counted by property in
+    /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
+    /// the Old World player makes with such a slot is drawn and counted instead of left out. The
+    /// host uploads each as it does any source texture. A draw that reads one is counted by
+    /// property in
     /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
@@ -317,12 +394,14 @@ pub struct OffscreenFrame {
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UndeclaredTextures {
-    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
-    /// 0.5 0.5 0.5 1.
+    /// For a slot that samples a 2D texture. The host's grey 2D default is RGBA 0.5 0.5 0.5 1.
     pub d2: Option<TextureId>,
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
     pub cube: Option<TextureId>,
+    /// For a slot that samples a 3D texture, such as an Old World `_3DNoiseTexture`. Upload it as
+    /// a [`SourceDimension::D3`] source of one slice.
+    pub d3: Option<TextureId>,
 }
 
 impl UndeclaredTextures {
@@ -331,6 +410,7 @@ impl UndeclaredTextures {
         match view {
             wgpu::TextureViewDimension::D2 => self.d2,
             wgpu::TextureViewDimension::Cube => self.cube,
+            wgpu::TextureViewDimension::D3 => self.d3,
             _ => None,
         }
     }
@@ -355,6 +435,36 @@ impl Default for OffscreenFrame {
     }
 }
 
+impl OffscreenFrame {
+    /// The most draws building `record` plans, which a host that builds a frame in parts uses to
+    /// keep a part within a budget of planned draws before it plans any.
+    ///
+    /// A camera render is bound by the material slots of the renderers its mask selects, a list
+    /// by its items and a procedural draw by its passes. A draw left out for want of a pass, a
+    /// texture or a mesh channel is planned by none, so the bound is at least what is planned.
+    #[must_use]
+    pub fn planned_draw_bound(&self, record: &Record) -> usize {
+        match record {
+            Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
+                self.renderers
+                    .values()
+                    .filter(|renderer| {
+                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
+                    })
+                    .map(|renderer| renderer.materials.len())
+                    .sum()
+            }),
+            Record::Draws(list) => list.draws.len(),
+            Record::Procedural(draw) => draw.passes.len(),
+            Record::Blit { .. } => 1,
+            Record::CopyTexture { .. }
+            | Record::GenerateMips { .. }
+            | Record::Clear { .. }
+            | Record::Globals(_) => 0,
+        }
+    }
+}
+
 /// The shape of an uploaded source texture.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SourceDimension {
@@ -363,17 +473,33 @@ pub enum SourceDimension {
     D2,
     /// A cube of six square faces, sampled through a cube view. `size` is one face, which must be
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
-    /// +Z, -Z, each as a 2D level is.
+    /// +Z, -Z, each holding its [`SourceTexture::mips`] levels from the base level down, every
+    /// level as a 2D level is.
     Cube,
+    /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
+    /// one layer and `bytes` holds the layers one after the other, each holding its
+    /// [`SourceTexture::mips`] levels from the base level down, every level as a 2D level is.
+    D2Array(u32),
+    /// A 3D texture of this many slices, which may be one, sampled through a 3D view. `size` is
+    /// one slice and `bytes` holds the [`SourceTexture::mips`] levels from the base level down,
+    /// each holding its slices one after the other, and a level has the base level's width,
+    /// height and depth shifted down (at least one). The graph tracks one cell per volume, so
+    /// all its levels are read together.
+    D3(u32),
 }
 
-/// A texture the host uploads once: uncompressed, one mip.
+/// A texture the host uploads once.
 #[derive(Clone, Debug)]
 pub struct SourceTexture {
     pub id: TextureId,
     pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
+    /// The mip levels of the texture. For a [`SourceDimension::D2Array`] or a
+    /// [`SourceDimension::Cube`], `bytes` has each layer's or face's whole chain, base level
+    /// first, one layer or face after the other. For a [`SourceDimension::D3`] it has the chain
+    /// of levels, each with its slices. A [`SourceDimension::D2`] has one level.
+    pub mips: u32,
     pub bytes: Vec<u8>,
     /// The state the texture is read with unless a property overrides it.
     pub sampler: Option<SamplerState>,

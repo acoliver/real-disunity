@@ -49,22 +49,17 @@ public sealed class Rigidbody2D : NativeComponent
         }
     }
     public RigidbodyType2D bodyType { get => (RigidbodyType2D)Read().kind; set { var b = Read(); b.kind = (uint)value; Write(b); } }
-    /// <summary>Interpolate draws the body between its poses either side of the last physics step;
-    /// its transform keeps the physics pose. Extrapolation is not supported.</summary>
+    /// <summary>Interpolate blends the last two step poses. Extrapolate predicts from the step
+    /// result and current velocity for at most one fixed step. The transform keeps the physics pose.</summary>
     public unsafe RigidbodyInterpolation2D interpolation
     {
         get
         {
             uint interpolate;
             DisunityHost.ThrowIfError(NativeBindings.disunity_body_interpolation_read(DisunityHost.WorldHandle, Handle, &interpolate));
-            return interpolate == 1 ? RigidbodyInterpolation2D.Interpolate : RigidbodyInterpolation2D.None;
+            return (RigidbodyInterpolation2D)interpolate;
         }
-        set
-        {
-            if (value == RigidbodyInterpolation2D.Extrapolate)
-                throw new NotSupportedException("Rigidbody2D extrapolation is not supported; use Interpolate or None");
-            DisunityHost.ThrowIfError(NativeBindings.disunity_body_interpolation_write(DisunityHost.WorldHandle, Handle, value == RigidbodyInterpolation2D.Interpolate ? 1u : 0u));
-        }
+        set => DisunityHost.ThrowIfError(NativeBindings.disunity_body_interpolation_write(DisunityHost.WorldHandle, Handle, (uint)value));
     }
     public void Sleep() => DisunityHost.ThrowIfError(NativeBindings.disunity_body_set_sleeping(DisunityHost.WorldHandle, Handle, 1));
     public void WakeUp() => DisunityHost.ThrowIfError(NativeBindings.disunity_body_set_sleeping(DisunityHost.WorldHandle, Handle, 0));

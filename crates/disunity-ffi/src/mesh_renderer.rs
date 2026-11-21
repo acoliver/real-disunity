@@ -104,6 +104,7 @@ impl DisunityMeshRenderer {
                 .take(self.material_count as usize)
                 .collect(),
             property_block: current.property_block,
+            slot_blocks: current.slot_blocks,
             render_queue: current.render_queue,
         })
     }

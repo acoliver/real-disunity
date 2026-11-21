@@ -1,4 +1,5 @@
 //! Low-level GPU services independent of scenes, content containers and window systems.
+pub mod adapter_memory;
 pub mod attachment;
 #[cfg(test)]
 mod capture_configuration_tests;
@@ -20,6 +21,7 @@ pub mod test_support;
 pub mod texture;
 #[cfg(any(test, feature = "test-support"))]
 pub mod tolerance_test_support;
+pub mod volume;
 
 pub mod store;
 pub use store::CanonicalTextureStore;

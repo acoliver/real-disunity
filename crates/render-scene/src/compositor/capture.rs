@@ -31,6 +31,11 @@ pub enum FeatureTarget {
     /// Available only with `SceneOpaquePath::GBUFFER_OBSERVATION`; it holds what the
     /// `OpaqueGbuffer` slot wrote in the last encoded frame, zero where nothing drew.
     Gbuffer(crate::gbuffer::GbufferTarget),
+    /// One output of the deferred lighting pass at the scene extent, in the scene colour
+    /// format: lit colour, and with reflections the environment contribution and factor.
+    /// Available only with `SceneOpaquePath::GBUFFER_OBSERVATION`; zero where no producer
+    /// wrote the G-buffer.
+    DeferredLighting(crate::gbuffer::lighting::LightingTarget),
 }
 
 /// Logical capture rectangle and sample-lane layout in an existing allocation.
@@ -65,7 +70,11 @@ impl FrameRenderer {
         match feature {
             FeatureTarget::Depth => self.ssao.as_ref().map(|s| s.passes.depth_levels()[0]),
             FeatureTarget::Normals => self.ssao.as_ref().map(|s| &s.normals),
-            FeatureTarget::AmbientOcclusion => self.ssao.as_ref().map(|s| &s.passes.filtered),
+            FeatureTarget::AmbientOcclusion => self
+                .ssao
+                .as_ref()
+                .filter(|s| s.passes.computes_occlusion())
+                .map(|s| &s.passes.filtered),
             FeatureTarget::Specular => self.ssr.as_ref().map(crate::ssr::Ssr::material_target),
             FeatureTarget::SsrConfidence => {
                 self.ssr.as_ref().map(crate::ssr::Ssr::confidence_target)
@@ -74,7 +83,7 @@ impl FrameRenderer {
                 .ssr
                 .as_ref()
                 .filter(|ssr| {
-                    self.water.is_some()
+                    self.stock_water().is_some()
                         && ssr.settings.hit_facing
                             == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
                 })
@@ -82,6 +91,10 @@ impl FrameRenderer {
             FeatureTarget::Gbuffer(target) => {
                 self.gbuffer.as_ref().map(|gbuffer| gbuffer.texture(target))
             }
+            FeatureTarget::DeferredLighting(target) => self
+                .gbuffer
+                .as_ref()
+                .and_then(|gbuffer| gbuffer.lighting_texture(target)),
         }
     }
 
@@ -92,7 +105,7 @@ impl FrameRenderer {
                 .ssr
                 .as_ref()
                 .filter(|ssr| {
-                    self.water.is_some()
+                    self.stock_water().is_some()
                         && ssr.settings.hit_facing
                             == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
                 })

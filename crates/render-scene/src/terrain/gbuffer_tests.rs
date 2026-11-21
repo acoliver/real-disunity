@@ -8,7 +8,8 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{RenderScene, SceneOpaquePath, SceneSsr};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
+    FrameFeature, PassEntry, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef,
+    ToneMap,
 };
 
 use super::capture_tests::scenes;
@@ -25,7 +26,7 @@ use crate::renderer::ScenePipelines;
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-fn reflections() -> SceneSsr {
+pub(super) fn reflections() -> SceneSsr {
     SceneSsr {
         enabled: true,
         max_steps: 64,
@@ -39,14 +40,14 @@ fn reflections() -> SceneSsr {
 /// A plain HDR frame, and one with reflections, whose depth prepass completes scene depth
 /// before Opaque.
 #[derive(Clone, Copy, Debug)]
-enum Frame {
+pub(super) enum Frame {
     Plain,
     Reflecting,
     Flat,
 }
 
 impl Frame {
-    fn scene(self) -> RenderScene {
+    pub(super) fn scene(self) -> RenderScene {
         match self {
             Self::Plain => scenes::plain(),
             Self::Reflecting => scenes::reflecting(reflections()),
@@ -54,13 +55,18 @@ impl Frame {
         }
     }
 
-    fn uniform(self, scene: &RenderScene) -> FrameUniform {
+    pub(super) fn uniform(self, scene: &RenderScene) -> FrameUniform {
         match self {
             Self::Plain => scenes::frame(scenes::pose()),
             Self::Reflecting | Self::Flat => {
                 scenes::frame_with(scenes::pose(), scene.effects().expect("scene effects"))
             }
         }
+    }
+
+    /// Whether the frame has the depth prepass, which completes scene depth before Opaque.
+    pub(super) const fn prepassed(self) -> bool {
+        matches!(self, Self::Reflecting | Self::Flat)
     }
 
     fn configuration(self, opaque_path: SceneOpaquePath) -> RendererConfiguration {
@@ -76,26 +82,41 @@ impl Frame {
     }
 }
 
-struct Drawn {
-    renderer: ConfiguredFrameRenderer,
-    gpu: SceneGpu,
-    pipelines: ScenePipelines,
-    frame: FrameUniform,
+pub(super) struct Drawn {
+    pub(super) renderer: ConfiguredFrameRenderer,
+    pub(super) gpu: SceneGpu,
+    pub(super) pipelines: ScenePipelines,
+    pub(super) frame: FrameUniform,
 }
 
 fn prepare(context: &GpuContext, frame: Frame, opaque_path: SceneOpaquePath) -> Drawn {
-    let scene = frame.scene();
-    let uniform = frame.uniform(&scene);
-    prepare_scene(context, &scene, &uniform, frame.configuration(opaque_path))
+    prepare_scene(context, frame, opaque_path, &frame.scene())
 }
 
-fn prepare_scene(
+/// [`prepare`] for `scene`, which has `frame`'s effects.
+pub(super) fn prepare_scene(
+    context: &GpuContext,
+    frame: Frame,
+    opaque_path: SceneOpaquePath,
+    scene: &RenderScene,
+) -> Drawn {
+    let scene = scene.clone();
+    let uniform = frame.uniform(&scene);
+    prepare_with(context, &scene, &uniform, frame.configuration(opaque_path))
+}
+
+/// Uploads `scene`, sets `uniform` and builds a renderer with `configuration`.
+pub(super) fn prepare_with(
     context: &GpuContext,
     scene: &RenderScene,
     uniform: &FrameUniform,
     configuration: RendererConfiguration,
 ) -> Drawn {
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = if configuration.ssao.is_some() {
+        ScenePipelines::with_ssao(context.device(), HDR, 1).unwrap()
+    } else {
+        ScenePipelines::new(context.device(), HDR)
+    };
     let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *uniform);
     let renderer =
@@ -109,7 +130,11 @@ fn prepare_scene(
 }
 
 /// Encodes `frames` frames and returns the resolved scene colour of the last.
-fn render(context: &GpuContext, drawn: &mut Drawn, frames: usize) -> Result<Vec<u8>, FrameError> {
+pub(super) fn render(
+    context: &GpuContext,
+    drawn: &mut Drawn,
+    frames: usize,
+) -> Result<Vec<u8>, FrameError> {
     for _ in 0..frames {
         let targets = drawn.renderer.targets();
         let color =
@@ -130,7 +155,11 @@ fn render(context: &GpuContext, drawn: &mut Drawn, frames: usize) -> Result<Vec<
     Ok(read(context, drawn.renderer.targets().texture(), HDR))
 }
 
-fn read(context: &GpuContext, texture: &wgpu::Texture, format: wgpu::TextureFormat) -> Vec<u8> {
+pub(super) fn read(
+    context: &GpuContext,
+    texture: &wgpu::Texture,
+    format: wgpu::TextureFormat,
+) -> Vec<u8> {
     Readback::new(
         context.device(),
         FrameConfig::new([texture.width(), texture.height()], format, 1),
@@ -141,7 +170,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture, format: wgpu::TextureForm
     .unwrap()
 }
 
-fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
+pub(super) fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
     GbufferTarget::ALL.map(|target| {
         let texture = renderer
             .feature_target(FeatureTarget::Gbuffer(target))
@@ -287,6 +316,7 @@ fn surfaces(rotation: Mat3) -> Vec<Surface> {
                 emission: unit(23),
                 ao: unit(29),
                 flags: u32::try_from(index % 4).unwrap(),
+                lighting_record: u8::try_from(index % 256).unwrap(),
             }
         })
         .collect()
@@ -348,7 +378,7 @@ impl FrameFeature for Probe {
             values.extend(surface.geometric_normal.extend(surface.metal).to_array());
             values.extend(surface.base_colour.extend(surface.emission).to_array());
             let flags = f32::from(u8::try_from(surface.flags).expect("two bits"));
-            values.extend([surface.ao, flags, 0.0, 0.0]);
+            values.extend([surface.ao, flags, f32::from(surface.lighting_record), 0.0]);
         }
         let bytes: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -373,7 +403,7 @@ fn fs_probe(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
     let c = probe[base + 2u];
     let d = probe[base + 3u];
     return scene_gbuffer_encode(
-        SceneGbufferSurface(a.xyz, b.xyz, c.xyz, a.w, b.w, c.w, d.x, u32(d.y)),
+        SceneGbufferSurface(a.xyz, b.xyz, c.xyz, a.w, b.w, c.w, d.x, u32(d.y), u32(d.z)),
         view_from_scene,
     );
 }}
@@ -458,7 +488,10 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
             );
         }
         assert_eq!(codes.g0[2..], [0, 0], "{pixel}: G0 reserved channels");
-        assert_eq!(codes.g1[3], 0, "{pixel}: G1 reserved alpha");
+        assert_eq!(
+            codes.g1[3], expected.lighting_record,
+            "{pixel}: G1 lighting record"
+        );
         for channel in 0..3 {
             assert!(
                 near(codes.g1[channel].into(), mirrored.g1[channel].into()),
@@ -494,6 +527,10 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
             "{pixel}: geometric normal off by {geometric} degrees"
         );
         assert_eq!(decoded.flags, expected.flags, "{pixel}: flags");
+        assert_eq!(
+            decoded.lighting_record, expected.lighting_record,
+            "{pixel}: lighting record"
+        );
         assert!(
             (decoded.ao - expected.ao).abs() <= 1.0 / 255.0,
             "{pixel}: ao"
@@ -530,7 +567,9 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             // Opaque, so the slot has no depth to lend and says so.
             assert_eq!(
                 rendered.err(),
-                Some(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))
+                Some(FrameError::AttachmentContract(PassEntry::new(
+                    PassSlot::OpaqueGbuffer
+                )))
             );
             continue;
         }

@@ -11,11 +11,40 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
+        /// <summary>
+        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
+        /// <summary>
         ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
         ///  caller checks the pass against the shader's pass count; the world holds none.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
+        /// <summary>
+        ///  Binds the compute buffer `buffer` to the property `name` of a material as a structured
+        ///  buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
+        ///  that is not alive is refused and the material is unchanged. Draws of the material read the
+        ///  buffer's contents when the host draws.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_buffer", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_buffer(ulong world, ulong material, byte* name, uint length, ulong buffer);
         /// <summary>
         ///  # Safety
         ///  `output` is writable for one record.
@@ -196,6 +225,30 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
         /// <summary>
+        ///  Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+        ///  it cover. A value that is not finite and a negative width or height are refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_viewport", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_viewport(ulong world, float x, float y, float width, float height);
+        /// <summary>
+        ///  Records the rectangle, in pixels of the bound targets from the bottom left, that clips the draws
+        ///  after it until a disable, a new target or a camera setup. A value that is not finite and a
+        ///  negative width or height are refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_enable_scissor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_enable_scissor(ulong world, float x, float y, float width, float height);
+        /// <summary>
+        ///  Records the end of the clip `disunity_offscreen_enable_scissor` set.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_disable_scissor", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_disable_scissor(ulong world);
+        /// <summary>
+        ///  Records the depth bias of the draws after it: `bias` is the constant offset and `slope_bias` the
+        ///  factor of the triangle's depth slope. A value that is not finite is refused.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_depth_bias", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_depth_bias(ulong world, float bias, float slope_bias);
+        /// <summary>
         ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
         ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
         ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
@@ -209,6 +262,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
         /// <summary>
+        ///  Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+        ///  sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh_instanced", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh_instanced(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass, uint instances);
+        /// <summary>
         ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
         ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound
         ///  targets with the current view and projection. `topology` is 0 for a triangle list and 1 for a
@@ -219,6 +281,13 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_procedural", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_procedural(ulong world, float* matrix, ulong material, int pass, uint topology, int vertex_count, int instance_count);
+        /// <summary>
+        ///  Records a request to fill mip levels 1 and up of the render texture `texture` from its level 0,
+        ///  after the work recorded before it. The world refuses a dead texture and one with a single mip
+        ///  level.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_generate_mips", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_generate_mips(ulong world, ulong texture);
         /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
@@ -238,6 +307,17 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_take(ulong world, DisunityOffscreenWork* records, uint capacity, uint* count);
+        /// <summary>
+        ///  Writes the scope target of the property block of one material slot of a mesh renderer to
+        ///  `target`, for the shader property calls with scope 4. The block holds the values the draws of
+        ///  that slot take above the renderer's all-slot block (scope 2) and the slot's material. The
+        ///  material index is below 64 and may name a slot the renderer has no material for yet.
+        ///
+        ///  # Safety
+        ///  `target` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slot_block_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_slot_block_target(ulong world, ulong renderer_handle, uint material_index, ulong* target);
         /// <summary>
         ///  Sets a float property, replacing the value of the same name.
         ///
@@ -410,6 +490,16 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_messages(ulong world, ulong identity, uint messages);
+        /// <summary>
+        ///  Answers a shadow query; see [`DisunityShadowRequest`].
+        ///
+        ///  # Safety
+        ///  `request` is readable for one record; `matrices` for 32 floats; `casters` for
+        ///  `request.caster_count` records, or null when the count is zero; `result` is writable for one
+        ///  record; `output` is writable for [`SHADOW_OUTPUT_FLOATS`] floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shadow_query", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shadow_query(DisunityShadowRequest* request, float* matrices, DisunityShadowCaster* casters, DisunityShadowResult* result, float* output);
         /// <summary>
         ///  # Safety
         ///  Both outputs must be writable for one count.

@@ -1,11 +1,14 @@
+//! The base passes of a shadowed scene frame: the shadow casters of the cascades being refreshed,
+//! the opaque pass with its velocity attachment, the screen-space passes the frame adds and the
+//! celestial pass, with the declaration of the feature that draws in them.
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, PassDeclaration, PassSlot, ResourceRef,
 };
 use worldrunner_render_shadow::DepthMap;
 
-use super::ShadowError;
+use crate::shadows::ShadowError;
 
-pub(super) struct ShadowSchedule {
+pub(crate) struct ShadowSchedule {
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
     pub declaration: FeatureDeclaration,
@@ -93,6 +96,47 @@ impl ShadowSchedule {
             .map(|attachment| attachment.format)
             .collect();
         Ok(())
+    }
+
+    /// Adds the screen-space passes, the relief cards' read of the Opaque depth when they
+    /// reject against it, the celestial pass and, with the G-buffer observation, the deferred
+    /// lighting pass, whose inputs for `frame` it returns.
+    pub fn complete(
+        &mut self,
+        scheduler: &crate::compositor::FrameRenderer,
+        (gpu, selected): (&crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        (device, size): (&wgpu::Device, [u32; 2]),
+        (depth_mode, card_reject): (crate::renderer::depth::DepthMode, bool),
+        (depth, frame): (&wgpu::Texture, &crate::frame::FrameUniform),
+    ) -> Result<Option<crate::gbuffer::lighting::LightingInputs>, worldrunner_render_post::FrameError>
+    {
+        self.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
+        if card_reject {
+            debug_assert_eq!(depth_mode, crate::renderer::depth::DepthMode::Reuse);
+            self.card_reject_depth();
+        }
+        self.celestial(gpu, device, size);
+        scheduler.prepare_deferred_lighting(
+            device,
+            (gpu, selected),
+            (
+                self.scene_depth(),
+                depth,
+                depth_mode == crate::renderer::depth::DepthMode::Reuse,
+            ),
+            frame,
+            &mut self.declaration,
+        )
+    }
+
+    /// The scene depth as the Opaque pass declares it.
+    pub fn scene_depth(&self) -> ResourceRef {
+        self.passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref())
+            .expect("opaque depth")
+            .resource
     }
 
     /// Attaches the Opaque depth read-only and declares the pass's sampled read of it, for

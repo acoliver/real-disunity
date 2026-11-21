@@ -20,6 +20,18 @@ pub(super) fn filter_target(
     }
 }
 
+/// What the green channel of the last filter stage holds, from the format [`filter_target`]
+/// chose for it: [`filter_source`] writes the depth the gathering receivers weigh by, in metres,
+/// into `Rg32Float`, and the scalable kernel writes depth over the far distance, which its
+/// `Rg16Float` filter keeps.
+pub(crate) fn occlusion_depth(format: wgpu::TextureFormat) -> crate::compositor::OcclusionDepth {
+    match format {
+        wgpu::TextureFormat::Rg32Float => crate::compositor::OcclusionDepth::Meters,
+        wgpu::TextureFormat::Rg16Float => crate::compositor::OcclusionDepth::FractionOfFar,
+        _ => crate::compositor::OcclusionDepth::None,
+    }
+}
+
 use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::{SceneSsaoFilter, SceneSsaoReceiver};
 
@@ -120,8 +132,8 @@ pub(crate) fn group(
     })
 }
 
-/// The final filter of `filter` with the consumed depth beside the occlusion: the box filter
-/// (`blur.wgsl`) returns `sum / weights`, the separable bilateral `sum / total`.
+/// The final filter with consumed depth beside the occlusion. Weighted deviations from the
+/// centre preserve constant occlusion exactly through normalization.
 pub(super) fn filter_source(source: &str, filter: SceneSsaoFilter) -> String {
     let result = match filter {
         SceneSsaoFilter::ScalableBilateral { .. } => {
@@ -132,8 +144,8 @@ pub(super) fn filter_source(source: &str, filter: SceneSsaoFilter) -> String {
                 "textureLoad(depths, pixel, 0).r);",
             );
         }
-        SceneSsaoFilter::DepthAwareBox => "sum / weights",
-        SceneSsaoFilter::SeparableBilateral => "sum / total",
+        SceneSsaoFilter::DepthAwareBox => "anchor + sum / weights",
+        SceneSsaoFilter::SeparableBilateral => "anchor + sum / total",
     };
     source
         .anchored(

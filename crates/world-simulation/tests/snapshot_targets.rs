@@ -51,6 +51,7 @@ fn render_texture(world: &mut World, [width, height]: [u32; 2]) -> RenderTexture
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -158,7 +159,7 @@ fn every_kind_of_record_that_reads_or_draws_a_texture_names_it() {
         OffscreenWork::CameraRender { camera, target: id },
         OffscreenWork::Blit {
             source: TextureRef::Render(id),
-            target: other,
+            target: TargetRef::Render(other),
             material: None,
             pass: 0,
         },

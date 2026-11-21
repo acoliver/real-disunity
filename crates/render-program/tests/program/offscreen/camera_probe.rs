@@ -84,6 +84,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 materials: vec![MaterialId(1)],
                 layer: 1,
                 block: PropertyLayer::default(),
+                slot_blocks: std::collections::BTreeMap::new(),
                 per_draw,
             },
         )
@@ -103,6 +104,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 keywords: Vec::new(),
                 properties,
                 fallback: PropertyLayer::default(),
+                below_globals: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

@@ -22,6 +22,11 @@ pub const KIND_SETUP_CAMERA: u32 = 11;
 pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
 pub const KIND_DRAW_MESH: u32 = 16;
 pub const KIND_DRAW_PROCEDURAL: u32 = 17;
+pub const KIND_SET_VIEWPORT: u32 = 18;
+pub const KIND_GENERATE_MIPS: u32 = 19;
+pub const KIND_ENABLE_SCISSOR: u32 = 20;
+pub const KIND_DISABLE_SCISSOR: u32 = 21;
+pub const KIND_SET_DEPTH_BIAS: u32 = 22;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -153,6 +158,67 @@ pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
     })
 }
 
+/// Records the rectangle, in pixels of the bound targets from the bottom left, that the draws after
+/// it cover. A value that is not finite and a negative width or height are refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_set_viewport(
+    world: u64,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::SetViewport {
+            rect: [x, y, width, height],
+        })?;
+        Ok(())
+    })
+}
+
+/// Records the rectangle, in pixels of the bound targets from the bottom left, that clips the draws
+/// after it until a disable, a new target or a camera setup. A value that is not finite and a
+/// negative width or height are refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_enable_scissor(
+    world: u64,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::EnableScissor {
+            rect: [x, y, width, height],
+        })?;
+        Ok(())
+    })
+}
+
+/// Records the end of the clip `disunity_offscreen_enable_scissor` set.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_disable_scissor(world: u64) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::DisableScissor)?;
+        Ok(())
+    })
+}
+
+/// Records the depth bias of the draws after it: `bias` is the constant offset and `slope_bias` the
+/// factor of the triangle's depth slope. A value that is not finite is refused.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_set_depth_bias(
+    world: u64,
+    bias: f32,
+    slope_bias: f32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native
+            .record_offscreen(OffscreenWork::SetDepthBias { bias, slope_bias })?;
+        Ok(())
+    })
+}
+
 /// Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
 /// column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
 /// pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
@@ -171,6 +237,35 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
     submesh: u32,
     pass: i32,
 ) -> DisunityResult {
+    unsafe { draw_mesh(world, (mesh, matrix), material, (submesh, pass, 1)) }
+}
+
+/// Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+/// sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+///
+/// # Safety
+/// `matrix` is readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_draw_mesh_instanced(
+    world: u64,
+    mesh: u64,
+    matrix: *const f32,
+    material: u64,
+    submesh: u32,
+    pass: i32,
+    instances: u32,
+) -> DisunityResult {
+    unsafe { draw_mesh(world, (mesh, matrix), material, (submesh, pass, instances)) }
+}
+
+/// # Safety
+/// `matrix` is readable for 16 floats.
+unsafe fn draw_mesh(
+    world: u64,
+    (mesh, matrix): (u64, *const f32),
+    material: u64,
+    (submesh, pass, instances): (u32, i32, u32),
+) -> DisunityResult {
     mutate(world, |s| {
         let block = std::mem::take(&mut s.draw_block);
         if matrix.is_null() {
@@ -188,6 +283,7 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
             submesh,
             pass,
             block: (!block.is_empty()).then(|| Box::new(block)),
+            instances,
         })?;
         Ok(())
     })
@@ -238,14 +334,32 @@ pub unsafe extern "C" fn disunity_offscreen_draw_procedural(
     })
 }
 
+/// Records a request to fill mip levels 1 and up of the render texture `texture` from its level 0,
+/// after the work recorded before it. The world refuses a dead texture and one with a single mip
+/// level.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_offscreen_generate_mips(world: u64, texture: u64) -> DisunityResult {
+    mutate(world, |s| {
+        s.native.record_offscreen(OffscreenWork::GenerateMips {
+            texture: RenderTextureId::from_bits(texture),
+        })?;
+        Ok(())
+    })
+}
+
 /// The kind a taken context record has, or `None` for other work.
 pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
     match work {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
         OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
+        OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
         OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
         OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
+        OffscreenWork::GenerateMips { .. } => Some(KIND_GENERATE_MIPS),
+        OffscreenWork::EnableScissor { .. } => Some(KIND_ENABLE_SCISSOR),
+        OffscreenWork::DisableScissor => Some(KIND_DISABLE_SCISSOR),
+        OffscreenWork::SetDepthBias { .. } => Some(KIND_SET_DEPTH_BIAS),
         other => readback_kind(other),
     }
 }

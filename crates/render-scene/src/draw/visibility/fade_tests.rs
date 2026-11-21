@@ -162,7 +162,7 @@ fn a_live_material_slot_or_mesh_handoff_prevents_whole_placement_culling() {
         let instances = Instances::new(&source);
         let mesh = MeshSelection::new(&mesh);
         assert_eq!(
-            mesh.fade_empty(
+            mesh.fade_empty_alone(
                 &instances.fades,
                 source.geometry().objects()[0],
                 1,

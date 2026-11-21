@@ -46,7 +46,7 @@ impl PreparedScene {
     /// Prepares textures, mesh levels, transitions and terrain for the shared upload path.
     ///
     /// # Errors
-    /// Returns the same CPU preparation failures as [`SceneGpu::upload`].
+    /// Returns the same CPU preparation failures as [`SceneGpu::upload`](super::SceneGpu::upload).
     pub fn new(scene: &RenderScene) -> Result<Self, DrawError> {
         descriptors::validate(scene)?;
         let palette = crate::skinning::ScenePalette::new(scene.geometry().skin_poses()).map_err(
@@ -159,6 +159,54 @@ impl PreparedScene {
     /// The immutable source generation associated with these prepared bytes.
     pub fn scene(&self) -> &RenderScene {
         &self.scene
+    }
+
+    /// Backing bytes of prepared scene textures selected by `include`, before upload.
+    #[must_use]
+    pub fn texture_bytes_where(
+        &self,
+        include: impl Fn(worldrunner_render_plan::TextureHandle) -> bool,
+    ) -> u64 {
+        self.textures
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                u32::try_from(*index)
+                    .is_ok_and(|raw| include(worldrunner_render_plan::TextureHandle::from_raw(raw)))
+            })
+            .map(|(_, texture)| texture.as_prepared().tier_bytes(0))
+            .sum()
+    }
+
+    /// Chooses one texture tier for the textures `eligible` accepts and drops that many top
+    /// levels from each before upload (GitHub #376 step 3). `other_resident` is the memory
+    /// already counted outside these textures. Without a policy or a device-local size this
+    /// changes nothing and reports the authored bytes.
+    pub fn apply_texture_tier(
+        &mut self,
+        policy: Option<crate::texture::TextureTierPolicy>,
+        device_local: Option<u64>,
+        other_resident: u64,
+        eligible: impl Fn(worldrunner_render_plan::TextureHandle) -> bool,
+    ) -> crate::texture::TierChoice {
+        let selected: Vec<usize> = (0..self.textures.len())
+            .filter(|&index| {
+                u32::try_from(index).is_ok_and(|raw| {
+                    eligible(worldrunner_render_plan::TextureHandle::from_raw(raw))
+                })
+            })
+            .collect();
+        let choice = {
+            let borrowed: Vec<_> = selected
+                .iter()
+                .map(|&index| self.textures[index].as_prepared())
+                .collect();
+            crate::texture::choose_tier(policy, device_local, other_resident, &borrowed)
+        };
+        for index in selected {
+            self.textures[index].drop_top_levels(choice.dropped_levels);
+        }
+        choice
     }
 }
 

@@ -1,3 +1,5 @@
+mod configuration;
+
 use super::*;
 
 #[test]
@@ -132,6 +134,7 @@ fn supplier_capture_host(
             .is_none()
             .then(crate::renderer::retained_tests::shadow_settings),
         render_clock: RenderClock::Fixed(Duration::ZERO),
+        game: crate::GameRendering::default(),
         ..crate::tests::options()
     };
     RetainedHost::with_initial_content(options, move |identity| {

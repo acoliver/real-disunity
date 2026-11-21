@@ -62,9 +62,21 @@ impl RetainedHost {
         if matches!(&update, RetainedUpdate::AppendResources(append) if append.is_empty()) {
             return Ok(());
         }
+        let rebuild = self.options.texture_tiers.is_some()
+            && match &update {
+                RetainedUpdate::ReplaceTexture { .. } => true,
+                RetainedUpdate::AppendResources(append) => !append.textures.is_empty(),
+                _ => false,
+            };
+        if rebuild {
+            self.materialize_objects()?;
+        }
         let edit = self.prepare_edit(&update)?;
         let update = self.edit_resources(update)?;
-        self.enqueue(update, false);
+        self.enqueue(update, rebuild);
+        if rebuild {
+            return Ok(());
+        }
         self.readiness
             .queue
             .back_mut()

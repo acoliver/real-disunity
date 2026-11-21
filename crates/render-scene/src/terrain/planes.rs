@@ -8,7 +8,7 @@ use super::streaming::TerrainChunk;
 use super::{axis_positions, lod_stride};
 use crate::geometry::millimeter_to_meter;
 use std::collections::BTreeMap;
-use worldrunner_render_plan::SceneTerrain;
+use worldrunner_render_plan::{SceneTerrain, TerrainStreamingPolicy};
 
 /// Exact GPU-boundary positions and the sample windows each draw can select.
 #[derive(Debug)]
@@ -66,11 +66,7 @@ pub(crate) fn instance_size(
 impl HeightfieldPlanes {
     pub fn new(terrain: &SceneTerrain) -> Self {
         let mut nodes = Vec::new();
-        collect_chunks(
-            root(terrain),
-            terrain.streaming_policy().is_some(),
-            &mut nodes,
-        );
+        collect_chunks(root(terrain), terrain.streaming_policy(), &mut nodes);
         let columns = terrain.columns();
         let rows = terrain.rows();
         let offsets = [
@@ -118,11 +114,7 @@ impl HeightfieldPlanes {
 
 pub(crate) fn chunk_indices(terrain: &SceneTerrain) -> BTreeMap<TerrainChunk, u32> {
     let mut nodes = Vec::new();
-    collect_chunks(
-        root(terrain),
-        terrain.streaming_policy().is_some(),
-        &mut nodes,
-    );
+    collect_chunks(root(terrain), terrain.streaming_policy(), &mut nodes);
     nodes
         .into_iter()
         .enumerate()
@@ -141,11 +133,17 @@ pub(crate) fn root(terrain: &SceneTerrain) -> TerrainChunk {
     )
 }
 
-fn collect_chunks(chunk: TerrainChunk, streaming: bool, nodes: &mut Vec<TerrainChunk>) {
+fn collect_chunks(
+    chunk: TerrainChunk,
+    policy: Option<TerrainStreamingPolicy>,
+    nodes: &mut Vec<TerrainChunk>,
+) {
     nodes.push(chunk);
-    if streaming && let Some(children) = chunk.children() {
+    if let Some(policy) = policy
+        && let Some(children) = chunk.children(policy.minimum_leaf_texels())
+    {
         for child in children {
-            collect_chunks(child, true, nodes);
+            collect_chunks(child, Some(policy), nodes);
         }
     }
 }

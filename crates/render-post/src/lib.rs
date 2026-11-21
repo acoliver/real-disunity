@@ -90,6 +90,7 @@ mod cmaa2;
 mod cmaa2_gpu;
 #[cfg(test)]
 mod cmaa2_tests;
+mod frame_upload;
 mod fxaa;
 mod hdr_taa;
 #[cfg(test)]
@@ -224,13 +225,29 @@ pub use upscale::SpatialUpscale;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
+mod frame_mip_tests;
+#[cfg(test)]
 mod frame_tests;
 #[cfg(test)]
+mod post_upload_staging_tests;
+#[cfg(test)]
 mod prepare_context_tests;
+#[cfg(test)]
+mod prepared_command_buffers_tests;
+#[cfg(test)]
+mod prepared_run_tests;
+#[cfg(test)]
+mod prepared_test_support;
+#[cfg(test)]
+mod upload_staging_limit_tests;
+#[cfg(test)]
+mod upload_staging_tests;
 pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
-    DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature, FramePlan,
-    PassDeclaration, PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+    DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
+    FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
+    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedCompute,
+    PreparedFeature, PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;
@@ -249,7 +266,7 @@ pub use chain::{
     BufferSpec, Operation, PostChain, Resources, Stage, StageFactory, StageSet, StageTarget,
     TimingState,
 };
-pub use copy::CopyOutput;
+pub use copy::{CopyOutput, CopySource};
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
 pub use targets::{
     FrameConfig, FrameTargets, SceneDepth, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT,
@@ -454,6 +471,29 @@ mod tone_map_gpu_tests;
 #[cfg(test)]
 fn test_authority(queue: &wgpu::Queue) -> worldrunner_render_gpu::submission::SubmissionAuthority {
     worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+}
+
+/// Records one frame with `record` inside a transaction of a fresh authority on `queue`, which
+/// the post uploads require, and leaves it unsubmitted.
+#[cfg(test)]
+fn record_frame<E: std::fmt::Debug>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> Result<(), E>,
+) -> worldrunner_render_gpu::submission::PreparedFrame {
+    test_authority(queue)
+        .prepare(device, |encoder, _| record(encoder))
+        .unwrap()
+}
+
+/// [`record_frame`], then submits the frame.
+#[cfg(test)]
+fn submit_frame<E: std::fmt::Debug>(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    record: impl FnOnce(&mut wgpu::CommandEncoder) -> Result<(), E>,
+) -> wgpu::SubmissionIndex {
+    record_frame(device, queue, record).submit().unwrap()
 }
 
 #[cfg(test)]

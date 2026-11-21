@@ -1,11 +1,13 @@
 //! Bounded observation of ordinary submitted frames.
 pub use worldrunner_render_gpu::census::{CensusSnapshot, ResourceClass};
+pub use worldrunner_render_gpu::submission::StagingStatistics;
 pub use worldrunner_render_scene::draw::{
     DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
     PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics, SceneStatistics,
     ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
     TerrainPageStatistics, TerrainStreamingStatistics,
 };
+pub use worldrunner_render_scene::texture::{TextureTierPolicy, TierChoice};
 
 /// The latest ordinary submission, available during `Presented` and subsequent updates.
 /// Captures and polls do not replace this snapshot. GPU completion is not implied.
@@ -24,6 +26,13 @@ pub struct RetainedFrameStatistics {
     /// Resident GPU bytes by resource class, read from the device's memory census when the
     /// frame was submitted. Classes the engine does not count yet read zero.
     pub resident_bytes: CensusSnapshot,
+    /// The device's reusable upload staging when the frame was submitted, counted since the
+    /// device was created. `chunks_created` stops growing once the frames in flight have
+    /// settled: steady frames reuse staging instead of creating buffers.
+    pub upload_staging: StagingStatistics,
+    /// The texture tier chosen for the resident scene: dropped levels and the authored, kept
+    /// and saved bytes of the declared reducible textures. `None` without a host policy.
+    pub texture_tier: Option<TierChoice>,
 }
 impl super::RetainedHost {
     /// A single replaceable snapshot, initially absent. Reading does not consume it.

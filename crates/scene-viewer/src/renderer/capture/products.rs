@@ -107,7 +107,29 @@ impl Native {
         Ok(true)
     }
 }
+/// Outputs read from frame attachments that the stock scene's encoding writes.
+const STOCK_ATTACHMENTS: [(CaptureOutput, FeatureTarget); 6] = [
+    (CaptureOutput::Specular, FeatureTarget::Specular),
+    (CaptureOutput::Depth, FeatureTarget::Depth),
+    (CaptureOutput::Normals, FeatureTarget::Normals),
+    (
+        CaptureOutput::AmbientOcclusion,
+        FeatureTarget::AmbientOcclusion,
+    ),
+    (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
+    (
+        CaptureOutput::SsrConfidenceWater,
+        FeatureTarget::SsrConfidenceWater,
+    ),
+];
+
 impl Products {
+    /// Whether any output needs a stock scene attachment or a replay of its lighting.
+    pub(in crate::renderer) fn requires_stock_scene(outputs: &[CaptureOutput]) -> bool {
+        outputs.iter().any(|output| {
+            output.term().is_some() || STOCK_ATTACHMENTS.iter().any(|(stock, _)| stock == output)
+        })
+    }
     pub(in crate::renderer) fn new(
         device: &wgpu::Device,
         output: &wgpu::Texture,
@@ -172,20 +194,7 @@ impl Products {
         scheduler: &ConfiguredFrameRenderer,
         outputs: &[CaptureOutput],
     ) -> Result<(), ViewerError> {
-        for (output, target) in [
-            (CaptureOutput::Specular, FeatureTarget::Specular),
-            (CaptureOutput::Depth, FeatureTarget::Depth),
-            (CaptureOutput::Normals, FeatureTarget::Normals),
-            (
-                CaptureOutput::AmbientOcclusion,
-                FeatureTarget::AmbientOcclusion,
-            ),
-            (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
-            (
-                CaptureOutput::SsrConfidenceWater,
-                FeatureTarget::SsrConfidenceWater,
-            ),
-        ] {
+        for (output, target) in STOCK_ATTACHMENTS {
             if outputs.contains(&output) {
                 let texture =
                     scheduler
@@ -261,16 +270,17 @@ impl Products {
         encoder: &mut wgpu::CommandEncoder,
         resident: &super::super::Resident,
         scheduler: &ConfiguredFrameRenderer,
-    ) {
+    ) -> Result<(), ViewerError> {
         for term in &self.terms {
             match resident {
                 super::super::Resident::Plain(plain) => {
                     scheduler.encode_term_capture(device, encoder, term, (&plain.gpu, None));
                 }
                 super::super::Resident::Shadowed(scene) => {
-                    scene.encode_term_capture_with(device, encoder, term, scheduler);
+                    scene.encode_term_capture_with(device, encoder, term, scheduler)?;
                 }
             }
         }
+        Ok(())
     }
 }

@@ -55,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1" or "portable-ui-triangle-v1" or "portable-pipeline-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1" or "portable-ui-triangle-v1" or "portable-pipeline-v1" or "portable-readback-v1" or "portable-screen-v1" or "portable-resize-flush-v1"))
             {
                 return -2;
             }
@@ -74,7 +74,7 @@ public static class NativeBridge
             if (kind is "portable-perspective-v1" or "portable-camera-rect-v1") AddPerspectiveCamera(kind == "portable-camera-rect-v1");
             if (kind == "portable-texture-v1") AddTexture();
             if (kind == "portable-atlas-v1") AddAtlas();
-            if (kind == "portable-mesh-v1") AddMesh();
+            if (kind == "portable-mesh-v1") AddMesh().sharedMaterial!.mainTexture = PixelTexture();
             if (kind == "portable-compute-v1")
             {
                 AddMesh();
@@ -85,6 +85,9 @@ public static class NativeBridge
             if (kind == "portable-retained-ui-v1") RetainedUiFixture.Create();
             if (kind == "portable-ui-triangle-v1") UiTriangleFixture.Create();
             if (kind == "portable-pipeline-v1") ProbePipeline.Install();
+            if (kind == "portable-readback-v1") ReadbackFixture.Create();
+            if (kind == "portable-screen-v1") ScreenFixture.Create();
+            if (kind == "portable-resize-flush-v1") ResizeFlushFixture.Create();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -116,16 +119,35 @@ public static class NativeBridge
             if (kind == "portable-lit-sprites-v1") renderer.sharedMaterial = Material.SpriteLit;
         }
     }
+    /// <summary>A two pixel texture whose bytes the host can read once it has its renderer identity.</summary>
+    private static Texture2D PixelTexture()
+    {
+        var texture = new Texture2D(2, 1, TextureFormat.RGBA32, false, true);
+        texture.SetPixel(0, 0, new Color32(9, 8, 7, 6));
+        texture.SetPixel(1, 0, new Color32(5, 4, 3, 2));
+        return texture;
+    }
+
     /// <summary>A two pixel texture that takes its renderer identity, (a sprite is made over it), so the host can read its bytes.</summary>
     private static void AddTexture()
     {
-        var texture = new Texture2D(2, 1, TextureFormat.RGBA32, false, true);
+        var texture = PixelTexture();
         texture.wrapModeU = TextureWrapMode.Clamp;
         texture.filterMode = FilterMode.Trilinear;
         texture.anisoLevel = 4;
-        texture.SetPixel(0, 0, new Color32(9, 8, 7, 6));
-        texture.SetPixel(1, 0, new Color32(5, 4, 3, 2));
         Sprite.Create(texture, new Rect(0, 0, 2, 1), new Vector2(0.5f, 0.5f));
+        AddLayeredTexture();
+    }
+    /// <summary>A three layer array of 2x1 texels that a material holds, so the host reads its layers, dimension and format: layer s
+    /// has texels (10 s + 1, 2, 3, 255) and (10 s + 2, 2, 3, 255).</summary>
+    private static void AddLayeredTexture()
+    {
+        var layers = new Texture2DArray(2, 1, 3, TextureFormat.RGBA32, false, true);
+        for (var layer = 0; layer < 3; layer++)
+            layers.SetPixels32([new Color32((byte)(10 * layer + 1), 2, 3, 255), new Color32((byte)(10 * layer + 2), 2, 3, 255)], layer);
+        var material = new Material(DisunityHost.RegisterShader("Fixture/Layers"));
+        material.SetTexture("_Layers", layers);
+        DisunityHost.CreateGameObject().AddComponent<MeshRenderer>().sharedMaterial = material;
     }
     /// <summary>An Alpha8 atlas that takes its renderer identity and then has a distance field glyph drawn into it, as TextMesh Pro does.</summary>
     private static void AddAtlas()
@@ -138,8 +160,8 @@ public static class NativeBridge
             new List<GlyphRect>(), GlyphRenderMode.SDFAA, atlas, out _);
     }
     /// <summary>A scripted quad of two triangle sub-meshes and a line sub-mesh, with tangents and second texture coordinates, one
-    /// material and a position, so the host can read the mesh, its channels and where it is drawn.</summary>
-    private static void AddMesh()
+    /// material and a position, so the host can read the mesh, its channels and where it is drawn. Returns its renderer.</summary>
+    private static MeshRenderer AddMesh()
     {
         var shown = DisunityHost.CreateGameObject();
         shown.transform.position = new Vector3(3, 0, 2);
@@ -157,7 +179,9 @@ public static class NativeBridge
         shown.AddComponent<MeshFilter>().sharedMesh = mesh;
         var material = new Material(DisunityHost.RegisterShader("Fixture/Plain"));
         material.SetColor("_Color", new Color(0.25f, 0.5f, 0.75f, 1f));
-        shown.AddComponent<MeshRenderer>().sharedMaterials = [material, null];
+        var renderer = shown.AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = [material, null];
+        return renderer;
     }
     /// <summary>Two dispatches of a compute shader into one buffer, a kernel size the plan does not state, and a read-back of the buffer:
     /// the reads flush, so a host that executes the work shows in the position of an object, where (x, y) are what the host wrote for

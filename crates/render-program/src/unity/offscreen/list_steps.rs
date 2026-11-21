@@ -11,9 +11,11 @@ use crate::ids::TextureId;
 use crate::packet::{MAX_COLOR_ATTACHMENTS, TargetSignature};
 
 use super::ListDraws;
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Clear, DrawList, OffscreenFrame};
 use super::plan::Services;
+use super::raster::{self, PassRaster};
 use super::steps::{
     CameraDraw, Globals, Look, Step, planned_draw, push_use, raster_id, require_render_texture,
 };
@@ -221,10 +223,13 @@ fn depth_attachment(
     let view = svc
         .tracker
         .cell_view(key, (mip, 0), wgpu::TextureAspect::All, after)?;
+    let reversed = svc.reversed_depth;
     Ok(Some(DepthAttachment {
         view,
         before: clear.is_none().then_some(before),
-        load: clear.map_or(AttachmentLoad::Load, AttachmentLoad::ClearDepth),
+        load: clear.map_or(AttachmentLoad::Load, |depth| {
+            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth, reversed))
+        }),
         store: wgpu::StoreOp::Store,
         read_only: false,
     }))
@@ -267,21 +272,34 @@ pub(super) fn clear_step(
     }))
 }
 
-/// A list: the draws the items plan to, in order, into the attachments, loading what they hold.
-pub(super) fn list_step(
+/// The size in texels of the attachments of `target`: of the first color at its mip, or of the
+/// depth when it has no color.
+pub(super) fn target_size(
+    svc: &Services<'_>,
+    target: &Attachments,
+) -> Result<[u32; 2], OffscreenError> {
+    let attachment = target
+        .colors
+        .first()
+        .or(target.depth.as_ref())
+        .ok_or_else(|| {
+            OffscreenError::Unknown("a color or depth buffer to draw into".to_owned())
+        })?;
+    Ok(size_at(
+        svc.textures.get(attachment.texture)?.size,
+        attachment.mip,
+    ))
+}
+
+/// The draws the items of `list` plan to, in order, each with the raster state `raster` and the
+/// formats of `signature`.
+fn list_draws(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-    index: usize,
     globals: Globals<'_>,
     list: &DrawList,
-) -> Result<Step, OffscreenError> {
-    let target = usable(svc, list.target.clone())?;
-    let signature = signature(svc, &target)?;
-    let (unmatched, missing_texture, missing_channel) = (
-        svc.counts.unmatched,
-        svc.counts.missing_texture,
-        svc.counts.missing_channel,
-    );
+    (signature, raster): (TargetSignature, PassRaster),
+) -> Result<Vec<CameraDraw>, OffscreenError> {
     let mut draws = Vec::new();
     for item in &list.draws {
         let renderer = frame
@@ -294,6 +312,9 @@ pub(super) fn list_step(
         else {
             continue;
         };
+        if item.instances == 0 {
+            continue;
+        }
         let look = Look {
             selector: &item.pass,
             values: &list.values,
@@ -301,10 +322,38 @@ pub(super) fn list_step(
             globals,
             signature,
         };
-        if let Some(draw) = planned_draw(svc, frame, &look, (material, item.renderer, item.slot))? {
+        if let Some(mut draw) =
+            planned_draw(svc, frame, &look, (material, item.renderer, item.slot))?
+        {
+            draw.geometry.instances = 0..item.instances;
+            draw.raster = raster;
             draws.push(draw);
         }
     }
+    Ok(draws)
+}
+
+/// A list: the draws the items plan to, in order, into the attachments, loading what they hold. A
+/// scissor with no texel in it leaves nothing to draw.
+pub(super) fn list_step(
+    svc: &mut Services<'_>,
+    frame: &OffscreenFrame,
+    index: usize,
+    globals: Globals<'_>,
+    list: &DrawList,
+) -> Result<Step, OffscreenError> {
+    let target = usable(svc, list.target.clone())?;
+    let signature = signature(svc, &target)?;
+    let size = target_size(svc, &target)?;
+    let (unmatched, missing_texture, missing_channel) = (
+        svc.counts.unmatched,
+        svc.counts.missing_texture,
+        svc.counts.missing_channel,
+    );
+    let draws = match raster::resolve(&list.raster, size, svc.reversed_depth) {
+        Some(raster) => list_draws(svc, frame, globals, list, (signature, raster))?,
+        None => Vec::new(),
+    };
     svc.counts.current = super::CameraCauses::default();
     if let Some(texture) = primary(&target) {
         svc.counts.lists.push(ListDraws {

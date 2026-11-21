@@ -557,9 +557,10 @@ pub(crate) fn base_source_targets_for_test(
 
 fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
     if source.contains(crate::gbuffer_writes::MARKER) {
-        crate::gbuffer::GBUFFER_FORMATS
+        crate::gbuffer_writes::source_formats(source)
+            .into_iter()
             .map(|format| color_targets(format)[0].clone())
-            .to_vec()
+            .collect()
     } else if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {

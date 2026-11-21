@@ -173,23 +173,21 @@ fn tone_row(device: &wgpu::Device, queue: &wgpu::Queue, settings: &HdrPostSettin
     )
     .unwrap();
     let out = output(device, [8, 4]);
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    paint(
-        device,
-        &mut encoder,
-        chain.targets().resolved(),
-        "return vec4(select(0.0, 4.0, p.x >= 4.0), 0.0, 0.0, 1.0);",
-    );
-    chain
-        .factory()
-        .prepare_effects(&mut encoder, 0, 0.031, true)
-        .unwrap();
-    chain.factory().prepare_taa(&mut encoder, 0, Some(&block));
-    chain.encode(
-        &mut encoder,
-        &out.create_view(&wgpu::TextureViewDescriptor::default()),
-    );
-    queue.submit([encoder.finish()]);
+    crate::submit_frame(device, queue, |encoder| {
+        paint(
+            device,
+            encoder,
+            chain.targets().resolved(),
+            "return vec4(select(0.0, 4.0, p.x >= 4.0), 0.0, 0.0, 1.0);",
+        );
+        chain.factory().prepare_effects(encoder, 0, 0.031, true)?;
+        chain.factory().prepare_taa(encoder, 0, Some(&block))?;
+        chain.encode(
+            encoder,
+            &out.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        Ok::<_, crate::PostError>(())
+    });
     pixels(device, queue, &out)
 }
 

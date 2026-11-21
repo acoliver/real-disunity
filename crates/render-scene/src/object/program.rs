@@ -17,6 +17,8 @@
 //! [`MaterialUniform`](crate::pipeline::MaterialUniform) and lent as a buffer, so there is one
 //! source of truth for its offsets.
 
+#[path = "contour.rs"]
+mod contour;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -183,6 +185,7 @@ fn object_frame_bindings() -> ResourceLayout {
 }
 
 /// Everything a context's programs are built from.
+#[derive(Clone)]
 pub(crate) struct Description {
     pub device: Device,
     pub source: Rc<str>,
@@ -208,6 +211,8 @@ pub(crate) struct Description {
 pub(crate) enum Entry {
     /// The forward pass: the shared vertex entry point and the key's fragment entry point.
     Forward,
+    /// Read-only Equal-depth visible IDs, without stencil ownership or lighting.
+    Contour,
     /// The shadow casters: a depth-only pass into a directional map, drawn with the caster entry
     /// points and the map's depth test and bias.
     Caster(Caster),
@@ -250,6 +255,9 @@ struct ContextState {
     description: Description,
     family: Family,
     screen: Option<Screen>,
+    contour_layout: Option<BindGroupLayout>,
+    contour: RefCell<Option<Context>>,
+    contour_groups: RefCell<BTreeMap<u8, wgpu::BindGroup>>,
     vertex: RefCell<BTreeMap<GeometryLayout, StageProgram>>,
     programs: RefCell<BTreeMap<(GeometryLayout, FeatureSet), GraphicsProgram>>,
 }
@@ -281,6 +289,10 @@ impl Context {
             .and_then(|_| Screen::of(&description.source));
         Self(Rc::new(ContextState {
             id: CONTEXTS.fetch_add(1, Ordering::Relaxed),
+            contour_layout: matches!(description.entry, Entry::Contour)
+                .then(|| contour::layout(&description.device)),
+            contour: RefCell::default(),
+            contour_groups: RefCell::default(),
             description,
             family: family.clone(),
             screen,
@@ -348,14 +360,18 @@ impl Context {
                 stencil: None,
             };
         }
-        description.depth.render_state(
+        let mut state = description.depth.render_state(
             description.colors.len(),
             RasterState {
                 cull: key.cull_mode(),
                 front_face: description.front_face,
                 alpha_to_coverage: key.alpha_to_coverage(description.samples),
             },
-        )
+        );
+        if matches!(description.entry, Entry::Contour) {
+            state = contour::state(state);
+        }
+        state
     }
 
     fn external(&self) -> Vec<ExternalSet> {
@@ -365,6 +381,13 @@ impl Context {
             layout: description.frame.clone(),
             bindings: object_frame_bindings(),
         }];
+        if let Some(layout) = &self.0.contour_layout {
+            sets.push(ExternalSet {
+                set: 2,
+                layout: layout.clone(),
+                bindings: contour::bindings(),
+            });
+        }
         if let Some(shadow) = &description.shadow {
             sets.push(ExternalSet {
                 set: 2,
@@ -396,7 +419,7 @@ impl Context {
             StageModule {
                 source: StageSource::Wgsl(source),
                 entry_point: match self.0.description.entry {
-                    Entry::Forward => VERTEX_ENTRY,
+                    Entry::Forward | Entry::Contour => VERTEX_ENTRY,
                     Entry::Caster(_) => CASTER_VERTEX,
                     Entry::Celestial => CELESTIAL_VERTEX,
                 }
@@ -447,6 +470,7 @@ impl Context {
             (Entry::Celestial, true) => CELESTIAL_MASKED,
             (Entry::Celestial, false) => CELESTIAL_OPAQUE,
             (Entry::Forward, _) => key.fragment_entry(),
+            (Entry::Contour, _) => contour::entry(key),
         };
         let fragment = vertex
             .sibling(entry, StageKind::Fragment)?

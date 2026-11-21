@@ -3,7 +3,7 @@
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
-    ComputeKernel, OffscreenWork, ShaderSource, TextureRef, WorldComputeShader,
+    ComputeKernel, OffscreenWork, ShaderSource, TargetRef, TextureRef, WorldComputeShader,
 };
 use worldrunner_world_simulation::presentation::{
     Camera, Light, LightBakeType, LightKind, LightSettings, LightShadowMode,
@@ -32,7 +32,27 @@ fn taking_drains_the_records_and_the_next_frame_has_none() {
     assert!(first.cameras.contains_key(&camera));
     let second = snapshot(&mut world);
     assert!(second.work.is_empty());
-    assert!(second.cameras.is_empty() && second.render_textures.is_empty());
+    assert!(second.cameras.is_empty());
+}
+
+#[test]
+fn a_frame_with_no_work_still_lists_every_live_render_texture() {
+    let mut world = world();
+    let kept = render_texture(&mut world, [8, 8]);
+    let destroyed = render_texture(&mut world, [4, 4]);
+    world.destroy_render_texture(destroyed).unwrap();
+    let idle = snapshot(&mut world);
+    assert!(idle.work.is_empty());
+    assert_eq!(
+        idle.render_textures.keys().copied().collect::<Vec<_>>(),
+        [kept],
+        "a host retains what the world holds, so the list is whole whatever the work is"
+    );
+    assert_eq!(
+        idle.render_textures[&kept],
+        *world.render_texture(kept).unwrap()
+    );
+    assert_eq!(decode(&encode(&idle).unwrap()).unwrap(), idle);
 }
 
 #[test]
@@ -173,7 +193,7 @@ fn materials_and_shaders_of_blits_and_renderers_are_copied_and_destroyed_ones_ar
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(target),
-            target,
+            target: TargetRef::Render(target),
             material: Some(blit),
             pass: 0,
         })
@@ -273,7 +293,7 @@ fn a_frame_without_dispatches_copies_no_compute_resources() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::None,
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: -1,
         })
@@ -371,7 +391,7 @@ fn a_frame_without_camera_work_copies_no_lights() {
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: None,
             pass: -1,
         })

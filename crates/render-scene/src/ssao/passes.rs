@@ -1,3 +1,4 @@
+use crate::compositor::forward_order::forward_position;
 use crate::frame::metadata::FrameProduct;
 #[path = "kernels.rs"]
 mod kernels;
@@ -123,10 +124,54 @@ struct ScreenPass {
 #[derive(Clone, Debug)]
 pub(crate) struct ScreenPasses {
     stages: Vec<ScreenPass>,
+    /// The ambient occlusion receivers sample: the last filter stage's target when the frame
+    /// computes occlusion, otherwise the constant [`neutral_occlusion`] texture.
     pub filtered: wgpu::Texture,
+    /// Whether every frame runs every stage. Otherwise only level 0 of the depth hierarchy
+    /// runs, plus the stages whose products another feature of the frame declares it reads.
+    computes_occlusion: bool,
+}
+
+/// A 1x1 texture of 1.0, bound where receivers expect ambient occlusion in frames that compute
+/// none. Receivers clamp their load into the texture, so every one reads 1.0, which is what the
+/// neutral kernel (zero intensity) and its box filter write at every covered pixel. Only
+/// uncovered pixels, which no receiver reads, can come out one ulp below 1.0 from the division.
+pub(crate) fn neutral_occlusion(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("neutral ambient occlusion"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        texture.as_image_copy(),
+        &1.0f32.to_le_bytes(),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        texture.size(),
+    );
+    texture
 }
 fn level(index: u32) -> ResourceRef {
     FrameProduct::linear_depth(index).resource()
+}
+
+/// The filtered ambient occlusion: the product of the last filter stage, which receivers sample.
+pub(crate) fn occlusion_resource() -> ResourceRef {
+    ResourceRef::new("ambient occlusion")
 }
 impl ScreenPasses {
     pub(crate) fn rebind_depth(
@@ -145,12 +190,30 @@ impl ScreenPasses {
         self.stages.iter().map(|stage| &stage.target).collect()
     }
 
+    /// The roles of the stages and what each reads, which decide the passes they schedule.
+    pub(crate) fn schedule_shape(&self) -> Vec<(PassSlot, Vec<ResourceRef>)> {
+        self.stages
+            .iter()
+            .map(|stage| (stage.slot, stage.reads.clone()))
+            .collect()
+    }
+
     pub(crate) fn schedule_metadata(
         &self,
         passes: &mut Vec<PassDeclaration>,
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
-        let stage = &self.stages[0];
+        Ok(FeatureDeclaration {
+            passes: vec![Self::schedule_stage(&self.stages[0], passes, views)?],
+            effects: vec![],
+        })
+    }
+
+    fn schedule_stage(
+        stage: &ScreenPass,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<FeaturePass, FrameError> {
         let resource = Self::stage_resource(stage);
         let view = AttachmentView::new(resource, &stage.target)?;
         let mut pass = PassDeclaration::new(stage.slot);
@@ -160,10 +223,54 @@ impl ScreenPasses {
         let mut feature = FeaturePass::new(stage.slot);
         feature.color_format = Some(stage.target.format());
         feature.reads.clone_from(&stage.reads);
-        Ok(FeatureDeclaration {
-            passes: vec![feature],
-            effects: vec![],
-        })
+        Ok(feature)
+    }
+
+    /// Adds to `declaration` the stages past level 0 that produce what `reads` names, with the
+    /// stages those read in turn, when the frame does not run every stage anyway. A read no
+    /// stage produces is left to frame validation, which names the missing product.
+    fn schedule_reads(
+        &self,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+        declaration: &mut FeatureDeclaration,
+        reads: impl IntoIterator<Item = ResourceRef>,
+    ) -> Result<(), FrameError> {
+        if self.computes_occlusion {
+            return Ok(());
+        }
+        let mut needed: std::collections::BTreeSet<_> = reads.into_iter().collect();
+        let mut run = vec![false; self.stages.len()];
+        // Every stage reads only earlier stages, so one reverse walk closes the set.
+        for (index, stage) in self.stages.iter().enumerate().skip(1).rev() {
+            if needed.contains(&Self::stage_resource(stage)) {
+                run[index] = true;
+                needed.extend(stage.reads.iter().copied());
+            }
+        }
+        for (stage, _) in self.stages.iter().zip(run).filter(|(_, run)| *run) {
+            declaration
+                .passes
+                .push(Self::schedule_stage(stage, passes, views)?);
+        }
+        Ok(())
+    }
+
+    /// The target of the last filter stage, which holds the computed occlusion whether or not
+    /// receivers sample it.
+    pub(crate) fn occlusion(&self) -> &wgpu::Texture {
+        &self.stages.last().expect("the filter stages exist").target
+    }
+
+    /// The computed occlusion, as the game's features sample it.
+    pub(crate) fn lend_occlusion(&self) -> crate::compositor::FrameOcclusion {
+        let texture = self.occlusion();
+        crate::compositor::FrameOcclusion {
+            texture: texture.clone(),
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            depth: super::receiver::occlusion_depth(texture.format()),
+            stock_receivers: self.computes_occlusion,
+        }
     }
 
     pub(crate) fn depth_levels(&self) -> Vec<&wgpu::Texture> {
@@ -174,13 +281,24 @@ impl ScreenPasses {
             .collect()
     }
 
+    /// Whether receivers sample computed occlusion, so that every frame runs the kernel, the
+    /// filter and the whole depth hierarchy. Without it a frame runs level 0 of the hierarchy and
+    /// only the further stages its features declare reads of.
+    pub(crate) const fn computes_occlusion(&self) -> bool {
+        self.computes_occlusion
+    }
+
+    /// The stages for `settings`. With `neutral` (see [`neutral_occlusion`]) no receiver samples
+    /// a computed occlusion and `neutral` stands in for the filtered occlusion. The stages still
+    /// exist, so a feature that declares a read of a depth level or of the occlusion gets it, but
+    /// a frame runs only level 0, the input shadow depth fitting reduces, and what is read.
     pub fn new(
         device: &wgpu::Device,
         size: [u32; 2],
         uniform: &wgpu::Buffer,
-        depth: &wgpu::Texture,
-        normals: &wgpu::Texture,
+        (depth, normals): (&wgpu::Texture, &wgpu::Texture),
         settings: worldrunner_render_plan::SceneSsao,
+        neutral: Option<wgpu::Texture>,
     ) -> Self {
         let mut stages: Vec<ScreenPass> = Vec::new();
         let mut extent = size;
@@ -217,8 +335,12 @@ impl ScreenPasses {
             extent = [extent[0].div_ceil(2), extent[1].div_ceil(2)];
             index += 1;
         }
-        let filtered = kernels::append(device, size, uniform, normals, settings, &mut stages);
-        Self { stages, filtered }
+        let computed = kernels::append(device, size, uniform, normals, settings, &mut stages);
+        Self {
+            stages,
+            computes_occlusion: neutral.is_none(),
+            filtered: neutral.unwrap_or(computed),
+        }
     }
     fn stage_resource(stage: &ScreenPass) -> ResourceRef {
         if let PassSlot::OcclusionMetadata(index) = stage.slot
@@ -236,33 +358,49 @@ impl ScreenPasses {
             }
             PassSlot::SsaoBlurHorizontal => ResourceRef::new("horizontal ambient occlusion"),
             PassSlot::Ssao => ResourceRef::new("raw ambient occlusion"),
-            PassSlot::SsaoBlur => ResourceRef::new("ambient occlusion"),
+            PassSlot::SsaoBlur => occlusion_resource(),
             _ => unreachable!("screen slot"),
         }
     }
+    /// Declares every stage when the frame computes occlusion, otherwise level 0 alone; the
+    /// stages other features read follow from [`schedule_declared_reads`].
     pub fn schedule(
         &self,
         passes: &mut Vec<PassDeclaration>,
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
+        if !self.computes_occlusion {
+            return self.schedule_metadata(passes, views);
+        }
         let mut declaration = FeatureDeclaration {
             passes: Vec::new(),
             effects: vec!["SSAO"],
         };
         for stage in &self.stages {
-            let resource = Self::stage_resource(stage);
-            let view = AttachmentView::new(resource, &stage.target)?;
-            let mut pass = PassDeclaration::new(stage.slot);
-            pass.color = Some(crate::compositor::attachment(resource, &view, false));
-            passes.push(pass);
-            views.push(view);
-            let mut feature = FeaturePass::new(stage.slot);
-            feature.color_format = Some(stage.target.format());
-            feature.reads.clone_from(&stage.reads);
-            declaration.passes.push(feature);
+            declaration
+                .passes
+                .push(Self::schedule_stage(stage, passes, views)?);
         }
         Ok(declaration)
     }
+}
+
+/// Adds to `screen`, the declaration of the frame's screen feature, the stages that the
+/// declarations in `others` read: the caller's, reflections', the snapshots' and the retained
+/// features'. Call it once every other feature of the frame has planned.
+pub(crate) fn schedule_declared_reads<'a>(
+    ssao: &crate::scene_metadata::SceneMetadata,
+    plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
+    screen: &mut FeatureDeclaration,
+    others: impl IntoIterator<Item = &'a FeatureDeclaration>,
+) -> Result<(), FrameError> {
+    let reads: Vec<_> = others
+        .into_iter()
+        .flat_map(|declaration| &declaration.passes)
+        .flat_map(|pass| pass.reads.iter().copied())
+        .collect();
+    let (passes, views) = plan;
+    ssao.passes.schedule_reads(passes, views, screen, reads)
 }
 
 pub(crate) struct ScreenFeature<'a> {
@@ -383,13 +521,15 @@ pub(crate) fn geometry_declaration(
             .extend(receiver.layout.formats());
     }
     declaration.passes.push(prepass);
-    declaration
-        .passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::Opaque)
-        .expect("opaque feature")
-        .reads
-        .push(ResourceRef::new("ambient occlusion"));
+    if screen.passes.computes_occlusion() {
+        declaration
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .reads
+            .push(occlusion_resource());
+    }
 }
 
 impl ScreenFeature<'_> {
@@ -412,9 +552,10 @@ impl ScreenFeature<'_> {
         let mut screen_passes = Vec::new();
         crate::ssao::passes::prepass(ssao, self.material, &mut screen_passes, views)?;
         let declaration = ssao.passes.schedule(&mut screen_passes, views)?;
+        let anchor = forward_position(PassSlot::DepthNormalPrepass);
         let insertion = passes
             .iter()
-            .position(|pass| pass.slot >= PassSlot::DepthNormalPrepass)
+            .position(|pass| forward_position(pass.slot) >= anchor)
             .unwrap_or(passes.len());
         passes.splice(insertion..insertion, screen_passes);
 

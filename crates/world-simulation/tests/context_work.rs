@@ -34,6 +34,7 @@ fn texture(world: &mut World) -> RenderTextureId {
             srgb: false,
             dimension: 2,
             volume_depth: 1,
+            auto_generate_mips: false,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -87,6 +88,17 @@ fn every_context_record(camera: ComponentHandle, id: RenderTextureId) -> Vec<Off
         setup(camera, TargetRef::Render(id)),
         cull(1, camera, planes(6)),
         cull(2, camera, Vec::new()),
+        OffscreenWork::SetViewport {
+            rect: [-1.5, 2.0, 640.0, 0.25],
+        },
+        OffscreenWork::EnableScissor {
+            rect: [4.0, 4.0, 56.0, 56.0],
+        },
+        OffscreenWork::DisableScissor,
+        OffscreenWork::SetDepthBias {
+            bias: 1.0,
+            slope_bias: 2.5,
+        },
     ]
 }
 
@@ -176,8 +188,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_nine_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 9);
+fn the_wire_version_is_sixteen_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 16);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);

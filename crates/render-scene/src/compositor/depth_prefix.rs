@@ -1,10 +1,147 @@
 use super::FrameRenderer;
+use std::borrow::Cow;
 use worldrunner_render_post::{
-    BorrowedFeature, FeatureDeclaration, FeaturePass, FrameError, PassSlot,
+    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, GamePlace,
+    PassDeclaration, PassEntry, PassSlot,
 };
 
+/// A frame's pass list and the views it attaches.
+type ListedPlan = (Vec<PassDeclaration>, Vec<AttachmentView>);
+
+fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
+    features
+        .iter_mut()
+        .map(|feature| BorrowedFeature {
+            declaration: feature.declaration.clone(),
+            prepared: &mut *feature.prepared,
+        })
+        .collect()
+}
+
+/// The depth and normal prepass and the first depth level of a frame with screen-space
+/// metadata, ready to encode ahead of the rest of the frame.
+///
+/// [`plan`](Self::plan) is exactly what the prefix completes: the prepass entry
+/// (`PassEntry::new(PassSlot::DepthNormalPrepass)`) and the first depth level
+/// (`PassEntry::new(PassSlot::DepthPyramid(0))`), both occurrence 0, with the views they attach.
+/// The prepass depth attachment holds the device depth the frame's opaque pass reuses. A renderer
+/// with a G-buffer path that renders from it fuses the G-buffer producer into the prepass: the
+/// same entry then also attaches the G-buffer targets and any velocity target, and the plan lists
+/// their views. A caller feature that reads one of these declares that resource in a later entry
+/// and finds the view through `PrepareContext::resource`.
+///
+/// The suffix frame decides which prefix entries count as completed. Each prefix entry the
+/// suffix also lists counts as completed when it has the same colour, extra colour and depth
+/// attachments and every one binds the same texture; otherwise the frame is refused with
+/// `FrameError::AttachmentContract` or `FrameError::AttachmentView` naming it. A prefix entry
+/// the suffix does not list is skipped, not refused, so a suffix that reads only the depth need
+/// not repeat the metadata entries.
+///
+/// The prefix keeps no borrow of the renderer or the scene. It holds the metadata, the G-buffer
+/// path, the target views and the velocity choice the renderer had when it was made, and is for
+/// one frame: after a change of effects, targets or size, make a new one with
+/// [`FrameRenderer::stock_depth_prefix`].
+#[derive(Debug)]
+pub struct StockDepthPrefix {
+    source: crate::scene_metadata::SceneMetadata,
+    material: Option<wgpu::Texture>,
+    schedule: super::stock_plan::LogicalPrefix,
+    views: Vec<AttachmentView>,
+    depth_mode: crate::renderer::depth::DepthMode,
+    renders: bool,
+}
+impl StockDepthPrefix {
+    fn new(
+        renderer: &FrameRenderer,
+        source: crate::scene_metadata::SceneMetadata,
+        relief: bool,
+    ) -> Result<Self, FrameError> {
+        let plan = renderer.derive_prefix(&source)?;
+        Ok(Self::from_plan(renderer, source, relief, plan))
+    }
+
+    fn from_plan(
+        renderer: &FrameRenderer,
+        source: crate::scene_metadata::SceneMetadata,
+        relief: bool,
+        plan: (super::stock_plan::LogicalPrefix, Vec<AttachmentView>),
+    ) -> Self {
+        let (schedule, views) = plan;
+        let depth_mode = prefix_depth(relief, &source);
+        let material = renderer
+            .ssr
+            .as_ref()
+            .map(|ssr| ssr.material_target().clone());
+        let renders = renderer
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders);
+        Self {
+            source,
+            material,
+            schedule,
+            views,
+            depth_mode,
+            renders,
+        }
+    }
+
+    /// The prefix passes and the views they attach. Clone them to build the suffix plan.
+    #[must_use]
+    pub fn plan(&self) -> FramePlan<'_> {
+        FramePlan {
+            passes: &self.schedule.passes,
+            views: &self.views,
+            requested: &[],
+            operations: &[],
+        }
+    }
+
+    /// Encodes the prefix with `contribution`'s passes, views, requested effects, operations
+    /// and features included before the whole is validated. The contribution is checked like
+    /// any other frame input: it may not repeat an entry, and a read it declares needs an earlier
+    /// producer in the combined list.
+    ///
+    /// Submission and abandonment follow [`FrameRenderer`]: the prefix is complete only in
+    /// the frame of `encoder`, and the suffix must encode in that frame.
+    ///
+    /// # Errors
+    /// Refusals of preparation and of validation, as [`FrameRenderer::encode_frame`].
+    pub fn encode(
+        &self,
+        renderer: &mut FrameRenderer,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        frame: crate::frame::FrameUniform,
+        contribution: (&FramePlan<'_>, &mut [BorrowedFeature<'_>]),
+    ) -> Result<(), FrameError> {
+        let frame = renderer.prepare_uniform(frame)?;
+        renderer.encode_prefix(device, encoder, scene, &frame, (self, Some(contribution)))
+    }
+}
+
+fn prefix_depth(
+    relief: bool,
+    source: &crate::scene_metadata::SceneMetadata,
+) -> crate::renderer::depth::DepthMode {
+    use crate::renderer::depth::DepthMode;
+    if !source.depth.format().has_stencil_aspect() {
+        DepthMode::Independent
+    } else if relief && source.receiver.is_none() {
+        DepthMode::Shared
+    } else {
+        DepthMode::Reuse
+    }
+}
+
 impl FrameRenderer {
-    pub(crate) fn capture_texture_keys(
+    /// The write keys of `textures` in this renderer's capture registry, for a capture's write
+    /// contract.
+    ///
+    /// # Errors
+    /// [`FrameError`] when the renderer's registry refuses a texture.
+    pub fn capture_texture_keys(
         &mut self,
         textures: &[&wgpu::Texture],
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
@@ -16,6 +153,36 @@ impl FrameRenderer {
         self.chain.clear_capture_resources();
     }
 
+    pub(crate) fn draw_publications(&self) -> crate::draw::DrawPublications {
+        crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
+    }
+
+    /// The stock depth prefix of the frame `scene` is drawn in. It prepares the renderer's inputs
+    /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, takes
+    /// the same decision on whether the colour draws write velocity, then plans the prefix from
+    /// the screen-space metadata and the G-buffer path the renderer holds and from whether the
+    /// scene draws relief. `pipelines` are the ones the suffix draws with.
+    ///
+    /// # Errors
+    /// `FrameError::UnsupportedEffect("stock depth prefix needs screen-space metadata")` when the
+    /// renderer has none: no SSAO, reflections or depth fitting were configured.
+    pub fn stock_depth_prefix(
+        &mut self,
+        device: &wgpu::Device,
+        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+    ) -> Result<StockDepthPrefix, FrameError> {
+        let (gpu, pipelines) = scene;
+        if self.ssao.is_none() {
+            return Err(FrameError::UnsupportedEffect(
+                "stock depth prefix needs screen-space metadata",
+            ));
+        }
+        self.prepare_scene_inputs(device, gpu);
+        self.adopt_scene_velocity(device, gpu, pipelines);
+        let source = self.ssao.as_ref().expect("metadata checked").clone();
+        StockDepthPrefix::new(self, source, gpu.has_relief())
+    }
+
     pub(crate) fn encode_depth_prefix(
         &mut self,
         device: &wgpu::Device,
@@ -24,82 +191,227 @@ impl FrameRenderer {
         frame: &crate::frame::FrameUniform,
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
+        let plan = self.plan_prefix(source, frame)?;
+        let prefix = StockDepthPrefix::from_plan(
+            self,
+            source.clone(),
+            scene.0.has_relief(),
+            ((*plan.schedule).clone(), (*plan.views).clone()),
+        );
+        self.encode_prefix(device, encoder, scene, frame, (&prefix, None))
+    }
+
+    fn encode_prefix(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        frame: &crate::frame::FrameUniform,
+        planned: (
+            &StockDepthPrefix,
+            Option<(&FramePlan<'_>, &mut [BorrowedFeature<'_>])>,
+        ),
+    ) -> Result<(), FrameError> {
+        let (prefix, contribution) = planned;
         let (gpu, pipelines) = scene;
-        gpu.prepare_terrain_geometry(device, encoder, frame, source.size)?;
-        gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;
-        let mut passes = Vec::new();
-        let mut views = Vec::new();
-        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
-        crate::ssao::passes::prepass(source, material, &mut passes, &mut views)?;
-        let screen_declaration = source.passes.schedule_metadata(&mut passes, &mut views)?;
-        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
-        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(source.depth.format());
-        prepass.additional_color_formats = passes
-            .iter()
-            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("prepass declaration")
-            .additional_colors
-            .iter()
-            .map(|attachment| attachment.format)
-            .collect();
-        let depth_mode = if source.depth.format().has_stencil_aspect() {
-            if gpu.has_relief() && source.receiver.is_none() {
-                crate::renderer::depth::DepthMode::Shared
-            } else {
-                crate::renderer::depth::DepthMode::Reuse
-            }
-        } else {
-            crate::renderer::depth::DepthMode::Independent
-        };
-        let mut geometry = super::SceneFeature {
-            publications: crate::draw::DrawPublications::default(),
-            gpu,
-            pipelines,
-            frame: *frame,
-            screen: Some(source.geometry_for_depth(depth_mode)),
-            programs: None,
-        };
+        gpu.prepare_dynamic(encoder, pipelines)?;
+        gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
+        // Prefix features prepare after this, so they read the chunks the suffix will lend. The
+        // suffix publishes again with its colour target's extent. The frame's terrain is
+        // selected once, for the metadata's extent, so a suffix with another extent fails its
+        // own terrain preparation (`StreamingSelectionConflict`) before it can publish.
+        self.publish_game_terrain(gpu, frame, prefix.source.size);
+        gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
+        let mut passes = prefix.schedule.passes.clone();
+        let mut views = prefix.views.clone();
+        let mut requested = Vec::new();
+        let mut operations = Vec::new();
+        let mut extra = None;
+        // The resident textures are scene content, not a product of the frame, so the prefix's
+        // game passes may sample them.
+        self.publish_game_textures(gpu);
+        self.plan_game_prefix(frame, &mut passes, &mut views)?;
+        if let Some((plan, features)) = contribution {
+            passes.extend_from_slice(plan.passes);
+            views.extend_from_slice(plan.views);
+            requested.extend_from_slice(plan.requested);
+            operations.extend_from_slice(plan.operations);
+            extra = Some(features);
+        }
+        let mut geometry = self.prefix_geometry(gpu, pipelines, frame, prefix)?;
         let mut screen = crate::ssao::passes::ScreenFeature {
-            ssao: source,
-            material,
+            ssao: &prefix.source,
+            material: prefix.material.as_ref(),
             frame: *frame,
         };
-        self.chain.encode_geometry_prefix(
+        let mut features = vec![
+            BorrowedFeature {
+                declaration: FeatureDeclaration {
+                    passes: vec![prefix.schedule.prepass.clone()],
+                    effects: vec![],
+                },
+                prepared: &mut geometry,
+            },
+            BorrowedFeature {
+                declaration: prefix.schedule.screen.clone(),
+                prepared: &mut screen,
+            },
+        ];
+        if let Some(extra) = extra {
+            features.extend(reborrow_features(extra));
+        }
+        self.encode_prefix_plan(
             device,
             encoder,
-            &worldrunner_render_post::FramePlan {
+            &FramePlan {
                 passes: &passes,
                 views: &views,
-                requested: &[],
+                requested: &requested,
+                operations: &operations,
             },
-            &mut [
-                BorrowedFeature {
-                    declaration: FeatureDeclaration {
-                        passes: vec![prepass],
-                        effects: vec![],
-                    },
-                    prepared: &mut geometry,
-                },
-                BorrowedFeature {
-                    declaration: screen_declaration,
-                    prepared: &mut screen,
-                },
-            ],
+            &mut features,
         )
     }
 
-    pub(crate) fn capture_effect_keys(
+    /// Plans the game's passes after the depth prepass into the prefix, immediately after the
+    /// prepass and before the depth levels that read it, with the camera of the frame the prefix
+    /// belongs to, and with the loads the frame that completes the prefix plans them with. A
+    /// renderer whose game has no depth-prefix feature plans nothing.
+    ///
+    /// # Errors
+    /// [`FrameError`] when a depth-prefix feature refuses to plan, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when it planned passes into a prefix
+    /// that has none.
+    fn plan_game_prefix(
+        &mut self,
+        frame: &crate::frame::FrameUniform,
+        passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(), FrameError> {
+        if !self.chain.has_prefix_features() {
+            return Ok(());
+        }
+        self.game_camera
+            .set(&super::FrameCamera::of(frame, self.frame_slot));
+        let stock = passes.len();
+        self.chain.plan_prefix_features(passes, views)?;
+        super::game::place_after_prepass(passes, stock)
+    }
+
+    /// The caller's passes and views for the rest of a frame whose depth prefix, encoded
+    /// separately in `encoder`'s frame, ran game passes after the prepass while the frame's own
+    /// plan has no prepass (a renderer without screen-space metadata, whose prefix is the depth
+    /// fitting's): `plan` with the prefix's prepass and the views it attaches. The game's passes
+    /// after the prepass then plan in the frame as they planned in the prefix, so the frame lists
+    /// them as completed and its later passes load what they wrote, as in a frame that plans the
+    /// prepass itself. `None` leaves `plan` as it is.
+    ///
+    /// # Errors
+    /// [`FrameError`] when `encoder` is not a checked transaction encoder, and
+    /// [`FrameError::MissingPass`] naming the depth prepass when the prefix ran game passes without
+    /// one.
+    pub(super) fn with_prefix_prepass(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+    ) -> Result<Option<ListedPlan>, FrameError> {
+        let (passes, views) = plan;
+        let lists = |passes: &[PassDeclaration], slot| passes.iter().any(|pass| pass.slot == slot);
+        if self.ssao.is_some() || lists(passes, PassSlot::DepthNormalPrepass) {
+            return Ok(None);
+        }
+        let Some(prefix) = self.chain.geometry_prefix_plan(encoder)? else {
+            return Ok(None);
+        };
+        if !lists(prefix.passes, PassSlot::Game(GamePlace::AfterDepthPrepass)) {
+            return Ok(None);
+        }
+        let prepass = prefix
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .ok_or(FrameError::MissingPass(PassEntry::new(
+                PassSlot::DepthNormalPrepass,
+            )))?;
+        let mut views = views.to_vec();
+        for attachment in prepass
+            .color
+            .iter()
+            .chain(&prepass.additional_colors)
+            .chain(&prepass.depth)
+        {
+            if views
+                .iter()
+                .any(|view| view.resource() == attachment.resource)
+            {
+                continue;
+            }
+            let view = prefix
+                .views
+                .iter()
+                .find(|view| view.resource() == attachment.resource)
+                .expect("a validated prefix has a view for each attachment");
+            views.push(view.clone());
+        }
+        let mut passes = passes.to_vec();
+        passes.push(prepass.clone());
+        Ok(Some((passes, views)))
+    }
+
+    fn encode_prefix_plan(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &FramePlan<'_>,
+        features: &mut [BorrowedFeature<'_>],
+    ) -> Result<(), FrameError> {
+        #[cfg(test)]
+        super::plan_trace::record(true, plan.passes, features, plan.operations);
+        self.chain
+            .encode_geometry_prefix(device, encoder, plan, features)
+    }
+
+    fn prefix_geometry<'a>(
+        &self,
+        gpu: &'a mut crate::draw::SceneGpu,
+        pipelines: &'a crate::renderer::ScenePipelines,
+        frame: &crate::frame::FrameUniform,
+        prefix: &StockDepthPrefix,
+    ) -> Result<super::SceneFeature<'a>, FrameError> {
+        let screen = prefix.source.geometry_for_depth(prefix.depth_mode);
+        super::scene::prepare_terrain(gpu, frame, pipelines, Some(&screen))?;
+        Ok(super::SceneFeature {
+            publications: self.draw_publications(),
+            gpu,
+            pipelines: Cow::Borrowed(pipelines),
+            frame: *frame,
+            screen: Some(screen),
+            programs: None,
+            contour: None,
+            deferred: None,
+            renders: prefix.renders,
+            opaque_drawn: std::cell::Cell::new(false),
+        })
+    }
+
+    /// The writes of the screen-space, snapshot and game targets a frame's suffix produces, for a
+    /// capture's write contract. Allocates the opaque snapshots a water, reflection or overlay
+    /// frame needs. A game's persistent targets are imported at the initial version the frame
+    /// imports them at, which is why every capture lists them here, with the publications of
+    /// [`Self::capture_write_keys`], rather than as stock textures.
+    ///
+    /// # Errors
+    /// As [`Self::capture_texture_keys`].
+    pub fn capture_effect_keys(
         &mut self,
         device: &wgpu::Device,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
-        if (self.water.is_some() || self.ssr.is_some() || self.overlay.needs_depth())
-            && self.snapshots.is_none()
-        {
+        if self.snapshot_readers() && self.snapshots.is_none() {
             self.snapshots = Some(std::array::from_fn(|_| {
                 crate::water::snapshots::Snapshots::new(device, self.targets().config())
             }));
         }
+        self.ensure_game_snapshots(device);
         let velocity = self.targets().velocity_texture().cloned();
         let mut textures = Vec::new();
         textures.extend(velocity.as_ref());
@@ -110,27 +422,40 @@ impl FrameRenderer {
                 textures.extend(receiver.textures.iter());
             }
         }
-        if let Some(water) = &self.water {
+        if let Some(water) = self.water_draws.drawn(self.water.as_ref()) {
             textures.extend(water.receivers[self.frame_slot].iter());
         }
         if let Some(ssr) = &self.ssr {
             textures.extend(ssr.textures());
         }
-        if let Some(snapshots) = &self.snapshots {
+        if let Some(gbuffer) = &self.gbuffer {
+            textures.extend(gbuffer.written_textures());
+        }
+        if let Some(snapshots) = self.snapshots.as_ref().filter(|_| self.snapshots_written()) {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);
+            textures.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
         }
+        let game = self.game_capture_imports();
+        let imports: Vec<_> = textures
+            .into_iter()
+            .map(|texture| (texture, None))
+            .chain(game.iter().map(|(texture, initial)| (texture, *initial)))
+            .collect();
         self.chain
-            .capture_write_keys(&textures)
+            .capture_write_keys_initial(&imports)
             .map_err(FrameError::from)
     }
 
     pub fn capture_write_keys(&self) -> Vec<worldrunner_render_gpu::submission::capture::WriteKey> {
-        vec![
+        let mut keys = vec![
             super::publication::key(&self.snapshot_ready),
             super::publication::key(&self.post_time),
             super::publication::key(&self.exposure_reset),
             super::publication::key(&self.temporal),
-        ]
+            super::publication::key(&self.contours.published),
+        ];
+        keys.extend(self.game_capture_publications());
+        keys
     }
 }

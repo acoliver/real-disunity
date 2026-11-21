@@ -15,7 +15,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, RenderTextureId, ShaderProperties, TextureRef,
+    GraphicsSnapshot, RenderTextureId, RendererView, ShaderProperties, TextureRef,
 };
 
 use super::super::frame::{Reclaimed, Report};
@@ -30,6 +30,37 @@ fn shortfall(error: &OffscreenError) -> Option<u64> {
             Some(required.saturating_sub(*budget).max(1))
         }
         _ => None,
+    }
+}
+
+/// How giving storage back gets the GPU to finish with it. Released storage counts against the
+/// budget until the last submission that used it has completed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Settling {
+    /// The caller submits and waits for its own work, so reclaiming waits for every submission so
+    /// far and the bytes it gave back are free when it returns.
+    Wait,
+    /// The viewer submits the work in a frame of its own, so reclaiming collects only what the
+    /// GPU has already finished and never waits for the viewer's submission. The bytes of work
+    /// still in flight stay counted, and an allocation they leave without room is refused as
+    /// over budget until a later frame collects them.
+    Poll,
+}
+
+impl Settling {
+    pub(in crate::offscreen) fn poll_type(self) -> wgpu::PollType {
+        match self {
+            Self::Wait => wgpu::PollType::wait_indefinitely(),
+            Self::Poll => wgpu::PollType::Poll,
+        }
+    }
+
+    /// Frees the released storage the GPU has finished with, after waiting for it under
+    /// [`Wait`](Self::Wait).
+    fn collect(self, runtime: &ProgramRuntime) {
+        // A poll that fails leaves the completed count where it was, which frees less.
+        let _ = runtime.device().poll(self.poll_type());
+        runtime.collect();
     }
 }
 
@@ -59,7 +90,7 @@ pub(super) fn named_targets(snapshot: &GraphicsSnapshot) -> BTreeSet<TextureId> 
             || snapshot
                 .renderers
                 .iter()
-                .filter_map(|renderer| renderer.property_block.as_ref())
+                .flat_map(RendererView::blocks)
                 .any(holds)
             || snapshot
                 .global
@@ -108,12 +139,16 @@ impl OffscreenAdapter {
     }
 
     /// Runs `upload`, and when the budget refuses it gives back what the snapshot does not name,
-    /// least recently named first, as far as the refusal asks, and runs it once more.
+    /// least recently named first, as far as the refusal asks, and runs it once more. The second
+    /// run happens when that gave back storage or when the budget holds fewer bytes than before,
+    /// which is the case when the GPU finished work between the refusal and the collection, and
+    /// the refusal then no longer describes the budget.
     pub(super) fn with_room<T>(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         notes: &mut Report,
+        settling: Settling,
         mut upload: impl FnMut(&mut OffscreenState, &mut ProgramRuntime) -> Result<T, OffscreenError>,
     ) -> Result<T, OffscreenError> {
         let error = match upload(state, runtime) {
@@ -123,52 +158,80 @@ impl OffscreenAdapter {
         let Some(short) = shortfall(&error) else {
             return Err(error);
         };
-        let reclaimed = self.reclaim(state, runtime, short);
+        let held = runtime.live_bytes();
+        let reclaimed = self.reclaim(state, runtime, short, settling);
         notes.reclaimed.add(reclaimed);
-        if reclaimed.bytes == 0 {
+        if reclaimed.bytes == 0 && runtime.live_bytes() >= held {
             return Err(error);
         }
         upload(state, runtime)
     }
 
     /// Gives back what the last snapshot did not name until the render textures of `frame` fit in
-    /// the budget, or nothing more can go.
+    /// the budget, or nothing more can go. It waits for the GPU to finish with what it gives
+    /// back, as the caller's own submission follows.
     pub fn make_room(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         frame: &OffscreenFrame,
     ) -> Reclaimed {
+        self.make_room_settling(state, runtime, frame, Settling::Wait)
+    }
+
+    /// As [`make_room`](Self::make_room); with `settling`, the way the GPU is got to finish with
+    /// what is given back.
+    pub(crate) fn make_room_settling(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        frame: &OffscreenFrame,
+        settling: Settling,
+    ) -> Reclaimed {
         runtime.collect();
         let needed = state.new_render_texture_bytes(runtime, &frame.render_textures);
-        self.make_room_for(state, runtime, needed)
+        self.make_room_for_settling(state, runtime, needed, settling)
     }
 
     /// Gives back what the last snapshot did not name until `needed` bytes are free in the budget,
-    /// or nothing more can go. Call it while no frame is being recorded.
+    /// or nothing more can go, waiting for the GPU to finish with it. Call it while no frame is
+    /// being recorded.
     pub fn make_room_for(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         needed: u64,
     ) -> Reclaimed {
+        self.make_room_for_settling(state, runtime, needed, Settling::Wait)
+    }
+
+    /// As [`make_room_for`](Self::make_room_for); with `settling`, the way the GPU is got to
+    /// finish with what is given back.
+    pub(crate) fn make_room_for_settling(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        needed: u64,
+        settling: Settling,
+    ) -> Reclaimed {
         runtime.collect();
         let free = runtime.budget().0.saturating_sub(runtime.live_bytes());
         if needed <= free {
             return Reclaimed::default();
         }
-        self.reclaim(state, runtime, needed - free)
+        self.reclaim(state, runtime, needed - free, settling)
     }
 
     /// Releases stored meshes and textures and render textures that the current snapshot does not
     /// name, least recently named first, until `shortfall` bytes are given back or none are left.
-    /// The storage is counted in the budget again once the GPU is done with it, so this waits for
-    /// that.
+    /// The storage is counted in the budget until the GPU is done with it, which `settling` says
+    /// how to get: wait for it, or take only what is already done.
     fn reclaim(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
         shortfall: u64,
+        settling: Settling,
     ) -> Reclaimed {
         let unnamed = |held: &std::collections::BTreeMap<u64, Stored>, texture: bool| {
             held.iter()
@@ -225,17 +288,7 @@ impl OffscreenAdapter {
                 }
             }
         }
-        // A device that cannot be waited on has nothing further to collect.
-        if runtime
-            .device()
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            })
-            .is_ok()
-        {
-            runtime.collect();
-        }
+        settling.collect(runtime);
         reclaimed
     }
 }

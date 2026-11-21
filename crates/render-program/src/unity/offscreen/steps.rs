@@ -16,11 +16,14 @@ use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
-use super::error::OffscreenError;
+use super::depth_range;
+use super::error::{OffscreenError, Refusal};
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads};
+use super::mips;
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
+use super::raster::PassRaster;
 use super::resample::{ResampleStep, resample_step};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
@@ -41,6 +44,8 @@ pub(super) struct CameraDraw {
     pub(super) signature: TargetSignature,
     pub(super) front_face: wgpu::FrontFace,
     pub(super) index_use: Option<BufferUse>,
+    /// The scissor and depth bias the record that made the draw set.
+    pub(super) raster: PassRaster,
 }
 
 /// A blit with a material, whose bindings wait for the constants buffer.
@@ -61,6 +66,17 @@ pub(super) enum Step {
     },
     Blit(BlitStep),
     Resample(Box<ResampleStep>),
+}
+
+impl Step {
+    /// The draws the step holds planned until it is finished.
+    pub(super) fn planned_draws(&self) -> usize {
+        match self {
+            Self::Camera { draws, .. } => draws.len(),
+            Self::Blit(_) => 1,
+            Self::Resample(_) | Self::Ready(_) => 0,
+        }
+    }
 }
 
 /// The global values and keywords the draws read: the frame's own until a record replaces them.
@@ -88,55 +104,77 @@ pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
 }
 
 /// Plans each record of the frame into a step.
+///
+/// # Errors
+/// Fails with the first record the state refuses, which the refusal names.
 pub(super) fn plan_steps(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-) -> Result<Vec<Step>, OffscreenError> {
+) -> Result<Vec<Step>, Refusal> {
     let mut steps = Vec::new();
     let mut globals = Globals {
         layer: &frame.globals,
         keywords: &frame.global_keywords,
     };
     for (index, record) in frame.records.iter().enumerate() {
-        let step = match record {
-            Record::Globals(state) => {
-                globals = Globals {
-                    layer: &state.values,
-                    keywords: &state.keywords,
-                };
-                continue;
-            }
-            Record::CameraRender { camera, target } => {
-                camera_step(svc, frame, index, globals, (*camera, *target))?
-            }
-            Record::Blit {
-                source,
-                target,
-                material,
-                pass,
-            } => blit_step(
-                svc,
-                frame,
-                index,
-                globals,
-                (*source, *target),
-                (*material, *pass),
-            )?,
-            Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
-            Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, target.clone(), clear)? {
-                    Some(step) => step,
-                    None => continue,
-                }
-            }
-            Record::Draws(list) => list_steps::list_step(svc, frame, index, globals, list)?,
-            Record::Procedural(draw) => {
-                super::procedural::procedural_step(svc, frame, index, globals, draw)?
-            }
-        };
-        steps.push(step);
+        plan_record(svc, frame, (index, record), &mut globals, &mut steps)
+            .map_err(|error| Refusal::at(index, error))?;
     }
     Ok(steps)
+}
+
+/// Plans one record into the steps it adds to `steps`: none for a record of globals or one that
+/// does nothing, which replaces `globals` for the records after it.
+fn plan_record<'a>(
+    svc: &mut Services<'_>,
+    frame: &'a OffscreenFrame,
+    (index, record): (usize, &'a Record),
+    globals: &mut Globals<'a>,
+    steps: &mut Vec<Step>,
+) -> Result<(), OffscreenError> {
+    let in_force = *globals;
+    let step = match record {
+        Record::Globals(state) => {
+            *globals = Globals {
+                layer: &state.values,
+                keywords: &state.keywords,
+            };
+            return Ok(());
+        }
+        Record::CameraRender { camera, target } => {
+            camera_step(svc, frame, index, in_force, (*camera, *target))?
+        }
+        Record::Blit {
+            source,
+            target,
+            material,
+            pass,
+        } => blit_step(
+            svc,
+            frame,
+            index,
+            in_force,
+            (*source, *target),
+            (*material, *pass),
+        )?,
+        Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
+        Record::GenerateMips { texture } => {
+            steps.extend(mips::generate_steps(svc, steps.len(), *texture)?);
+            return Ok(());
+        }
+        Record::Clear { target, clear } => {
+            match list_steps::clear_step(svc, index, target.clone(), clear)? {
+                Some(step) => step,
+                None => return Ok(()),
+            }
+        }
+        Record::Draws(list) => list_steps::list_step(svc, frame, index, in_force, list)?,
+        Record::Procedural(draw) => {
+            super::procedural::procedural_step(svc, frame, index, in_force, draw)?
+        }
+    };
+    steps.push(step);
+    Ok(())
 }
 
 fn camera_step(
@@ -270,7 +308,10 @@ fn pass_report(
             },
             depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
                 (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), true) => format!(
+                    "clear {:?}",
+                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
+                ),
                 (Some(_), false) => "load".to_owned(),
             },
         },
@@ -280,13 +321,15 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 6] = [
+pub const DRAW_LAYERS: [&str; 8] = [
     "per-draw",
     "camera",
     "property block",
     "material",
     "material fallback",
     "globals",
+    "declared default below globals",
+    "size of the bound texture",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -398,14 +441,19 @@ pub(super) fn planned_draw(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(material_id))?;
-    let layers = [
-        &renderer.per_draw,
-        look.values,
-        &renderer.block,
-        &material.properties,
-        &material.fallback,
-        look.globals.layer,
-    ];
+    let layers: Vec<&PropertyLayer> = [
+        Some(&renderer.per_draw),
+        Some(look.values),
+        renderer.slot_blocks.get(&slot),
+        Some(&renderer.block),
+        Some(&material.properties),
+        Some(&material.fallback),
+        Some(look.globals.layer),
+        Some(&material.below_globals),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let spec = DrawSpec {
         shader,
         keywords: keywords(material, look.globals),
@@ -434,8 +482,8 @@ pub(super) fn planned_draw(
 }
 
 /// The draw `planned` made, or `None` when it was left out for a cause the report counts: no
-/// pass the selector picks, a texture no layer names or a mesh channel the pass reads. Other
-/// errors fail the frame.
+/// pass the selector picks, a texture or structured buffer no layer names or a mesh channel the
+/// pass reads. Other errors fail the frame.
 pub(super) fn counted(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
@@ -445,6 +493,8 @@ pub(super) fn counted(
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
             svc.counts.note_undeclared(&draw.plan.undeclared);
+            svc.counts.note_stand_ins(&draw.plan.stand_ins);
+            svc.keep_unset(&draw.plan);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -456,6 +506,10 @@ pub(super) fn counted(
             svc.counts.missing_texture += 1;
             *svc.counts.current.textures.entry(name.clone()).or_default() += 1;
             *svc.counts.missing_textures.entry(name).or_default() += 1;
+            Ok(None)
+        }
+        Err(OffscreenError::MissingBuffer { name }) => {
+            *svc.counts.missing_buffers.entry(name).or_default() += 1;
             Ok(None)
         }
         Err(OffscreenError::MissingChannel { channel, input, .. }) => {
@@ -588,6 +642,7 @@ pub(super) fn camera_draw(
         signature,
         front_face,
         index_use,
+        raster: PassRaster::default(),
     })
 }
 
@@ -721,6 +776,7 @@ fn blit_step(
         &material.properties,
         &material.fallback,
         globals.layer,
+        &material.below_globals,
     ];
     let spec = DrawSpec {
         shader,
@@ -732,6 +788,8 @@ fn blit_step(
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
     svc.counts.note_undeclared(&plan.undeclared);
+    svc.counts.note_stand_ins(&plan.stand_ins);
+    svc.keep_unset(&plan);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported
@@ -782,7 +840,7 @@ fn source_layer(
 }
 
 /// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
-fn texels(side: u32) -> f32 {
+pub(super) fn texels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 

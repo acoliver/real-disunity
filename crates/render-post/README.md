@@ -10,6 +10,17 @@
 - `CopyOutput` is the built-in **no-effects** factory: nearest texel copy, including scaling and destination attachment transfer/channel encoding. It does not introduce a display look.
 - `color_texture` allocates common intermediate/output textures. `Readback` retains bounded staging storage, verifies the source contract, strips padding and returns native bytes (RGBA/BGRA/HDR are not silently converted). Mapping has a shared 30-second deadline and unmaps on returned errors.
 
+`CopyOutput::source` binds one sampled `AttachmentView` for a feature drawing
+inside an executor-owned pass. It returns a retained `CopySource`; call `record`
+inside that pass and keep the source's sampled-read declaration in the frame
+plan. The pass must have one single-sample colour target in the factory's output
+format and no depth attachment. Sources must be single-sample float colour
+subresources with `TEXTURE_BINDING` usage. The copy uses nearest scaling, decodes
+sRGB input through the sampled view, and leaves output transfer to the target
+format. `CopyOutput::bottom_first` inverts the sampled row after selecting the
+nearest texel. The default factory preserves row order. Rebinding a source reuses
+the pipeline. Recording the draw does not submit commands or read back pixels.
+
 Minimal copy-only presentation:
 
 ```rust,ignore
@@ -45,6 +56,51 @@ Supported native formats are RGBA8/BGRA8 linear and sRGB, RGBA16Float, R32Float 
 
 `BufferReadback` provides the same allocation ceiling, ordered encode, shared 30-second deadline and guaranteed unmap-on-return for opaque diagnostic buffers. Its configured byte count must be nonzero and copy-aligned; encoding copies exactly that count from source offset zero. The provider, not the SDK, interprets exposure/statistics layouts. Capture publication, metadata, float decoding and surface BGRA-to-RGBA packing remain host responsibilities.
 
+## Geometry pass list
+
+A frozen `ContourIds` entry must follow every Opaque occurrence, including when a
+prepass already produced its read-only depth attachment. An earlier contour entry
+is refused with `FrameError::StockOrder` naming both offending entries. CPU
+coverage is in `src/frame/frozen_tests.rs`.
+
+`PostChain::encode_geometry` takes a `FramePlan` whose `passes` slice is the frame's authored order. `validate_frame` walks that slice front to back and the executor encodes it in the same order; neither sorts it, so the `PassSlot` enum's declaration order carries no meaning. A pass may sample or load only a resource an earlier entry stored, and a read whose producer is listed after it fails as `FrameError::MissingProducer` naming the resource. `PostChain::encode_frozen` encodes a plan the same way and first refuses, before any feature prepares, an order the stock passes need that the plan breaks: `FrameError::StockOrder`, `FrameError::IncompleteDepth` or `FrameError::AttachmentContract` for an `OpaqueGbuffer` producer that tests depth no prepass completed.
+
+Each pass is one *entry*, `PassEntry { slot, occurrence }`. `PassSlot` is the role, shown in labels as `Geometry(role)`. Timing and captures name the entry: `PassId::Geometry(entry)` is `Geometry(Opaque)` for occurrence 0, exactly as before, and `Geometry(Opaque#1)` for the next appearance. `DrawContext` carries both `slot` (the role) and `entry`, so a feature declared in two entries of one role can tell them apart. The occurrence tells repeated appearances of one role apart: `PassDeclaration::new(slot)` and `FeaturePass::new(slot)` are occurrence 0, and `PassDeclaration::nth(slot, n)` / `FeaturePass::nth(slot, n)` name a later one. A feature draws only in the entry its `FeaturePass` names. `FrameError::AttachmentContract(entry)` names the entry that broke its contract. `FrameError::DuplicatePass(entry)` refuses a list that contains an entry twice, and `FrameError::MissingPass(entry)` refuses a feature that names an entry the list does not contain. Attachment, version, discard and transparency rules are unchanged. A geometry prefix that was encoded earlier in the same frame is recorded per entry (`PrepareContext::completed_in_prefix(entry)`), and the suffix skips exactly those entries. Tests: `frame_tests` and `tests/repeated_roles.rs`.
+
+Transparent entries (`TransparentWater` and `TransparentAlpha`) follow the same authored order, so water and alpha features in separate entries, or two water bodies in `TransparentWater` and `TransparentWater#1`, draw in the order the frame lists them. Each transparent entry holds at most one transparent feature: the executor does not sort packets across features inside one entry, and a second feature there fails as `FrameError::TransparentOrdering(entry)`. A later water entry refracts the snapshot taken before it, so listing another `AfterOpaqueSnapshot` between two water entries is how the second shows the first.
+
+`FramePlan::operations` positions work that records commands of its own among those passes. An `OperationsGroup { before, work }` names the entry it runs immediately before (`None` runs it after every pass), and `work` is a `FrameOperations`, whose `encode_operations(timing, encoder)` the executor calls with the frame's `TimingState`, so a group that encodes a checked operations list through it still lists each operation as `PassId::Operation`. A group before an entry the plan does not author is `FrameError::MissingPass`, refused before anything is prepared or encoded. A group runs before the first pass at or after its position that the call encodes: when a geometry prefix already encoded that entry, the group runs at the head of the suffix, and a group meant to run with the prefix belongs in the prefix plan. Groups at one position run in plan order. `render-post` does not depend on the provider of the work; `worldrunner-render-program` implements `FrameOperations` for `AdmittedOffscreen`. Tests: `tests/operations_groups.rs` and `timing_operations_tests`.
+
+A group may also leave textures for the passes after it. `FrameOperations::produces` returns the `OperationsOutput`s (resource, format and size of one mip and layer) the work leaves written; the default returns none. Validation walks the passes in order and, before it validates pass `i`, adds the outputs of every group positioned at or before `i` to the resources that have a producer. A feature's declared read and a read-only depth `Load` of an output therefore validate after the group, and the same read before the group's position, after a `None` group, with no group, or at another `ResourceRef::version` is `FrameError::MissingProducer`. The edge is one way: a geometry pass that attaches an output as anything but a read-only depth (a clear, a store, a load that stores back) is `FrameError::OffscreenWrite { pass, resource }`. The host hands the executor each output as an `AttachmentView` marked `with_retained_contents`, since the geometry registry imports the texture itself; an output with no such view, or whose format or size differs from the view's, is `FrameError::AttachmentView`. A retained view that a group outputs has no producer until the group's position, where a retained view that no group outputs has one from the start. `AdmittedOffscreen` in `worldrunner-render-program` reports the textures the host exported with `OffscreenOperations::export` before admission.
+
+### Game places in the pass list
+
+`PassSlot::Game(GamePlace)` lets a host add its own passes to the authored list without a second scheduler. `GamePlace::AfterDepthPrepass`, `BeforeOpaque`, `AfterOpaque`, `AfterOpaqueSnapshots` and `AfterTransparent` name where a producer of the stock forward frame places them; `AfterOpaque` runs before the contour IDs and the opaque snapshots, so the snapshots include what it drew, and `AfterOpaqueSnapshots` runs after the snapshot passes and before the water and every other transparent pass, so a pass there samples the snapshots and draws over the opaque scene ahead of the transparents; entries of one place run in occurrence order (`PassEntry::nth(PassSlot::Game(place), n)`). They are ordinary entries: the same attachment, `MissingProducer` and `DuplicatePass` rules validate them, and an entry that reads a target no earlier entry stored is refused by that target's name before any feature prepares. `PrepareContext::passes()` and `PrepareContext::pass(entry)` give a feature the validated declaration of the entry it records into.
+
+```rust,ignore
+// In a feature's `plan`: one pass before Opaque that writes `target a`, one that samples it.
+let writer = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
+let reader = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
+// In `prepare`: the exact attachments of the entry being recorded.
+let declaration = context.pass(writer)?;
+```
+
+`GamePlace::AfterDepthPrepass` passes belong to the depth prefix: they load and write the prepass's depth and colour products, so the depth pyramid, the occlusion metadata, SSAO and Opaque read what they added. A frozen plan is held to that. Such a pass must follow the `DepthNormalPrepass` entry, and the `DepthPyramid`, `OcclusionMetadata`, `Ssao` stages, `OpaqueGbuffer` and `Opaque` must follow it (`FrameError::StockOrder`). The last prefix entry (prepass or game pass after it) that writes a depth completes it: a read of Opaque's depth before that entry is `FrameError::IncompleteDepth`, and an `OpaqueGbuffer` producer that tests depth before it is `FrameError::AttachmentContract`.
+
+A route that submits the depth prefix ahead of the frame (`PostChain::encode_geometry_prefix`) runs these passes inside it. The chain holds the features that draw them as prefix participants, registered with `PostChain::register_prefix`. Before encoding a prefix, the caller plans them into the prefix's pass list with `PostChain::plan_prefix_features` and orders the list. `encode_geometry_prefix` then prepares and draws only those participants beside the borrowed prefix features, parks every other retained feature, and restores them in registration order. In the frame that completes the prefix, a participant whose declared entries the prefix completed is neither prepared, committed nor drawn again. A participant whose entries the prefix did not complete runs as usual, as it does in every frame drawn whole.
+
+A game pass that samples a stock snapshot declares the read in its `FeaturePass::reads` (`opaque snapshot color`, `opaque snapshot depth` and `opaque snapshot device depth`), which the frame validates like any other read: the snapshot writers must come earlier in the ordered list, so a reader at `AfterOpaqueSnapshots` validates and one at `BeforeOpaque` or `AfterOpaque` is `FrameError::MissingProducer` naming the snapshot. The depth snapshot pass writes the linear and the device depth as its two colour attachments; none of the three snapshot names may be written twice in a frame (`FrameError::AttachmentHazard`).
+
+`render-scene` documents the placement helpers a game calls. Tests: `a_context_reports_the_declaration_of_each_entry_the_frame_opens`, `frame/frozen_prefix_tests.rs`, `frame/game_tests.rs` and the forward-order tests in `render-scene`.
+
+### Prepared commands
+
+A feature records nothing through the frame's encoder: in `prepare` it stages copies, dispatches and uploads, and `PrepareContext::finish` records them in staging order once every feature has prepared, before the first pass the call encodes. `PrepareContext::record_prepared(label, access, commands)` stages work a provider prepared in full, such as `worldrunner-render-program`'s `PreparedDispatch` and `PreparedBlockTransfer`, as a `Box<dyn PreparedCommands>`: the context calls `retain` when it stages the commands and `record(encoder, label)` when it finishes, so a dispatch reads constants uploaded before it and a later pass reads what it wrote. Compute work staged one after another, `dispatch` calls and prepared commands whose `compute()` gives a `PreparedCompute` (such as `PreparedDispatch`), is recorded into one compute pass labelled "prepared compute", through `record_in_pass(pass, label)` for prepared commands; a copy, an upload or prepared commands without a compute form (such as `PreparedBlockTransfer`) end the pass, and staging order is kept exactly. wgpu-core encodes every compute pass into two command buffers that it holds until the frame submits, and Metal's queue refuses the one after 4096, so a pass for each dispatch limited what one frame could prepare; inside one pass wgpu-core gives each dispatch its own usage scope and the barriers it needs after the dispatches before it, so a dispatch reads what the one before it wrote. Each staged item names itself `label` in GPU captures: inside the shared pass as a pass debug group, otherwise as the label of a pass it opens or as an encoder debug group around commands outside a pass (a debug group pushed on the encoder around a pass would cost a command buffer of its own). An item in the shared pass sets every bind group its pipeline uses, because the groups an earlier item set stay bound. `src/prepared_command_buffers_tests.rs` pins that a run of staged dispatches costs what one compute pass costs and that a page of runs and transfers costs its passes and the command buffers its transfers reopen; `src/prepared_run_tests.rs` reads back a chain of dispatches in one run that each read the storage image and buffer the one before wrote, a transfer between two dispatches, and a refusal inside a run named by its label. A refusal by the commands' owner, of the retention or of the recording, is `FrameError::PreparedRefused { label, refusal }`, where `refusal.downcast_ref()` gives back the owner's own error, such as render-program's `ProgramError`; a refused recording fails the frame.
+
+`PrepareContext::dispatch(label, pipeline, group, workgroups)` and `record_prepared` both record in staging order; they differ in what the frame knows. `dispatch` stages a pipeline and bind group as they are: the frame checks no access, versions no write and holds nothing, so it is for a feature's own compute work over buffers and textures that are not views of the frame and that the feature keeps alive. Work that writes a view of the frame, reads a retained view, or uses resources the frame must hold until it completes (a program runtime's reservations, a lender's owners) goes through `record_prepared`.
+
+The views such commands write are declared by the plan with `AttachmentView::with_prepared_contents`, and named in `PreparedAccess::writes`. Validation counts a prepared view as produced before the first pass, so passes may read it, and a pass that clears it or an operations group that writes it is `FrameError::AttachmentHazard`. The stock compile versions each prepared write as a copy write before the first pass, so the texture needs `COPY_DST`, and a capture that submits the frame checks it owns each written allocation before any feature commits. The flag declares no earlier contents: the texture is imported at the same initial version as without it. Staging must agree with the plan and with the commands: `PreparedCommands::writes` reports the subresources the commands write (a block transfer its destination layer, a dispatch its storage images), and when the views of the frame among them are not the ones `PreparedAccess::writes` names, staging is `PreparedWriteMismatch { label, declared, written }`; a write of a texture no view of the frame shows is the provider's own and is not compared, and a write of a layer of a frame texture the frame has no view of is named like that texture's views. An undeclared view is `AttachmentView`, a view the plan did not mark is `UnplannedWrite`, a view staged twice is `RepeatedPreparedWrite`, a planned write no feature staged refuses the frame with `UnstagedWrite`, a read (`PreparedAccess::reads`) must be of a retained view, and staging outside `prepare`, in `commit` or `finish_draws`, is `PreparedOutsidePreparation`. Nothing is staged on a refusal. Scratch images and staging buffers the provider owns are not views of the frame and are not declared. Tests: `prepare_context_tests`, `contracts_prepared_writes`, and `tests/game_passes` in `render-scene`.
+
 ## Typed operations
 
 `contracts::TypedOperation` lists work for the executor: raster passes with checked draw packets (`TypedWork::Draws`), fullscreen draws, compute, resolves and copies. `ResourceRegistry::compile_operations` checks the whole list before anything is encoded: every operation declares its texture and buffer uses, each write takes the next version of the subresource it writes, and each read names the version it reads. A read without a producer, a read of a stale version, overlapping incompatible access, a missing usage flag and a stale or leased-out allocation are `ContractError`s. `CompiledOperations::encode_checked` encodes the list in order and `PassId::Operation` names each operation in the frame's timing.
@@ -78,6 +134,20 @@ be finite and within 0..=10 seconds; invalid preparation returns
 `PostError::FrameDelta` before allocation or encoder mutation. A valid fixed
 capture delta overrides even invalid host timing. Clearing an installed policy
 with empty settings removes all effects and restores the fixed schedule.
+
+The four per-frame uploads of the effects share one rule: `prepare_effects` (the 16-byte
+exposure step), `prepare_taa` (the 96-byte `TaaUniform`; `None` uploads zeros),
+`prepare_temporal` (the 48-byte `TemporalBlock`) and `prepare_temporal_camera` (the 80-byte
+`TemporalCamera`). Each copies its bytes into the reusable upload staging of the
+`SubmissionAuthority` frame that `encoder` records and records the copy into the slot's buffer
+at once, so the values are final when the call returns and a cancelled or dropped frame gives its
+staging back unread. Call them inside `SubmissionAuthority::prepare`, or on the frame `begin`
+returns, with that frame's encoder. Outside a frame they return
+`PostError::Frame(FrameError::Transaction(TransactionError::Missing))`; with any other encoder,
+`ForeignEncoder`. Neither stages anything. Invalid values (`PostError::FrameDelta` for the
+exposure delta, `PostError::UnsupportedProfile` for a `TemporalBlock`) fail before anything is
+staged. A factory without effects has nothing to upload to, so those calls need no frame and
+return `Ok`; `prepare_effects` still validates the delta.
 
 Bloom prefilters unexposed radiance with a quadratic soft knee, downsamples
 with a normalized nine-tap binomial kernel, and upsamples with the same
@@ -472,7 +542,7 @@ after it read that history and there is no per-slot output texture. The bank hol
 alternates them (see "History without a copy" below). Three compute
 stages at the render extent (`taa_reconstruct.wgsl`, scheduled by `taa_reconstruct_gpu::append`) run
 ahead of it, listed below. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
-`history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal`; there is no all-zero
+`history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal` (inside a frame, see above); there is no all-zero
 block, a reset is a real block with `history_valid: false`. Metering, bloom, Gaussian, CAS, tone
 mapping and RCAS use the colour extent of the chain (`Scene::extent`, the output extent here), and
 `UpscaleSettings::sharpness` becomes a display-linear RCAS after the stage. The history bank is

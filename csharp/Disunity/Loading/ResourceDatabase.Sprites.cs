@@ -4,7 +4,7 @@ using UnityEngine.U2D;
 
 namespace Disunity.Hosting;
 
-/// <summary>Building the textures, sprites and sprite atlases of a resource plan.</summary>
+/// <summary>Building the textures, texture arrays, cubemaps, 3D textures, sprites and sprite atlases of a resource plan.</summary>
 internal sealed partial class ResourceDatabase
 {
     private Texture2D Texture(JsonElement asset) => PlayerSprites.BuildTexture(asset, _directory);
@@ -22,6 +22,21 @@ internal sealed partial class ResourceDatabase
         ReadBytes($"texture array {name}", Path.Combine(_directory, data.Str("file")), data.GetProperty("offset").GetInt64(), array.PixelBytes);
         PlayerSprites.ApplySampler(array, asset);
         return array;
+    }
+
+    private Cubemap Cube(JsonElement asset) => PlayerSprites.BuildCubemap(asset, _directory);
+
+    private Texture3D Volume(JsonElement asset)
+    {
+        var name = asset.Str("name");
+        var data = asset.GetProperty("data");
+        var plan = new PlayerTexture3D(asset.GetProperty("width").GetInt32(), asset.GetProperty("height").GetInt32(), asset.GetProperty("depth").GetInt32(),
+            asset.GetProperty("graphics_format").GetInt32(), asset.GetProperty("mip_count").GetInt32(), Readable: asset.GetProperty("readable").GetBoolean(),
+            DataSize: data.GetProperty("size").GetInt64());
+        var volume = Texture3D.FromPlayer(name, plan);
+        ReadBytes($"texture {name}", Path.Combine(_directory, data.Str("file")), data.GetProperty("offset").GetInt64(), volume.PixelBytes);
+        PlayerSprites.ApplySampler(volume, asset);
+        return volume;
     }
 
     private SpriteAtlas Atlas(JsonElement asset)

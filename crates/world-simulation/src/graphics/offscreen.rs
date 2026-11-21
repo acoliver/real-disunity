@@ -7,8 +7,11 @@ use super::{
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
-/// Most records one frame holds.
-pub const MAX_OFFSCREEN_WORK: usize = 1 << 16;
+/// Most records the world holds between two takes of its offscreen work. A take, not a frame, empties
+/// them, so one take can hold all the rendering a script does while a level or save loads: loading
+/// Old World's `RomeTurn42` save records 106,943 between two takes, with 684 camera renders. The bound
+/// keeps a script that records without end from growing the list without limit.
+pub const MAX_OFFSCREEN_WORK: usize = 1 << 20;
 
 /// One piece of offscreen work, in the order the script called it.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,19 +23,21 @@ pub enum OffscreenWork {
         target: RenderTextureId,
     },
     /// A full-surface draw of `source` into `target` with a material pass; without a material
-    /// the draw copies. A pass of -1 draws every pass.
+    /// the draw copies. A pass of -1 draws every pass. The target is a render texture or a
+    /// temporary one; a source that is the target reads it as it was before the blit.
     Blit {
         source: TextureRef,
-        target: RenderTextureId,
+        target: TargetRef,
         material: Option<MaterialId>,
         pass: i32,
     },
-    /// A copy of one element and mip level of a texture into one of a render texture.
+    /// A copy of one element and mip level of a texture into one of a render texture or a
+    /// temporary one.
     CopyTexture {
         source: TextureRef,
         source_element: u32,
         source_mip: u32,
-        target: RenderTextureId,
+        target: TargetRef,
         target_element: u32,
         target_mip: u32,
     },
@@ -129,6 +134,24 @@ pub enum OffscreenWork {
         view: [f32; 16],
         projection: [f32; 16],
     },
+    /// The rectangle, in pixels of the bound targets, that the draws after this record cover:
+    /// `rect` is x, y, width and height from the bottom left texel. A target setting or a camera
+    /// setup resets it to the whole target. The world checks that every component is finite and
+    /// the width and height are not negative.
+    SetViewport { rect: [f32; 4] },
+    /// Clips the draws that follow to `rect`, in pixels of the bound targets: x, y, width and
+    /// height from the bottom left texel, the convention of [`SetViewport`](Self::SetViewport).
+    /// The clip holds until a [`DisableScissor`](Self::DisableScissor), a target setting or a
+    /// camera setup. The world checks that every component is finite and the width and height are
+    /// not negative.
+    EnableScissor { rect: [f32; 4] },
+    /// Ends the clip an [`EnableScissor`](Self::EnableScissor) set: the draws that follow cover
+    /// the whole target again.
+    DisableScissor,
+    /// The depth bias of the draws that follow, until the next record of this kind: `bias` is the
+    /// constant offset and `slope_bias` the factor of the triangle's depth slope, as the script
+    /// gave them. A bias of 0 and a slope bias of 0 end it. The world checks that both are finite.
+    SetDepthBias { bias: f32, slope_bias: f32 },
     /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
     /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
     /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every
@@ -136,6 +159,8 @@ pub enum OffscreenWork {
     /// that the identity is nonzero and leaves an identity nothing stored to the host. `block` is
     /// the draw's own property block, read between its per-draw values and the material, as a
     /// renderer's block is; the world checks that the render textures it names are alive.
+    /// `instances` is how many instances the draw makes (1 for a plain draw). Zero is a draw of
+    /// nothing that keeps its place among the records, as a procedural draw of a zero count does.
     DrawMesh {
         mesh: u64,
         matrix: [f32; 16],
@@ -143,6 +168,7 @@ pub enum OffscreenWork {
         submesh: u32,
         pass: i32,
         block: Option<Box<ShaderProperties>>,
+        instances: u32,
     },
     /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
     /// (column-major) and the material's pass into the bound targets, with the current view and
@@ -157,6 +183,9 @@ pub enum OffscreenWork {
         vertex_count: u32,
         instance_count: u32,
     },
+    /// Fills mip levels 1 and up of `texture` from level 0, as a script's explicit request for the
+    /// texture's mips. The texture must have more than one mip level.
+    GenerateMips { texture: RenderTextureId },
 }
 
 /// How a procedural draw joins its generated vertices.
@@ -177,7 +206,7 @@ impl OffscreenWork {
         match self {
             Self::CameraRender { target, .. } => *target == id,
             Self::Blit { source, target, .. } | Self::CopyTexture { source, target, .. } => {
-                *target == id || texture(source)
+                *target == TargetRef::Render(id) || texture(source)
             }
             Self::Dispatch { bindings, .. } => bindings
                 .properties
@@ -199,7 +228,7 @@ impl OffscreenWork {
                 buffers,
                 ..
             } => target(named) || buffers.is_some_and(|buffers| buffers.names(id)),
-            Self::ReadPixels { texture, .. } => *texture == id,
+            Self::ReadPixels { texture, .. } | Self::GenerateMips { texture } => *texture == id,
             _ => false,
         }
     }
@@ -263,8 +292,8 @@ impl World {
                 material,
                 pass,
             } => {
-                self.check_texture(source)?;
-                self.render_texture(*target)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, 0)?;
                 if let Some(material) = material {
                     self.material(*material)?;
                 }
@@ -280,11 +309,14 @@ impl World {
                 target_mip,
                 ..
             } => {
-                self.check_texture(source)?;
-                self.check_mip(*target, *target_mip)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, *target_mip)?;
                 match source {
                     TextureRef::Render(id) => self.check_mip(*id, *source_mip),
-                    TextureRef::Asset(_) | TextureRef::None | TextureRef::Global(_) => Ok(()),
+                    TextureRef::Asset(_)
+                    | TextureRef::None
+                    | TextureRef::Global(_)
+                    | TextureRef::Temporary(_) => Ok(()),
                 }
             }
             OffscreenWork::Dispatch {
@@ -311,12 +343,25 @@ impl World {
                     },
                 )
                 .map(drop),
+            OffscreenWork::GenerateMips { texture } => self.check_mip(*texture, 1),
             OffscreenWork::CreateRendererList { .. } | OffscreenWork::DrawRendererList { .. } => {
                 self.check_renderer_list(work)
             }
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),
+        }
+    }
+
+    /// Checks the target of a blit or a copy: a live render texture that has the mip level, or a
+    /// temporary under any name id, which the host resolves when it reaches the record.
+    fn check_work_target(&self, target: &TargetRef, mip: u32) -> Result<(), WorldError> {
+        match target {
+            TargetRef::Render(id) => self.check_mip(*id, mip),
+            TargetRef::Temporary(_) => Ok(()),
+            TargetRef::CameraTarget | TargetRef::None => {
+                Err(GraphicsError::InvalidOffscreen.into())
+            }
         }
     }
 

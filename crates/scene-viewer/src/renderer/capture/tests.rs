@@ -224,8 +224,10 @@ impl Harness {
     }
     fn dedicated() -> Self {
         // These probes observe retirement before polling or exercise session shutdown.
-        let context =
-            pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+        let context = pollster::block_on(GpuContext::request_with_features_for_test(
+            wgpu::Features::empty(),
+        ))
+        .unwrap();
         Self::with_context(context, FrameProfile::Legacy, crate::presentation::COLOR)
     }
     fn with_context(
@@ -309,7 +311,7 @@ impl Harness {
                         encoder,
                         &self.resident,
                         &self.presentation.scheduler,
-                    );
+                    )?;
                     image.encode(
                         encoder,
                         &self.output,
@@ -320,16 +322,15 @@ impl Harness {
             })
             .unwrap();
         let ticket = self.flight.submit_prepared(admission, prepared).unwrap();
+        let completion = crate::retained::CaptureCompletion {
+            frame: self.streaming.captures.next_frame(),
+            time: std::time::Duration::ZERO,
+            scene: self.resident.scene_mut().statistics(),
+            temporal_history_reset: crate::TemporalHistoryReset::None,
+        };
         self.streaming
             .captures
-            .submitted(
-                &mut self.host,
-                capture,
-                ticket.clone(),
-                std::time::Duration::ZERO,
-                &self.resident.scene_mut().statistics(),
-                crate::TemporalHistoryReset::None,
-            )
+            .submitted(&mut self.host, capture, ticket.clone(), &completion)
             .unwrap();
         ticket
     }

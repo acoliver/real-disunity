@@ -7,7 +7,7 @@
 //! are not inputs of this renderer and are left out.
 
 use worldrunner_disunity_runtime::{
-    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureSampler,
+    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureDimension, TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
@@ -17,6 +17,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_world_simulation::MAX_RENDERER_MATERIALS;
 use worldrunner_world_simulation::graphics::WorldSampler;
 
+use super::layer_assets::{Layered, layers_of};
+use super::volume_assets::volume_of;
 use crate::textures::{PlayerTextureError, player_rgba8};
 
 /// The first channel number that is not a vertex input here: blend weights.
@@ -26,13 +28,18 @@ pub const POSITION: i8 = 0;
 pub const TEXTURE_COORDINATES: i8 = 4;
 
 /// `GraphicsFormat` codes of 8-bit RGBA, in linear and in sRGB.
-const RGBA8_LINEAR: u32 = 8;
+pub(super) const RGBA8_LINEAR: u32 = 8;
 /// The engine's `TextureFormat` of BC6H, and the `GraphicsFormat` of its unsigned-float form,
 /// which the managed engine maps it to. High dynamic range data does not fit RGBA8, so the
 /// blocks go to the device as they are.
-const BC6H: u32 = 24;
-const BC6H_UFLOAT: u32 = 106;
-const RGBA8_SRGB: u32 = 4;
+pub(super) const BC6H: u32 = 24;
+pub(super) const BC6H_UFLOAT: u32 = 106;
+pub(super) const RGBA8_SRGB: u32 = 4;
+/// The `GraphicsFormat`s of DXT1 and DXT5 blocks, in sRGB and in linear.
+pub(super) const DXT1_SRGB: u32 = 96;
+pub(super) const DXT1_LINEAR: u32 = 97;
+pub(super) const DXT5_SRGB: u32 = 100;
+pub(super) const DXT5_LINEAR: u32 = 101;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -298,37 +305,52 @@ fn filter_of(mode: u32) -> Filter {
     }
 }
 
-/// The wrap and filter of a stored texture's sampler. The wrap along w, anisotropy and mip bias
-/// are not carried by render-program's sampler state. A value the engine does not define reads
-/// as the engine's default: repeat and bilinear.
+/// The wrap along each axis, filter and anisotropy of a stored texture's sampler. A value the
+/// engine does not define reads as the engine's default: repeat and bilinear. The project defines
+/// anisotropy levels 0 to 16 and the default as 1, and says nothing different for 0, so 0 and 1
+/// both read as no anisotropy and a level above 16 as 16. The sampler applies the level only to
+/// a trilinear filter. The mip bias is not carried: wgpu samplers have no LOD bias.
 #[must_use]
 pub fn sampler_of_stored(sampler: &TextureSampler) -> SamplerState {
+    sampler_state(
+        [sampler.wrap_u, sampler.wrap_v, sampler.wrap_w],
+        sampler.filter,
+        sampler.aniso_level,
+    )
+}
+
+/// The sampler state of a render texture's sampler; see [`sampler_of_stored`].
+#[must_use]
+pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
+    sampler_state(
+        [sampler.wrap_u, sampler.wrap_v, sampler.wrap_w],
+        sampler.filter,
+        sampler.aniso_level,
+    )
+}
+
+fn sampler_state(wrap: [u32; 3], filter: u32, aniso_level: u32) -> SamplerState {
     SamplerState {
-        wrap_u: wrap_of(sampler.wrap_u),
-        wrap_v: wrap_of(sampler.wrap_v),
-        filter: filter_of(sampler.filter),
+        wrap_u: wrap_of(wrap[0]),
+        wrap_v: wrap_of(wrap[1]),
+        wrap_w: wrap_of(wrap[2]),
+        filter: filter_of(filter),
+        anisotropy: u16::try_from(aniso_level.clamp(1, MAX_ANISO_LEVEL)).unwrap_or(1),
     }
 }
 
-/// The wrap and filter of a render texture's sampler; see [`sampler_of_stored`].
-#[must_use]
-pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
-    SamplerState {
-        wrap_u: wrap_of(sampler.wrap_u),
-        wrap_v: wrap_of(sampler.wrap_v),
-        filter: filter_of(sampler.filter),
-    }
-}
+/// The highest anisotropy level the host stores.
+const MAX_ANISO_LEVEL: u32 = 16;
 
 /// The `GraphicsFormat` of a stored block-compressed texture's blocks and the bytes per 4x4 block,
 /// for the engine `TextureFormat`s the device samples as they are: DXT1 (10), DXT5 (12), BC7 (25)
 /// and BC4 (26). They follow the texture's colour space. BC4 has no sRGB form, so a BC4 texture
 /// that is not linear is decoded like the decoded path reads it. BC6H (24) is handled apart
 /// because it is always sent as blocks.
-fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
+pub(super) fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
     let (srgb, linear, bytes, name) = match stored.format {
-        10 => (96, 97, 8, "DXT1"),
-        12 => (100, 101, 16, "DXT5"),
+        10 => (DXT1_SRGB, DXT1_LINEAR, 8, "DXT1"),
+        12 => (DXT5_SRGB, DXT5_LINEAR, 16, "DXT5"),
         25 => (108, 109, 16, "BC7"),
         26 if stored.linear => (102, 102, 8, "BC4"),
         _ => return None,
@@ -336,9 +358,12 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
     Some((if stored.linear { linear } else { srgb }, bytes, name))
 }
 
-/// A stored texture's base level as a source texture. Its rows stay bottom first, as the engine
-/// stores them, which is the orientation of a render texture's rows (see
-/// `camera::clip_from_gl`). It is read with `sampler`, or the fixed sampler without one.
+/// A stored texture's base level as a source texture, or for a stored 2D array (dimension
+/// [`TextureDimension::D2Array`], of one layer or more) or cube (six faces) every level of each
+/// layer or face as a source array or cube, or for a stored 3D texture every level with its slices
+/// as a source volume. Rows stay bottom first, as the engine stores them, which is the orientation
+/// of a render texture's rows (see `camera::clip_from_gl`). It is read with `sampler`, or the fixed
+/// sampler without one.
 ///
 /// With `blocks`, a DXT1, DXT5, BC4 or BC7 texture whose sides are multiples of four goes to the
 /// device as the blocks it was stored in, which sample to the texels the decoder here produces
@@ -347,13 +372,24 @@ fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
 ///
 /// # Errors
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
-/// are shorter than its base level.
+/// are shorter than its base level. A stored array or cube fails when its bytes are not `depth`
+/// equal layers of whole mip chains, when it is in a format it has no layout for, and when it is
+/// DXT1 or DXT5 and `blocks` is false or its base level is not whole blocks: layers are not
+/// decoded. A cube also fails unless it has six square faces. A stored 3D texture fails when its
+/// bytes are not the whole chain of levels and when its format is not one it reads as texels: a
+/// device samples block-compressed volumes only with a feature the host does not enable.
 pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
     blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
+    match stored.dimension {
+        TextureDimension::D2 => {}
+        TextureDimension::D2Array => return layers_of(id, stored, sampler, blocks, Layered::Array),
+        TextureDimension::Cube => return layers_of(id, stored, sampler, blocks, Layered::Cube),
+        TextureDimension::D3 => return volume_of(id, stored, sampler),
+    }
     if stored.format == BC6H {
         return Ok(SourceTexture {
             id,
@@ -361,6 +397,7 @@ pub fn texture_of(
             size: [stored.width, stored.height],
             graphics_format: BC6H_UFLOAT,
             bytes: block_base_level(stored, "BC6H", 16)?,
+            mips: 1,
             sampler,
         });
     }
@@ -375,6 +412,7 @@ pub fn texture_of(
             size: [stored.width, stored.height],
             graphics_format,
             bytes: block_base_level(stored, name, block_bytes)?,
+            mips: 1,
             sampler,
         });
     }
@@ -388,6 +426,7 @@ pub fn texture_of(
             RGBA8_SRGB
         },
         bytes: player_rgba8(stored)?,
+        mips: 1,
         sampler,
     })
 }

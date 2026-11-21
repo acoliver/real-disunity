@@ -1,3 +1,5 @@
+mod chunk_lender;
+mod game_lending;
 mod geometry_holds;
 mod meshes;
 mod observations;

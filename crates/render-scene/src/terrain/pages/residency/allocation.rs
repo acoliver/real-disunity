@@ -92,22 +92,26 @@ pub(super) fn create(
 ) -> Result<Storage, DriverAllocationError> {
     let scope = AllocationScope::new(device);
     let [width, height] = settings.extent();
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("terrain material pages"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: slots * products,
+    let texture = authority.census().create_texture(
+        device,
+        worldrunner_render_gpu::census::ResourceClass::TerrainPage,
+        &wgpu::TextureDescriptor {
+            label: Some("terrain material pages"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: slots * products,
+            },
+            mip_level_count: u32::try_from(settings.mip_extents().len()).expect("mip count"),
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
         },
-        mip_level_count: u32::try_from(settings.mip_extents().len()).expect("mip count"),
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Uint,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::STORAGE_BINDING
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
+    );
     scope.finish()?;
     Ok(Storage {
         texture,

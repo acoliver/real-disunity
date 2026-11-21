@@ -35,9 +35,17 @@ impl Rig {
         Self::on(Gpu::new())
     }
 
+    pub fn with_budget(budget: u64) -> Self {
+        Self::on_with_budget(Gpu::new(), budget)
+    }
+
     /// A rig on `gpu`.
     pub fn on(gpu: Gpu) -> Self {
-        let runtime = gpu.runtime_with(AllocationBudget(BUDGET));
+        Self::on_with_budget(gpu, BUDGET)
+    }
+
+    fn on_with_budget(gpu: Gpu, budget: u64) -> Self {
+        let runtime = gpu.runtime_with(AllocationBudget(budget));
         let limits = gpu.device.limits();
         let mut renderer = Configuration::new(
             &gpu.authority,
@@ -48,7 +56,7 @@ impl Rig {
         )
         .unwrap();
         let reservation = renderer
-            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(BUDGET))
+            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget))
             .unwrap();
         let arena = runtime.open_arena(reservation).unwrap();
         let state = OffscreenState::new(&runtime);
@@ -142,6 +150,7 @@ pub fn source(id: u64, size: [u32; 2], bytes: Vec<u8>) -> SourceTexture {
         size,
         graphics_format: RGBA8,
         bytes,
+        mips: 1,
         sampler: None,
     }
 }

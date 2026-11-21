@@ -11,9 +11,18 @@ use std::collections::BTreeMap;
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
+mod cancellation;
+mod composition;
+mod gbuffer;
+use composition::check_timing;
+
+use super::DEPTH_FORMAT;
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_post::contracts::RasterId;
-use worldrunner_render_post::{PassId, PassSlot, TimingMode};
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::{
+    FrameOperations, OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingMode,
+};
+use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::{
     CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId,
 };
@@ -24,10 +33,11 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    OffscreenOperations, OffscreenState, PendingImage,
+    OffscreenError, OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::runtime::{
-    BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena, ProgramRuntime, VertexInput,
+    BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena, ProgramRuntime,
+    TargetSignature, VertexInput,
 };
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 use worldrunner_render_program::unity::state::RenderState;
@@ -61,7 +71,7 @@ struct Player {
 fn timed() -> Fixture {
     let mut settings = settings();
     settings.timing = TimingMode::Required;
-    let context = pollster::block_on(GpuContext::request_with_features(
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
         crate::device::REQUIRED_FEATURES | wgpu::Features::TIMESTAMP_QUERY,
     ))
     .expect("a device with timestamp queries");
@@ -123,6 +133,7 @@ fn material(shader: ShaderId, tint: [f32; 4]) -> Material {
         keywords: Vec::new(),
         properties: layer(&[("_Tint", tint)]),
         fallback: PropertyLayer::default(),
+        below_globals: PropertyLayer::default(),
         render_queue: 2000,
     }
 }
@@ -133,6 +144,7 @@ fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
         materials: vec![MaterialId(material)],
         layer: layer_index,
         block: PropertyLayer::default(),
+        slot_blocks: std::collections::BTreeMap::new(),
         per_draw: layer(&[("_Place", place)]),
     }
 }
@@ -245,9 +257,14 @@ struct Readbacks {
 
 /// Builds the frame and appends the readbacks of every stage.
 fn build(player: &mut Player) -> (OffscreenOperations, Readbacks) {
+    build_frame(player, &frame())
+}
+
+/// Builds `frame` and appends the readbacks of the textures the standard frame writes.
+fn build_frame(player: &mut Player, frame: &OffscreenFrame) -> (OffscreenOperations, Readbacks) {
     let mut operations = player
         .state
-        .build(&mut player.runtime, &player.arena, &frame())
+        .build(&mut player.runtime, &player.arena, frame)
         .unwrap();
     let readbacks = Readbacks {
         camera: operations.read_back(A, 0, 0).unwrap(),
@@ -264,6 +281,17 @@ fn pixel(bytes: &[u8], (x, y): (usize, usize)) -> [u8; 4] {
 
 /// The scene patch as a program draw that samples element 2 of the texture array.
 fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu::CommandEncoder) {
+    let signature = fixture.signature();
+    admit_scene_draw_for(fixture, player, recording, signature);
+}
+
+/// Admits the scene patch draw prepared for `signature`, which need not be the frame's pass.
+fn admit_scene_draw_for(
+    fixture: &mut Fixture,
+    player: &mut Player,
+    recording: &wgpu::CommandEncoder,
+    signature: TargetSignature,
+) {
     let vertices = player
         .runtime
         .create_buffer("scene patch", &scene_patch())
@@ -305,7 +333,7 @@ fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu
     };
     let programs = player
         .runtime
-        .admit_draws(recording, &player.arena, fixture.signature(), &[packet])
+        .admit_draws(recording, &player.arena, signature, &[packet])
         .unwrap();
     fixture.gpu.admit_programs(programs);
 }
@@ -339,39 +367,6 @@ fn check_offscreen_stages(readbacks: Readbacks, device: &wgpu::Device) {
             .chunks(4)
             .all(|texel| texel == ZERO)
     );
-}
-
-/// The passes are in the frame's timing, in call order and before the stock opaque pass.
-fn check_timing(fixture: &Fixture, ids: &[RasterId]) {
-    let names: Vec<_> = ids.iter().map(|id| id.stage.name).collect();
-    assert_eq!(
-        names,
-        [
-            "offscreen constants",
-            "offscreen camera",
-            "offscreen blit",
-            "offscreen copy",
-            "offscreen readback",
-            "offscreen readback",
-            "offscreen readback",
-            "offscreen readback",
-        ]
-    );
-    fixture
-        .context
-        .device()
-        .poll(wgpu::PollType::wait_indefinitely())
-        .unwrap();
-    let timings = crate::test_support::take_timings(fixture.context.device(), 1, || {
-        fixture.renderer.take_timings()
-    });
-    let [timing] = timings.as_slice() else {
-        panic!("one timing record, got {}", timings.len());
-    };
-    let listed: Vec<_> = timing.passes.iter().map(|pass| pass.pass_id).collect();
-    let expected: Vec<_> = ids.iter().map(|id| PassId::Operation(*id)).collect();
-    assert_eq!(listed[..expected.len()], expected[..]);
-    assert!(listed[expected.len()..].contains(&PassId::Geometry(PassSlot::Opaque)));
 }
 
 #[test]
@@ -416,7 +411,7 @@ fn a_camera_a_blit_a_copy_and_a_scene_draw_run_in_the_frames_one_submission() {
     assert_eq!(image.pixel(55, 32), YELLOW);
     assert_eq!(image.pixel(30, 20), RED, "the stock scene drew");
     assert_eq!(image.pixel(3, 3), [0, 0, 0, 255]);
-    check_timing(&fixture, &ids);
+    check_timing(&fixture, &ids, &[PassEntry::new(PassSlot::Opaque)]);
 }
 
 #[test]
@@ -492,6 +487,155 @@ fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscre
     assert_eq!(image.pixel(30, 20), RED);
     player
         .arena
-        .retire()
+        .retire_settled(
+            fixture.context.device(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
         .expect("the cancelled frame released the arena");
 }
+
+#[test]
+fn a_draw_prepared_for_another_target_refuses_the_frame_by_name_and_takes_its_offscreen_work() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let before = authority.submitted_serial();
+    let (operations, _) = build(&mut player);
+    let mut recording = authority.begin(fixture.context.device()).unwrap();
+    fixture
+        .gpu
+        .admit_offscreen(operations.admit(&recording).unwrap());
+    let prepared =
+        TargetSignature::new(&[TextureFormat::Rgba16Float], Some(DEPTH_FORMAT), 1).unwrap();
+    assert_ne!(prepared, fixture.signature());
+    admit_scene_draw_for(&mut fixture, &mut player, &recording, prepared);
+
+    let refused = fixture.encode(&mut recording).unwrap_err();
+    let FrameError::FeaturePreparation {
+        feature: "player programs",
+        reason,
+    } = refused
+    else {
+        panic!("expected a refusal by the player programs, got {refused:?}");
+    };
+    assert_eq!(
+        reason,
+        ProgramError::TargetMismatch {
+            prepared: Box::new(prepared),
+            pass: Box::new(fixture.signature()),
+        }
+        .to_string()
+    );
+    // The refused frame took both admissions, so no later frame can run the offscreen work or
+    // the draw for a frame they were not encoded in.
+    assert!(!fixture.gpu.has_programs(), "the draw is not left waiting");
+    assert!(
+        !fixture.gpu.has_offscreen(),
+        "the offscreen work is not left waiting"
+    );
+    recording.finish().cancel();
+    assert_eq!(authority.submitted_serial(), before);
+
+    let mut next = authority.begin(fixture.context.device()).unwrap();
+    fixture.encode(&mut next).unwrap();
+    let readback = fixture.output_copy(&mut next);
+    next.finish().submit().unwrap();
+    assert_eq!(authority.submitted_serial(), before + 1);
+    let image = fixture.read(&readback);
+    assert_eq!(image.pixel(30, 20), RED, "the stock scene drew");
+    assert_eq!(image.pixel(42, 32), RED, "no patch: the engine card shows");
+    player
+        .arena
+        .retire_settled(
+            fixture.context.device(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        )
+        .expect("the refused frame released the arena");
+}
+
+#[test]
+fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let (mut operations, _) = build(&mut player);
+    let element = ResourceRef {
+        layer: 2,
+        ..ResourceRef::new("element")
+    };
+    let camera = ResourceRef::new("camera");
+    operations.export(A, 0, 0, camera).unwrap();
+    operations.export(ARRAY, 0, 2, element).unwrap();
+    let refused = |result: Result<(), OffscreenError>| result.unwrap_err().to_string();
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 0, ResourceRef::new("untouched"))),
+        "no operation of the frame writes mip 0 of element 0 of TextureId(12)"
+    );
+    assert_eq!(
+        refused(operations.export(ARRAY, 1, 2, ResourceRef::new("small"))),
+        "texture TextureId(12) has no mip 1 of element 2"
+    );
+    let misnamed = ResourceRef::new("misnamed");
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, misnamed)),
+        format!("{misnamed:?} names mip 0 of layer 0, but the export is mip 0 of element 2")
+    );
+    let other_mip = ResourceRef {
+        mip: 1,
+        layer: 2,
+        ..ResourceRef::new("other mip")
+    };
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, other_mip)),
+        format!("{other_mip:?} names mip 1 of layer 2, but the export is mip 0 of element 2")
+    );
+    assert_eq!(
+        refused(operations.export(TextureId(99), 0, 0, ResourceRef::new("unknown"))),
+        "texture TextureId(99) is neither registered nor in the frame"
+    );
+    assert_eq!(
+        refused(operations.export(B, 0, 0, camera)),
+        format!("{camera:?} is exported twice")
+    );
+    let recording = authority.begin(fixture.context.device()).unwrap();
+    let admitted = operations.admit(&recording).unwrap();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    assert_eq!(
+        admitted.produces(),
+        [
+            OperationsOutput::new(camera, format, [8, 8]),
+            OperationsOutput::new(element, format, [8, 8]),
+        ]
+    );
+    recording.finish().cancel();
+}
+
+#[test]
+fn a_render_texture_with_a_depth_buffer_exports_its_colour() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let mut frame = frame();
+    // A's depth buffer is Depth24PlusStencil8; the export must still describe the colour.
+    frame.render_textures[0].depth_bits = 24;
+    let mut operations = player
+        .state
+        .build(&mut player.runtime, &player.arena, &frame)
+        .unwrap();
+    let camera = ResourceRef::new("camera");
+    operations.export(A, 0, 0, camera).unwrap();
+    let recording = authority.begin(fixture.context.device()).unwrap();
+    let admitted = operations.admit(&recording).unwrap();
+    assert_eq!(
+        admitted.produces(),
+        [OperationsOutput::new(
+            camera,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [8, 8]
+        )]
+    );
+    recording.finish().cancel();
+}
+
+mod game_screen;
+mod shadowed;

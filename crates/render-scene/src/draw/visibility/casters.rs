@@ -40,9 +40,7 @@ pub(in crate::draw) fn caster_matrix(
     terrain: Option<Bounds>,
     receiver: Mat4,
 ) -> Mat4 {
-    for (&(_, mesh, material), batch) in &instances.batches {
-        placement::refresh(&meshes[mesh], instances, material, batch);
-    }
+    placement::refresh_all(instances, meshes);
     let borrowed: Vec<_> = instances
         .batches
         .values()
@@ -220,9 +218,12 @@ mod tests {
         let mut bounds = SlotBounds::default();
         let mut next = boxes.iter();
         bounds.refresh(
-            &[0.0_f32.to_bits()],
+            (
+                &[0.0_f32.to_bits()],
+                &crate::instances::slot_bounds::Shape::default(),
+            ),
             (0..boxes.len()).map(|slot| (slot, &transform)),
-            |_, stored| stored[0] = *next.next().unwrap(),
+            |_, stored, _| stored[0] = *next.next().unwrap(),
         );
         (vec![Some((object, true)); boxes.len()], bounds)
     }

@@ -1,6 +1,7 @@
 use super::*;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
+use worldrunner_scene_viewer::SharedGpu;
 
 /// The turn of one test that boots the managed host. A process holds one host at a time, so a
 /// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
@@ -11,9 +12,9 @@ pub(crate) fn fixture_turn() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// A host booted on the portable fixture's managed assembly, with no slice loaded. Take
-/// [`fixture_turn`] first.
-pub(crate) fn booted_fixture_host() -> DisunityHost {
+/// The configuration that boots the portable fixture's managed assembly: builds the FFI library and
+/// the fixture first. Take [`fixture_turn`] first.
+pub(crate) fn fixture_config() -> ManagedHostConfig {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new(env!("CARGO"))
         .args(["build", "--locked", "-p", "worldrunner-disunity-ffi"])
@@ -36,7 +37,7 @@ pub(crate) fn booted_fixture_host() -> DisunityHost {
         root.join(target)
     };
     let managed = root.join("csharp/PortableFixture/bin/Debug/net8.0");
-    DisunityHost::boot(&ManagedHostConfig {
+    ManagedHostConfig {
         ffi_library: target.join("debug").join(format!(
             "{}worldrunner_disunity_ffi{}",
             std::env::consts::DLL_PREFIX,
@@ -45,8 +46,13 @@ pub(crate) fn booted_fixture_host() -> DisunityHost {
         runtime_config: managed.join("PortableFixture.runtimeconfig.json"),
         assembly: managed.join("PortableFixture.dll"),
         bridge_type: "PortableFixture.NativeBridge, PortableFixture".into(),
-    })
-    .unwrap()
+    }
+}
+
+/// A host booted on the portable fixture's managed assembly, with no slice loaded. Take
+/// [`fixture_turn`] first.
+pub(crate) fn booted_fixture_host() -> DisunityHost {
+    DisunityHost::boot(&fixture_config()).unwrap()
 }
 
 fn fixture_host() -> DisunityHost {
@@ -69,15 +75,19 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
             max_frames: None,
             capture_frames: BTreeSet::from([0, 1]),
             keys: vec![],
+            gpu_work: GpuWork::Off,
         },
         crate::scene_light::SceneLighting::start(&[], viewer_options_camera())
             .unwrap()
             .0,
+        None,
     )
     .unwrap();
     let scene = SceneTables::initial_scene(None).unwrap();
     let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host
+        .windowless_on(&mut driver, SharedGpu::headless_for_test())
+        .unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     run.frame().unwrap();
     let generation = run.host().accepted_generation();
@@ -108,6 +118,7 @@ fn viewer_options_camera() -> SceneCamera {
         max_frames: None,
         capture_frames: BTreeSet::new(),
         keys: vec![],
+        gpu_work: GpuWork::Off,
     })
     .camera
 }

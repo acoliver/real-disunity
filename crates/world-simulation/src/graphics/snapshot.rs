@@ -16,9 +16,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    CameraBuffers, ComputeBufferId, ComputeShaderId, GlobalShaderState, MaterialId, OffscreenWork,
-    RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer, WorldComputeShader,
-    WorldMaterial, WorldRenderTexture, WorldShader,
+    CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
+    OffscreenWork, RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer,
+    WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
 use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
@@ -48,20 +48,37 @@ pub struct RendererView {
     /// The identity of the mesh contents, the one the host reads them by.
     pub mesh: u64,
     pub layer: u32,
+    /// The renderer's shadow casting mode: 0 casts no shadow, 1 casts, 2 casts from both sides and 3
+    /// casts and is not otherwise drawn.
+    pub shadow_casting_mode: u32,
     /// The world material of each slot; a slot has none when it never had one or its material
     /// was destroyed.
     pub materials: Vec<Option<MaterialId>>,
     pub render_queue: Option<i32>,
+    /// The values that override every slot's material.
     pub property_block: Option<ShaderProperties>,
+    /// The values that override one slot's material, by slot index. A slot's draws read its own
+    /// block first, then `property_block`, then the material.
+    pub slot_blocks: BTreeMap<u32, ShaderProperties>,
+}
+
+impl RendererView {
+    /// Every property block the renderer holds: the all-slot block, then each slot's.
+    pub fn blocks(&self) -> impl Iterator<Item = &ShaderProperties> {
+        self.property_block.iter().chain(self.slot_blocks.values())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphicsSnapshot {
     pub shaders: BTreeMap<ShaderId, WorldShader>,
     pub materials: BTreeMap<MaterialId, WorldMaterial>,
-    /// Every live render texture, and each one destroyed after a record of the frame named it.
+    /// Every live render texture, and each one destroyed after a record of the frame named it,
+    /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
+    /// The scene's ambient light and default reflection, copied with the global state.
+    pub environment: Environment,
     /// The frame's records, in call order.
     pub work: Vec<OffscreenWork>,
     /// The live cameras that camera renders, camera setups and culls name.
@@ -72,23 +89,32 @@ pub struct GraphicsSnapshot {
     pub renderers: Vec<RendererView>,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
-    /// The live compute buffers that the frame's dispatches bind, with the contents they hold
-    /// when the snapshot is taken.
+    /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
+    /// each once, with the contents they hold when the snapshot is taken.
     pub compute_buffers: BTreeMap<ComputeBufferId, WorldComputeBuffer>,
 }
 
 impl GraphicsSnapshot {
     /// Drains the world's offscreen work and copies what that work can reach: the cameras it
     /// names, the renderers they may draw, the materials and shaders of those renderers and of
-    /// the blits, and the compute shaders and buffers of the dispatches. A frame with no work
-    /// copies nothing else.
+    /// the blits, the buffers those materials bind, and the compute shaders and buffers of the
+    /// dispatches. Every snapshot lists the live render textures; a frame with no work copies
+    /// nothing else.
     ///
     /// # Errors
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
         let work = world.take_offscreen();
+        // The list is whole for every snapshot: a host drops the render textures a snapshot
+        // omits, so a frame with no work must not look like a world with none.
+        let render_textures = world
+            .render_textures()
+            .map(|(id, texture)| (id, *texture))
+            .chain(retired)
+            .collect();
         let mut snapshot = Self {
+            render_textures,
             work,
             ..Self::default()
         };
@@ -96,11 +122,7 @@ impl GraphicsSnapshot {
             return Ok(snapshot);
         }
         snapshot.global = Some(world.global_shader_state().clone());
-        snapshot.render_textures = world
-            .render_textures()
-            .map(|(id, texture)| (id, *texture))
-            .chain(retired)
-            .collect();
+        snapshot.environment = world.live_environment();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;
@@ -115,6 +137,7 @@ impl GraphicsSnapshot {
             snapshot.renderers = renderer_views(world, mask)?;
         }
         snapshot.copy_materials(world);
+        snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
         Ok(snapshot)
     }
@@ -162,11 +185,37 @@ impl GraphicsSnapshot {
                 self.compute_shaders.insert(*shader, held.clone());
             }
             for (_, buffer) in &bindings.buffers {
-                if let Ok(held) = world.compute_buffer(*buffer) {
-                    self.compute_buffers.insert(*buffer, held.clone());
-                }
+                copy_buffer(&mut self.compute_buffers, world, *buffer);
             }
         }
+    }
+
+    /// The buffers the copied materials bind. A destroyed buffer is left out; the material keeps
+    /// its binding for the host to skip.
+    fn copy_material_buffers(&mut self, world: &World) {
+        let bound: Vec<ComputeBufferId> = self
+            .materials
+            .values()
+            .flat_map(|material| material.buffers.iter().map(|(_, buffer)| *buffer))
+            .collect();
+        for buffer in bound {
+            copy_buffer(&mut self.compute_buffers, world, buffer);
+        }
+    }
+}
+
+/// Copies a buffer into `copied` once, whichever kind of record names it. A destroyed buffer is
+/// left out.
+fn copy_buffer(
+    copied: &mut BTreeMap<ComputeBufferId, WorldComputeBuffer>,
+    world: &World,
+    id: ComputeBufferId,
+) {
+    if copied.contains_key(&id) {
+        return;
+    }
+    if let Ok(held) = world.compute_buffer(id) {
+        copied.insert(id, held.clone());
     }
 }
 
@@ -258,6 +307,7 @@ fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldEr
             local_to_world: world.presented_matrix(component.object)?.to_cols_array(),
             mesh,
             layer,
+            shadow_casting_mode: renderer.shadow_casting_mode,
             materials: (0..slots)
                 .map(|slot| {
                     let held = renderer.slot_materials.get(slot).copied().flatten();
@@ -266,6 +316,7 @@ fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldEr
                 .collect(),
             render_queue: renderer.render_queue,
             property_block: renderer.property_block.clone(),
+            slot_blocks: renderer.slot_blocks.clone(),
         });
     }
     Ok(views)

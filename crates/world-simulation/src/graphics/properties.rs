@@ -20,6 +20,11 @@ pub enum TextureRef {
     /// dispatch is recorded. Only the bindings a compute shader stores take one; materials,
     /// property blocks, the global state itself and recorded offscreen work refuse it.
     Global(String),
+    /// The temporary render texture recorded offscreen work allocated under this property name
+    /// id, as it is when the host reaches the record. Only recorded blit and copy sources and
+    /// globals that recorded work sets take one; materials, property blocks, the global state
+    /// itself and compute bindings refuse it.
+    Temporary(i32),
     /// No texture.
     None,
 }
@@ -58,6 +63,18 @@ pub enum PropertyValue {
     /// column-major order: element `column * 4 + row`.
     MatrixArray(String, Vec<[f32; 16]>),
 }
+
+/// The colour property a material draws with. The managed `Material` stores `color` and
+/// `SetColor` under it (csharp/Disunity/Material.cs) and `Renderer.DrawnOf` reads it first
+/// (csharp/Disunity/RendererDrawn.cs).
+pub const MAIN_COLOR: &str = "_Color";
+/// The colour property a material draws with when it has no [`MAIN_COLOR`]; the managed
+/// `Renderer.DrawnOf` reads it second (csharp/Disunity/RendererDrawn.cs).
+pub const BASE_COLOR: &str = "_BaseColor";
+/// The texture property the managed `mainTexture` and `SetTexture("_MainTex")` set
+/// (csharp/Disunity/Material.cs), and the one a renderer draws its slot with
+/// (csharp/Disunity/RendererDrawn.cs).
+pub const MAIN_TEXTURE: &str = "_MainTex";
 
 /// Named shader values, one list per kind, each sorted by name. Setting a name that a list holds
 /// replaces its value. A name may appear in several kinds.

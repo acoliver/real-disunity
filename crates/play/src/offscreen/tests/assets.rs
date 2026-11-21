@@ -1,11 +1,14 @@
 //! Stored meshes and textures as render-program's meshes and source textures.
 
 use worldrunner_disunity_runtime::{
-    MeshChannel as StoredChannel, MeshChannels, MeshRange, PlayerTexture, TextureSampler,
+    MeshChannel as StoredChannel, MeshChannels, MeshRange, PlayerTexture, TextureDimension,
+    TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
-use worldrunner_render_program::unity::offscreen::frame::{ChannelFormat, MeshIndices};
+use worldrunner_render_program::unity::offscreen::frame::{
+    ChannelFormat, MeshIndices, SourceDimension,
+};
 use worldrunner_world_simulation::graphics::WorldSampler;
 
 use super::super::assets::{
@@ -281,40 +284,87 @@ fn a_mesh_that_cannot_be_drawn_is_named() {
 }
 
 fn stored_sampler(wrap: [u32; 3], filter: u32) -> TextureSampler {
+    sampler_with_aniso(wrap, filter, 8)
+}
+
+fn sampler_with_aniso(wrap: [u32; 3], filter: u32, aniso_level: u32) -> TextureSampler {
     TextureSampler {
         generation: 1,
         wrap_u: wrap[0],
         wrap_v: wrap[1],
         wrap_w: wrap[2],
         filter,
-        aniso_level: 8,
+        aniso_level,
+        mip_bias: 0.5,
+    }
+}
+
+fn world_sampler(wrap: [u32; 3], filter: u32, aniso_level: u32) -> WorldSampler {
+    WorldSampler {
+        wrap_u: wrap[0],
+        wrap_v: wrap[1],
+        wrap_w: wrap[2],
+        filter,
+        aniso_level,
         mip_bias: 0.5,
     }
 }
 
 #[test]
-fn a_stored_textures_wrap_and_filter_become_the_sampler_state() {
+fn a_stored_textures_wrap_filter_and_anisotropy_become_the_sampler_state() {
     let state = sampler_of_stored(&stored_sampler([1, 2, 0], 0));
     assert_eq!(
         state,
         SamplerState {
             wrap_u: Wrap::Clamp,
             wrap_v: Wrap::Mirror,
+            wrap_w: Wrap::Repeat,
             filter: Filter::Point,
+            anisotropy: 8,
         }
     );
     assert_eq!(
-        sampler_of_stored(&stored_sampler([0, 0, 0], 1)),
+        sampler_of_stored(&sampler_with_aniso([0, 0, 0], 1, 1)),
         SamplerState {
             wrap_u: Wrap::Repeat,
             wrap_v: Wrap::Repeat,
+            wrap_w: Wrap::Repeat,
             filter: Filter::Bilinear,
+            anisotropy: 1,
         }
     );
     assert_eq!(
         sampler_of_stored(&stored_sampler([0, 0, 0], 2)).filter,
         Filter::Trilinear
     );
+}
+
+#[test]
+fn the_wrap_along_w_of_a_stored_texture_maps_like_the_other_axes() {
+    let along_w = |mode| sampler_of_stored(&stored_sampler([0, 0, mode], 1)).wrap_w;
+    assert_eq!(along_w(0), Wrap::Repeat);
+    assert_eq!(along_w(1), Wrap::Clamp);
+    assert_eq!(along_w(2), Wrap::Mirror);
+    assert_eq!(along_w(3), Wrap::Mirror);
+    assert_eq!(along_w(99), Wrap::Repeat);
+}
+
+#[test]
+fn an_anisotropy_level_is_carried_and_zero_reads_as_one_and_more_than_sixteen_as_sixteen() {
+    let level = |level| sampler_of_stored(&sampler_with_aniso([0; 3], 2, level)).anisotropy;
+    let world_level = |level| sampler_of_world(&world_sampler([0; 3], 2, level)).anisotropy;
+    for (given, read) in [
+        (0, 1),
+        (1, 1),
+        (2, 2),
+        (8, 8),
+        (16, 16),
+        (17, 16),
+        (u32::MAX, 16),
+    ] {
+        assert_eq!(level(given), read, "stored level {given}");
+        assert_eq!(world_level(given), read, "render texture level {given}");
+    }
 }
 
 #[test]
@@ -332,25 +382,20 @@ fn mirror_once_is_read_as_mirror_and_unknown_values_as_the_engines_defaults() {
 
 #[test]
 fn a_render_textures_sampler_maps_like_a_stored_textures() {
-    let world = WorldSampler {
-        wrap_u: 1,
-        wrap_v: 0,
-        wrap_w: 0,
-        filter: 2,
-        aniso_level: 1,
-        mip_bias: 0.0,
-    };
+    let world = world_sampler([1, 0, 2], 2, 4);
     assert_eq!(
         sampler_of_world(&world),
         SamplerState {
             wrap_u: Wrap::Clamp,
             wrap_v: Wrap::Repeat,
+            wrap_w: Wrap::Mirror,
             filter: Filter::Trilinear,
+            anisotropy: 4,
         }
     );
 }
 
-fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
+pub(super) fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
     PlayerTexture {
         format,
         width: 2,
@@ -359,6 +404,9 @@ fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
         linear,
         generation: 1,
         distance_spread: 0,
+        depth: 0,
+        dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+        graphics_format: 0,
         bytes,
     }
 }
@@ -418,6 +466,189 @@ fn rgb24_gains_an_opaque_alpha_and_alpha8_becomes_white_with_that_alpha() {
 fn a_texture_in_a_format_the_host_cannot_read_or_cut_short_is_an_error() {
     assert!(texture_of(TextureId(1), &texture(27, false, vec![0; 16]), None, false).is_err());
     assert!(texture_of(TextureId(1), &texture(4, false, vec![0; 7]), None, false).is_err());
+}
+
+/// A stored array of `depth` layers of 2x1 texels whose bytes are `bytes`.
+fn array(format: u32, depth: u32, bytes: Vec<u8>) -> PlayerTexture {
+    PlayerTexture {
+        depth,
+        dimension: TextureDimension::D2Array,
+        graphics_format: 8,
+        ..texture(format, false, bytes)
+    }
+}
+
+#[test]
+fn a_stored_array_is_one_source_of_its_layers_in_the_order_the_engine_stored_them() {
+    let stored = array(3, 3, (1..=18).collect());
+    let made = texture_of(TextureId(9), &stored, None, true).unwrap();
+    assert_eq!(
+        (made.id, made.dimension, made.size, made.graphics_format),
+        (TextureId(9), SourceDimension::D2Array(3), [2, 1], 4)
+    );
+    let layers = [
+        [1, 2, 3, 255, 4, 5, 6, 255],
+        [7, 8, 9, 255, 10, 11, 12, 255],
+        [13, 14, 15, 255, 16, 17, 18, 255],
+    ];
+    assert_eq!(made.bytes, layers.concat());
+    let data = PlayerTexture {
+        linear: true,
+        ..stored
+    };
+    assert_eq!(
+        texture_of(TextureId(9), &data, None, true)
+            .unwrap()
+            .graphics_format,
+        8
+    );
+}
+
+#[test]
+fn a_texture_of_the_2d_dimension_is_plain_whatever_layer_count_it_states() {
+    for depth in [0, 1] {
+        let stored = PlayerTexture {
+            dimension: TextureDimension::D2,
+            ..array(4, depth, vec![5; 8])
+        };
+        let made = texture_of(TextureId(1), &stored, None, false).unwrap();
+        assert_eq!(made.dimension, SourceDimension::D2, "depth {depth}");
+        assert_eq!(made.bytes, [5; 8]);
+    }
+}
+
+#[test]
+fn a_one_layer_array_stays_an_array() {
+    let made = texture_of(TextureId(1), &array(4, 1, vec![5; 8]), None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::D2Array(1));
+    assert_eq!(made.bytes, [5; 8]);
+}
+
+#[test]
+fn an_array_whose_layers_hold_a_mip_chain_keeps_every_level_of_each_layer() {
+    // Two layers of 2x1 RGBA32 texels, each followed by its 1x1 second level.
+    let layer = |texel: u8| [vec![texel; 8], vec![texel + 10; 4]].concat();
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(4, 2, [layer(1), layer(2)].concat())
+    };
+    let made = texture_of(TextureId(1), &stored, None, false).unwrap();
+    assert_eq!(made.dimension, SourceDimension::D2Array(2));
+    assert_eq!(made.mips, 2);
+    assert_eq!(made.bytes, [layer(1), layer(2)].concat());
+}
+
+#[test]
+fn every_level_of_a_narrower_format_is_read_as_rgba8_with_its_own_size() {
+    // RGB24 layers of 2x1 texels (6 bytes) and a 1x1 second level (3 bytes), then a second layer.
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(3, 2, (1..=18).collect())
+    };
+    let made = texture_of(TextureId(1), &stored, None, false).unwrap();
+    let expected = [
+        [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255],
+        [10, 11, 12, 255, 13, 14, 15, 255, 16, 17, 18, 255],
+    ];
+    assert_eq!(made.bytes, expected.concat());
+    assert_eq!(made.mips, 2);
+}
+
+#[test]
+fn an_array_with_more_levels_than_its_size_has_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::Mips;
+    // A 2x1 texture has two levels, 2x1 and 1x1.
+    for mips in [3, u32::MAX] {
+        let stored = PlayerTexture {
+            mips,
+            ..array(4, 2, vec![0; 64])
+        };
+        let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
+        assert_eq!(
+            error,
+            Mips {
+                mips,
+                width: 2,
+                height: 1
+            }
+        );
+    }
+}
+
+#[test]
+fn an_array_whose_layers_are_longer_than_their_chain_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::Levels;
+    // The chain of 2x1 RGBA32 texels with two levels is 12 bytes; each layer holds 16.
+    let stored = PlayerTexture {
+        mips: 2,
+        ..array(4, 2, vec![0; 32])
+    };
+    let error = texture_of(TextureId(1), &stored, None, false).unwrap_err();
+    assert_eq!(
+        error,
+        Levels {
+            mips: 2,
+            needed: 12,
+            actual: 16
+        }
+    );
+}
+
+#[test]
+fn an_array_that_is_not_equal_layers_of_a_format_the_host_reads_is_an_error_by_name() {
+    use crate::textures::PlayerTextureError::{Layers, Short, Unsupported};
+    let id = TextureId(1);
+    // 7 bytes are not two layers, nor are none.
+    let uneven = texture_of(id, &array(4, 2, vec![0; 7]), None, false).unwrap_err();
+    assert_eq!(
+        uneven,
+        Layers {
+            depth: 2,
+            actual: 7
+        }
+    );
+    let empty = texture_of(id, &array(4, 2, Vec::new()), None, false).unwrap_err();
+    assert_eq!(
+        empty,
+        Layers {
+            depth: 2,
+            actual: 0
+        }
+    );
+    // Two layers of 7 bytes are each short of the 8 a 2x1 RGBA32 level needs.
+    let short = texture_of(id, &array(4, 2, vec![0; 14]), None, false).unwrap_err();
+    assert!(
+        matches!(
+            short,
+            Short {
+                needed: 8,
+                actual: 7,
+                ..
+            }
+        ),
+        "{short}"
+    );
+    // Formats the host has no layout for are refused by name, as BC7 arrays are.
+    let bc7 = texture_of(id, &array(25, 2, vec![0; 32]), None, true).unwrap_err();
+    assert_eq!(
+        bc7,
+        Unsupported {
+            format: "BC7 array".into()
+        }
+    );
+    // A format only the GraphicsFormat names is refused by that name.
+    let graphics = PlayerTexture {
+        format: 0,
+        graphics_format: 52,
+        ..array(0, 2, vec![0; 32])
+    };
+    let float = texture_of(id, &graphics, None, true).unwrap_err();
+    assert_eq!(
+        float,
+        Unsupported {
+            format: "GraphicsFormat 52 array".into()
+        }
+    );
 }
 
 #[test]

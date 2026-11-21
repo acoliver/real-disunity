@@ -619,7 +619,7 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
         .sum::<usize>();
     println!("LOCAL_PROBE_CONTROL differing_attachment_bytes={different_bytes}");
     println!(
-        "STREAMED_DEPTH_POLICY_CONTROL differing_attachment_bytes={}",
+        "STREAMED_INTERPOLATION_CONTROL differing_attachment_bytes={}",
         streamed::control(&context)
     );
     for (reference, baseline) in [

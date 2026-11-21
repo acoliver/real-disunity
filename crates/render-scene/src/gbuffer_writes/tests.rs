@@ -3,6 +3,9 @@
 
 use naga::{Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
 
+#[path = "early_tests.rs"]
+mod early;
+
 fn module(label: &str, source: &str) -> naga::Module {
     let module = naga::front::wgsl::parse_str(source)
         .unwrap_or_else(|error| panic!("{label}: {}", error.emit_to_string(source)));
@@ -166,7 +169,7 @@ fn every_object_entry_writes_the_four_gbuffer_targets() {
 fn object_gbuffer_entries_store_the_forward_material_without_lighting_it() {
     let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
     let entries = &source[source.find("fn scene_gbuffer_object(").unwrap()..];
-    assert_eq!(entries.matches("shade_material(").count(), 4);
+    assert_eq!(entries.matches("scene_object_gbuffer_material(").count(), 4);
     for lighting in ["scene_finish_shading(", "scene_surface_lighting("] {
         assert!(
             !entries.contains(lighting),
@@ -238,15 +241,127 @@ fn card_gbuffer_material_is_the_frozen_card_shading_without_its_lighting() {
 
 #[test]
 fn renderer_builds_gbuffer_targets_for_a_producer_source() {
-    let (object, terrain) = super::sources();
-    for source in [&object, &terrain] {
-        let formats: Vec<_> =
-            crate::renderer::base_source_targets_for_test(source, wgpu::TextureFormat::Rgba16Float)
-                .into_iter()
-                .map(|target| target.expect("target").format)
-                .collect();
-        assert_eq!(formats, crate::gbuffer::GBUFFER_FORMATS.to_vec());
+    for velocity in [false, true] {
+        let (object, terrain) = super::sources(velocity);
+        let mut expected = crate::gbuffer::GBUFFER_FORMATS.to_vec();
+        if velocity {
+            expected.push(worldrunner_render_post::VELOCITY_FORMAT);
+        }
+        for source in [&object, &terrain] {
+            let formats: Vec<_> = crate::renderer::base_source_targets_for_test(
+                source,
+                wgpu::TextureFormat::Rgba16Float,
+            )
+            .into_iter()
+            .map(|target| target.expect("target").format)
+            .collect();
+            assert_eq!(formats, expected, "velocity {velocity}");
+            assert_eq!(source.contains(crate::velocity::MARKER), velocity);
+        }
     }
+}
+
+/// The four targets followed by the object-motion residual at location 4.
+const VELOCITY_TARGETS: [(u32, ScalarKind, u32); 5] = [
+    TARGETS[0],
+    TARGETS[1],
+    TARGETS[2],
+    TARGETS[3],
+    (4, ScalarKind::Float, 2),
+];
+
+#[test]
+fn velocity_producers_write_the_four_targets_and_the_residual() {
+    let (object, terrain) = super::sources(true);
+    let objects = module("object G-buffer with velocity", &object);
+    for entry in super::FORWARD_OBJECTS {
+        assert_eq!(
+            fragment_outputs(&objects, entry),
+            VELOCITY_TARGETS.to_vec(),
+            "{entry}"
+        );
+        assert_eq!(
+            writes_depth(&objects, entry),
+            entry.starts_with("fs_relief"),
+            "{entry}"
+        );
+    }
+    // The residual is the forward velocity entries' own, over the previous-transform vertex
+    // stage, and the stored targets are the plain producer's.
+    assert!(object.contains("fn scene_object_velocity(input: VertexOutput)"));
+    assert!(object.contains("previous: PreviousInstance"));
+    assert_eq!(object.matches("scene_object_velocity(input)").count(), 4);
+    for (index, source) in crate::terrain::program::source::test_sources(&terrain)
+        .iter()
+        .enumerate()
+    {
+        let module = module(&format!("terrain variant {index} with velocity"), source);
+        assert_eq!(
+            fragment_outputs(&module, crate::shader::TERRAIN_FRAGMENT_ENTRY_POINT),
+            VELOCITY_TARGETS.to_vec(),
+            "terrain variant {index}"
+        );
+    }
+    assert!(terrain.contains("SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, vec2<f32>(0.0))"));
+}
+
+/// Object G-buffer material rejects before any optional material term. The derivative operands
+/// and the base alpha are prepared first, geometry and mask discard, and only survivors sample
+/// the surface, AO, emission and normal or evaluate contact and decals. The naga validator
+/// accepts a derivative placed after the discard, so this source order is the guard.
+#[test]
+fn object_gbuffer_material_rejects_before_optional_work() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    module("object G-buffer material", &source);
+    let body =
+        crate::scene_metadata::receiver::function_source(&source, "scene_object_gbuffer_material");
+    let alpha = body
+        .find("var albedo_sample = scene_albedo(")
+        .expect("the base alpha");
+    let rejection = body
+        .find("if !visible || !scene_geometry_covered(input)")
+        .expect("the geometry, mask and visibility rejection");
+    assert!(alpha < rejection);
+    assert!(body.contains("(masked && !scene_alpha_covered(albedo_sample.a, input))"));
+    for name in [
+        "scene_atlas_footprint(albedo_texture",
+        "scene_prepare_surface_channels(",
+        "scene_prepare_normal(",
+        "scene_prepare_decals(",
+        "scene_prepare_card_occlusion(",
+        "scene_prepare_card_emission(",
+    ] {
+        assert!(body.find(name).expect(name) < alpha, "{name}");
+    }
+    for name in [
+        "scene_surface_channels_prepared(",
+        "scene_occlusion_sample_prepared(",
+        "scene_emission_sample_prepared(",
+        "sample_normal_prepared(",
+        "scene_contact(",
+        "scene_gbuffer_projected_material(",
+    ] {
+        assert!(body.find(name).expect(name) > rejection, "{name}");
+    }
+    for name in [
+        "scene_project_decals(",
+        "sample_normal(",
+        "scene_surface_channels(",
+        "scene_auxiliary_samples(",
+        "scene_object_material(",
+    ] {
+        assert!(!body.contains(name), "{name}");
+    }
+}
+
+/// The object entries no longer call the forward `shade_material` or the separate coverage
+/// discard after it: their rejection is inside the G-buffer material.
+#[test]
+fn object_gbuffer_entries_evaluate_through_the_rejecting_material() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    let entries = &source[source.find("fn scene_gbuffer_object(").unwrap()..];
+    assert!(!entries.contains("shade_material("));
+    assert!(!entries.contains("scene_apply_coverage("));
 }
 
 #[test]
@@ -256,4 +371,25 @@ fn object_gbuffer_normalizes_the_folded_normal_at_storage() {
         source.contains("select(evaluated.geometric_normal, normalize(evaluated.surface.normal),")
     );
     assert!(source.contains("length(evaluated.surface.normal) > 0.000001"));
+}
+
+/// A stock terrain source whose forward entry was reworded must fail by name, not compose a
+/// G-buffer source that still holds the forward entry.
+#[test]
+#[should_panic(expected = "shader rewrite of gbuffer_writes forward entry")]
+fn a_reworded_forward_terrain_entry_fails_by_name() {
+    let stock = crate::shader::TERRAIN_WGSL.replace("fn fs_terrain(", "fn fs_terrain_renamed(");
+    super::terrain_source(&stock);
+}
+
+/// A frozen card shading whose statements were reworded must fail by name, not derive a card
+/// material that still lights.
+#[test]
+#[should_panic(expected = "shader rewrite of gbuffer_writes card material")]
+fn a_reworded_card_shading_fails_by_name() {
+    let stock = crate::shader::ENVIRONMENT_WGSL.replace(
+        "let front_shadow = scene_prepare_card_shadow(",
+        "let front = scene_prepare_card_shadow(",
+    );
+    super::object_source(&stock);
 }

@@ -252,9 +252,14 @@ fn body_interpolation_round_trips_rejects_other_values_and_survives_body_writes(
         read(1);
         assert_eq!(
             disunity_body_interpolation_write(world, body, 2).code,
+            result_code::OK
+        );
+        read(2);
+        assert_eq!(
+            disunity_body_interpolation_write(world, body, 3).code,
             result_code::INVALID_ARGUMENT
         );
-        read(1);
+        read(2);
         let mut record = DisunityBody2d::default();
         assert_eq!(
             disunity_body_read(world, body, &mut record).code,
@@ -265,7 +270,7 @@ fn body_interpolation_round_trips_rejects_other_values_and_survives_body_writes(
             disunity_body_write(world, body, &record).code,
             result_code::OK
         );
-        read(1);
+        read(2);
         assert_eq!(
             disunity_body_interpolation_read(world, body, std::ptr::null_mut()).code,
             result_code::INVALID_ARGUMENT

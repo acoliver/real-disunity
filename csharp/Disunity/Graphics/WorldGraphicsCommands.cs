@@ -1,4 +1,5 @@
 using System.Text;
+using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine.Rendering;
 
@@ -27,7 +28,7 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordGlobalFloat(string name, float value)
     {
-        var floats = stackalloc float[] { value };
+        var floats = stackalloc float[] { Finite(value) };
         RecordGlobal(GlobalFloat, name, floats, 0, null);
     }
 
@@ -35,7 +36,7 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordGlobalVector(string name, Vector4 value)
     {
-        var floats = stackalloc float[] { value.x, value.y, value.z, value.w };
+        var floats = stackalloc float[] { Finite(value.x), Finite(value.y), Finite(value.z), Finite(value.w) };
         RecordGlobal(GlobalVector, name, floats, 0, null);
     }
 
@@ -44,7 +45,8 @@ internal static unsafe partial class WorldGraphics
     {
         var floats = stackalloc float[]
         {
-            m.m00, m.m10, m.m20, m.m30, m.m01, m.m11, m.m21, m.m31, m.m02, m.m12, m.m22, m.m32, m.m03, m.m13, m.m23, m.m33,
+            Finite(m.m00), Finite(m.m10), Finite(m.m20), Finite(m.m30), Finite(m.m01), Finite(m.m11), Finite(m.m21), Finite(m.m31),
+            Finite(m.m02), Finite(m.m12), Finite(m.m22), Finite(m.m32), Finite(m.m03), Finite(m.m13), Finite(m.m23), Finite(m.m33),
         };
         RecordGlobal(GlobalMatrix, name, floats, 0, null);
     }
@@ -59,7 +61,8 @@ internal static unsafe partial class WorldGraphics
     {
         var bytes = Encoding.UTF8.GetBytes(name);
         fixed (byte* pointer = bytes)
-            Check(NativeBindings.disunity_offscreen_set_global(World, kind, pointer, (uint)bytes.Length, floats, intValue, slot));
+            DisunityHost.ThrowIfError(
+                NativeBindings.disunity_offscreen_set_global(World, kind, pointer, (uint)bytes.Length, floats, intValue, slot), $"global '{name}'");
     }
 
     internal static void RecordGlobalKeyword(string name, bool enabled)
@@ -105,6 +108,21 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
     }
 
+    /// <summary>Records the rectangle in pixels of the bound targets that the draws after it cover.</summary>
+    internal static void RecordSetViewport(Rect pixelRect) =>
+        Check(NativeBindings.disunity_offscreen_set_viewport(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
+
+    /// <summary>Records the rectangle in pixels of the bound targets that clips the draws after it.</summary>
+    internal static void RecordEnableScissor(Rect pixelRect) =>
+        Check(NativeBindings.disunity_offscreen_enable_scissor(World, pixelRect.x, pixelRect.y, pixelRect.width, pixelRect.height));
+
+    /// <summary>Records the end of the clip a scissor rectangle set.</summary>
+    internal static void RecordDisableScissor() => Check(NativeBindings.disunity_offscreen_disable_scissor(World));
+
+    /// <summary>Records the constant and slope-scaled depth bias of the draws after it.</summary>
+    internal static void RecordDepthBias(float bias, float slopeBias) =>
+        Check(NativeBindings.disunity_offscreen_set_depth_bias(World, bias, slopeBias));
+
     /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
     /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
     /// of the block reaches a later draw.</summary>
@@ -120,14 +138,18 @@ internal static unsafe partial class WorldGraphics
         }
     }
 
-    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
-    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
+    /// <summary>Records a request to fill mip levels 1 and up of a render texture from its level 0.</summary>
+    internal static void RecordGenerateMips(ulong texture) => Check(NativeBindings.disunity_offscreen_generate_mips(World, texture));
+
+    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it, and
+    /// <paramref name="instances"/> instances of the sub-mesh; none is a draw of nothing that keeps its place.</summary>
+    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, (int Submesh, int Pass) draw, uint instances)
     {
         var columns = stackalloc float[16];
         for (var column = 0; column < 4; column++)
             for (var row = 0; row < 4; row++)
                 columns[column * 4 + row] = matrix[row, column];
-        Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+        Check(NativeBindings.disunity_offscreen_draw_mesh_instanced(World, mesh, columns, material, (uint)draw.Submesh, draw.Pass, instances));
     }
 
     /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a

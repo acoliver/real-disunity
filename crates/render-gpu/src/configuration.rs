@@ -40,12 +40,20 @@ enum Storage {
         mips: u32,
         samples: u32,
     },
+    /// A 3D texture, whose levels each halve the depth as well as the width and height.
+    Volume {
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mips: u32,
+    },
     Buffer(u64),
     Readback {
         size: [u32; 2],
         texel_bytes: u32,
     },
     Cpu(u64),
+    /// GPU storage its owner created and checked against the device itself, by bytes alone.
+    External(u64),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Allocation {
@@ -53,6 +61,8 @@ struct Allocation {
     storage: Storage,
     count: u32,
     shared: bool,
+    /// Tells apart the retained backings that one name describes; zero for every other entry.
+    backing: u64,
 }
 /// Each entry is one physical allocation family. Cloned views are not entries.
 /// Shared entries must describe the same retained storage in every generation.
@@ -78,6 +88,27 @@ impl AllocationSet {
             },
             count,
             shared: false,
+            backing: 0,
+        });
+    }
+    /// Declares a 3D texture of `extent` (width, height, depth) with `mips` levels.
+    pub fn volume(
+        &mut self,
+        name: &'static str,
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mips: u32,
+    ) {
+        self.0.push(Allocation {
+            name,
+            storage: Storage::Volume {
+                extent,
+                format,
+                mips,
+            },
+            count: 1,
+            shared: false,
+            backing: 0,
         });
     }
     /// Declares retained texture storage, rather than cloned views or new backing.
@@ -98,7 +129,24 @@ impl AllocationSet {
             storage: Storage::Buffer(bytes),
             count,
             shared: false,
+            backing: 0,
         });
+    }
+    /// Declares one physical texture that every generation which keeps it describes the same
+    /// way. `backing` identifies the physical texture among those `name` describes over time:
+    /// entries with one name and one `backing` are the same storage and count once, whichever
+    /// generations declare them, and entries with one name and different backings are distinct
+    /// storage that both count while both are live.
+    pub fn backing_texture(
+        &mut self,
+        name: &'static str,
+        backing: u64,
+        extent: [u32; 3],
+        format: wgpu::TextureFormat,
+        mip_samples: [u32; 2],
+    ) {
+        self.shared_texture(name, extent, format, mip_samples, 1);
+        self.0.last_mut().unwrap().backing = backing;
     }
     pub fn shared_buffer(&mut self, name: &'static str, bytes: u64, count: u32) {
         self.0.push(Allocation {
@@ -106,6 +154,7 @@ impl AllocationSet {
             storage: Storage::Buffer(bytes),
             count,
             shared: true,
+            backing: 0,
         });
     }
     pub fn readback(&mut self, name: &'static str, size: [u32; 2], texel_bytes: u32, count: u32) {
@@ -114,6 +163,7 @@ impl AllocationSet {
             storage: Storage::Readback { size, texel_bytes },
             count,
             shared: false,
+            backing: 0,
         });
     }
     pub fn cpu(&mut self, name: &'static str, bytes: u64) {
@@ -122,12 +172,26 @@ impl AllocationSet {
             storage: Storage::Cpu(bytes),
             count: 1,
             shared: false,
+            backing: 0,
         });
     }
     /// Declares one host-owned CPU reservation retained across generations.
     pub fn shared_cpu(&mut self, name: &'static str, bytes: u64) {
         self.cpu(name, bytes);
         self.0.last_mut().unwrap().shared = true;
+    }
+    /// Declares `bytes` of GPU storage that its owner creates outside the set's rules (a
+    /// texture of any extent or format, for example) and has already checked against the
+    /// device. It counts against the budget like any GPU entry, but no buffer or texture rule
+    /// applies to it.
+    pub fn external(&mut self, name: &'static str, bytes: u64) {
+        self.0.push(Allocation {
+            name,
+            storage: Storage::External(bytes),
+            count: 1,
+            shared: false,
+            backing: 0,
+        });
     }
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0);
@@ -201,12 +265,23 @@ fn allocation_bytes(entry: &Allocation, limits: &wgpu::Limits) -> Result<u64, &'
             bytes
         }
         Storage::Cpu(bytes) => bytes,
+        Storage::External(bytes) => {
+            if bytes == 0 {
+                return Err("empty external storage");
+            }
+            bytes
+        }
         Storage::Texture {
             extent,
             format,
             mips,
             samples,
         } => texture_bytes(extent, format, mips, samples, limits)?,
+        Storage::Volume {
+            extent,
+            format,
+            mips,
+        } => volume_bytes(extent, format, mips, limits)?,
     };
     mul(bytes, u64::from(entry.count))
 }
@@ -243,6 +318,37 @@ fn texture_bytes(
     }
     mul(mul(bytes, u64::from(extent[2]))?, u64::from(samples))
 }
+fn volume_bytes(
+    extent: [u32; 3],
+    format: wgpu::TextureFormat,
+    mips: u32,
+    limits: &wgpu::Limits,
+) -> Result<u64, &'static str> {
+    if extent.contains(&0)
+        || extent
+            .iter()
+            .any(|&side| side > limits.max_texture_dimension_3d)
+    {
+        return Err("volume extent limit");
+    }
+    if mips == 0 || mips > 32 - extent.into_iter().max().unwrap_or(1).leading_zeros() {
+        return Err("volume mip count");
+    }
+    let (bw, bh) = format.block_dimensions();
+    let block = backing_block_bytes(format).ok_or("unsupported texture byte size")?;
+    let mut bytes = 0;
+    for mip in 0..mips {
+        let blocks = mul(
+            mul(
+                u64::from((extent[0] >> mip).max(1).div_ceil(bw)),
+                u64::from((extent[1] >> mip).max(1).div_ceil(bh)),
+            )?,
+            u64::from((extent[2] >> mip).max(1)),
+        )?;
+        bytes = add(bytes, mul(blocks, u64::from(block))?)?;
+    }
+    Ok(bytes)
+}
 /// Bytes per texel block of the storage a backend allocates for `format`.
 ///
 /// Backends may emulate stencil with D32/S8 and promote D24/S8 to D32/S8. Copy payload sizes
@@ -261,12 +367,35 @@ fn total<'a>(
     sets: impl IntoIterator<Item = &'a AllocationSet>,
     limits: &wgpu::Limits,
 ) -> Result<u64, &'static str> {
+    total_where(sets, limits, |_| true)
+}
+/// [`total`] of the entries that live on the GPU, without CPU-side storage.
+fn gpu_total<'a>(
+    sets: impl IntoIterator<Item = &'a AllocationSet>,
+    limits: &wgpu::Limits,
+) -> Result<u64, &'static str> {
+    total_where(sets, limits, |entry| {
+        !matches!(entry.storage, Storage::Cpu(_))
+    })
+}
+fn total_where<'a>(
+    sets: impl IntoIterator<Item = &'a AllocationSet>,
+    limits: &wgpu::Limits,
+    keep: impl Fn(&Allocation) -> bool,
+) -> Result<u64, &'static str> {
     let mut shared: Vec<&Allocation> = Vec::new();
     let mut bytes = 0;
-    for entry in sets.into_iter().flat_map(|set| &set.0) {
+    for entry in sets
+        .into_iter()
+        .flat_map(|set| &set.0)
+        .filter(|entry| keep(entry))
+    {
         let size = allocation_bytes(entry, limits)?;
         if entry.shared {
-            if let Some(previous) = shared.iter().find(|previous| previous.name == entry.name) {
+            if let Some(previous) = shared
+                .iter()
+                .find(|previous| previous.name == entry.name && previous.backing == entry.backing)
+            {
                 if **previous != *entry {
                     return Err("shared allocation descriptor changed");
                 }
@@ -277,6 +406,11 @@ fn total<'a>(
         bytes = add(bytes, size)?;
     }
     Ok(bytes)
+}
+/// The census entry of a counted configuration and the limits its sizes are taken under.
+struct Counted {
+    limits: wgpu::Limits,
+    entry: crate::census::CensusEntry,
 }
 struct Generation<T> {
     value: T,
@@ -294,6 +428,7 @@ pub struct Configuration<T> {
     policy: AllocationBudgetPolicy,
     authority: SubmissionAuthority,
     reservations: Vec<std::sync::Weak<AllocationSet>>,
+    census: Option<Counted>,
 }
 impl<T> Configuration<T> {
     pub fn new(
@@ -325,7 +460,33 @@ impl<T> Configuration<T> {
             budget,
             policy,
             authority: authority.clone(),
+            census: None,
         })
+    }
+    /// Counts the GPU bytes of the current and retired generations' admitted allocation sets
+    /// in the authority's census under `class`, until each generation retires. Reservations
+    /// are not counted: what they reserve is counted where it is created.
+    #[must_use]
+    pub fn counted(mut self, class: crate::census::ResourceClass, limits: &wgpu::Limits) -> Self {
+        self.census = Some(Counted {
+            limits: limits.clone(),
+            entry: self.authority.census().track(class, 0),
+        });
+        self.recount();
+        self
+    }
+    fn recount(&mut self) {
+        let Some(counted) = &self.census else {
+            return;
+        };
+        let sets = std::iter::once(&self.allocations)
+            .chain(self.retired.iter().map(|old| &old.allocations));
+        // Admission already validated every set, so a size error cannot occur here.
+        let bytes = gpu_total(sets, &counted.limits).unwrap_or(0);
+        let entry = self.authority.census().track(counted.entry.class(), bytes);
+        if let Some(counted) = &mut self.census {
+            counted.entry = entry;
+        }
     }
     pub fn uses_authority(&self, authority: &SubmissionAuthority) -> bool {
         self.authority.same_authority(authority)
@@ -356,6 +517,28 @@ impl<T> Configuration<T> {
             let _ = &old.value;
             old.last_submission > complete
         });
+        self.recount();
+    }
+    /// [`Self::collect`] after the completion bookkeeping of every retired generation's last
+    /// submission has run, so a caller that waited for them is not charged for memory that is
+    /// already free (hub issue 4d2b47c55165). Polls without blocking until then or until
+    /// `deadline`.
+    ///
+    /// # Errors
+    /// Fails with the poll error, `PollError::Timeout` past `deadline`; generations that are
+    /// still in flight then stay counted.
+    pub fn collect_settled(
+        &mut self,
+        device: &wgpu::Device,
+        deadline: std::time::Instant,
+    ) -> Result<(), wgpu::PollError> {
+        let last = self.retired.iter().map(|old| old.last_submission).max();
+        let settled = last.map_or(Ok(()), |serial| {
+            self.authority
+                .await_completion_record(device, serial, deadline)
+        });
+        self.collect();
+        settled
     }
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         let reservations: Vec<_> = self

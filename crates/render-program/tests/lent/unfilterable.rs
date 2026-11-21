@@ -5,10 +5,14 @@
 //! texture of a format such as `R32Float` can be bound to it. The shader samples it with a
 //! sampler declared non-filtering. The target is `R32Float` too, so every texel read back is the
 //! exact `f32` the shader returned.
+//!
+//! On a device with `FLOAT32_FILTERABLE`, `R32Float` is filterable, so it suits a binding that
+//! stays filterable and is sampled through a linear sampler.
 
 use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
+use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -18,8 +22,8 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
-    TargetSignature,
+    GraphicsProgram, Import, ImportTable, ImportedDraw, ImportedGeometry, PreparedProgramDraw,
+    ProgramRuntime, TargetSignature,
 };
 
 use crate::common::{SIZE, no_cull};
@@ -35,6 +39,9 @@ const WGSL: &str = "
 }
 @fragment fn fs_sample(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(textureSample(ambient, point, at.xy / 4.0).r, 0.0, 0.0, 1.0);
+}
+@fragment fn fs_between(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureSample(ambient, point, (at.xy + vec2<f32>(0.5, 0.0)) / 4.0).r, 0.0, 0.0, 1.0);
 }
 @fragment fn fs_load(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(textureLoad(ambient, vec2<i32>(at.xy), 0).r, 0.0, 0.0, 1.0);
@@ -164,6 +171,7 @@ fn prepare(
             bindings: &[],
             imports,
             sets: &[],
+            topology: wgpu::PrimitiveTopology::TriangleList,
             geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
             instances: 0..1,
             owners: &[],
@@ -372,4 +380,112 @@ fn a_filtering_sampler_lent_to_a_non_filtering_slot_is_wgpus_to_refuse() {
     ));
     let error = prepare(&mut runtime, &lent, &both).unwrap_err();
     assert!(matches!(error, ProgramError::Gpu(_)), "{error:?}");
+}
+
+/// wgpu's no-op device with `features`: it validates bind groups as a real device does and runs
+/// nothing.
+fn noop(features: wgpu::Features) -> Gpu {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_features: features,
+        ..wgpu::DeviceDescriptor::default()
+    });
+    Gpu {
+        device,
+        authority: SubmissionAuthority::new(queue),
+    }
+}
+
+/// The texture of set 0 filterable and a linear sampler the owner lends, the way a pass reads a
+/// 32-bit float copy of depth through its linear clamp sampler.
+fn linear_declarations() -> Vec<ResourceBinding> {
+    vec![
+        declarations(FILTERABLE, None).remove(0),
+        ResourceBinding {
+            source: BindingSource::Engine(EngineSemantic::named("unfilterable.linear")),
+            ..declarations(FILTERABLE, Some(wgpu::SamplerBindingType::Filtering)).remove(1)
+        },
+    ]
+}
+
+fn linear_imports(gpu: &Gpu) -> Vec<Import> {
+    let linear = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..wgpu::SamplerDescriptor::default()
+    });
+    let mut both = imports(gpu, R32);
+    both.push(Import::sampler(
+        EngineSemantic::named("unfilterable.linear"),
+        linear,
+    ));
+    both
+}
+
+#[test]
+fn an_r32float_import_suits_a_filterable_binding_exactly_where_the_device_filters_32_bit_floats() {
+    for features in [wgpu::Features::FLOAT32_FILTERABLE, wgpu::Features::empty()] {
+        let gpu = noop(features);
+        let mut runtime = gpu.runtime();
+        let linear = program(&runtime, "fs_sample", linear_declarations()).unwrap();
+        let drawn = prepare(&mut runtime, &linear, &linear_imports(&gpu));
+        let table = linear_imports(&gpu)
+            .into_iter()
+            .fold(ImportTable::new(), ImportTable::with);
+        let set = runtime.prepare_set(&linear, 0, &table, Vec::new());
+        if features.contains(wgpu::Features::FLOAT32_FILTERABLE) {
+            assert!(drawn.is_ok(), "{:?}", drawn.err());
+            assert!(set.is_ok(), "{:?}", set.err());
+        } else {
+            let refused = ProgramError::WrongResource {
+                set: 0,
+                binding: 0,
+                expected: "Float { filterable: true } D2 multisampled=false".to_owned(),
+                found: "R32Float D2 texture with 1 samples".to_owned(),
+            };
+            assert_eq!(drawn.err(), Some(refused.clone()));
+            assert_eq!(set.err(), Some(refused));
+        }
+    }
+}
+
+#[test]
+fn an_r32float_import_is_sampled_linearly_on_a_device_that_filters_32_bit_floats() {
+    let gpu = Gpu::with_optional_features(wgpu::Features::FLOAT32_FILTERABLE);
+    let mut runtime = gpu.runtime();
+    let between = program(&runtime, "fs_between", linear_declarations()).unwrap();
+    let prepared = prepare(&mut runtime, &between, &linear_imports(&gpu));
+    if !gpu
+        .device
+        .features()
+        .contains(wgpu::Features::FLOAT32_FILTERABLE)
+    {
+        eprintln!("the adapter does not filter 32-bit floats; the binding is refused by name");
+        assert!(
+            matches!(
+                prepared,
+                Err(ProgramError::WrongResource {
+                    set: 0,
+                    binding: 0,
+                    ..
+                })
+            ),
+            "{:?}",
+            prepared.err()
+        );
+        return;
+    }
+    // Each pixel samples halfway between texel x and x + 1 of its row, clamped to the edge in
+    // the last column: the mean of the two, 1/128 from either texel a nearest read returns.
+    let mean = |x: u32, y: u32| f32::midpoint(texel(x, y), texel((x + 1).min(SIZE - 1), y));
+    let expected: Vec<f32> = (0..SIZE)
+        .flat_map(|y| (0..SIZE).map(move |x| mean(x, y)))
+        .collect();
+    let drawn = drawn(&gpu, &prepared.unwrap());
+    for (index, (got, want)) in drawn.iter().zip(&expected).enumerate() {
+        assert!(
+            (got - want).abs() <= 1.0 / 1024.0,
+            "texel {index}: drew {got}, the linear blend is {want}"
+        );
+    }
+    assert_eq!(drawn.len(), expected.len());
 }

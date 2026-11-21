@@ -12,7 +12,7 @@ use crate::resources::{Keepalive, Pins};
 use crate::runtime::ProgramRuntime;
 
 /// Resources an owner lends, by the engine semantic they fill.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImportTable {
     entries: BTreeMap<EngineSemantic, ImportedResource>,
 }

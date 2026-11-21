@@ -82,6 +82,15 @@
 //!   uniform scale `M`, `cross(M^-T n, M t)` is `sign(det M)` times the rotated `n x t`, so that
 //!   factor restores the bitangent's direction only when it is the determinant's sign. No
 //!   scanned stage reads the first three components, which are 0.
+//! * `unity_LightData` (1,472 variants) carries the main light's factor in its third component:
+//!   `(0, 0, z, 0)` with `z` 1 when the main light affects the draw's renderer and 0 when it does
+//!   not (the `light_data` module has the rule). A read-only decode of the player's own
+//!   `Mohawk/Terrain/TerrainShader` and `Mohawk/StandardShader` shows
+//!   `mainLight = _MainLightColor.rgb * (shadowAtten * unity_LightData.z *
+//!   saturate(dot(N, _MainLightPosition.xyz)))` and an output of `brdf * mainLight + ambient`,
+//!   and all 116 stage modules of those shaders that read `unity_LightData` read only `.z`. The other three components are 0. The value is a per-draw
+//!   one, so it wins over a `--global unity_LightData=` value and over a script's global for a
+//!   frame that has a directional light; a frame with none leaves the name to those.
 //! * `_ScreenParams` (2,389) holds the width and height in pixels of the target the view draws
 //!   into, the mip's for a mip target ([`add_screen_size`]). `Mohawk/StandardShader` multiplies the
 //!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. The
@@ -105,8 +114,8 @@
 //!   evidence that the engine sets it in the way the common ones are set. The projection ones
 //!   would also need a choice between the engine layer's projection and the one adjusted for the
 //!   graphics API, which nothing here measures.
-//! * The other lighting and shadow values (the `LightShadows` buffer and `unity_LightData` 1,472):
-//!   they depend on shadow maps and additional lights that no offscreen record carries.
+//! * The other lighting and shadow values (the `LightShadows` buffer): they depend on shadow maps
+//!   and additional lights that no offscreen record carries.
 //!   `unity_SHAr` and the other spherical harmonics (1,040 variants) and `unity_SpecCube0_HDR`
 //!   (1,552) are not left to render-program either: [`add_ambient`] gives them an engine
 //!   default, because a shader that reads them as zero draws black. The default is flat (0.3 in

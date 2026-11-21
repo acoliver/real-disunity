@@ -101,6 +101,11 @@ impl ShaderSupply for Synthetic {
                 }];
                 synthetic
             }
+            // The main light colour times `unity_LightData.z`.
+            "light_factor" => super::lights_gpu::per_frame_passes_named(
+                "fs_factor",
+                [super::lights_gpu::COLOR, super::supplied_gpu::NAME],
+            ),
             "light_data" => super::lights_gpu::per_frame_passes_named(
                 "fs_color",
                 [super::supplied_gpu::NAME, "_MainLightPosition"],

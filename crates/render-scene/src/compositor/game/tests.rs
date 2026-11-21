@@ -290,6 +290,8 @@ fn a_game_pass_loads_a_depth_a_stock_prepass_completed() {
     assert_eq!(loads(&passes)[1], [AttachmentLoad::Load]);
 }
 
+#[path = "before_post_tests.rs"]
+mod before_post_tests;
 #[path = "prefix_tests.rs"]
 mod prefix_tests;
 const COLOR_AND_DEVICE_DEPTH: SnapshotReads = SnapshotReads {

@@ -1,7 +1,8 @@
 //! What a feature needs to know to draw into a pass: its attachments and its depth rules.
 use crate::renderer::depth::DepthMode;
 use worldrunner_render_post::{
-    AttachmentLoad, FrameError, PassDeclaration, PassEntry, PassSlot, PrepareContext,
+    AttachmentLoad, AttachmentView, FrameError, PassDeclaration, PassEntry, PassSlot,
+    PrepareContext,
 };
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{PreparedProgramDraw, TargetSignature};
@@ -136,6 +137,56 @@ impl PassTarget {
                 stencil: None,
             },
         }
+    }
+
+    /// The state of a draw into the pass under the pass's depth and stencil rules, with `raster`
+    /// as its raster state and `colors` as what it does with each colour attachment, in location
+    /// order: its blend state and write mask. Particles blended over the frame's colour at
+    /// [`GamePlace::BeforePost`](worldrunner_render_post::GamePlace::BeforePost), for example,
+    /// pass `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which keeps the
+    /// colour's alpha.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentContract`] naming the entry when `colors` does not have one
+    /// state for each colour attachment of the pass.
+    pub fn render_state_with(
+        &self,
+        raster: RasterState,
+        colors: &[ColorState],
+    ) -> Result<RenderState, FrameError> {
+        if colors.len() != self.colors.len() {
+            return Err(FrameError::AttachmentContract(self.entry));
+        }
+        let mut state = self.render_state(raster);
+        state.colors = colors.iter().copied().map(Some).collect();
+        Ok(state)
+    }
+
+    /// The frame's depth that `entry` attaches read-only, for the pass to sample as well as
+    /// test, as a pass planned with
+    /// [`DepthAccess::ReadOnlySampled`](super::DepthAccess::ReadOnlySampled) does. Bind
+    /// [`AttachmentView::sampled_view`], which selects the depth aspect of a combined
+    /// depth-stencil format, with [`AttachmentView::texture`]; it is multisampled when the frame
+    /// is. Read it in `prepare` and `draw` of the frame that lends it and never keep it.
+    ///
+    /// # Errors
+    /// [`FrameError::MissingPass`] when the frame has no such entry,
+    /// [`FrameError::AttachmentContract`] when the entry attaches no depth,
+    /// [`FrameError::AttachmentHazard`] naming the depth when the entry writes it or clears it,
+    /// and [`FrameError::AttachmentView`] when the frame lends no view of it.
+    pub fn sampled_depth<'a>(
+        context: &'a PrepareContext<'_>,
+        entry: PassEntry,
+    ) -> Result<&'a AttachmentView, FrameError> {
+        let depth = context
+            .pass(entry)?
+            .depth
+            .as_ref()
+            .ok_or(FrameError::AttachmentContract(entry))?;
+        if !depth.read_only || depth.load != AttachmentLoad::Load {
+            return Err(FrameError::AttachmentHazard(depth.resource));
+        }
+        context.resource(depth.resource)
     }
 
     /// Refuses a draw prepared for other attachments than this pass opens, by the name of the

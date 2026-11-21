@@ -16,9 +16,12 @@ pub enum StandInReason {
     /// The material lists no slot for a property its shader declares a default for, or the
     /// property block or globals do not either: nothing names a texture.
     Unset,
-    /// The slot names no texture. The world cannot say whether the material names none, or named
-    /// an asset the importer did not build or the managed engine could not carry as a texture.
-    UnsetOrNotLoaded,
+    /// The slot is null in the game's own data and the shader declares a default for it, which
+    /// the shader reads, as the original does.
+    DeclaredDefault,
+    /// The slot names a texture the engine did not send: the managed engine could not carry it,
+    /// the importer did not build it, or it is a render texture that was destroyed.
+    NotLoaded,
     /// The slot names a texture the engine knows of, and the host holds no pixels of it: the
     /// engine stored none, the upload was refused or over the storage budget, or the texture is a
     /// render texture that no longer exists.
@@ -35,7 +38,8 @@ impl StandInReason {
     pub fn label(self) -> &'static str {
         match self {
             Self::Unset => "unset",
-            Self::UnsetOrNotLoaded => "unset-or-not-loaded",
+            Self::DeclaredDefault => "declared-default",
+            Self::NotLoaded => "not-loaded",
             Self::ExistsNotLoaded => "exists-not-loaded",
             Self::UnsupportedFormat => "unsupported-format",
             Self::Undeclared => "undeclared",

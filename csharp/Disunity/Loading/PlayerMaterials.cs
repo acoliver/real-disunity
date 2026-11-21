@@ -6,7 +6,7 @@ namespace Disunity.Hosting;
 /// <summary>Building a material of a plan, for resource plans and scene plans alike: <c>{"type": "Material", "name",
 /// "shader" (asset index or null), "render_queue" (-1 for the shader's), "keywords", "tags" [[key, value]],
 /// "disabled_passes", "floats" [[name, value]], "ints", "colors" [[name, [r, g, b, a]]], "textures" [{"name", "texture"
-/// (asset index or null), "scale", "offset"}]}</c>. The material is <c>new Material(shader)</c> with the planned values
+/// (asset index or null), "unsent" (true for a texture the plan did not build; it is not a null slot), "scale", "offset"}]}</c>. The material is <c>new Material(shader)</c> with the planned values
 /// set through the public setters. A material without a shader (none, or one that did not plan, which the plan lists
 /// as a difference) gets the shader named <c>Hidden/InternalErrorShader</c> (the engine's choice of fallback: queue 2000, one pass). Nothing
 /// draws with the material yet.</summary>
@@ -41,10 +41,16 @@ internal static class PlayerMaterials
         }
     }
 
+    /// <summary>The texture of a slot that names a texture the plan did not build: an empty <see cref="Texture2D"/>, which the world
+    /// is sent as named and not sent (see <c>WorldGraphics.TextureOf</c>), so the slot is not the game's own null.</summary>
+    private static Texture2D UnbuiltTexture(string slot) => new(0, 0) { name = $"unbuilt texture of {slot}" };
+
     private static void SetTexture(Material material, JsonElement slot, Func<int, object> resolve)
     {
         var name = slot.Str("name");
-        var texture = slot.GetProperty("texture") is { ValueKind: JsonValueKind.Number } index ? (Texture)resolve(index.GetInt32()) : null;
+        var texture = slot.GetProperty("texture") is { ValueKind: JsonValueKind.Number } index ? (Texture)resolve(index.GetInt32())
+            : slot.TryGetProperty("unsent", out var unsent) && unsent.ValueKind == JsonValueKind.True ? UnbuiltTexture(name)
+            : null;
         material.SetTexture(name, texture!);
         material.SetTextureScale(name, slot.Vec2("scale"));
         material.SetTextureOffset(name, slot.Vec2("offset"));

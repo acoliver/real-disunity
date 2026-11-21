@@ -2,22 +2,31 @@
 //!
 //! A material plans once, whoever references it: its name, the asset index of its planned
 //! shader, the queue and keywords it sets, its tags and disabled passes, and every saved
-//! property. A texture slot holds the asset index of the planned texture. A reference the plan
-//! cannot hold (a shader that did not plan, a texture the engine does not build) plans as `null`
-//! and is listed once per material. A material that
-//! does not decode is an error entry, and a reference to it binds `null`.
+//! property. A texture slot holds the asset index of the planned texture. A shader the plan
+//! cannot hold plans as `null`. A texture the engine does not build (a cube or volume it cannot
+//! store, a 2D texture it rejects, a reference the plan does not hold) plans as a slot with no
+//! asset index and `unsent` set, which is not the game's own null slot, and is listed once per
+//! material. A material that does not decode is an error entry, and a reference to it binds `null`.
 
 use serde::Serialize;
-use worldrunner_unity_serialized::{graphics::Material, object::PPtr};
+use worldrunner_unity_serialized::{
+    graphics::{Material, TexEnv},
+    object::PPtr,
+};
 
 use crate::{player_files::PlayerFiles, player_resources::ObjectKey};
 
 /// A texture property of a material: the planned texture, or `None` for an empty slot or a
-/// texture the plan does not hold, with the UV scale and offset.
+/// texture the plan does not hold, with the UV scale and offset. `unsent` is set when the slot
+/// names a texture the plan does not hold, which the engine sends as named and not sent; a slot
+/// that is null in the game's data has no texture and `unsent` clear. A clear `unsent` is left out
+/// of the plan, so the plan of a slot the engine sends is unchanged.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlanTextureSlot {
     pub name: String,
     pub texture: Option<usize>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unsent: bool,
     pub scale: [f32; 2],
     pub offset: [f32; 2],
 }
@@ -61,9 +70,55 @@ pub(crate) fn unplanned_reference(pptr: PPtr, cause: &str) -> String {
     )
 }
 
+/// The texture slots of one material that name a texture the plan does not hold, and the first
+/// reason.
+#[derive(Default)]
+struct Unbuilt {
+    slots: Vec<String>,
+    cause: String,
+}
+
+impl Unbuilt {
+    fn note(&mut self, slot: &str, cause: String) {
+        self.slots.push(slot.to_owned());
+        if self.cause.is_empty() {
+            self.cause = cause;
+        }
+    }
+}
+
+/// The plan slot of texture property `name`: the planned texture, a null slot, or a texture
+/// `resolve` cannot give, which is noted in `unbuilt` and planned as unsent.
+fn plan_slot(
+    name: &str,
+    env: &TexEnv,
+    resolve: &mut impl FnMut(PPtr) -> Result<usize, String>,
+    unbuilt: &mut Unbuilt,
+) -> PlanTextureSlot {
+    let (texture, unsent) = if env.texture.is_null() {
+        (None, false)
+    } else {
+        match resolve(env.texture) {
+            Ok(index) => (Some(index), false),
+            Err(cause) => {
+                unbuilt.note(name, cause);
+                (None, true)
+            }
+        }
+    };
+    PlanTextureSlot {
+        name: name.to_owned(),
+        texture,
+        unsent,
+        scale: env.scale,
+        offset: env.offset,
+    }
+}
+
 /// The plan material for a decoded one. `resolve` gives the asset index of the shader or
-/// texture a reference names, or why there is none; what it cannot give binds `null` and is
-/// added to `differences`, one line per material for its textures.
+/// texture a reference names, or why there is none; a shader it cannot give binds `null`, and a
+/// texture it cannot give plans as unsent. Both are added to `differences`, one line per material
+/// for its textures.
 pub(crate) fn plan_material(
     material: &Material,
     mut resolve: impl FnMut(PPtr) -> Result<usize, String>,
@@ -80,37 +135,18 @@ pub(crate) fn plan_material(
             .map_err(|cause| differences.push(format!("material {name}: shader {cause}")))
             .ok()
     };
-    let mut missing = Vec::new();
-    let mut cause = String::new();
+    let mut unbuilt = Unbuilt::default();
     let textures = material
         .properties
         .textures
         .iter()
-        .map(|(slot, env)| {
-            let texture = if env.texture.is_null() {
-                None
-            } else {
-                resolve(env.texture)
-                    .map_err(|why| {
-                        missing.push(slot.as_str());
-                        if cause.is_empty() {
-                            cause = why;
-                        }
-                    })
-                    .ok()
-            };
-            PlanTextureSlot {
-                name: slot.clone(),
-                texture,
-                scale: env.scale,
-                offset: env.offset,
-            }
-        })
+        .map(|(slot, env)| plan_slot(slot, env, &mut resolve, &mut unbuilt))
         .collect();
-    if !missing.is_empty() {
+    if !unbuilt.slots.is_empty() {
         differences.push(format!(
-            "material {name}: texture slots {} bind null: {cause}",
-            missing.join(", ")
+            "material {name}: texture slots {} bind unsent: {}",
+            unbuilt.slots.join(", "),
+            unbuilt.cause
         ));
     }
     PlanMaterial {
@@ -124,5 +160,86 @@ pub(crate) fn plan_material(
         ints: material.properties.ints.clone(),
         colors: material.properties.colors.clone(),
         textures,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pptr(path_id: i64) -> PPtr {
+        PPtr {
+            file_id: 0,
+            path_id,
+        }
+    }
+
+    fn texture_env(path_id: i64) -> worldrunner_unity_serialized::graphics::TexEnv {
+        worldrunner_unity_serialized::graphics::TexEnv {
+            texture: pptr(path_id),
+            scale: [1.0; 2],
+            offset: [0.0; 2],
+        }
+    }
+
+    fn material_with(slots: &[(&str, i64)]) -> Material {
+        Material {
+            name: "Sky".to_owned(),
+            shader: pptr(1),
+            valid_keywords: Vec::new(),
+            invalid_keywords: Vec::new(),
+            lightmap_flags: 0,
+            enable_instancing_variants: false,
+            double_sided_gi: false,
+            custom_render_queue: -1,
+            tags: Vec::new(),
+            disabled_shader_passes: Vec::new(),
+            properties: worldrunner_unity_serialized::graphics::SavedProperties {
+                textures: slots
+                    .iter()
+                    .map(|(name, path_id)| ((*name).to_owned(), texture_env(*path_id)))
+                    .collect(),
+                ..Default::default()
+            },
+            build_texture_stacks: Vec::new(),
+        }
+    }
+
+    /// Object 1 is the shader, 2 a 2D texture the plan holds as asset 5, 3 a cubemap the plan
+    /// does not build; a slot with path id 0 is null in the game's data.
+    fn resolve(reference: PPtr) -> Result<usize, String> {
+        match reference.path_id {
+            1 => Ok(0),
+            2 => Ok(5),
+            id => Err(format!(
+                "references object {id}, which the plan does not hold"
+            )),
+        }
+    }
+
+    #[test]
+    fn a_texture_the_plan_does_not_build_is_unsent_and_a_null_slot_is_not() {
+        let material = material_with(&[("_Main", 2), ("_Sky", 3), ("_Detail", 0)]);
+        let mut differences = Vec::new();
+        let planned = plan_material(&material, resolve, &mut differences);
+        let slots: Vec<_> = planned
+            .textures
+            .iter()
+            .map(|slot| (slot.name.as_str(), slot.texture, slot.unsent))
+            .collect();
+        assert_eq!(
+            slots,
+            [
+                ("_Main", Some(5), false),
+                ("_Sky", None, true),
+                ("_Detail", None, false)
+            ]
+        );
+        assert_eq!(
+            differences,
+            [
+                "material Sky: texture slots _Sky bind unsent: references object 3, which the plan does not hold"
+            ]
+        );
     }
 }

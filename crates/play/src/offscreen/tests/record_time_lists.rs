@@ -6,9 +6,7 @@ use glam::Mat4;
 use worldrunner_world_simulation::graphics::RendererListDesc;
 use worldrunner_world_simulation::{MeshRenderer, ObjectHandle, World};
 
-use super::lists::{
-    MESH, draw, drawing, lists, meshes, run, scene, scene_with_planes, shaders,
-};
+use super::lists::{MESH, draw, drawing, lists, meshes, run, scene, scene_with_planes, shaders};
 use super::support::{renderer_with, world};
 
 const FORWARD: &str = "UniversalForward";

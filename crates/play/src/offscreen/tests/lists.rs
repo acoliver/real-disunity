@@ -267,9 +267,6 @@ fn a_culling_result_keeps_the_renderers_of_the_layers_in_its_mask() {
     let adapted = run(&mut world, |_| {});
     assert_eq!(adapted.report.lists.culls, 1);
     assert_eq!(adapted.report.lists.kept, 3);
-    // The world applies the mask when it captures the culling's set, so the layer it leaves out
-    // never reaches the adapter to be counted.
-    assert_eq!(adapted.report.lists.out_by_layer, 0);
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! A camera render: renderers drawn into a render texture with the player's own programs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
@@ -51,6 +52,11 @@ pub fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
     }
 }
 
+/// The renderers a fixture camera draws within its mask: every id the fixtures give a renderer.
+pub fn fixture_renderers() -> Arc<BTreeSet<RendererId>> {
+    Arc::new((1..=128).map(RendererId).collect())
+}
+
 pub fn camera(mask: u32) -> Camera {
     Camera {
         culling_mask: mask,
@@ -59,7 +65,7 @@ pub fn camera(mask: u32) -> Camera {
         pass: alpha(),
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,
-        renderers: None,
+        renderers: fixture_renderers(),
     }
 }
 

@@ -3,8 +3,9 @@
 //! `Camera.Render` draws at once, so a script may switch an object on for the call and off again
 //! after it, as a bake into a render texture does. The frame's snapshot is taken when the frame
 //! ends, when that object is inactive again. The world therefore records, for each camera render,
-//! which renderers were drawable at the call, and the snapshot lists them next to the renderers
-//! that are drawable when it is taken.
+//! which renderers were drawable at the call, and the snapshot lists exactly those renderers. A
+//! renderer that is drawable when the snapshot is taken but was not when a record was made is in no
+//! set, so no record draws it.
 //!
 //! A set holds the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an
 //! object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
@@ -19,7 +20,7 @@ use crate::{
 };
 
 /// The sets the frame's camera renders drew with, and which record drew with which.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct RenderSets {
     /// The distinct sets, in the order the frame first needed them.
     sets: Vec<Vec<ComponentHandle>>,
@@ -32,7 +33,6 @@ pub(crate) struct RenderSets {
 }
 
 /// What a frame's camera renders captured, drained for the snapshot.
-#[derive(Default)]
 pub(crate) struct CapturedSets {
     pub(crate) sets: Vec<Vec<ComponentHandle>>,
     pub(crate) records: BTreeMap<u32, u32>,
@@ -85,7 +85,7 @@ impl World {
 
     /// Fixes the renderers the camera render or culling about to be recorded draws. A camera
     /// render uses its camera's culling mask and a culling its own. A camera render whose camera is
-    /// not readable keeps no set and draws what the snapshot lists.
+    /// not readable keeps no set, and the snapshot gives it no camera to draw with.
     pub(super) fn capture_render_set(&mut self, work: &OffscreenWork) {
         let mask = match work {
             OffscreenWork::CameraRender { camera, .. } => {
@@ -144,7 +144,7 @@ impl World {
     /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not a
     /// mesh renderer that is enabled and not forced off, or its object has no drawn mesh. Whether
     /// the object is active is a separate question.
-    pub(crate) fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
+    fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
         let shown = renderer.kind == RendererKind::Mesh
             && renderer.switches.enabled
             && !renderer.switches.force_rendering_off;

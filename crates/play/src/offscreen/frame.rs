@@ -356,7 +356,7 @@ pub(super) struct Mapper<'a> {
     /// What the frame's commands have set so far.
     pub(super) script: Script,
     pub(super) placements: Vec<Placed>,
-    cameras: BTreeMap<(ComponentHandle, [u32; 2], Option<u32>), CameraId>,
+    cameras: BTreeMap<(ComponentHandle, [u32; 2], u32), CameraId>,
     /// The renderer sets of the snapshot's camera renders, by their index in the snapshot.
     pub(super) sets: BTreeMap<u32, Arc<BTreeSet<RendererId>>>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
@@ -469,7 +469,8 @@ impl<'a> Mapper<'a> {
         match work {
             OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
             OffscreenWork::CameraRender { camera, target } => {
-                let set = self.record_set(index);
+                // The world fixes a set for every camera render whose camera it can read.
+                let set = self.record_set(index).ok_or(Skip::StaleCamera)?;
                 let mut records = vec![self.camera_render(*camera, *target, set.clone())?];
                 if self.probed.contains(target) {
                     records.extend(self.test_renders(*camera, *target, set)?);
@@ -566,7 +567,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         handle: ComponentHandle,
         target: RenderTextureId,
-        set: Option<RecordSet>,
+        set: RecordSet,
     ) -> Result<Record, Skip> {
         let view = self
             .snapshot
@@ -583,13 +584,12 @@ impl<'a> Mapper<'a> {
             return Err(Skip::PartialViewport);
         }
         let target = self.target(target)?;
-        let key = (handle, size, set.as_ref().map(|set| set.id));
+        let key = (handle, size, set.id);
         let id = if let Some(id) = self.cameras.get(&key) {
             *id
         } else {
             let id = CameraId(self.frame.cameras.len() as u64);
-            let mut camera = self.camera(view, size);
-            camera.renderers = set.map(|set| set.renderers);
+            let camera = self.camera(view, size, set.renderers);
             self.frame.cameras.insert(id, camera);
             self.cameras.insert(key, id);
             id
@@ -605,7 +605,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         handle: ComponentHandle,
         target: RenderTextureId,
-        set: Option<RecordSet>,
+        set: RecordSet,
     ) -> Result<Vec<Record>, Skip> {
         let view = self
             .snapshot
@@ -617,9 +617,8 @@ impl<'a> Mapper<'a> {
             .render_textures
             .get(&target)
             .ok_or(Skip::StaleTarget)?;
-        let mut camera = self.camera(view, [texture.width, texture.height]);
+        let mut camera = self.camera(view, [texture.width, texture.height], set.renderers);
         camera.clear_color = Some(TEST_CLEAR.map(f64::from));
-        camera.renderers = set.map(|set| set.renderers);
         self.scratch.insert(target);
         let variants = if self.available.test_variants {
             TEST_VARIANTS.len()
@@ -648,7 +647,12 @@ impl<'a> Mapper<'a> {
     }
 
     /// What the camera clears, from its clear flags, and what it draws.
-    fn camera(&self, view: &CameraView, size: [u32; 2]) -> Camera {
+    fn camera(
+        &self,
+        view: &CameraView,
+        size: [u32; 2],
+        renderers: Arc<BTreeSet<RendererId>>,
+    ) -> Camera {
         let (clear_color, clear_depth) = match view.settings.clear {
             CameraClear::Skybox | CameraClear::SolidColor => (Some(view.settings.background), true),
             CameraClear::DepthOnly => (None, true),
@@ -665,7 +669,7 @@ impl<'a> Mapper<'a> {
             // Unity winds front faces clockwise as seen with up up. The image is the other way up
             // (see `camera::clip_from_gl`), which reverses a winding.
             front_face: wgpu::FrontFace::Ccw,
-            renderers: None,
+            renderers,
         }
     }
 

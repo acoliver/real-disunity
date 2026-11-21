@@ -118,10 +118,9 @@ fn a_renderer_that_is_activated_after_the_render_is_not_in_its_set() {
     scene.world.set_active(object, true).unwrap();
     let snapshot = snapshot(&mut scene.world);
     assert_eq!(drawn_by(&snapshot, 0), Some(vec![]));
-    assert_eq!(
-        snapshot.renderers.len(),
-        1,
-        "later records of the frame still see it"
+    assert!(
+        snapshot.renderers.is_empty(),
+        "no record draws it, so the snapshot does not list it"
     );
 }
 
@@ -369,10 +368,7 @@ fn a_culling_record_has_the_set_of_renderers_that_were_drawable_when_it_was_reco
     scene.world.set_active(object, false).unwrap();
     let snapshot = snapshot(&mut scene.world);
     assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH]));
-    assert!(
-        snapshot.drawable_renderers().is_empty(),
-        "the renderers drawable at the snapshot are listed separately"
-    );
+    assert_eq!(snapshot.renderers.len(), 1);
 }
 
 #[test]
@@ -394,13 +390,13 @@ fn a_culling_uses_its_own_mask_and_not_its_cameras() {
 }
 
 #[test]
-fn a_renderer_that_is_active_when_the_snapshot_is_taken_is_not_set_only() {
+fn a_renderer_in_a_set_that_is_active_at_the_snapshot_is_listed_once() {
     let mut scene = scene();
     renderer(&mut scene.world, 0, MESH, vec![]);
     scene.render();
+    scene.render();
     let snapshot = snapshot(&mut scene.world);
-    assert_eq!(snapshot.drawable_renderers().len(), 1);
-    assert_eq!(snapshot.set_only_renderers, 0);
+    assert_eq!(snapshot.renderers.len(), 1);
 }
 
 #[test]

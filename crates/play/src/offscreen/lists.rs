@@ -104,24 +104,20 @@ struct Candidate {
 
 impl<'a> Mapper<'a> {
     /// Keeps the renderers the culling record at `record` admits: those of its set, which the world
-    /// fixed when the script culled, whose layer is in `mask` and that are not wholly outside one of
-    /// `planes`. A record with no set culls the renderers that are drawable when the snapshot is
-    /// taken. The renderers of the mask that the planes drop are kept apart for the shadow lists,
-    /// which cast from outside the camera's view; they come from the same candidates, so a caster
-    /// that was not drawable when the record was made stays out.
+    /// fixed when the script culled on the layers of `mask`, that are not wholly outside one of
+    /// `planes`. The world makes a set for every cull; a record without one keeps nothing. The
+    /// renderers of the mask that the planes drop are kept apart for the shadow lists, which cast
+    /// from outside the camera's view; they come from the same set, so a caster that was not
+    /// drawable when the record was made stays out.
     pub(super) fn cull(&mut self, record: usize, id: u64, mask: u32, planes: &[[f32; 4]]) {
         let snapshot = self.snapshot;
-        let candidates: Vec<usize> = snapshot.record_renderers(record).map_or_else(
-            || (0..snapshot.drawable_renderers().len()).collect(),
-            |set| set.iter().map(|index| *index as usize).collect(),
-        );
-        let (mut by_layer, mut by_planes) = (0, 0);
+        let candidates = snapshot.record_renderers(record).unwrap_or_default();
+        let mut by_planes = 0;
         let mut culled = Culled::default();
-        for index in candidates {
+        for &index in candidates {
+            let index = index as usize;
             let view = &snapshot.renderers[index];
-            if view.layer >= 32 || (mask >> view.layer) & 1 == 0 {
-                by_layer += 1;
-            } else if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {
+            if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {
                 by_planes += 1;
                 culled.outside_view.push(index);
             } else {
@@ -131,7 +127,6 @@ impl<'a> Mapper<'a> {
         let report = &mut self.report.lists;
         report.culls += 1;
         report.kept += culled.kept.len();
-        report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
         self.script.culls.insert(id, Arc::new(culled));
         self.script.cull_masks.insert(id, mask);

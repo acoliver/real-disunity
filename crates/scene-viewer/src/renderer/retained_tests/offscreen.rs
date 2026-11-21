@@ -3,6 +3,7 @@
 use super::*;
 use crate::RetainedHost;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_program::ids::{CameraId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
@@ -40,7 +41,7 @@ fn clear() -> OffscreenFrame {
                 pass: PassSelector::Index(0),
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,
-                renderers: None,
+                renderers: Arc::default(),
             },
         )]),
         records: vec![Record::CameraRender {

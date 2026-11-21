@@ -4,11 +4,10 @@
 //! whose world lives in another image can fill the same fields. [`GraphicsSnapshot::take`] reads
 //! them from a world in this process and drains the frame's records.
 //!
-//! The renderers are listed without the presented camera's culling. The presentation's own list
-//! of mesh objects leaves out the layers the screen camera does not draw, and an offscreen camera
-//! draws layers of its own. Each renderer here is still tested against the offscreen cameras'
-//! culling masks, here for the ones the frame has and again, camera by camera, when the frame is
-//! built.
+//! The renderers are the ones the frame's camera renders and culls drew when the script called
+//! them (see `render_sets`), listed without the presented camera's culling: the presentation's own
+//! list of mesh objects leaves out the layers the screen camera does not draw, and an offscreen
+//! camera draws layers of its own.
 //!
 //! A frame with a camera also copies every enabled light on an active object, in component order,
 //! so the host can give the camera's shaders the light it draws with.
@@ -88,17 +87,15 @@ pub struct GraphicsSnapshot {
     /// The enabled lights on active objects, in component order, when the frame has a camera;
     /// none otherwise.
     pub lights: Vec<WorldLight>,
+    /// The renderers the frame's camera renders and culls drew, each once, in the order the
+    /// frame's sets first name them. A renderer is read as it is when the snapshot is taken.
     pub renderers: Vec<RendererView>,
-    /// How many of the last entries of `renderers` are drawable only by the camera renders whose
-    /// sets list them: they were drawable when the script called the render and are not when the
-    /// snapshot is taken. The entries before them are what is drawable when the snapshot is taken.
-    pub set_only_renderers: u32,
-    /// The sets of renderers that camera renders drew when the script called them, each as indices
-    /// into `renderers`. A set is listed once however many records share it.
+    /// The sets of renderers that camera renders and culls drew when the script called them, each
+    /// as indices into `renderers`. A set is listed once however many records share it.
     pub renderer_sets: Vec<Vec<u32>>,
-    /// For the index of a camera render in `work`, the index in `renderer_sets` of the renderers
-    /// that were drawable when the record was made. A record that has no entry draws what the
-    /// camera's mask admits among `renderers`.
+    /// For the index of a camera render or a cull in `work`, the index in `renderer_sets` of the
+    /// renderers that were drawable when the record was made. The world makes one for every cull
+    /// and for every camera render whose camera it can read; a record with no entry draws nothing.
     pub record_sets: BTreeMap<u32, u32>,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
@@ -108,18 +105,8 @@ pub struct GraphicsSnapshot {
 }
 
 impl GraphicsSnapshot {
-    /// The renderers that are drawable when the snapshot is taken: `renderers` without the ones
-    /// only the set of a camera render or a culling lists.
-    pub fn drawable_renderers(&self) -> &[RendererView] {
-        let held = self
-            .renderers
-            .len()
-            .saturating_sub(self.set_only_renderers as usize);
-        self.renderers.get(..held).unwrap_or(&self.renderers)
-    }
-
-    /// The indices into `renderers` of the renderers the camera render at `record` in `work`
-    /// draws, or `None` when the record has no set of its own.
+    /// The indices into `renderers` of the renderers the camera render or cull at `record` in
+    /// `work` draws, or `None` when the world made no set for the record.
     pub fn record_renderers(&self, record: usize) -> Option<&[u32]> {
         let set = self.record_sets.get(&u32::try_from(record).ok()?)?;
         self.renderer_sets
@@ -160,15 +147,8 @@ impl GraphicsSnapshot {
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;
         }
-        let mask = snapshot
-            .cameras
-            .values()
-            .fold(cull_masks(&snapshot.work), |mask, camera| {
-                mask | camera.settings.culling_mask
-            });
-        let drawn = renderer_views(world, mask, &captured.sets)?;
+        let drawn = renderer_views(world, &captured.sets)?;
         snapshot.renderers = drawn.views;
-        snapshot.set_only_renderers = drawn.set_only;
         snapshot.renderer_sets = drawn.sets;
         snapshot.record_sets = captured.records;
         snapshot.copy_materials(world);
@@ -254,14 +234,6 @@ fn copy_buffer(
     }
 }
 
-/// The layers the frame's culls admit, as their own masks give them.
-fn cull_masks(work: &[OffscreenWork]) -> u32 {
-    work.iter().fold(0, |mask, record| match record {
-        OffscreenWork::Cull { culling_mask, .. } => mask | culling_mask,
-        _ => mask,
-    })
-}
-
 /// The live cameras that camera renders, camera setups and culls name.
 fn camera_views(world: &World, work: &[OffscreenWork]) -> BTreeMap<ComponentHandle, CameraView> {
     let mut views = BTreeMap::new();
@@ -310,60 +282,30 @@ fn light_views(world: &World) -> Result<Vec<WorldLight>, WorldError> {
     Ok(lights)
 }
 
-/// The renderers a snapshot lists, and the sets of its camera renders as indices into them.
+/// The renderers a snapshot lists, and the sets of its records as indices into them.
 struct RendererViews {
     views: Vec<RendererView>,
-    set_only: u32,
     sets: Vec<Vec<u32>>,
 }
 
-/// The enabled mesh renderers on active objects whose layer `mask` admits, then the renderers of
-/// the camera renders' `captured` sets that are not among them.
+/// The renderers of the `captured` sets, each listed once, and the sets as indices into them. A
+/// renderer the world no longer holds, or that no longer has a mesh, is left out of its set. The
+/// renderer is read as it is now: the set fixes which renderers draw, and the view says what they
+/// draw.
 fn renderer_views(
     world: &World,
-    mask: u32,
     captured: &[Vec<ComponentHandle>],
 ) -> Result<RendererViews, WorldError> {
     let mut views = Vec::new();
     let mut index = BTreeMap::new();
-    if mask != 0 {
-        for component in world.published_components() {
-            let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
-                continue;
-            };
-            let Some(mesh) = world.drawn_mesh(component.object, renderer) else {
-                continue;
-            };
-            let layer = u32::from(world.object_layer(component.object)?);
-            if mask.checked_shr(layer).is_none_or(|bits| bits & 1 == 0)
-                || !world.active_in_hierarchy(component.object)?
-            {
-                continue;
-            }
-            index.insert(component.handle, position(views.len())?);
-            views.push(renderer_view(
-                world,
-                component.object,
-                renderer,
-                (mesh, layer),
-            )?);
-        }
-    }
-    let current = views.len();
     let mut sets = Vec::with_capacity(captured.len());
     for set in captured {
         sets.push(set_indices(world, set, &mut views, &mut index)?);
     }
-    Ok(RendererViews {
-        set_only: position(views.len().saturating_sub(current))?,
-        views,
-        sets,
-    })
+    Ok(RendererViews { views, sets })
 }
 
-/// The indices in `views` of the renderers of `set`, listing those that `views` lacks. A renderer
-/// the world no longer holds, or that no longer has a mesh, is left out. The renderer is read as
-/// it is now: the set fixes which renderers draw, and the view says what they draw.
+/// The indices in `views` of the renderers of `set`, listing those that `views` lacks.
 fn set_indices(
     world: &World,
     set: &[ComponentHandle],

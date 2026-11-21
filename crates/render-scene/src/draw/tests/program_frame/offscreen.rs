@@ -6,7 +6,8 @@
 //! Every expected pixel is derived from the placements, colors and the inversion the passes
 //! apply, not from the output.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
@@ -198,7 +199,11 @@ fn frame() -> OffscreenFrame {
                 pass: alpha,
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,
-                renderers: None,
+                renderers: Arc::new(BTreeSet::from([
+                    RendererId(1),
+                    RendererId(2),
+                    RendererId(3),
+                ])),
             },
         )]),
         records: vec![

@@ -191,11 +191,12 @@ component, a published construction and the destruction of an object advance giv
 validity, so a frame with hundreds of camera renders scans the renderers once for each change, not
 once for each render.
 
-`GraphicsSnapshot::take` lists the renderers that are drawable when it is taken, then the renderers
-only a set names (`set_only_renderers` counts them), and gives each camera render its set as
-indices into `renderers` (`renderer_sets`, `record_sets`, `record_renderers`). A renderer in a set
-whose object or components are gone by then is left out. A record with no set draws the renderers
-that are drawable when the snapshot is taken (`drawable_renderers`).
+`GraphicsSnapshot::take` lists the renderers the sets name, each once, and gives each camera render
+and each cull its set as indices into `renderers` (`renderer_sets`, `record_sets`,
+`record_renderers`). A renderer in a set whose object or components are gone by then is left out.
+A renderer that is drawable when the snapshot is taken but was not when a record was made is in no
+set, so no record draws it. The world makes a set for every cull and for every camera render whose
+camera it can read; a record with none draws nothing.
 
 The limits: a renderer's pose, materials and property block are read when the snapshot is taken,
 not when the record is made, and the camera's mask and settings are read then too, except that the

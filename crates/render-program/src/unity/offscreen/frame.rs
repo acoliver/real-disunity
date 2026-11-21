@@ -179,19 +179,16 @@ pub struct Camera {
     pub values: PropertyLayer,
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
-    /// The renderers the camera draws, when the frame fixed them at the camera's record: the
-    /// renderers of the set whose layer the mask also admits. `None` draws every renderer of the
-    /// frame whose layer the mask admits.
-    pub renderers: Option<Arc<BTreeSet<RendererId>>>,
+    /// The renderers the camera draws, as the frame fixed them at the camera's record: those of
+    /// the set whose layer the mask also admits.
+    pub renderers: Arc<BTreeSet<RendererId>>,
 }
 
 impl Camera {
     /// Whether the camera draws the renderer `id` on `layer`.
     #[must_use]
     pub fn draws(&self, id: RendererId, layer: u32) -> bool {
-        layer < 32
-            && self.culling_mask & (1 << layer) != 0
-            && self.renderers.as_ref().is_none_or(|set| set.contains(&id))
+        layer < 32 && self.culling_mask & (1 << layer) != 0 && self.renderers.contains(&id)
     }
 }
 

@@ -57,7 +57,7 @@ pub fn uncovered(referring: &BTreeSet<String>, covered: &BTreeSet<String>) -> Ve
         .collect()
 }
 
-fn referring_packages(data: &Metadata) -> Result<BTreeSet<String>, String> {
+pub(crate) fn referring_packages(data: &Metadata) -> Result<BTreeSet<String>, String> {
     let mut found = BTreeSet::new();
     for package in &data.packages {
         if data.workspace_members.contains(&package.id) && references(&package.manifest_path)? {

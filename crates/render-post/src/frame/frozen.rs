@@ -46,8 +46,15 @@ pub(crate) fn validate_stock_order(
 /// reads the depth prefix (the depth pyramid, the occlusion metadata, SSAO, the G-buffer and
 /// Opaque) must see what they added. Resource validation alone cannot establish that: those
 /// passes read products the prepass already produced.
+///
+/// The game's passes before post are the frame's last colour writers: every other role, stock
+/// or game, is listed before them. A pass there loads the scene colour, so resource validation
+/// alone would accept a later writer that draws over it.
 const fn must_follow(slot: PassSlot, earlier: PassSlot) -> bool {
     match slot {
+        PassSlot::Game(GamePlace::BeforePost) => {
+            !matches!(earlier, PassSlot::Game(GamePlace::BeforePost))
+        }
         PassSlot::Game(GamePlace::AfterDepthPrepass) => {
             matches!(earlier, PassSlot::DepthNormalPrepass)
         }

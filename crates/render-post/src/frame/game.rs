@@ -27,6 +27,14 @@ pub enum GamePlace {
     /// After the transparent passes and the post-water depth, before the reflection and
     /// screen-space passes that follow transparency.
     AfterTransparent,
+    /// The last place of the frame: after every pass that writes the lit scene colour (Opaque
+    /// and the deferred lighting, the water and transparent passes, the stock reflections and
+    /// screen-space pass after transparency, and the game's passes at every other place), and
+    /// before the post chain (resolve, bloom, tone mapping) reads that colour. A pass here
+    /// draws over the finished scene colour, for example blended particles, and nothing in the
+    /// frame draws over it. A frame without HDR post copies the colour to its output as it is,
+    /// so the place is still the colour's last writer.
+    BeforePost,
 }
 
 impl PrepareContext<'_> {

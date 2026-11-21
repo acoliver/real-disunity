@@ -32,7 +32,7 @@ use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime, TextureHandle};
 use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 use worldrunner_render_program::unity::offscreen::{
-    OffscreenError, OffscreenOperations, OffscreenState,
+    CameraDraws, ListDraws, OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, OffscreenWork};
 
@@ -376,12 +376,12 @@ impl OffscreenHost {
             left_out: report
                 .camera_draws
                 .iter()
-                .map(|c| c.unmatched + c.missing_texture + c.missing_channel + c.feedback_loop)
+                .map(CameraDraws::left_out)
                 .sum::<usize>()
                 + report
                     .list_draws
                     .iter()
-                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
+                    .map(ListDraws::left_out)
                     .sum::<usize>(),
             live_before,
             live_after: self.runtime.live_bytes(),

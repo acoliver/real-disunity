@@ -29,6 +29,7 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Con
 use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_render_program::unity::offscreen::ListDraws;
 use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
@@ -39,8 +40,8 @@ use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, Settings, StandInCounts,
-    StandInLook, SuppliedGlobal, WorkTrace, supplied_line,
+    PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, Settings, StandInCounts, StandInLook,
+    SuppliedGlobal, WorkTrace, supplied_line,
 };
 use crate::scene_census::SubstitutionCensus;
 
@@ -250,7 +251,7 @@ impl GpuWorkReport {
         self.list_unmatched += report
             .list_draws
             .iter()
-            .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
+            .map(ListDraws::left_out)
             .sum::<usize>();
         for (name, count) in &report.built_by_kind {
             *self.built_by_kind.entry(name.clone()).or_default() += count;

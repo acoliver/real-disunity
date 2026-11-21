@@ -628,6 +628,22 @@ pub struct ListDraws {
     pub feedback_loop: usize,
 }
 
+impl CameraDraws {
+    /// The draws left out, for every reason.
+    #[must_use]
+    pub const fn left_out(&self) -> usize {
+        self.unmatched + self.missing_texture + self.missing_channel + self.feedback_loop
+    }
+}
+
+impl ListDraws {
+    /// The draws left out, for every reason.
+    #[must_use]
+    pub const fn left_out(&self) -> usize {
+        self.unmatched + self.missing_texture + self.missing_channel + self.feedback_loop
+    }
+}
+
 /// Why one camera render left draws out: the texture properties no layer named and the
 /// (source channel, shader input) pairs its meshes lacked, each with the draws it cost.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

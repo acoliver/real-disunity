@@ -51,7 +51,6 @@ pub use keys::key_code;
 pub use offscreen::{DepthRange, REVERSED_DEPTH_ENV, SuppliedGlobal};
 pub use player::{
     GpuWork, PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player,
-    run_player_screens, run_player_with,
 };
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,

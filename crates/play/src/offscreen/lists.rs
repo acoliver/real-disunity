@@ -58,8 +58,9 @@ const OUTSIDE_PLANES: &str = "outside the split's planes";
 const NO_CASTER_PASS: &str = "no shadow caster pass";
 const NO_SHADOW_CAST: &str = "casts no shadow";
 
-/// The winding that counts as a front face for a list or a mesh draw. The image is the other way
-/// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
+/// The winding that counts as a front face for every draw the player plans: camera renders, lists,
+/// mesh and procedural draws. It follows from the clip-space Y the stages write (see
+/// `camera::clip_from_gl`).
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {

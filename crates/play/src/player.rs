@@ -375,35 +375,20 @@ pub struct ScreenOutput {
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
-/// step that failed: starting the scene or the frame that failed.
-pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
-    run_player_with(prepared, frames, dt, GpuWork::Auto)
-}
-
-/// [`run_player`] with `gpu` saying whether the offscreen work runs. The run has no screen.
-pub fn run_player_with(
-    prepared: &PreparedPlayer,
-    frames: u64,
-    dt: Duration,
-    gpu: GpuWork,
-) -> Result<(), PlayError> {
-    run_player_screens(prepared, frames, dt, gpu, None)
-}
-
-/// [`run_player_with`] with a screen, when `screen` is given: the offscreen work draws a
-/// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
-/// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
-/// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
-/// that draws the UI share one device (see [`crate::player_screen_ui`]), and the frame is
-/// presented at the screen's size, which the game's UI lays itself out for. Without `screen` the
-/// run has none and behaves as [`run_player_with`] always did.
+/// player's offscreen work on a device as `gpu` says ([`GpuWork::Auto`] when the machine has an
+/// adapter). With `screen`, the offscreen work draws a `CameraTarget` with no camera texture into
+/// a screen of its size, and after the GPU work of each frame `screen` lists, the frame a window
+/// shows is written to that frame's file as an RGB PNG: the newest image of the screen with the
+/// game's UI over it. The offscreen work and the viewer that draws the UI share one device (see
+/// [`crate::player_screen_ui`]), and the frame is presented at the screen's size, which the game's
+/// UI lays itself out for.
 ///
 /// # Errors
-/// As [`run_player_with`]. A run with a screen also fails before the scene starts when the work
-/// has no device or a listed frame is not among the `frames` run, and at a listed frame that has no
-/// image yet because no work has drawn into the screen, or whose UI cannot be drawn.
-pub fn run_player_screens(
+/// The error names the step that failed: starting the scene or the frame that failed. A run with a
+/// screen also fails before the scene starts when the work has no device or a listed frame is not
+/// among the `frames` run, and at a listed frame that has no image yet because no work has drawn
+/// into the screen, or whose UI cannot be drawn.
+pub fn run_player(
     prepared: &PreparedPlayer,
     frames: u64,
     dt: Duration,

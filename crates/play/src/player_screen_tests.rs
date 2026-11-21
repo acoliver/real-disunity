@@ -51,7 +51,7 @@ fn a_run_writes_the_newest_screen_image_to_the_file_of_each_frame_asked_for() {
     let directory = tempfile::tempdir().unwrap();
     let screen = output(directory.path(), &[0, 2]);
 
-    run_player_screens(
+    run_player(
         &prepared,
         4,
         Duration::from_millis(16),
@@ -99,7 +99,7 @@ fn a_headless_screen_image_has_the_overlay_canvas_over_the_game_screen() {
         files: vec![(1, file.clone())],
     };
 
-    run_player_screens(
+    run_player(
         &prepared,
         2,
         Duration::from_millis(16),
@@ -135,7 +135,7 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let past = output(directory.path(), &[1, 4]);
 
-    let error = run_player_screens(
+    let error = run_player(
         &prepared,
         4,
         Duration::from_millis(16),
@@ -150,7 +150,7 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
             .contains("screen frame 4 is not among the 4 frames"),
         "{error}"
     );
-    run_player_with(&prepared, 2, Duration::from_millis(16), GpuWork::Auto).unwrap();
+    run_player(&prepared, 2, Duration::from_millis(16), GpuWork::Auto, None).unwrap();
     assert!(
         std::fs::read_dir(directory.path())
             .unwrap()

@@ -5,9 +5,9 @@ use std::path::Path;
 
 use serde::Serialize;
 use worldrunner_unity_serialized::{
-    ClassId,
+    ClassId, ObjectInfo,
     managers::{BuildSettings, QualitySettings},
-    player_settings::{LAYOUT_RELEASE, read_player_identity},
+    player_settings::{ColorSpace, LAYOUT_RELEASE, read_player_identity, read_player_settings},
 };
 
 use crate::{PlayerError, player_objects::OpenFile};
@@ -31,22 +31,8 @@ pub struct PlayerIdentity {
 /// decode, or the decoded names differ from those in `app.info`.
 pub fn player_identity(data_dir: &Path) -> Result<PlayerIdentity, PlayerError> {
     let mut managers = OpenFile::open(&data_dir.join("globalgamemanagers"))?;
-    let build = managers
-        .file
-        .objects()
-        .iter()
-        .find(|object| object.class_id == ClassId::BUILD_SETTINGS)
-        .map(|object| object.path_id);
-    let unity_version = match build {
-        Some(path_id) => managers.decode::<BuildSettings>(path_id)?.version,
-        None => String::new(),
-    };
-    let settings = managers
-        .file
-        .objects()
-        .iter()
-        .find(|object| object.class_id == ClassId::PLAYER_SETTINGS)
-        .copied();
+    let unity_version = unity_version(&mut managers)?;
+    let settings = player_settings_object(&managers);
     let (mut company_name, mut product_name) = app_info(data_dir);
     let mut version = String::new();
     if let Some(object) = settings.filter(|_| unity_version.starts_with(LAYOUT_RELEASE)) {
@@ -72,6 +58,63 @@ pub fn player_identity(data_dir: &Path) -> Result<PlayerIdentity, PlayerError> {
         unity_version,
         platform: platform(data_dir),
     })
+}
+
+/// The Unity release that built the player, or an empty string when `globalgamemanagers` has no
+/// `BuildSettings` object.
+fn unity_version(managers: &mut OpenFile) -> Result<String, PlayerError> {
+    let build = managers
+        .file
+        .objects()
+        .iter()
+        .find(|object| object.class_id == ClassId::BUILD_SETTINGS)
+        .map(|object| object.path_id);
+    Ok(match build {
+        Some(path_id) => managers.decode::<BuildSettings>(path_id)?.version,
+        None => String::new(),
+    })
+}
+
+fn player_settings_object(managers: &OpenFile) -> Option<ObjectInfo> {
+    managers
+        .file
+        .objects()
+        .iter()
+        .find(|object| object.class_id == ClassId::PLAYER_SETTINGS)
+        .copied()
+}
+
+/// The graphics settings a project sets that the player's render pipeline reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct ProjectGraphics {
+    /// The project's color space, `gamma` or `linear`.
+    pub color_space: &'static str,
+}
+
+/// Reads the project graphics settings of the player whose data directory is `data_dir`; `None`
+/// when the player's Unity release stores `PlayerSettings` in a layout this importer does not
+/// read, or `globalgamemanagers` holds no `PlayerSettings` object.
+///
+/// # Errors
+/// Fails when `globalgamemanagers` cannot be read, its build settings do not decode, or the
+/// stored color space is neither gamma nor linear.
+pub fn player_project_graphics(data_dir: &Path) -> Result<Option<ProjectGraphics>, PlayerError> {
+    let mut managers = OpenFile::open(&data_dir.join("globalgamemanagers"))?;
+    if !unity_version(&mut managers)?.starts_with(LAYOUT_RELEASE) {
+        return Ok(None);
+    }
+    let Some(object) = player_settings_object(&managers) else {
+        return Ok(None);
+    };
+    let bytes = managers.bytes(&object)?;
+    let settings = read_player_settings(&bytes, managers.file.header.big_endian)
+        .map_err(|source| managers.error(source))?;
+    Ok(Some(ProjectGraphics {
+        color_space: match settings.color_space {
+            ColorSpace::Gamma => "gamma",
+            ColorSpace::Linear => "linear",
+        },
+    }))
 }
 
 /// The quality levels a player defines and the one it starts on.

@@ -7,6 +7,7 @@ mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;
+mod camera_sets;
 mod comparison;
 mod constants;
 mod copy;

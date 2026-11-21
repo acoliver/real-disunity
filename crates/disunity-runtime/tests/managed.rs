@@ -626,6 +626,22 @@ fn assert_graphics_snapshot(host: &mut DisunityHost, root: &Path) {
     assert_eq!((size(camera_target), size(blit_target)), ((8, 8), (16, 4)));
     let blit_shader = snapshot.materials[material].shader;
     assert_eq!(snapshot.shaders[&blit_shader].name, "Fixture/Blit");
+    // The mesh object is active only around the camera render, so it is inactive when the snapshot
+    // is taken and only the render's own set holds its renderer.
+    let drawn = snapshot
+        .record_renderers(0)
+        .expect("the camera render has the renderers that were drawable when the script called it");
+    assert_eq!(
+        drawn.len(),
+        1,
+        "one object was active during the call: {drawn:?}"
+    );
+    assert_eq!(snapshot.renderers[drawn[0] as usize].layer, 3);
+    assert_eq!(
+        snapshot.record_renderers(1),
+        None,
+        "a blit draws no renderer"
+    );
     assert!(
         host.graphics_snapshot().unwrap().work.is_empty(),
         "the records were taken once"

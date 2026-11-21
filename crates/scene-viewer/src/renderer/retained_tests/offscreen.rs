@@ -40,6 +40,7 @@ fn clear() -> OffscreenFrame {
                 pass: PassSelector::Index(0),
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,
+                renderers: None,
             },
         )]),
         records: vec![Record::CameraRender {

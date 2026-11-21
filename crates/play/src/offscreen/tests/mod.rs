@@ -42,6 +42,8 @@ mod properties;
 mod raster_state;
 mod rebuild;
 mod reclaim;
+mod record_time_gpu;
+mod record_time_lists;
 mod refusal;
 mod screen;
 mod script;

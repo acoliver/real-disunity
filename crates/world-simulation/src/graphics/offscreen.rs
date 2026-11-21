@@ -260,6 +260,7 @@ impl World {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
         }
         self.note_handle(&work);
+        self.capture_render_set(&work);
         self.graphics.offscreen.push(work);
         Ok(())
     }
@@ -275,6 +276,7 @@ impl World {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
+        self.graphics.render_sets.clear();
         std::mem::take(&mut self.graphics.offscreen)
     }
 

@@ -98,13 +98,20 @@ struct Candidate {
 }
 
 impl<'a> Mapper<'a> {
-    /// Keeps the renderers a culling record admits: those whose layer is in `mask` and that are
-    /// not wholly outside one of `planes`.
-    pub(super) fn cull(&mut self, id: u64, mask: u32, planes: &[[f32; 4]]) {
+    /// Keeps the renderers the culling record at `record` admits: those of its set, which the world
+    /// fixed when the script culled, whose layer is in `mask` and that are not wholly outside one of
+    /// `planes`. A record with no set culls the renderers that are drawable when the snapshot is
+    /// taken.
+    pub(super) fn cull(&mut self, record: usize, id: u64, mask: u32, planes: &[[f32; 4]]) {
         let snapshot = self.snapshot;
+        let candidates: Vec<usize> = snapshot.record_renderers(record).map_or_else(
+            || (0..snapshot.drawable_renderers().len()).collect(),
+            |set| set.iter().map(|index| *index as usize).collect(),
+        );
         let (mut by_layer, mut by_planes) = (0, 0);
         let mut kept = Vec::new();
-        for (index, view) in snapshot.renderers.iter().enumerate() {
+        for index in candidates {
+            let view = &snapshot.renderers[index];
             if view.layer >= 32 || (mask >> view.layer) & 1 == 0 {
                 by_layer += 1;
             } else if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {

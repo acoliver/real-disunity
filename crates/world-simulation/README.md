@@ -176,3 +176,28 @@ Put all buses using a preset in that preset rule's source set, and enumerate the
 intended target buses. Convert the game's priority ordering explicitly to higher
 numeric engine tiers. The caller owns authored strength-unit conversion and the
 choice of activity or peak detection; interpolation mode is a separate choice.
+
+## Camera renders and the renderers they draw
+
+`Camera.Render` into a render texture draws at once, so a script may switch an object on for the
+call and off after it, as a bake of tile data into a render texture does. The world therefore
+fixes the renderers of a camera render when it records the render. A render pipeline renders a
+camera by culling inside `Camera.Render`, so a `Cull` record is fixed the same way, with its own
+culling mask. `World::record_offscreen` of a `CameraRender` or a `Cull` captures the mesh renderers that are enabled, not
+forced off, have a drawn mesh and sit on an object active in the hierarchy, on a layer the camera's
+culling mask admits. Records of one mask share a set while nothing changes: a counter that
+`set_active`, a parent or layer change, a renderer or mesh filter edit, an added or removed
+component, a published construction and the destruction of an object advance gives each set its
+validity, so a frame with hundreds of camera renders scans the renderers once for each change, not
+once for each render.
+
+`GraphicsSnapshot::take` lists the renderers that are drawable when it is taken, then the renderers
+only a set names (`set_only_renderers` counts them), and gives each camera render its set as
+indices into `renderers` (`renderer_sets`, `record_sets`, `record_renderers`). A renderer in a set
+whose object or components are gone by then is left out. A record with no set draws the renderers
+that are drawable when the snapshot is taken (`drawable_renderers`).
+
+The limits: a renderer's pose, materials and property block are read when the snapshot is taken,
+not when the record is made, and the camera's mask and settings are read then too, except that the
+mask at the call decides the set's layers. A script that edits a renderer's material between two
+camera renders of one frame sees the later value in both.

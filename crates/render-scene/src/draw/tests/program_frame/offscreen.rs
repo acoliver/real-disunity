@@ -197,6 +197,7 @@ fn frame() -> OffscreenFrame {
                 pass: alpha,
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,
+                renderers: None,
             },
         )]),
         records: vec![

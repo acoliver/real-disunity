@@ -564,7 +564,7 @@ fn visible_draws(
 ) -> Result<Vec<(MaterialId, crate::ids::RendererId, usize)>, OffscreenError> {
     let mut draws = Vec::new();
     for (renderer_id, renderer) in &frame.renderers {
-        if renderer.layer >= 32 || camera.culling_mask & (1 << renderer.layer) == 0 {
+        if !camera.draws(*renderer_id, renderer.layer) {
             continue;
         }
         let mesh = svc.meshes.get(renderer.mesh)?;

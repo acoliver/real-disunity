@@ -117,6 +117,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 pass: alpha(),
                 values,
                 front_face: wgpu::FrontFace::Cw,
+                renderers: None,
             },
         )]),
         records: vec![Record::CameraRender {

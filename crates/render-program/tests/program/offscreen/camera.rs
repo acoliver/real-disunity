@@ -58,6 +58,7 @@ pub fn camera(mask: u32) -> Camera {
         pass: alpha(),
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,
+        renderers: None,
     }
 }
 

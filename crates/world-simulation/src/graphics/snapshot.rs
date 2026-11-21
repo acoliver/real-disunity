@@ -21,7 +21,9 @@ use super::{
     WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
-use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
+use crate::{
+    ComponentDesc, ComponentHandle, MeshRenderer, ObjectHandle, RendererKind, World, WorldError,
+};
 
 /// A camera a record names: its settings and its object's pose in the world, column-major.
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +78,17 @@ pub struct GraphicsSnapshot {
     /// none otherwise.
     pub lights: Vec<WorldLight>,
     pub renderers: Vec<RendererView>,
+    /// How many of the last entries of `renderers` are drawable only by the camera renders whose
+    /// sets list them: they were drawable when the script called the render and are not when the
+    /// snapshot is taken. The entries before them are what is drawable when the snapshot is taken.
+    pub set_only_renderers: u32,
+    /// The sets of renderers that camera renders drew when the script called them, each as indices
+    /// into `renderers`. A set is listed once however many records share it.
+    pub renderer_sets: Vec<Vec<u32>>,
+    /// For the index of a camera render in `work`, the index in `renderer_sets` of the renderers
+    /// that were drawable when the record was made. A record that has no entry draws what the
+    /// camera's mask admits among `renderers`.
+    pub record_sets: BTreeMap<u32, u32>,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
     /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
@@ -84,6 +97,25 @@ pub struct GraphicsSnapshot {
 }
 
 impl GraphicsSnapshot {
+    /// The renderers that are drawable when the snapshot is taken: `renderers` without the ones
+    /// only the set of a camera render or a culling lists.
+    pub fn drawable_renderers(&self) -> &[RendererView] {
+        let held = self
+            .renderers
+            .len()
+            .saturating_sub(self.set_only_renderers as usize);
+        self.renderers.get(..held).unwrap_or(&self.renderers)
+    }
+
+    /// The indices into `renderers` of the renderers the camera render at `record` in `work`
+    /// draws, or `None` when the record has no set of its own.
+    pub fn record_renderers(&self, record: usize) -> Option<&[u32]> {
+        let set = self.record_sets.get(&u32::try_from(record).ok()?)?;
+        self.renderer_sets
+            .get(usize::try_from(*set).ok()?)
+            .map(Vec::as_slice)
+    }
+
     /// Drains the world's offscreen work and copies what that work can reach: the cameras it
     /// names, the renderers they may draw, the materials and shaders of those renderers and of
     /// the blits, the buffers those materials bind, and the compute shaders and buffers of the
@@ -94,6 +126,7 @@ impl GraphicsSnapshot {
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
+        let captured = world.take_render_sets();
         let work = world.take_offscreen();
         // The list is whole for every snapshot: a host drops the render textures a snapshot
         // omits, so a frame with no work must not look like a world with none.
@@ -122,9 +155,11 @@ impl GraphicsSnapshot {
             .fold(cull_masks(&snapshot.work), |mask, camera| {
                 mask | camera.settings.culling_mask
             });
-        if mask != 0 {
-            snapshot.renderers = renderer_views(world, mask)?;
-        }
+        let drawn = renderer_views(world, mask, &captured.sets)?;
+        snapshot.renderers = drawn.views;
+        snapshot.set_only_renderers = drawn.set_only;
+        snapshot.renderer_sets = drawn.sets;
+        snapshot.record_sets = captured.records;
         snapshot.copy_materials(world);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
@@ -264,48 +299,122 @@ fn light_views(world: &World) -> Result<Vec<WorldLight>, WorldError> {
     Ok(lights)
 }
 
-/// The enabled mesh renderers on active objects whose layer `mask` admits.
-fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldError> {
-    let mut meshes = BTreeMap::new();
-    for component in world.published_components() {
-        if let ComponentDesc::MeshFilter(filter) = &component.desc
-            && filter.drawn_mesh != 0
-        {
-            meshes.insert(component.object, filter.drawn_mesh);
+/// The renderers a snapshot lists, and the sets of its camera renders as indices into them.
+struct RendererViews {
+    views: Vec<RendererView>,
+    set_only: u32,
+    sets: Vec<Vec<u32>>,
+}
+
+/// The enabled mesh renderers on active objects whose layer `mask` admits, then the renderers of
+/// the camera renders' `captured` sets that are not among them.
+fn renderer_views(
+    world: &World,
+    mask: u32,
+    captured: &[Vec<ComponentHandle>],
+) -> Result<RendererViews, WorldError> {
+    let mut views = Vec::new();
+    let mut index = BTreeMap::new();
+    if mask != 0 {
+        for component in world.published_components() {
+            let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
+                continue;
+            };
+            let Some(mesh) = world.drawn_mesh(component.object, renderer) else {
+                continue;
+            };
+            let layer = u32::from(world.object_layer(component.object)?);
+            if mask.checked_shr(layer).is_none_or(|bits| bits & 1 == 0)
+                || !world.active_in_hierarchy(component.object)?
+            {
+                continue;
+            }
+            index.insert(component.handle, position(views.len())?);
+            views.push(renderer_view(
+                world,
+                component.object,
+                renderer,
+                (mesh, layer),
+            )?);
         }
     }
-    let mut views = Vec::new();
-    for component in world.published_components() {
+    let current = views.len();
+    let mut sets = Vec::with_capacity(captured.len());
+    for set in captured {
+        sets.push(set_indices(world, set, &mut views, &mut index)?);
+    }
+    Ok(RendererViews {
+        set_only: position(views.len().saturating_sub(current))?,
+        views,
+        sets,
+    })
+}
+
+/// The indices in `views` of the renderers of `set`, listing those that `views` lacks. A renderer
+/// the world no longer holds, or that no longer has a mesh, is left out. The renderer is read as
+/// it is now: the set fixes which renderers draw, and the view says what they draw.
+fn set_indices(
+    world: &World,
+    set: &[ComponentHandle],
+    views: &mut Vec<RendererView>,
+    index: &mut BTreeMap<ComponentHandle, u32>,
+) -> Result<Vec<u32>, WorldError> {
+    let mut indices = Vec::with_capacity(set.len());
+    for handle in set {
+        if let Some(known) = index.get(handle) {
+            indices.push(*known);
+            continue;
+        }
+        let Ok(component) = world.component(*handle) else {
+            continue;
+        };
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off;
-        let Some(mesh) = meshes.get(&component.object).copied().filter(|_| shown) else {
+        let Some(mesh) = world
+            .filter_mesh(component.object)
+            .filter(|_| renderer.kind == RendererKind::Mesh)
+        else {
             continue;
         };
-        let layer = u32::from(world.object(component.object)?.layer);
-        if mask.checked_shr(layer).is_none_or(|bits| bits & 1 == 0)
-            || !world.active_in_hierarchy(component.object)?
-        {
-            continue;
-        }
-        let slots = renderer.material_count as usize;
-        views.push(RendererView {
-            local_to_world: world.presented_matrix(component.object)?.to_cols_array(),
-            mesh,
-            layer,
-            shadow_casting_mode: renderer.shadow_casting_mode,
-            materials: (0..slots)
-                .map(|slot| {
-                    let held = renderer.slot_materials.get(slot).copied().flatten();
-                    held.filter(|id| world.material(*id).is_ok())
-                })
-                .collect(),
-            render_queue: renderer.render_queue,
-            property_block: renderer.property_block.clone(),
-        });
+        let layer = u32::from(world.object_layer(component.object)?);
+        let at = position(views.len())?;
+        views.push(renderer_view(
+            world,
+            component.object,
+            renderer,
+            (mesh, layer),
+        )?);
+        index.insert(*handle, at);
+        indices.push(at);
     }
-    Ok(views)
+    Ok(indices)
+}
+
+fn position(count: usize) -> Result<u32, WorldError> {
+    u32::try_from(count).map_err(|_| WorldError::CapacityExceeded(crate::LimitKind::Graphics))
+}
+
+/// What a camera needs of `renderer` on `object`, which draws `mesh` on `layer`.
+fn renderer_view(
+    world: &World,
+    object: ObjectHandle,
+    renderer: &MeshRenderer,
+    (mesh, layer): (u64, u32),
+) -> Result<RendererView, WorldError> {
+    let slots = renderer.material_count as usize;
+    Ok(RendererView {
+        local_to_world: world.presented_matrix(object)?.to_cols_array(),
+        mesh,
+        layer,
+        shadow_casting_mode: renderer.shadow_casting_mode,
+        materials: (0..slots)
+            .map(|slot| {
+                let held = renderer.slot_materials.get(slot).copied().flatten();
+                held.filter(|id| world.material(*id).is_ok())
+            })
+            .collect(),
+        render_queue: renderer.render_queue,
+        property_block: renderer.property_block.clone(),
+    })
 }

@@ -73,6 +73,7 @@ mod probe;
 mod procedural_draw;
 mod properties;
 mod raster;
+mod record_sets;
 mod records;
 mod report;
 mod screen;

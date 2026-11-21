@@ -233,7 +233,6 @@ impl Mapper<'_> {
             | OffscreenWork::AllocateTemporary { .. }
             | OffscreenWork::ReleaseTemporary { .. }
             | OffscreenWork::SetupCamera { .. }
-            | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
             | OffscreenWork::SetViewProjection { .. }
             | OffscreenWork::SetViewport { .. }
@@ -285,6 +284,7 @@ impl Mapper<'_> {
             ),
             OffscreenWork::GenerateMips { texture } => self.generate_mips(*texture),
             OffscreenWork::CameraRender { .. }
+            | OffscreenWork::Cull { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
             | OffscreenWork::Dispatch { .. }
@@ -339,12 +339,6 @@ impl Mapper<'_> {
                 target,
                 buffers,
             } => self.setup_camera(*camera, (view, projection), (*target, *buffers))?,
-            OffscreenWork::Cull {
-                id,
-                culling_mask,
-                planes,
-                ..
-            } => self.cull(*id, *culling_mask, planes),
             OffscreenWork::CreateRendererList { id, desc } => self.create_list(*id, desc),
             OffscreenWork::SetViewProjection { view, projection } => {
                 self.set_view_projection(view, projection);

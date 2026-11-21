@@ -54,6 +54,9 @@ pub struct Report {
     /// `texture:Program/Layout/UnsupportedParameter`, and the first message of each chain.
     pub causes: BTreeMap<String, usize>,
     pub examples: BTreeMap<String, String>,
+    /// What a built frame did that is worth reading and is not a failure, by name, such as
+    /// `draw:SampledWrittenLevelsOnly`, the draws that bound only the levels a texture had written.
+    pub notes: BTreeMap<String, usize>,
     /// How each dispatch was bound and what came of it, in call order.
     pub traces: Vec<DispatchTrace>,
     /// What each camera render recorded and left out.
@@ -282,11 +285,21 @@ impl Report {
         }
     }
 
-    /// Adds the failures, causes and examples of `other` to this report's, keeping the first
-    /// example of each cause.
+    /// Counts `times` notes of the same name. Nothing is counted for zero.
+    pub fn note_many(&mut self, name: &str, times: usize) {
+        if times > 0 {
+            *self.notes.entry(name.to_owned()).or_default() += times;
+        }
+    }
+
+    /// Adds the failures, notes, causes and examples of `other` to this report's, keeping the
+    /// first example of each cause.
     pub fn absorb_failures(&mut self, other: Self) {
         for (name, count) in other.failures {
             *self.failures.entry(name).or_default() += count;
+        }
+        for (name, count) in other.notes {
+            *self.notes.entry(name).or_default() += count;
         }
         for (cause, count) in other.causes {
             *self.causes.entry(cause).or_default() += count;

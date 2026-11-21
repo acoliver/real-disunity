@@ -180,7 +180,7 @@ fn a_shadow_caster_pass_is_found_whatever_the_case_of_its_light_mode() {
 }
 
 /// A scene whose culling result 5 keeps the renderers of `mask` with x >= 5, as a camera looking
-/// toward +x from there would, and three unit cubes: a ground at x = 10, a caster at the origin
+/// toward +x from there would, and unit cubes: a ground at x = 10, a caster at the origin
 /// that the camera does not see and one at y = 6 that the camera does not see either.
 fn camera_looking_down_x(mask: u32) -> World {
     let mut world = world();
@@ -203,7 +203,7 @@ fn unit_cubes(available: &mut Available) {
         min: [-0.5; 3],
         max: [0.5; 3],
     };
-    for number in 0..3 {
+    for number in 0..4 {
         available.bounds.insert(MESH + number, cube);
     }
 }
@@ -254,4 +254,37 @@ fn a_shadow_list_still_leaves_out_the_casters_the_culling_mask_does_not_keep() {
     let listed = lists(&adapted);
     assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
     assert_eq!(adapted.report.lists.out_by_layer, 1);
+}
+
+#[test]
+fn a_shadow_list_leaves_out_an_off_caster_outside_the_view_and_draws_the_others() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    // The ground the camera sees, then three renderers it does not see, all inside the split:
+    // one that casts no shadow (mode 0), a two-sided one (2) and one that only shadows (3).
+    let casters = [
+        (0, Vec3::new(10.0, 0.0, 0.0), 1),
+        (1, Vec3::ZERO, 0),
+        (2, Vec3::new(0.0, -1.0, 0.0), 2),
+        (3, Vec3::new(0.0, 1.0, 0.0), 3),
+    ];
+    for (number, position, mode) in casters {
+        placed_casting(&mut world, (number, 0, position), &[lit], (None, mode));
+    }
+    scene_with_planes(
+        &mut world,
+        Mat4::IDENTITY,
+        u32::MAX,
+        vec![[1.0, 0.0, 0.0, -5.0]],
+    );
+    draw(
+        &mut world,
+        shadow_list(vec![[0.0, -1.0, 0.0, 3.0]], [0.0; 4]),
+    );
+    let adapted = run(&mut world, unit_cubes);
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0), (2, 0), (3, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(report.shadow_outside_view, 2);
+    assert_eq!(report.left_out, counts(&[("casts no shadow", 1)]));
 }

@@ -40,6 +40,7 @@ use super::builtins::{add_screen_size, view_layer};
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
+use super::light_data::{MainLight, item_values};
 use super::script::Culled;
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
@@ -125,6 +126,7 @@ impl<'a> Mapper<'a> {
         report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
         self.script.culls.insert(id, Arc::new(culled));
+        self.script.cull_masks.insert(id, mask);
     }
 
     /// The corners of the box of the renderer's mesh in the world, or the point its matrix places
@@ -181,9 +183,11 @@ impl<'a> Mapper<'a> {
             .ok_or(Skip::UnknownList)?;
         let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
+        let mask = self.script.cull_masks.get(cull).copied().unwrap_or(0);
+        let main = MainLight::picked_by(&self.snapshot.lights, mask);
         let draws = match &desc {
-            RendererListDesc::Draw { .. } => self.draw_items(&culled.kept, &desc, eye),
-            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
+            RendererListDesc::Draw { .. } => self.draw_items(&culled.kept, &desc, (eye, &main)),
+            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc, &main),
         };
         let lists = &mut self.report.lists;
         if draws.is_empty() {
@@ -246,7 +250,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         culled: &[usize],
         desc: &RendererListDesc,
-        eye: Vec3,
+        (eye, main): (Vec3, &MainLight),
     ) -> Vec<ListDraw> {
         let RendererListDesc::Draw {
             pass_tags,
@@ -317,14 +321,19 @@ impl<'a> Mapper<'a> {
             }
         }
         sort(&mut candidates, *sorting);
-        self.items(candidates, replacement, &selector)
+        self.items(candidates, replacement, (&selector, main))
     }
 
     /// The draws of the renderers inside a shadow split that cast a shadow and have a pass to draw
     /// a caster: the renderers the culling kept, in the order they were culled, then those of its
     /// layer mask that the camera's planes dropped. A caster outside the camera's view can shadow
     /// what the camera sees, so the camera's planes do not bound a shadow list.
-    fn shadow_items(&mut self, culled: &Culled, desc: &RendererListDesc) -> Vec<ListDraw> {
+    fn shadow_items(
+        &mut self,
+        culled: &Culled,
+        desc: &RendererListDesc,
+        main: &MainLight,
+    ) -> Vec<ListDraw> {
         let RendererListDesc::Shadow { planes, sphere, .. } = desc else {
             return Vec::new();
         };
@@ -343,35 +352,42 @@ impl<'a> Mapper<'a> {
             if !self.caster_in_split(index, planes, *sphere) || !self.usable_renderer(index) {
                 continue;
             }
-            if outside_view {
+            let before = candidates.len();
+            self.caster_candidates(index, &mut candidates);
+            if outside_view && candidates.len() > before {
                 self.report.lists.shadow_outside_view += 1;
             }
-            let view = &self.snapshot.renderers[index];
-            let slots = self.frame.renderers[&RendererId(index as u64)]
-                .materials
-                .len();
-            for (slot, material) in view.materials.iter().enumerate().take(slots) {
-                let Some(material) = *material else {
-                    continue;
-                };
-                let Some((queue, info)) = self.queue_and_modes(view, material) else {
-                    self.left_out(MATERIAL_UNAVAILABLE, 1);
-                    continue;
-                };
-                if !info.has_light_mode(SHADOW_CASTER) {
-                    self.left_out(NO_CASTER_PASS, 1);
-                    continue;
-                }
-                candidates.push(Candidate {
-                    renderer: index,
-                    slot,
-                    queue,
-                    distance: 0.0,
-                    tag: SHADOW_CASTER.to_owned(),
-                });
-            }
         }
-        self.items(candidates, None, &selector)
+        self.items(candidates, None, (&selector, main))
+    }
+
+    /// The caster items of renderer `index`: one for each material slot whose shader has a pass
+    /// that draws a caster. The slots that have none are counted by the reason.
+    fn caster_candidates(&mut self, index: usize, candidates: &mut Vec<Candidate>) {
+        let view = &self.snapshot.renderers[index];
+        let slots = self.frame.renderers[&RendererId(index as u64)]
+            .materials
+            .len();
+        for (slot, material) in view.materials.iter().enumerate().take(slots) {
+            let Some(material) = *material else {
+                continue;
+            };
+            let Some((queue, info)) = self.queue_and_modes(view, material) else {
+                self.left_out(MATERIAL_UNAVAILABLE, 1);
+                continue;
+            };
+            if !info.has_light_mode(SHADOW_CASTER) {
+                self.left_out(NO_CASTER_PASS, 1);
+                continue;
+            }
+            candidates.push(Candidate {
+                renderer: index,
+                slot,
+                queue,
+                distance: 0.0,
+                tag: SHADOW_CASTER.to_owned(),
+            });
+        }
     }
 
     /// Whether renderer `index` casts a shadow into a split, counting it by the reason when it
@@ -401,18 +417,20 @@ impl<'a> Mapper<'a> {
         &mut self,
         candidates: Vec<Candidate>,
         replacement: Option<worldrunner_render_program::ids::MaterialId>,
-        selector: &PassSelector,
+        (selector, main): (&PassSelector, &MainLight),
     ) -> Vec<ListDraw> {
         candidates
             .into_iter()
             .map(|candidate| {
                 self.drawn_with(&candidate.tag);
+                let layer = self.snapshot.renderers[candidate.renderer].layer;
                 ListDraw {
                     renderer: RendererId(candidate.renderer as u64),
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
                     instances: 1,
+                    per_draw: item_values(main, layer),
                 }
             })
             .collect()

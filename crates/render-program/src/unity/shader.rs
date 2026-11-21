@@ -22,7 +22,7 @@ use worldrunner_unity_serialized::{SerializedError, smolv};
 
 use crate::module::entry_point_names;
 use crate::unity::module::{ModuleError, StageKind, StageModule, StageProgram};
-use crate::unity::variant::{declared_keywords, select_variant};
+use crate::unity::variant::{declared_player_keywords, select_variant};
 
 /// Unity's `ShaderPropertyType` of a texture property.
 const TEXTURE_PROPERTY: i32 = 4;
@@ -285,7 +285,7 @@ impl ProgramShader {
         let (variant, parameters) = select_variant(
             &pairs,
             |(variant, _)| variant.keyword_indices.as_slice(),
-            &declared_keywords(program),
+            &declared_player_keywords(pairs.iter().map(|(variant, _)| *variant)),
             &enabled,
         )
         .map_err(|error| no_variant(error.to_string()))?;

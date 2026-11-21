@@ -35,7 +35,7 @@ fn set_global(world: &mut World, value: [f32; 3]) {
 }
 
 /// Flushes the world's frame on a host that starts from `supplied` and reads the whole of `drawn`.
-fn flush_and_read(
+pub(super) fn flush_and_read(
     mut world: World,
     drawn: RenderTextureId,
     supplied: Vec<SuppliedGlobal>,

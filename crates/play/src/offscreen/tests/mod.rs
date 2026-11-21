@@ -29,6 +29,8 @@ mod gpu;
 mod keep;
 mod keep_targets;
 mod kernels;
+mod light_data;
+mod light_data_gpu;
 mod lights_gpu;
 mod lists;
 mod lists_gpu;

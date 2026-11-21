@@ -202,7 +202,7 @@ impl World {
             TextureRef::Asset(0) | TextureRef::Global(_) | TextureRef::Temporary(_) => {
                 Err(GraphicsError::InvalidTexture.into())
             }
-            TextureRef::Asset(_) | TextureRef::None => Ok(()),
+            TextureRef::Asset(_) | TextureRef::None | TextureRef::Unsent => Ok(()),
         }
     }
 
@@ -273,11 +273,11 @@ impl World {
         &self.graphics.global
     }
 
-    /// What a texture reference names now: a render texture that was destroyed reads as no
-    /// texture.
+    /// What a texture reference names now: a render texture that was destroyed reads as a texture
+    /// the engine did not send.
     pub fn live_texture(&self, texture: TextureRef) -> TextureRef {
         match texture {
-            TextureRef::Render(id) if self.render_texture(id).is_err() => TextureRef::None,
+            TextureRef::Render(id) if self.render_texture(id).is_err() => TextureRef::Unsent,
             other => other,
         }
     }

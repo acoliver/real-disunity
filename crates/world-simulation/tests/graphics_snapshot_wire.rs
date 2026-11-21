@@ -111,6 +111,12 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
             slot(TextureRef::Asset((1 << 40) + 11)),
         ))
         .unwrap();
+    slot_block
+        .set(PropertyValue::Texture(
+            "_Named".into(),
+            slot(TextureRef::Unsent),
+        ))
+        .unwrap();
     let block = MeshRenderer {
         property_block: Some(properties),
         slot_blocks: BTreeMap::from([(1, slot_block)]),
@@ -216,6 +222,8 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
     assert_eq!(blocked.slot_blocks.keys().copied().collect::<Vec<_>>(), [1]);
     let slot_texture = blocked.slot_blocks[&1].texture("_MainTex").unwrap();
     assert_eq!(slot_texture.texture, TextureRef::Asset((1 << 40) + 11));
+    let unsent = blocked.slot_blocks[&1].texture("_Named").unwrap();
+    assert_eq!(unsent.texture, TextureRef::Unsent);
     assert!(
         blocked
             .property_block

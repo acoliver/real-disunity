@@ -19,6 +19,8 @@ internal static unsafe class WorldGraphicsTests
         {
             MaterialSettersReachTheWorld();
             Console.WriteLine("PASS: a material's float, integer, color, vector, texture, offset, scale, keyword, queue and pass setters reach its world material");
+            NamedTexturesTheWorldCannotHoldAreSentAsNotSent();
+            Console.WriteLine("PASS: a destroyed or empty texture set on a material is sent as named and not sent, and null stays no texture");
             MaterialStateBeforeItsFirstUseIsSentWhole();
             Console.WriteLine("PASS: a material that was set before it had a world material is sent whole when it gets one");
             MaterialCopiesAndShaderChangesFollow();
@@ -30,6 +32,8 @@ internal static unsafe class WorldGraphicsTests
             RendererSlotsAndBlocksReachTheWorld();
             Console.WriteLine("PASS: a mesh renderer sends the world material of each slot and its property block");
             SlotBlocksReachTheWorldPerMaterialIndex();
+            SlotBlocksReachTheWorldUpToTheLastSlot();
+            Console.WriteLine("PASS: a property block reaches its own slot up to index 63, and index 64 stays in managed memory");
             Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             CameraRenderRecordsOffscreenWork();
             Console.WriteLine("PASS: Camera.Render with a target texture records CameraRender, and without one records nothing");
@@ -138,6 +142,24 @@ internal static unsafe class WorldGraphicsTests
         Expect.That(splat.texture_kind == 2 && splat.texture == target.WorldId, "a render texture property names the world render texture");
         material.SetTexture("_Splat", null!);
         Expect.That(Read(Material, link.Id, "_Splat").texture_kind == 0, "a null texture is no texture");
+    }
+
+    private static void NamedTexturesTheWorldCannotHoldAreSentAsNotSent()
+    {
+        const uint none = 0, unsent = 5;
+        var material = new Material(NewShader("Test/World/Unsent"));
+        var link = material.WorldLink;
+        var destroyed = new RenderTexture(4, 4, 0);
+        UnityEngine.Object.DestroyImmediate(destroyed);
+        material.SetTexture("_Destroyed", destroyed);
+        material.SetTexture("_Empty", new Texture2D(0, 0));
+        material.SetTexture("_Null", null!);
+        var held = new (string Property, uint Kind)[] { ("_Destroyed", unsent), ("_Empty", unsent), ("_Null", none) };
+        foreach (var (property, kind) in held)
+        {
+            var slot = Read(Material, link.Id, property);
+            Expect.That(slot.present == 16 && slot.texture_kind == kind && slot.texture == 0, $"{property} is sent as kind {kind}, got {slot.texture_kind}");
+        }
     }
 
     private static void MaterialStateBeforeItsFirstUseIsSentWhole()
@@ -310,6 +332,23 @@ internal static unsafe class WorldGraphicsTests
         var held = new MaterialPropertyBlock();
         renderer.GetPropertyBlock(held, 200);
         Expect.That(held.HasFloat("_Fade"), "a block for an index no slot can hold is kept and read back");
+    }
+
+    private static void SlotBlocksReachTheWorldUpToTheLastSlot()
+    {
+        var renderer = NewMeshRenderer();
+        var block = new MaterialPropertyBlock();
+        block.SetFloat("_Fade", 0.5f);
+        renderer.SetPropertyBlock(block, 2);
+        renderer.SetPropertyBlock(block, 63);
+        Expect.Near(0.5f, Read(SlotBlock, SlotTarget(renderer, 2), "_Fade").float_value, "the block of material 2 reaches the world under its own index");
+        Expect.Near(0.5f, Read(SlotBlock, SlotTarget(renderer, 63), "_Fade").float_value, "the block of the last slot, 63, reaches the world");
+        Expect.That(Read(SlotBlock, SlotTarget(renderer, 1), "_Fade").present == 0, "and no other slot holds it");
+
+        renderer.SetPropertyBlock(block, 64);
+        var held = new MaterialPropertyBlock();
+        renderer.GetPropertyBlock(held, 64);
+        Expect.That(held.HasFloat("_Fade"), "the first index past the last slot is kept in managed memory and read back");
     }
 
     private static Camera NewCamera() => DisunityHost.CreateGameObject().AddComponent<Camera>();

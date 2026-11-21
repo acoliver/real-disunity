@@ -87,6 +87,6 @@ fn removed_and_empty_batches_do_not_exclude_depth_reuse() {
     assert!(!instances.batches.is_empty());
     assert_eq!(eligible(&instances, &meshes), DepthMode::Reuse);
     let relief = PipelineKey::ALL.iter().position(|key| key.relief).unwrap();
-    instances.batches.entry((relief, 0, 2)).or_default();
+    instances.add_empty_batch((relief, 0, 2));
     assert_eq!(eligible(&instances, &meshes), DepthMode::Reuse);
 }

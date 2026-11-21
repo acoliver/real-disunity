@@ -22,6 +22,7 @@ const TEXTURE_RENDER: u8 = 1;
 const TEXTURE_GLOBAL: u8 = 2;
 const TEXTURE_NONE: u8 = 3;
 const TEXTURE_TEMPORARY: u8 = 4;
+const TEXTURE_UNSENT: u8 = 5;
 
 impl Wire for TextureRef {
     fn write(&self, out: &mut Writer) -> Result<(), WireError> {
@@ -43,6 +44,7 @@ impl Wire for TextureRef {
                 name_id.write(out)
             }
             Self::None => TEXTURE_NONE.write(out),
+            Self::Unsent => TEXTURE_UNSENT.write(out),
         }
     }
 
@@ -52,6 +54,7 @@ impl Wire for TextureRef {
             TEXTURE_RENDER => Ok(Self::Render(RenderTextureId::read(input)?)),
             TEXTURE_GLOBAL => Ok(Self::Global(String::read(input)?)),
             TEXTURE_NONE => Ok(Self::None),
+            TEXTURE_UNSENT => Ok(Self::Unsent),
             TEXTURE_TEMPORARY => Ok(Self::Temporary(i32::read(input)?)),
             other => Err(WireError::UnknownTag(u32::from(other))),
         }

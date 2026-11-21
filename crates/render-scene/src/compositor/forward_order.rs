@@ -31,6 +31,7 @@ use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 /// 18. the reflection depth pyramid, by level
 /// 19. the reflection trace, then reflection mips by level
 /// 20. the screen-space pass after transparency
+/// 21. the game's passes before post, after every other pass that writes the scene colour
 ///
 /// The game's passes are the only roles whose place is not their position in the `PassSlot`
 /// enum; within one place they keep the order of their entries' occurrences.
@@ -63,6 +64,7 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::ReflectionTrace => (21, 0),
         PassSlot::ReflectionMip(level) => (22, level),
         PassSlot::ScreenSpaceAfterTransparent => (23, 0),
+        PassSlot::Game(GamePlace::BeforePost) => (24, 0),
     }
 }
 
@@ -344,6 +346,49 @@ mod tests {
                     .map(PassDeclaration::entry)
                     .collect::<Vec<_>>(),
                 expected,
+                "rotated by {rotation}"
+            );
+        }
+    }
+
+    /// The place before post follows every other role, stock and game, whatever order the
+    /// features contributed their passes in: nothing else in the frame writes the scene colour
+    /// after it. Its passes keep occurrence order.
+    #[test]
+    fn the_place_before_post_follows_every_other_pass_of_the_frame() {
+        use worldrunner_render_post::PassEntry;
+        let before_post =
+            |occurrence| PassEntry::nth(PassSlot::Game(GamePlace::BeforePost), occurrence);
+        let mut authored: Vec<PassEntry> = every_role().into_iter().map(PassEntry::new).collect();
+        authored.extend(
+            [
+                GamePlace::AfterDepthPrepass,
+                GamePlace::BeforeOpaque,
+                GamePlace::AfterOpaque,
+                GamePlace::AfterOpaqueSnapshots,
+                GamePlace::AfterTransparent,
+            ]
+            .map(|place| PassEntry::new(PassSlot::Game(place))),
+        );
+        let earlier = authored.len();
+        authored.extend([before_post(1), before_post(0)]);
+        for rotation in 0..authored.len() {
+            let mut arranged = authored.clone();
+            arranged.rotate_left(rotation);
+            let mut passes: Vec<_> = arranged
+                .iter()
+                .map(|entry| PassDeclaration::nth(entry.slot(), entry.occurrence()))
+                .collect();
+            forward_order(&mut passes);
+            let entries: Vec<_> = passes.iter().map(PassDeclaration::entry).collect();
+            assert_eq!(
+                entries[earlier..],
+                [before_post(0), before_post(1)],
+                "rotated by {rotation}"
+            );
+            assert_eq!(
+                entries[earlier - 1],
+                PassEntry::new(PassSlot::ScreenSpaceAfterTransparent),
                 "rotated by {rotation}"
             );
         }

@@ -14,8 +14,8 @@ use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, GameBuild,
-        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, SnapshotImage,
-        SnapshotReads, TargetDeclaration, TargetExtent,
+        GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, PostWaterDepth,
+        SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
     },
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
@@ -476,6 +476,14 @@ impl PreparedFeature for SnapFrame {
                         color: lent.color.is_some(),
                         linear_depth: lent.linear_depth.is_some(),
                         device_depth: lent.device_depth.is_some(),
+                        post_water_depth: match (
+                            lent.post_water_depth.is_some(),
+                            lent.post_water_device_depth.is_some(),
+                        ) {
+                            (true, true) => PostWaterDepth::LinearAndDevice,
+                            (true, false) => PostWaterDepth::Linear,
+                            _ => PostWaterDepth::Unread,
+                        },
                     }),
             );
         }

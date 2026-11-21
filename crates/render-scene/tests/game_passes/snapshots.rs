@@ -7,7 +7,7 @@ use super::snapshot_game::{
     OPAQUE_FILL_PASS, Plan, SnapGame, TRANSPARENT_PASS, built_handle, read_texels, texel,
 };
 use worldrunner_render_scene::{
-    compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics},
+    compositor::{FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics},
     executor::{FrameConfig, FrameError},
     wgpu,
 };
@@ -202,6 +202,7 @@ fn a_game_that_reads_snapshots_gets_them_in_a_frame_with_no_water_and_the_stock_
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 3,
+        post_water_device_depth_slots: 0,
     };
     assert_eq!(
         rig.renderer.snapshot_statistics(),
@@ -231,7 +232,8 @@ fn colour_only_readers_leave_the_device_depth_unallocated() {
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 0
+            device_depth_slots: 0,
+            post_water_device_depth_slots: 0,
         }
     );
 }
@@ -316,7 +318,8 @@ fn depth_tested_overlay_snapshots_gain_the_device_depth_a_game_reads() {
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
             slots: 3,
-            device_depth_slots: 3
+            device_depth_slots: 3,
+            post_water_device_depth_slots: 0,
         }
     );
     assert_eq!(seen.lock().unwrap().recorded, [FRAME_PASS]);
@@ -393,10 +396,20 @@ fn the_allocation_budget_charges_the_snapshots_a_game_declares_it_reads() {
         device_depth,
         "the device depth copy is reserved when a game reads it, and the colour is not"
     );
+    let post_water_linear = SnapshotReads {
+        post_water_depth: PostWaterDepth::Linear,
+        ..COLOR
+    };
+    assert_eq!(
+        resident(post_water_linear) - colour,
+        0,
+        "the post-water linear depth is one of the shared depths"
+    );
     assert_eq!(
         resident(SnapshotReads::ALL) - colour,
-        device_depth,
-        "reading everything costs the shared snapshots and the device depth once"
+        2 * device_depth,
+        "reading everything costs the shared snapshots, the device depth and the post-water \
+         device depth once each"
     );
 }
 
@@ -410,6 +423,7 @@ fn a_replacement_gives_the_new_generation_its_own_snapshots() {
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 3,
+        post_water_device_depth_slots: 0,
     };
     assert_eq!(rig.renderer.snapshot_statistics(), owned);
     let mut larger = rig.renderer.configuration().clone();

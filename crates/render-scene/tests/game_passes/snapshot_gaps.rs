@@ -102,6 +102,7 @@ fn a_game_that_reads_only_the_linear_depth_gets_only_that_snapshot() {
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 0,
+        post_water_device_depth_slots: 0,
     };
     assert_eq!(
         rig.renderer.snapshot_statistics(),
@@ -163,6 +164,7 @@ fn reconfiguring_to_another_extent_owns_the_device_depth_before_the_next_frame_p
     let owned = SnapshotStatistics {
         slots: 3,
         device_depth_slots: 3,
+        post_water_device_depth_slots: 0,
     };
     rig.render().unwrap();
     assert_eq!(rig.renderer.snapshot_statistics(), owned);

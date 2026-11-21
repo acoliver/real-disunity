@@ -1,5 +1,6 @@
 //! The mesh renderer and mesh filter components: defaults, validation, one per object, cloning
 //! and destruction.
+use worldrunner_world_simulation::graphics::ShaderProperties;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, DrawnMaterial,
     MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind,
@@ -252,4 +253,31 @@ fn destroying_the_object_or_the_component_removes_them() {
     world.remove_component(handle).unwrap();
     assert!(world.component(handle).is_err());
     assert!(find(&world, object, true).is_none());
+}
+
+#[test]
+fn a_slot_block_is_kept_below_the_slot_bound_and_refused_at_it() {
+    let (mut world, object) = world_with(ComponentDesc::MeshRenderer(MeshRenderer::default()));
+    let handle = find(&world, object, false).unwrap();
+    // A block may name a slot that has no material yet, up to the last slot a renderer can hold.
+    let last = MAX_RENDERER_MATERIALS - 1;
+    let mut renderer = MeshRenderer::default();
+    renderer
+        .slot_blocks
+        .insert(last, ShaderProperties::default());
+    world
+        .set_component(handle, ComponentDesc::MeshRenderer(renderer.clone()))
+        .unwrap();
+    assert_eq!(renderer_of(&world, object), renderer);
+
+    let mut past = MeshRenderer::default();
+    past.slot_blocks
+        .insert(MAX_RENDERER_MATERIALS, ShaderProperties::default());
+    assert_eq!(
+        world.set_component(handle, ComponentDesc::MeshRenderer(past)),
+        Err(WorldError::InvalidComponent(
+            ComponentError::InvalidMeshRenderer
+        ))
+    );
+    assert_eq!(renderer_of(&world, object), renderer);
 }

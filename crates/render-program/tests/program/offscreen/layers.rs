@@ -95,3 +95,36 @@ fn the_camera_values_sit_below_the_renderers_per_draw_values() {
         "collapsed: only the clear color"
     );
 }
+
+#[test]
+fn a_slot_block_sits_below_the_per_draw_and_camera_values() {
+    let mut rig = Rig::new();
+    let mut frame = fixture(&mut rig, 1 << 1);
+    // A slot block that collapses the quad with `_Place`, which only the values above it
+    // can override. The caller's per-draw `_Place` shows the quad in the material's color.
+    let collapse = layer(&[("_Place", [0.0, 0.0, 0.0, 0.0])]);
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    renderer.slot_blocks.insert(0, collapse);
+    assert_eq!(tint(&mut rig, &frame), RED, "the caller's per-draw values");
+
+    let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
+    renderer.per_draw = PropertyLayer::default();
+    frame
+        .cameras
+        .get_mut(&worldrunner_render_program::ids::CameraId(1))
+        .unwrap()
+        .values = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    assert_eq!(tint(&mut rig, &frame), RED, "the camera's values");
+
+    frame
+        .cameras
+        .get_mut(&worldrunner_render_program::ids::CameraId(1))
+        .unwrap()
+        .values = PropertyLayer::default();
+    assert_eq!(
+        tint(&mut rig, &frame),
+        [255, 255, 0, 255],
+        "with nothing above it the slot block collapses the quad"
+    );
+}

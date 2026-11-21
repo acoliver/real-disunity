@@ -31,6 +31,7 @@ mod sampling;
 mod slot_dimension;
 mod steps;
 mod storage_buffers;
+mod texel_size;
 mod textures;
 mod tracker;
 mod views;

@@ -3,6 +3,7 @@ use super::*;
 use crate::gpu_device::device_requirements;
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs};
+use crate::offscreen::Settling;
 use crate::player::{GpuWork, window_gpu};
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
@@ -565,7 +566,11 @@ fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
     );
 
     gpu.set_screen(Some([16, 8]));
-    let (writer, _) = gpu.offscreen.borrow_mut().frame(&snapshot, &host).unwrap();
+    let (writer, _) = gpu
+        .offscreen
+        .borrow_mut()
+        .frame(&snapshot, &host, Settling::Wait)
+        .unwrap();
     assert!(writer.is_some());
     let resized = gpu.game_screen().expect("the frame allocated a new screen");
     assert_eq!(

@@ -398,26 +398,13 @@ impl OffscreenHost {
     }
 
     /// Adapts and builds the records of `snapshot` for the scene's next frame. A frame with no
-    /// records gives `None`.
+    /// records gives `None`. `settling` is the way giving storage back for the frame's room gets
+    /// the GPU to finish with it. A frame the viewer submits later uses [`Settling::Poll`], which
+    /// collects what the GPU has finished and never waits for the viewer's submission.
     ///
     /// # Errors
     /// Fails with the error of the records that are left when they still do not build together.
-    pub fn frame(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-    ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
-        self.frame_with(snapshot, assets, Settling::Wait)
-    }
-
-    /// As [`frame`](Self::frame); with `settling`, the way giving storage back for the frame's
-    /// room gets the GPU to finish with it. A frame the viewer submits later uses
-    /// [`Settling::Poll`], which collects what the GPU has finished and never waits for the
-    /// viewer's submission.
-    ///
-    /// # Errors
-    /// As [`frame`](Self::frame).
-    pub(crate) fn frame_with(
+    pub(crate) fn frame(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,

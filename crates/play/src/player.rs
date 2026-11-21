@@ -14,6 +14,7 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::offscreen::{DepthRange, SuppliedGlobal};
+use crate::plan_differences::shader_difference_lines;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
 use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
 
@@ -87,6 +88,14 @@ pub fn prepare_player(
         resources.entries.len(),
         resources.assets.len()
     );
+    let differences: Vec<String> = [&plan.differences, &resources.differences]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+    for line in shader_difference_lines(&differences) {
+        eprintln!("{line}");
+    }
     let resources_path = output.join("resources.json");
     write(
         &resources_path,

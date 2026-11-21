@@ -91,6 +91,7 @@ mod terrain_blend;
 mod terrain_mip_bias;
 mod texture_tier;
 mod velocity;
+mod view_pins;
 
 /// The colour format every test renders into.
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;

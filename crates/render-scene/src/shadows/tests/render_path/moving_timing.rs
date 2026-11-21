@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use crate::device::DeviceRequest;
 use crate::frame::FrameUniform;
 use crate::{CameraPose, SceneView, Viewport};

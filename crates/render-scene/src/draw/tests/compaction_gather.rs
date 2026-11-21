@@ -157,8 +157,7 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
         context
             .submission()
             .prepare(device, |encoder, _| {
-                crate::compositor::encode_scene(
-                    &mut renderer,
+                renderer.encoding().encode_scene(
                     device,
                     encoder,
                     (&mut gpu, &pipelines),

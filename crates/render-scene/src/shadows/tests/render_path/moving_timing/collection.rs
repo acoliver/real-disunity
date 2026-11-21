@@ -99,15 +99,17 @@ fn submit_frame(
             if resident.timing == TimingSupport::Supported {
                 resident.renderer.begin_timing(frame_id).unwrap();
             }
-            encode_scene(
-                &mut resident.renderer,
-                context.device(),
-                encoder,
-                (&mut resident.gpu, pipelines),
-                (&views.color, &views.depth),
-                *uniform,
-            )
-            .unwrap();
+            resident
+                .renderer
+                .encoding()
+                .encode_scene(
+                    context.device(),
+                    encoder,
+                    (&mut resident.gpu, pipelines),
+                    (&views.color, &views.depth),
+                    *uniform,
+                )
+                .unwrap();
             resident
                 .renderer
                 .encode_output(encoder, &views.output)

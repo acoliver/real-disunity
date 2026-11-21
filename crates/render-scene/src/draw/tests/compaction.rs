@@ -134,8 +134,7 @@ impl Rig {
         context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                crate::compositor::encode_scene(
-                    renderer,
+                renderer.encoding().encode_scene(
                     context.device(),
                     encoder,
                     (gpu, pipelines),

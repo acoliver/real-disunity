@@ -2,8 +2,8 @@ use super::offscreen::encode_player_work;
 use super::{FrameRenderer, attachment, attachment_resource};
 use std::borrow::Cow;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, PassDeclaration,
-    PassSlot, PreparedFeature,
+    AttachmentView, FeatureDeclaration, FrameError, FramePlan, PassDeclaration, PassSlot,
+    PreparedFeature,
 };
 
 pub(crate) struct SceneFeature<'a> {
@@ -387,7 +387,7 @@ fn declare_scene_passes(
 /// into `encoder` now, so the feature must be encoded in that encoder's frame or the frame dropped.
 ///
 /// # Errors
-/// As [`encode_scene`].
+/// As [`FrameEncoding::encode_scene`](super::FrameEncoding::encode_scene).
 pub fn prepare_stock_scene<'a>(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -512,39 +512,4 @@ impl<'a> SceneDraw<'a, '_> {
             opaque_drawn: std::cell::Cell::new(false),
         }
     }
-}
-
-/// Encodes a resident unshadowed scene through the feature boundary.
-/// Checked attachments retain their selected mip, array layer and view format.
-/// The submission and abandonment rules of [`FrameRenderer`] apply.
-///
-/// This is [`prepare_stock_scene`] encoded alone: callers that add passes or features of their
-/// own prepare the stock scene themselves and forward its offscreen operations to
-/// [`FrameRenderer::encode_frame_with`].
-pub fn encode_scene(
-    renderer: &mut FrameRenderer,
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-    attachments: (&AttachmentView, &AttachmentView),
-    frame: crate::frame::FrameUniform,
-) -> Result<(), FrameError> {
-    let mut stock = prepare_stock_scene(renderer, device, encoder, scene, attachments, frame)?;
-    let plan = stock.plan();
-    let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
-    let (declaration, frame) = (stock.declaration(), stock.frame());
-    let offscreen = stock.take_offscreen_operations();
-    renderer.encode_frame_with(
-        device,
-        encoder,
-        (&passes, &views),
-        offscreen
-            .as_ref()
-            .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
-        &mut [BorrowedFeature {
-            declaration,
-            prepared: &mut stock,
-        }],
-        &(frame, None),
-    )
 }

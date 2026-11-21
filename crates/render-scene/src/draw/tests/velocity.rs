@@ -214,15 +214,16 @@ fn velocity_after(
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame_from(pose),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame_from(pose),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     }
     let texture = renderer
@@ -490,15 +491,16 @@ fn output_after(
         renderer.select_frame_slot(index % 3);
         renderer.set_frame_time(seconds).unwrap();
         let mut encoder = context.submission().begin(device).unwrap();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            &mut encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame_from(pose()),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame_from(pose()),
+            )
+            .unwrap();
         renderer.encode_output(&mut encoder, &view).unwrap();
         encoder.finish().submit().unwrap();
     }

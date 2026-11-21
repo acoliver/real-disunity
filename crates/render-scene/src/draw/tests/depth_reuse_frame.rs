@@ -197,15 +197,10 @@ fn draw_frame_with_view(
                     .encode_with(context, &view, (&color, &depth), encoder, Some(renderer))
                     .unwrap();
             } else {
-                encode_scene(
-                    renderer,
-                    device,
-                    encoder,
-                    (gpu, pipelines),
-                    (&color, &depth),
-                    frame,
-                )
-                .unwrap();
+                renderer
+                    .encoding()
+                    .encode_scene(device, encoder, (gpu, pipelines), (&color, &depth), frame)
+                    .unwrap();
             }
             renderer
                 .encode_output(

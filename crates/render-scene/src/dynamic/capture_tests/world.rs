@@ -14,7 +14,7 @@ use worldrunner_world_simulation::{
 };
 
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use crate::simulation::WorldSceneContribution;
 
 const SPRITE: TextureFormat = SRGB;
@@ -153,15 +153,16 @@ fn compositor(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::unlit(&contribution.view),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::unlit(&contribution.view),
+        )
+        .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(

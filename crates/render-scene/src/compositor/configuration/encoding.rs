@@ -1,6 +1,6 @@
 //! Stock-only operations, without allocation-changing access to the renderer.
 use super::{ConfiguredFrameRenderer, FrameRenderer};
-use worldrunner_render_post::{AttachmentView, FrameError, PostError};
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, PostError};
 
 /// Restricted stock composition. It runs the stock frame and the features the configuration
 /// inventoried in [`RendererConfiguration::game_passes`](super::RendererConfiguration::game_passes);
@@ -189,6 +189,13 @@ impl ConfiguredFrameRenderer {
     }
 }
 impl FrameEncoding<'_> {
+    /// Encodes a resident unshadowed scene through the feature boundary.
+    /// Checked attachments retain their selected mip, array layer and view format.
+    /// The submission and abandonment rules of [`FrameRenderer`] apply.
+    ///
+    /// This is [`prepare_stock_scene`](super::super::prepare_stock_scene) encoded alone: callers
+    /// that add passes or features of their own prepare the stock scene themselves and forward
+    /// its offscreen operations to [`FrameRenderer::encode_frame_with`].
     pub fn encode_scene(
         &mut self,
         device: &wgpu::Device,
@@ -197,7 +204,25 @@ impl FrameEncoding<'_> {
         attachments: (&AttachmentView, &AttachmentView),
         frame: crate::frame::FrameUniform,
     ) -> Result<(), FrameError> {
-        super::super::encode_scene(self.0, device, encoder, scene, attachments, frame)
+        let mut stock =
+            super::super::prepare_stock_scene(self.0, device, encoder, scene, attachments, frame)?;
+        let plan = stock.plan();
+        let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
+        let (declaration, frame) = (stock.declaration(), stock.frame());
+        let offscreen = stock.take_offscreen_operations();
+        self.0.encode_frame_with(
+            device,
+            encoder,
+            (&passes, &views),
+            offscreen
+                .as_ref()
+                .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
+            &mut [BorrowedFeature {
+                declaration,
+                prepared: &mut stock,
+            }],
+            &(frame, None),
+        )
     }
     /// The pass that shows a game screen named `resource` in the renderer's scene colour format.
     /// Build it once and reuse it for every frame that shows a screen.

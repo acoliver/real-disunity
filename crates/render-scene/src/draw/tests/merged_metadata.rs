@@ -2,7 +2,7 @@
 //! geometry is drawn once for both.
 
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
 use worldrunner_render_plan::{SceneDecal, SceneSsr, SceneTint};
 use worldrunner_render_post::{AttachmentView, PassSlot, ResourceRef, ToneMap};
@@ -132,15 +132,16 @@ fn draw_with(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::new(&view(pose), scene.effects()).unwrap(),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::new(&view(pose), scene.effects()).unwrap(),
+        )
+        .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }

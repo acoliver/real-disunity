@@ -7,7 +7,7 @@ use worldrunner_render_post::{
 };
 use worldrunner_render_scene::{
     SceneView,
-    compositor::{FrameRenderer, encode_scene},
+    compositor::FrameRenderer,
     device::GpuContext,
     draw::{ObjectDraws, PassDrawStatistics, SceneGpu},
     executor,
@@ -178,15 +178,17 @@ fn submit(
             if resident.support == TimingSupport::Supported {
                 resident.renderer.begin_timing(id).unwrap();
             }
-            encode_scene(
-                &mut resident.renderer,
-                context.device(),
-                encoder,
-                (&mut resident.gpu, pipelines),
-                (&views.color, &views.depth),
-                *uniform,
-            )
-            .unwrap();
+            resident
+                .renderer
+                .encoding()
+                .encode_scene(
+                    context.device(),
+                    encoder,
+                    (&mut resident.gpu, pipelines),
+                    (&views.color, &views.depth),
+                    *uniform,
+                )
+                .unwrap();
             resident
                 .renderer
                 .encode_output(encoder, &views.output)

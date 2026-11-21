@@ -7,7 +7,7 @@ use std::time::Duration;
 use worldrunner_render_plan::{RenderScene, SceneEffects};
 use worldrunner_render_scene::{
     SceneView,
-    compositor::{FrameRenderer, encode_scene, prepare_stock_scene},
+    compositor::{FrameRenderer, prepare_stock_scene},
     device::GpuContext,
     draw::SceneGpu,
     executor::{
@@ -97,15 +97,16 @@ impl CameraTaaFrame {
             self.renderer.targets().depth().texture(),
         )
         .unwrap();
-        encode_scene(
-            &mut self.renderer,
-            &device,
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            uniform,
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                &device,
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                uniform,
+            )
+            .unwrap();
         self.renderer
             .encode_output(
                 &mut encoder,

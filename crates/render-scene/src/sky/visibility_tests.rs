@@ -51,15 +51,16 @@ fn capture_celestial_target(
     let frame = FrameUniform::new(&view(), source.effects()).unwrap();
     capture(context, |encoder, resolved, _| {
         let mut renderer = crate::compositor::FrameRenderer::new(device);
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame,
+            )
+            .unwrap();
         let reference = occupancy.then(|| gpu.capture_celestial_textures(device, [9, 3]));
         let reference_view = reference
             .as_ref()

@@ -5,7 +5,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_scene},
+    compositor::FrameRenderer,
     device::{DeviceRequest, GpuContext},
     draw::SceneGpu,
     frame::FrameUniform,
@@ -123,15 +123,16 @@ fn capture_with_stages(
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer.begin_timing(1).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::unlit(&contribution.view),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::unlit(&contribution.view),
+        )
+        .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     renderer.finish_timing(&mut encoder).unwrap();
     encoder.finish().submit().unwrap();

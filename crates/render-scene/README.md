@@ -218,7 +218,7 @@ including all cube faces and block-compressed mip levels. Allocations absent fro
 
 ## Player program draws
 
-`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
+`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `FrameEncoding::encode_scene` takes them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
 
 Encoding checks the draws before it declares anything:
 
@@ -1191,7 +1191,7 @@ The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
 The first 30 views warm up; the remaining 120 are sampled. Each path keeps a
 separate scene upload, frame renderer and output resident. A shared immutable
 source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve both
-calls to public `compositor::encode_scene`, with alternating path order. No shadows,
+calls to public `FrameEncoding::encode_scene`, with alternating path order. No shadows,
 SDSM, image readback or speed threshold is involved.
 
 CPU encode/submit ends when submission returns. Serialized completion ends after
@@ -1467,7 +1467,7 @@ with a typed error.
 
 ## Composing with the stock scene
 
-A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
+A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `FrameEncoding::encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
 
 Retaining or taking admitted offscreen work does not execute it. `encode_frame` supplies no head, and a `None` head in `encode_frame_with` records the stock draws without refreshing their offscreen inputs. Forward any returned work on the preparation encoder before the stock passes, or abandon the frame. The omission characterizations in `src/draw/tests/program_frame/offscreen/composition/omission.rs` cover both leaving work in the feature and taking it without forwarding; the parent test keeps the forwarded pixel, pass-order and single-submission control.
 

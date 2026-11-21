@@ -199,15 +199,16 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
                     .unwrap();
             } else {
                 let mut encoder = context.submission().begin(context.device()).unwrap();
-                crate::compositor::encode_scene(
-                    &mut scheduler,
-                    context.device(),
-                    &mut encoder,
-                    (&mut gpu, &pipelines),
-                    (&color_view, &depth_view),
-                    FrameUniform::new(&view(), source.effects()).unwrap(),
-                )
-                .unwrap();
+                scheduler
+                    .encoding()
+                    .encode_scene(
+                        context.device(),
+                        &mut encoder,
+                        (&mut gpu, &pipelines),
+                        (&color_view, &depth_view),
+                        FrameUniform::new(&view(), source.effects()).unwrap(),
+                    )
+                    .unwrap();
                 encoder.finish().submit().unwrap();
             }
             let after = [read_all(&context, &color), read_all(&context, &depth)];

@@ -109,15 +109,16 @@ impl Moving {
             .set_frame_time(f32::from(self.frame) * 0.03125)
             .unwrap();
         let mut encoder = self.context.submission().begin(device).unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            device,
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&self.color, &self.depth),
-            frame_from(pose()),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&self.color, &self.depth),
+                frame_from(pose()),
+            )
+            .unwrap();
         if let Some(view) = view {
             self.renderer.encode_output(&mut encoder, view).unwrap();
         }

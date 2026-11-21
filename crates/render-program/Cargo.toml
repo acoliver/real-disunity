@@ -32,6 +32,8 @@ worldrunner-unity-serialized = { path = "../unity-serialized" }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 naga = { version = "30.0.0", features = ["spv-in", "spv-out", "wgsl-in", "msl-out"] }
 pollster.workspace = true
+# `noop` gives tests a device with chosen features that validates bindings without a GPU.
+wgpu = { workspace = true, features = ["noop"] }
 
 [lints]
 workspace = true

@@ -366,7 +366,7 @@ impl SceneGpu {
         &self,
         context: &Context,
     ) -> Result<(), worldrunner_render_post::FrameError> {
-        for (index, material, geometry) in self.drawn_pairs() {
+        for &(index, material, geometry) in &*self.drawn_pairs() {
             self.objects
                 .pipeline(context, (index, material), geometry)
                 .map_err(
@@ -393,8 +393,24 @@ impl SceneGpu {
 
     /// The pairs of pipeline index and material, with the vertex format of the level that draws
     /// them, that the batches holding instances draw: a mesh level with material slots draws
-    /// the pair of each slot, and one without draws the pair of the batch.
-    fn drawn_pairs(&self) -> std::collections::BTreeSet<(usize, usize, GeometryLayout)> {
+    /// the pair of each slot, and one without draws the pair of the batch. They change only with
+    /// the placements and the tables, so the last answer stands until those change.
+    pub(super) fn drawn_pairs(&self) -> Rc<[DrawnPair]> {
+        let stamp = self.instances.layout_stamp(self.mesh_selection.len());
+        let mut held = self.drawn_pair_memo.borrow_mut();
+        if let Some((at, pairs)) = &held.0
+            && *at == stamp
+        {
+            return pairs.clone();
+        }
+        let pairs: Rc<[_]> = self.collect_drawn_pairs().into_iter().collect();
+        held.0 = Some((stamp, pairs.clone()));
+        pairs
+    }
+
+    pub(super) fn collect_drawn_pairs(
+        &self,
+    ) -> std::collections::BTreeSet<(usize, usize, GeometryLayout)> {
         let mut pairs = std::collections::BTreeSet::new();
         for (&(pipeline, mesh, material), batch) in &self.instances.batches {
             if !batch.has_instances() {
@@ -416,3 +432,11 @@ impl SceneGpu {
         pairs
     }
 }
+
+/// A pipeline index, a material and the vertex format of the level drawn with them.
+pub(super) type DrawnPair = (usize, usize, GeometryLayout);
+
+/// The pairs the batches last drew, and the state of the placements and tables they were found
+/// in.
+#[derive(Debug, Default)]
+pub(super) struct DrawnPairs(Option<(crate::instances::LayoutStamp, Rc<[DrawnPair]>)>);

@@ -9,6 +9,7 @@
 //! The mesh, its channels, the material's constants and textures and the render state of the pass
 //! are then the ones a list draw gives them. The record's instance count goes to each item.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use worldrunner_render_program::layers::PropertyLayer;
@@ -39,7 +40,7 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         (block, instances): (Option<&ShaderProperties>, u32),
     ) -> Result<Vec<Record>, Skip> {
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
         let passes = match usize::try_from(pass) {
@@ -62,11 +63,13 @@ impl Mapper<'_> {
                 block: block.map_or_else(PropertyLayer::default, |block| {
                     layer(block, &mut self.textures)
                 }),
+                slot_blocks: BTreeMap::new(),
                 per_draw: draw_layer(matrix),
             },
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
         Ok(vec![Record::Draws(Arc::new(DrawList {
+            raster,
             target,
             values,
             front_face: IMAGE_FRONT_FACE,

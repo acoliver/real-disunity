@@ -1,10 +1,11 @@
 //! The seam's pure rules: which attachments a pass is given, and the depth rules a draw into it
 //! follows. The frames that run them are in `tests/game_passes.rs`.
-use super::{PassTarget, reconcile_loads};
+use super::{ColorOutput, GamePassSpec, GameTargets, PassTarget, SnapshotReads, reconcile_loads};
+use std::sync::Arc;
 use wgpu::{CompareFunction, StencilOperation, TextureFormat};
 use worldrunner_render_post::{
-    AttachmentDeclaration, AttachmentLoad, GamePlace, PassDeclaration, PassEntry, PassSlot,
-    ResourceRef,
+    AttachmentDeclaration, AttachmentLoad, FrameError, GamePlace, PassDeclaration, PassEntry,
+    PassSlot, ResourceRef,
 };
 use worldrunner_render_program::runtime::TargetSignature;
 use worldrunner_render_program::state::RasterState;
@@ -287,4 +288,123 @@ fn a_game_pass_loads_a_depth_a_stock_prepass_completed() {
     let mut passes = vec![prepass(), writer, opaque(AttachmentLoad::Load)];
     reconcile_loads(&mut passes);
     assert_eq!(loads(&passes)[1], [AttachmentLoad::Load]);
+}
+
+#[path = "prefix_tests.rs"]
+mod prefix_tests;
+const COLOR_AND_DEVICE_DEPTH: SnapshotReads = SnapshotReads {
+    color: true,
+    device_depth: true,
+    ..SnapshotReads::NONE
+};
+
+#[test]
+fn a_pass_after_the_opaque_snapshots_reads_exactly_the_stock_snapshots_it_declares() {
+    let targets = GameTargets::new(Arc::default()).with_snapshot_reads(SnapshotReads::ALL);
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    let mut views = Vec::new();
+    let spec = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+        .writing([ColorOutput::Frame])
+        .reading_snapshots(COLOR_AND_DEVICE_DEPTH);
+    let planned = targets.plan_pass(&spec, &mut passes, &mut views).unwrap();
+    assert_eq!(
+        planned.reads,
+        [
+            ResourceRef::new("opaque snapshot color"),
+            ResourceRef::new("opaque snapshot device depth"),
+        ]
+    );
+    assert!(
+        views.is_empty(),
+        "the frame's snapshot planning supplies the views of the stock snapshots"
+    );
+    assert_eq!(
+        planned.slot,
+        PassSlot::Game(GamePlace::AfterOpaqueSnapshots)
+    );
+}
+
+#[test]
+fn a_pass_that_reads_a_snapshot_its_factory_did_not_declare_is_refused_naming_both() {
+    let targets = GameTargets::new(Arc::default()).with_snapshot_reads(SnapshotReads {
+        color: true,
+        ..SnapshotReads::NONE
+    });
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    let spec = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+        .writing([ColorOutput::Frame])
+        .reading_snapshots(COLOR_AND_DEVICE_DEPTH);
+    let error = targets
+        .plan_pass(&spec, &mut passes, &mut Vec::new())
+        .unwrap_err();
+    let FrameError::FeaturePreparation { feature, reason } = error else {
+        panic!("expected a named refusal, got {error:?}");
+    };
+    assert_eq!(feature, "frame snapshots");
+    assert!(reason.contains("device_depth: true"), "{reason}");
+    assert!(reason.contains("snapshot_reads"), "{reason}");
+    assert_eq!(passes.len(), 1, "nothing was planned");
+}
+
+mod resize_keeps_device_depth {
+    use super::super::{GameBuild, GameFeatureFactory, GamePasses, SnapshotReads};
+    use crate::compositor::{FrameRenderer, SnapshotStatistics};
+    use crate::device::GpuContext;
+    use std::sync::Arc;
+    use worldrunner_render_post::{
+        BuildContext, FeatureDeclaration, FrameConfig, FrameError, FrameFeature, PreparedFeature,
+    };
+
+    struct DepthReader;
+    struct Idle;
+
+    impl FrameFeature for Idle {
+        fn declare(&self) -> FeatureDeclaration {
+            FeatureDeclaration {
+                passes: Vec::new(),
+                effects: Vec::new(),
+            }
+        }
+        fn build(&self, _: &BuildContext<'_>) -> Result<Box<dyn PreparedFeature>, FrameError> {
+            Err(FrameError::UnsupportedEffect("not drawn"))
+        }
+    }
+
+    impl GameFeatureFactory for DepthReader {
+        fn name(&self) -> &'static str {
+            "depth reader"
+        }
+        fn snapshot_reads(&self) -> SnapshotReads {
+            SnapshotReads {
+                device_depth: true,
+                ..SnapshotReads::NONE
+            }
+        }
+        fn build(&self, _: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+            Ok(Box::new(Idle))
+        }
+    }
+
+    #[test]
+    fn a_resize_keeps_the_device_depth_a_game_reads() {
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = GpuContext::shared_for_test().unwrap();
+        let device = context.device();
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut renderer =
+            FrameRenderer::with_output(device, FrameConfig::new([8, 8], format, 1), format)
+                .unwrap();
+        GamePasses::new()
+            .with(Arc::new(DepthReader))
+            .install(&mut renderer, &context, None)
+            .unwrap();
+        renderer.ensure_game_snapshots(device);
+        let owned = SnapshotStatistics {
+            slots: 3,
+            device_depth_slots: 3,
+        };
+        assert_eq!(renderer.snapshot_statistics(), owned);
+        assert!(renderer.resize(device, [16, 16]).unwrap());
+        assert_eq!(renderer.snapshot_statistics(), owned);
+    }
 }

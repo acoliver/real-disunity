@@ -115,7 +115,7 @@ pub struct ViewerOptions {
     /// Shader clock, wall time by default.
     pub render_clock: RenderClock,
     /// What the game adds to the stock render: its own passes and targets, and whether the stock
-    /// passes draw the scene's terrain. The default adds nothing.
+    /// passes draw the scene's terrain and water. The default adds nothing.
     pub game: GameRendering,
 }
 
@@ -130,6 +130,8 @@ pub struct GameRendering {
     pub passes: worldrunner_render_scene::compositor::GamePasses,
     /// Whether the stock passes draw the scene's terrain. The terrain stays resident either way.
     pub terrain_draws: worldrunner_render_scene::compositor::TerrainDraws,
+    /// Whether the stock passes draw the scene's water. The water stays resident either way.
+    pub water_draws: worldrunner_render_scene::compositor::WaterDraws,
 }
 
 /// Presentation policy, independent of GPU submission admission.

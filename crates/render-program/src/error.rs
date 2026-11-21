@@ -223,6 +223,10 @@ pub enum ProgramError {
     TextureUpload(#[from] UploadError),
     #[error("block-image transfer refused: {0}")]
     BlockTransfer(#[from] BlockTransferError),
+    #[error(
+        "the dispatch asks for {groups:?} workgroups and the device allows {limit} in each dimension"
+    )]
+    Workgroups { groups: [u32; 3], limit: u32 },
     /// The encoder is not one the submission authority handed out for the frame being recorded.
     #[error(transparent)]
     Transaction(#[from] TransactionError),

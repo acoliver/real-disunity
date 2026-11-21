@@ -63,6 +63,9 @@ impl Assets for Textures {
             linear: false,
             generation: 1,
             distance_spread: 0,
+            depth: 0,
+            dimension: worldrunner_disunity_runtime::TextureDimension::D2,
+            graphics_format: 0,
             bytes: vec![200; TEXTURE_LEN],
         }))
     }
@@ -148,6 +151,7 @@ impl Room {
             &mut self.state,
             &mut self.runtime,
             Settling::Poll,
+            &std::collections::BTreeMap::new(),
         )
     }
 

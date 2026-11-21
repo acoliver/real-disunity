@@ -31,8 +31,8 @@ pub(super) const COLOR: &str = "_MainLightColor";
 const POSITION: &str = "_MainLightPosition";
 
 /// A vertex stage that places its position by the draw constants `_Place`, and fragment stages
-/// that write the main light colour or the main light direction of the per-frame constants as red,
-/// green and blue, with an alpha of one.
+/// that write the main light colour, the fourth component of that member as grey, or the main light
+/// direction of the per-frame constants as red, green and blue, with an alpha of one.
 const PER_FRAME: &str = "
 struct PerFrame { color: vec4<f32>, position: vec4<f32> }
 struct Draw { place: vec4<f32> }
@@ -46,6 +46,9 @@ struct VOut { @builtin(position) position: vec4<f32> }
 }
 @fragment fn fs_color(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(frame.color.rgb, 1.0);
+}
+@fragment fn fs_color_w(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(frame.color.www, 1.0);
 }
 @fragment fn fs_position(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(frame.position.rgb, 1.0);
@@ -120,6 +123,7 @@ pub(super) fn quad(world: &mut World, file: &str, layer: u8, place: [f32; 4]) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (layer, true), MESH, renderer);

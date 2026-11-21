@@ -59,17 +59,19 @@ pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_draws;
 mod terrain_runtime;
+mod water_draws;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
 pub use streaming::{
-    TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor, TerrainChunkViewError,
-    TerrainGeometryRequest,
+    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
+    TerrainChunkViewError, TerrainGeometryRequest,
 };
 pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
+pub use water_draws::WaterDraws;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
@@ -278,6 +280,9 @@ struct Retained {
     contact_heights: Buffer,
     /// Scene textures, counted under `ResourceClass::Texture` while resident.
     textures: Vec<worldrunner_render_gpu::census::Tracked<Texture>>,
+    /// The table as the game's passes are lent it, made on first use and dropped whenever
+    /// `textures` changes.
+    lent_textures: RefCell<Option<std::rc::Rc<[Texture]>>>,
     placeholder: Texture,
     sampler: Sampler,
     material_uniforms: Vec<Buffer>,
@@ -322,6 +327,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The pairs the batches draw, until a placement or table changes.
+    drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
@@ -344,6 +351,22 @@ fn mesh_selections(scene: &RenderScene) -> Vec<MeshSelection> {
 }
 
 impl SceneGpu {
+    /// Every resident scene texture by table index, as one shared snapshot that stays the same
+    /// object until an append or a texture replacement changes the table.
+    pub(crate) fn lent_textures(&self) -> std::rc::Rc<[Texture]> {
+        self.retained
+            .lent_textures
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                self.retained
+                    .textures
+                    .iter()
+                    .map(|texture| (**texture).clone())
+                    .collect()
+            })
+            .clone()
+    }
+
     /// Uploads every texture, material, mesh and placement of one scene.
     ///
     /// # Errors
@@ -452,6 +475,7 @@ impl SceneGpu {
             instance_history: std::rc::Rc::default(),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            drawn_pair_memo: RefCell::default(),
             gather: compaction::Shared::default(),
             terrain,
             terrain_draws: Cell::new(TerrainDraws::Stock),
@@ -462,6 +486,7 @@ impl SceneGpu {
             retained: Retained {
                 contact_heights,
                 textures,
+                lent_textures: RefCell::new(None),
                 placeholder,
                 sampler,
                 material_uniforms,

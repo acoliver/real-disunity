@@ -3,13 +3,18 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod finish;
 mod frozen;
 mod game;
 mod operations;
+mod prepared;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+pub use prepared::{
+    PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -257,6 +262,32 @@ pub enum FrameError {
         pass: PassEntry,
         resource: ResourceRef,
     },
+    /// A preparation staged a write of a view the plan did not declare prepared.
+    #[error("prepared write {0:?} was not declared by the plan")]
+    UnplannedWrite(ResourceRef),
+    /// The plan declared a view prepared and no preparation of the frame staged its write.
+    #[error("the plan declared prepared write {0:?} and no preparation staged it")]
+    UnstagedWrite(ResourceRef),
+    /// A frame's preparations staged a second write of one view, which the frame versions once.
+    #[error("prepared write {0:?} is staged more than once in the frame's preparation")]
+    RepeatedPreparedWrite(ResourceRef),
+    /// Prepared commands were staged outside the features' `prepare`, after the frame checked
+    /// what its preparations write.
+    #[error("prepared commands may be staged only while features prepare")]
+    PreparedOutsidePreparation,
+    /// Prepared commands write other views of the frame than their access declares.
+    #[error("prepared commands {label} write {written:?} and declare writes of {declared:?}")]
+    PreparedWriteMismatch {
+        label: &'static str,
+        declared: Vec<ResourceRef>,
+        written: Vec<ResourceRef>,
+    },
+    /// The owner of prepared commands refused to retain or record them, with its own error.
+    #[error("prepared commands {label} were refused: {refusal}")]
+    PreparedRefused {
+        label: &'static str,
+        refusal: PreparedRefusal,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -317,10 +348,17 @@ pub(crate) fn validate_frame_inputs(
         }
     }
     let outputs = GroupOutputs::new(passes, operations);
-    // A retained view a group writes has contents only from the group's position on.
+    if let Some(view) = views
+        .iter()
+        .find(|view| view.prepared && outputs.writes(view.resource()))
+    {
+        return Err(FrameError::AttachmentHazard(view.resource()));
+    }
+    // A retained view a group writes has contents only from the group's position on. A prepared
+    // view holds the contents its preparation writes before the frame's first pass.
     let mut produced: BTreeMap<_, _> = views
         .iter()
-        .filter(|view| view.retained && !outputs.writes(view.resource()))
+        .filter(|view| (view.retained || view.prepared) && !outputs.writes(view.resource()))
         .map(|view| {
             (
                 view.resource(),
@@ -439,7 +477,10 @@ fn validate_attachments(
         if produced.contains_key(&attachment.resource)
             && matches!(
                 attachment.resource.name,
-                "opaque snapshot color" | "opaque snapshot depth" | "post-water depth"
+                "opaque snapshot color"
+                    | "opaque snapshot depth"
+                    | "opaque snapshot device depth"
+                    | "post-water depth"
             )
         {
             return Err(FrameError::AttachmentHazard(attachment.resource));
@@ -543,6 +584,10 @@ enum Staged {
         group: wgpu::BindGroup,
         workgroups: [u32; 3],
     },
+    Prepared {
+        label: &'static str,
+        commands: Box<dyn PreparedCommands>,
+    },
 }
 pub struct PrepareContext<'a> {
     device: &'a wgpu::Device,
@@ -552,6 +597,10 @@ pub struct PrepareContext<'a> {
     views: Vec<AttachmentView>,
     passes: Vec<PassDeclaration>,
     completed: Vec<PassEntry>,
+    /// Whether features are preparing, the only time prepared commands may be staged.
+    preparing: bool,
+    /// The views the staged prepared commands write, in staging order.
+    prepared_written: Vec<ResourceRef>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -567,6 +616,8 @@ impl<'a> PrepareContext<'a> {
             views: Vec::new(),
             passes: Vec::new(),
             completed: Vec::new(),
+            preparing: false,
+            prepared_written: Vec::new(),
         })
     }
     /// Whether a validated geometry prefix already encoded this entry in the same frame.
@@ -617,8 +668,15 @@ impl<'a> PrepareContext<'a> {
             bytes,
         });
     }
-    /// Stages one compute dispatch, encoded in its own compute pass after the copies and
-    /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    /// Stages one compute dispatch of `pipeline` with `group` at set 0, encoded after the copies
+    /// and dispatches staged before it, so it reads bytes uploaded or copied earlier in this
+    /// context. It shares a compute pass with the compute work staged just before and after it,
+    /// inside a debug group of `label`, so `pipeline` must use no other group.
+    ///
+    /// The frame checks and holds nothing of it: use it for a pipeline and bind group the feature
+    /// owns over its own buffers and textures. Work that writes or reads views of the frame, or
+    /// whose resources the frame must hold until it completes, is staged with
+    /// [`Self::record_prepared`].
     pub fn dispatch(
         &mut self,
         label: &'static str,
@@ -657,45 +715,6 @@ impl<'a> PrepareContext<'a> {
             destination: (destination.clone(), offset),
             bytes: size,
         });
-    }
-    /// Publishes staged copies and dispatches only after all fallible preparations succeed.
-    pub fn finish(self) -> Vec<wgpu::Buffer> {
-        let mut retained = Vec::with_capacity(self.staged.len());
-        for staged in self.staged {
-            match staged {
-                Staged::Copy {
-                    source,
-                    destination,
-                    bytes,
-                } => {
-                    self.encoder.copy_buffer_to_buffer(
-                        &source.0,
-                        source.1,
-                        &destination.0,
-                        destination.1,
-                        bytes,
-                    );
-                    retained.push(source.0);
-                }
-                Staged::Dispatch {
-                    label,
-                    pipeline,
-                    group,
-                    workgroups,
-                } => {
-                    let mut pass = self
-                        .encoder
-                        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some(label),
-                            timestamp_writes: None,
-                        });
-                    pass.set_pipeline(&pipeline);
-                    pass.set_bind_group(0, &group, &[]);
-                    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-                }
-            }
-        }
-        retained
     }
 }
 /// Later geometry slices will add view identifiers/bindings and validated
@@ -748,6 +767,21 @@ pub(crate) struct RegisteredFeature {
     pub declaration: FeatureDeclaration,
     pub prepared: Option<Box<dyn PreparedFeature>>,
     pub source: Box<dyn FrameFeature>,
+    /// Takes part in geometry prefixes as well as in the frames that complete them.
+    pub prefix: bool,
+}
+
+impl RegisteredFeature {
+    /// Whether a geometry prefix already drew everything this prefix participant declares, so
+    /// the frame that completes the prefix neither prepares nor draws it again.
+    pub(crate) fn completed_in(&self, completed: &[PassEntry]) -> bool {
+        self.prefix
+            && self
+                .declaration
+                .passes
+                .iter()
+                .all(|pass| completed.contains(&pass.entry()))
+    }
 }
 
 /// Borrowed features use the same prepare/draw boundary as retained registrations.
@@ -762,6 +796,8 @@ pub struct BorrowedFeature<'a> {
 pub struct AttachmentView {
     retained: bool,
     initialized_allocation: bool,
+    /// Written by a staged preparation operation before the frame's first pass.
+    prepared: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
     format: wgpu::TextureFormat,
@@ -841,6 +877,7 @@ impl AttachmentView {
             resource,
             retained: self.retained,
             initialized_allocation: self.initialized_allocation,
+            prepared: self.prepared,
             view: self.view.clone(),
             format: self.format,
         })
@@ -867,6 +904,7 @@ impl AttachmentView {
             view,
             retained: false,
             initialized_allocation: false,
+            prepared: false,
             format: texture.format(),
         })
     }

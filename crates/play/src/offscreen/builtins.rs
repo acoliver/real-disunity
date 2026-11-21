@@ -56,6 +56,9 @@
 //!   They are the fallback in the frame's starting globals: a value the world's globals hold, or
 //!   that a command buffer sets later with `SetGlobalVector`, replaces them from that place on.
 //!   The light's colour temperature is not applied: nothing here says how the player converts it.
+//! * `unity_SHAr`, `unity_SHAg`, `unity_SHAb`, `unity_SHBr`, `unity_SHBg`, `unity_SHBb`, `unity_SHC`
+//!   and `unity_SpecCube0_HDR` are the default ambient of [`add_ambient`], in the frame's starting
+//!   globals like the main light (see "Left missing" for what it is and is not).
 //! * `unity_OrthoParams` (2,766 variants) carries 1 in its fourth component for a view whose
 //!   projection has no perspective divide and 0 for one that has it ([`view_layer`]). In the same
 //!   shaders (`Mohawk/StandardShader`, `LakeShader`) the fragment stage compares that component
@@ -102,17 +105,22 @@
 //!   evidence that the engine sets it in the way the common ones are set. The projection ones
 //!   would also need a choice between the engine layer's projection and the one adjusted for the
 //!   graphics API, which nothing here measures.
-//! * The other lighting and shadow values (the `LightShadows` buffer, `unity_SHAr` and the other
-//!   spherical harmonics 1,040, `unity_SpecCube0_HDR` 1,552, `unity_LightData` 1,472): they
-//!   depend on shadow maps, probes and additional lights that no offscreen record carries.
+//! * The other lighting and shadow values (the `LightShadows` buffer and `unity_LightData` 1,472):
+//!   they depend on shadow maps and additional lights that no offscreen record carries.
+//!   `unity_SHAr` and the other spherical harmonics (1,040 variants) and `unity_SpecCube0_HDR`
+//!   (1,552) are not left to render-program either: [`add_ambient`] gives them an engine
+//!   default, because a shader that reads them as zero draws black. The default is flat (0.3 in
+//!   the fourth component of `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in the rest) and
+//!   (1, 1, 0, 0) for `unity_SpecCube0_HDR`, a neutral decode chosen without a measured
+//!   convention. It stands until the scene's authored ambient is carried to the host.
 //! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
 //! * `<texture>_ST` (7,265 of the 38,160 texture bindings have a four-float member of that
-//!   name) and `<texture>_TexelSize` (1,980): the world carries a texture slot's scale and
-//!   offset, and the member that holds them has the texture's name plus `_ST`, but the order of
-//!   its four floats is in nothing the repository defines. `render-program` supplies
-//!   `_TexelSize` for a blit's source only.
+//!   name): the world carries a texture slot's scale and offset, and the member that holds them
+//!   has the texture's name plus `_ST`, but the order of its four floats is in nothing the
+//!   repository defines. `<texture>_TexelSize` (1,980) is not left to the host:
+//!   `render-program` fills it with the size of the texture bound under `<texture>`.
 
 use glam::{Mat4, Vec4};
 use worldrunner_render_program::layers::PropertyLayer;
@@ -120,7 +128,7 @@ use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
 use super::depth_range::DepthRange;
-use crate::scene_light::main_light_index;
+use crate::scene_light::{AMBIENT_SKY_IRRADIANCE, main_light_index};
 use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
 pub const OBJECT_TO_WORLD: &str = "unity_ObjectToWorld";
@@ -134,6 +142,14 @@ pub const ORTHO_PARAMS: &str = "unity_OrthoParams";
 pub const PROJECTION_PARAMS: &str = "_ProjectionParams";
 pub const SCREEN_PARAMS: &str = "_ScreenParams";
 pub const WORLD_TRANSFORM_PARAMS: &str = "unity_WorldTransformParams";
+pub const SH_AR: &str = "unity_SHAr";
+pub const SH_AG: &str = "unity_SHAg";
+pub const SH_AB: &str = "unity_SHAb";
+pub const SH_BR: &str = "unity_SHBr";
+pub const SH_BG: &str = "unity_SHBg";
+pub const SH_BB: &str = "unity_SHBb";
+pub const SH_C: &str = "unity_SHC";
+pub const SPEC_CUBE0_HDR: &str = "unity_SpecCube0_HDR";
 
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
@@ -244,6 +260,44 @@ pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
             MAIN_LIGHT_COLOR,
             PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
         );
+    }
+}
+
+/// The neutral decode of `unity_SpecCube0_HDR` the default ambient gives: no repository evidence
+/// measures how the player decodes its reflection probe, so the value is chosen as 1 for the two
+/// scale terms and 0 for the others.
+const NEUTRAL_SPEC_CUBE_HDR: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
+
+/// Adds the engine's default ambient lighting to a layer, for each name the layer holds no value
+/// for: a flat ambient light of [`AMBIENT_SKY_IRRADIANCE`] in the fourth component of
+/// `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in `unity_SHBr`, `unity_SHBg`, `unity_SHBb`
+/// and `unity_SHC`, and (1, 1, 0, 0) in `unity_SpecCube0_HDR`.
+///
+/// This is an engine default for a frame in which nothing sets these names, and nothing more.
+/// The scene's authored ambient does not reach the plan, the world or the host yet, and the
+/// repository has no measured convention for packing a probe into spherical harmonics, so the
+/// ambient is flat. (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
+/// Without any value these names pack as zero and the scene shaders of the Old World player draw
+/// black.
+///
+/// A frame adds the default to the globals its script starts from, next to the main light (see
+/// `Mapper::new`), so a global the world holds and a `SetGlobalVector` of the script replace it.
+pub fn add_ambient(layer: &mut PropertyLayer) {
+    let flat = [0.0, 0.0, 0.0, AMBIENT_SKY_IRRADIANCE];
+    let defaults = [
+        (SH_AR, flat),
+        (SH_AG, flat),
+        (SH_AB, flat),
+        (SH_BR, [0.0; 4]),
+        (SH_BG, [0.0; 4]),
+        (SH_BB, [0.0; 4]),
+        (SH_C, [0.0; 4]),
+        (SPEC_CUBE0_HDR, NEUTRAL_SPEC_CUBE_HDR),
+    ];
+    for (name, value) in defaults {
+        if layer.values.get(name).is_none() {
+            layer.values.set(name, PropertyValue::Vector(value));
+        }
     }
 }
 

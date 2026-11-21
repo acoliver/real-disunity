@@ -8,8 +8,10 @@ pub use adapter::{AdapterClass, AdapterIdentity};
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 
+/// The scene device request against an adapter offering `available` limits: the one place that
+/// says what every scene device (production and test) asks for.
 fn requirements(
-    adapter: &Adapter,
+    available: &wgpu::Limits,
     required_features: Features,
     timing: worldrunner_render_post::TimingMode,
 ) -> worldrunner_render_gpu::device::DeviceRequirements {
@@ -17,20 +19,21 @@ fn requirements(
         required_features,
         // Full SSR depth chains share the trace stage with receiver metadata.
         required_limits: wgpu::Limits {
-            max_texture_array_layers: adapter.limits().max_texture_array_layers,
-            max_color_attachment_bytes_per_sample: adapter
-                .limits()
+            max_texture_array_layers: available.max_texture_array_layers,
+            max_color_attachment_bytes_per_sample: available
                 .max_color_attachment_bytes_per_sample
                 .min(64),
-            max_sampled_textures_per_shader_stage: adapter
-                .limits()
+            max_sampled_textures_per_shader_stage: available
                 .max_sampled_textures_per_shader_stage
                 .min(32),
             ..Default::default()
         },
-        // Lets frame validation use adapter-reported sample counts (2x and 8x).
+        // Lets frame validation use adapter-reported sample counts (2x and 8x). wgpu filters
+        // 32-bit float textures only on a device with FLOAT32_FILTERABLE, whatever the adapter's
+        // format flags say, so a game pass sampling an R32Float copy linearly needs it on.
         optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
             | Features::DEPTH32FLOAT_STENCIL8
+            | Features::FLOAT32_FILTERABLE
             | if timing == worldrunner_render_post::TimingMode::Optional {
                 timing.features()
             } else {
@@ -173,7 +176,7 @@ impl GpuContext {
             } else {
                 Features::empty()
             };
-        let requirements = requirements(&adapter, required_features, timing).union(caller);
+        let requirements = requirements(&adapter.limits(), required_features, timing).union(caller);
         let missing = requirements
             .required_features
             .difference(adapter.features());

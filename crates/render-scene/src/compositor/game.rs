@@ -33,8 +33,15 @@
 //! [`GamePassSpec::reading_snapshots`]. [`GameFeatureFactory::snapshot_reads`] reserves them and
 //! [`FrameSnapshotHandle`] lends them to the frame that wrote them.
 //!
+//! A pass that draws over the finished scene colour, as blended particles do, is placed at
+//! [`GamePlace::BeforePost`], after every other writer of the colour and before the post chain
+//! reads it, and blends with the colour states it gives
+//! [`PassTarget::render_state_with`]. With [`DepthAccess::ReadOnlySampled`] it tests the frame's
+//! depth and samples the same depth in that pass ([`PassTarget::sampled_depth`]).
+//!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
+//! [`GamePlace::BeforePost`]: worldrunner_render_post::GamePlace::BeforePost
 mod camera;
 mod declared_textures;
 mod engine;

@@ -3,6 +3,8 @@
 //! over a synthetic unlit scene on lavapipe, with the game's passes on compiled program draws.
 #[path = "game_passes/accounting.rs"]
 mod accounting;
+#[path = "game_passes/before_post.rs"]
+mod before_post;
 #[path = "game_passes/common.rs"]
 mod common;
 #[path = "game_passes/composition.rs"]

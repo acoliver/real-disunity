@@ -74,7 +74,7 @@ fn a_global_texture_set_and_cleared_around_two_records_reaches_each_in_order() {
     set_texture(&mut world, "_Last", TextureRef::None);
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             set_global(PropertyValue::Texture(
                 "_Last".into(),
@@ -114,7 +114,7 @@ fn a_global_keyword_enabled_and_disabled_around_two_records_reaches_each_in_orde
     world.set_global_keyword("_PVT_NORMAL", false).unwrap();
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             keyword("_PVT_NORMAL", true),
             blit(target),
@@ -142,7 +142,7 @@ fn only_the_names_written_since_the_previous_record_are_emitted_with_their_last_
         .unwrap();
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             set_global(PropertyValue::Float("_Gain".into(), 3.0)),
             keyword("_BOOST", false),
@@ -172,7 +172,7 @@ fn every_kind_of_global_value_is_ordered() {
         world.set_global_property(value).unwrap();
     }
     world.record_offscreen(blit(target)).unwrap();
-    let work = world.take_offscreen();
+    let work = world.take_offscreen().0;
     assert_eq!(work.len(), values.len() + 1);
     assert_eq!(work.last(), Some(&blit(target)));
     for value in values {
@@ -191,7 +191,7 @@ fn a_name_set_as_two_kinds_is_ordered_as_two_values() {
         .set_global_property(PropertyValue::Vector("_Same".into(), [2.0; 4]))
         .unwrap();
     world.record_offscreen(blit(target)).unwrap();
-    let work = world.take_offscreen();
+    let work = world.take_offscreen().0;
     assert!(work.contains(&set_global(PropertyValue::Float("_Same".into(), 1.0))));
     assert!(work.contains(&set_global(PropertyValue::Vector("_Same".into(), [2.0; 4]))));
 }
@@ -202,9 +202,9 @@ fn a_write_after_the_last_record_is_not_ordered_and_does_not_carry_into_the_next
     let target = render_texture(&mut world);
     world.record_offscreen(blit(target)).unwrap();
     world.set_global_keyword("_LATE", true).unwrap();
-    assert_eq!(world.take_offscreen(), vec![blit(target)]);
+    assert_eq!(world.take_offscreen().0, vec![blit(target)]);
     world.record_offscreen(blit(target)).unwrap();
-    assert_eq!(world.take_offscreen(), vec![blit(target)]);
+    assert_eq!(world.take_offscreen().0, vec![blit(target)]);
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn a_write_in_a_frame_nobody_took_does_not_carry_into_the_next_frame() {
         .advance(TimeSpan::from_nanos(16_000_000).unwrap())
         .unwrap();
     world.record_offscreen(blit(target)).unwrap();
-    assert_eq!(world.take_offscreen(), vec![blit(target)]);
+    assert_eq!(world.take_offscreen().0, vec![blit(target)]);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn a_recorded_global_follows_the_direct_writes_made_before_it() {
         .unwrap();
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             set_global(PropertyValue::Float("_Direct".into(), 1.0)),
             set_global(PropertyValue::Float("_Recorded".into(), 2.0)),
@@ -259,7 +259,7 @@ fn a_refused_record_leaves_the_direct_writes_for_the_next_one() {
     assert!(world.offscreen_work().is_empty());
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             set_global(PropertyValue::Float("_Gain".into(), 1.0)),
             blit(target),
@@ -276,7 +276,7 @@ fn a_global_texture_of_a_render_texture_destroyed_before_the_record_reads_as_uns
     world.destroy_render_texture(doomed).unwrap();
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(
-        world.take_offscreen(),
+        world.take_offscreen().0,
         vec![
             set_global(PropertyValue::Texture(
                 "_Last".into(),

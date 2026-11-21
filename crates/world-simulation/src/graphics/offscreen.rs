@@ -279,28 +279,21 @@ impl World {
         &self.graphics.offscreen
     }
 
-    /// Drains the frame's offscreen work, in call order. A frame that starts with work nobody
-    /// took drops it, so a host that never draws offscreen does not accumulate records.
+    /// Drains the frame's offscreen work, in call order, with the materials its records name. A
+    /// frame that starts with work nobody took drops it, so a host that never draws offscreen does
+    /// not accumulate records.
     ///
     /// A blit, mesh draw or procedural draw reads the material as it stood when the script
     /// recorded it, whatever the script changes on the material afterwards. It names the material
     /// by its own id while the material still holds that state. When the script edits the material,
     /// the draws before the edit name a copy of the state they saw instead, under an id of
-    /// generation 0 that no material of the world has; [`World::take_offscreen_with_materials`]
-    /// returns the copies.
+    /// generation 0 that no material of the world has. The map holds those copies, each under the
+    /// id the records use; it is empty for a frame whose draws saw one state of each material.
     ///
     /// A global written after the frame's last record has no record to precede. It is in the
     /// state the snapshot starts from, so the frame's earlier records see it too; the next frame
     /// starts from that state, and the write is not noted again.
-    pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
-        self.take_offscreen_with_materials().0
-    }
-
-    /// As [`World::take_offscreen`], with the copies of the materials that the records name in
-    /// place of a material that changed since: each one by its id.
-    pub fn take_offscreen_with_materials(
-        &mut self,
-    ) -> (Vec<OffscreenWork>, BTreeMap<MaterialId, WorldMaterial>) {
+    pub fn take_offscreen(&mut self) -> (Vec<OffscreenWork>, BTreeMap<MaterialId, WorldMaterial>) {
         self.graphics.direct_writes.clear();
         self.graphics.handles.clear();
         self.graphics.lists.clear();

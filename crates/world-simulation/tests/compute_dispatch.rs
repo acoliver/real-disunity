@@ -81,7 +81,7 @@ fn render_texture(world: &mut World) -> RenderTextureId {
 /// The frame's dispatches. A global written directly before one is ordered ahead of it as a
 /// `SetGlobal` record, which these tests leave to `ordered_globals.rs`.
 fn dispatched(world: &mut World) -> Vec<OffscreenWork> {
-    let mut work = world.take_offscreen();
+    let mut work = world.take_offscreen().0;
     work.retain(|record| !matches!(record, OffscreenWork::SetGlobal(_)));
     work
 }

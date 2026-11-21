@@ -105,7 +105,7 @@ impl GraphicsSnapshot {
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
-        let (work, copies) = world.take_offscreen_with_materials();
+        let (work, copies) = world.take_offscreen();
         // The list is whole for every snapshot: a host drops the render textures a snapshot
         // omits, so a frame with no work must not look like a world with none.
         let render_textures = world

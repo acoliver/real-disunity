@@ -120,7 +120,13 @@ fn flush_and_read(mut world: World, drawn: RenderTextureId) -> (Vec<f32>, Option
     let snapshot = snapshot(&mut world);
     let outcome = host.flush(&snapshot, &Quad).unwrap();
     outcome.apply(&mut world).unwrap();
-    let stand_ins = outcome.report.undeclared_defaults.get(LAST).copied();
+    let undeclared = format!("{LAST} undeclared");
+    let stand_ins = outcome
+        .report
+        .stand_ins
+        .by_property
+        .get(&undeclared)
+        .copied();
     (world.take_texture_pixels(request).unwrap(), stand_ins)
 }
 

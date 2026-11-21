@@ -25,6 +25,9 @@ pub use local::{point_split, spot_split};
 /// The shadow casting mode value of a renderer that casts no shadow.
 pub const CASTS_NO_SHADOW: u32 = 0;
 
+/// The shadow casting mode value of a renderer that casts a shadow and draws nothing visible.
+pub const SHADOWS_ONLY: u32 = 3;
+
 /// Most culling planes a split carries.
 pub const MAX_SPLIT_PLANES: usize = 10;
 

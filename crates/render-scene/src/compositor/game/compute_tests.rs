@@ -305,7 +305,10 @@ fn a_compute_pass_samples_a_stock_product_only_from_a_place_after_its_producer()
             .writing_mips([chain().mip(0, 0)])
     };
     let stock = || vec![opaque(), after_water_depth()];
-    let (_, early) = frame_with(stock(), &[Planned::Compute(sampling(GamePlace::AfterOpaque))]);
+    let (_, early) = frame_with(
+        stock(),
+        &[Planned::Compute(sampling(GamePlace::AfterOpaque))],
+    );
     assert_eq!(
         early,
         Err(FrameError::MissingProducer(ResourceRef::new(
@@ -333,7 +336,11 @@ fn a_render_pass_that_attaches_a_level_a_compute_pass_wrote_loads_it() {
         Planned::Compute(compute()),
         Planned::Render(overlay),
     ]);
-    assert_eq!(validated, Ok(()), "the attachment keeps what the kernels wrote");
+    assert_eq!(
+        validated,
+        Ok(()),
+        "the attachment keeps what the kernels wrote"
+    );
     let overlay = passes
         .iter()
         .find(|pass| pass.slot == PassSlot::Game(GamePlace::AfterOpaqueSnapshots))

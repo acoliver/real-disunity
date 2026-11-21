@@ -579,9 +579,7 @@ fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey,
         .collect();
     let authority = SubmissionAuthority::new(rig.queue.clone());
     let continuation = authority
-        .begin_capture(&rig.device, writes, (), |_, _, ()| {
-            Ok::<_, FrameError>(())
-        })
+        .begin_capture(&rig.device, writes, (), |_, _, ()| Ok::<_, FrameError>(()))
         .unwrap()
         .submit()
         .unwrap();

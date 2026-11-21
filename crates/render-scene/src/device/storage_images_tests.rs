@@ -187,9 +187,20 @@ fn granted(offered: u32) -> Result<u32, worldrunner_render_gpu::device::DeviceEr
 
 #[test]
 fn a_device_is_granted_the_adapters_storage_images_up_to_sixteen_through_the_negotiation() {
-    for (offered, expected) in [(4, 4), (5, 5), (8, 8), (12, 12), (16, 16), (17, 16), (1 << 20, 16)]
-    {
-        assert_eq!(granted(offered).ok(), Some(expected), "an adapter offering {offered}");
+    for (offered, expected) in [
+        (4, 4),
+        (5, 5),
+        (8, 8),
+        (12, 12),
+        (16, 16),
+        (17, 16),
+        (1 << 20, 16),
+    ] {
+        assert_eq!(
+            granted(offered).ok(),
+            Some(expected),
+            "an adapter offering {offered}"
+        );
     }
 }
 

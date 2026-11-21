@@ -292,7 +292,11 @@ fn views_that_state_no_range_cover_the_whole_texture_and_are_refused_together() 
 #[test]
 fn one_mip_in_distinct_layers_binds_in_one_dispatch_and_only_the_written_layer_counts() {
     let mut rig = Rig::new();
-    let imports = [rig.layer(0, (1, 0)), rig.layer(1, (1, 1)), rig.layer(2, (2, 1))];
+    let imports = [
+        rig.layer(0, (1, 0)),
+        rig.layer(1, (1, 1)),
+        rig.layer(2, (2, 1)),
+    ];
     let dispatch = rig.prepare(&imports).unwrap();
     assert_eq!(
         dispatch.writes(),

@@ -430,13 +430,12 @@ impl OffscreenHost {
         let uploaded = self
             .frame_buffers
             .upload_material_buffers(&mut self.runtime, snapshot);
-        let mut adapted = self.adapter.adapt_settling(
+        let mut adapted = self.adapter.adapt(
             snapshot,
             assets,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
+            (false, &uploaded.handles),
             settling,
-            &uploaded.handles,
         );
         adapted
             .report
@@ -486,12 +485,12 @@ impl OffscreenHost {
         // of them finds it held.
         let mut buffers = GpuBuffers::default();
         let uploaded = buffers.upload_material_buffers(&mut self.runtime, snapshot);
-        let mut adapted = self.adapter.adapt_probing(
+        let mut adapted = self.adapter.adapt(
             snapshot,
             assets,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
             (true, &uploaded.handles),
+            Settling::Wait,
         );
         adapted
             .report

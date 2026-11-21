@@ -160,64 +160,12 @@ impl OffscreenAdapter {
 
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
     /// uploaded is counted in the report's failures and left out of the frame.
-    pub fn adapt(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, &BTreeMap::new()),
-            Settling::Wait,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
-    /// to finish with the storage they give back, and with `buffers`, the compute buffers the host
-    /// uploaded for the materials that bind them.
-    pub(crate) fn adapt_settling(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        settling: Settling,
-        buffers: &BTreeMap<ComputeBufferId, BufferHandle>,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, buffers),
-            settling,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
-    /// uploaded for the materials that bind them, which the frame's materials name by handle.
-    pub fn adapt_probing(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (probe, buffers),
-            Settling::Wait,
-        )
-    }
-
-    fn adapt_with(
+    ///
+    /// With `probe`, the camera renders into the render textures a dispatch binds are examined.
+    /// `buffers` are the compute buffers the host uploaded for the materials that bind them,
+    /// which the frame's materials name by handle. `settling` is the way the uploads that need
+    /// room get the GPU to finish with the storage they give back.
+    pub(crate) fn adapt(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,

@@ -109,9 +109,13 @@ impl Room {
     /// Maps the snapshot, makes room for its frame as the host does, builds it and waits for the
     /// GPU, so that what was given back no longer counts.
     fn frame(&mut self, snapshot: &GraphicsSnapshot) -> (Result<(), OffscreenError>, Reclaimed) {
-        let adapted =
-            self.adapter
-                .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime);
+        let adapted = self.adapter.adapt(
+            snapshot,
+            &self.textures,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
@@ -138,20 +142,25 @@ impl Room {
 
     fn adapt(&mut self, snapshot: &GraphicsSnapshot) -> Report {
         self.adapter
-            .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime)
+            .adapt(
+                snapshot,
+                &self.textures,
+                (&mut self.state, &mut self.runtime),
+                (false, &std::collections::BTreeMap::new()),
+                Settling::Wait,
+            )
             .report
     }
 
     /// As `adapt`, for a frame the viewer submits: room is made from what the GPU has finished
     /// with, and nothing waits for the GPU.
     fn adapt_for_viewer(&mut self, snapshot: &GraphicsSnapshot) -> Adapted {
-        self.adapter.adapt_settling(
+        self.adapter.adapt(
             snapshot,
             &self.textures,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
             Settling::Poll,
-            &std::collections::BTreeMap::new(),
         )
     }
 
@@ -648,9 +657,13 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
             })
             .unwrap();
         let drawing = snapshot(&mut world);
-        let adapted = room
-            .adapter
-            .adapt(&drawing, &Meshes, &mut room.state, &mut room.runtime);
+        let adapted = room.adapter.adapt(
+            &drawing,
+            &Meshes,
+            (&mut room.state, &mut room.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         assert!(
             adapted.report.failures.is_empty(),
             "{:?}",

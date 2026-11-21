@@ -149,10 +149,8 @@ pub struct GpuWorkReport {
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
     pub defaulted_channels: BTreeMap<String, usize>,
-    /// The draws that read the grey default for a texture no layer set and the shader does not
-    /// declare, which are recorded.
-    pub undeclared_defaults: BTreeMap<String, usize>,
-    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    /// The texture properties that named no texture the frame can read and read no stand-in, by
+    /// `name: reason`. A property that reads a stand-in is counted in `stand_ins`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, over every piece of work, by property and reason.
     pub stand_ins: StandInCounts,
@@ -303,9 +301,6 @@ impl GpuWorkReport {
         for (name, count) in &report.missing_textures {
             *self.missing_textures.entry(name.clone()).or_default() += count;
         }
-        for (name, count) in &report.undeclared_defaults {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
-        }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
@@ -450,7 +445,6 @@ impl GpuWorkReport {
             ("draw:MissingBuffer by buffer", &self.missing_buffers),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
-            ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
             ("renderer lists", &self.lists),
             ("records built, by kind", &self.built_by_kind),
             ("records skipped, by kind", &self.skipped_by_kind),

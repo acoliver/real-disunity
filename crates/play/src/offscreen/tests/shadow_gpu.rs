@@ -281,9 +281,9 @@ fn assert_clean(report: &Report) {
         report.missing_textures
     );
     assert!(
-        report.undeclared_defaults.is_empty(),
+        report.stand_ins.by_property.is_empty(),
         "{:?}",
-        report.undeclared_defaults
+        report.stand_ins
     );
 }
 

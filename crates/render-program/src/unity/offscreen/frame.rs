@@ -385,8 +385,7 @@ pub struct OffscreenFrame {
     /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
     /// the Old World player makes with such a slot is drawn and counted instead of left out. The
     /// host uploads each as it does any source texture. A draw that reads one is counted by
-    /// property in
-    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// property and reason in [`OffscreenOperations::stand_in_draws`](super::OffscreenOperations::stand_in_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
     /// before. Without a default for a dimension, which is the default, every slot of that

@@ -100,9 +100,6 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
-    /// The texture properties that no layer set and the shader does not declare, which the draw
-    /// reads from the frame's `undeclared_textures`.
-    pub(super) undeclared: Vec<String>,
     /// The texture properties the draw reads a stand-in for, with the reason the layers gave, or
     /// [`UNDECLARED_REASON`] for a slot no layer explains. A draw left out reports none.
     pub(super) stand_ins: Vec<(String, String)>,
@@ -114,8 +111,6 @@ pub(super) struct DrawPlan {
 /// The texture a slot reads and why it is not a layer's own: see `Services::texture_input`.
 struct ChosenTexture {
     input: TextureInput,
-    /// Whether it is the frame's default for a slot no layer sets and the shader does not declare.
-    undeclared: bool,
     /// The reason it is a stand-in, if it is one.
     stand_in: Option<String>,
 }
@@ -205,9 +200,6 @@ pub(super) struct DrawCounts {
     /// Draws left out because no layer names a structured buffer the pass reads, by the buffer
     /// property.
     pub(super) missing_buffers: std::collections::BTreeMap<String, usize>,
-    /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
-    /// set and the shader does not declare, by the texture property.
-    pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
     /// Draws that read a stand-in texture, in all and by (texture property, reason).
     pub(super) stand_in_draws: usize,
     pub(super) stand_ins: std::collections::BTreeMap<(String, String), usize>,
@@ -252,13 +244,6 @@ impl DrawCounts {
             program_time,
             ..before
         };
-    }
-
-    /// Counts one draw that read the frame's undeclared-texture default for each of `names`.
-    pub(super) fn note_undeclared(&mut self, names: &[String]) {
-        for name in names {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += 1;
-        }
     }
 
     /// Counts one draw that read a stand-in texture for each of `stand_ins`, as one draw with
@@ -356,7 +341,6 @@ impl Services<'_> {
             storage: Vec::new(),
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
-            undeclared: Vec::new(),
             stand_ins: Vec::new(),
             unset,
         };
@@ -418,8 +402,7 @@ impl Services<'_> {
         Ok(())
     }
 
-    /// The texture a slot of property `name` reads, whether it is the frame's default for an
-    /// undeclared property, and the reason when it is a stand-in.
+    /// The texture a slot of property `name` reads, and the reason when it is a stand-in.
     ///
     /// A layer's texture wins. It is a stand-in when its layer says why, with the reason of the
     /// highest layer that explains the property (see [`Layers::stand_in`]), and when it is a
@@ -440,7 +423,6 @@ impl Services<'_> {
                 && self.tracker.is_unwritten(input.texture);
             return Ok(ChosenTexture {
                 input: *input,
-                undeclared: false,
                 stand_in: spec
                     .layers
                     .stand_in(name)
@@ -466,7 +448,6 @@ impl Services<'_> {
                     texture,
                     sampler: None,
                 },
-                undeclared: true,
                 stand_in: Some(
                     spec.layers
                         .explanation(name)
@@ -633,14 +614,7 @@ impl Services<'_> {
                 what: "a texture no parameter names",
             })?;
         let name = target.name.resolve(&[])?;
-        let ChosenTexture {
-            input,
-            undeclared,
-            stand_in,
-        } = self.texture_input(spec, name, slot)?;
-        if undeclared {
-            plan.undeclared.push(name.to_owned());
-        }
+        let ChosenTexture { input, stand_in } = self.texture_input(spec, name, slot)?;
         if let Some(reason) = stand_in {
             plan.stand_ins.push((name.to_owned(), reason));
         }

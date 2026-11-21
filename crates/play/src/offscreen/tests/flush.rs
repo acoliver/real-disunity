@@ -589,7 +589,7 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
         report.missing_textures,
         BTreeMap::from([("_Albedo".to_owned(), 1)])
     );
-    assert_eq!(report.undeclared_defaults, BTreeMap::new());
+    assert_eq!(report.stand_ins.by_property, BTreeMap::new());
     assert_eq!(report.built, 1, "the camera render is kept");
     let texture = &report.traces[0].textures[0];
     assert_eq!(
@@ -617,8 +617,8 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(report.missing_textures, BTreeMap::new());
     assert_eq!(
-        report.undeclared_defaults,
-        BTreeMap::from([("_Albedo".to_owned(), 1)])
+        report.stand_ins.by_property,
+        BTreeMap::from([("_Albedo undeclared".to_owned(), 1)])
     );
     assert_eq!(report.built, 1, "the camera render is kept");
     let texture = &report.traces[0].textures[0];
@@ -697,11 +697,8 @@ fn an_unset_texture_reads_the_white_its_shader_declares() {
     assert_eq!(heights, expected());
     assert_eq!(outcome.report.traces[0].textures[0].camera_draws, 1);
     assert_eq!(
-        outcome.report.unresolved_textures,
-        BTreeMap::from([(
-            "_Albedo: no texture set, the shader's default read".to_owned(),
-            1
-        )])
+        outcome.report.stand_ins.by_property,
+        BTreeMap::from([("_Albedo unset".to_owned(), 1)])
     );
 }
 

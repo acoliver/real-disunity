@@ -671,14 +671,6 @@ pub struct CameraPassReport {
     pub programs: Vec<ProgramProbe>,
 }
 
-/// Draws that read one of the frame's `undeclared_textures` because no layer set a texture
-/// property the shader does not declare, counted for one texture property.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UndeclaredDefaultDraws {
-    pub texture: String,
-    pub draws: usize,
-}
-
 /// Draws that read a stand-in texture for one texture property, by the reason the host gave for
 /// the stand-in. A draw that reads stand-ins for several properties is counted once for each.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -761,21 +753,6 @@ impl OffscreenOperations {
             .iter()
             .map(|(buffer, draws)| MissingBufferDraws {
                 buffer: buffer.clone(),
-                draws: *draws,
-            })
-            .collect()
-    }
-
-    /// The draws that read one of the frame's `undeclared_textures` for a texture property no
-    /// layer set and the shader does not declare, by the texture property, sorted by name. They
-    /// are drawn; none is counted as missing a texture.
-    #[must_use]
-    pub fn undeclared_default_draws(&self) -> Vec<UndeclaredDefaultDraws> {
-        self.counts
-            .undeclared_defaults
-            .iter()
-            .map(|(texture, draws)| UndeclaredDefaultDraws {
-                texture: texture.clone(),
                 draws: *draws,
             })
             .collect()

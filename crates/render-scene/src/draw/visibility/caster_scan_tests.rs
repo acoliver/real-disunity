@@ -360,3 +360,78 @@ fn scratch_capacity_carries_no_state_between_worlds() {
     }
     assert!(extended > 0, "some cascade reaches beyond its near plane");
 }
+
+#[test]
+fn receivers_that_no_caster_reaches_fit_to_themselves_like_a_slot_scan() {
+    let source = world(1_500, 20, 17);
+    let instances = Instances::new(&source);
+    let meshes = meshes_of(&source);
+    let mut scratch = FitScratch::default();
+    for step in 0..6 {
+        let views = walk(step);
+        let receivers = views.receivers.to_vec();
+        let extended = assert_frame(
+            (&instances, &meshes),
+            None,
+            &receivers,
+            &mut scratch,
+            &format!("frame {step}"),
+        );
+        assert_eq!(
+            extended, 0,
+            "the walk's own receivers start above the world"
+        );
+    }
+}
+
+#[test]
+fn a_terrain_start_that_no_caster_undercuts_decides_the_fit_like_a_slot_scan() {
+    let source = world(1_500, 20, 19);
+    let instances = Instances::new(&source);
+    let meshes = meshes_of(&source);
+    let mut scratch = FitScratch::default();
+    let tall = Bounds {
+        min: Vec3::new(-1_500.0, -1_500.0, -10.0),
+        max: Vec3::new(1_500.0, 1_500.0, 5_000.0),
+    };
+    let mut extended = 0;
+    for step in 0..4 {
+        for receivers in [receivers_of(&walk(step)), walk(step).receivers.to_vec()] {
+            extended += assert_frame(
+                (&instances, &meshes),
+                Some(tall),
+                &receivers,
+                &mut scratch,
+                &format!("frame {step}"),
+            );
+        }
+    }
+    assert!(extended > 0, "the terrain reaches toward the light");
+}
+
+#[test]
+fn a_world_without_placements_fits_every_receiver_to_itself() {
+    let source = world(200, 6, 23);
+    let mut instances = Instances::new(&source);
+    let meshes = meshes_of(&source);
+    let mut scratch = FitScratch::default();
+    let receivers = receivers_of(&walk(2));
+    let handles: Vec<_> = instances.handles().collect();
+    let before = scanned((&instances, &meshes), None, &receivers, &mut scratch);
+    assert_ne!(
+        before.iter().copied().map(bits).collect::<Vec<_>>(),
+        receivers.iter().copied().map(bits).collect::<Vec<_>>(),
+        "the placements reach toward the light"
+    );
+    for handle in handles {
+        instances.remove(handle).unwrap();
+    }
+    let extended = assert_frame(
+        (&instances, &meshes),
+        None,
+        &receivers,
+        &mut scratch,
+        "all removed",
+    );
+    assert_eq!(extended, 0);
+}

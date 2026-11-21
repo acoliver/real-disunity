@@ -371,8 +371,11 @@ impl<'a> Mapper<'a> {
         available: &'a Available,
         settings: &'a Settings,
     ) -> Self {
-        let mut textures = Textures::new(&snapshot.render_textures, &available.textures)
-            .with_refused(&available.refused_textures);
+        let mut textures = Textures::new(
+            &snapshot.render_textures,
+            &available.textures,
+            &available.refused_textures,
+        );
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
             // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot

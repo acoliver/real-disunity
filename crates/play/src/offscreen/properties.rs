@@ -28,9 +28,6 @@ use super::defaults::ShaderFill;
 use super::ids;
 use super::stand_ins::StandInReason;
 
-/// The stored textures the host refused: none, for a frame the adapter did not describe.
-static NO_REFUSALS: BTreeMap<u64, StandInReason> = BTreeMap::new();
-
 /// Which textures a frame can name, and which render textures its properties did.
 pub struct Textures<'a> {
     render: &'a BTreeMap<RenderTextureId, WorldRenderTexture>,
@@ -45,29 +42,23 @@ pub struct Textures<'a> {
 }
 
 impl<'a> Textures<'a> {
-    /// `render` are the live render textures and `stored` the identities of the textures the
-    /// player stored that the frame can read.
+    /// `render` are the live render textures, `stored` the identities of the textures the player
+    /// stored that the frame can read, and `refused` the stored textures the host could not
+    /// upload and why, so that a property that names one says so.
     #[must_use]
     pub fn new(
         render: &'a BTreeMap<RenderTextureId, WorldRenderTexture>,
         stored: &'a BTreeSet<u64>,
+        refused: &'a BTreeMap<u64, StandInReason>,
     ) -> Self {
         Self {
             render,
             stored,
-            refused: &NO_REFUSALS,
+            refused,
             used: BTreeSet::new(),
             unresolved: BTreeMap::new(),
             filled: BTreeMap::new(),
         }
-    }
-
-    /// These textures with `refused`, the stored textures the host could not upload and why, so
-    /// that a property that names one says so.
-    #[must_use]
-    pub fn with_refused(mut self, refused: &'a BTreeMap<u64, StandInReason>) -> Self {
-        self.refused = refused;
-        self
     }
 
     /// The name of the texture a reference names and the sampler state it is read with, or

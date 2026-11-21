@@ -399,30 +399,44 @@ pub fn prepare_stock_scene<'a>(
     attachments: (&AttachmentView, &AttachmentView),
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
+    let (gpu, pipelines) = scene;
+    let scene = SceneRefs { gpu, pipelines };
+    let (color, depth) = attachments;
+    let attachments = ColorDepth { color, depth };
     let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, &frame)?;
-    finish_stock_scene(renderer, (device, encoder), draw)
+    finish_stock_scene(renderer, device, encoder, draw)
+}
+
+/// The scene's GPU state, mutable, and the pipelines its draws select from.
+struct SceneRefs<'a, 'p> {
+    gpu: &'a mut crate::draw::SceneGpu,
+    pipelines: &'p crate::renderer::ScenePipelines,
+}
+
+/// The scene colour and depth attachments of one frame.
+struct ColorDepth<'a> {
+    color: &'a AttachmentView,
+    depth: &'a AttachmentView,
 }
 
 fn prepare_scene_draw<'a, 'b>(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    scene: (
-        &'a mut crate::draw::SceneGpu,
-        &crate::renderer::ScenePipelines,
-    ),
-    attachments: (&'b AttachmentView, &'b AttachmentView),
+    scene: SceneRefs<'a, '_>,
+    attachments: ColorDepth<'b>,
     frame: &crate::frame::FrameUniform,
 ) -> Result<SceneDraw<'a, 'b>, FrameError> {
-    let (gpu, pipelines) = scene;
-    renderer.validate_opaque_depth(attachments.1)?;
-    renderer.validate_taa_depth(attachments.1)?;
+    let SceneRefs { gpu, pipelines } = scene;
+    let ColorDepth { color, depth } = attachments;
+    renderer.validate_opaque_depth(depth)?;
+    renderer.validate_taa_depth(depth)?;
     validate_effects(renderer, gpu, pipelines)?;
     if let Some(screen) = &mut renderer.ssao {
         screen.receiver = None;
     }
     renderer.prepare_scene_inputs(device, gpu);
-    let depth_mode = renderer.forward_depth(gpu, attachments.1);
+    let depth_mode = renderer.forward_depth(gpu, depth);
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
     let writes_velocity = renderer.adopt_scene_velocity(device, gpu, pipelines);
@@ -431,7 +445,6 @@ fn prepare_scene_draw<'a, 'b>(
         encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(*frame)?;
-    let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     renderer.publish_game_terrain(gpu, &frame, color.size());
     gpu.prepare_sky(device, encoder, &frame)?;
@@ -454,10 +467,10 @@ fn prepare_scene_draw<'a, 'b>(
 
 fn finish_stock_scene<'a>(
     renderer: &mut FrameRenderer,
-    context: (&wgpu::Device, &wgpu::CommandEncoder),
+    device: &wgpu::Device,
+    encoder: &wgpu::CommandEncoder,
     mut draw: SceneDraw<'a, '_>,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
-    let (device, encoder) = context;
     let mut plan = declare_scene_passes(renderer, device, &draw)?;
     let contour = renderer.plan_contours(
         (device, encoder),

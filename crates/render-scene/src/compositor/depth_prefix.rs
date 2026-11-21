@@ -50,13 +50,20 @@ pub struct StockDepthPrefix {
     depth_mode: crate::renderer::depth::DepthMode,
     renders: bool,
 }
+/// The schedule of a prefix and the views its attachments select.
+struct PrefixParts {
+    schedule: super::stock_plan::LogicalPrefix,
+    views: Vec<AttachmentView>,
+}
+
 impl StockDepthPrefix {
     fn new(
         renderer: &FrameRenderer,
         source: crate::scene_metadata::SceneMetadata,
         relief: bool,
     ) -> Result<Self, FrameError> {
-        let plan = renderer.derive_prefix(&source)?;
+        let (schedule, views) = renderer.derive_prefix(&source)?;
+        let plan = PrefixParts { schedule, views };
         Ok(Self::from_plan(renderer, source, relief, plan))
     }
 
@@ -64,9 +71,9 @@ impl StockDepthPrefix {
         renderer: &FrameRenderer,
         source: crate::scene_metadata::SceneMetadata,
         relief: bool,
-        plan: (super::stock_plan::LogicalPrefix, Vec<AttachmentView>),
+        plan: PrefixParts,
     ) -> Self {
-        let (schedule, views) = plan;
+        let PrefixParts { schedule, views } = plan;
         let depth_mode = prefix_depth(relief, &source);
         let material = renderer
             .ssr
@@ -196,7 +203,10 @@ impl FrameRenderer {
             self,
             source.clone(),
             scene.0.has_relief(),
-            ((*plan.schedule).clone(), (*plan.views).clone()),
+            PrefixParts {
+                schedule: (*plan.schedule).clone(),
+                views: (*plan.views).clone(),
+            },
         );
         self.encode_prefix(device, encoder, scene, frame, (&prefix, None))
     }

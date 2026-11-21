@@ -181,7 +181,7 @@ impl<'a> Mapper<'a> {
         let main = MainLight::picked_by(&self.snapshot.lights, mask);
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, (eye, &main)),
-            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
+            RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc, &main),
         };
         let lists = &mut self.report.lists;
         if draws.is_empty() {
@@ -320,7 +320,12 @@ impl<'a> Mapper<'a> {
 
     /// The draws of the culled renderers inside a shadow split that cast a shadow and have a pass
     /// to draw a caster, in the order the renderers were culled.
-    fn shadow_items(&mut self, culled: &[usize], desc: &RendererListDesc) -> Vec<ListDraw> {
+    fn shadow_items(
+        &mut self,
+        culled: &[usize],
+        desc: &RendererListDesc,
+        main: &MainLight,
+    ) -> Vec<ListDraw> {
         let RendererListDesc::Shadow { planes, sphere, .. } = desc else {
             return Vec::new();
         };
@@ -358,7 +363,7 @@ impl<'a> Mapper<'a> {
                 });
             }
         }
-        self.items(candidates, None, &selector)
+        self.items(candidates, None, (&selector, main))
     }
 
     /// Whether renderer `index` casts a shadow into a split, counting it by the reason when it

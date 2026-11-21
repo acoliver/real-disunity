@@ -10,9 +10,10 @@ namespace UnityEngine;
 /// </summary>
 internal static class GraphicsFormats
 {
-    /// <summary>The project's color space, which picks the sRGB or linear variant of a default format.
-    /// The engine has no player settings yet and assumes Linear, as URP projects use.</summary>
-    internal static ColorSpace ActiveColorSpace { get; set; } = ColorSpace.Linear;
+    /// <summary>The project's color space, which picks the sRGB or linear variant of a default format. It is the
+    /// color space the host set through <see cref="QualitySettings"/>, the one place it sets it. Before the host sets
+    /// one the engine assumes Linear, as URP projects use.</summary>
+    internal static ColorSpace ActiveColorSpace => QualitySettings.HostColorSpace ?? ColorSpace.Linear;
 
     private readonly record struct RenderEntry(RenderTextureFormat Format, GraphicsFormat Linear, GraphicsFormat Srgb);
 

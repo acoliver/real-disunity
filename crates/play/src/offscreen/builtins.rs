@@ -112,7 +112,7 @@
 //!   default, because a shader that reads them as zero draws black. The default is flat (0.3 in
 //!   the fourth component of `unity_SHAr`, `unity_SHAg` and `unity_SHAb`, zero in the rest) and
 //!   (1, 1, 0, 0) for `unity_SpecCube0_HDR`, a neutral decode chosen without a measured
-//!   convention. It stands until the scene's authored ambient is carried to the host.
+//!   convention. It stands for a world whose scene wrote no environment.
 //! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
@@ -274,9 +274,9 @@ const NEUTRAL_SPEC_CUBE_HDR: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 /// and `unity_SHC`, and (1, 1, 0, 0) in `unity_SpecCube0_HDR`.
 ///
 /// This is an engine default for a frame in which nothing sets these names, and nothing more.
-/// The scene's authored ambient does not reach the plan, the world or the host yet, and the
-/// repository has no measured convention for packing a probe into spherical harmonics, so the
-/// ambient is flat. (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
+/// A world whose scene wrote an environment gets its ambient light from `add_environment`, which
+/// packs the scene's probe; this flat ambient stands for a world that wrote none.
+/// (1, 1, 0, 0) is a neutral decode chosen without a measured convention.
 /// Without any value these names pack as zero and the scene shaders of the Old World player draw
 /// black.
 ///

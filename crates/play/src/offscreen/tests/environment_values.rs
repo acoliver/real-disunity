@@ -2,11 +2,12 @@
 //! spherical harmonics of the ambient light, the decode of the reflection cube and which names a
 //! layer that already holds them keeps.
 //!
-//! The harmonics are checked against an evaluation that shares no code with the packing: the
-//! irradiance of a surface facing `n`, divided by pi, from the radiance coefficients of the probe
-//! and the cosine lobe of each band, which is what the shader's three terms (a linear one in
-//! `unity_SHA*`, a quadratic one in `unity_SHB*` and the `x * x - y * y` one in `unity_SHC`)
-//! have to add up to.
+//! A probe is stored as the coefficients of the polynomial the shader evaluates (see
+//! `environment_probe` for what the game's shaders and probe say), so the packing is checked
+//! against that polynomial: the surface facing `n` reads `s0 + s1 * y + s2 * z + s3 * x +
+//! s4 * x * y + s5 * y * z + s6 * (3 * z * z - 1) + s7 * x * z + s8 * (x * x - y * y)` of the
+//! nine coefficients of its channel. The shader's own three terms (a linear one in `unity_SHA*`, a
+//! quadratic one in `unity_SHB*` and the `x * x - y * y` one in `unity_SHC`) have to add up to it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,11 +23,8 @@ use crate::offscreen::{
     SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C, SPEC_CUBE0, SPEC_CUBE0_HDR, add_environment,
 };
 
-const BAND_ONE_WEIGHT: f32 = 2.0 / 3.0;
-const BAND_TWO_WEIGHT: f32 = 0.25;
-
 /// The directions the packing is read along, none of them along an axis.
-const DIRECTIONS: [[f32; 3]; 6] = [
+pub(super) const DIRECTIONS: [[f32; 3]; 6] = [
     [0.6, 0.0, 0.8],
     [-0.36, 0.48, 0.8],
     [0.0, -1.0, 0.0],
@@ -44,14 +42,14 @@ fn probe() -> [f32; PROBE_COEFFICIENTS] {
     })
 }
 
-fn environment(ambient: Ambient) -> Environment {
+pub(super) fn environment(ambient: Ambient) -> Environment {
     Environment {
         ambient: Some(ambient),
         reflection: None,
     }
 }
 
-fn vector(layer: &PropertyLayer, name: &str) -> [f32; 4] {
+pub(super) fn vector(layer: &PropertyLayer, name: &str) -> [f32; 4] {
     match layer.values.get(name) {
         Some(PropertyValue::Vector(value)) => *value,
         other => panic!("{name} is {other:?}"),
@@ -59,7 +57,7 @@ fn vector(layer: &PropertyLayer, name: &str) -> [f32; 4] {
 }
 
 /// The layer a frame with `environment` starts from, over no stored or render textures.
-fn layer_of(environment: &Environment) -> PropertyLayer {
+pub(super) fn layer_of(environment: &Environment) -> PropertyLayer {
     let mut layer = PropertyLayer::default();
     fill(&mut layer, environment);
     layer
@@ -72,29 +70,30 @@ fn fill(layer: &mut PropertyLayer, environment: &Environment) {
     add_environment(layer, environment, &mut textures);
 }
 
-/// The irradiance over pi that the radiance coefficients `l` (the nine of one channel) give a
-/// surface that faces `n`, by the real spherical harmonics and the cosine lobe of each band.
-fn irradiance(coefficients: &[f32], direction: [f32; 3]) -> f32 {
-    let l = coefficients;
+/// What the nine coefficients `s` of one channel add up to for a surface that faces `direction`:
+/// each is the coefficient of one real spherical harmonic with its constant and its band's cosine
+/// lobe folded in, so the sum needs only the polynomials of the harmonics.
+fn probe_value(s: &[f32], direction: [f32; 3]) -> f32 {
     let [x, y, z] = direction;
-    let pi = std::f32::consts::PI;
-    let band_zero = 0.5 / pi.sqrt();
-    let band_one = (3.0 / (4.0 * pi)).sqrt();
-    let cross = 0.5 * (15.0 / pi).sqrt();
-    let axial = 0.25 * (5.0 / pi).sqrt();
-    let difference = 0.25 * (15.0 / pi).sqrt();
-    band_zero * l[0]
-        + BAND_ONE_WEIGHT * band_one * (l[1] * y + l[2] * z + l[3] * x)
-        + BAND_TWO_WEIGHT
-            * (cross * (l[4] * x * y + l[5] * y * z + l[7] * x * z)
-                + axial * l[6] * (3.0 * z * z - 1.0)
-                + difference * l[8] * (x * x - y * y))
+    s[0] + s[1] * y
+        + s[2] * z
+        + s[3] * x
+        + s[4] * x * y
+        + s[5] * y * z
+        + s[6] * (3.0 * z * z - 1.0)
+        + s[7] * x * z
+        + s[8] * (x * x - y * y)
 }
 
 /// What the three terms of the shader add up to for a channel with the vectors `linear`
 /// (`unity_SHA*`), `quadratic` (`unity_SHB*`) and the `difference` component of `unity_SHC`, for a
 /// surface that faces `direction`.
-fn shaded(linear: [f32; 4], quadratic: [f32; 4], difference: f32, direction: [f32; 3]) -> f32 {
+pub(super) fn shaded(
+    linear: [f32; 4],
+    quadratic: [f32; 4],
+    difference: f32,
+    direction: [f32; 3],
+) -> f32 {
     let [x, y, z] = direction;
     linear[0] * x
         + linear[1] * y
@@ -121,7 +120,7 @@ fn assert_near(found: f32, expected: f32, what: &str) {
     );
 }
 
-fn skybox_probe(probe: [f32; PROBE_COEFFICIENTS], intensity: f32) -> Ambient {
+pub(super) fn skybox_probe(probe: [f32; PROBE_COEFFICIENTS], intensity: f32) -> Ambient {
     Ambient {
         mode: AmbientMode::Skybox,
         probe,
@@ -130,17 +129,17 @@ fn skybox_probe(probe: [f32; PROBE_COEFFICIENTS], intensity: f32) -> Ambient {
     }
 }
 
-/// Checks every channel of the layer against the evaluation of `radiance`.
-fn assert_packs(layer: &PropertyLayer, radiance: &[f32; PROBE_COEFFICIENTS]) {
+/// Checks every channel of the layer against the polynomial of the coefficients `probe`.
+fn assert_packs(layer: &PropertyLayer, probe: &[f32; PROBE_COEFFICIENTS]) {
     let a = [SH_AR, SH_AG, SH_AB].map(|name| vector(layer, name));
     let b = [SH_BR, SH_BG, SH_BB].map(|name| vector(layer, name));
     let c = vector(layer, SH_C);
     for n in DIRECTIONS {
         for channel in 0..3 {
-            let coefficients = &radiance[channel * 9..channel * 9 + 9];
+            let coefficients = &probe[channel * 9..channel * 9 + 9];
             assert_near(
                 shaded(a[channel], b[channel], c[channel], n),
-                irradiance(coefficients, n),
+                probe_value(coefficients, n),
                 &format!("channel {channel} along {n:?}"),
             );
         }
@@ -148,7 +147,7 @@ fn assert_packs(layer: &PropertyLayer, radiance: &[f32; PROBE_COEFFICIENTS]) {
 }
 
 #[test]
-fn a_probe_packs_into_the_vectors_that_add_up_to_its_irradiance() {
+fn a_probe_packs_into_the_vectors_that_add_up_to_its_polynomial() {
     let probe = probe();
     let layer = layer_of(&environment(skybox_probe(probe, 1.0)));
     assert_packs(&layer, &probe);
@@ -172,13 +171,10 @@ fn the_ambient_intensity_scales_every_coefficient() {
 }
 
 #[test]
-fn the_fourth_component_of_the_constant_term_is_the_uniform_radiance_of_a_flat_probe() {
-    // A uniform radiance of 0.5 in red is a coefficient of 0.5 / 0.282095 in the first term.
+fn a_probe_of_a_constant_term_alone_is_that_colour_in_every_direction() {
     let mut probe = [0.0; PROBE_COEFFICIENTS];
-    probe[0] = 0.5 / 0.282_094_8;
+    probe[0] = 0.5;
     let layer = layer_of(&environment(skybox_probe(probe, 1.0)));
-    let red = vector(&layer, SH_AR);
-    assert_near(red[3], 0.5, "constant term");
     assert_vector(&layer, SH_AR, [0.0, 0.0, 0.0, 0.5]);
     assert_vector(&layer, SH_BR, [0.0; 4]);
     assert_vector(&layer, SH_C, [0.0; 4]);

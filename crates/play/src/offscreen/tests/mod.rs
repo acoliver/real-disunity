@@ -19,6 +19,7 @@ mod draw_budget;
 mod draw_mesh;
 mod empty_meshes;
 mod environment_gpu;
+mod environment_probe;
 mod environment_values;
 mod fallback;
 mod flush;

@@ -2,12 +2,13 @@
 
 use glam::{Mat4, Vec3};
 use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::RendererListDesc;
 
 use super::super::super::bounds::Bounds;
 use super::{
-    CASTER, MESH, counts, draw, lists, meshes, placed, placed_casting, run, scene, shaders,
-    shouting_caster, world,
+    Available, CASTER, FORWARD, MESH, counts, draw, drawing, lists, meshes, placed, placed_casting,
+    run, scene, scene_with_planes, shaders, shouting_caster, world,
 };
 
 fn shadow_list(planes: Vec<[f32; 4]>, sphere: [f32; 4]) -> RendererListDesc {
@@ -176,4 +177,80 @@ fn a_shadow_caster_pass_is_found_whatever_the_case_of_its_light_mode() {
     assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
     assert_eq!(adapted.report.lists.shadow_drawn, 1);
     assert!(adapted.report.lists.left_out.is_empty());
+}
+
+/// A scene whose culling result 5 keeps the renderers of `mask` with x >= 5, as a camera looking
+/// toward +x from there would, and three unit cubes: a ground at x = 10, a caster at the origin
+/// that the camera does not see and one at y = 6 that the camera does not see either.
+fn camera_looking_down_x(mask: u32) -> World {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::new(10.0, 0.0, 0.0)), &[lit], None);
+    placed(&mut world, (1, 0, Vec3::ZERO), &[lit], None);
+    placed(&mut world, (2, 0, Vec3::new(0.0, 6.0, 0.0)), &[lit], None);
+    // The camera's volume x >= 5: a unit normal along x and the distance -5.
+    scene_with_planes(
+        &mut world,
+        Mat4::IDENTITY,
+        mask,
+        vec![[1.0, 0.0, 0.0, -5.0]],
+    );
+    world
+}
+
+fn unit_cubes(available: &mut Available) {
+    let cube = Bounds {
+        min: [-0.5; 3],
+        max: [0.5; 3],
+    };
+    for number in 0..3 {
+        available.bounds.insert(MESH + number, cube);
+    }
+}
+
+#[test]
+fn a_shadow_list_draws_a_caster_the_camera_does_not_see_when_the_split_holds_it() {
+    let mut world = camera_looking_down_x(u32::MAX);
+    // The split's volume is where y <= 3, which holds the ground and the caster at the origin.
+    draw(
+        &mut world,
+        shadow_list(vec![[0.0, -1.0, 0.0, 3.0]], [0.0; 4]),
+    );
+    let adapted = run(&mut world, unit_cubes);
+    let listed = lists(&adapted);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0), (1, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(report.kept, 1);
+    assert_eq!(report.out_by_planes, 2);
+    assert_eq!(
+        report.left_out,
+        counts(&[("outside the split's planes", 1)])
+    );
+}
+
+#[test]
+fn a_drawing_list_of_the_same_culling_result_still_leaves_out_what_the_camera_does_not_see() {
+    let mut world = camera_looking_down_x(u32::MAX);
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, unit_cubes);
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
+}
+
+#[test]
+fn a_shadow_list_still_leaves_out_the_casters_the_culling_mask_does_not_keep() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::new(10.0, 0.0, 0.0)), &[lit], None);
+    placed(&mut world, (1, 2, Vec3::ZERO), &[lit], None);
+    scene_with_planes(&mut world, Mat4::IDENTITY, 1, vec![[1.0, 0.0, 0.0, -5.0]]);
+    draw(
+        &mut world,
+        shadow_list(vec![[0.0, -1.0, 0.0, 3.0]], [0.0; 4]),
+    );
+    let adapted = run(&mut world, unit_cubes);
+    let listed = lists(&adapted);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
+    assert_eq!(adapted.report.lists.out_by_layer, 1);
 }

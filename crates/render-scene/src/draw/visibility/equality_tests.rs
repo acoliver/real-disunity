@@ -230,6 +230,7 @@ fn select_frame(
         instances,
         meshes,
         (frame.eye_millimeters, frame.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             placements.select_each(
                 &mut selections
@@ -263,6 +264,7 @@ fn assert_camera_matches_scan(
         instances,
         meshes,
         (frame.eye_millimeters, frame.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             for casters_only in [false, true] {
                 let mut selection = Selection {

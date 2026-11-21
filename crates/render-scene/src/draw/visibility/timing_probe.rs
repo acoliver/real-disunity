@@ -58,6 +58,7 @@ fn time_frame(
         instances,
         meshes,
         (views.eye_millimeters, views.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             times.prepare = start.elapsed();
             if parallel {

@@ -325,7 +325,7 @@ fn recipe_raster_override_preserves_declared_surface_pool() {
         width: 64,
         height: 48,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
@@ -386,7 +386,7 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         width: 33,
         height: 2,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],

@@ -55,10 +55,9 @@ impl Fixture {
         }
         Self {
             resident: Resident::new(context, &source, None, profile).unwrap(),
-            presentation: Presentation::with_profile(
+            presentation: crate::presentation::fixtures::presentation_with_profile(
                 context,
                 crate::presentation::COLOR,
-                size,
                 size,
                 profile,
                 source.effects(),

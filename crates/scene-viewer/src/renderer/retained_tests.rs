@@ -389,7 +389,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
         crate::FrameProfile::Legacy,
     )
     .unwrap();
-    let mut presentation = crate::presentation::Presentation::new(&context, COLOR, size);
+    let mut presentation = crate::presentation::fixtures::presentation(&context, COLOR, size);
     let mut output = OffscreenTarget::new(context.device(), size).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     resident
@@ -441,7 +441,7 @@ fn publish(
     resident: &mut Resident,
     host: &mut crate::RetainedHost,
 ) {
-    let mut presentation = crate::presentation::Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         context,
         COLOR,
         Viewport {

@@ -519,7 +519,7 @@ pub fn build(
     adapted
         .report
         .count_many("draw:NoPassForCamera", operations.unmatched_draws());
-    adapted.report.count_many(
+    adapted.report.note_many(
         "draw:SampledWrittenLevelsOnly",
         operations.partial_mip_reads(),
     );

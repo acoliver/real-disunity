@@ -45,6 +45,7 @@ mod raster_state;
 mod rebuild;
 mod reclaim;
 mod refusal;
+mod row_order;
 mod screen;
 mod script;
 mod script_targets;

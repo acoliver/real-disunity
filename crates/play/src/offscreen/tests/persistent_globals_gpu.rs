@@ -37,7 +37,13 @@ fn take(host: &mut OffscreenHost, world: &mut World, drawn: RenderTextureId) -> 
         "{:?}",
         outcome.report.failures
     );
-    let stand_ins = outcome.report.undeclared_defaults.get(LAST).copied();
+    let undeclared = format!("{LAST} undeclared");
+    let stand_ins = outcome
+        .report
+        .stand_ins
+        .by_property
+        .get(&undeclared)
+        .copied();
     (
         world.take_texture_pixels(request).unwrap(),
         stand_ins.unwrap_or(0),

@@ -32,7 +32,7 @@ public sealed partial class CommandBuffer
     private void RecordVectors(string name, Vector4[]? values)
     {
         ThrowIfReleased();
-        WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
+        WorldGraphics.CheckName(name, nameof(SetGlobalVectorArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray));
         Record(() => Shader.SetGlobalVectorArray(name, copy));
     }
@@ -40,7 +40,7 @@ public sealed partial class CommandBuffer
     private void RecordVectors(string name, List<Vector4>? values)
     {
         ThrowIfReleased();
-        WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
+        WorldGraphics.CheckName(name, nameof(SetGlobalVectorArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray));
         Record(() => Shader.SetGlobalVectorArray(name, copy));
     }
@@ -48,7 +48,7 @@ public sealed partial class CommandBuffer
     private void RecordMatrices(string name, Matrix4x4[]? values)
     {
         ThrowIfReleased();
-        WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
+        WorldGraphics.CheckName(name, nameof(SetGlobalMatrixArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray));
         Record(() => Shader.SetGlobalMatrixArray(name, copy));
     }
@@ -56,7 +56,7 @@ public sealed partial class CommandBuffer
     private void RecordMatrices(string name, List<Matrix4x4>? values)
     {
         ThrowIfReleased();
-        WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
+        WorldGraphics.CheckName(name, nameof(SetGlobalMatrixArray));
         var copy = PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray));
         Record(() => Shader.SetGlobalMatrixArray(name, copy));
     }

@@ -8,7 +8,7 @@ namespace UnityEngine.Rendering;
 /// front of the next offscreen record, so the host still applies the value at its place among the buffer's other commands.
 /// A temporary render texture has no identity that outlives its take; a global set to one stays an ordered record of that take and
 /// changes neither the managed global nor the world's state. A property id that no name was ever registered for throws
-/// <see cref="ArgumentException"/> when it is recorded, and a name the world refuses (empty, or over 4096 UTF-8 bytes) throws it when the
+/// <see cref="ArgumentException"/> when it is recorded, and a name the world refuses (empty, or over 256 UTF-8 bytes) throws it when the
 /// buffer runs, before any global changes. A texture is a render texture, a <see cref="Texture2D"/> with pixels, a
 /// temporary render texture or nothing; the camera target as a global texture throws <see cref="NotSupportedException"/>.
 /// </summary>
@@ -47,7 +47,7 @@ public sealed partial class CommandBuffer
         ArgumentNullException.ThrowIfNull(keyword);
         Record(() =>
         {
-            WorldGraphics.CheckGlobalName(keyword, "CommandBuffer keyword");
+            WorldGraphics.CheckName(keyword, "CommandBuffer keyword");
             if (enabled) Shader.EnableKeyword(keyword);
             else Shader.DisableKeyword(keyword);
         });
@@ -58,7 +58,7 @@ public sealed partial class CommandBuffer
         ArgumentNullException.ThrowIfNull(name);
         Record(() =>
         {
-            WorldGraphics.CheckGlobalName(name, "CommandBuffer.SetGlobal");
+            WorldGraphics.CheckName(name, "CommandBuffer.SetGlobal");
             apply();
         });
     }

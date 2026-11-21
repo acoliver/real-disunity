@@ -7,8 +7,6 @@ namespace UnityEngine;
 /// <summary>The calls that record command buffer work in the world's offscreen list, one per kind of record.</summary>
 internal static unsafe partial class WorldGraphics
 {
-    private const uint GlobalTexture = 4;
-
     internal static void RecordSetRenderTarget(DisunityTargetRef[] colors, DisunityTargetRef? depth, uint mip, int face, int slice)
     {
         var world = World;
@@ -25,19 +23,6 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_clear_render_target(World, flags, value, depth, stencil));
     }
 
-    /// <summary>The most bytes a global property or keyword name holds in the world.</summary>
-    private const int MaxGlobalNameBytes = 4096;
-
-    /// <summary>Throws <see cref="ArgumentException"/> for a name the world would refuse, before a command buffer changes the managed
-    /// global. A name stored and then refused would stay in the managed store, and every later world load would send it again
-    /// and fail.</summary>
-    internal static void CheckGlobalName(string name, string member)
-    {
-        var bytes = Encoding.UTF8.GetByteCount(name);
-        if (bytes is 0 or > MaxGlobalNameBytes)
-            throw new ArgumentException($"{member}: a name has 1 to {MaxGlobalNameBytes} UTF-8 bytes, not {bytes}", nameof(name));
-    }
-
     /// <summary>Records a global set to a temporary render texture, the one global that has no managed holder and so no place in the
     /// world's global state.</summary>
     internal static void RecordGlobalTexture(string name, (uint Kind, ulong Texture) texture)
@@ -45,7 +30,7 @@ internal static unsafe partial class WorldGraphics
         var slot = new DisunityTextureSlot { kind = texture.Kind, texture = texture.Texture, scale_x = 1f, scale_y = 1f };
         var bytes = Encoding.UTF8.GetBytes(name);
         fixed (byte* pointer = bytes)
-            Check(NativeBindings.disunity_offscreen_set_global(World, GlobalTexture, pointer, (uint)bytes.Length, null, 0, &slot));
+            Check(NativeBindings.disunity_offscreen_set_global_texture(World, pointer, (uint)bytes.Length, &slot));
     }
 
     internal static void RecordAllocateTemporary(int nameId, DisunityRenderTexture desc) =>

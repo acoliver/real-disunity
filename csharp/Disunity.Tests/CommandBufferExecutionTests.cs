@@ -427,11 +427,16 @@ internal static class CommandBufferExecutionTests
         Throws<ArgumentNullException>(() => buffer.SetGlobalFloat((string)null!, 1f), "a null name");
         var empty = new CommandBuffer();
         empty.SetGlobalFloat("", 1f);
-        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name is refused when the buffer runs, before a global changes", "1 to 4096");
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name is refused when the buffer runs, before a global changes", "1 to 256");
         var longName = new CommandBuffer();
-        longName.EnableShaderKeyword(new string('k', 4097));
-        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(longName), "a keyword over 4096 bytes", "1 to 4096");
-        Expect.That(!Shader.IsKeywordEnabled(new string('k', 4097)), "a refused keyword is not stored");
+        longName.EnableShaderKeyword(new string('k', 257));
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(longName), "a keyword over 256 bytes", "1 to 256");
+        Expect.That(!Shader.IsKeywordEnabled(new string('k', 257)), "a refused keyword is not stored");
+        var wide = new string('g', 257);
+        var wideGlobal = new CommandBuffer();
+        wideGlobal.SetGlobalFloat(wide, 5f);
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(wideGlobal), "a 257-byte global name is refused before it enters the store", "1 to 256");
+        Expect.That(Shader.GetGlobalFloat(wide) == 0f, "a refused global float is not stored");
         Taken();
     }
 

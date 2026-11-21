@@ -164,7 +164,7 @@ fn a_global_written_directly_is_still_set_after_the_work_that_followed_it_is_tak
         .unwrap();
     world.set_global_keyword("_GRABBED", true).unwrap();
     // A direct write adds no record of its own, so a frame that holds only writes has no work.
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
     // A later take, whatever its work, starts from a state that still holds the values.
     world
         .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 })
@@ -191,7 +191,7 @@ fn a_global_that_only_a_record_set_is_gone_from_the_next_take() {
             1.0,
         )))
         .unwrap();
-    assert_eq!(world.take_offscreen().len(), 1);
+    assert_eq!(world.take_offscreen().0.len(), 1);
     world
         .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 })
         .unwrap();

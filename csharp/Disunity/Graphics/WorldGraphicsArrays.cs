@@ -12,19 +12,6 @@ namespace UnityEngine;
 /// </summary>
 internal static unsafe partial class WorldGraphics
 {
-    /// <summary>The most bytes a property name holds in the world.</summary>
-    private const int MaxArrayNameBytes = 256;
-
-    /// <summary>Checks a name before an array is stored or recorded, so the world never refuses it later, when a buffer is
-    /// executed or a world is loaded.</summary>
-    internal static void CheckArrayName(string name, string member)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        var bytes = Encoding.UTF8.GetByteCount(name);
-        if (bytes is 0 or > MaxArrayNameBytes)
-            throw new ArgumentException($"{member}: a property name has 1 to {MaxArrayNameBytes} UTF-8 bytes, not {bytes}", nameof(name));
-    }
-
     private static float[] Flatten(Vector4[] values)
     {
         var floats = new float[values.Length * 4];

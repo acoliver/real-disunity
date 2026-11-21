@@ -78,7 +78,7 @@ public sealed partial class Shader
     private static string ArrayName(int nameID, string member)
     {
         var name = PropertyName(nameID) ?? throw new ArgumentException($"{member}: no shader property has the id {nameID}", nameof(nameID));
-        WorldGraphics.CheckArrayName(name, member);
+        WorldGraphics.CheckName(name, member);
         return name;
     }
 

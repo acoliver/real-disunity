@@ -72,6 +72,17 @@ fn host_on(directory: &Path, settings: Settings, gpu: super::gpu::Gpu) -> Offscr
     )
 }
 
+/// A host whose adapter uploads no block-compressed texture as blocks, as one on a device without
+/// block compression does.
+pub(super) fn host_without_blocks(directory: &Path) -> OffscreenHost {
+    let settings = Settings {
+        light_modes: vec!["Alpha".to_owned()],
+        ..Settings::default()
+    };
+    let adapter = OffscreenAdapter::with_supply(Synthetic, settings).with_block_sources(false);
+    host_over(directory, adapter, gpu())
+}
+
 /// A host that registers only `defaults` of the default textures, as one without the grey does.
 fn host_holding(
     directory: &Path,
@@ -162,7 +173,7 @@ pub(super) fn scaling(world: &mut World) -> ComputeShaderId {
     shader
 }
 
-fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
+pub(super) fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
     world
         .compute_buffer(buffer)
         .unwrap()
@@ -174,7 +185,7 @@ fn floats(world: &World, buffer: ComputeBufferId) -> Vec<f32> {
 
 /// The values the kernel writes for a height map the camera drew: the left two columns of each
 /// row are drawn, the rest cleared.
-fn expected() -> Vec<f32> {
+pub(super) fn expected() -> Vec<f32> {
     (0..SIDE * SIDE)
         .map(|index| {
             if index % SIDE < SIDE / 2 {

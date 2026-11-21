@@ -40,6 +40,7 @@ mod journal;
 mod mesh_instance;
 mod mesh_renderer;
 pub mod physics2d;
+pub mod shadows;
 mod sorting_group;
 mod spatial;
 pub mod tilemap;

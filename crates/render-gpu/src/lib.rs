@@ -21,6 +21,7 @@ pub mod test_support;
 pub mod texture;
 #[cfg(any(test, feature = "test-support"))]
 pub mod tolerance_test_support;
+pub mod volume;
 
 pub mod store;
 pub use store::CanonicalTextureStore;

@@ -90,11 +90,9 @@ internal static class CullingDataTests
         Expect.Equal(0, results.visibleReflectionProbes.Length, "no visible probes");
         Expect.Equal(0, results.visibleOffscreenVertexLights.Length, "no offscreen vertex lights");
         Expect.That(results == default, "default results are equal");
-        Throws(() => results.GetLightIndexMap(Unity.Collections.Allocator.Temp), "GetLightIndexMap");
-        Throws(() => results.SetLightIndexMap(default), "SetLightIndexMap");
-        Throws(() => results.GetReflectionProbeIndexMap(Unity.Collections.Allocator.Temp), "GetReflectionProbeIndexMap");
-        Throws(() => results.SetReflectionProbeIndexMap(default), "SetReflectionProbeIndexMap");
-        Throws(() => results.GetShadowCasterBounds(0, out _), "GetShadowCasterBounds");
+        Expect.Equal(0, results.GetLightIndexMap(Unity.Collections.Allocator.Temp).Length, "a result with no lights has an empty light index map");
+        Expect.Equal(0, results.GetReflectionProbeIndexMap(Unity.Collections.Allocator.Temp).Length, "and an empty probe index map");
+        Expect.Throws<ArgumentOutOfRangeException>(() => results.GetShadowCasterBounds(0, out _), "a light index in a result with no lights");
         Expect.Equal(0, results.lightIndexCount, "no object has a light index");
         Expect.Equal(0, results.reflectionProbeIndexCount, "no object has a probe index");
         Expect.Equal(0, results.lightAndReflectionProbeIndexCount, "no object has either index");
@@ -113,15 +111,7 @@ internal static class CullingDataTests
         finally { Disunity.Hosting.DisunityHost.UnloadWorld(); }
         Expect.Throws<ArgumentNullException>(() => results.FillLightAndReflectionProbeIndices((ComputeBuffer)null!), "a null compute buffer");
         Expect.Throws<ArgumentNullException>(() => results.FillLightAndReflectionProbeIndices((GraphicsBuffer)null!), "a null graphics buffer");
-        Throws(() => results.ComputeSpotShadowMatricesAndCullingPrimitives(0, out _, out _, out _), "ComputeSpotShadowMatricesAndCullingPrimitives");
-        Throws(() => results.ComputePointShadowMatricesAndCullingPrimitives(0, CubemapFace.PositiveX, 0f, out _, out _, out _), "ComputePointShadowMatricesAndCullingPrimitives");
-        Throws(() => results.ComputeDirectionalShadowMatricesAndCullingPrimitives(0, 0, 1, Vector3.zero, 512, 0f, out _, out _, out _), "ComputeDirectionalShadowMatricesAndCullingPrimitives");
-    }
-
-    private static void Throws(Action action, string member)
-    {
-        var error = Expect.Catch<NotSupportedException>(action, member);
-        Expect.That(error.Message.Contains(member, StringComparison.Ordinal), $"the message names {member}: {error.Message}");
+        Expect.Throws<ArgumentOutOfRangeException>(() => results.ComputeSpotShadowMatricesAndCullingPrimitives(0, out _, out _, out _), "a spot light index in a result with no lights");
     }
 
     private static void Attachments()

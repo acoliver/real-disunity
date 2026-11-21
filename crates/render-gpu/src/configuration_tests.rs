@@ -3,6 +3,34 @@ use crate::submission::SubmissionAuthority;
 use std::cell::Cell;
 
 #[test]
+fn volume_storage_halves_the_depth_of_each_level_and_counts_levels_by_the_longest_side() {
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let limits = wgpu::Limits::default();
+    // 2x2x8 texels of four bytes: levels of 2x2x8, 1x1x4, 1x1x2 and 1x1x1 hold 32, 4, 2 and 1
+    // texels. The longest side is the depth, so four levels are a whole chain.
+    let mut chain = AllocationSet::default();
+    chain.volume("volume", [2, 2, 8], format, 4);
+    assert_eq!(chain.validate(&limits).unwrap(), 39 * 4);
+    let mut too_long = AllocationSet::default();
+    too_long.volume("volume", [2, 2, 8], format, 5);
+    assert!(too_long.validate(&limits).is_err());
+    // A volume deeper than the 2D array limit is only held to the limit of 3D extents.
+    let deep = limits.max_texture_array_layers + 1;
+    let mut tall = AllocationSet::default();
+    tall.volume("volume", [1, 1, deep], format, 1);
+    assert_eq!(tall.validate(&limits).unwrap(), u64::from(deep) * 4);
+    assert!(tall.validate_array_layers::<()>(&limits).is_ok());
+    let mut beyond = AllocationSet::default();
+    beyond.volume(
+        "volume",
+        [1, 1, limits.max_texture_dimension_3d + 1],
+        format,
+        1,
+    );
+    assert!(beyond.validate(&limits).is_err());
+}
+
+#[test]
 fn depth_stencil_storage_accounts_for_backend_promotion() {
     for (format, bytes) in [
         (wgpu::TextureFormat::Stencil8, 8),

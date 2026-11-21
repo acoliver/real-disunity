@@ -23,6 +23,8 @@ mod lent_terrain;
 mod lent_terrain_game;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
+#[path = "game_passes/mips.rs"]
+mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
 #[path = "game_passes/prefix.rs"]
@@ -51,6 +53,10 @@ mod shadowed;
 mod snapshot_capture;
 #[path = "game_passes/snapshot_game.rs"]
 mod snapshot_game;
+#[path = "game_passes/snapshot_gaps.rs"]
+mod snapshot_gaps;
+#[path = "game_passes/snapshot_water.rs"]
+mod snapshot_water;
 #[path = "game_passes/snapshots.rs"]
 mod snapshots;
 #[path = "game_passes/stores.rs"]

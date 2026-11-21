@@ -61,6 +61,7 @@ pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_draws;
 mod terrain_runtime;
+mod water_draws;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 #[cfg(test)]
@@ -72,6 +73,7 @@ pub use streaming::{
 pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
+pub use water_draws::WaterDraws;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
@@ -329,6 +331,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The pairs the batches draw, until a placement or table changes.
+    drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
@@ -475,6 +479,7 @@ impl SceneGpu {
             instance_history: std::rc::Rc::default(),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            drawn_pair_memo: RefCell::default(),
             gather: compaction::Shared::default(),
             terrain,
             terrain_draws: Cell::new(TerrainDraws::Stock),

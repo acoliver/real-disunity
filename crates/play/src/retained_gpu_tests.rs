@@ -11,6 +11,7 @@
 use super::ui_tests::{fixture_config, fixture_turn};
 use super::*;
 use std::{path::PathBuf, time::Instant};
+use worldrunner_scene_viewer::SharedGpu;
 
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
@@ -75,7 +76,7 @@ fn play(gpu_work: GpuWork) -> Played {
     let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
     let mut run = match shared {
         Some(gpu) => viewer.windowless_on(&mut driver, gpu),
-        None => viewer.windowless(&mut driver),
+        None => viewer.windowless_on(&mut driver, SharedGpu::headless_for_test()),
     }
     .unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);

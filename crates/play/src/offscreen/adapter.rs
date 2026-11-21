@@ -411,6 +411,10 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
             note(&slot.texture);
         }
     }
+    // The cube the scene's reflection reads, which a draw binds as `unity_SpecCube0`.
+    if let Some(reflection) = &snapshot.environment.reflection {
+        note(reflection.source());
+    }
     for work in &snapshot.work {
         match work {
             OffscreenWork::Blit { source, .. } | OffscreenWork::CopyTexture { source, .. } => {
@@ -508,6 +512,7 @@ pub fn build(
     }
     phases.programs += operations.program_time();
     phases.programs_built += operations.programs_built();
+    phases.note_build(operations.planned_draws(), operations.view_counts());
     let used = operations.constants_use();
     phases.constants_bytes += used.bytes;
     phases.constants_buffers += used.buffers;

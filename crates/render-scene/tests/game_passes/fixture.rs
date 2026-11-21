@@ -5,8 +5,9 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneGeometry,
     SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject, SceneParts,
     SceneResources, SceneRotation, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, TerrainLodPolicy,
-    TerrainStreamingPolicy, TexelFormat, TextureColorSpace, TextureHandle,
+    SceneTerrainSurface, SceneTexture, SceneTransform, SceneVertex, SceneWaterBody,
+    SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
@@ -106,6 +107,24 @@ pub fn quad_scene_with(albedo: SceneTexture) -> RenderScene {
     .unwrap()
 }
 
+/// A stock water body eight metres on a side, ten centimetres below the quad, so the quad hides
+/// it where they overlap and a ring of open water shows around the quad.
+pub fn water_body() -> SceneWaterBody {
+    SceneWaterBody {
+        material: SceneWaterSettings::STOCK,
+        surface: SceneWaterSurface::Rectangle,
+        flow_millimeters_per_second: [0; 2],
+        height_millimeters: -100,
+        east_min_millimeters: -4000,
+        north_min_millimeters: -4000,
+        east_extent_millimeters: 8000,
+        north_extent_millimeters: 8000,
+        color_micro: [50_000, 200_000, 250_000],
+        absorption_micro: [300_000, 100_000, 50_000],
+        roughness_micro: 200_000,
+    }
+}
+
 /// The material of a terrain palette entry, which names all three of its maps.
 fn terrain_material() -> SceneMaterial {
     SceneMaterial::new(SceneMaterialParts {
@@ -180,9 +199,15 @@ pub fn streamed_terrain_scene() -> RenderScene {
 /// Straight down from five metres, so depth is linear in height: the ground plane is at
 /// `(5 - 0.1) / (10 - 0.1)`.
 pub fn view(size: [u32; 2]) -> SceneView {
+    view_from(5000, size)
+}
+
+/// [`view`] from `height_millimeters` above the ground plane, which stays inside the 10 m far
+/// plane below 10 000: the ground plane's linear depth is the height in metres.
+pub fn view_from(height_millimeters: i64, size: [u32; 2]) -> SceneView {
     SceneView::orthographic_with_up(
         CameraPose {
-            eye_millimeters: [0, 0, 5000],
+            eye_millimeters: [0, 0, height_millimeters],
             target_millimeters: [0, 0, 0],
         },
         OrthographicLens {
@@ -206,6 +231,7 @@ pub struct Rig {
     pub gpu: SceneGpu,
     pub pipelines: ScenePipelines,
     frame: FrameUniform,
+    size: [u32; 2],
 }
 
 impl Rig {
@@ -308,6 +334,7 @@ impl Rig {
             gpu,
             pipelines,
             frame,
+            size,
         }
     }
 
@@ -351,6 +378,20 @@ impl Rig {
         self.encode(&mut encoder)?;
         encoder.finish().submit().unwrap();
         Ok(self.read(self.renderer.targets().texture()))
+    }
+
+    /// Draws one frame in the host's frame `slot`, as seen from `height_millimeters`, submits it
+    /// and returns the frame's colour. Every slot has its own frame uniform on the scene.
+    pub fn render_in_slot(
+        &mut self,
+        slot: usize,
+        height_millimeters: i64,
+    ) -> Result<Vec<[u8; 4]>, FrameError> {
+        self.renderer.select_frame_slot(slot);
+        self.gpu.select_frame_slot(slot);
+        self.frame = FrameUniform::unlit(&view_from(height_millimeters, self.size));
+        self.gpu.set_frame(self.context.queue(), self.frame);
+        self.render()
     }
 
     /// Draws one frame and cancels it before submission.

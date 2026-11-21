@@ -448,7 +448,7 @@ fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() 
 }
 
 #[test]
-fn inside_a_separate_prefix_the_prefix_feature_reads_the_lent_terrain_only() {
+fn inside_a_separate_prefix_the_prefix_feature_reads_the_lent_terrain_and_textures_only() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let (whole_game, whole_seen) = inventory(true, false, false);
     let source = quad_scene();

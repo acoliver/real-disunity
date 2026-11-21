@@ -30,12 +30,12 @@ pub enum TargetLifetime {
     Persistent,
 }
 
-/// A named texture a game owns: one 2D texture of one or more layers and one mip, with one view
-/// per layer and any sampled view the game makes.
+/// A named texture a game owns: one 2D texture of one or more layers and one or more mips, with
+/// one view per mip of each layer and any sampled view the game makes.
 ///
-/// A renderable colour format makes a target passes render into. A block-compressed format makes
-/// a copy target, which only a frame's preparation writes, layer by layer, by copy
-/// ([`GameTargets::plan_prepared`]), and passes sample.
+/// A renderable colour format makes a target passes render into, of one mip. A block-compressed
+/// format makes a copy target, which only a frame's preparation writes, mip by mip of each layer,
+/// by copy ([`GameTargets::plan_prepared`]), and passes sample; it may carry a mip chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetDeclaration {
     /// Names the target in the plan, in errors and in the allocation inventory.
@@ -45,6 +45,9 @@ pub struct TargetDeclaration {
     pub extent: TargetExtent,
     /// Array layers, at least one.
     pub layers: u32,
+    /// Mip levels, at least one and at most the extent's full chain. Only a copy target may have
+    /// more than one: nothing in a frame writes the lower mips of a renderable target.
+    pub mips: u32,
     pub lifetime: TargetLifetime,
     /// Usage beyond `RENDER_ATTACHMENT | TEXTURE_BINDING`, which every renderable target has, or
     /// beyond `COPY_DST | TEXTURE_BINDING`, which every copy target has.
@@ -63,6 +66,7 @@ impl TargetDeclaration {
             format,
             extent,
             layers: 1,
+            mips: 1,
             lifetime: TargetLifetime::PerFrame,
             usage: wgpu::TextureUsages::empty(),
         }
@@ -71,6 +75,15 @@ impl TargetDeclaration {
     #[must_use]
     pub const fn layers(mut self, layers: u32) -> Self {
         self.layers = layers;
+        self
+    }
+
+    /// A chain of `mips` levels, each half the one above it, rounded down and at least one texel.
+    /// A block-compressed level smaller than a block, or not a whole number of blocks, is stored
+    /// as the whole blocks that cover it, as wgpu sizes compressed mips.
+    #[must_use]
+    pub const fn mips(mut self, mips: u32) -> Self {
+        self.mips = mips;
         self
     }
 
@@ -86,14 +99,25 @@ impl TargetDeclaration {
         self
     }
 
-    /// The resource a pass names to attach or read `layer` of this target.
+    /// The resource a pass names to attach or read `layer` of this target: its first mip. A pass
+    /// that reads it reads every mip of the layer.
     pub const fn layer(&self, layer: u32) -> ResourceRef {
+        self.mip(layer, 0)
+    }
+
+    /// One mip of one layer, the subresource a frame's preparation writes by copy.
+    pub const fn mip(&self, layer: u32, mip: u32) -> ResourceRef {
         ResourceRef {
             name: self.name,
             version: 0,
-            mip: 0,
+            mip,
             layer,
         }
+    }
+
+    /// Every mip of `layer`, from the first.
+    pub fn layer_mips(&self, layer: u32) -> impl Iterator<Item = ResourceRef> + '_ {
+        (0..self.mips).map(move |mip| self.mip(layer, mip))
     }
 
     /// Every layer of the target, for a pass that reads the whole array.
@@ -141,6 +165,14 @@ impl TargetDeclaration {
         if width == 0 || height == 0 || width.max(height) > limits.max_texture_dimension_2d {
             return refuse("extent is empty or beyond max_texture_dimension_2d");
         }
+        // wgpu's `max_mips` for a 2D texture: down to one texel along the longer side.
+        let chain = u32::BITS - width.max(height).leading_zeros();
+        if self.mips == 0 || self.mips > chain {
+            return refuse(&format!(
+                "mip count {} is outside 1..={chain} for the extent {width}x{height}",
+                self.mips
+            ));
+        }
         if self.copy_target() {
             let missing = self.format.required_features().difference(features);
             if !missing.is_empty() {
@@ -162,6 +194,11 @@ impl TargetDeclaration {
         {
             return refuse("format is not a renderable colour format");
         }
+        if self.mips != 1 {
+            return refuse(
+                "a renderable target has one mip; mip chains are for block-compressed copy targets",
+            );
+        }
         Ok(())
     }
 }
@@ -176,8 +213,9 @@ pub(crate) struct Backing {
     /// Numbers the textures an inventory's renderer has made, which keeps this one apart from
     /// another of the same name in the allocation budget.
     serial: u64,
-    /// Per layer: whether a submitted frame has written it. This is the published state. The
-    /// queries of a frame in preparation answer through [`Self::state`] instead.
+    /// Per mip of each layer, at `layer * mips + mip`: whether a submitted frame has written it.
+    /// This is the published state. The queries of a frame in preparation answer through
+    /// [`Self::state`] instead.
     written: Mutex<Vec<bool>>,
 }
 
@@ -196,14 +234,17 @@ impl Backing {
                     height: extent[1],
                     depth_or_array_layers: declaration.layers,
                 },
-                mip_level_count: 1,
+                mip_level_count: declaration.mips,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: declaration.format,
                 usage: declaration.texture_usage(),
                 view_formats: &[],
             }),
-            written: Mutex::new(vec![false; declaration.layers as usize]),
+            written: Mutex::new(vec![
+                false;
+                (declaration.layers * declaration.mips) as usize
+            ]),
             declaration: declaration.clone(),
             extent,
             serial,
@@ -214,8 +255,8 @@ impl Backing {
         self.declaration.lifetime == TargetLifetime::Persistent
     }
 
-    /// Per layer, whether a submitted frame had written it when the frame in preparation
-    /// started. Outside a frame, and in one that has staged nothing on this backing yet, that is
+    /// Per mip of each layer, at `layer * mips + mip`, whether a submitted frame had written it
+    /// when the frame in preparation started. Outside a frame, and in one that has staged nothing on this backing yet, that is
     /// the published state.
     ///
     /// Every query of a frame in preparation uses this one state: the planning query
@@ -227,38 +268,57 @@ impl Backing {
     /// view that already reported the first segment's writes would plan a different load and
     /// import the texture differently from the capture.
     fn state(&self) -> Vec<bool> {
-        frame_start::recall(self).unwrap_or_else(|| self.layers().clone())
+        frame_start::recall(self).unwrap_or_else(|| self.subresources().clone())
     }
 
-    /// Whether a submitted frame had left contents in any layer of this persistent backing when
-    /// the frame started, so the allocation a frame imports is no longer fresh whichever layers
-    /// the frame attaches.
+    /// Whether a submitted frame had left contents in any mip of any layer of this persistent
+    /// backing when the frame started, so the allocation a frame imports is no longer fresh
+    /// whichever subresources the frame uses.
     fn initialized(&self) -> bool {
         self.persistent() && self.state().contains(&true)
     }
 
-    fn layers(&self) -> MutexGuard<'_, Vec<bool>> {
+    fn subresources(&self) -> MutexGuard<'_, Vec<bool>> {
         // A panic while the lock was held leaves the flags as they were.
         self.written.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn is_written(&self, layer: u32) -> bool {
-        self.persistent() && self.state().get(layer as usize) == Some(&true)
+    /// The flag of `mip` of `layer`, or `None` past the texture's layers or mips.
+    fn index(&self, (layer, mip): (u32, u32)) -> Option<usize> {
+        let mips = self.declaration.mips;
+        (layer < self.declaration.layers && mip < mips).then(|| (layer * mips + mip) as usize)
     }
 
     /// Keeps the published state as the start of `frame`, before a segment of it stages a
     /// record that changes it.
     pub(super) fn note_frame_start(self: &Arc<Self>, frame: &Publications) {
-        frame_start::remember(self, frame, self.layers().clone());
+        frame_start::remember(self, frame, self.subresources().clone());
     }
 
-    /// Records what a submitted frame left in layers of this persistent backing: contents a
-    /// pass can read without writing them first, or nothing.
-    pub(super) fn record(&self, layers: &[(u32, bool)]) {
-        let mut written = self.layers();
-        for (layer, stored) in layers {
-            if let Some(flag) = written.get_mut(*layer as usize) {
-                *flag = *stored;
+    fn is_written(&self, subresource: (u32, u32)) -> bool {
+        self.persistent()
+            && self
+                .index(subresource)
+                .is_some_and(|index| self.state()[index])
+    }
+
+    /// Whether a submitted frame had written every mip of `layer` when the frame started.
+    fn is_layer_written(&self, layer: u32) -> bool {
+        layer < self.declaration.layers
+            && (0..self.declaration.mips).all(|mip| self.is_written((layer, mip)))
+    }
+
+    /// Records what a submitted frame left in mips of layers of this persistent backing:
+    /// contents a pass can read without writing them first, or nothing.
+    pub(super) fn record(&self, subresources: &[((u32, u32), bool)]) {
+        let indices: Vec<_> = subresources
+            .iter()
+            .map(|(subresource, stored)| (self.index(*subresource), *stored))
+            .collect();
+        let mut written = self.subresources();
+        for (index, stored) in indices {
+            if let Some(flag) = index.and_then(|index| written.get_mut(index)) {
+                *flag = stored;
             }
         }
     }
@@ -340,7 +400,7 @@ impl TargetStore {
                 serial,
                 [extent[0], extent[1], declaration.layers],
                 declaration.format,
-                [1, 1],
+                [declaration.mips, 1],
             );
         }
     }
@@ -408,7 +468,7 @@ impl TargetStore {
             .backing(resource.name)
             .ok_or(FrameError::AttachmentView(resource))?;
         let view = AttachmentView::new(resource, &backing.texture)?;
-        Ok(if backing.is_written(resource.layer) {
+        Ok(if backing.is_written((resource.layer, resource.mip)) {
             view.with_retained_contents()
         } else if backing.initialized() {
             view.with_initialized_allocation()
@@ -419,7 +479,17 @@ impl TargetStore {
 
     fn written(&self, name: &str, layer: u32) -> bool {
         self.backing(name)
-            .is_some_and(|backing| backing.is_written(layer))
+            .is_some_and(|backing| backing.is_layer_written(layer))
+    }
+
+    fn mip_written(&self, name: &str, subresource: (u32, u32)) -> bool {
+        self.backing(name)
+            .is_some_and(|backing| backing.is_written(subresource))
+    }
+
+    /// The number of mips of the target `name`, or `None` for a name no declaration made.
+    fn mips(&self, name: &str) -> Option<u32> {
+        self.backing(name).map(|backing| backing.declaration.mips)
     }
 
     /// The persistent backing of `texture`, by its position in the store.
@@ -430,14 +500,16 @@ impl TargetStore {
     }
 
     /// What the frame being prepared leaves in the persistent targets of this store, by exact
-    /// backing: for each layer, whether the last write stored its contents. The frame's prepared
-    /// writes come first and always store; an attachment that writes the layer later decides.
+    /// backing: for each mip of each layer, whether the last write stored its contents. The
+    /// frame's prepared writes come first and always store; an attachment that writes the
+    /// subresource later decides.
     /// A stock attachment that shares a target's name is another texture and counts for nothing.
     pub(super) fn frame_effects(&self, context: &PrepareContext<'_>) -> Vec<FrameEffect> {
         let mut last = BTreeMap::new();
         for view in context.prepared_views() {
             if let Some(index) = self.persistent_index(view.texture()) {
-                last.insert((index, view.resource().layer), true);
+                let resource = view.resource();
+                last.insert((index, resource.layer, resource.mip), true);
             }
         }
         for attachment in context
@@ -458,18 +530,19 @@ impl TargetStore {
                 continue;
             };
             let stored = attachment.store == wgpu::StoreOp::Store;
-            last.insert((index, attachment.resource.layer), stored);
+            let resource = attachment.resource;
+            last.insert((index, resource.layer, resource.mip), stored);
         }
         let mut effects: Vec<FrameEffect> = Vec::new();
-        for ((index, layer), stored) in last {
+        for ((index, layer, mip), stored) in last {
             let backing = &self.backings[index];
             match effects.last_mut() {
                 Some(effect) if Arc::ptr_eq(&effect.backing, backing) => {
-                    effect.layers.push((layer, stored));
+                    effect.written.push(((layer, mip), stored));
                 }
                 _ => effects.push(FrameEffect {
                     backing: backing.clone(),
-                    layers: vec![(layer, stored)],
+                    written: vec![((layer, mip), stored)],
                 }),
             }
         }
@@ -477,21 +550,21 @@ impl TargetStore {
     }
 }
 
-/// What one frame leaves in one persistent backing: for each layer it wrote, whether the last
-/// write stored its contents.
+/// What one frame leaves in one persistent backing: for each (layer, mip) it wrote, whether the
+/// last write stored its contents.
 pub(super) struct FrameEffect {
     pub(super) backing: Arc<Backing>,
-    pub(super) layers: Vec<(u32, bool)>,
+    pub(super) written: Vec<((u32, u32), bool)>,
 }
 
 impl FrameEffect {
     /// Stages the recording of this effect, to run when `frame` is submitted. The capture records
     /// a refusal and fails before submission, as for stock state.
     pub(super) fn stage(self, frame: &mut Publications) {
-        let Self { backing, layers } = self;
+        let Self { backing, written } = self;
         backing.note_frame_start(frame);
         let key = backing.write_key();
-        let _ = frame.stage_write(key, move || backing.record(&layers));
+        let _ = frame.stage_write(key, move || backing.record(&written));
     }
 }
 
@@ -543,7 +616,7 @@ impl GameTargets {
 
     /// The texture of a declared target, for a sampled view or a copy. The texture is the same
     /// object in every frame of a generation, and in later generations of the same renderer
-    /// while the declaration is unchanged.
+    /// while the declaration is unchanged. Its default view covers every layer and every mip.
     ///
     /// # Errors
     /// [`FrameError::AttachmentView`] for a name no declaration made.
@@ -553,8 +626,8 @@ impl GameTargets {
             .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))
     }
 
-    /// The texture of a declared target through its default view, for the binding sourced from
-    /// `semantic` in a draw or set that samples it.
+    /// The texture of a declared target through [`Self::sampled_view`], for the binding sourced
+    /// from `semantic` in a draw or set that samples it.
     ///
     /// # Errors
     /// [`FrameError::AttachmentView`] for a name no declaration made.
@@ -563,31 +636,60 @@ impl GameTargets {
         name: &'static str,
         semantic: worldrunner_render_program::binding::EngineSemantic,
     ) -> Result<worldrunner_render_program::runtime::Import, FrameError> {
-        let texture = self.texture(name)?;
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         Ok(worldrunner_render_program::runtime::Import::texture(
-            semantic, texture, view,
+            semantic,
+            self.texture(name)?,
+            self.sampled_view(name)?,
         ))
     }
 
-    /// The checked attachment view of one layer. A persistent layer that a submitted frame had
-    /// written when the frame being planned started carries retained contents, so a pass may read
-    /// it without writing it first. Like [`Self::is_written`], the view reports the frame's
-    /// start in every segment of the frame.
+    /// The view a pass that reads the target binds: every layer and every mip, which is what a
+    /// pass's read of a layer declares it samples. It is a 2D view of a one-layer target and a
+    /// 2D array of several, as wgpu's default view is and as a program binding of the texture
+    /// is checked.
     ///
     /// # Errors
-    /// [`FrameError::AttachmentView`] for an undeclared target or a layer beyond its count.
+    /// [`FrameError::AttachmentView`] for a name no declaration made.
+    pub fn sampled_view(&self, name: &'static str) -> Result<wgpu::TextureView, FrameError> {
+        Ok(self
+            .texture(name)?
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: Some(name),
+                ..Default::default()
+            }))
+    }
+
+    /// The checked attachment view of one mip of one layer. A persistent subresource that a
+    /// submitted frame had written when the frame being planned started carries retained
+    /// contents, so a pass may read it without writing it first. Like [`Self::is_written`], the
+    /// view reports the frame's start in every segment of the frame.
+    ///
+    /// # Errors
+    /// [`FrameError::AttachmentView`] for an undeclared target or a layer or mip beyond its
+    /// count.
     pub fn view(&self, resource: ResourceRef) -> Result<AttachmentView, FrameError> {
         self.store.view(resource)
     }
 
-    /// Whether a submitted frame had written `layer` of the persistent target `name` when the
-    /// frame being planned started. Every segment of one frame, both parts of an owned capture
+    /// Whether a submitted frame had written every mip of `layer` of the persistent target
+    /// `name` when the frame being planned started, which a pass that reads the layer needs.
+    /// Every segment of one frame, both parts of an owned capture
     /// included, gets the same answer, so a feature plans the same passes in each. A segment
     /// that records its writes when it is submitted does not change the answer for the segments
     /// after it. A query made between frames answers with what has been published.
     pub fn is_written(&self, name: &'static str, layer: u32) -> bool {
         self.store.written(name, layer)
+    }
+
+    /// Whether a submitted frame had written `mip` of `layer` of the persistent target `name`
+    /// when the frame being planned started, as [`Self::is_written`] answers.
+    pub fn is_mip_written(&self, name: &'static str, layer: u32, mip: u32) -> bool {
+        self.store.mip_written(name, (layer, mip))
+    }
+
+    /// The mips of the declared target `name`, or `None` for a name no declaration made.
+    pub(super) fn mips(&self, name: &str) -> Option<u32> {
+        self.store.mips(name)
     }
 
     /// Textures the renderer has created for its targets since it was made. It stays level
@@ -596,3 +698,7 @@ impl GameTargets {
         self.store.created()
     }
 }
+
+#[cfg(test)]
+#[path = "targets_tests.rs"]
+mod targets_tests;

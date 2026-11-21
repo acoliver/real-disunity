@@ -211,8 +211,10 @@ pub(super) fn draw(
 #[test]
 fn pending_preparation_keeps_rendering_then_publishes_whole_generations() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let source = super::super::retained_tests::source();
     let size = Viewport {
         width: 64,
@@ -340,8 +342,10 @@ fn assert_configured(presentation: &Presentation, effects: &SceneEffects) {
 #[test]
 fn asynchronous_rebuilds_complete_in_reverse_but_publish_in_order() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let source = super::super::retained_tests::source();
     let mut host = host(&source);
     let mut resident = Resident::new(&context, &source, None, FrameProfile::Legacy).unwrap();

@@ -6,7 +6,7 @@ use worldrunner_render_gpu::device::DeviceRequirements;
 
 #[test]
 fn a_windowless_session_on_a_shared_device_runs_the_callers_offscreen_work_in_its_frame() {
-    let mut gpu = SharedGpu::headless();
+    let mut gpu = SharedGpu::headless_for_test();
     let (device, authority) = gpu
         .device(&crate::tests::options(), &DeviceRequirements::default())
         .unwrap();

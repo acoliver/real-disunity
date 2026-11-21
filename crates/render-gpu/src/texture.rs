@@ -25,9 +25,6 @@ pub enum TextureKind {
     D2,
     Array,
     Cube,
-    /// A 3D texture one slice deep, uploaded from the one layer given. A deeper volume has no
-    /// upload.
-    D3,
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -80,7 +77,7 @@ fn block_layout(format: TextureFormat) -> Result<(u32, u32, u32), UploadError> {
     Ok((width, height, bytes))
 }
 
-fn layout(
+pub(crate) fn layout(
     format: TextureFormat,
     width: u32,
     height: u32,
@@ -180,7 +177,7 @@ impl<'a> TextureUpload<'a> {
                 count: first.mips.len(),
             });
         }
-        if matches!(kind, TextureKind::D2 | TextureKind::D3) && layers.len() != 1 {
+        if kind == TextureKind::D2 && layers.len() != 1 {
             return Err(UploadError::LayerMismatch { layer: 1 });
         }
         if kind == TextureKind::Cube && (layers.len() != 6 || first.width != first.height) {
@@ -242,13 +239,9 @@ impl<'a> TextureUpload<'a> {
         let height = (first.height >> self.base_mip).max(1);
         let layer_count = u32::try_from(self.layers.len()).map_err(|_| UploadError::Overflow)?;
         let limits = device.limits();
-        let volume = self.kind == TextureKind::D3;
-        let edge_limit = if volume {
-            limits.max_texture_dimension_3d
-        } else {
-            limits.max_texture_dimension_2d
-        };
-        if width.max(height) > edge_limit || layer_count > limits.max_texture_array_layers {
+        if width.max(height) > limits.max_texture_dimension_2d
+            || layer_count > limits.max_texture_array_layers
+        {
             return Err(UploadError::DeviceLimit);
         }
         let missing = first
@@ -268,11 +261,7 @@ impl<'a> TextureUpload<'a> {
             mip_level_count: u32::try_from(first.mips.len()).map_err(|_| UploadError::Overflow)?
                 - self.base_mip,
             sample_count: 1,
-            dimension: if volume {
-                wgpu::TextureDimension::D3
-            } else {
-                wgpu::TextureDimension::D2
-            },
+            dimension: wgpu::TextureDimension::D2,
             format: first.format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST

@@ -12,7 +12,9 @@
 //! static flag or light data, so a list's rendering layer mask, objects filter, light index and
 //! per-object data are read and not applied. Planes and a split's sphere are tested against the
 //! box of the renderer's mesh, moved by its matrix; a mesh with no box is tested as the point its
-//! matrix places it at.
+//! matrix places it at. A shadow list leaves out a renderer that casts no shadow, and tests the
+//! sphere only when the split has no planes: the planes of a directional split bound the casters,
+//! which reach toward the light past the sphere that wraps the receivers.
 //!
 //! A drawing list names the `LightMode` values of the passes it draws, in order of preference. A
 //! pass with no `LightMode` counts as `SRPDefaultUnlit` for a list (a camera counts it as
@@ -26,8 +28,9 @@ use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
-use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
+use worldrunner_world_simulation::shadows::CASTS_NO_SHADOW;
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
 use super::builtins::{add_screen_size, view_layer};
@@ -48,20 +51,29 @@ const OVERRIDE_UNAVAILABLE: &str = "override material unavailable";
 const OUTSIDE_SPHERE: &str = "outside the split's sphere";
 const OUTSIDE_PLANES: &str = "outside the split's planes";
 const NO_CASTER_PASS: &str = "no shadow caster pass";
+const NO_SHADOW_CAST: &str = "casts no shadow";
 
 /// The winding that counts as a front face for a list or a mesh draw. The image is the other way
 /// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
+    /// Whether a pass of the shader has the `LightMode` value `mode`, by the rule that selects
+    /// the pass ([`tag_values_match`]).
+    pub(super) fn has_light_mode(&self, mode: &str) -> bool {
+        self.light_modes
+            .iter()
+            .any(|held| tag_values_match(held, mode))
+    }
+
     /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
     fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
-            self.light_modes.contains(tag)
-                || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
+            self.has_light_mode(tag)
+                || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
         })
     }
 }
@@ -161,7 +173,7 @@ impl<'a> Mapper<'a> {
             .get(cull)
             .cloned()
             .ok_or(Skip::UnknownList)?;
-        let target = self.bound_target()?;
+        let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
@@ -178,6 +190,7 @@ impl<'a> Mapper<'a> {
             lists.drawn += 1;
         }
         Ok(vec![Record::Draws(Arc::new(DrawList {
+            raster,
             target,
             values,
             front_face: IMAGE_FRONT_FACE,
@@ -301,8 +314,8 @@ impl<'a> Mapper<'a> {
         self.items(candidates, replacement, &selector)
     }
 
-    /// The draws of the culled renderers inside a shadow split that have a pass to draw a
-    /// caster, in the order the renderers were culled.
+    /// The draws of the culled renderers inside a shadow split that cast a shadow and have a pass
+    /// to draw a caster, in the order the renderers were culled.
     fn shadow_items(&mut self, culled: &[usize], desc: &RendererListDesc) -> Vec<ListDraw> {
         let RendererListDesc::Shadow { planes, sphere, .. } = desc else {
             return Vec::new();
@@ -313,20 +326,10 @@ impl<'a> Mapper<'a> {
         };
         let mut candidates = Vec::new();
         for &index in culled {
+            if !self.caster_in_split(index, planes, *sphere) || !self.usable_renderer(index) {
+                continue;
+            }
             let view = &self.snapshot.renderers[index];
-            let corners = self.corners_of(view);
-            let (centre, radius) = enclosing_sphere(&corners);
-            if !touches_sphere(*sphere, centre, radius) {
-                self.left_out(OUTSIDE_SPHERE, 1);
-                continue;
-            }
-            if outside_planes(planes, &corners) {
-                self.left_out(OUTSIDE_PLANES, 1);
-                continue;
-            }
-            if !self.usable_renderer(index) {
-                continue;
-            }
             let slots = self.frame.renderers[&RendererId(index as u64)]
                 .materials
                 .len();
@@ -338,7 +341,7 @@ impl<'a> Mapper<'a> {
                     self.left_out(MATERIAL_UNAVAILABLE, 1);
                     continue;
                 };
-                if !info.light_modes.iter().any(|mode| mode == SHADOW_CASTER) {
+                if !info.has_light_mode(SHADOW_CASTER) {
                     self.left_out(NO_CASTER_PASS, 1);
                     continue;
                 }
@@ -352,6 +355,28 @@ impl<'a> Mapper<'a> {
             }
         }
         self.items(candidates, None, &selector)
+    }
+
+    /// Whether renderer `index` casts a shadow into a split, counting it by the reason when it
+    /// does not. The planes bound the casters, so a split with planes tests only them; the sphere
+    /// wraps the receivers of a directional split and so serves only a split without planes.
+    fn caster_in_split(&mut self, index: usize, planes: &[[f32; 4]], sphere: [f32; 4]) -> bool {
+        let view = &self.snapshot.renderers[index];
+        if view.shadow_casting_mode == CASTS_NO_SHADOW {
+            self.left_out(NO_SHADOW_CAST, 1);
+            return false;
+        }
+        let corners = self.corners_of(view);
+        let (centre, radius) = enclosing_sphere(&corners);
+        if planes.is_empty() && !touches_sphere(sphere, centre, radius) {
+            self.left_out(OUTSIDE_SPHERE, 1);
+            return false;
+        }
+        if outside_planes(planes, &corners) {
+            self.left_out(OUTSIDE_PLANES, 1);
+            return false;
+        }
+        true
     }
 
     /// The list's items for the candidates, counting each by the tag of the pass it will draw.

@@ -7,6 +7,7 @@ mod csharp;
 mod layers;
 mod metadata;
 mod policy;
+mod preflight;
 mod scratch;
 mod shards;
 mod source_size;

@@ -62,8 +62,8 @@ pub(in crate::draw) fn with_placements<R>(
         fade_eye: fade_eye.to_array().map(f32::to_bits),
         fade_cull_disabled,
     };
-    for (&(_, mesh, material), batch) in &instances.batches {
-        placement::refresh(&meshes[mesh], instances, material, batch);
+    placement::refresh_all(instances, meshes);
+    for batch in instances.batches.values() {
         batch.bounds.borrow_mut().prepare_levels(key);
     }
     let borrowed: Vec<(BatchKey, &InstanceBatch, Ref<'_, SlotBounds>)> = instances

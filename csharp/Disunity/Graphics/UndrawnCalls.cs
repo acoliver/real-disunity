@@ -19,6 +19,11 @@ internal static class UndrawnCalls
     /// </summary>
     public static void NoteFlushFailure(string reason) => WarnOnce("GPU flush: " + reason, $"{reason}; the call used the contents the CPU holds");
 
+    /// <summary>Logs the first time a texture is left out because the host cannot store its bytes; <paramref name="reason"/>
+    /// says why.</summary>
+    public static void NoteTextureUnstored(string name, string reason) =>
+        WarnOnce("texture unstored: " + name, $"texture '{name}' {reason}, so it is sent as no texture");
+
     private static void WarnOnce(string key, string message)
     {
         lock (Noted)

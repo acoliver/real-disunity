@@ -5,7 +5,9 @@
 //! sets the parts of the attachments it names. Each is one raster pass.
 
 use worldrunner_render_post::AttachmentLoad;
-use worldrunner_render_post::contracts::{ColorAttachment, DepthAttachment, RasterId, RasterPass};
+use worldrunner_render_post::contracts::{
+    AllocationKey, ColorAttachment, DepthAttachment, RasterId, RasterPass, TextureRange,
+};
 
 use crate::ids::TextureId;
 use crate::packet::{MAX_COLOR_ATTACHMENTS, TargetSignature};
@@ -19,6 +21,7 @@ use super::raster::{self, PassRaster};
 use super::steps::{
     CameraDraw, Globals, Look, Step, planned_draw, push_use, raster_id, require_render_texture,
 };
+use super::tracker::Imported;
 
 /// What a pass does with its attachments before it draws: the color and the depth to clear to,
 /// or `None` to keep what they hold.
@@ -132,6 +135,69 @@ pub(super) fn signature(
     })
 }
 
+/// A part of a texture a pass writes: the texture, the storage it is in and the levels and
+/// layers.
+pub(super) struct Written {
+    texture: TextureId,
+    key: AllocationKey,
+    range: TextureRange,
+}
+
+/// The mip a depth attachment writes: a depth buffer under a color texture is the one mip
+/// `usable` kept it for.
+fn depth_mip(imported: Imported, attachment: Attachment) -> u32 {
+    if imported.color.is_some() {
+        0
+    } else {
+        attachment.mip
+    }
+}
+
+/// What a pass over `target` writes, as `attachments_pass` writes it.
+pub(super) fn written(
+    svc: &mut Services<'_>,
+    target: &Attachments,
+) -> Result<Vec<Written>, OffscreenError> {
+    let cell = |texture, key, mip| Written {
+        texture,
+        key,
+        range: TextureRange::single(mip, 0, wgpu::TextureAspect::All),
+    };
+    let mut cells = Vec::new();
+    for attachment in &target.colors {
+        let (imported, _) = svc.import(attachment.texture)?;
+        if let Some(key) = imported.color {
+            cells.push(cell(attachment.texture, key, attachment.mip));
+        }
+    }
+    if let Some(attachment) = target.depth {
+        let (imported, _) = svc.import(attachment.texture)?;
+        if let Some(key) = imported.depth {
+            let mip = depth_mip(imported, attachment);
+            cells.push(cell(attachment.texture, key, mip));
+        }
+    }
+    Ok(cells)
+}
+
+/// `draw`, or the refusal naming the texture when it samples levels of a texture that its pass
+/// writes. The contract refuses such a pass whole, so the draw is left out where it is planned.
+pub(super) fn refuse_feedback(
+    draw: CameraDraw,
+    written: &[Written],
+) -> Result<CameraDraw, OffscreenError> {
+    for usage in &draw.plan.texture_uses {
+        let view = &usage.view;
+        let looped = written
+            .iter()
+            .find(|cell| cell.key == view.allocation() && cell.range.overlaps(view.range()));
+        if let Some(cell) = looped {
+            return Err(OffscreenError::FeedbackLoop(cell.texture));
+        }
+    }
+    Ok(draw)
+}
+
 /// The texture a list's counts are kept under: its color, or its depth when it has no color.
 fn primary(target: &Attachments) -> Option<TextureId> {
     target
@@ -213,12 +279,7 @@ fn depth_attachment(
     let Some(key) = imported.depth else {
         return Ok(None);
     };
-    // A depth buffer under a color texture is the one mip `usable` kept it for.
-    let mip = if imported.color.is_some() {
-        0
-    } else {
-        attachment.mip
-    };
+    let mip = depth_mip(imported, attachment);
     let (before, after) = svc.tracker.write(key, mip, 0);
     let view = svc
         .tracker
@@ -299,6 +360,7 @@ fn list_draws(
     globals: Globals<'_>,
     list: &DrawList,
     (signature, raster): (TargetSignature, PassRaster),
+    cells: &[Written],
 ) -> Result<Vec<CameraDraw>, OffscreenError> {
     let mut draws = Vec::new();
     for item in &list.draws {
@@ -322,6 +384,7 @@ fn list_draws(
             front_face: list.front_face,
             globals,
             signature,
+            written: cells,
         };
         if let Some(mut draw) =
             planned_draw(svc, frame, &look, (material, item.renderer, item.slot))?
@@ -346,13 +409,15 @@ pub(super) fn list_step(
     let target = usable(svc, list.target.clone())?;
     let signature = signature(svc, &target)?;
     let size = target_size(svc, &target)?;
-    let (unmatched, missing_texture, missing_channel) = (
+    let cells = written(svc, &target)?;
+    let (unmatched, missing_texture, missing_channel, feedback_loop) = (
         svc.counts.unmatched,
         svc.counts.missing_texture,
         svc.counts.missing_channel,
+        svc.counts.feedback_loop,
     );
     let draws = match raster::resolve(&list.raster, size, svc.reversed_depth) {
-        Some(raster) => list_draws(svc, frame, globals, list, (signature, raster))?,
+        Some(raster) => list_draws(svc, frame, globals, list, (signature, raster), &cells)?,
         None => Vec::new(),
     };
     svc.counts.current = super::CameraCauses::default();
@@ -363,6 +428,7 @@ pub(super) fn list_step(
             unmatched: svc.counts.unmatched - unmatched,
             missing_texture: svc.counts.missing_texture - missing_texture,
             missing_channel: svc.counts.missing_channel - missing_channel,
+            feedback_loop: svc.counts.feedback_loop - feedback_loop,
         });
     }
     let loads = Loads {

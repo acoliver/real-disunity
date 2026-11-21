@@ -33,9 +33,17 @@
 //! [`GamePassSpec::reading_snapshots`]. [`GameFeatureFactory::snapshot_reads`] reserves them and
 //! [`FrameSnapshotHandle`] lends them to the frame that wrote them.
 //!
+//! A pass that draws over the finished scene colour, as blended particles do, is placed at
+//! [`GamePlace::BeforePost`], after every other writer of the colour and before the post chain
+//! reads it, and blends with the colour states it gives
+//! [`PassTarget::render_state_with`]. With [`DepthAccess::ReadOnlySampled`] it tests the frame's
+//! depth and samples the same depth in that pass ([`PassTarget::sampled_depth`]).
+//!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
+//! [`GamePlace::BeforePost`]: worldrunner_render_post::GamePlace::BeforePost
 mod camera;
+mod compute;
 mod declared_textures;
 mod engine;
 mod environment;
@@ -55,6 +63,7 @@ mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use compute::GameComputeSpec;
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub(crate) use engine::SceneSources;
 pub use engine::{
@@ -82,8 +91,8 @@ pub use scene_textures::{
 };
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub use snapshots::{
-    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
-    SnapshotStatistics,
+    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, PostWaterDepth, SnapshotImage,
+    SnapshotReads, SnapshotStatistics,
 };
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
@@ -128,5 +137,7 @@ impl super::FrameRenderer {
 
 #[cfg(test)]
 mod frame_start_tests;
+#[cfg(test)]
+mod inputs_tests;
 #[cfg(test)]
 mod tests;

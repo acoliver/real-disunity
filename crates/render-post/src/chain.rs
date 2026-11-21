@@ -1,63 +1,10 @@
 mod frozen;
 #[path = "geometry_prefix.rs"]
 mod geometry_prefix;
-
-use wgpu::util::DeviceExt;
+mod resources;
 
 use crate::{FrameConfig, FrameTargets, PostError};
-
-/// Opaque caller-authored ABI. The chain allocates these once; resize never resets history.
-#[derive(Clone, Debug)]
-pub struct BufferSpec<'a> {
-    pub label: &'a str,
-    pub size: u64,
-    pub usage: wgpu::BufferUsages,
-    pub initial: &'a [u8],
-}
-
-/// Explicit owner for fixed history/config buffers and stage-local sized allocations.
-#[derive(Default, Debug)]
-pub struct Resources {
-    pub buffers: Vec<wgpu::Buffer>,
-    pub textures: Vec<wgpu::Texture>,
-}
-
-impl Resources {
-    pub fn new(device: &wgpu::Device, specs: &[BufferSpec<'_>]) -> Result<Self, PostError> {
-        let mut resources = Self::default();
-        for spec in specs {
-            if spec.size == 0
-                || spec.size > device.limits().max_buffer_size
-                || u64::try_from(spec.initial.len()).unwrap_or(u64::MAX) > spec.size
-                || spec.size % wgpu::COPY_BUFFER_ALIGNMENT != 0
-            {
-                return Err(PostError::BufferSize(spec.size));
-            }
-            let buffer = if spec.initial.is_empty() {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(spec.label),
-                    size: spec.size,
-                    usage: spec.usage,
-                    mapped_at_creation: false,
-                })
-            } else {
-                let mut bytes = vec![
-                    0;
-                    usize::try_from(spec.size)
-                        .map_err(|_| PostError::BufferSize(spec.size))?
-                ];
-                bytes[..spec.initial.len()].copy_from_slice(spec.initial);
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(spec.label),
-                    contents: &bytes,
-                    usage: spec.usage,
-                })
-            };
-            resources.buffers.push(buffer);
-        }
-        Ok(resources)
-    }
-}
+pub use resources::{BufferSpec, Resources};
 
 #[path = "chain_stage.rs"]
 mod stage;
@@ -531,14 +478,20 @@ impl<F: StageFactory> PostChain<F> {
         }
     }
 
+    /// Prepares every feature of the frame and records what they staged for the frame's
+    /// preparation, returning what they staged for its compute passes.
     fn prepare_features(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
-        (plan, raster): (&crate::FramePlan<'_>, &crate::contracts::StockRaster),
+        (plan, raster, declarations): (
+            &crate::FramePlan<'_>,
+            &crate::contracts::StockRaster,
+            &[crate::FeatureDeclaration],
+        ),
         completed: &[crate::PassEntry],
-    ) -> Result<(), crate::FrameError> {
+    ) -> Result<crate::frame::ComputeStaging, crate::FrameError> {
         let replacements = self
             .features
             .iter()
@@ -563,6 +516,7 @@ impl<F: StageFactory> PostChain<F> {
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
         context.open_preparation_of(plan, completed);
+        context.open_compute_passes(declarations);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
@@ -584,8 +538,9 @@ impl<F: StageFactory> PostChain<F> {
                 .expect("validated feature build")
                 .commit(&mut context);
         }
+        let compute = context.take_compute_passes();
         self.upload_slots[self.frame_slot] = context.finish_preparation()?;
-        Ok(())
+        Ok(compute)
     }
 
     /// Encode a complete borrowed subplan without invoking retained frame features, apart from
@@ -652,7 +607,13 @@ impl<F: StageFactory> PostChain<F> {
             .unwrap_or(&mut local_registry);
         let raster =
             crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, (plan, &raster), &completed)?;
+        let compute = self.prepare_features(
+            device,
+            encoder,
+            borrowed,
+            (plan, &raster, declarations),
+            &completed,
+        )?;
         let timing = self.timing_state();
         let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {
@@ -661,8 +622,14 @@ impl<F: StageFactory> PostChain<F> {
                 continue;
             }
             groups.encode_before(index, &timing, encoder)?;
-            let context = crate::DrawContext::new(entry);
             let stamp = self.stamp(crate::PassId::Geometry(entry));
+            if declaration.compute.is_some() {
+                raster.encode_stock_compute(index, entry, encoder, stamp.as_ref(), |pass| {
+                    compute.record(entry, pass)
+                })?;
+                continue;
+            }
+            let context = crate::DrawContext::new(entry);
             raster.encode_stock_pass(index, entry, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature

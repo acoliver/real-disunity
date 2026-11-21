@@ -6,14 +6,14 @@ internal static class AbiRevisionTests
     internal static void Run()
     {
         Expect.That(!DisunityHost.IsLoaded, "ABI verification precedes world creation");
-        Expect.That(NativeAbi.Version == 21, "current ABI revision");
-        NativeAbi.VerifyRevision(21);
-        foreach (var actual in new uint[] { 19, 20 })
+        Expect.That(NativeAbi.Version == 22, "current ABI revision");
+        NativeAbi.VerifyRevision(22);
+        foreach (var actual in new uint[] { 21, 23 })
         {
             var error = Expect.Catch<DisunityAbiRevisionException>(
                 () => NativeAbi.VerifyRevision(actual), "mismatched native revision");
-            Expect.That(error.Message == $"ABI revision mismatch: expected 21, actual {actual}", "expected and actual ABI diagnostic");
-            Expect.That(error.Expected == 21, "expected revision field");
+            Expect.That(error.Message == $"ABI revision mismatch: expected 22, actual {actual}", "expected and actual ABI diagnostic");
+            Expect.That(error.Expected == 22, "expected revision field");
             Expect.That(error.Actual == actual, "actual revision field");
             Expect.That(!DisunityHost.IsLoaded, "mismatched revision creates no world");
         }

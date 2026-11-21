@@ -3,13 +3,19 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod compute;
 mod error;
 mod finish;
 mod frozen;
 mod game;
 mod operations;
+#[cfg(test)]
+mod prefix_participant_tests;
 mod prepare;
 mod prepared;
+mod registered;
+pub(crate) use compute::ComputeStaging;
+pub use compute::{ComputeDeclaration, StorageWrite};
 pub use error::FrameError;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
@@ -20,6 +26,7 @@ use prepare::Staged;
 pub use prepared::{
     PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
 };
+pub(crate) use registered::RegisteredFeature;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
@@ -143,6 +150,11 @@ pub struct PassDeclaration {
     /// Additional indexed color outputs after location zero.
     pub additional_colors: Vec<AttachmentDeclaration>,
     pub depth: Option<AttachmentDeclaration>,
+    /// Present for a compute pass: an entry with no attachments where the frame records, in one
+    /// compute pass, the work its features stage for it with
+    /// [`PrepareContext::record_in_compute_pass`], and which writes the subresources the
+    /// declaration names through storage images.
+    pub compute: Option<ComputeDeclaration>,
 }
 impl PassDeclaration {
     pub const fn new(slot: PassSlot) -> Self {
@@ -155,6 +167,7 @@ impl PassDeclaration {
             color: None,
             additional_colors: Vec::new(),
             depth: None,
+            compute: None,
         }
     }
     pub const fn entry(&self) -> PassEntry {
@@ -297,6 +310,10 @@ pub(crate) fn validate_frame_inputs(
     for (index, pass) in passes.iter().enumerate() {
         outputs.refuse_writes(pass)?;
         produced.extend(outputs.left_before(index));
+        if let Some(compute) = &pass.compute {
+            compute::validate_compute_pass(pass, compute, features, &mut produced)?;
+            continue;
+        }
         let attachments: Vec<_> = pass
             .color
             .iter()
@@ -395,13 +412,7 @@ fn validate_attachments(
             return Err(FrameError::AttachmentContract(pass.entry()));
         }
         if produced.contains_key(&attachment.resource)
-            && matches!(
-                attachment.resource.name,
-                "opaque snapshot color"
-                    | "opaque snapshot depth"
-                    | "opaque snapshot device depth"
-                    | "post-water depth"
-            )
+            && WRITTEN_ONCE.contains(&attachment.resource.name)
         {
             return Err(FrameError::AttachmentHazard(attachment.resource));
         }
@@ -419,6 +430,14 @@ fn validate_attachments(
     }
     Ok(())
 }
+/// Stock products a frame writes once: no pass may write them again after their writer.
+const WRITTEN_ONCE: [&str; 4] = [
+    "opaque snapshot color",
+    "opaque snapshot depth",
+    "opaque snapshot device depth",
+    "post-water depth",
+];
+
 fn validate_attachment_shapes(
     pass: &PassDeclaration,
     attachments: &[&AttachmentDeclaration],
@@ -536,27 +555,6 @@ pub trait PreparedFeature {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeatureId(pub(crate) usize);
-
-pub(crate) struct RegisteredFeature {
-    pub declaration: FeatureDeclaration,
-    pub prepared: Option<Box<dyn PreparedFeature>>,
-    pub source: Box<dyn FrameFeature>,
-    /// Takes part in geometry prefixes as well as in the frames that complete them.
-    pub prefix: bool,
-}
-
-impl RegisteredFeature {
-    /// Whether a geometry prefix already drew everything this prefix participant declares, so
-    /// the frame that completes the prefix neither prepares nor draws it again.
-    pub(crate) fn completed_in(&self, completed: &[PassEntry]) -> bool {
-        self.prefix
-            && self
-                .declaration
-                .passes
-                .iter()
-                .all(|pass| completed.contains(&pass.entry()))
-    }
-}
 
 /// Borrowed features use the same prepare/draw boundary as retained registrations.
 /// This lets a resident scene keep its existing exclusive handle-editing API.
@@ -719,7 +717,7 @@ pub(crate) fn validate_views(
             return Err(FrameError::AttachmentView(attachment.resource));
         }
     }
-    Ok(())
+    compute::validate_storage_views(passes, views)
 }
 
 /// Complete borrowed geometry contract, validated before feature preparation.

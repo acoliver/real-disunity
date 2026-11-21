@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::{Publications, capture::WriteKey};
-use worldrunner_render_post::{AttachmentView, FrameError, PostError, PrepareContext, ResourceRef};
+use worldrunner_render_post::{
+    AttachmentView, FrameError, PassDeclaration, PostError, PrepareContext, ResourceRef,
+};
 
 /// How large a declared target is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -514,8 +516,8 @@ impl TargetStore {
 
     /// What the frame being prepared leaves in the persistent targets of this store, by exact
     /// backing: for each mip of each layer, whether the last write stored its contents. The
-    /// frame's prepared writes come first and always store; an attachment that writes the
-    /// subresource later decides.
+    /// frame's prepared writes come first and always store; an attachment or a compute pass's
+    /// storage write of the subresource later decides.
     /// A stock attachment that shares a target's name is another texture and counts for nothing.
     pub(super) fn frame_effects(&self, context: &PrepareContext<'_>) -> Vec<FrameEffect> {
         let mut last = BTreeMap::new();
@@ -525,25 +527,13 @@ impl TargetStore {
                 last.insert((index, resource.layer, resource.mip), true);
             }
         }
-        for attachment in context
-            .passes()
-            .iter()
-            .flat_map(|pass| {
-                pass.color
-                    .iter()
-                    .chain(&pass.additional_colors)
-                    .chain(&pass.depth)
-            })
-            .filter(|attachment| !attachment.read_only)
-        {
-            let Ok(view) = context.resource(attachment.resource) else {
+        for (resource, stored) in context.passes().iter().flat_map(PassDeclaration::written) {
+            let Ok(view) = context.resource(resource) else {
                 continue;
             };
             let Some(index) = self.persistent_index(view.texture()) else {
                 continue;
             };
-            let stored = attachment.store == wgpu::StoreOp::Store;
-            let resource = attachment.resource;
             last.insert((index, resource.layer, resource.mip), stored);
         }
         let mut effects: Vec<FrameEffect> = Vec::new();

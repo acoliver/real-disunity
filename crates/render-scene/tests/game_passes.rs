@@ -3,10 +3,16 @@
 //! over a synthetic unlit scene on lavapipe, with the game's passes on compiled program draws.
 #[path = "game_passes/accounting.rs"]
 mod accounting;
+#[path = "game_passes/before_post.rs"]
+mod before_post;
 #[path = "game_passes/common.rs"]
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/compute.rs"]
+mod compute;
+#[path = "game_passes/environment.rs"]
+mod environment;
 #[path = "game_passes/fixture.rs"]
 mod fixture;
 #[path = "game_passes/layers.rs"]
@@ -31,8 +37,14 @@ mod lighting;
 mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/post_water_depth.rs"]
+mod post_water_depth;
+#[path = "game_passes/post_water_game.rs"]
+mod post_water_game;
 #[path = "game_passes/prefix.rs"]
 mod prefix;
+#[path = "game_passes/prefix_idle.rs"]
+mod prefix_idle;
 #[path = "game_passes/prefix_loads.rs"]
 mod prefix_loads;
 #[path = "game_passes/prefix_state.rs"]

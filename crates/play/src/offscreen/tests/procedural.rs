@@ -3,7 +3,8 @@
 //!
 //! The synthetic vertex stage reads no vertex input. Vertex `v` is a corner of one of two
 //! full-height rectangles, `[-1, 0]` for `v < 6` and `[0, 1]` for the next six, moved right by
-//! one for each instance, then placed by the draw's `unity_ObjectToWorld` and `unity_MatrixVP`.
+//! one for each instance, then placed by the draw's `unity_ObjectToWorld` and `unity_MatrixVP`
+//! with clip Y negated, as every compiled player stage does.
 //! Pass 0 writes the material's `_Tint`, pass 1 writes element 1 of the global array `_Colors`.
 //! The target is `SIDE` (4) texels square and cleared to green, so columns 0 and 1 are the left
 //! rectangle and columns 2 and 3 the right one. Every expected texel follows from those
@@ -48,7 +49,9 @@ fn corner(v: u32) -> vec2<f32> {
 @vertex fn vs_main(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32)
     -> @builtin(position) vec4<f32> {
     let p = corner(v) + vec2<f32>(f32(i), 0.0);
-    return draw.view_projection * (draw.object_to_world * vec4<f32>(p, 0.0, 1.0));
+    var clip = draw.view_projection * (draw.object_to_world * vec4<f32>(p, 0.0, 1.0));
+    clip.y = -clip.y;
+    return clip;
 }
 @fragment fn fs_tint() -> @location(0) vec4<f32> { return material.tint; }
 @fragment fn fs_array() -> @location(0) vec4<f32> { return material.colors[1]; }";

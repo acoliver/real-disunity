@@ -59,6 +59,8 @@ pub struct PrepareContext<'a> {
     pub(super) preparing: bool,
     /// The views the staged prepared commands write, in staging order.
     pub(super) prepared_written: Vec<ResourceRef>,
+    /// The compute passes the frame records and the work staged for each.
+    pub(super) compute: super::ComputeStaging,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -76,6 +78,7 @@ impl<'a> PrepareContext<'a> {
             completed: Vec::new(),
             preparing: false,
             prepared_written: Vec::new(),
+            compute: super::ComputeStaging::default(),
         })
     }
     /// Whether a validated geometry prefix already encoded this entry in the same frame.

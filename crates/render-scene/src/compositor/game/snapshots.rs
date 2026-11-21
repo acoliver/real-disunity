@@ -6,11 +6,20 @@
 //! through [`FrameSnapshotHandle`], which is how a forward pass draws refraction or depth fade
 //! over the opaque scene without owning a copy of it.
 //!
+//! The frame also writes the depth after the water and the other transparent passes, the
+//! post-water depth. A game pass placed at [`GamePlace::AfterTransparent`] samples it, which is how
+//! a pass that follows the transparent passes finds the frame's final depth, including the depth
+//! a game pass wrote at `AfterOpaqueSnapshots`, without owning a copy of it. The frame plans it
+//! for such a pass even when the stock passes draw no water.
+//!
+//! [`GamePlace::AfterTransparent`]: worldrunner_render_post::GamePlace::AfterTransparent
 //! [`GamePlace::AfterOpaque`]: worldrunner_render_post::GamePlace::AfterOpaque
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 use crate::compositor::FrameRenderer;
 use crate::water::planning::SnapshotRequest;
-use crate::water::snapshots::{COLOR, DEVICE_DEPTH, LINEAR_DEPTH};
+use crate::water::snapshots::{
+    COLOR, DEVICE_DEPTH, LINEAR_DEPTH, POST_WATER_DEPTH, POST_WATER_DEVICE_DEPTH,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 use worldrunner_render_gpu::submission::Publications;
@@ -34,6 +43,39 @@ pub struct SnapshotReads {
     /// The opaque scene's device depth, [`wgpu::TextureFormat::R32Float`], at the frame's extent.
     /// It implies the linear depth, which the same pass writes.
     pub device_depth: bool,
+    /// The frame's depth after the stock water and every other pass before the game's
+    /// [`GamePlace::AfterTransparent`] passes, and which forms of it are read. Only a pass
+    /// placed at `AfterTransparent` can read it. It is the frame's own depth buffer at that
+    /// point, so it holds the depth a game pass wrote at `AfterOpaqueSnapshots` and the depth the
+    /// stock water wrote when it draws.
+    ///
+    /// [`GamePlace::AfterTransparent`]: worldrunner_render_post::GamePlace::AfterTransparent
+    pub post_water_depth: PostWaterDepth,
+}
+
+/// Which forms of the post-water depth a game reads. The stock product is linear metres only; the
+/// device depth is a companion that the same pass writes, so it implies the linear depth.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PostWaterDepth {
+    /// Neither form.
+    #[default]
+    Unread,
+    /// Positive view-space metres, [`wgpu::TextureFormat::R32Float`], at the frame's extent.
+    Linear,
+    /// The metres and the depth buffer's own values, [`wgpu::TextureFormat::R32Float`], at the
+    /// frame's extent.
+    LinearAndDevice,
+}
+
+impl PostWaterDepth {
+    /// The resources a pass declares to read these forms.
+    fn resources(self) -> Vec<&'static str> {
+        match self {
+            Self::Unread => Vec::new(),
+            Self::Linear => vec![POST_WATER_DEPTH],
+            Self::LinearAndDevice => vec![POST_WATER_DEPTH, POST_WATER_DEVICE_DEPTH],
+        }
+    }
 }
 
 impl SnapshotReads {
@@ -41,16 +83,21 @@ impl SnapshotReads {
         color: false,
         linear_depth: false,
         device_depth: false,
+        post_water_depth: PostWaterDepth::Unread,
     };
     pub const ALL: Self = Self {
         color: true,
         linear_depth: true,
         device_depth: true,
+        post_water_depth: PostWaterDepth::LinearAndDevice,
     };
 
     #[must_use]
     pub const fn any(self) -> bool {
-        self.color || self.linear_depth || self.device_depth
+        self.color
+            || self.linear_depth
+            || self.device_depth
+            || !matches!(self.post_water_depth, PostWaterDepth::Unread)
     }
 
     /// Whether every snapshot `other` reads is read here too.
@@ -59,6 +106,7 @@ impl SnapshotReads {
         (self.color || !other.color)
             && (self.linear_depth || !other.linear_depth)
             && (self.device_depth || !other.device_depth)
+            && self.post_water_depth as u8 >= other.post_water_depth as u8
     }
 
     #[must_use]
@@ -67,6 +115,11 @@ impl SnapshotReads {
             color: self.color || other.color,
             linear_depth: self.linear_depth || other.linear_depth,
             device_depth: self.device_depth || other.device_depth,
+            post_water_depth: if self.post_water_depth as u8 >= other.post_water_depth as u8 {
+                self.post_water_depth
+            } else {
+                other.post_water_depth
+            },
         }
     }
 
@@ -79,7 +132,9 @@ impl SnapshotReads {
         ]
         .into_iter()
         .filter(|(read, _)| *read)
-        .map(|(_, name)| ResourceRef::new(name))
+        .map(|(_, name)| name)
+        .chain(self.post_water_depth.resources())
+        .map(ResourceRef::new)
         .collect()
     }
 }
@@ -123,12 +178,25 @@ pub struct FrameSnapshots {
     /// `1.0` is the far plane and the cleared value, and a surface is nearer when its value is
     /// smaller. A multisampled frame keeps the smallest sample, the nearest, of each pixel.
     pub device_depth: Option<SnapshotImage>,
+    /// Positive view-space metres of the frame's depth after the stock water and every pass
+    /// before [`AfterTransparent`](worldrunner_render_post::GamePlace::AfterTransparent), from the
+    /// nearest sample of each pixel. It includes the depth a game pass wrote at
+    /// `AfterOpaqueSnapshots` and the depth the stock water wrote, if it draws. Only a pass at
+    /// `AfterTransparent` can read it.
+    pub post_water_depth: Option<SnapshotImage>,
+    /// The depth buffer's own values at the same point, in the convention of
+    /// [`device_depth`](Self::device_depth).
+    pub post_water_device_depth: Option<SnapshotImage>,
 }
 
 impl FrameSnapshots {
     /// Whether the frame wrote any snapshot.
     pub(crate) const fn any(&self) -> bool {
-        self.color.is_some() || self.linear_depth.is_some() || self.device_depth.is_some()
+        self.color.is_some()
+            || self.linear_depth.is_some()
+            || self.device_depth.is_some()
+            || self.post_water_depth.is_some()
+            || self.post_water_device_depth.is_some()
     }
 }
 
@@ -209,11 +277,14 @@ pub struct SnapshotStatistics {
     pub slots: usize,
     /// Frame slots that also own the device depth snapshot, which only a game that reads it adds.
     pub device_depth_slots: usize,
+    /// Frame slots that also own the post-water device depth, which only a game that reads it
+    /// adds.
+    pub post_water_device_depth_slots: usize,
 }
 
 impl FrameRenderer {
     /// Allocates the snapshots the game's factories declared they read, in every frame slot, and
-    /// gives the slots the device depth copy when a factory reads it. It does nothing for a
+    /// gives the slots the device depth copies when a factory reads them. It does nothing for a
     /// renderer whose game reads none, so such a renderer allocates no snapshot of its own.
     pub(crate) fn ensure_game_snapshots(&mut self, device: &wgpu::Device) {
         let reads = self.game.snapshot_reads;
@@ -224,9 +295,10 @@ impl FrameRenderer {
         let slots = self.snapshots.get_or_insert_with(|| {
             std::array::from_fn(|_| crate::water::snapshots::Snapshots::new(device, config))
         });
-        if reads.device_depth {
-            for slot in slots.iter_mut().filter(|slot| slot.device_depth.is_none()) {
-                *slot = slot.with_device_depth(device);
+        let post_water_device = reads.post_water_depth == PostWaterDepth::LinearAndDevice;
+        if reads.device_depth || post_water_device {
+            for slot in slots.iter_mut() {
+                *slot = slot.with_device_depths(device, reads.device_depth, post_water_device);
             }
         }
     }
@@ -245,7 +317,15 @@ impl FrameRenderer {
             device_depth: bank
                 .device_depth
                 .as_ref()
-                .filter(|_| request.device_depth)
+                .filter(|_| request.device.opaque)
+                .map(|depth| SnapshotImage::of(&depth.texture)),
+            post_water_depth: request
+                .final_depth
+                .then(|| SnapshotImage::of(&bank.final_depth)),
+            post_water_device_depth: bank
+                .final_device_depth
+                .as_ref()
+                .filter(|_| request.device.post_water)
                 .map(|depth| SnapshotImage::of(&depth.texture)),
         };
         if lent.any() {
@@ -262,6 +342,10 @@ impl FrameRenderer {
                 device_depth_slots: slots
                     .iter()
                     .filter(|slot| slot.device_depth.is_some())
+                    .count(),
+                post_water_device_depth_slots: slots
+                    .iter()
+                    .filter(|slot| slot.final_device_depth.is_some())
                     .count(),
             })
     }

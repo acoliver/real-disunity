@@ -4,7 +4,7 @@
 
 - Lua's base library without `dofile` and `loadfile`, and the standard `string`, `table`, `math` and `utf8` libraries. There is no `os`, `io`, `debug` or `package`, so scripts have no filesystem and no wall clock.
 - Source text only. `load` and every module compile text chunks and refuse precompiled bytecode, because Lua does not verify bytecode and a crafted chunk could corrupt the interpreter.
-- The `worldrunner.*` modules the game installs, such as `worldrunner.world` and `worldrunner.assets`, and seeded random streams from `worldrunner.random.stream(name)`.
+- The `worldrunner.*` modules the host installs, such as `worldrunner.world` (`ScriptHost::install_world_api`), and seeded random streams from `worldrunner.random.stream(name)`.
 - `require`, which resolves only modules registered with the host.
 
 Every hook fire runs under an instruction budget (`ScriptConfig::instruction_budget`). A script that exceeds it is halted with `ScriptError::BudgetExceeded`, so a runaway loop cannot hang a frame. The budget counts instructions, and a single `string.rep` can allocate gigabytes in one, so memory has its own limit: 256 MiB by default (`DEFAULT_MEMORY_LIMIT`), changed with `ScriptHost::set_memory_limit`. An allocation past it fails with a Lua memory error, which reaches the host as `ScriptError::Memory` unless the script catches it.
@@ -74,16 +74,19 @@ another runtime's epoch or restore behavior across machine restarts.
 Original engines run game logic in coroutines that sleep on the game clock. `GameScripts` has one scheduler, and the game binds its functions under the names its original engine used, as natives granted like any other:
 
 ```rust
-use worldrunner_script::SchedulerNames;
+use worldrunner_script::{SchedulerNames, SchedulerPolicy};
 
-scripts.register_scheduler(&SchedulerNames {
-    spawn: "CreateGameTimeThread".into(),
-    sleep: "Sleep".into(),
-    wakeup: "Wakeup".into(),
-    kill: "DeleteThread".into(),
-    current: "CurrentThread".into(),
-    now: "GameTime".into(),
-})?;
+scripts.register_scheduler(
+    &SchedulerNames {
+        spawn: "CreateGameTimeThread".into(),
+        sleep: "Sleep".into(),
+        wakeup: "Wakeup".into(),
+        kill: "DeleteThread".into(),
+        current: "CurrentThread".into(),
+        now: "GameTime".into(),
+    },
+    &SchedulerPolicy::default(),
+)?;
 // After sources are added and scripts run, once per game tick:
 let failures = scripts.advance(tick_ms)?;
 ```
@@ -107,7 +110,7 @@ Each clock owns a `u32` pause mask, initially zero. `GameScripts::clock_pause_ma
 let failures = scripts.advance_clock("real", tick_ms)?;
 ```
 
-`register_scheduler_with(&names, &policy)` selects the semantics of a game's original engine with a `SchedulerPolicy`. The default policy is the behavior above. A policy sets:
+The `SchedulerPolicy` given to `register_scheduler` selects the semantics of a game's original engine. The default policy is the behavior above. A policy sets:
 
 | Setting | Default | Alternative |
 | --- | --- | --- |
@@ -128,14 +131,14 @@ A policy can also bind natives that let a game's Lua use the state the scheduler
 | `thread_flags.get` | `get(thread)` | The thread's flags, nil for a value that is not a scheduler thread |
 | `thread_flags.set` | `set(thread, flags)` | Adds the bits of `flags` to the thread's flags (`flags \|= bits`), as the original `ThreadSetFlags` does. `GameScripts::set_thread_flags` replaces them. Ignored for a value that is not a scheduler thread |
 | `thread_flags.has` | `has(thread, mask)` | True when the thread carries every bit of `mask`; false for a value that is not a scheduler thread |
-| `set_source` | `set_source(thread, name)` | Tags the thread with the game's source name. `persisted` and `save_with` return and keep it |
+| `set_source` | `set_source(thread, name)` | Tags the thread with the game's source name. `persisted` and `save` return and keep it |
 | `clock_of` | `clock_of(thread)` | The name of the thread's clock, nil for a value that is not a scheduler thread. A game defines `IsGameTimeThread` and `IsRealTimeThread` over it |
 | `set_clock` | `set_clock(ms)` for a named clock | Sets the clock to `ms`; nil and negative times are 0. Threads already waiting keep their wake times, so moving the clock back makes them wait longer and moving it ahead makes them due at once. Inside an advance a clock set back is moved forward again as the advance continues, unless the advance is interrupted |
 | `interrupt` | `interrupt()` | Ends the advance in progress once the running thread yields. The clocks stay at the time of that thread and the threads still due stay due for the next `advance`. Called outside an advance it does nothing |
 
 `GameScripts::threads()` lists every live scheduler thread in the order the threads were created, for a host's tools and tests. Each `ThreadInfo` has the Lua `thread`, its `clock` name, `flags`, `source`, `wait`, `due` and creation `order`. `wait` is `Deferred` (created or sleeping for zero, released at the next ordinary advance or selected-clock step for its clock), `Ready` (due now: not run yet, or a wake made it due), `Sleep`, or `Wait(native)` for the wait kind named by its native. `due` is the wake time in milliseconds on the thread's own clock, and `None` for a thread that waits without a timeout. Finished, failed and killed threads are not listed.
 
-Flags set from Lua are what `GameScripts::persisted(mask)` and `SaveOptions::persisted` select, so a game marks the threads it wants saved after it creates them. These natives are policy settings, so `register_scheduler_with` registers them together with the rest of the scheduler, before the first `add_source`, as natives always are. The game grants them to its sources by name like any other native; no separate hook is needed.
+Flags set from Lua are what `GameScripts::persisted(mask)` and `SaveOptions::persisted` select, so a game marks the threads it wants saved after it creates them. These natives are policy settings, so `register_scheduler` registers them together with the rest of the scheduler, before the first `add_source`, as natives always are. The game grants them to its sources by name like any other native; no separate hook is needed.
 
 A save refuses threads on clocks other than the first and threads in waits until restored threads can be adopted (#147).
 
@@ -145,7 +148,7 @@ A game saves its Lua data with `save` and restores it, into a fresh `GameScripts
 
 ```rust
 // Save the tables at these global paths. Everything under `Classes` is code.
-let snapshot = scripts.save(&["GameState", "Score"], &["Classes"])?;
+let snapshot = scripts.save(&["GameState", "Score"], &["Classes"], &SaveOptions::default())?;
 let bytes = serde_json::to_vec(&snapshot)?;
 
 // Later, in a new state that has registered the same natives and run the game's scripts:
@@ -155,15 +158,14 @@ scripts.restore(&snapshot, &["Classes"])?;
 
 - **Data is copied, with its shape.** Tables shared by reference stay shared, cycles survive, metatables are kept, integers stay integers and floats stay floats, including NaN and infinities, and strings keep their exact bytes.
 - **Code is saved by name.** Natives, and every function and table reachable through string keys from the permanent roots the game names, are permanents. A snapshot stores only their names, such as `Classes.Unit.Hit`, and `restore` looks each name up in the current state. A restored save therefore runs the game's current code. A name that no longer exists fails the restore and is reported.
-- **Scheduler threads continue where they stopped:** the saved roots and every scheduler thread that has run are saved as one graph through [lua-resume](https://github.com/acoliver/lua-resume): each frame's function, call site, locals and varargs, and the closures and upvalues they hold. A table, closure, upvalue cell or coroutine that two threads, or a thread and a saved root, both hold is saved once and stays shared after a restore. A restored thread continues in the middle of its function, inside nested calls and loops, at its saved wake time, including threads spawned from anonymous functions. A thread that has not run yet is saved as the function it was spawned with, which may be a closure, and its arguments; values that hold the thread refer to it. A coroutine that a thread or the data holds is saved where it stopped. Finished coroutines restore as finished. A restore also reads snapshots saved before the graph, in which threads start their function again.
-- **How loading supports this:** every text chunk the scripts compile (`run`, `run_patched` after its overlays, and the sandbox's `load`) is compiled once by Lua to learn its table-store decisions, rewritten by lua-resume so each call a thread can stop in is visible, and loaded from the rewritten text under the original chunk name. The tree of each chunk is kept by name, because a restore generates its continuations from the game's own source and a save holds no code. A chunk the rewrite refuses fails to load and the error names the chunk and the reason; `load` returns `nil` and that message. `GameScripts::strip_debug_calls(true)` also removes statement-level `assert(...)` and `dbg(...)` calls from chunks loaded afterwards, for games whose saves came from a build without them.
-- **Loader options:** a host sets these before it loads chunks, and each default keeps the behavior described above.
-  - `set_division(DivisionSemantics::IntegerTruncating)` gives games written for a Lua 5.3 build that divides two integers as integers the same result. Two integers give the quotient truncated toward zero, a zero integer divisor raises a Lua error, and other operands divide as stock Lua does. It applies to every text chunk, including `load`, `eval_json` and the continuations a restore generates, and must be set before any chunk loads. The function scripts reach through it is the global `__lr_div`.
-  - `set_refused_chunks(RefusedChunks::LoadPlain)` loads a chunk the rewrite refuses as plain text instead of failing. `plain_chunks()` lists those chunks by name with the reason, because a thread running their code cannot be saved. A chunk that does not parse never loads plain.
-  - Loading a different text under a chunk name already used is an error, because the kept tree is what a restore reads. `set_name_collisions(NameCollisions::LoadPlain)` loads the new text plain and records it in `plain_chunks()`, leaving the first tree in place.
+- **Scheduler threads continue where they stopped:** the saved roots and every scheduler thread that has run are saved as one graph through [lua-resume](https://github.com/acoliver/lua-resume): each frame's function, call site, locals and varargs, and the closures and upvalues they hold. A table, closure, upvalue cell or coroutine that two threads, or a thread and a saved root, both hold is saved once and stays shared after a restore. A restored thread continues in the middle of its function, inside nested calls and loops, at its saved wake time, including threads spawned from anonymous functions. A thread that has not run yet is saved as the function it was spawned with, which may be a closure, and its arguments; values that hold the thread refer to it. A coroutine that a thread or the data holds is saved where it stopped. Finished coroutines restore as finished.
+- **How loading supports this:** every text chunk the scripts compile (`run`, `run_patched` after its overlays, and the sandbox's `load`) is compiled once by Lua to learn its table-store decisions, rewritten by lua-resume so each call a thread can stop in is visible, and loaded from the rewritten text under the original chunk name. The tree of each chunk is kept by name, because a restore generates its continuations from the game's own source and a save holds no code. Every chunk is loaded as the original engine's Lua build ran it:
+  - Statement-level `assert(...)` and `dbg(...)` calls are removed.
+  - `/` divides two integers as integers: the quotient is truncated toward zero, and a zero integer divisor raises a Lua error. Other operands divide as stock Lua does. This applies to every text chunk, including `load`, `eval_json` and the continuations a restore generates. The function scripts reach through it is the global `__lr_div`, which holds no capability.
+  - A chunk the rewrite refuses loads as plain text, and so does a different text loaded under a chunk name already used, whose first tree stays in place for restoring. `plain_chunks()` lists those chunks by name with the reason, because a thread running their code cannot be saved. A chunk that does not parse never loads plain.
   - `import_sources()` gives the host the kept chunks as `lua-resume` import sources, named as a save made by the original build names them (`@path` for a chunk loaded as `=path`).
 - **The debug library stays on the Rust side:** the state comes from `lua-resume-debug`, which holds the one unsafe call in a dependency, and removes `debug` from the globals before any script runs. Scripts cannot reach it.
-- **Limits of saves:** capture and restore have the limits listed in the lua-resume README, among them frames inside `pcall` and `xpcall` and loop shapes it refuses. A coroutine that was created but has not been resumed cannot be saved. Natives that are not registered, userdata and to-be-closed variables are refused, and the error names where the value was found, for example `GameState["units"][3]["on_death"]`. Chunks are found by chunk name when restoring, so the fresh state must load the same scripts under the same names, and two chunks loaded under one name replace each other for restoring.
+- **Limits of saves:** capture and restore have the limits listed in the lua-resume README, among them frames inside `pcall` and `xpcall` and loop shapes it refuses. A coroutine that was created but has not been resumed cannot be saved. Natives that are not registered, userdata and to-be-closed variables are refused, and the error names where the value was found, for example `GameState["units"][3]["on_death"]`. Chunks are found by chunk name when restoring, so the fresh state must load the same scripts under the same names.
 - `LuaSnapshot` implements serde, so the game chooses the encoding. Snapshots of the same state are identical: string, number and boolean keys are written in sorted order. Only tables used as keys keep Lua's iteration order.
 - `restore` assigns each root to its global path; the parent of a dotted path must already exist.
 

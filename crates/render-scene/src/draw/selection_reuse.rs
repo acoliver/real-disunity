@@ -188,6 +188,9 @@ impl SceneGpu {
         }
     }
 
+    /// Stub.
+    pub(crate) fn caster_matrices(&self, _receivers: &mut [glam::Mat4]) {}
+
     /// Extends the receiver's depth range over the casters, reusing the fit for an unchanged
     /// receiver while no placement changed.
     pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {

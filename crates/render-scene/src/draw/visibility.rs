@@ -528,6 +528,9 @@ mod scale_tests;
 mod caster_tests;
 
 #[cfg(test)]
+mod caster_scan_tests;
+
+#[cfg(test)]
 mod cache_tests;
 
 #[cfg(test)]

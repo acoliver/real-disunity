@@ -62,6 +62,23 @@ pub(in crate::draw) fn caster_matrix(
     remap * receiver
 }
 
+/// Capacity the nearest-first search keeps between scans.
+#[derive(Debug, Default)]
+pub(in crate::draw) struct FitScratch;
+
+/// Every batch's casters, ready to fit any number of receivers.
+pub(in crate::draw) struct CasterScan;
+
+impl CasterScan {
+    pub(in crate::draw) fn new(_: &Instances, _: &[MeshSelection], _: &mut FitScratch) -> Self {
+        Self
+    }
+
+    pub(in crate::draw) fn matrix(&mut self, _: Option<Bounds>, receiver: Mat4) -> Mat4 {
+        receiver
+    }
+}
+
 /// One batch's placements and refreshed bounds.
 struct Casters<'a> {
     placements: &'a [Option<(SceneObject, bool)>],

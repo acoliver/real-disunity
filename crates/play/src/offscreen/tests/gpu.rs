@@ -649,7 +649,10 @@ fn a_record_that_does_not_build_on_its_own_is_dropped_and_counted_by_the_error()
     blit_and_copy(&mut world, (a, b, c));
     // The copy of a 4 by 4 texture into an 8 by 8 one cannot be done.
     let (adapted, operations, reads) = rig.frame(&mut world, &[b]);
-    assert_eq!(adapted.report.failures["record:CopyMismatch"], 1);
+    assert_eq!(
+        adapted.report.failures["record:CopyTexture:CopyMismatch"],
+        1
+    );
     assert_eq!(adapted.report.built, 3);
     rig.run(operations);
     let b = reads.into_iter().next().unwrap().bytes(&rig.device);

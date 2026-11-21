@@ -225,6 +225,8 @@ pub use upscale::SpatialUpscale;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
+mod frame_mip_tests;
+#[cfg(test)]
 mod frame_tests;
 #[cfg(test)]
 mod post_upload_staging_tests;

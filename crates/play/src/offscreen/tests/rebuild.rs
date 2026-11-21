@@ -117,7 +117,7 @@ fn one_refused_record_among_many_costs_one_build_alone_and_leaves_the_rest_of_th
     let (adapted, image) = chain(&[10]);
     assert_eq!(
         failures(&adapted),
-        BTreeMap::from([("record:CopyMismatch", 1)])
+        BTreeMap::from([("record:CopyTexture:CopyMismatch", 1)])
     );
     // The refused record is built alone once. Building every render texture and every record
     // alone took 44 builds for this frame.
@@ -131,7 +131,7 @@ fn each_of_several_refused_records_costs_one_build_alone() {
     let (adapted, image) = chain(&[3, 11, 19]);
     assert_eq!(
         failures(&adapted),
-        BTreeMap::from([("record:CopyMismatch", 3)])
+        BTreeMap::from([("record:CopyTexture:CopyMismatch", 3)])
     );
     let phases = adapted.report.phases;
     assert_eq!((phases.refusals, phases.probes), (1, 3), "{phases:?}");
@@ -150,7 +150,7 @@ fn a_texture_only_a_refused_record_would_write_stays_unwritten_for_the_next_fram
     let (adapted, _operations, _) = rig.frame(&mut world, &[]);
     assert_eq!(
         failures(&adapted),
-        BTreeMap::from([("record:CopyMismatch", 1)])
+        BTreeMap::from([("record:CopyTexture:CopyMismatch", 1)])
     );
 
     camera_scene(&mut world, "default_white", Some(TextureRef::Render(odd)));
@@ -216,7 +216,7 @@ fn a_refused_record_and_a_frame_refused_in_the_end_leave_the_same_failures_and_n
     assert!(refused.is_err());
     assert_eq!(
         failures(&adapted),
-        BTreeMap::from([("record:CopyMismatch", 1)])
+        BTreeMap::from([("record:CopyTexture:CopyMismatch", 1)])
     );
     assert_eq!(adapted.report.phases.refusals, 1);
 
@@ -279,7 +279,7 @@ fn a_refused_record_beside_a_bake_leaves_every_bake_record_submitted_and_the_des
     assert_eq!(failures(&clean), BTreeMap::new());
     assert_eq!(
         failures(&with_refusal),
-        BTreeMap::from([("record:CopyMismatch", 1)])
+        BTreeMap::from([("record:CopyTexture:CopyMismatch", 1)])
     );
     assert_eq!(with_refusal.report.built, clean.report.built);
     assert_eq!(with_refusal.frame.records.len(), clean.frame.records.len());

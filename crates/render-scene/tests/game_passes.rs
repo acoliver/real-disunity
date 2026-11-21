@@ -35,8 +35,12 @@ mod prefix_loads;
 mod prefix_state;
 #[path = "game_passes/prepared.rs"]
 mod prepared;
+#[path = "game_passes/pyramid_model.rs"]
+mod pyramid_model;
 #[path = "game_passes/refusals.rs"]
 mod refusals;
+#[path = "game_passes/render_mips.rs"]
+mod render_mips;
 #[path = "game_passes/replacement.rs"]
 mod replacement;
 #[path = "game_passes/resource_mips.rs"]

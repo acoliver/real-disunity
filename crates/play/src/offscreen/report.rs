@@ -246,13 +246,20 @@ impl Report {
 
     /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
     pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
+        self.fail_with(kind, None, error);
+    }
+
+    /// As [`fail`](Self::fail), with the first example of the cause led by `note` when there is
+    /// one, such as the shader and pass of the record that failed.
+    pub fn fail_with(&mut self, kind: &str, note: Option<&str>, error: &(impl Debug + Display)) {
         let name = format!("{kind}:{}", variant_name(error));
         *self.failures.entry(name).or_default() += 1;
         let cause = format!("{kind}:{}", variant_chain(error));
         *self.causes.entry(cause.clone()).or_default() += 1;
-        self.examples
-            .entry(cause)
-            .or_insert_with(|| error.to_string());
+        self.examples.entry(cause).or_insert_with(|| match note {
+            Some(note) => format!("{note}: {error}"),
+            None => error.to_string(),
+        });
     }
 
     /// Counts a failure that has no error behind it, by the whole of its name.

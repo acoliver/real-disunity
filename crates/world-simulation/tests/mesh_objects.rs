@@ -464,3 +464,26 @@ fn a_property_block_of_the_renderer_overrides_the_material_for_what_it_sets() {
         }
     );
 }
+
+#[test]
+fn a_slot_block_overrides_only_its_slot_and_wins_over_the_all_slot_block() {
+    let mut world = new_world();
+    let material = material(&mut world);
+    set_vector(&mut world, material, "_Color", [0.2; 4]);
+    set_texture(&mut world, material, "_MainTex", TextureRef::Asset(3));
+    let mut renderer = with_materials(WHITE, &[Some(material), Some(material), Some(material)]);
+    renderer.property_block = Some(block(&[("_Color", [0.7; 4])], &[]));
+    renderer.slot_blocks.insert(
+        1,
+        block(
+            &[("_Color", [0.1, 0.2, 0.3, 0.4])],
+            &[("_MainTex", TextureRef::Asset(9))],
+        ),
+    );
+    object_with(&mut world, renderer);
+    let slots = &slots_of(&world)[0];
+    let draws = |color, texture| DrawnMaterial { color, texture };
+    assert_eq!(slots[0], draws([0.7; 4], 3));
+    assert_eq!(slots[1], draws([0.1, 0.2, 0.3, 0.4], 9));
+    assert_eq!(slots[2], draws([0.7; 4], 3));
+}

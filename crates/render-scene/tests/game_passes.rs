@@ -19,6 +19,8 @@ mod lent_engine;
 mod lent_prefix;
 #[path = "game_passes/lent_terrain.rs"]
 mod lent_terrain;
+#[path = "game_passes/lent_terrain_budget.rs"]
+mod lent_terrain_budget;
 #[path = "game_passes/lent_terrain_game.rs"]
 mod lent_terrain_game;
 #[path = "game_passes/level_import.rs"]

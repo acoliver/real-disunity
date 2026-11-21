@@ -2,15 +2,16 @@
 //! one 2D array per channel for a game's pass to index by layer.
 use super::{EngineConstants, SceneSources};
 use crate::compositor::game::lent::FrameInputError;
+use crate::compositor::game::resources::{GameResourceError, GameResources};
 use crate::compositor::game::scene_textures::FrameSceneTextureError;
 use std::cell::Cell;
 use std::rc::Rc;
-use worldrunner_render_gpu::census::{ResourceClass, Tracked};
+use worldrunner_render_gpu::census::{ResourceClass, Tracked, texture_backing_bytes};
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_plan::{SceneTerrain, TerrainLayer, TextureHandle};
 use worldrunner_render_post::PrepareContext;
 use worldrunner_render_program::binding::EngineSemantic;
-use worldrunner_render_program::runtime::Import;
+use worldrunner_render_program::runtime::{ExternalHold, Import};
 
 /// Which of a terrain surface's three layer maps an array gathers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +41,9 @@ pub enum TerrainMaterialArrayError {
     NoTerrain,
     #[error("an array needs at least one layer")]
     NoLayers,
+    /// The array's bytes cannot be charged to the factory's resource budget.
+    #[error(transparent)]
+    Budget(#[from] GameResourceError),
     #[error("{requested} layers exceed the {limit} the device allows in one array")]
     TooManyLayers { requested: usize, limit: u32 },
     #[error("terrain surface type {raw_type} is not among the {surfaces} of the scene's terrain")]
@@ -61,16 +65,34 @@ pub enum TerrainMaterialArrayError {
     },
 }
 
+const ARRAY_LABEL: &str = "engine terrain material array";
+
 /// One array kept for a channel and layer list.
 pub(super) struct MaterialArray {
     pub(super) channel: TerrainMaterialChannel,
     pub(super) layers: Vec<u8>,
     pub(super) texture: Tracked<wgpu::Texture>,
     pub(super) view: wgpu::TextureView,
+    /// The bytes each factory that asked for the array is charged.
+    bytes: u64,
+    /// One hold for each factory (by `GameResources::id`) that asked for the array, in its
+    /// runtime ledger. The array's bytes are counted there until the array is dropped.
+    holds: Vec<(u64, ExternalHold)>,
     /// Set when a submitted frame has copied every layer.
     ready: Rc<Cell<bool>>,
     /// The frame that stages the copies, while it has not submitted.
     staged: Option<Publications>,
+}
+
+impl MaterialArray {
+    /// Counts the array in `charge`'s ledger and budget, once for each factory.
+    fn charge_to(&mut self, charge: &GameResources) -> Result<(), TerrainMaterialArrayError> {
+        if self.holds.iter().all(|(id, _)| *id != charge.id()) {
+            let hold = charge.admit(ARRAY_LABEL, self.bytes)?;
+            self.holds.push((charge.id(), hold));
+        }
+        Ok(())
+    }
 }
 
 impl LayerShape {
@@ -148,6 +170,15 @@ fn resolve<'a>(
     Ok((textures, shape))
 }
 
+/// The refusal of a request on constants that were made for no factory, which no game is lent.
+fn unbound() -> TerrainMaterialArrayError {
+    TerrainMaterialArrayError::Budget(GameResourceError::Declaration {
+        label: ARRAY_LABEL.to_owned(),
+        reason: "the engine constants are not made for a factory, so no budget is charged"
+            .to_owned(),
+    })
+}
+
 impl EngineConstants {
     /// Layer `i` of the returned 2D array is the resident scene texture that terrain surface
     /// type `layers[i]` names for `channel`, with all its mips, in the format the scene prepared
@@ -166,9 +197,18 @@ impl EngineConstants {
     /// shows a texture the scene no longer holds. Each distinct request is a resident array
     /// counted under the texture class of the census.
     ///
+    /// The array's physical bytes, every mip and whole blocks for a compressed format, are also
+    /// charged to the budget and the runtime ledger of the factory whose feature asks, which its
+    /// declared resources count against too, and are returned when the array is dropped. A
+    /// factory that asks for an array another factory made is charged for it in its own ledger,
+    /// as it is for a shared texture. The charge is made before the array is created, so a
+    /// refused request allocates nothing. Do not hold the factory's
+    /// [`GameResources::runtime`] across the call.
+    ///
     /// # Errors
     /// [`TerrainMaterialArrayError`]: `Input` when the frame in flight published no scene,
     /// `NoTerrain`, `NoLayers`, `TooManyLayers` beyond the device's `max_texture_array_layers`,
+    /// `Budget` when the array's bytes with what the factory's runtime holds pass its budget,
     /// `UnknownType` and `NoChannel` for a surface type the terrain lacks or that has no layered
     /// maps, `NotCopyable` for a texture that is not a single-layer 2D texture, and `Disagree`
     /// when layers differ in format, extent or mip count.
@@ -179,6 +219,7 @@ impl EngineConstants {
         channel: TerrainMaterialChannel,
         layers: &[u8],
     ) -> Result<Import, TerrainMaterialArrayError> {
+        let charge = self.charge.as_ref().ok_or_else(unbound)?;
         let sources = self.scene.current()?;
         let terrain = sources
             .terrain
@@ -192,10 +233,12 @@ impl EngineConstants {
         {
             at
         } else {
-            arrays.push(self.build_array(&sources, terrain, (channel, layers))?);
+            let array = self.build_array(&sources, terrain, (channel, layers), charge)?;
+            arrays.push(array);
             arrays.len() - 1
         };
         let array = &mut arrays[at];
+        array.charge_to(charge)?;
         let frame = context.publications();
         let staged_here = array
             .staged
@@ -221,6 +264,7 @@ impl EngineConstants {
         sources: &SceneSources,
         terrain: &SceneTerrain,
         (channel, layers): (TerrainMaterialChannel, &[u8]),
+        charge: &GameResources,
     ) -> Result<MaterialArray, TerrainMaterialArrayError> {
         let limit = self.device.limits().max_texture_array_layers;
         if layers.is_empty() {
@@ -234,23 +278,27 @@ impl EngineConstants {
         }
         let (_, shape) = resolve(sources, terrain, (channel, layers))?;
         let count = u32::try_from(layers.len()).expect("the count is within the device limit");
+        let descriptor = wgpu::TextureDescriptor {
+            label: Some(ARRAY_LABEL),
+            size: wgpu::Extent3d {
+                width: shape.extent[0],
+                height: shape.extent[1],
+                depth_or_array_layers: count,
+            },
+            mip_level_count: shape.mips,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: shape.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        };
+        // Counted before the texture exists, so a refused array allocates nothing.
+        let bytes = texture_backing_bytes(&descriptor);
+        let hold = charge.admit(ARRAY_LABEL, bytes)?;
         let texture = self.authority.census().create_texture(
             &self.device,
             ResourceClass::Texture,
-            &wgpu::TextureDescriptor {
-                label: Some("engine terrain material array"),
-                size: wgpu::Extent3d {
-                    width: shape.extent[0],
-                    height: shape.extent[1],
-                    depth_or_array_layers: count,
-                },
-                mip_level_count: shape.mips,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: shape.format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
+            &descriptor,
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -261,6 +309,8 @@ impl EngineConstants {
             layers: layers.to_vec(),
             texture,
             view,
+            bytes,
+            holds: vec![(charge.id(), hold)],
             ready: Rc::default(),
             staged: None,
         })

@@ -6,6 +6,7 @@ mod scene_sources;
 mod terrain_arrays;
 
 use super::lent::Lent;
+use super::resources::GameResources;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use worldrunner_render_gpu::census::{ResourceClass, Tracked};
@@ -108,6 +109,8 @@ pub struct EngineConstants {
     state: Rc<RefCell<State>>,
     /// The scene the frame in flight lends, which terrain products are built from.
     scene: Lent<SceneSources>,
+    /// The factory whose runtime ledger and budget the terrain material arrays are charged to.
+    charge: Option<GameResources>,
 }
 
 impl EngineConstants {
@@ -117,6 +120,16 @@ impl EngineConstants {
             authority: authority.clone(),
             state: Rc::default(),
             scene: Lent::default(),
+            charge: None,
+        }
+    }
+
+    /// These constants as one factory's feature sees them: the same cache and scene, with the
+    /// arrays it asks for charged to `resources`, the factory's own ledger and budget.
+    pub(crate) fn charged_to(&self, resources: &GameResources) -> Self {
+        Self {
+            charge: Some(resources.clone()),
+            ..self.clone()
         }
     }
 

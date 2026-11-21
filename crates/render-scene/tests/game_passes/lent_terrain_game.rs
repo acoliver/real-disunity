@@ -240,6 +240,8 @@ pub(super) struct Seen {
 #[derive(Default)]
 pub(super) struct Kept {
     pub(super) engine: Option<EngineConstants>,
+    /// The resources of each factory, in the order the renderer built them.
+    pub(super) resources: Vec<GameResources>,
     /// The arrays of each frame, albedo, normal and height.
     pub(super) arrays: Vec<[wgpu::Texture; 3]>,
     /// The albedo array of each frame that asked twice, as both requests were answered.
@@ -260,18 +262,25 @@ impl Drop for Clear {
     }
 }
 
-struct Factory {
-    ask: Ask,
-    script: Arc<Mutex<Script>>,
-    seen: Arc<Mutex<Seen>>,
+pub(super) struct Factory {
+    pub(super) name: &'static str,
+    /// Whether this factory declares the output target; only one factory of a renderer may.
+    pub(super) owns_target: bool,
+    pub(super) budget: u64,
+    pub(super) ask: Ask,
+    pub(super) script: Arc<Mutex<Script>>,
+    pub(super) seen: Arc<Mutex<Seen>>,
 }
 
 impl GameFeatureFactory for Factory {
     fn name(&self) -> &'static str {
-        OUT
+        self.name
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {
+        if !self.owns_target {
+            return Vec::new();
+        }
         vec![
             TargetDeclaration::new(OUT, wgpu::TextureFormat::Rgba8Unorm, TargetExtent::Frame)
                 .with_usage(wgpu::TextureUsages::COPY_SRC),
@@ -279,11 +288,14 @@ impl GameFeatureFactory for Factory {
     }
 
     fn resource_budget(&self) -> AllocationBudget {
-        AllocationBudget(1 << 20)
+        AllocationBudget(self.budget)
     }
 
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
-        KEPT.with_borrow_mut(|kept| kept.engine = Some(context.engine.clone()));
+        KEPT.with_borrow_mut(|kept| {
+            kept.engine = Some(context.engine.clone());
+            kept.resources.push(context.resources.clone());
+        });
         Ok(Box::new(Game(Rc::new(Parts {
             ask: self.ask,
             targets: context.targets.clone(),
@@ -490,9 +502,17 @@ pub(super) struct Run {
 }
 
 pub(super) fn run(scene: &RenderScene, ask: Ask) -> Run {
+    run_with_budget(scene, ask, 1 << 20)
+}
+
+/// As [`run`], with a game resource budget of `budget` bytes.
+pub(super) fn run_with_budget(scene: &RenderScene, ask: Ask, budget: u64) -> Run {
     let script = Arc::new(Mutex::new(Script::default()));
     let seen = Arc::new(Mutex::new(Seen::default()));
     let factory = Factory {
+        name: OUT,
+        owns_target: true,
+        budget,
         ask,
         script: script.clone(),
         seen: seen.clone(),

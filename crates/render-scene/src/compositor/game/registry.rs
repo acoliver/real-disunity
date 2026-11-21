@@ -75,7 +75,9 @@ pub trait GameFeatureFactory: Send + Sync {
     }
 
     /// The bytes [`GameBuild::resources`] may hold: its declared buffers and textures with what
-    /// its program runtime allocates. None by default.
+    /// its program runtime allocates and the terrain material arrays
+    /// [`EngineConstants::material_array`] lends its features. None by default, so a factory
+    /// whose features ask for arrays states a budget that covers them.
     fn resource_budget(&self) -> AllocationBudget {
         AllocationBudget(0)
     }
@@ -268,7 +270,7 @@ impl GamePasses {
                 environment: renderer.game.environment.clone(),
                 scene_textures: renderer.game_textures.clone(),
                 scene_meshes: renderer.game.meshes.clone(),
-                engine: engine.clone(),
+                engine: engine.charged_to(&resources),
                 snapshots: renderer.game.snapshots.clone(),
             };
             let prefix =

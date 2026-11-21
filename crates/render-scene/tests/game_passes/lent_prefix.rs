@@ -7,6 +7,7 @@ use super::lent_terrain_game::{Clear, layered_scene};
 use super::lighting::ssao;
 use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::Arc;
+use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, EngineConstants, FrameSceneMeshesHandle, GameBuild, GameFeatureFactory,
@@ -43,6 +44,11 @@ impl GameFeatureFactory for PrefixProbe {
 
     fn targets(&self) -> Vec<TargetDeclaration> {
         vec![prefix_target()]
+    }
+
+    /// The terrain material arrays the prefix feature asks for count against this budget.
+    fn resource_budget(&self) -> AllocationBudget {
+        AllocationBudget(1 << 20)
     }
 
     fn build(&self, _context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {

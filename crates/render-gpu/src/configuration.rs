@@ -52,6 +52,8 @@ enum Storage {
         texel_bytes: u32,
     },
     Cpu(u64),
+    /// GPU storage its owner created and checked against the device itself, by bytes alone.
+    External(u64),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Allocation {
@@ -178,6 +180,19 @@ impl AllocationSet {
         self.cpu(name, bytes);
         self.0.last_mut().unwrap().shared = true;
     }
+    /// Declares `bytes` of GPU storage that its owner creates outside the set's rules (a
+    /// texture of any extent or format, for example) and has already checked against the
+    /// device. It counts against the budget like any GPU entry, but no buffer or texture rule
+    /// applies to it.
+    pub fn external(&mut self, name: &'static str, bytes: u64) {
+        self.0.push(Allocation {
+            name,
+            storage: Storage::External(bytes),
+            count: 1,
+            shared: false,
+            backing: 0,
+        });
+    }
     pub fn extend(&mut self, other: Self) {
         self.0.extend(other.0);
     }
@@ -250,6 +265,12 @@ fn allocation_bytes(entry: &Allocation, limits: &wgpu::Limits) -> Result<u64, &'
             bytes
         }
         Storage::Cpu(bytes) => bytes,
+        Storage::External(bytes) => {
+            if bytes == 0 {
+                return Err("empty external storage");
+            }
+            bytes
+        }
         Storage::Texture {
             extent,
             format,

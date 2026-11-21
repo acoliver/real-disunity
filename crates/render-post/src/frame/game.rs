@@ -5,6 +5,12 @@ use super::{FrameError, PassDeclaration, PassEntry, PrepareContext};
 /// Where a game's own pass sits among the stock passes of a forward frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GamePlace {
+    /// Immediately after the depth/normal prepass, before the depth pyramid, the occlusion
+    /// metadata and SSAO read what it wrote. These passes load and write the prepass's depth and
+    /// colour products, and their depth writes complete the depth with the prepass's, so every
+    /// reader of the depth prefix sees what the game drew here. In a frame whose depth prefix is
+    /// submitted ahead of the rest, they run in that prefix.
+    AfterDepthPrepass,
     /// Immediately before the first Opaque entry, after the G-buffer and its lighting when the
     /// frame has them. Opaque loads what these passes left in the attachments they share.
     BeforeOpaque,

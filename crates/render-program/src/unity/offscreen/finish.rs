@@ -160,6 +160,12 @@ impl Finish<'_> {
             .plan
             .state
             .neutral_with_stencil(draw.front_face, draw.signature.has_stencil());
+        if draw.topology.is_triangles() {
+            // A depth bias is drawn for triangles only, and the pass's own state has none.
+            if let Some(depth) = state.depth.as_mut() {
+                depth.bias = draw.raster.bias;
+            }
+        }
         let reference = state.stencil.as_ref().map(|stencil| stencil.reference);
         if let Some(stencil) = state.stencil.as_mut() {
             stencil.reference = 0;
@@ -178,8 +184,16 @@ impl Finish<'_> {
         request.check_color_outputs()?;
         let key = request.key();
         let checked = self.pipeline_draw(&request, key, draw, bindings)?;
-        Ok(match reference {
+        let checked = match reference {
             Some(reference) => checked.with_stencil_reference(reference),
+            None => checked,
+        };
+        let checked = match draw.raster.viewport {
+            Some(rect) => checked.with_viewport(rect),
+            None => checked,
+        };
+        Ok(match draw.raster.scissor {
+            Some(rect) => checked.with_scissor(rect),
             None => checked,
         })
     }

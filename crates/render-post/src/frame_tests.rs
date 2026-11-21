@@ -1,5 +1,7 @@
 #[path = "frame/frozen_tests.rs"]
 mod frozen_contour_tests;
+#[path = "frame/frozen_prefix_tests.rs"]
+mod frozen_prefix_tests;
 #[path = "frame/game_tests.rs"]
 mod game_place_tests;
 

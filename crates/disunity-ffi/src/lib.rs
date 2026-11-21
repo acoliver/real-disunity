@@ -27,6 +27,7 @@ pub mod compute_bindings;
 pub mod construction;
 #[cfg(test)]
 mod construction_tests;
+pub mod environment;
 pub mod errors;
 pub mod faces;
 pub mod gpu_flush;
@@ -58,6 +59,7 @@ pub mod presentation_lights;
 pub mod presentation_ui;
 pub mod scheduling;
 pub mod script_messages;
+pub mod shadows;
 pub mod sorting_group;
 pub mod sprites;
 mod store;

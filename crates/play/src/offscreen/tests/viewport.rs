@@ -1,5 +1,6 @@
 //! A command buffer's viewport: a draw that reaches the bound target while a recorded viewport
-//! leaves part of it uncovered is left out by reason, and a viewport that covers the target, a
+//! lies inside it carries the rectangle, one that leaves the target is left out by reason, a clear
+//! that the viewport does not cover is left out by reason, and a viewport that covers the target, a
 //! new target or a camera setup leaves drawing as it was. The worlds are synthetic.
 
 use glam::{Mat4, Quat, Vec3};
@@ -18,14 +19,14 @@ const MESH: u64 = 77;
 const SIDE: f32 = 8.0;
 
 /// A world with a target of 8 by 8 texels and a material, and the camera a setup may name.
-struct Rig {
-    world: World,
-    target: RenderTextureId,
-    material: MaterialId,
-    camera: ComponentHandle,
+pub(super) struct Rig {
+    pub(super) world: World,
+    pub(super) target: RenderTextureId,
+    pub(super) material: MaterialId,
+    pub(super) camera: ComponentHandle,
 }
 
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let shader = shader(&mut world, "viewport");
@@ -43,11 +44,11 @@ fn rig() -> Rig {
 }
 
 impl Rig {
-    fn record(&mut self, work: OffscreenWork) {
+    pub(super) fn record(&mut self, work: OffscreenWork) {
         self.world.record_offscreen(work).unwrap();
     }
 
-    fn bind(&mut self) {
+    pub(super) fn bind(&mut self) {
         let target = TargetRef::Render(self.target);
         self.record(OffscreenWork::SetRenderTarget {
             color: vec![target],
@@ -58,11 +59,11 @@ impl Rig {
         });
     }
 
-    fn viewport(&mut self, rect: [f32; 4]) {
+    pub(super) fn viewport(&mut self, rect: [f32; 4]) {
         self.record(OffscreenWork::SetViewport { rect });
     }
 
-    fn setup_camera(&mut self) {
+    pub(super) fn setup_camera(&mut self) {
         self.record(OffscreenWork::SetupCamera {
             camera: self.camera,
             view: Mat4::IDENTITY.to_cols_array(),
@@ -72,7 +73,7 @@ impl Rig {
         });
     }
 
-    fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.record(OffscreenWork::ClearRenderTarget {
             color: true,
             depth: true,
@@ -83,7 +84,7 @@ impl Rig {
         });
     }
 
-    fn draw_mesh(&mut self) {
+    pub(super) fn draw_mesh(&mut self) {
         self.record(OffscreenWork::DrawMesh {
             mesh: MESH,
             matrix: Mat4::IDENTITY.to_cols_array(),
@@ -95,7 +96,7 @@ impl Rig {
         });
     }
 
-    fn draw_procedural(&mut self) {
+    pub(super) fn draw_procedural(&mut self) {
         self.record(OffscreenWork::DrawProcedural {
             matrix: Mat4::IDENTITY.to_cols_array(),
             material: self.material,
@@ -107,7 +108,7 @@ impl Rig {
     }
 
     /// Culls with an empty result and draws a list of it, which holds no renderer.
-    fn draw_list(&mut self) {
+    pub(super) fn draw_list(&mut self) {
         let holder = object(&mut self.world, 0, Vec3::ZERO, Quat::IDENTITY);
         let camera = self
             .world
@@ -136,7 +137,7 @@ impl Rig {
         self.record(OffscreenWork::DrawRendererList { list });
     }
 
-    fn run(&mut self) -> Adapted {
+    pub(super) fn run(&mut self) -> Adapted {
         let snapshot = snapshot(&mut self.world);
         let mut available = available(&snapshot, 1, &[]);
         available.meshes.insert(MESH);
@@ -146,7 +147,7 @@ impl Rig {
 }
 
 /// What the frame's records are, in order, without the globals the frame adds between them.
-fn kinds(adapted: &Adapted) -> Vec<&'static str> {
+pub(super) fn kinds(adapted: &Adapted) -> Vec<&'static str> {
     adapted
         .frame
         .records
@@ -201,7 +202,7 @@ fn a_viewport_that_covers_the_target_draws_as_before() {
 }
 
 #[test]
-fn a_viewport_that_leaves_part_of_the_target_out_skips_each_kind_of_draw_by_reason() {
+fn a_viewport_inside_the_target_is_carried_by_each_kind_of_draw_and_leaves_a_clear_out() {
     let mut rig = rig();
     rig.bind();
     rig.viewport([0.0, 0.0, 4.0, SIDE]);
@@ -210,17 +211,54 @@ fn a_viewport_that_leaves_part_of_the_target_out_skips_each_kind_of_draw_by_reas
     rig.draw_procedural();
     rig.draw_list();
     let adapted = rig.run();
-    assert_eq!(kinds(&adapted), Vec::<&str>::new());
-    for kind in [
-        "ClearRenderTarget",
-        "DrawMesh",
-        "DrawProcedural",
-        "DrawRendererList",
+    assert_eq!(kinds(&adapted), ["draws", "procedural"]);
+    let carried: Vec<_> = adapted
+        .frame
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            Record::Draws(list) => Some(list.raster.viewport),
+            Record::Procedural(draw) => Some(draw.raster.viewport),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(carried, [Some([0.0, 0.0, 4.0, SIDE]); 2]);
+    assert_eq!(skipped(&adapted, "ClearRenderTarget"), 1);
+    assert_eq!(adapted.report.skipped[&Skip::PartialViewport], 1);
+    assert_eq!(adapted.report.lists.empty, 1);
+}
+
+#[test]
+fn a_viewport_that_leaves_the_target_skips_each_kind_of_draw_by_reason() {
+    for rect in [
+        [-2.0, 0.0, 4.0, SIDE],
+        [0.0, 0.0, SIDE + 1.0, 4.0],
+        [2.0, 2.0, 0.0, 4.0],
     ] {
-        assert_eq!(skipped(&adapted, kind), 1, "{kind}");
+        let mut rig = rig();
+        rig.bind();
+        rig.viewport(rect);
+        rig.clear();
+        rig.draw_mesh();
+        rig.draw_procedural();
+        rig.draw_list();
+        let adapted = rig.run();
+        assert_eq!(kinds(&adapted), Vec::<&str>::new(), "{rect:?}");
+        for kind in [
+            "ClearRenderTarget",
+            "DrawMesh",
+            "DrawProcedural",
+            "DrawRendererList",
+        ] {
+            assert_eq!(skipped(&adapted, kind), 1, "{rect:?} {kind}");
+        }
+        assert_eq!(
+            adapted.report.skipped[&Skip::PartialViewport],
+            4,
+            "{rect:?}"
+        );
+        assert_eq!(adapted.report.lists.empty, 0, "{rect:?}");
     }
-    assert_eq!(adapted.report.skipped[&Skip::PartialViewport], 4);
-    assert_eq!(adapted.report.lists.empty, 0);
 }
 
 #[test]
@@ -358,9 +396,9 @@ fn one_viewport_covers_every_color_of_the_bound_set_and_its_depth() {
     rig.clear();
     rig.draw_procedural();
     let adapted = rig.run();
-    assert_eq!(kinds(&adapted), ["clear"]);
+    assert_eq!(kinds(&adapted), ["clear", "procedural"]);
     assert_eq!(skipped(&adapted, "ClearRenderTarget"), 1);
-    assert_eq!(skipped(&adapted, "DrawProcedural"), 1);
+    assert_eq!(skipped(&adapted, "DrawProcedural"), 0);
     let Some(Record::Clear { target, .. }) = adapted
         .frame
         .records

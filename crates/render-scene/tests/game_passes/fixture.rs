@@ -54,6 +54,11 @@ fn material() -> SceneMaterial {
 
 /// One unlit quad, six metres on a side, lying in the ground plane.
 pub fn quad_scene() -> RenderScene {
+    quad_scene_with(texture(STOCK_TEXEL, TextureColorSpace::Srgb))
+}
+
+/// [`quad_scene`] with `albedo` as its one texture.
+pub fn quad_scene_with(albedo: SceneTexture) -> RenderScene {
     let half = 3_000;
     let corners = [
         ([-half, -half, 0], [0, 0]),
@@ -94,11 +99,7 @@ pub fn quad_scene() -> RenderScene {
         MaterialHandle::from_raw(0),
     );
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(
-            vec![texture(STOCK_TEXEL, TextureColorSpace::Srgb)],
-            vec![material()],
-        )
-        .unwrap(),
+        resources: SceneResources::new(vec![albedo], vec![material()]).unwrap(),
         geometry: SceneGeometry::new(vec![mesh], vec![object]).unwrap(),
         terrain: None,
         effects: None,
@@ -198,9 +199,15 @@ pub fn streamed_terrain_scene() -> RenderScene {
 /// Straight down from five metres, so depth is linear in height: the ground plane is at
 /// `(5 - 0.1) / (10 - 0.1)`.
 pub fn view(size: [u32; 2]) -> SceneView {
+    view_from(5000, size)
+}
+
+/// [`view`] from `height_millimeters` above the ground plane, which stays inside the 10 m far
+/// plane below 10 000: the ground plane's linear depth is the height in metres.
+pub fn view_from(height_millimeters: i64, size: [u32; 2]) -> SceneView {
     SceneView::orthographic_with_up(
         CameraPose {
-            eye_millimeters: [0, 0, 5000],
+            eye_millimeters: [0, 0, height_millimeters],
             target_millimeters: [0, 0, 0],
         },
         OrthographicLens {
@@ -224,6 +231,7 @@ pub struct Rig {
     pub gpu: SceneGpu,
     pub pipelines: ScenePipelines,
     frame: FrameUniform,
+    size: [u32; 2],
 }
 
 impl Rig {
@@ -232,7 +240,7 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (false, wgpu::Features::empty()), configure)
+        Self::with_features(scene, size, wgpu::Features::empty(), configure)
     }
 
     /// A rig on the shared test device with exactly `features`, for a game whose targets need
@@ -243,7 +251,9 @@ impl Rig {
         features: wgpu::Features,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (false, features), configure)
+        Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
+            ScenePipelines::new(device, FORMAT)
+        })
     }
 
     /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
@@ -253,33 +263,70 @@ impl Rig {
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        Self::build(scene, size, (true, wgpu::Features::empty()), configure)
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        Self::with_pipelines(
+            scene,
+            (size, view(size)),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame.format = hdr;
+                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                configure(settings);
+            },
+            |device| ScenePipelines::new(device, hdr),
+        )
     }
 
-    fn build(
+    /// A rig whose frames are HDR and compute screen-space ambient occlusion with `ssao`, drawn
+    /// with the pipelines that write the prepass metadata. The output is still `FORMAT`.
+    pub fn with_ssao(
         scene: &RenderScene,
         size: [u32; 2],
-        (hdr, features): (bool, wgpu::Features),
+        ssao: worldrunner_render_plan::SceneSsao,
         configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        Self::with_ssao_view(scene, (size, view(size)), ssao, configure)
+    }
+
+    /// [`Self::with_ssao`] seen from `camera` rather than the straight-down orthographic view.
+    pub fn with_ssao_view(
+        scene: &RenderScene,
+        (size, camera): ([u32; 2], SceneView),
+        ssao: worldrunner_render_plan::SceneSsao,
+        configure: impl FnOnce(&mut RendererConfiguration),
+    ) -> Self {
+        let hdr = wgpu::TextureFormat::Rgba16Float;
+        Self::with_pipelines(
+            scene,
+            (size, camera),
+            wgpu::Features::empty(),
+            |settings| {
+                settings.frame = FrameConfig::new(size, hdr, 1);
+                settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
+                settings.ssao = Some(ssao);
+                configure(settings);
+            },
+            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
+        )
+    }
+
+    fn with_pipelines(
+        scene: &RenderScene,
+        (size, camera): ([u32; 2], SceneView),
+        features: wgpu::Features,
+        configure: impl FnOnce(&mut RendererConfiguration),
+        pipelines: impl FnOnce(&wgpu::Device) -> ScenePipelines,
     ) -> Self {
         let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
         let mut settings = RendererConfiguration::legacy(size, FORMAT);
-        let scene_format = if hdr {
-            settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-            settings.hdr = Some((1.0, ToneMap::Reinhard));
-            wgpu::TextureFormat::Rgba16Float
-        } else {
-            FORMAT
-        };
         configure(&mut settings);
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
-        let pipelines = ScenePipelines::new(context.device(), scene_format);
+        let pipelines = pipelines(context.device());
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
-        let view = view(size);
-        let frame = FrameUniform::unlit(&view);
+        let frame = FrameUniform::unlit(&camera);
         gpu.set_frame(context.queue(), frame);
         Self {
             context,
@@ -287,6 +334,7 @@ impl Rig {
             gpu,
             pipelines,
             frame,
+            size,
         }
     }
 
@@ -332,6 +380,20 @@ impl Rig {
         Ok(self.read(self.renderer.targets().texture()))
     }
 
+    /// Draws one frame in the host's frame `slot`, as seen from `height_millimeters`, submits it
+    /// and returns the frame's colour. Every slot has its own frame uniform on the scene.
+    pub fn render_in_slot(
+        &mut self,
+        slot: usize,
+        height_millimeters: i64,
+    ) -> Result<Vec<[u8; 4]>, FrameError> {
+        self.renderer.select_frame_slot(slot);
+        self.gpu.select_frame_slot(slot);
+        self.frame = FrameUniform::unlit(&view_from(height_millimeters, self.size));
+        self.gpu.set_frame(self.context.queue(), self.frame);
+        self.render()
+    }
+
     /// Draws one frame and cancels it before submission.
     pub fn render_cancelled(&mut self) -> Result<(), FrameError> {
         let mut encoder = self
@@ -342,6 +404,26 @@ impl Rig {
         self.encode(&mut encoder)?;
         encoder.finish().cancel();
         Ok(())
+    }
+
+    /// The texels of an `Rgba16Float` texture, such as an HDR rig's frame colour.
+    pub fn read_half(&self, texture: &wgpu::Texture) -> Vec<[f32; 4]> {
+        assert_eq!(texture.format(), wgpu::TextureFormat::Rgba16Float);
+        let config = FrameConfig::new([texture.width(), texture.height()], texture.format(), 1);
+        let mut readback = Readback::new(self.context.device(), config, 1 << 22).unwrap();
+        readback
+            .read(self.context.device(), self.context.submission(), texture)
+            .unwrap()
+            .chunks_exact(8)
+            .map(|texel| {
+                std::array::from_fn(|channel| {
+                    half_to_f32(u16::from_le_bytes([
+                        texel[channel * 2],
+                        texel[channel * 2 + 1],
+                    ]))
+                })
+            })
+            .collect()
     }
 
     pub fn read(&self, texture: &wgpu::Texture) -> Vec<[u8; 4]> {
@@ -385,4 +467,17 @@ impl Rig {
     pub fn pixel(image: &[[u8; 4]], column: usize, row: usize) -> [u8; 4] {
         image[row * SIZE[0] as usize + column]
     }
+}
+
+/// An IEEE half as `f32`; finite values only, which is all a frame colour test writes.
+fn half_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 10) & 0x1f);
+    let mantissa = f32::from(bits & 0x3ff);
+    let magnitude = if exponent == 0 {
+        mantissa * 2f32.powi(-24)
+    } else {
+        (1.0 + mantissa / 1024.0) * 2f32.powi(exponent - 15)
+    };
+    sign * magnitude
 }

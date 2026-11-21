@@ -37,6 +37,7 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
+        WhiteRenderers.Reset();
         UnsentTextures.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
@@ -235,6 +236,7 @@ public static partial class DisunityHost
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
                 UndrawnCalls.Reset();
+                UnityEngine.Rendering.ShadowCasterCache.Invalidate();
                 RenderSettings.Reset();
                 global::UnityEngine.LowLevel.PlayerLoop.Reset();
                 RemoveMainThreadContext();

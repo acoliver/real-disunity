@@ -30,6 +30,7 @@ worldrunner-world-simulation = { path = "../world-simulation" }
 tempfile.workspace = true
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 worldrunner-render-program = { path = "../render-program", features = ["unity", "test-support"] }
+worldrunner-scene-viewer = { path = "../scene-viewer", features = ["test-support"] }
 
 [[bin]]
 name = "play"

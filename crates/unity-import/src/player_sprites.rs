@@ -186,26 +186,35 @@ pub(crate) fn plan_scene_texture(
     key: &ObjectKey,
 ) -> Result<Texture2DAsset, PlayerError> {
     let (file, path_id) = key;
-    let open = files.open_path(file)?;
-    let texture: Texture2D = open.decode(*path_id)?;
-    let data = if texture.stream.path.is_empty() {
-        let object = *open.file.object(*path_id).expect("decoded objects exist");
-        let range = texture.image_data.clone();
-        if range.end > object.size as usize {
-            return Err(invalid(
-                file,
-                format!("texture {}: image data lies outside it", texture.name),
-            ));
-        }
-        TextureData {
-            file: std::path::absolute(file).map_err(io_error(file))?,
-            offset: object.offset + range.start as u64,
-            size: range.len() as u64,
-        }
-    } else {
-        streamed_data(file, &texture)?
-    };
+    let texture: Texture2D = files.open_path(file)?.decode(*path_id)?;
+    let what = format!("texture {}", texture.name);
+    let data = scene_pixels(files, key, (&texture.image_data, &texture.stream), &what)?;
     Ok(texture_asset(texture, data))
+}
+
+/// Where the pixels of the object `key` are for a scene plan: in the serialized file itself, named
+/// in place by an absolute path, when the object holds them (`image_data` is their range in the
+/// object), and in the `.resS` file `stream` names otherwise. `what` names the object in errors.
+pub(crate) fn scene_pixels(
+    files: &mut PlayerFiles,
+    key: &ObjectKey,
+    (image_data, stream): (&std::ops::Range<usize>, &StreamingInfo),
+    what: &str,
+) -> Result<TextureData, PlayerError> {
+    let (file, path_id) = key;
+    if !stream.path.is_empty() {
+        return locate_stream(file, stream, what);
+    }
+    let open = files.open_path(file)?;
+    let object = *open.file.object(*path_id).expect("decoded objects exist");
+    if image_data.end > object.size as usize {
+        return Err(invalid(file, format!("{what}: image data lies outside it")));
+    }
+    Ok(TextureData {
+        file: std::path::absolute(file).map_err(io_error(file))?,
+        offset: object.offset + image_data.start as u64,
+        size: image_data.len() as u64,
+    })
 }
 
 /// The pixels a texture keeps in a `.resS` file beside its serialized `file`.

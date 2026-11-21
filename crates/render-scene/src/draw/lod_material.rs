@@ -146,8 +146,8 @@ where
 /// A view's selected objects and the frame they were selected for.
 pub(super) struct ObjectView {
     pub(super) frame: FrameUniform,
-    pub(super) published: std::rc::Rc<RefCell<Selection>>,
-    pub(super) selection: Selection,
+    pub(super) published: std::rc::Rc<RefCell<std::rc::Rc<Selection>>>,
+    pub(super) selection: std::rc::Rc<Selection>,
 }
 
 impl SceneGpu {

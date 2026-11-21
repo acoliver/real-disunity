@@ -360,6 +360,7 @@ fn a_material_without_a_shader_or_with_a_missing_texture_plans_and_says_so() {
     let bare = as_json(&plan, index);
     assert_eq!(bare["shader"], Json::Null);
     assert_eq!(bare["textures"][0]["texture"], Json::Null);
+    assert_eq!(bare["textures"][0]["unsent"], Json::Bool(true));
     assert!(
         plan.differences
             .iter()
@@ -369,7 +370,7 @@ fn a_material_without_a_shader_or_with_a_missing_texture_plans_and_says_so() {
     );
     assert!(
         plan.differences.iter().any(|line| line
-            .starts_with("material Bare: texture slots _Detail bind null: references object 77")),
+            .starts_with("material Bare: texture slots _Detail bind unsent: references object 77")),
         "{:?}",
         plan.differences
     );
@@ -462,7 +463,7 @@ fn a_scene_plans_its_renderer_materials_after_their_shader_and_textures() {
         !plan
             .differences
             .iter()
-            .any(|line| line.contains("bind null")),
+            .any(|line| line.contains("bind unsent")),
         "{:?}",
         plan.differences
     );

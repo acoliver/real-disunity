@@ -185,6 +185,43 @@ fn batches_sort_by_pipeline_mesh_and_material_even_for_late_additions() {
 }
 
 #[test]
+fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = scene(SceneAlphaMode::Opaque, false, 2);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    gpu.set_frame(context.queue(), frame_from(pose()));
+    let handles: Vec<_> = gpu.instance_handles().collect();
+    let mut target = retained_target(&context);
+    let initial = target.render(&context, &gpu, &pipelines).unwrap();
+    // The first flush after an edit stages it; every flush after that finds nothing to do.
+    gpu.set_instance_transform(handles[0], moved(100_000))
+        .unwrap();
+    assert!(
+        !gpu.flush_instances(context.device(), context.submission())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+    let (generation, edits) = (gpu.instances.content_generation(), gpu.instances.edits());
+    for _ in 0..3 {
+        assert!(
+            gpu.flush_instances(context.device(), context.submission())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+    }
+    assert_eq!(
+        (gpu.instances.content_generation(), gpu.instances.edits()),
+        (generation, edits),
+        "flushing settled batches stages no bytes and allocates no buffer"
+    );
+}
+
+#[test]
 fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

@@ -361,7 +361,15 @@ fn a_blit_reads_only_the_written_level_of_an_unflagged_texture_with_no_record() 
     camera_render(&mut world, a);
     shader_blit(&mut world, a, b);
     let (adapted, _) = level_one(&mut rig, &mut world, a);
-    assert_eq!(adapted.report.failures["draw:SampledWrittenLevelsOnly"], 3);
+    assert!(
+        !adapted
+            .report
+            .failures
+            .contains_key("draw:SampledWrittenLevelsOnly"),
+        "{:?}",
+        adapted.report.failures
+    );
+    assert_eq!(adapted.report.notes["draw:SampledWrittenLevelsOnly"], 3);
     assert!(
         !shape(&adapted).iter().any(|word| word.starts_with("mips")),
         "{:?}",

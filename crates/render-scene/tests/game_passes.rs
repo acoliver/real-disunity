@@ -21,6 +21,8 @@ mod lent_prefix;
 mod lent_terrain;
 #[path = "game_passes/lent_terrain_game.rs"]
 mod lent_terrain_game;
+#[path = "game_passes/level_import.rs"]
+mod level_import;
 #[path = "game_passes/lighting.rs"]
 mod lighting;
 #[path = "game_passes/mips.rs"]
@@ -71,3 +73,5 @@ mod strip;
 mod terrain;
 #[path = "game_passes/terrain_lender.rs"]
 mod terrain_lender;
+#[path = "game_passes/transfer_readback.rs"]
+mod transfer_readback;

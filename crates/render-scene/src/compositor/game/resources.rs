@@ -13,6 +13,7 @@
 use super::declared_textures::{
     GameTextureDeclaration, TextureIdentity, beyond_limits, refuse, unsampleable, upload,
 };
+use super::level_import::{LevelAccess, import_level};
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -113,6 +114,15 @@ pub enum GameResourceError {
         usage: GameBufferUsage,
         wanted: &'static str,
     },
+    /// A block transfer into the texture `label` that cannot be made.
+    #[error("block transfer into {label}: {reason}")]
+    Transfer { label: String, reason: String },
+    /// A readback of the texture or target `label` that cannot be made or delivered.
+    #[error("readback of {label}: {reason}")]
+    Readback { label: String, reason: String },
+    /// An import of one level of the texture or target `label` that cannot be made.
+    #[error("import of a level of {label}: {reason}")]
+    Import { label: String, reason: String },
 }
 
 impl From<GameResourceError> for FrameError {
@@ -135,6 +145,7 @@ struct DeclaredBuffer {
 /// A declared texture; a shared one is held by every store that declared it.
 #[derive(Clone)]
 struct DeclaredTexture {
+    label: String,
     texture: Rc<Tracked<wgpu::Texture>>,
     view: wgpu::TextureView,
     dimension: wgpu::TextureViewDimension,
@@ -154,6 +165,8 @@ struct Store {
     texture_holds: Vec<ExternalHold>,
     /// Bytes of the declared buffers and textures.
     bytes: u64,
+    /// The transfers and readbacks the game asked for and the frames that recorded them.
+    work: work::WorkQueue,
 }
 
 /// The textures declared shared in one renderer generation, by label, with what their first
@@ -219,8 +232,17 @@ impl GameResources {
     /// declared resources hold is in its ledger, so one budget bounds both. The hold keeps the
     /// bytes counted while the resource lives.
     fn admit(&self, label: &str, bytes: u64) -> Result<ExternalHold, GameResourceError> {
-        let runtime = self.runtime.borrow();
-        let held = runtime.live_bytes();
+        self.fits(label, bytes)?;
+        self.runtime
+            .borrow()
+            .hold_external(label, bytes)
+            .map_err(|error| refuse(label, &error.to_string()))
+    }
+
+    /// Whether `bytes` more fit the budget with everything the runtime's ledger holds, counting
+    /// nothing: for staging the runtime admits itself when the frame records it.
+    fn fits(&self, label: &str, bytes: u64) -> Result<(), GameResourceError> {
+        let held = self.runtime.borrow().live_bytes();
         if held
             .checked_add(bytes)
             .is_none_or(|total| total > self.budget.0)
@@ -232,9 +254,7 @@ impl GameResources {
                 budget: self.budget.0,
             });
         }
-        runtime
-            .hold_external(label, bytes)
-            .map_err(|error| refuse(label, &error.to_string()))
+        Ok(())
     }
 
     /// Creates the buffer `declaration` describes, holding its contents.
@@ -379,6 +399,7 @@ impl GameResources {
             ..wgpu::TextureViewDescriptor::default()
         });
         let declared = DeclaredTexture {
+            label: declaration.label.to_owned(),
             texture: Rc::new(texture),
             view,
             dimension: declaration.dimension,
@@ -434,16 +455,35 @@ impl GameResources {
         texture: GameTexture,
     ) -> Result<Import, GameResourceError> {
         let store = self.store.borrow();
-        let declared = store
-            .textures
-            .get(self.slot(texture.store, texture.index, GameTexture::KIND)?)
-            .ok_or(GameResourceError::Foreign(GameTexture::KIND))?;
+        let declared = self.texture(&store, texture)?;
         Ok(Import::texture_view(
             semantic,
             wgpu::Texture::clone(&declared.texture),
             declared.view.clone(),
             declared.dimension,
         ))
+    }
+
+    /// Level `level.mip` of layer `level.layer` of a declared texture as a 2D view of exactly
+    /// that level, for the binding sourced from `semantic`: a `texture_2d` the shader samples
+    /// or loads at its level 0. [`GameTargets::import_level`](super::GameTargets::import_level)
+    /// does the same for a target.
+    ///
+    /// # Errors
+    /// [`GameResourceError::Foreign`] for another store's handle, and
+    /// [`GameResourceError::Import`], naming the texture, for a 3D texture, a mip or layer
+    /// outside the texture, or a texture without the usage `access` needs: a declared texture
+    /// is sampled, never a storage image.
+    pub fn import_texture_level(
+        &self,
+        semantic: EngineSemantic,
+        texture: GameTexture,
+        level: GameLevel,
+        access: LevelAccess,
+    ) -> Result<Import, GameResourceError> {
+        let store = self.store.borrow();
+        let declared = self.texture(&store, texture)?;
+        import_level(&declared.label, &declared.texture, semantic, level, access)
     }
 
     /// The sampler for the binding sourced from `semantic`.
@@ -556,6 +596,17 @@ impl GameResources {
             .ok_or(GameResourceError::Foreign(GameBuffer::KIND))
     }
 
+    fn texture<'a>(
+        &self,
+        store: &'a Store,
+        texture: GameTexture,
+    ) -> Result<&'a DeclaredTexture, GameResourceError> {
+        store
+            .textures
+            .get(self.slot(texture.store, texture.index, GameTexture::KIND)?)
+            .ok_or(GameResourceError::Foreign(GameTexture::KIND))
+    }
+
     fn buffer_as<'a>(
         &self,
         store: &'a Store,
@@ -578,6 +629,10 @@ impl GameResources {
         Ok(declared)
     }
 }
+
+#[path = "resource_work.rs"]
+mod work;
+pub use work::{GameBlockDestination, GameLevel, GameReadback};
 
 /// The index of the entry just pushed into a list of `len`.
 fn index(len: usize) -> u32 {

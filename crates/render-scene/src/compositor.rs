@@ -51,11 +51,12 @@ pub use game::{
     FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
     FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
     FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
-    FrameTerrainHandle, FrameWaterNormalError, GameBuffer, GameBufferDeclaration, GameBufferUsage,
-    GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameResourceError, GameResources,
-    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
-    OcclusionDepth, PassTarget, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads,
-    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
+    FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
+    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
+    GamePasses, GameReadback, GameResourceError, GameResources, GameSampler, GameTargets,
+    GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape, LevelAccess, OcclusionDepth,
+    PassTarget, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads, SnapshotStatistics,
+    TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
     TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
 };
 use output::FrameOutput;
@@ -662,6 +663,7 @@ impl FrameRenderer {
                 &mut combined,
             )?;
         }
+        self.record_game_work(encoder)?;
         self.publish_snapshots(encoder, schedule.request);
         self.stage_temporal_history(encoder, &frame)
     }
@@ -708,7 +710,8 @@ impl FrameRenderer {
                 operations: &[],
             },
             features,
-        )
+        )?;
+        self.record_game_work(encoder)
     }
 }
 

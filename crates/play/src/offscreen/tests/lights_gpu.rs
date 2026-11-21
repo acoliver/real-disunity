@@ -31,8 +31,9 @@ pub(super) const COLOR: &str = "_MainLightColor";
 const POSITION: &str = "_MainLightPosition";
 
 /// A vertex stage that places its position by the draw constants `_Place`, and fragment stages
-/// that write the main light colour, the fourth component of that member as grey, or the main light
-/// direction of the per-frame constants as red, green and blue, with an alpha of one.
+/// that write the main light colour, the fourth component of that member as grey, the main light
+/// direction of the per-frame constants as red, green and blue, or the first member times the
+/// third component of the second, with an alpha of one.
 const PER_FRAME: &str = "
 struct PerFrame { color: vec4<f32>, position: vec4<f32> }
 struct Draw { place: vec4<f32> }
@@ -52,6 +53,9 @@ struct VOut { @builtin(position) position: vec4<f32> }
 }
 @fragment fn fs_position(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(frame.position.rgb, 1.0);
+}
+@fragment fn fs_factor(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(frame.color.rgb * frame.position.z, 1.0);
 }";
 
 /// One pass tagged `Alpha` whose fragment stage is `entry` of [`PER_FRAME`].

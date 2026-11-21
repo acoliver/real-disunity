@@ -17,7 +17,6 @@ use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Re
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{MaterialId as WorldMaterialId, ShaderProperties};
 
-use super::builtins::draw_layer;
 use super::frame::{Mapper, Skip};
 use super::ids;
 use super::lists::IMAGE_FRONT_FACE;
@@ -64,7 +63,7 @@ impl Mapper<'_> {
                     layer(block, &mut self.textures)
                 }),
                 slot_blocks: BTreeMap::new(),
-                per_draw: draw_layer(matrix),
+                per_draw: self.layerless_draw(matrix),
             },
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
@@ -80,6 +79,7 @@ impl Mapper<'_> {
                     material: Some(named),
                     pass: PassSelector::Index(pass),
                     instances,
+                    per_draw: PropertyLayer::default(),
                 })
                 .collect(),
         }))])

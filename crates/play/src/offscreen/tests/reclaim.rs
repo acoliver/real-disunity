@@ -118,7 +118,8 @@ impl Room {
         let built = self
             .state
             .build(&mut self.runtime, &self.device.2, &adapted.frame)
-            .map(drop);
+            .map(drop)
+            .map_err(|refusal| refusal.error);
         let _ = self
             .runtime
             .device()

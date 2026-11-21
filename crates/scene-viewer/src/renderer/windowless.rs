@@ -84,8 +84,7 @@ pub(super) async fn windowless_context_with(
     if let Some(shared) = shared {
         return adopt(host, shared);
     }
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let instance = windowless_instance();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
@@ -104,6 +103,18 @@ pub(super) async fn windowless_context_with(
     )
     .await?;
     Ok((instance, context))
+}
+
+#[cfg(not(test))]
+fn windowless_instance() -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env())
+}
+
+/// The scene-viewer tests' instance is render-gpu's test instance: parallel test devices on the
+/// production instance crashed inside the Vulkan loader (hub issue 12ae16c68a94).
+#[cfg(test)]
+fn windowless_instance() -> wgpu::Instance {
+    worldrunner_render_gpu::test_support::test_instance()
 }
 
 /// The device a caller made before the session. Its adapter was chosen without the scene, so a

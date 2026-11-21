@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 
@@ -111,6 +111,19 @@ pub(crate) fn device_requirements(budget: u64, available: &wgpu::Limits) -> Devi
     }
 }
 
+/// The instance of the headless player's device.
+#[cfg(not(test))]
+pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
+    worldrunner_render_gpu::device::headless_instance()
+}
+
+/// The play tests' instance is render-gpu's test instance: parallel test devices on the
+/// production instance crashed inside the Vulkan loader (hub issue 12ae16c68a94).
+#[cfg(test)]
+pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
+    worldrunner_render_gpu::test_support::test_instance()
+}
+
 /// The storage images a stage may bind that the device is asked for.
 const PREFERRED_STORAGE_IMAGES: u32 = 8;
 
@@ -121,7 +134,7 @@ const PREFERRED_STORAGE_IMAGES: u32 = 8;
 /// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
 pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
     let inputs = PlayerStartupInputs::capture();
-    let instance = headless_instance();
+    let instance = headless_gpu_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .map_err(|error| format!("no adapter: {error}"))?;
@@ -174,7 +187,7 @@ pub(crate) mod headless {
                 gpu_work: GpuWork::Auto,
             };
             Self {
-                gpu: SharedGpu::headless(),
+                gpu: SharedGpu::headless_for_test(),
                 options: viewer_options(&window),
                 asked: Vec::new(),
             }

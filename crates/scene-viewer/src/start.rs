@@ -42,6 +42,18 @@ impl SharedGpu {
         Self::on(wgpu::Instance::new(descriptor), backends)
     }
 
+    /// [`Self::headless`] on render-gpu's test instance, which loads no `VK_EXT_debug_utils`.
+    /// Parallel test devices crashed inside the Vulkan loader naming objects through that
+    /// extension (hub issue 12ae16c68a94), and the production instance loads it in debug builds.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn headless_for_test() -> Self {
+        let instance = worldrunner_render_gpu::test_support::test_instance();
+        // The backends matter only to a window's presentable-backend census, which a headless
+        // instance has no surface for.
+        Self::on(instance, wgpu::Backends::PRIMARY)
+    }
+
     /// The adapter the device will be made on. The first call chooses it, without a surface, and
     /// later calls return the same one. No device exists until [`Self::device`], so a caller can
     /// size its requirements to what the adapter offers.

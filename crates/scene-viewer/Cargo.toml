@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Test constructors that make the GPU instance without `InstanceFlags::DEBUG`, for the tests of
+# crates that drive the viewer.
+test-support = ["worldrunner-render-gpu/test-support"]
+
 [dependencies]
 arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"] }
 accesskit = "=0.24.0"

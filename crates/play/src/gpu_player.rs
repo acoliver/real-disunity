@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::device::{headless_instance, request_device};
+use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_scene_viewer::GameScreen;
@@ -36,7 +36,7 @@ mod frame;
 use crate::PlayError;
 use crate::counts_line::{top_counts_line, unset_constants_line};
 use crate::global_listing::GlobalListing;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs, player_device};
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
     PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts,
@@ -538,7 +538,7 @@ impl PlayerGpu {
         inputs: &PlayerStartupInputs,
         settings: Settings,
     ) -> Result<Self, String> {
-        let instance = headless_instance();
+        let instance = headless_gpu_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;

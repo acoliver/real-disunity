@@ -335,6 +335,7 @@ impl World {
                     TextureRef::Render(id) => self.check_mip(*id, *source_mip),
                     TextureRef::Asset(_)
                     | TextureRef::None
+                    | TextureRef::Unsent
                     | TextureRef::Global(_)
                     | TextureRef::Temporary(_) => Ok(()),
                 }

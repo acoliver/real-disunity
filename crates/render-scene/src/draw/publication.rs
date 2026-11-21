@@ -6,8 +6,8 @@ use std::{
 use super::visibility::Selection;
 
 pub(crate) struct SelectionPublication {
-    pub(super) destination: Rc<RefCell<Selection>>,
-    pub(super) selection: Selection,
+    pub(super) destination: Rc<RefCell<Rc<Selection>>>,
+    pub(super) selection: Rc<Selection>,
 }
 
 /// A camera or shadow view's selection to publish with the object draws its pass recorded.

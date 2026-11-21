@@ -43,7 +43,8 @@ pub enum RendererListDesc {
         override_material: Option<MaterialId>,
         override_pass: i32,
     },
-    /// The shadow casters a culling result kept for one visible light.
+    /// The shadow casters for one visible light: the renderers the culling result's layer mask
+    /// keeps whose bounds meet the split, whether or not the camera sees them.
     Shadow {
         /// Id of a culling record of this frame.
         cull: u64,

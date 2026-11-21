@@ -9,9 +9,10 @@
 use glam::{Mat4, Quat, Vec3};
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, RenderTextureId, RendererListDesc, ShaderProperties, TargetRef,
+    TextureRef,
 };
 use worldrunner_world_simulation::presentation::Camera;
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
 use super::flush::host;
 use super::gpu::{MESH, Quad, SIDE, shader, target, vector};
@@ -192,4 +193,151 @@ fn a_list_draws_its_renderers_in_the_order_the_world_listed_them() {
     );
     assert_eq!(column(2), bits([0.0, 0.0, 1.0, 1.0]), "blue only");
     assert_eq!(column(3), bits([0.0, 1.0, 0.0, 1.0]), "the cleared green");
+}
+
+/// A renderer on `layer` whose material draws the camera shader's `Gamma` pass, which samples
+/// `_Albedo`, with `_Albedo` set to `texture`.
+fn sampling_quad(world: &mut World, layer: u8, texture: RenderTextureId) {
+    let shader = shader(world, "camera");
+    let material = world.create_material(shader).unwrap();
+    super::support::set(
+        world,
+        material,
+        PropertyValue::Texture(
+            "_Albedo".into(),
+            super::support::texture_slot(TextureRef::Render(texture)),
+        ),
+    );
+    let renderer = MeshRenderer {
+        material_count: 1,
+        slot_materials: vec![Some(material)],
+        ..MeshRenderer::default()
+    };
+    renderer_with(world, (layer, true), MESH, renderer);
+}
+
+/// Sets `target` as the render target, clears it to `clear`, culls everything and draws the list
+/// of the passes tagged `tag` on the layers of `layer_mask` into it.
+fn clear_and_draw(
+    world: &mut World,
+    camera: ComponentHandle,
+    (target, clear): (RenderTextureId, [f32; 4]),
+    (id, tag, layer_mask): (u64, &str, u32),
+) {
+    let commands = [
+        OffscreenWork::SetRenderTarget {
+            color: vec![TargetRef::Render(target)],
+            depth: None,
+            mip: 0,
+            face: -1,
+            slice: -1,
+        },
+        OffscreenWork::ClearRenderTarget {
+            color: true,
+            depth: true,
+            stencil: false,
+            value: clear,
+            depth_value: 1.0,
+            stencil_value: 0,
+        },
+        OffscreenWork::SetupCamera {
+            camera,
+            view: Mat4::IDENTITY.to_cols_array(),
+            projection: Mat4::IDENTITY.to_cols_array(),
+            target: TargetRef::Render(target),
+            buffers: None,
+        },
+        OffscreenWork::Cull {
+            id,
+            camera,
+            culling_mask: u32::MAX,
+            planes: Vec::new(),
+            options: 0,
+        },
+    ];
+    for command in commands {
+        world.record_offscreen(command).unwrap();
+    }
+    let list = world
+        .create_renderer_list(RendererListDesc::Draw {
+            cull: id,
+            pass_tags: vec![tag.to_owned()],
+            queue_min: 0,
+            queue_max: 5000,
+            layer_mask,
+            rendering_layer_mask: u32::MAX,
+            sorting: 0,
+            per_object: 0,
+            override_material: None,
+            override_pass: 0,
+        })
+        .unwrap();
+    world
+        .record_offscreen(OffscreenWork::DrawRendererList { list })
+        .unwrap();
+}
+
+#[test]
+fn a_list_draw_that_samples_its_own_target_is_refused_alone_and_the_rest_of_the_flush_runs() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = host(directory.path());
+    let mut world = world();
+    let (looped, independent) = (target(&mut world, ARGB32), target(&mut world, ARGB32));
+    // Layer 1 holds a renderer that samples the texture its list draws into; layer 0 a red quad
+    // over the left half of the other target.
+    sampling_quad(&mut world, 1, looped);
+    quad(&mut world, [1.0, 0.0, 0.0, 1.0], [0.5, 1.0, -0.5, 0.0]);
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    // A camera render into a texture no list touches makes the world copy the renderers.
+    let unrelated = target(&mut world, ARGB32);
+    world
+        .record_offscreen(OffscreenWork::CameraRender {
+            camera,
+            target: unrelated,
+        })
+        .unwrap();
+    clear_and_draw(
+        &mut world,
+        camera,
+        (looped, [0.0, 0.0, 1.0, 1.0]),
+        (5, "Gamma", 1 << 1),
+    );
+    clear_and_draw(
+        &mut world,
+        camera,
+        (independent, [0.0, 1.0, 0.0, 1.0]),
+        (6, "Alpha", 1 << 0),
+    );
+    let looped_read = world
+        .request_texture_pixels(looped, 0, 0, SIDE, SIDE)
+        .unwrap();
+    let independent_read = world
+        .request_texture_pixels(independent, 0, 0, SIDE, SIDE)
+        .unwrap();
+
+    let snapshot = snapshot(&mut world);
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    outcome.apply(&mut world).unwrap();
+
+    assert_eq!(
+        world.take_texture_pixels(independent_read),
+        Some(texels(2, [1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0])),
+        "the list into the other target ran"
+    );
+    assert_eq!(
+        world.take_texture_pixels(looped_read),
+        Some(texels(0, [0.0; 4], [0.0, 0.0, 1.0, 1.0])),
+        "the self-sampling list left the cleared target as it was"
+    );
+    assert_eq!(outcome.report.failures.get("draw:FeedbackLoop"), Some(&1));
+    assert_eq!(
+        outcome.report.failures.len(),
+        1,
+        "{:?}",
+        outcome.report.failures
+    );
+    let lists = &outcome.report.list_draws;
+    assert_eq!(lists.len(), 2);
+    assert_eq!((lists[0].drawn, lists[0].feedback_loop), (0, 1));
+    assert_eq!((lists[1].drawn, lists[1].feedback_loop), (1, 0));
 }

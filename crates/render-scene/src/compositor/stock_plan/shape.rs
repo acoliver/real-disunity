@@ -89,6 +89,12 @@ pub(super) fn snapshot_bank<'a>(
         let snapshot = &snapshots[environment.slot];
         let mut bank = vec![&snapshot.color, &snapshot.depth, &snapshot.final_depth];
         bank.extend(snapshot.device_depth.as_ref().map(|depth| &depth.texture));
+        bank.extend(
+            snapshot
+                .final_device_depth
+                .as_ref()
+                .map(|depth| &depth.texture),
+        );
         bank
     })
 }

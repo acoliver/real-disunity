@@ -323,6 +323,39 @@ fn gpu_a_game_feature_reads_the_cascades_the_stock_receivers_use() {
     assert_eq!(lent.sampler, renderer.map.sampler);
 }
 
+/// The shadow strength the receivers apply when the scene weakens its shadows, as
+/// `gpu_retained_sampling_update_rekeys_caster_slope` in `sampling.rs` sets it, so the lent
+/// strength is compared at a value other than full strength.
+#[test]
+fn gpu_a_game_feature_reads_the_weakened_shadow_strength_the_stock_receivers_apply() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let cascades = SceneShadowCascades::new(vec![650, 1_200, 2_000, 3_500], 100_000)
+        .unwrap()
+        .with_sampling(SceneShadowSampling {
+            strength_micro: 800_000,
+            ..SceneShadowSampling::default()
+        })
+        .unwrap();
+    let source = source_with(&scene(&[[0, 0, 1_000]], 600_000, None), cascades);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let (seen, _) = Probe::install(&mut renderer, &context, false);
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+
+    let seen = seen.lock().unwrap();
+    let lent = seen[0]
+        .as_ref()
+        .expect("a shadowed frame lends its cascades");
+    let stock = Words::of(&uniforms(&context, &renderer)[1]);
+    assert_receiver_terms(lent, &stock);
+    assert!(
+        (lent.strength - 0.8).abs() < 1e-6,
+        "the receivers blend sunlight at 0.8: {}",
+        lent.strength
+    );
+}
+
 #[test]
 fn gpu_a_same_frame_fitted_capture_lends_the_fitted_cascades() {
     let _session = crate::test_support::SceneTestSession::acquire();

@@ -293,6 +293,17 @@ impl InstanceBatch {
             && self.buffers_fit(track_previous || self.previous.is_some())
     }
 
+    /// Whether a gather can read this batch: its instance buffer exists, its previous-transform
+    /// buffer when `previous`, and its skin buffer when it has a skin stream.
+    pub fn is_flushed(&self, previous: bool) -> bool {
+        self.buffer.is_some()
+            && (!previous || self.previous.is_some())
+            && self
+                .skin
+                .as_ref()
+                .is_none_or(|stream| stream.buffer.is_some())
+    }
+
     /// Keeps copies needed by this encoder and edits still owed if its transaction cancels.
     fn prune_published(&mut self, owner: &Publications) {
         let pending: BTreeSet<usize> = self

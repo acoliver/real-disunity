@@ -5,7 +5,6 @@
 //! same publications a real frame makes.
 use super::compaction::Rig;
 use super::compaction_gather::{fragmented, object};
-use super::*;
 use crate::draw::InstanceWrite;
 use worldrunner_render_gpu::submission::{PreparedFrame, TransactionError};
 use worldrunner_render_post::PrepareContext;

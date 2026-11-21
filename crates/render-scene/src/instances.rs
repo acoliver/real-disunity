@@ -4,6 +4,7 @@ pub(crate) mod batch;
 #[cfg(test)]
 mod contour_tests;
 pub(crate) mod fade;
+mod flushed_memo;
 pub(crate) mod history;
 mod lookup;
 mod ready_memo;
@@ -145,6 +146,8 @@ pub(crate) struct Instances {
     ready: ready_memo::ReadyMemo,
     /// The state in which a flush last found every batch settled.
     settled: settled_memo::SettledMemo,
+    /// The state in which every batch was last found flushed, or not.
+    flushed: flushed_memo::FlushedMemo,
     pub contours: worldrunner_render_plan::SceneContours,
     pub contour_members: BTreeMap<(BatchKey, usize), u8>,
     /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
@@ -202,6 +205,7 @@ impl Instances {
             bounds_current: std::cell::Cell::new(None),
             ready: ready_memo::ReadyMemo::default(),
             settled: settled_memo::SettledMemo::default(),
+            flushed: flushed_memo::FlushedMemo::default(),
             contours: scene
                 .effects()
                 .map(|effects| effects.contours().clone())

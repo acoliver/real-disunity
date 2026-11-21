@@ -137,7 +137,7 @@ fn replace_profile(
 #[test]
 fn post_enable_disable_and_collected_replacement_match_live_budget() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let mut options = options();
     let mut presentation = presentation(&context, &options);
     let initial = planned(

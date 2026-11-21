@@ -123,6 +123,7 @@ pub(super) fn quad(world: &mut World, file: &str, layer: u8, place: [f32; 4]) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (layer, true), MESH, renderer);

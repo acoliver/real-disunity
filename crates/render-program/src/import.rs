@@ -34,7 +34,7 @@ use crate::state::RenderState;
 /// A texture and the view of it a binding reads. The texture tells the runtime the format and
 /// sample count to check the binding against, and `dimension` is how `view` was made, which a
 /// view cannot be asked.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -66,8 +66,9 @@ pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDim
     }
 }
 
-/// A buffer, texture view or sampler an owner lends to a draw.
-#[derive(Clone, Debug)]
+/// A buffer, texture view or sampler an owner lends to a draw. Two are equal when they lend the
+/// same wgpu objects (wgpu compares handles by identity) the same way.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportedResource {
     /// The whole buffer.
     Buffer(wgpu::Buffer),
@@ -93,7 +94,7 @@ impl ImportedResource {
 }
 
 /// A resource lent to the binding that the program sources from `semantic`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
     pub semantic: EngineSemantic,
     pub resource: ImportedResource,

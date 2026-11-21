@@ -1,8 +1,7 @@
 //! The streamed terrain a game's passes draw: the chunks the frame's stock selection admitted.
+use super::lent::{FrameInputError, Lent};
 use crate::draw::{SceneGpu, TerrainChunkDraw, TerrainChunkViewError};
-use std::cell::RefCell;
 use std::rc::Rc;
-use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::FrameError;
 
 #[cfg(test)]
@@ -21,6 +20,15 @@ pub enum FrameTerrainError {
     View(#[from] TerrainChunkViewError),
 }
 
+impl From<FrameInputError> for FrameTerrainError {
+    fn from(error: FrameInputError) -> Self {
+        match error {
+            FrameInputError::OutsideFrame => Self::OutsideFrame,
+            FrameInputError::NotPrepared => Self::NotPrepared,
+        }
+    }
+}
+
 impl From<FrameTerrainError> for FrameError {
     fn from(error: FrameTerrainError) -> Self {
         Self::FeaturePreparation {
@@ -30,26 +38,24 @@ impl From<FrameTerrainError> for FrameError {
     }
 }
 
-/// The lent terrain of one frame and the transaction that prepared it: its chunks, `None`
-/// without terrain, or why it cannot lend them.
-#[derive(Debug)]
-struct FrameTerrain {
-    owner: Publications,
-    lent: Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>,
-}
-
 /// Where a game reads the streamed terrain of the frame in flight.
 ///
 /// Each stock route publishes it after preparing the frame's terrain and before any feature
 /// prepares, with the frame's finalized camera and raster extent. It holds the chunks the stock
 /// camera draw would submit, in its order, with their neighbours and resident buffers, whether
 /// or not the stock passes draw the terrain. A route that cannot lend records why, and only a
-/// feature that reads the terrain sees it; the frame itself goes on.
+/// feature that reads the terrain sees it; the frame itself goes on. A depth prefix that a
+/// route submits ahead of the frame publishes it too, before the prefix's features prepare,
+/// with the chunks the rest of the frame lends: a depth-prefix feature reads the lent terrain only; shadow, occlusion and environment inputs are `NotPrepared` there; see
+/// [`GameFeatureFactory::build_depth_prefix`](super::GameFeatureFactory::build_depth_prefix).
 ///
 /// The lent buffers are the renderer's own. Record draws from them in the frame that lent them;
 /// do not keep them for later frames, write them or destroy them.
 #[derive(Clone, Debug, Default)]
-pub struct FrameTerrainHandle(Rc<RefCell<Option<FrameTerrain>>>);
+pub struct FrameTerrainHandle(
+    /// The frame's chunks, `None` without terrain, or why it cannot lend them.
+    Lent<Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError>>,
+);
 
 impl FrameTerrainHandle {
     /// The chunks of the frame now being prepared; `None` when the scene has no terrain.
@@ -59,32 +65,26 @@ impl FrameTerrainHandle {
     /// terrain that is not streamed, or when the frame's selection cannot be read. A previous
     /// frame's chunks are never returned.
     pub fn current(&self) -> Result<Option<Rc<[TerrainChunkDraw]>>, FrameTerrainError> {
-        let owner = Publications::current().ok_or(FrameTerrainError::OutsideFrame)?;
-        self.0
-            .borrow()
-            .as_ref()
-            .filter(|frame| owner.same_frame(&frame.owner))
-            .ok_or(FrameTerrainError::NotPrepared)?
-            .lent
-            .clone()
+        self.0.current()?
     }
 
     /// Records what `gpu` prepared for this frame's view. Outside a frame nothing is lent.
+    ///
+    /// A frame's terrain is selected for one raster extent. A second publication in the same
+    /// frame with another `viewport` lends `View(ViewMismatch)`, and the routes fail their own
+    /// terrain preparation before they publish.
     pub(crate) fn publish(
         &self,
         gpu: &SceneGpu,
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
-        let published = Publications::current().map(|owner| FrameTerrain {
-            owner,
-            lent: lend(gpu, frame, viewport),
+        self.0.publish_with(|| {
+            let lent = lend(gpu, frame, viewport);
+            #[cfg(test)]
+            probe::record_publication(&lent);
+            lent
         });
-        #[cfg(test)]
-        if let Some(published) = &published {
-            probe::record_publication(published);
-        }
-        *self.0.borrow_mut() = published;
     }
 }
 
@@ -101,8 +101,9 @@ fn lend(
 }
 
 impl crate::compositor::FrameRenderer {
-    /// Lends the frame's prepared terrain to the game's features, when there are any. Call it
-    /// after the route prepares the frame's terrain, with the same frame and raster extent.
+    /// Lends the frame's prepared terrain, and the scene's resident textures, to the game's
+    /// features, when there are any. Call it after the route prepares the frame's terrain, with
+    /// the same frame and raster extent.
     pub(crate) fn publish_game_terrain(
         &self,
         gpu: &SceneGpu,
@@ -112,5 +113,6 @@ impl crate::compositor::FrameRenderer {
         if self.game.features > 0 {
             self.game_terrain.publish(gpu, frame, viewport);
         }
+        self.publish_game_textures(gpu);
     }
 }

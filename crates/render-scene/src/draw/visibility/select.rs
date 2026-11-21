@@ -128,8 +128,8 @@ impl Selection {
         self.stats.culled = self.stats.considered - self.stats.drawn_per_lod.iter().sum::<usize>();
     }
 
-    /// Collects the slots of `batch` that are visible, cast when only casters count, and
-    /// whose bounds the view admits, skipping groups no placement of which it can admit.
+    /// Collects the slots of `batch` that are visible, cast when only casters count, are not
+    /// shadow-only when the view is a camera, and whose bounds the view admits, skipping groups no placement of which it can admit.
     fn admit(
         &self,
         batch: &IndexedBatch<'_>,
@@ -156,10 +156,15 @@ impl Selection {
                 }
                 Node::Leaf { slots, .. } => {
                     admitted.extend(slots.iter().copied().filter(|&slot| {
-                        let (object, visible) =
-                            batch.placements[slot as usize].expect("live instance");
-                        visible
-                            && (!self.casters_only || object.casts_shadow())
+                        let (object, visible) = batch.placements[slot as usize]
+                            .as_ref()
+                            .expect("live instance");
+                        *visible
+                            && if self.casters_only {
+                                object.casts_shadow()
+                            } else {
+                                !object.shadow_only()
+                            }
                             && self.admits(frustum, matrix, passed, || {
                                 placement::placement(
                                     batch.bounds.boxes(slot as usize),
@@ -192,7 +197,7 @@ impl Placements<'_> {
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
         batch.bounds.levels().get_or_compute(slot, || {
-            let (object, _) = batch.placements[slot].expect("live instance");
+            let (object, _) = batch.placements[slot].as_ref().expect("live instance");
             let inputs = batch.bounds.inputs(slot);
             let distance = distance_squared(
                 object.transform().position_millimeters,

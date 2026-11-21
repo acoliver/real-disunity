@@ -50,8 +50,10 @@ fn blocked_redraws_do_not_advance_retained_placement_state() {
 #[test]
 fn close_drops_surface_with_a_real_submission_pending_without_joining() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let flight = FrameAdmission::new(1).unwrap();
     let mut surface = Surface::new();
     let dropped = surface.dropped.clone();
@@ -248,8 +250,10 @@ fn updates_require_a_usable_frame_and_never_run_for_blocked_or_suspended_redraws
 #[test]
 fn delayed_submission_completion_defers_lifecycle_without_waiting() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = pollster::block_on(GpuContext::request_with_features_for_test(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let flight = FrameAdmission::new(1).unwrap();
     let (send, done) = std::sync::mpsc::channel();
     let ticket = flight.submit(

@@ -26,6 +26,7 @@ internal static unsafe class JobTests
         JobsUtilityReportsFailuresAsTheyHappened();
         DeferredArraySizeReadsTheListLength();
         BurstReportsItselfUninitialized();
+        SharedMemoryIsOneZeroedBlockPerKey();
         Console.WriteLine("PASS: jobs run synchronously with complete handles, every index once, and low-level job registration");
     }
 
@@ -238,6 +239,39 @@ internal static unsafe class JobTests
         BurstCompilerService.SetCurrentExecutionMode(3);
         Expect.Equal(3u, BurstCompilerService.GetCurrentExecutionMode(), "the execution mode is kept");
         Expect.That(!JobsUtility.IsExecutingJob && JobsUtility.ThreadIndexCount == 1 && JobsUtility.JobWorkerCount == 0, "there are no worker threads");
+    }
+
+    /// <summary>The memory a shared static lives in: one zeroed, aligned block per key for the process, the same block for the
+    /// same key, and a refusal for a key asked again with a larger size or alignment than its block has.</summary>
+    private static unsafe void SharedMemoryIsOneZeroedBlockPerKey()
+    {
+        var key = new UnityEngine.Hash128(0x5eed_0001UL, 0x5eed_0002UL);
+        var first = (byte*)BurstCompilerService.GetOrCreateSharedMemory(ref key, 24, 16);
+        Expect.That(first != null && ((nuint)first % 16) == 0, "a block is made at the alignment asked for");
+        var zero = true;
+        for (var i = 0; i < 24; i++) zero &= first[i] == 0;
+        Expect.That(zero, "a new block is zeroed");
+        first[3] = 7;
+        var again = (byte*)BurstCompilerService.GetOrCreateSharedMemory(ref key, 24, 16);
+        Expect.That(again == first && again[3] == 7, "the same key gives the same block, with what was written to it");
+        var smaller = (byte*)BurstCompilerService.GetOrCreateSharedMemory(ref key, 8, 4);
+        Expect.That(smaller == first, "a smaller size and alignment for the key give its block");
+        var other = new UnityEngine.Hash128(0x5eed_0001UL, 0x5eed_0003UL);
+        var second = (byte*)BurstCompilerService.GetOrCreateSharedMemory(ref other, 24, 16);
+        Expect.That(second != null && second != first, "another key gets its own block");
+        var larger = false;
+        try { BurstCompilerService.GetOrCreateSharedMemory(ref key, 32, 16); }
+        catch (InvalidOperationException) { larger = true; }
+        Expect.That(larger, "a key asked again for more bytes than its block holds is refused");
+        var wider = false;
+        try { BurstCompilerService.GetOrCreateSharedMemory(ref key, 8, 64); }
+        catch (InvalidOperationException) { wider = true; }
+        Expect.That(wider, "a key asked again with a wider alignment than its block has is refused");
+        var bad = false;
+        var fresh = new UnityEngine.Hash128(0x5eed_0004UL, 0x5eed_0005UL);
+        try { BurstCompilerService.GetOrCreateSharedMemory(ref fresh, 8, 3); }
+        catch (ArgumentException) { bad = true; }
+        Expect.That(bad, "an alignment that is not a power of two is refused");
     }
 
     private static readonly List<(int, int)> Batches = new();

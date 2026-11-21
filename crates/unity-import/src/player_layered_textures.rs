@@ -18,8 +18,11 @@ use worldrunner_unity_serialized::graphics::{Cubemap, StreamingInfo, Texture3D};
 
 use crate::{
     PlayerError,
+    player_files::PlayerFiles,
     player_resources::{ObjectKey, Registry, ResourceAsset},
-    player_sprites::{TextureData, locate_stream, texture_asset, write_resource},
+    player_sprites::{
+        Texture2DAsset, TextureData, locate_stream, scene_pixels, texture_asset, write_resource,
+    },
 };
 
 /// The faces of a cube.
@@ -121,4 +124,21 @@ pub(crate) fn plan_texture_3d(
         mip_bias: settings.mip_bias,
         data,
     })
+}
+
+/// Plans the cubemap for a scene plan, which has no directory of its own, with its pixels named
+/// in place as [`crate::player_sprites::plan_scene_texture`] names a texture's. A cube that is not
+/// six square faces is the `Err` of the result, with the difference line that says so.
+pub(crate) fn plan_scene_cubemap(
+    files: &mut PlayerFiles,
+    key: &ObjectKey,
+) -> Result<Result<Texture2DAsset, String>, PlayerError> {
+    let cube: Cubemap = files.open_path(&key.0)?.decode(key.1)?;
+    if let Some(flaw) = cubemap_flaw(&cube) {
+        return Ok(Err(flaw));
+    }
+    let texture = cube.texture;
+    let what = format!("cubemap {}", texture.name);
+    let data = scene_pixels(files, key, (&texture.image_data, &texture.stream), &what)?;
+    Ok(Ok(texture_asset(texture, data)))
 }

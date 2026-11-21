@@ -225,6 +225,8 @@ pub use upscale::SpatialUpscale;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
+mod frame_mip_tests;
+#[cfg(test)]
 mod frame_tests;
 #[cfg(test)]
 mod post_upload_staging_tests;
@@ -233,6 +235,10 @@ mod prepare_context_tests;
 #[cfg(test)]
 mod prepared_command_buffers_tests;
 #[cfg(test)]
+mod prepared_run_tests;
+#[cfg(test)]
+mod prepared_test_support;
+#[cfg(test)]
 mod upload_staging_limit_tests;
 #[cfg(test)]
 mod upload_staging_tests;
@@ -240,8 +246,8 @@ pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
     FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
-    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedFeature,
-    PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
+    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedCompute,
+    PreparedFeature, PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;

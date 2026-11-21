@@ -12,6 +12,7 @@ mod comparison;
 mod coverage;
 mod depth_only;
 mod external;
+mod layer_view;
 mod overrides;
 mod ranges;
 mod set_layout;

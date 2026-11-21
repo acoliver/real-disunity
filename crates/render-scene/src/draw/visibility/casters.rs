@@ -378,4 +378,21 @@ mod tests {
         let casters = casters_of(&[&first, &second, &deep]);
         assert_eq!(fit(&casters, receiver, 0.0).to_bits(), (-2.0_f32).to_bits());
     }
+
+    #[test]
+    fn a_negative_zero_start_survives_casters_that_all_reach_positive_zero() {
+        let mut receiver = Mat4::IDENTITY;
+        receiver.w_axis.z = -0.0;
+        // Wholly outside the receiver's XY square, so every reach is +0.0.
+        let outside = batch(&[[Vec3::splat(5.0), Vec3::splat(6.0)]]);
+        let casters = casters_of(&[&outside]);
+        for start in [0.0, -0.0] {
+            let expected = casters.iter().fold(start, |near, batch| {
+                (0..batch.placements.len())
+                    .filter_map(|slot| batch.near(slot, receiver))
+                    .fold(near, f32::min)
+            });
+            assert_eq!(fit(&casters, receiver, start).to_bits(), expected.to_bits());
+        }
+    }
 }

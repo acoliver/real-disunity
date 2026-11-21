@@ -714,31 +714,21 @@ impl PlayerGpu {
         self.drawn_screen.get()
     }
 
-    /// The screen as the window shows it: the texture the offscreen work draws into, with whether
-    /// a flush the player submitted itself already wrote it. Nothing is copied. `None` while there
-    /// is no screen, before any frame made its texture, and when the texture is not the size the
-    /// screen was last asked to be: a resize makes the next frame that has work a new one, and the
-    /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
-    /// counted in the report and shows nothing.
+    /// The screen as a window shows it: the texture the offscreen work draws into, and whether it
+    /// already holds what work drew: a flush the player submitted itself wrote it, or one of the
+    /// player's own frames, which it submits and waits for, drew into it ([`Self::drawn_screen`]).
+    /// A window's frames are submitted by the viewer, which knows their writes. Nothing is copied.
+    /// `None` while there is no screen, before any frame made its texture, and when the texture is
+    /// not the size the screen was last asked to be: a resize makes the next frame that has work a
+    /// new one, and the old texture shows a size the window no longer has. A texture the viewer
+    /// cannot sample is counted in the report and shows nothing.
     pub(crate) fn game_screen(&self) -> Option<GameScreen> {
-        self.offered_screen(false)
-    }
-
-    /// [`Self::game_screen`] for the player's own frames, whose work the player submitted and waited
-    /// for: the screen has contents once any of that work drew into it, which is when
-    /// [`Self::drawn_screen`] has a number. `None` before then.
-    pub(crate) fn written_screen(&self) -> Option<GameScreen> {
-        self.drawn_screen()?;
-        self.offered_screen(true)
-    }
-
-    fn offered_screen(&self, written: bool) -> Option<GameScreen> {
         let host = self.offscreen.borrow();
         let (texture, flushed) = host.screen_texture()?;
         if self.screen_size.get() != Some([texture.width(), texture.height()]) {
             return None;
         }
-        GameScreen::new(texture, flushed || written)
+        GameScreen::new(texture, flushed || self.drawn_screen.get().is_some())
             .map_err(|error| {
                 *self
                     .report

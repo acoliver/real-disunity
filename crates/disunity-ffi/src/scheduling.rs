@@ -295,6 +295,23 @@ pub unsafe extern "C" fn disunity_world_advance(
 }
 
 /// # Safety
+/// `output` is writable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_world_advance_teardown(
+    world: u64,
+    output: *mut DisunityAdvance,
+) -> DisunityResult {
+    call(world, output, |session| {
+        crate::commands::flush(session)?;
+        session.graphics_snapshot = None;
+        session
+            .native
+            .advance_teardown()
+            .map_err(crate::errors::AbiError::from)
+    })
+}
+
+/// # Safety
 /// Input points to `length` bytes; output is writable for one record.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn disunity_world_resume(

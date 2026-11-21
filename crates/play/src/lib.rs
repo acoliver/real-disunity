@@ -29,6 +29,7 @@ pub mod offscreen;
 mod plan_differences;
 mod player;
 mod player_meshes;
+mod player_screen_ui;
 mod player_textures;
 mod player_ui;
 mod prepare;

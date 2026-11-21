@@ -18,8 +18,10 @@ pub enum ColorOutput {
     /// frame), which it keeps.
     Target(ResourceRef),
     /// The frame's colour. The first pass to write it clears it to the frame's clear colour; Opaque
-    /// then loads what the game's passes left, so the stock objects draw over it. Not available
-    /// at [`GamePlace::AfterDepthPrepass`], which runs before anything draws the colour.
+    /// then loads what the game's passes left, so the stock objects draw over it. A pass after
+    /// Opaque loads it, and at [`GamePlace::BeforePost`] it holds everything the frame lit, which
+    /// the pass draws over with the blend state of its draws. Not available at
+    /// [`GamePlace::AfterDepthPrepass`], which runs before anything draws the colour.
     Frame,
     /// A colour product of the frame's depth/normal prepass, named by its resource, such as
     /// [`FrameProduct::normals`](crate::frame::metadata::FrameProduct::normals) (view-space
@@ -41,6 +43,14 @@ pub enum DepthAccess {
     ReadWrite,
     /// Tests against depth that an earlier pass completed, writing none.
     ReadOnly,
+    /// As [`Self::ReadOnly`], and the pass also samples the same depth as a texture, as soft
+    /// particles and decals do: they test against the depth and fade with the distance to it.
+    /// The plan lists the depth among the pass's reads, so the frame orders it after the depth's
+    /// writers, and [`PassTarget::sampled_depth`](super::PassTarget::sampled_depth) lends the
+    /// sampled view. A pass that writes depth cannot sample it: listing the frame's depth in
+    /// [`GamePassSpec::sampling_frame`] of a [`Self::ReadWrite`] pass is refused at planning with
+    /// [`FrameError::AttachmentHazard`] naming the depth.
+    ReadOnlySampled,
 }
 
 /// A game pass: where it sits, what it writes and which declared targets it samples.
@@ -52,6 +62,8 @@ pub struct GamePassSpec {
     /// The colour attachments in location order. The first is the pass's colour, the rest its
     /// additional colours.
     pub colors: Vec<ColorOutput>,
+    /// How the pass attaches the frame's depth, and whether it also samples it
+    /// ([`DepthAccess::ReadOnlySampled`]). `None` attaches no depth.
     pub depth: Option<DepthAccess>,
     /// Layers of declared targets the pass samples. A read of a layer is a read of every mip of
     /// it, which the target's sampled view covers. Each mip must be written by an earlier pass or
@@ -70,7 +82,9 @@ pub struct GamePassSpec {
     /// The frame's opaque snapshots the pass samples. Each must be one the factory declared in
     /// [`GameFeatureFactory::snapshot_reads`](super::GameFeatureFactory::snapshot_reads). The frame
     /// records the snapshots the passes declare and orders every reader after their writers, so
-    /// a pass that samples them belongs at or after [`GamePlace::AfterOpaqueSnapshots`].
+    /// a pass that samples them belongs at or after [`GamePlace::AfterOpaqueSnapshots`], and one that samples
+    /// the post-water depth belongs at [`GamePlace::AfterTransparent`], where a read at any earlier
+    /// place is refused as [`FrameError::MissingProducer`](worldrunner_render_post::FrameError::MissingProducer).
     pub snapshots: SnapshotReads,
 }
 
@@ -157,9 +171,9 @@ impl GameTargets {
     /// [`FrameError::AttachmentView`] for a target or layer that is not declared, a copy target
     /// written as a colour output or a prepass product the frame lacks,
     /// [`FrameError::AttachmentHazard`] for a target that shares its name with another
-    /// attachment of the frame, and [`FrameError::UnsupportedEffect`] for a pass planned by the
-    /// wrong feature, a prepass product outside [`GamePlace::AfterDepthPrepass`] or the frame's
-    /// colour inside it,
+    /// attachment of the frame or a pass that writes the frame's depth and samples it, and
+    /// [`FrameError::UnsupportedEffect`] for a pass planned by the wrong feature, a prepass
+    /// product outside [`GamePlace::AfterDepthPrepass`] or the frame's colour inside it,
     /// and, when the planned frame is validated, [`FrameError::AttachmentHazard`] for a pass that
     /// samples a mip it also renders into and [`FrameError::MissingProducer`] for a sampled mip
     /// nothing wrote.
@@ -179,9 +193,12 @@ impl GameTargets {
         let mut colors = colors.into_iter();
         pass.color = colors.next();
         pass.additional_colors = colors.collect();
-        if let Some(access) = spec.depth {
-            pass.depth = Some(depth_attachment(spec, access, &source)?);
-        }
+        let depth = spec
+            .depth
+            .map(|access| depth_attachment(spec, access, &source))
+            .transpose()?;
+        let sampled_depth = sampled_depth(spec, depth.as_ref())?;
+        pass.depth = depth;
         let mut reads = self.subresource_reads(&spec.reads, &spec.mip_reads);
         for resource in &reads {
             added.push(self.view(*resource)?);
@@ -191,6 +208,7 @@ impl GameTargets {
         let fresh = new_views(views, added)?;
         views.extend(fresh);
         passes.push(pass);
+        reads.extend(sampled_depth);
         reads.extend(spec.frame_reads.iter().copied());
         reads.extend(spec.snapshots.resources());
         Ok(FeaturePass { reads, ..feature })
@@ -359,13 +377,32 @@ fn depth_attachment(
             read_only: false,
             ..frame
         },
-        DepthAccess::ReadOnly => AttachmentDeclaration {
+        DepthAccess::ReadOnly | DepthAccess::ReadOnlySampled => AttachmentDeclaration {
             load: AttachmentLoad::Load,
             store: wgpu::StoreOp::Store,
             read_only: true,
             ..frame
         },
     })
+}
+
+/// The depth `spec`'s pass samples in the same pass it attaches `depth`: the depth itself for
+/// [`DepthAccess::ReadOnlySampled`], nothing otherwise.
+///
+/// # Errors
+/// [`FrameError::AttachmentHazard`] naming the depth when a pass that writes it also lists it
+/// in its frame reads: one pass cannot write a depth and sample it.
+fn sampled_depth(
+    spec: &GamePassSpec,
+    depth: Option<&AttachmentDeclaration>,
+) -> Result<Option<ResourceRef>, FrameError> {
+    let Some(depth) = depth else {
+        return Ok(None);
+    };
+    if !depth.read_only && spec.frame_reads.contains(&depth.resource) {
+        return Err(FrameError::AttachmentHazard(depth.resource));
+    }
+    Ok((spec.depth == Some(DepthAccess::ReadOnlySampled)).then_some(depth.resource))
 }
 
 /// Whether the frame's depth prepass writes the depth Opaque draws with, whether Opaque then

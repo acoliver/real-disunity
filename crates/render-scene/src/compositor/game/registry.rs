@@ -125,6 +125,9 @@ pub trait GameFeatureFactory: Send + Sync {
     /// The feature plans nothing in a frame without a depth prepass (no SSAO, reflections or
     /// depth fitting), where [`GameTargets::plan_pass`] refuses the place with
     /// `FrameError::MissingPass`; check the pass list for `PassSlot::DepthNormalPrepass` first.
+    /// Whenever it plans no pass, the frame prepares, commits and finishes it as an ordinary
+    /// feature without passes (a prefix encoded separately leaves it to the rest of the frame),
+    /// so its `prepare` must accept a frame that lists none of its entries.
     ///
     /// # Errors
     /// Whatever refuses the feature; the renderer is not built.

@@ -213,6 +213,10 @@ impl FrameFeature for Prefix {
 
 impl PreparedFeature for Prefix {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        // A frame without the prepass plans no pass of this feature and still prepares it.
+        if context.pass(RAISE).is_err() {
+            return Ok(());
+        }
         let target = PassTarget::of(context, RAISE)?;
         let state = target.render_state(RasterState {
             cull: None,

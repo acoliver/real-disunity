@@ -370,3 +370,35 @@ pub(crate) fn decode_half(word: u16) -> f32 {
     };
     if word & 32768 == 0 { value } else { -value }
 }
+
+/// What the frame lends a game of its occlusion: the last filter stage's target, one view of it
+/// for every frame, and whether the stock receivers sample it. With depth-only metadata the
+/// receivers bind the constant neutral occlusion, so the game is lent the computed stage, which a
+/// frame runs only for a pass that declares the read.
+#[test]
+fn gpu_lent_occlusion_is_the_computed_stage_with_one_view_for_every_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let computed = SceneMetadata::new(context.device(), [8, 8], settings()).unwrap();
+    let first = computed.passes.lend_occlusion();
+    let second = computed.passes.lend_occlusion();
+    assert_eq!(
+        first.view, second.view,
+        "lending a frame's occlusion creates no view"
+    );
+    assert_eq!(&first.texture, computed.passes.occlusion());
+    assert_eq!(first.texture, computed.passes.filtered);
+    assert!(first.stock_receivers);
+
+    let depth_only = SceneMetadata::depth_only(context.device(), context.queue(), [8, 8]).unwrap();
+    let lent = depth_only.passes.lend_occlusion();
+    assert!(
+        !lent.stock_receivers,
+        "the receivers sample the neutral occlusion"
+    );
+    assert_eq!(&lent.texture, depth_only.passes.occlusion());
+    assert_ne!(
+        lent.texture, depth_only.passes.filtered,
+        "the game is lent the computed stage, not the neutral texture"
+    );
+}

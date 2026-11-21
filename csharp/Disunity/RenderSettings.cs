@@ -15,10 +15,11 @@ namespace UnityEngine
     /// values of a new scene and a world reload restores them; a script's writes are stored and read back. The ambient light
     /// (mode, colours, intensity and probe) and the default reflection (mode, intensity and cube) are the world's one
     /// environment record, which a scene load fills from the scene's render settings and the host draws from (see
-    /// <c>RenderSettingsEnvironment.cs</c>); the other values are managed, and nothing applies them to a frame: a render
-    /// pipeline reads them and sends what it needs as shader globals. <see cref="ambientIntensity"/> stops at 0 and 8,
+    /// <c>RenderSettingsEnvironment.cs</c>); the other values are managed. A scene load writes them from the same plan
+    /// environment (fog, the subtractive shadow colour, reflection bounces and resolution, flares, the sun and the skybox
+    /// material), and nothing applies them to a frame: a render pipeline reads them and sends what it needs as shader globals. <see cref="ambientIntensity"/> stops at 0 and 8,
     /// <see cref="reflectionIntensity"/> at 0 and 1 and <see cref="reflectionBounces"/> at 1 and 5 (the engine's choice).
-    /// <see cref="sun"/> is null until a script sets it: the engine does not pick the brightest directional light.
+    /// <see cref="sun"/> is null until a scene or script sets it: the engine does not pick the brightest directional light.
     /// </summary>
     public static partial class RenderSettings
     {

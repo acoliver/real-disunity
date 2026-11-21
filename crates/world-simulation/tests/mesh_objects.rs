@@ -487,3 +487,21 @@ fn a_slot_block_overrides_only_its_slot_and_wins_over_the_all_slot_block() {
     assert_eq!(slots[1], draws([0.1, 0.2, 0.3, 0.4], 9));
     assert_eq!(slots[2], draws([0.7; 4], 3));
 }
+
+#[test]
+fn a_mesh_object_carries_the_slot_blocks_of_its_renderer() {
+    let mut world = new_world();
+    let mut renderer = renderer(vec![drawn(1.0, 0), drawn(1.0, 0)]);
+    renderer.property_block = Some(block(&[("_Color", [0.7; 4])], &[]));
+    renderer
+        .slot_blocks
+        .insert(1, block(&[("_Color", [0.1; 4])], &[]));
+    renderer
+        .slot_blocks
+        .insert(5, block(&[], &[("_MainTex", TextureRef::Asset(9))]));
+    object_with(&mut world, renderer.clone());
+    let objects = extract_mesh_objects(&world).unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].slot_blocks, renderer.slot_blocks);
+    assert_eq!(objects[0].property_block, renderer.property_block);
+}

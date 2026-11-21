@@ -253,3 +253,26 @@ fn a_change_to_a_batch_reaches_every_view_that_selects_it() {
         assert_eq!(rig.gpu.mirror_checked(), checked, "{name}");
     }
 }
+
+/// A batch that enters the view when the mirror has no room for it repacks every range into new
+/// buffers, so the batches the state had verified must be copied again, not trusted.
+#[test]
+fn a_batch_that_enters_a_full_mirror_brings_every_batch_to_the_new_buffers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::over(&with_distant_card(), false);
+    let mut ranged = Rig::over(&with_distant_card(), true);
+    for rig in [&mut rig, &mut ranged] {
+        let (distant, _) = rig.gpu.instance(rig.handles()[8]).unwrap();
+        for _ in 0..300 {
+            rig.gpu.add_instance(distant, true).unwrap();
+        }
+    }
+    for x in [0, 0, 7_000, 0, 7_000] {
+        let published = rig.render(&unlit(pose_at(x)));
+        assert_eq!(
+            published.pixels,
+            ranged.render(&unlit(pose_at(x))).pixels,
+            "x {x}"
+        );
+    }
+}

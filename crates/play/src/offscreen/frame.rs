@@ -237,7 +237,7 @@ pub enum RendererSkip {
 /// What kind of texture a reference names, for reports.
 fn texture_kind(texture: &TextureRef) -> &'static str {
     match texture {
-        TextureRef::None => "none",
+        TextureRef::None | TextureRef::Unsent => "none",
         TextureRef::Global(_) => "global",
         TextureRef::Temporary(_) => "temporary",
         TextureRef::Render(_) => "render",
@@ -521,7 +521,7 @@ impl<'a> Mapper<'a> {
         source: &TextureRef,
     ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
         match *source {
-            TextureRef::None => Err(Skip::NoBlitSource),
+            TextureRef::None | TextureRef::Unsent => Err(Skip::NoBlitSource),
             TextureRef::Global(_) => Err(Skip::GlobalSource),
             TextureRef::Temporary(name_id) => self
                 .script

@@ -47,6 +47,7 @@ fn snapshot(
         color_source: None,
         depth_source: None,
         device_depth: false,
+        final_device_depth: false,
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();

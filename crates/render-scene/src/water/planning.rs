@@ -1,4 +1,7 @@
-use super::snapshots::{COLOR, DEVICE_DEPTH, LINEAR_DEPTH, SnapshotFeature, Snapshots};
+use super::snapshots::{
+    COLOR, DEVICE_DEPTH, LINEAR_DEPTH, POST_WATER_DEPTH, POST_WATER_DEVICE_DEPTH, SnapshotFeature,
+    Snapshots,
+};
 use crate::frame::FrameUniform;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PassEntry,
@@ -10,9 +13,18 @@ pub(crate) struct SnapshotRequest {
     pub color: bool,
     pub depth: bool,
     pub final_depth: bool,
-    /// The depth buffer's own values, which only a game reads. The linear depth pass writes them
-    /// as well, so requesting them requests that pass.
-    pub device_depth: bool,
+    /// The device depth copies, which only a game reads.
+    pub device: DeviceCopies,
+}
+
+/// The device depth copies a frame writes beside its linear depths. Each is written by the pass
+/// of its linear depth, so requesting one requests that pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DeviceCopies {
+    /// The opaque depth's own values.
+    pub opaque: bool,
+    /// The post-water depth's own values.
+    pub post_water: bool,
 }
 
 pub(crate) fn opaque_source<'a>(
@@ -61,19 +73,23 @@ pub(crate) fn opaque_source<'a>(
 
 impl SnapshotRequest {
     pub(crate) const fn any(self) -> bool {
-        self.color || self.depth || self.final_depth || self.device_depth
+        self.color || self.depth || self.final_depth || self.device.opaque || self.device.post_water
     }
 }
 
-/// The snapshots the declared reads ask for. Water always asks for the final depth.
+/// The snapshots the declared reads ask for. Water the stock passes draw always asks for the
+/// final depth; a read of it, or of its device depth, asks for it whether or not they do.
 pub(crate) fn snapshot_request(reads: &[ResourceRef], water: bool) -> SnapshotRequest {
     let reads_named = |name: &str| reads.iter().any(|read| read.name == name);
-    let device_depth = reads_named(DEVICE_DEPTH);
+    let device = DeviceCopies {
+        opaque: reads_named(DEVICE_DEPTH),
+        post_water: reads_named(POST_WATER_DEVICE_DEPTH),
+    };
     SnapshotRequest {
         color: reads_named(COLOR),
-        depth: reads_named(LINEAR_DEPTH) || device_depth,
-        final_depth: water || reads_named("post-water depth"),
-        device_depth,
+        depth: reads_named(LINEAR_DEPTH) || device.opaque,
+        final_depth: water || reads_named(POST_WATER_DEPTH) || device.post_water,
+        device,
     }
 }
 
@@ -103,13 +119,17 @@ fn executor(
     slots: &mut Option<[Snapshots; 3]>,
     input: (FrameConfig, &FrameUniform, usize),
     sources: (Option<&AttachmentView>, Option<&AttachmentView>),
-    device_depth: bool,
+    request: SnapshotRequest,
 ) -> SnapshotFeature {
     let (config, frame, slot) = input;
     let snapshots =
         slots.get_or_insert_with(|| std::array::from_fn(|_| Snapshots::new(device, config)));
-    if device_depth && snapshots[slot].device_depth.is_none() {
-        snapshots[slot] = snapshots[slot].with_device_depth(device);
+    if request.device.opaque || request.device.post_water {
+        snapshots[slot] = snapshots[slot].with_device_depths(
+            device,
+            request.device.opaque,
+            request.device.post_water,
+        );
     }
     let snapshot = &snapshots[slot];
     SnapshotFeature {
@@ -121,7 +141,8 @@ fn executor(
         depth_source: sources
             .1
             .map(|view| snapshot.source_group(device, view, true)),
-        device_depth,
+        device_depth: request.device.opaque,
+        final_device_depth: request.device.post_water,
     }
 }
 
@@ -145,7 +166,7 @@ pub(crate) fn snapshot_executor(
         slots,
         input,
         (color.as_ref(), depth.as_ref()),
-        request.device_depth,
+        request,
     )))
 }
 
@@ -179,7 +200,7 @@ pub(crate) fn snapshot_feature(
         slots,
         input,
         (color.as_ref(), depth.as_ref()),
-        request.device_depth,
+        request,
     );
     let declaration =
         feature

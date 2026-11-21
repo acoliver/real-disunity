@@ -116,7 +116,7 @@ fn gpu_the_device_depth_snapshot_keeps_the_nearest_sample_of_each_pixel() {
                 pass.draw(0..3, 0..1);
             }
         }
-        let snapshots = Snapshots::new(device, config).with_device_depth(device);
+        let snapshots = Snapshots::new(device, config).with_device_depths(device, true, false);
         let source = AttachmentView::new(ResourceRef::new("opaque depth"), &depth).unwrap();
         let group = snapshots.source_group(device, &source, true);
         let written = snapshots

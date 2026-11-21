@@ -33,6 +33,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             ApplyEnvironment();
             CreateObjects(scene, templates);
             CreateComponents();
+            ApplyEnvironmentValues();
             BindFields();
             ActivateAssets();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
@@ -132,6 +133,40 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             probe, (UnityEngine.Rendering.DefaultReflectionMode)environment.Int("reflection_mode"), environment.Float("reflection_intensity"),
             Cube("custom_reflection"), Cube("skybox_reflection")));
     }
+
+    /// <summary>Writes the values of the plan's environment that <see cref="RenderSettings"/> keeps itself (fog, the subtractive
+    /// shadow colour, reflection bounces and resolution, flares, the sun and the skybox), through the setters a script uses so
+    /// the clamps apply. They need the scene's components, so they follow <see cref="ApplyEnvironment"/> and run before any
+    /// script wakes. The sun is the light component the plan's <c>[object, component]</c> names and the skybox is the plan's
+    /// material asset; a null one clears what was set. Both resolve before anything is written, so a plan that names a sun that
+    /// is not a light, or a skybox that is not a material, fails the load with these values untouched.</summary>
+    private void ApplyEnvironmentValues()
+    {
+        if (!plan.TryGetProperty("environment", out var environment)) return;
+        var sun = environment.GetProperty("sun") is { ValueKind: JsonValueKind.Array } place ? SunLight(place) : null;
+        var skybox = environment.Index("skybox_material") is { } asset ? SkyboxMaterial(asset) : null;
+        RenderSettings.fog = environment.Bool("fog_enabled");
+        RenderSettings.fogMode = (FogMode)environment.Int("fog_mode");
+        RenderSettings.fogColor = environment.Rgba("fog_color");
+        RenderSettings.fogDensity = environment.Float("fog_density");
+        RenderSettings.fogStartDistance = environment.Float("fog_start");
+        RenderSettings.fogEndDistance = environment.Float("fog_end");
+        RenderSettings.subtractiveShadowColor = environment.Rgba("subtractive_shadow_color");
+        RenderSettings.reflectionBounces = environment.Int("reflection_bounces");
+        RenderSettings.defaultReflectionResolution = environment.Int("reflection_resolution");
+        RenderSettings.haloStrength = environment.Float("halo_strength");
+        RenderSettings.flareStrength = environment.Float("flare_strength");
+        RenderSettings.flareFadeSpeed = environment.Float("flare_fade_speed");
+        RenderSettings.sun = sun;
+        RenderSettings.skybox = skybox;
+    }
+
+    private Light SunLight(JsonElement place) =>
+        components[place[0].GetInt32()][place[1].GetInt32()] as Light
+            ?? throw new SceneLoadException($"{plan.Str("scene")}: the sun [{place[0].GetInt32()}, {place[1].GetInt32()}] is not a light the plan builds");
+
+    private Material SkyboxMaterial(int asset) =>
+        assets[asset] as Material ?? throw new SceneLoadException($"{plan.Str("scene")}: the skybox asset {asset} is not a material");
 
     private static PhysicsMaterial2D Material(JsonElement asset)
     {

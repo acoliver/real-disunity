@@ -287,7 +287,10 @@ impl Stack {
 
 impl PreparedFeature for Stack {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
-        (0..self.bands.len()).try_for_each(|index| self.prepare_band(context, index))
+        // The prefix feature in a frame without the prepass plans no band and still prepares.
+        (0..self.bands.len())
+            .filter(|&index| context.pass(self.bands[index].spec.entry()).is_ok())
+            .try_for_each(|index| self.prepare_band(context, index))
     }
 
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {

@@ -3,9 +3,7 @@
 use glam::{Mat4, Vec3};
 use worldrunner_world_simulation::graphics::RendererListDesc;
 
-use super::{
-    FORWARD, counts, draw, drawing, lists, meshes, placed_casting, run, scene, shaders,
-};
+use super::{FORWARD, counts, draw, drawing, lists, meshes, placed_casting, run, scene, shaders};
 
 const SHADOWS_ONLY: u32 = 3;
 const CASTS_AND_DRAWS: u32 = 1;

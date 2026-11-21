@@ -215,3 +215,21 @@ fn a_level_in_range_is_lent_as_a_two_dimensional_view_of_its_texture() {
         .unwrap();
     assert_lends_2d(&import, &sampled);
 }
+
+#[test]
+fn a_target_declared_with_a_usage_its_format_cannot_have_is_refused_by_name() {
+    let limits = wgpu::Limits::default();
+    let declare = |name, format| {
+        TargetDeclaration::new(name, format, TargetExtent::Fixed([8, 4]))
+            .with_usage(wgpu::TextureUsages::STORAGE_BINDING)
+    };
+    let refused = declare("probe.srgb", wgpu::TextureFormat::Rgba8UnormSrgb)
+        .validate((&limits, wgpu::Features::empty()), [8, 4])
+        .expect_err("an sRGB format has no storage binding")
+        .to_string();
+    assert!(refused.contains("probe.srgb"), "{refused}");
+    assert!(refused.contains("STORAGE_BINDING"), "{refused}");
+    declare("probe.float", wgpu::TextureFormat::R32Float)
+        .validate((&limits, wgpu::Features::empty()), [8, 4])
+        .expect("R32Float is a storage image");
+}

@@ -2,7 +2,8 @@
 //! and reads levels of its declared textures and targets back by handle after the frame, naming
 //! no GPU type for either.
 use super::common::{self, graphics};
-use super::fixture::{Rig, SIZE, quad_scene};
+use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
+use super::shadowed::{capture_fit, fitted, lit_scene};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -71,6 +72,33 @@ enum Ask {
     Bc4,
     /// Layer 1, mip 1 of an uploaded texture of each format the diagnostics dump.
     Formats,
+    /// Every level of both layers of a 12 x 20 chain of each block format, whose levels end
+    /// inside a block from mip 1 on (6 x 10, 3 x 5, 1 x 2, 1 x 1).
+    OddChains,
+    /// Transfers into the mips of a BC5 array that are smaller than a block, with readbacks of
+    /// the levels moved and of their neighbours.
+    SmallMips,
+    /// Transfers into levels of a 12 x 20 BC5 array whose block rows end inside the level (6 x 10
+    /// and 3 x 5 texels), from a source of 2 x 3 blocks.
+    OddMoves,
+    /// A transfer the runtime refuses when the frame records it.
+    Refused(Refusal),
+    /// A second pass that samples this level of the float target, which only layer 1 is
+    /// written in.
+    Reads(ResourceRef),
+}
+
+/// The rule a refused transfer breaks.
+#[derive(Clone, Copy, Debug)]
+enum Refusal {
+    /// The source holds `Rgba8Unorm` texels.
+    SourceFormat,
+    /// The source's texels are 8 bytes and BC5's blocks are 16.
+    BlockSize,
+    /// A destination extent of 2 x 2 blocks from a source region of one texel.
+    BlockCount,
+    /// A destination extent of 8 x 8 into a mip of 4 x 4.
+    ExtentPastMip,
 }
 
 /// A readback asked, with the level bytes it must deliver (`None` for the float target).
@@ -253,6 +281,227 @@ fn ask_formats(resources: &GameResources) -> Result<Vec<Expected>, GameResourceE
         .collect()
 }
 
+/// Both layers of every level of a 12 x 20 chain of each block format, read back as uploaded.
+fn ask_odd_chains(resources: &GameResources) -> Result<Vec<Expected>, GameResourceError> {
+    let formats = [
+        ("work.odd.bc1", wgpu::TextureFormat::Bc1RgbaUnorm),
+        ("work.odd.bc3", wgpu::TextureFormat::Bc3RgbaUnorm),
+        ("work.odd.bc4", wgpu::TextureFormat::Bc4RUnorm),
+        ("work.odd.bc5", wgpu::TextureFormat::Bc5RgUnorm),
+        ("work.odd.bc7", wgpu::TextureFormat::Bc7RgbaUnorm),
+    ];
+    let mut reads = Vec::new();
+    for (label, format) in formats {
+        let uploaded = declare_uploaded(resources, label, format, ([12, 20], 5))?;
+        for layer in 0..2 {
+            for mip in 0..5 {
+                let what: &'static str =
+                    Box::leak(format!("{label} layer {layer}, mip {mip}").into_boxed_str());
+                reads.push((
+                    resources.read_back_texture(uploaded.texture, GameLevel { layer, mip })?,
+                    what,
+                    [(12 >> mip).max(1), (20 >> mip).max(1)],
+                    Some(uploaded.level(layer, mip)),
+                ));
+            }
+        }
+    }
+    Ok(reads)
+}
+
+/// A one-block `Rgba32Uint` image of the runtime holding [`MOVED`], as a source of transfers.
+fn moved_source(resources: &GameResources) -> Result<BlockSource, GameResourceError> {
+    let texture = resources
+        .runtime()
+        .create_texture_2d(
+            "work.blocks",
+            [1, 1],
+            wgpu::TextureFormat::Rgba32Uint,
+            &MOVED,
+        )
+        .map_err(|error| GameResourceError::Declaration {
+            label: "work.blocks".to_owned(),
+            reason: error.to_string(),
+        })?;
+    Ok(BlockSource {
+        texture,
+        mip: 0,
+        layer: 0,
+        origin: [0, 0],
+        extent: [1, 1],
+    })
+}
+
+/// Moves a block into layer 0, mip 4 (1 x 1) and layer 1, mip 3 (2 x 2) of a five-mip BC5 array.
+fn ask_small_mips(resources: &GameResources) -> Result<Vec<Expected>, GameResourceError> {
+    let format = wgpu::TextureFormat::Bc5RgUnorm;
+    let uploaded = declare_uploaded(resources, "work.small", format, ([16, 16], 5))?;
+    let pages = uploaded.texture;
+    let source = moved_source(resources)?;
+    for (layer, mip, side) in [(0, 4, 1), (1, 3, 2)] {
+        resources.transfer_block_image(
+            &source,
+            GameBlockDestination {
+                texture: pages,
+                mip,
+                layer,
+                extent: [side, side],
+            },
+        )?;
+    }
+    let read = |layer, mip| resources.read_back_texture(pages, GameLevel { layer, mip });
+    Ok(vec![
+        (
+            read(0, 4)?,
+            "layer 0, mip 4 (1 x 1) holds the moved block",
+            [1, 1],
+            Some(MOVED.to_vec()),
+        ),
+        (
+            read(1, 3)?,
+            "layer 1, mip 3 (2 x 2) holds the moved block",
+            [2, 2],
+            Some(MOVED.to_vec()),
+        ),
+        (
+            read(1, 4)?,
+            "layer 1, mip 4 is as uploaded",
+            [1, 1],
+            Some(uploaded.level(1, 4)),
+        ),
+        (
+            read(0, 3)?,
+            "layer 0, mip 3 is as uploaded",
+            [2, 2],
+            Some(uploaded.level(0, 3)),
+        ),
+        (
+            read(1, 2)?,
+            "layer 1, mip 2 is as uploaded",
+            [4, 4],
+            Some(uploaded.level(1, 2)),
+        ),
+    ])
+}
+
+/// A transfer into layer 1, mip 2 of an uploaded BC5 array that breaks `refusal`'s rule.
+fn ask_refused(
+    resources: &GameResources,
+    refusal: Refusal,
+) -> Result<Vec<Expected>, GameResourceError> {
+    let format = wgpu::TextureFormat::Bc5RgUnorm;
+    let pages = declare_uploaded(resources, "work.refused", format, ([16, 16], 4))?.texture;
+    let (source_format, texel) = match refusal {
+        Refusal::SourceFormat => (wgpu::TextureFormat::Rgba8Unorm, &MOVED[..4]),
+        Refusal::BlockSize => (wgpu::TextureFormat::Rg32Uint, &MOVED[..8]),
+        Refusal::BlockCount | Refusal::ExtentPastMip => {
+            (wgpu::TextureFormat::Rgba32Uint, &MOVED[..])
+        }
+    };
+    let blocks = resources
+        .runtime()
+        .create_texture_2d("work.refusing", [1, 1], source_format, texel)
+        .map_err(|error| GameResourceError::Declaration {
+            label: "work.refusing".to_owned(),
+            reason: error.to_string(),
+        })?;
+    let (mip, extent) = match refusal {
+        Refusal::BlockCount => (1, [8, 8]),
+        Refusal::ExtentPastMip => (2, [8, 8]),
+        Refusal::SourceFormat | Refusal::BlockSize => (2, [4, 4]),
+    };
+    resources.transfer_block_image(
+        &BlockSource {
+            texture: blocks,
+            mip: 0,
+            layer: 0,
+            origin: [0, 0],
+            extent: [1, 1],
+        },
+        GameBlockDestination {
+            texture: pages,
+            mip,
+            layer: 1,
+            extent,
+        },
+    )?;
+    Ok(Vec::new())
+}
+
+/// Moves a 2 x 3 block image into layer 1, mip 1 (6 x 10 texels) of a 12 x 20 BC5 array, and
+/// its first column of two blocks into layer 0, mip 2 (3 x 5 texels).
+fn ask_odd_moves(resources: &GameResources) -> Result<Vec<Expected>, GameResourceError> {
+    let format = wgpu::TextureFormat::Bc5RgUnorm;
+    let uploaded = declare_uploaded(resources, "work.odd.moves", format, ([12, 20], 5))?;
+    let pages = uploaded.texture;
+    let blocks = pattern(6 * 16, 9);
+    let image = resources
+        .runtime()
+        .create_texture_2d(
+            "work.odd.blocks",
+            [2, 3],
+            wgpu::TextureFormat::Rgba32Uint,
+            &blocks,
+        )
+        .map_err(|error| GameResourceError::Declaration {
+            label: "work.odd.blocks".to_owned(),
+            reason: error.to_string(),
+        })?;
+    let source = |extent| BlockSource {
+        texture: image,
+        mip: 0,
+        layer: 0,
+        origin: [0, 0],
+        extent,
+    };
+    resources.transfer_block_image(
+        &source([2, 3]),
+        GameBlockDestination {
+            texture: pages,
+            mip: 1,
+            layer: 1,
+            extent: [6, 10],
+        },
+    )?;
+    resources.transfer_block_image(
+        &source([1, 2]),
+        GameBlockDestination {
+            texture: pages,
+            mip: 2,
+            layer: 0,
+            extent: [3, 5],
+        },
+    )?;
+    let read = |layer, mip| resources.read_back_texture(pages, GameLevel { layer, mip });
+    let column = [&blocks[..16], &blocks[32..48]].concat();
+    Ok(vec![
+        (
+            read(1, 1)?,
+            "layer 1, mip 1 (6 x 10) holds the moved image",
+            [6, 10],
+            Some(blocks.clone()),
+        ),
+        (
+            read(0, 2)?,
+            "layer 0, mip 2 (3 x 5) holds the first column",
+            [3, 5],
+            Some(column),
+        ),
+        (
+            read(0, 1)?,
+            "layer 0, mip 1 is as uploaded",
+            [6, 10],
+            Some(uploaded.level(0, 1)),
+        ),
+        (
+            read(1, 2)?,
+            "layer 1, mip 2 is as uploaded",
+            [3, 5],
+            Some(uploaded.level(1, 2)),
+        ),
+    ])
+}
+
 fn ask(
     ask: Ask,
     resources: &GameResources,
@@ -268,6 +517,11 @@ fn ask(
         )]),
         Ask::Bc4 => ask_bc4(resources),
         Ask::Formats => ask_formats(resources),
+        Ask::OddChains => ask_odd_chains(resources),
+        Ask::SmallMips => ask_small_mips(resources),
+        Ask::OddMoves => ask_odd_moves(resources),
+        Ask::Refused(refusal) => ask_refused(resources, refusal),
+        Ask::Reads(_) => Ok(Vec::new()),
     }
 }
 
@@ -276,6 +530,8 @@ struct Pass {
     targets: GameTargets,
     resources: GameResources,
     program: GraphicsProgram,
+    /// A level a second pass samples, which draws nothing.
+    reads: Option<ResourceRef>,
     draw: RefCell<Option<PreparedProgramDraw>>,
 }
 
@@ -299,8 +555,15 @@ impl FrameFeature for PassFeature {
     ) -> Result<FeatureDeclaration, FrameError> {
         let spec = GamePassSpec::new(GamePlace::BeforeOpaque, ENTRY.occurrence())
             .writing([ColorOutput::Target(WRITTEN)]);
+        let mut declared = vec![self.0.targets.plan_pass(&spec, passes, views)?];
+        if let Some(read) = self.0.reads {
+            let spec = GamePassSpec::new(GamePlace::BeforeOpaque, ENTRY.occurrence() + 1)
+                .writing([ColorOutput::Frame])
+                .reading([read]);
+            declared.push(self.0.targets.plan_pass(&spec, passes, views)?);
+        }
         Ok(FeatureDeclaration {
-            passes: vec![self.0.targets.plan_pass(&spec, passes, views)?],
+            passes: declared,
             effects: Vec::new(),
         })
     }
@@ -350,7 +613,9 @@ impl PreparedFeature for PassFeature {
     }
 
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
-        assert_eq!(context.entry, ENTRY);
+        if context.entry != ENTRY {
+            return;
+        }
         if let Some(draw) = self.0.draw.borrow().as_ref() {
             draw.record(pass);
         }
@@ -399,6 +664,10 @@ impl GameFeatureFactory for WorkGame {
             targets: context.targets.clone(),
             resources,
             program,
+            reads: match self.0 {
+                Ask::Reads(read) => Some(read),
+                _ => None,
+            },
             draw: RefCell::new(None),
         }))))
     }
@@ -418,15 +687,20 @@ fn poll(rig: &Rig) {
         .unwrap();
 }
 
-/// Renders the game's first frame (after one cancelled frame with `cancel_first`) and returns
-/// each readback's expectation with the image it delivered once the host polled the device.
-fn frame(asked: Ask, cancel_first: bool) -> Vec<(Expected, TargetImage)> {
-    let mut rig = Rig::with_features(
+/// A rig on a device with block compression whose game asks `asked` when it is built.
+fn rig(asked: Ask) -> Rig {
+    Rig::with_features(
         &quad_scene(),
         SIZE,
         wgpu::Features::TEXTURE_COMPRESSION_BC,
         |settings| settings.game_passes = GamePasses::new().with(Arc::new(WorkGame(asked))),
-    );
+    )
+}
+
+/// Renders the game's first frame (after one cancelled frame with `cancel_first`) and returns
+/// each readback's expectation with the image it delivered once the host polled the device.
+fn frame(asked: Ask, cancel_first: bool) -> Vec<(Expected, TargetImage)> {
+    let mut rig = rig(asked);
     let reads = KEPT.with_borrow(|kept| kept.reads.clone());
     if cancel_first {
         rig.render_cancelled().unwrap();
@@ -440,6 +714,12 @@ fn frame(asked: Ask, cancel_first: bool) -> Vec<(Expected, TargetImage)> {
         }
     }
     rig.render().unwrap();
+    delivered(rig, reads)
+}
+
+/// Each readback's expectation with the image it delivers once the host polls the device, after
+/// a frame of `rig` that has been submitted.
+fn delivered(rig: Rig, reads: Vec<Expected>) -> Vec<(Expected, TargetImage)> {
     for (read, what, ..) in &reads {
         assert_eq!(
             take(*read).unwrap(),
@@ -527,4 +807,122 @@ fn declared_textures_of_the_diagnostic_formats_read_back_exactly() {
             wgpu::TextureFormat::R8Uint,
         ]
     );
+}
+
+#[test]
+fn every_level_of_block_chains_that_end_inside_a_block_reads_back_exactly() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let delivered = frame(Ask::OddChains, false);
+    assert_eq!(
+        delivered.len(),
+        5 * 2 * 5,
+        "five formats, two layers, five mips"
+    );
+    assert_levels(&delivered, None);
+}
+
+#[test]
+fn blocks_move_into_mips_smaller_than_a_block() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let delivered = frame(Ask::SmallMips, false);
+    assert_levels(&delivered, Some(wgpu::TextureFormat::Bc5RgUnorm));
+}
+
+#[test]
+fn blocks_move_into_levels_whose_block_rows_end_inside_the_level() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let delivered = frame(Ask::OddMoves, false);
+    assert_levels(&delivered, Some(wgpu::TextureFormat::Bc5RgUnorm));
+}
+
+/// The refusal a frame that records a transfer breaking `refusal`'s rule fails with, and
+/// whether the next frame renders.
+fn refused_when_recorded(refusal: Refusal) -> (String, bool) {
+    let mut rig = rig(Ask::Refused(refusal));
+    let error = rig.render().unwrap_err();
+    let FrameError::FeaturePreparation { feature, reason } = error else {
+        panic!("expected a refusal by name, got {error:?}");
+    };
+    assert_eq!(feature, "game resources");
+    (reason, rig.render().is_ok())
+}
+
+#[test]
+fn a_transfer_that_breaks_a_rule_fails_its_frame_naming_the_texture_and_the_rule() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    for (refusal, rule) in [
+        (Refusal::SourceFormat, "Rgba8Unorm"),
+        (Refusal::BlockSize, "8 bytes and a destination block is 16"),
+        (Refusal::BlockCount, "holds [2, 2] blocks"),
+        (Refusal::ExtentPastMip, "does not fit the destination mip"),
+    ] {
+        let (reason, renders_again) = refused_when_recorded(refusal);
+        assert!(
+            reason.contains("work.refused"),
+            "{refusal:?} names the texture: {reason}"
+        );
+        assert!(
+            reason.contains(rule),
+            "{refusal:?} names the rule: {reason}"
+        );
+        assert!(
+            renders_again,
+            "{refusal:?}: the refused transfer is dropped, not asked again"
+        );
+        KEPT.with_borrow_mut(|kept| *kept = Kept::default());
+    }
+}
+
+#[test]
+fn a_block_transfer_inside_a_shadowed_same_frame_capture_lands_and_reads_back() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    let mut rig = rig(Ask::Transfer);
+    let mut scene = fitted(&rig, &lit_scene(), FORMAT);
+    let reads = KEPT.with_borrow(|kept| kept.reads.clone());
+    capture_fit(&mut rig, &mut scene, 0);
+    let delivered = delivered(rig, reads);
+    assert_levels(&delivered, Some(wgpu::TextureFormat::Bc5RgUnorm));
+}
+
+/// The frame of a game whose second pass samples `level` of the float target, whose only
+/// written level is layer 1 of its one mip.
+fn render_reading(level: ResourceRef) -> Result<(), FrameError> {
+    let mut rig = rig(Ask::Reads(level));
+    rig.render().map(|_| ())
+}
+
+#[test]
+fn a_pass_reads_a_level_of_a_target_only_when_an_earlier_pass_wrote_that_level() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let _clear = ClearKept;
+    render_reading(WRITTEN).unwrap();
+    KEPT.with_borrow_mut(|kept| *kept = Kept::default());
+    let level = |layer, mip| ResourceRef {
+        name: FLOAT,
+        version: 0,
+        mip,
+        layer,
+    };
+    let unwritten = level(0, 0);
+    let error = render_reading(unwritten).unwrap_err();
+    assert!(
+        matches!(error, FrameError::MissingProducer(found) if found == unwritten),
+        "layer 0 has no producer: {error:?}"
+    );
+    KEPT.with_borrow_mut(|kept| *kept = Kept::default());
+    // A renderable target has one mip, so a read of mip 1 names a level the target lacks.
+    for layer in [1, 0] {
+        let outside = level(layer, 1);
+        let error = render_reading(outside).unwrap_err();
+        assert!(
+            matches!(error, FrameError::AttachmentView(found) if found == outside),
+            "layer {layer}, mip 1 is outside the target: {error:?}"
+        );
+        KEPT.with_borrow_mut(|kept| *kept = Kept::default());
+    }
 }

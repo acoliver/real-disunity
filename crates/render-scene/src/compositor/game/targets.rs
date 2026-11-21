@@ -199,6 +199,13 @@ impl TargetDeclaration {
                 "a renderable target has one mip; mip chains are for block-compressed copy targets",
             );
         }
+        let unsupported = self.usage.difference(guaranteed.allowed_usages);
+        if !unsupported.is_empty() {
+            return refuse(&format!(
+                "{:?} cannot be created with {unsupported:?}",
+                self.format
+            ));
+        }
         Ok(())
     }
 }

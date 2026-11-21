@@ -31,6 +31,10 @@ mod lighting;
 mod mips;
 #[path = "game_passes/persistence.rs"]
 mod persistence;
+#[path = "game_passes/post_water_depth.rs"]
+mod post_water_depth;
+#[path = "game_passes/post_water_game.rs"]
+mod post_water_game;
 #[path = "game_passes/prefix.rs"]
 mod prefix;
 #[path = "game_passes/prefix_loads.rs"]

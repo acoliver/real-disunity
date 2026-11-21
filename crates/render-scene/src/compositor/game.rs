@@ -82,8 +82,8 @@ pub use scene_textures::{
 };
 pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
 pub use snapshots::{
-    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, SnapshotImage, SnapshotReads,
-    SnapshotStatistics,
+    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, PostWaterDepth, SnapshotImage,
+    SnapshotReads, SnapshotStatistics,
 };
 pub(crate) use targets::TargetStore;
 pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};

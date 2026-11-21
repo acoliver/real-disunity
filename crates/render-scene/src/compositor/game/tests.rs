@@ -1,6 +1,9 @@
 //! The seam's pure rules: which attachments a pass is given, and the depth rules a draw into it
 //! follows. The frames that run them are in `tests/game_passes.rs`.
-use super::{ColorOutput, GamePassSpec, GameTargets, PassTarget, SnapshotReads, reconcile_loads};
+use super::{
+    ColorOutput, GamePassSpec, GameTargets, PassTarget, PostWaterDepth, SnapshotReads,
+    reconcile_loads,
+};
 use std::sync::Arc;
 use wgpu::{CompareFunction, StencilOperation, TextureFormat};
 use worldrunner_render_post::{
@@ -346,6 +349,48 @@ fn a_pass_that_reads_a_snapshot_its_factory_did_not_declare_is_refused_naming_bo
     assert_eq!(passes.len(), 1, "nothing was planned");
 }
 
+#[test]
+fn a_pass_reads_the_post_water_depth_through_both_stock_resources_it_declares() {
+    let targets = GameTargets::new(Arc::default()).with_snapshot_reads(SnapshotReads::ALL);
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    let spec = GamePassSpec::new(GamePlace::AfterTransparent, 0)
+        .writing([ColorOutput::Frame])
+        .reading_snapshots(SnapshotReads {
+            post_water_depth: PostWaterDepth::LinearAndDevice,
+            ..SnapshotReads::NONE
+        });
+    let planned = targets
+        .plan_pass(&spec, &mut passes, &mut Vec::new())
+        .unwrap();
+    assert_eq!(
+        planned.reads,
+        [
+            ResourceRef::new("post-water depth"),
+            ResourceRef::new("post-water device depth"),
+        ]
+    );
+}
+
+#[test]
+fn the_post_water_reads_are_snapshot_reads_a_factory_must_declare() {
+    let reading = |post_water_depth| SnapshotReads {
+        post_water_depth,
+        ..SnapshotReads::NONE
+    };
+    let linear = reading(PostWaterDepth::Linear);
+    let both = reading(PostWaterDepth::LinearAndDevice);
+    assert!(linear.any() && both.any() && !SnapshotReads::NONE.any());
+    assert!(linear.covers(linear) && both.covers(linear) && both.covers(both));
+    assert!(
+        !linear.covers(both),
+        "the device depth is a read of its own"
+    );
+    assert!(!SnapshotReads::NONE.covers(linear));
+    assert_eq!(linear.union(both), both);
+    assert_eq!(both.union(linear), both);
+    assert!(SnapshotReads::ALL.covers(both));
+}
+
 mod resize_keeps_device_depth {
     use super::super::{GameBuild, GameFeatureFactory, GamePasses, SnapshotReads};
     use crate::compositor::{FrameRenderer, SnapshotStatistics};
@@ -402,6 +447,7 @@ mod resize_keeps_device_depth {
         let owned = SnapshotStatistics {
             slots: 3,
             device_depth_slots: 3,
+            post_water_device_depth_slots: 0,
         };
         assert_eq!(renderer.snapshot_statistics(), owned);
         assert!(renderer.resize(device, [16, 16]).unwrap());

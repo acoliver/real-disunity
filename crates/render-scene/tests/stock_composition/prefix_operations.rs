@@ -1,14 +1,20 @@
-//! A public stock-prefix contribution can record retained texture work before its first pass.
+//! A public stock-prefix contribution can record retained texture work before its first pass, and
+//! cannot read the frame's snapshots.
 use super::{
-    Frame, Sampler, Seen,
+    Contribution, Frame, Sampler, Seen,
+    callers::Probe,
     fixture::{SIZE, view},
     prepass_depth_of, unwrap_preparation,
 };
-use std::{cell::Cell, rc::Rc, sync::mpsc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::mpsc,
+};
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     executor::{
-        AttachmentView, BorrowedFeature, FrameOperations, FramePlan, OperationsGroup,
+        AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
         OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
     },
     frame::FrameUniform,
@@ -258,4 +264,60 @@ fn gpu_stock_prefix_encodes_contribution_operations_once_and_sampler_reads_the_r
         "suffix composition did not repeat it"
     );
     assert_red_output(&frame, &readback);
+}
+
+/// A pass of the stock depth prefix cannot read the frame's snapshots: the prefix completes the
+/// depth and normals before the frame that writes the snapshots is planned, so a read of one is
+/// refused by the snapshot's name, the post-water depth and its device depth included.
+#[test]
+fn gpu_a_prefix_contribution_that_reads_a_frame_snapshot_is_refused_by_its_name() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    for name in [
+        "opaque snapshot color",
+        "opaque snapshot depth",
+        "opaque snapshot device depth",
+        "post-water depth",
+        "post-water device depth",
+    ] {
+        let mut frame = Frame::new();
+        let device = frame.context.device().clone();
+        let contribution = Contribution::new(&device);
+        let completed = Rc::new(RefCell::new(Vec::new()));
+        let mut reader = Probe {
+            reads: ResourceRef::new(name),
+            completed: completed.clone(),
+        };
+        let refused = frame
+            .context
+            .submission()
+            .clone()
+            .prepare(&device, |encoder, _| {
+                let uniform = frame.uniform(&view(0));
+                let prefix = frame
+                    .renderer
+                    .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
+                prefix.encode(
+                    &mut frame.renderer,
+                    &device,
+                    encoder,
+                    (&mut frame.gpu, &frame.pipelines),
+                    uniform,
+                    (
+                        &contribution.plan(),
+                        &mut [BorrowedFeature {
+                            declaration: reader.declaration(&contribution.target),
+                            prepared: &mut reader,
+                        }],
+                    ),
+                )
+            })
+            .map_err(unwrap_preparation)
+            .expect_err("a snapshot read in the prefix is refused");
+        assert_eq!(
+            refused,
+            FrameError::MissingProducer(ResourceRef::new(name)),
+            "{name}"
+        );
+        assert!(completed.borrow().is_empty(), "{name}");
+    }
 }

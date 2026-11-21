@@ -70,7 +70,9 @@ pub struct GamePassSpec {
     /// The frame's opaque snapshots the pass samples. Each must be one the factory declared in
     /// [`GameFeatureFactory::snapshot_reads`](super::GameFeatureFactory::snapshot_reads). The frame
     /// records the snapshots the passes declare and orders every reader after their writers, so
-    /// a pass that samples them belongs at or after [`GamePlace::AfterOpaqueSnapshots`].
+    /// a pass that samples them belongs at or after [`GamePlace::AfterOpaqueSnapshots`], and one that samples
+    /// the post-water depth belongs at [`GamePlace::AfterTransparent`], where a read at any earlier
+    /// place is refused as [`FrameError::MissingProducer`](worldrunner_render_post::FrameError::MissingProducer).
     pub snapshots: SnapshotReads,
 }
 

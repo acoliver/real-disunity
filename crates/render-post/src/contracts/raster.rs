@@ -215,6 +215,22 @@ impl StockRaster {
                 .map(|usage| super::capture::write_key(usage.view.allocation())),
         )
     }
+    /// The checked view of every color attachment, pass by pass.
+    #[cfg(test)]
+    pub(crate) fn color_views(&self) -> Vec<&CheckedView> {
+        self.passes
+            .iter()
+            .flat_map(|pass| pass.colors.iter().flatten().map(|color| &color.view))
+            .collect()
+    }
+    /// The checked view of every sampled read, pass by pass.
+    #[cfg(test)]
+    pub(crate) fn sampled_views(&self) -> Vec<&CheckedView> {
+        self.passes
+            .iter()
+            .flat_map(|pass| pass.uses.iter().map(|usage| &usage.view))
+            .collect()
+    }
     #[cfg(test)]
     pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)

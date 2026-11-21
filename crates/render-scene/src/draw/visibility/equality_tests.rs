@@ -1,6 +1,8 @@
 //! The tree walk, the shared level memo, the cached level inputs, the fade estimate and the
 //! caster fit against a full scan of every slot with the level and fade tests as they were
 //! before those caches.
+use std::cell::RefCell;
+
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, RenderScene, SceneFadeBand, SceneImpostor, SceneMaterial,
@@ -190,12 +192,13 @@ fn frame_views(
 /// Selects every view of `frame` together, in parallel as the renderer does, and compares
 /// each with the scan.
 fn assert_frame_matches_scan(
+    rows: &RefCell<PlacementRows>,
     (instances, fades): (&Instances, &[Fade]),
     meshes: &[MeshSelection],
     frame: &FrameViews,
     terrain: Option<Bounds>,
 ) {
-    let selections = select_frame(instances, meshes, frame, terrain);
+    let selections = select_frame(rows, instances, meshes, frame, terrain);
     for (index, (matrix, view, selected)) in selections.iter().enumerate() {
         assert_eq!(
             summary(selected),
@@ -209,6 +212,7 @@ fn assert_frame_matches_scan(
 /// The views of `frame`, each with its matrix and its selection, every view selected
 /// together, in parallel as the renderer does.
 fn select_frame(
+    rows: &RefCell<PlacementRows>,
     instances: &Instances,
     meshes: &[MeshSelection],
     frame: &FrameViews,
@@ -230,7 +234,7 @@ fn select_frame(
         instances,
         meshes,
         (frame.eye_millimeters, frame.fade_eye),
-        &std::cell::RefCell::default(),
+        rows,
         |placements| {
             placements.select_each(
                 &mut selections
@@ -418,6 +422,7 @@ fn tree_walk_shared_levels_and_caster_fit_equal_the_full_scan() {
     let fades = reference_fades(&source);
     let materials = source.resources().materials();
     let mut instances = Instances::new(&source);
+    let rows = RefCell::default();
     assert!(instances.has_skinned_batches());
     // Relief, wind and curved wind make bounds depend on the material and the view.
     instances.impostor_extents[3][1] = 0.75;
@@ -441,17 +446,17 @@ fn tree_walk_shared_levels_and_caster_fit_equal_the_full_scan() {
         for _ in 0..4 {
             let frame = random_frame(&mut rng);
             let terrain = (round % 2 == 0).then_some(terrain);
-            assert_frame_matches_scan(both, &meshes, &frame, terrain);
+            assert_frame_matches_scan(&rows, both, &meshes, &frame, terrain);
         }
         // The same eye again reuses the level memo filled above.
         let frame = super::large_scene::walk(round * 7);
-        assert_frame_matches_scan(both, &meshes, &frame, None);
-        assert_frame_matches_scan(both, &meshes, &frame, None);
+        assert_frame_matches_scan(&rows, both, &meshes, &frame, None);
+        assert_frame_matches_scan(&rows, both, &meshes, &frame, None);
         // A walk in steps under a millimetre and over one, so the memo empties every frame.
         for step in 0..6_u16 {
             let eye = Vec3::new(-300.0, -200.0, 2.0)
                 + Vec3::new(0.0007, 0.0013, 0.0) * f32::from(step * (round + 1));
-            assert_frame_matches_scan(both, &meshes, &views(eye, 0.4, -0.05), None);
+            assert_frame_matches_scan(&rows, both, &meshes, &views(eye, 0.4, -0.05), None);
         }
         for frame in crossing_frames(&instances, (&meshes, materials), &mut rng) {
             assert_camera_matches_scan(both, &meshes, &frame);
@@ -486,6 +491,7 @@ fn shadow_only_placements_leave_the_cameras_alike_in_the_walk_and_the_full_scan(
     let source = world(3_000, 24, 31);
     let fades = reference_fades(&source);
     let mut instances = Instances::new(&source);
+    let rows = RefCell::default();
     let meshes: Vec<_> = source
         .geometry()
         .meshes()
@@ -509,10 +515,10 @@ fn shadow_only_placements_leave_the_cameras_alike_in_the_walk_and_the_full_scan(
     for round in 0..4_u16 {
         let both = (&instances, fades.as_slice());
         for _ in 0..3 {
-            assert_frame_matches_scan(both, &meshes, &random_frame(&mut rng), None);
+            assert_frame_matches_scan(&rows, both, &meshes, &random_frame(&mut rng), None);
         }
         let frame = super::large_scene::walk(round * 9);
-        assert_frame_matches_scan(both, &meshes, &frame, None);
+        assert_frame_matches_scan(&rows, both, &meshes, &frame, None);
         toggle_shadow_only(&mut instances, &mut rng, 10);
         edit(&mut instances, &mut rng, &mut added);
     }
@@ -554,6 +560,7 @@ fn leaves_of_every_size_around_the_one_by_one_threshold_equal_the_full_scan() {
             .map(MeshSelection::new)
             .collect();
         let mut instances = Instances::new(&source);
+        let rows = RefCell::default();
         let mut rng = Rng::new(seed);
         let mut added = Vec::new();
         for round in 0..3_u16 {
@@ -563,7 +570,7 @@ fn leaves_of_every_size_around_the_one_by_one_threshold_equal_the_full_scan() {
                 } else {
                     random_frame(&mut rng)
                 };
-                assert_frame_matches_scan((&instances, &fades), &meshes, &frame, None);
+                assert_frame_matches_scan(&rows, (&instances, &fades), &meshes, &frame, None);
             }
             seen.extend(leaf_sizes(&instances));
             edit(&mut instances, &mut rng, &mut added);
@@ -576,3 +583,36 @@ fn leaves_of_every_size_around_the_one_by_one_threshold_equal_the_full_scan() {
 }
 
 mod edit_tests;
+
+/// Every view of hundreds of successive eyes, more than the level memos' epochs count, with the
+/// batch rows and the memos kept from frame to frame and placements edited between them, equals
+/// the full scan.
+#[test]
+fn rows_and_level_memos_kept_across_many_eyes_and_edits_equal_the_full_scan() {
+    let source = world(700, 24, 31);
+    let fades = reference_fades(&source);
+    let meshes: Vec<_> = source
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect();
+    let mut instances = Instances::new(&source);
+    let rows = RefCell::default();
+    let mut rng = Rng::new(31);
+    let mut added = Vec::new();
+    for step in 0..600_u16 {
+        // Eyes a millimetre apart, so each frame is a new eye of one neighbourhood.
+        let eye = Vec3::new(-250.0, -150.0, 2.0) + Vec3::new(0.001, 0.0007, 0.0) * f32::from(step);
+        assert_frame_matches_scan(
+            &rows,
+            (&instances, &fades),
+            &meshes,
+            &views(eye, 0.4, -0.05),
+            None,
+        );
+        if step % 97 == 96 {
+            edit(&mut instances, &mut rng, &mut added);
+        }
+    }
+}

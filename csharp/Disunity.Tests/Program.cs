@@ -614,6 +614,7 @@ WhiteRendererTests.Run();
 UnsentTextureTests.Run();
 MaterialSetPassTests.Run();
 MaterialPassNameTests.Run();
+ShaderTagTests.Run();
 ComputeShaderTests.Run();
 ComputeBufferTests.Run();
 ComputeDispatchTests.Run();

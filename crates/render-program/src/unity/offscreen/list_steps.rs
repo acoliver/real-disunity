@@ -318,6 +318,7 @@ fn list_draws(
         let look = Look {
             selector: &item.pass,
             values: &list.values,
+            own: Some(&item.per_draw),
             front_face: list.front_face,
             globals,
             signature,

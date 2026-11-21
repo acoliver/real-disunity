@@ -64,6 +64,7 @@ mod holdings;
 mod ids;
 mod kernels;
 mod layer_assets;
+mod light_data;
 mod lists;
 mod mesh_draw;
 mod mips;

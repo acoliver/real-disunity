@@ -54,6 +54,11 @@ fn material() -> SceneMaterial {
 
 /// One unlit quad, six metres on a side, lying in the ground plane.
 pub fn quad_scene() -> RenderScene {
+    quad_scene_with(texture(STOCK_TEXEL, TextureColorSpace::Srgb))
+}
+
+/// [`quad_scene`] with `albedo` as its one texture.
+pub fn quad_scene_with(albedo: SceneTexture) -> RenderScene {
     let half = 3_000;
     let corners = [
         ([-half, -half, 0], [0, 0]),
@@ -94,11 +99,7 @@ pub fn quad_scene() -> RenderScene {
         MaterialHandle::from_raw(0),
     );
     RenderScene::new(SceneParts {
-        resources: SceneResources::new(
-            vec![texture(STOCK_TEXEL, TextureColorSpace::Srgb)],
-            vec![material()],
-        )
-        .unwrap(),
+        resources: SceneResources::new(vec![albedo], vec![material()]).unwrap(),
         geometry: SceneGeometry::new(vec![mesh], vec![object]).unwrap(),
         terrain: None,
         effects: None,

@@ -13,7 +13,6 @@ use worldrunner_render_program::unity::offscreen::frame::{ProceduralDraw, Record
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{DrawTopology, MaterialId as WorldMaterialId};
 
-use super::builtins::draw_layer;
 use super::frame::{Mapper, Skip};
 use super::lists::IMAGE_FRONT_FACE;
 
@@ -42,7 +41,7 @@ impl Mapper<'_> {
             raster,
             target,
             values,
-            per_draw: draw_layer(matrix),
+            per_draw: self.layerless_draw(matrix),
             front_face: IMAGE_FRONT_FACE,
             material: named,
             passes: passes.map(PassSelector::Index).collect(),

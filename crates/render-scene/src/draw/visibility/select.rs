@@ -40,9 +40,14 @@ pub(in crate::draw) struct Placements<'a> {
 /// Slots in a leaf up to which a view tests them one by one instead of classifying the leaf.
 pub(super) const SMALL_LEAF: usize = 4;
 
+/// The placements of one batch by slot, none where a slot is free.
+type Placed<'a> = &'a [Option<(SceneObject, bool)>];
+
 struct IndexedBatch<'a> {
     key: BatchKey,
-    placements: &'a [Option<(SceneObject, bool)>],
+    placements: Placed<'a>,
+    /// What each slot is to a view, in one byte per slot (see `CAMERA` and `CASTER`).
+    flags: &'a [u8],
     bounds: &'a SlotBounds,
     largest_relief: f32,
     /// What can fade out a placement of the batch.
@@ -50,6 +55,20 @@ struct IndexedBatch<'a> {
     /// Whether the batch has so few live placements, up to `SMALL_LEAF`, that its tree is one
     /// small leaf, which a view tests slot by slot without walking the tree.
     small: bool,
+}
+
+/// A slot's flag when a camera view may draw it: it is visible and not shadow-only.
+const CAMERA: u8 = 1;
+/// A slot's flag when a view of casters may draw it: it is visible and casts a shadow.
+const CASTER: u8 = 2;
+
+/// The flags of a placement. A view tests one byte of a dense list per slot instead of reading
+/// each placement, which is far larger and lies in memory of its own.
+fn flags(placement: Option<&(SceneObject, bool)>) -> u8 {
+    placement.map_or(0, |(object, visible)| {
+        (u8::from(*visible && !object.shadow_only()) * CAMERA)
+            | (u8::from(*visible && object.casts_shadow()) * CASTER)
+    })
 }
 
 /// What a view reads of each batch besides its placements and bounds, in the order of the
@@ -61,27 +80,32 @@ pub(in crate::draw) struct PlacementRows {
     at: Option<LayoutStamp>,
     rows: Vec<Row>,
     live: usize,
+    /// The flags of every batch's slots, one batch after another.
+    flags: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct Row {
     key: BatchKey,
+    /// Where this batch's flags start in the list of every batch's, and how many it has.
+    flags_at: usize,
+    slots: usize,
     largest_relief: f32,
     fade_reach: FadeReach,
     small: bool,
 }
 
 impl PlacementRows {
-    /// Makes the rows those of `instances` in the state `stamp` names, from the `bounds` of its
-    /// batches in order, which `refresh_all` has made current.
+    /// Makes the rows those of `instances` in the state `stamp` names, from the bounds and
+    /// placements of its batches in order, which `refresh_all` has made current.
     fn refresh<'b>(
         &mut self,
         stamp: LayoutStamp,
         instances: &Instances,
         meshes: &[MeshSelection],
-        bounds: impl ExactSizeIterator<Item = &'b SlotBounds>,
+        batches: impl ExactSizeIterator<Item = (&'b SlotBounds, Placed<'b>)>,
     ) {
-        if self.at == Some(stamp) && self.rows.len() == bounds.len() {
+        if self.at == Some(stamp) && self.rows.len() == batches.len() {
             debug_assert!(
                 instances
                     .batches
@@ -94,18 +118,23 @@ impl PlacementRows {
         // A mesh's slots fade placements the same whichever material the placement draws with.
         let mut slot_reaches: Vec<Option<FadeReach>> = vec![None; meshes.len()];
         self.rows.clear();
+        self.flags.clear();
         self.live = 0;
-        for ((&key, _), bounds) in instances.batches.iter().zip(bounds) {
+        for ((&key, _), (bounds, placements)) in instances.batches.iter().zip(batches) {
             let slot_reach = *slot_reaches[key.1]
                 .get_or_insert_with(|| meshes[key.1].slot_fade_reach(&instances.fades));
             let live = bounds.tree().len();
             self.live += live;
             self.rows.push(Row {
                 key,
+                flags_at: self.flags.len(),
+                slots: placements.len(),
                 largest_relief: largest_relief(bounds.reliefs()),
                 fade_reach: slot_reach.with(instances.fades[key.2]),
                 small: live <= SMALL_LEAF,
             });
+            self.flags
+                .extend(placements.iter().map(Option::as_ref).map(flags));
         }
         self.at = Some(stamp);
     }
@@ -138,7 +167,7 @@ pub(in crate::draw) fn with_placements<R>(
     };
     placement::refresh_all(instances, meshes);
     let epoch = instances.level_epoch(key);
-    let borrowed: Vec<(Ref<'_, SlotBounds>, &[Option<(SceneObject, bool)>])> = instances
+    let borrowed: Vec<(Ref<'_, SlotBounds>, Placed<'_>)> = instances
         .batches
         .values()
         .map(|batch| (batch.bounds.borrow(), batch.slots()))
@@ -148,7 +177,7 @@ pub(in crate::draw) fn with_placements<R>(
         instances.layout_stamp(meshes.len()),
         instances,
         meshes,
-        borrowed.iter().map(|(bounds, _)| &**bounds),
+        borrowed.iter().map(|(bounds, slots)| (&**bounds, *slots)),
     );
     let placements = Placements {
         batches: borrowed
@@ -157,6 +186,7 @@ pub(in crate::draw) fn with_placements<R>(
             .map(|((bounds, placements), row)| IndexedBatch {
                 key: row.key,
                 placements,
+                flags: &rows.flags[row.flags_at..row.flags_at + row.slots],
                 bounds,
                 largest_relief: row.largest_relief,
                 fade_reach: row.fade_reach,
@@ -196,6 +226,7 @@ impl Selection {
             frustum: &frustum,
             light: &light,
             stretch,
+            flag: if self.casters_only { CASTER } else { CAMERA },
         };
         let mut admitted = Vec::new();
         let mut stack = Vec::new();
@@ -237,15 +268,7 @@ impl Selection {
         view: ViewTests<'_>,
         passed: Passed,
     ) -> bool {
-        let (object, visible) = batch.placements[slot as usize]
-            .as_ref()
-            .expect("live instance");
-        *visible
-            && if self.casters_only {
-                object.casts_shadow()
-            } else {
-                !object.shadow_only()
-            }
+        batch.flags[slot as usize] & view.flag != 0
             && self.admits(view.frustum, view.light, passed, || {
                 placement::placement(
                     batch.bounds.boxes(slot as usize),
@@ -310,6 +333,8 @@ struct ViewTests<'a> {
     light: &'a LightMap,
     /// The view's relief ray stretch.
     stretch: f32,
+    /// The flag a slot must have for the view to draw it.
+    flag: u8,
 }
 
 impl Placements<'_> {

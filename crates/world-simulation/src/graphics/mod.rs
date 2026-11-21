@@ -18,6 +18,7 @@ mod compute;
 mod context;
 pub mod environment;
 mod material;
+mod material_versions;
 mod offscreen;
 mod ordered_globals;
 mod properties;
@@ -218,6 +219,8 @@ pub(crate) struct GraphicsState {
     /// The global values and keywords written directly since the last record, which the next
     /// record is preceded by as ordered records.
     direct_writes: ordered_globals::DirectWrites,
+    /// The states of materials that the frame's draws named, apart from the materials' own.
+    versions: material_versions::MaterialVersions,
     /// The scene's ambient light and default reflection.
     environment: Environment,
     offscreen: Vec<OffscreenWork>,
@@ -242,6 +245,7 @@ impl GraphicsState {
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
         self.direct_writes.clear();
+        self.versions.clear();
         self.handles.clear();
         self.lists.clear();
         self.readbacks.clear();
@@ -258,6 +262,7 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             direct_writes: ordered_globals::DirectWrites::new(),
+            versions: material_versions::MaterialVersions::new(),
             environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),

@@ -148,3 +148,58 @@ fn player_sub_programs_are_searched_across_platform_lists() {
     );
     assert!(select_player_sub_program(&program, &set(&[2, 4])).is_err());
 }
+
+#[test]
+fn a_group_every_variant_takes_one_of_defaults_to_its_lowest_keyword() {
+    // Keywords 2 and 3 are alternatives and every variant has one; 5 is optional.
+    let variants = [
+        (vec![3, 5], 'a'),
+        (vec![3], 'b'),
+        (vec![2, 5], 'c'),
+        (vec![2], 'd'),
+    ];
+    let pick = |enabled: &[u16]| select_variant(&variants, |v| &v.0, &[2, 3, 5], &set(enabled));
+    assert_eq!(pick(&[5]).unwrap().1, 'c');
+    assert_eq!(pick(&[]).unwrap().1, 'd');
+    assert_eq!(pick(&[3]).unwrap().1, 'b');
+    assert_eq!(pick(&[3, 5]).unwrap().1, 'a');
+    assert_eq!(
+        pick(&[2, 3]).unwrap_err(),
+        VariantError::NoMatch {
+            wanted: vec![2, 3],
+            available: 4
+        }
+    );
+}
+
+#[test]
+fn a_keyword_set_with_no_group_to_default_stays_a_named_error() {
+    let variants = [
+        (vec![1], 'a'),
+        (vec![1, 2], 'b'),
+        (vec![], 'c'),
+        (vec![2], 'd'),
+    ];
+    assert!(select_variant(&variants, |v| &v.0, &[1, 2], &set(&[1, 2])).is_ok());
+    let variants = [(vec![1], 'a'), (vec![1, 2], 'b')];
+    assert!(select_variant(&variants, |v| &v.0, &[1, 2], &set(&[2])).is_err());
+}
+
+#[test]
+fn each_group_is_completed_on_its_own() {
+    // Groups {1, 2} and {3, 4}: every variant has one of each.
+    let variants = [
+        (vec![2, 4], 'a'),
+        (vec![2, 3], 'b'),
+        (vec![1, 4], 'c'),
+        (vec![1, 3], 'd'),
+    ];
+    let pick = |enabled: &[u16]| {
+        select_variant(&variants, |v| &v.0, &[1, 2, 3, 4], &set(enabled))
+            .unwrap()
+            .1
+    };
+    assert_eq!(pick(&[]), 'd');
+    assert_eq!(pick(&[2]), 'b');
+    assert_eq!(pick(&[4]), 'c');
+}

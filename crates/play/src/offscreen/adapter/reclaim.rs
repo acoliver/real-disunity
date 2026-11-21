@@ -15,7 +15,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, RenderTextureId, ShaderProperties, TextureRef,
+    GraphicsSnapshot, RenderTextureId, RendererView, ShaderProperties, TextureRef,
 };
 
 use super::super::frame::{Reclaimed, Report};
@@ -90,7 +90,7 @@ pub(super) fn named_targets(snapshot: &GraphicsSnapshot) -> BTreeSet<TextureId> 
             || snapshot
                 .renderers
                 .iter()
-                .filter_map(|renderer| renderer.property_block.as_ref())
+                .flat_map(RendererView::blocks)
                 .any(holds)
             || snapshot
                 .global

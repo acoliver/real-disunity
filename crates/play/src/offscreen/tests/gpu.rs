@@ -84,6 +84,7 @@ impl ShaderSupply for Synthetic {
             "arrayslices" => super::array_gpu::array_slices_passes(),
             "arraylevels" => super::array_gpu::array_levels_passes(),
             "cubebase" => super::cube_volume_gpu::cube_base_passes(),
+            "speccube" => super::cube_volume_gpu::spec_cube_passes(),
             "cubetop" => super::cube_volume_gpu::cube_top_passes(),
             "volumeslices" => super::cube_volume_gpu::volume_slices_passes(),
             "volumelevels" => super::cube_volume_gpu::volume_levels_passes(),
@@ -487,6 +488,7 @@ pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
         material_count: 1,
         slot_materials: vec![Some(material)],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);
@@ -653,7 +655,10 @@ fn a_record_that_does_not_build_on_its_own_is_dropped_and_counted_by_the_error()
     blit_and_copy(&mut world, (a, b, c));
     // The copy of a 4 by 4 texture into an 8 by 8 one cannot be done.
     let (adapted, operations, reads) = rig.frame(&mut world, &[b]);
-    assert_eq!(adapted.report.failures["record:CopyMismatch"], 1);
+    assert_eq!(
+        adapted.report.failures["record:CopyTexture:CopyMismatch"],
+        1
+    );
     assert_eq!(adapted.report.built, 3);
     rig.run(operations);
     let b = reads.into_iter().next().unwrap().bytes(&rig.device);

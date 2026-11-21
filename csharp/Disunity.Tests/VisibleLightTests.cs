@@ -15,6 +15,8 @@ internal static class VisibleLightTests
         Console.WriteLine("PASS: Cull reports the directional light first and the point and spot lights whose sphere meets the frustum");
         InFreshWorld(GroupsKeepCreationOrder);
         Console.WriteLine("PASS: directional lights come first and each group keeps creation order");
+        InFreshWorld(LightsThatLightNothingTheCameraDrawsAreLeftOut);
+        Console.WriteLine("PASS: a light whose culling mask shares no layer with the camera's is not visible to it");
         InFreshWorld(FarPlaneFlag);
         Console.WriteLine("PASS: a light whose sphere crosses the far plane reports IntersectsFarPlane");
         InFreshWorld(FinalColorFollowsTheColorSpace);
@@ -140,6 +142,26 @@ internal static class VisibleLightTests
         Expect.Equal(4, lights.Length, "four visible lights");
         Expect.That(lights[0].light == first && lights[1].light == second && lights[2].light == point && lights[3].light == spot,
             "the directional lights, then the rest, each in creation order");
+    }
+
+    /// <summary>A light lights only the renderers on its culling mask's layers, so one whose mask shares no layer with the
+    /// camera's lights nothing that camera draws. It is left out, whatever its order or brightness, and a light that shares one
+    /// layer stays.</summary>
+    private static void LightsThatLightNothingTheCameraDrawsAreLeftOut()
+    {
+        var camera = NewCamera();
+        var portrait = NewLight(LightType.Directional, Vector3.zero);
+        portrait.intensity = 2f;
+        portrait.cullingMask = 1 << 24;
+        var sun = NewLight(LightType.Directional, Vector3.zero);
+        sun.cullingMask = (1 << 0) | (1 << 27);
+        var unseenPoint = NewLight(LightType.Point, new Vector3(0f, 0f, 10f));
+        unseenPoint.cullingMask = 1 << 24;
+        var lights = Cull(camera, mask: (1u << 0) | (1u << 4)).visibleLights;
+        Expect.Equal(1, lights.Length, "only the light that shares a layer with the camera");
+        Expect.That(lights[0].light == sun, "the sun is the first visible light, not the brighter portrait light");
+        var everything = Cull(camera, mask: uint.MaxValue).visibleLights;
+        Expect.Equal(3, everything.Length, "a camera that draws every layer sees all three");
     }
 
     private static void FarPlaneFlag()

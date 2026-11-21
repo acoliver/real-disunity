@@ -31,6 +31,7 @@ mod source_array;
 mod stand_ins;
 mod stencil;
 mod storage;
+mod texel_size;
 mod undeclared;
 mod undeclared_cube;
 mod undeclared_volume;

@@ -1,5 +1,7 @@
 //! The byte encoding of a graphics snapshot: it round-trips every field and refuses bad input.
 
+use std::collections::BTreeMap;
+
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{
     MAX_SNAPSHOT_BYTES, WIRE_VERSION, WireError, decode, encode,
@@ -102,8 +104,16 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     for value in every_property(TextureRef::None) {
         properties.set(value).unwrap();
     }
+    let mut slot_block = worldrunner_world_simulation::graphics::ShaderProperties::default();
+    slot_block
+        .set(PropertyValue::Texture(
+            "_MainTex".into(),
+            slot(TextureRef::Asset((1 << 40) + 11)),
+        ))
+        .unwrap();
     let block = MeshRenderer {
         property_block: Some(properties),
+        slot_blocks: BTreeMap::from([(1, slot_block)]),
         render_queue: Some(2450),
         material_count: 2,
         slot_materials: vec![Some(blit), None],
@@ -194,6 +204,25 @@ fn a_snapshot_with_every_variant_and_field_round_trips_exactly() {
     assert!(!snapshot.renderers.is_empty() && !snapshot.compute_buffers.is_empty());
     let bytes = encode(&snapshot).unwrap();
     assert_eq!(decode(&bytes).unwrap(), snapshot);
+}
+
+#[test]
+fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() {
+    let snapshot = full_snapshot();
+    let decoded = decode(&encode(&snapshot).unwrap()).unwrap();
+    let blocked = &decoded.renderers[0];
+    assert_eq!(blocked.slot_blocks.keys().copied().collect::<Vec<_>>(), [1]);
+    let slot_texture = blocked.slot_blocks[&1].texture("_MainTex").unwrap();
+    assert_eq!(slot_texture.texture, TextureRef::Asset((1 << 40) + 11));
+    assert!(
+        blocked
+            .property_block
+            .as_ref()
+            .unwrap()
+            .texture("_MainTex")
+            .is_none()
+    );
+    assert!(decoded.renderers[1].slot_blocks.is_empty());
 }
 
 #[test]
@@ -330,10 +359,12 @@ fn with_header(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global.
+/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global and no
+/// environment.
 fn empty_until_work(tail: &[u8]) -> Vec<u8> {
     let mut body = vec![0; 4 * 3];
     body.push(0);
+    body.extend_from_slice(&[0; 2]);
     body.extend_from_slice(tail);
     with_header(&body)
 }

@@ -233,7 +233,7 @@ impl Resolved<'_> {
 }
 
 /// The imported resource as the binding's entry, when it is the kind of resource the binding is.
-fn imported_resource<'a>(
+pub(crate) fn imported_resource<'a>(
     device: &wgpu::Device,
     slot: &Slot,
     resource: &'a ImportedResource,
@@ -498,7 +498,13 @@ fn check_texture(
     else {
         return Ok(());
     };
-    let format_type = texture.format().sample_type(None, Some(features));
+    let format = texture.format();
+    // A combined depth-stencil format has a sample type only per aspect; a sampled view of it
+    // reads the depth.
+    let aspect = format
+        .has_depth_aspect()
+        .then_some(wgpu::TextureAspect::DepthOnly);
+    let format_type = format.sample_type(aspect, Some(features));
     let suits = match (sample_type, format_type) {
         (
             wgpu::TextureSampleType::Float { filterable },
@@ -506,6 +512,11 @@ fn check_texture(
                 filterable: format_filterable,
             }),
         ) => format_filterable || !filterable,
+        // wgpu binds a depth texture to an unfilterable float binding, read without comparison.
+        (
+            wgpu::TextureSampleType::Float { filterable: false },
+            Some(wgpu::TextureSampleType::Depth),
+        ) => true,
         (wanted, Some(found)) => wanted == found,
         (_, None) => false,
     };
@@ -660,9 +671,10 @@ impl ProgramRuntime {
 
 /// A bound texture suits a storage image slot when its format is the one the shader names, it
 /// allows storage binding, it has one sample per texel and its shape is the one the slot's view
-/// dimension takes: a 2D slot a texture of one layer, an array slot a 2D texture of any layers
-/// and a 3D slot a 3D texture. `view` is how a lent texture's view was made, when the owner
-/// states it; it must be the slot's dimension.
+/// dimension takes: a 2D slot a texture of one layer, or one layer of a 2D array lent through a
+/// view stated as 2D, an array slot a 2D texture of any layers and a 3D slot a 3D texture.
+/// `view` is how a lent texture's view was made, when the owner states it; it must be the slot's
+/// dimension.
 fn check_storage_image(
     slot: &Slot,
     texture: &wgpu::Texture,
@@ -705,7 +717,9 @@ fn check_storage_image(
         (wgpu::TextureViewDimension::D1, wgpu::TextureDimension::D1)
         | (wgpu::TextureViewDimension::D2Array, wgpu::TextureDimension::D2)
         | (wgpu::TextureViewDimension::D3, wgpu::TextureDimension::D3) => true,
-        (wgpu::TextureViewDimension::D2, wgpu::TextureDimension::D2) => layers == 1,
+        (wgpu::TextureViewDimension::D2, wgpu::TextureDimension::D2) => {
+            layers == 1 || view == Some(wgpu::TextureViewDimension::D2)
+        }
         _ => false,
     };
     if !shape || view.is_some_and(|made| made != view_dimension) {

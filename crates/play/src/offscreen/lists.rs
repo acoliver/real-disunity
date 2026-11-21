@@ -28,7 +28,7 @@ use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
-use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 use worldrunner_world_simulation::shadows::CASTS_NO_SHADOW;
 
@@ -58,12 +58,12 @@ const NO_SHADOW_CAST: &str = "casts no shadow";
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
-    /// Whether a pass of the shader has the `LightMode` value `mode`, in any case: a player build
-    /// spells its shadow caster passes `SHADOWCASTER` where a pipeline asks for `ShadowCaster`.
+    /// Whether a pass of the shader has the `LightMode` value `mode`, by the rule that selects
+    /// the pass ([`tag_values_match`]).
     pub(super) fn has_light_mode(&self, mode: &str) -> bool {
         self.light_modes
             .iter()
-            .any(|held| held.eq_ignore_ascii_case(mode))
+            .any(|held| tag_values_match(held, mode))
     }
 
     /// The first of a list's `tags` that a pass of the shader has, which names the pass the list
@@ -73,7 +73,7 @@ impl ShaderInfo {
     fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
             self.has_light_mode(tag)
-                || (self.has_untagged && tag.as_str() == LIST_UNTAGGED_LIGHT_MODE)
+                || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
         })
     }
 }

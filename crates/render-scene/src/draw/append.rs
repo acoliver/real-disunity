@@ -557,6 +557,7 @@ impl SceneGpu {
             .impostors
             .extend(prepared.materials.iter().map(|m| m.impostor().is_some()));
         self.retained.textures.extend(textures);
+        self.retained.lent_textures.get_mut().take();
         self.retained.material_uniforms.extend(uniforms);
         self.lighting_records.replace(records);
         self.objects.extend(tables);
@@ -630,6 +631,7 @@ impl SceneGpu {
         };
         self.resource_counters.replace_texture(index, bytes);
         self.retained.textures[index] = texture;
+        self.retained.lent_textures.get_mut().take();
         for (at, table) in tables {
             self.objects.replace(at, table);
         }

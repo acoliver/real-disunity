@@ -321,7 +321,7 @@ fn pass_report(
 
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
-pub const DRAW_LAYERS: [&str; 7] = [
+pub const DRAW_LAYERS: [&str; 8] = [
     "per-draw",
     "camera",
     "property block",
@@ -329,6 +329,7 @@ pub const DRAW_LAYERS: [&str; 7] = [
     "material fallback",
     "globals",
     "declared default below globals",
+    "size of the bound texture",
 ];
 
 /// The depth a camera that clears depth clears to.
@@ -440,15 +441,19 @@ pub(super) fn planned_draw(
     let shader = material
         .shader
         .ok_or(OffscreenError::NoShader(material_id))?;
-    let layers = [
-        &renderer.per_draw,
-        look.values,
-        &renderer.block,
-        &material.properties,
-        &material.fallback,
-        look.globals.layer,
-        &material.below_globals,
-    ];
+    let layers: Vec<&PropertyLayer> = [
+        Some(&renderer.per_draw),
+        Some(look.values),
+        renderer.slot_blocks.get(&slot),
+        Some(&renderer.block),
+        Some(&material.properties),
+        Some(&material.fallback),
+        Some(look.globals.layer),
+        Some(&material.below_globals),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let spec = DrawSpec {
         shader,
         keywords: keywords(material, look.globals),
@@ -835,7 +840,7 @@ fn source_layer(
 }
 
 /// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
-fn texels(side: u32) -> f32 {
+pub(super) fn texels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 

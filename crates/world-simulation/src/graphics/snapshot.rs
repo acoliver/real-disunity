@@ -16,9 +16,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    CameraBuffers, ComputeBufferId, ComputeShaderId, GlobalShaderState, MaterialId, OffscreenWork,
-    RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer, WorldComputeShader,
-    WorldMaterial, WorldRenderTexture, WorldShader,
+    CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
+    OffscreenWork, RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer,
+    WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
 use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
@@ -55,7 +55,18 @@ pub struct RendererView {
     /// was destroyed.
     pub materials: Vec<Option<MaterialId>>,
     pub render_queue: Option<i32>,
+    /// The values that override every slot's material.
     pub property_block: Option<ShaderProperties>,
+    /// The values that override one slot's material, by slot index. A slot's draws read its own
+    /// block first, then `property_block`, then the material.
+    pub slot_blocks: BTreeMap<u32, ShaderProperties>,
+}
+
+impl RendererView {
+    /// Every property block the renderer holds: the all-slot block, then each slot's.
+    pub fn blocks(&self) -> impl Iterator<Item = &ShaderProperties> {
+        self.property_block.iter().chain(self.slot_blocks.values())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -66,6 +77,8 @@ pub struct GraphicsSnapshot {
     /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
+    /// The scene's ambient light and default reflection, copied with the global state.
+    pub environment: Environment,
     /// The frame's records, in call order.
     pub work: Vec<OffscreenWork>,
     /// The live cameras that camera renders, camera setups and culls name.
@@ -109,6 +122,7 @@ impl GraphicsSnapshot {
             return Ok(snapshot);
         }
         snapshot.global = Some(world.global_shader_state().clone());
+        snapshot.environment = world.live_environment();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;
@@ -306,6 +320,7 @@ fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldEr
                 .collect(),
             render_queue: renderer.render_queue,
             property_block: renderer.property_block.clone(),
+            slot_blocks: renderer.slot_blocks.clone(),
         });
     }
     Ok(views)

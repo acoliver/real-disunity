@@ -47,10 +47,11 @@ internal sealed class VisibleLightSet
 
     public void SetIndexMap(NativeArray<int> map) => _indexMap = map.ToArray();
 
-    /// <summary>Finds the lights the parameters see: an enabled light on an active GameObject that is directional or whose
-    /// sphere (position and range) is not wholly outside a plane of the culling matrix. The light's own layer does not hide
-    /// it: the culling mask chooses the renderers a camera draws, and a light on a layer the camera does not draw still lights
-    /// them, as Old World's scene lights do.</summary>
+    /// <summary>Finds the lights the parameters see: an enabled light on an active GameObject whose culling mask shares a layer
+    /// with the parameters' culling mask, and that is directional or whose sphere (position and range) is not wholly outside a
+    /// plane of the culling matrix. A light lights only the renderers on its culling mask's layers, so one that shares no layer
+    /// with the camera lights nothing the camera draws. The light's own GameObject layer does not hide it: a light on a layer
+    /// the camera does not draw still lights what it draws, as Old World's scene lights do.</summary>
     public static VisibleLightSet Collect(in ScriptableCullingParameters parameters)
     {
         var planes = GeometryUtility.CalculateFrustumPlanes(parameters.cullingMatrix);
@@ -58,7 +59,7 @@ internal sealed class VisibleLightSet
         var others = new List<(Light Light, VisibleLight Data)>();
         foreach (var light in DisunityHost.NativeComponentsOf<Light>())
         {
-            if (!light || !light.isActiveAndEnabled) continue;
+            if (!light || !light.isActiveAndEnabled || !LightsAnyLayerOf(light, parameters.cullingMask)) continue;
             var type = light.type;
             if (type == LightType.Directional) directional.Add((light, Describe(light, type, VisibleLightFlags.None)));
             else if (TrySphere(planes, light, out var flags)) others.Add((light, Describe(light, type, flags)));
@@ -68,6 +69,8 @@ internal sealed class VisibleLightSet
         for (var index = 0; index < ordered.Length; index++) lights[index] = ordered[index].Data;
         return new VisibleLightSet(lights, ordered.Select(entry => entry.Light).ToArray());
     }
+
+    private static bool LightsAnyLayerOf(Light light, uint cameraMask) => (unchecked((uint)light.cullingMask) & cameraMask) != 0;
 
     /// <summary>Whether the sphere at the light's position, with its range as radius, is outside none of the planes, and the
     /// near and far planes it crosses. The plane normals point into the frustum, so a negative distance beyond the radius is outside.</summary>

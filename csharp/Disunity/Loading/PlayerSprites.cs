@@ -25,6 +25,20 @@ internal static class PlayerSprites
         return texture;
     }
 
+    /// <summary>Builds the cubemap of a plan's <c>{"type": "Cubemap", ...}</c> asset, which has the fields of a texture: the size of a
+    /// face, its <see cref="TextureFormat"/> and the bytes of the six faces, each with its whole mip chain. Failures name the cubemap.</summary>
+    public static Cubemap BuildCubemap(JsonElement asset, string directory)
+    {
+        var name = asset.Str("name");
+        var data = asset.GetProperty("data");
+        var plan = new PlayerCubemap(asset.GetProperty("width").GetInt32(), asset.GetProperty("height").GetInt32(), asset.GetProperty("format").GetInt32(),
+            Linear: asset.GetProperty("color_space").GetInt32() == 0, MipCount: asset.GetProperty("mip_count").GetInt32(), DataSize: data.GetProperty("size").GetInt64());
+        var cube = Cubemap.FromPlayer(name, plan);
+        ResourceDatabase.ReadBytes($"cubemap {name}", Path.Combine(directory, data.Str("file")), data.GetProperty("offset").GetInt64(), cube.PixelBytes);
+        ApplySampler(cube, asset);
+        return cube;
+    }
+
     /// <summary>The filter, wrap modes, anisotropy and mip bias a texture asset plans.</summary>
     public static void ApplySampler(Texture texture, JsonElement asset)
     {

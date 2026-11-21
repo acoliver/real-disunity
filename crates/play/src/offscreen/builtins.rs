@@ -123,10 +123,10 @@
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
 //! * `<texture>_ST` (7,265 of the 38,160 texture bindings have a four-float member of that
-//!   name) and `<texture>_TexelSize` (1,980): the world carries a texture slot's scale and
-//!   offset, and the member that holds them has the texture's name plus `_ST`, but the order of
-//!   its four floats is in nothing the repository defines. `render-program` supplies
-//!   `_TexelSize` for a blit's source only.
+//!   name): the world carries a texture slot's scale and offset, and the member that holds them
+//!   has the texture's name plus `_ST`, but the order of its four floats is in nothing the
+//!   repository defines. `<texture>_TexelSize` (1,980) is not left to the host:
+//!   `render-program` fills it with the size of the texture bound under `<texture>`.
 
 use glam::{Mat4, Vec4};
 use worldrunner_render_program::layers::PropertyLayer;

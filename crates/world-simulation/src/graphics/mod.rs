@@ -16,6 +16,7 @@ mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
+pub mod environment;
 mod material;
 mod material_versions;
 mod offscreen;
@@ -35,6 +36,7 @@ pub use compute::{
     WorldComputeBuffer, WorldComputeShader,
 };
 pub use context::MAX_CULL_PLANES;
+pub use environment::Environment;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
@@ -112,6 +114,8 @@ pub enum GraphicsError {
     UnknownReadback,
     #[error("the pixel data must hold width * height * 4 floats")]
     ReadbackLength,
+    #[error("an environment's intensities are not negative")]
+    InvalidEnvironment,
 }
 
 impl GraphicsError {
@@ -213,6 +217,8 @@ pub(crate) struct GraphicsState {
     global: GlobalShaderState,
     /// The states of materials that the frame's draws named, apart from the materials' own.
     versions: material_versions::MaterialVersions,
+    /// The scene's ambient light and default reflection.
+    environment: Environment,
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
@@ -251,6 +257,7 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             versions: material_versions::MaterialVersions::new(),
+            environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
             lists: std::collections::BTreeSet::new(),

@@ -108,9 +108,10 @@ fn a_block_array_that_is_not_whole_blocks_or_whole_chains_is_an_error_by_name() 
 }
 
 #[test]
-fn an_array_in_a_four_byte_graphics_format_with_no_texture_format_goes_up_as_it_is() {
-    // 87 stores four bytes a texel, with every level of every layer, and the engine has no
-    // TextureFormat for it. 2x2 texels and two levels: 16 + 4 bytes a layer.
+fn an_array_in_graphics_format_87_is_stored_blue_first_and_goes_up_red_first() {
+    // 87 stores four bytes a texel as blue, green, red and alpha, with every level of every
+    // layer, and the engine has no TextureFormat for it. 2x2 texels and two levels: 16 + 4 bytes
+    // a layer. Texel k holds the bytes 4k..4k+3, so it goes up as 4k+2, 4k+1, 4k and 4k+3.
     let stored = PlayerTexture {
         format: 0,
         graphics_format: 87,
@@ -122,16 +123,19 @@ fn an_array_in_a_four_byte_graphics_format_with_no_texture_format_goes_up_as_it_
         bytes: (0..40).collect(),
         ..texture(0, false, Vec::new())
     };
+    let red_first: Vec<u8> = (0..10_u8)
+        .flat_map(|k| [4 * k + 2, 4 * k + 1, 4 * k, 4 * k + 3])
+        .collect();
     let made = texture_of(TextureId(1), &stored, None, true).unwrap();
     assert_eq!(made.dimension, SourceDimension::D2Array(2));
     assert_eq!((made.size, made.mips, made.graphics_format), ([2, 2], 2, 4));
-    assert_eq!(made.bytes, stored.bytes);
+    assert_eq!(made.bytes, red_first);
     // The same holds without block compression, which 87 does not use.
     assert_eq!(
         texture_of(TextureId(1), &stored, None, false)
             .unwrap()
             .bytes,
-        stored.bytes
+        red_first
     );
 }
 

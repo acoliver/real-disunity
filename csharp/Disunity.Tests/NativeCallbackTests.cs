@@ -22,6 +22,7 @@ internal static class NativeCallbackTests
         ReportsAnAssemblyWithoutMarkedMethodsAsUnchanged();
         LoadsARewrittenAssemblyFromTheCacheUnderItsOwnFileName();
         ReusesACachedImageAndLoadsOriginalsWhenNothingChanges();
+        IgnoresImagesAnEarlierRewriteStored();
         FindsTypesTheAssemblyReferencesInItsOwnDirectoryOrLeavesItUnchanged();
         KeepsOneDelegatePerTypeAndMethod();
         Console.WriteLine("PASS: native callbacks made from static methods stay callable (load-time rewrite and cache)");
@@ -89,6 +90,31 @@ internal static class NativeCallbackTests
 
     private static string Hash(byte[] image) => Convert.ToHexString(SHA256.HashData(image)).ToLowerInvariant();
 
+    /// <summary>Where the cache stores the rewritten image of <paramref name="image"/>: under the rewrite's revision.</summary>
+    private static string Folder(string cache, byte[] image) => Path.Combine(cache, "r" + CallbackCache.Revision, Hash(image));
+
+    /// <summary>An image an earlier rewrite stored, under the old unversioned layout or an earlier revision, is not reused:
+    /// the assembly is rewritten again, so a change to the rewrite reaches every assembly.</summary>
+    private static void IgnoresImagesAnEarlierRewriteStored()
+    {
+        WithDirectories((managed, cache) =>
+        {
+            var original = CallbackAssembly.Build();
+            File.WriteAllBytes(Path.Combine(managed, "Game.dll"), original);
+            foreach (var stale in new[] { Path.Combine(cache, Hash(original)), Path.Combine(cache, "r" + (CallbackCache.Revision - 1), Hash(original)) })
+            {
+                Directory.CreateDirectory(stale);
+                File.WriteAllBytes(Path.Combine(stale, "Game.dll"), original);
+            }
+            var log = new List<string>();
+            var context = new AssemblyLoadContext("revision", isCollectible: false);
+            var assembly = Player(managed, cache, log, context).Resolve(context, new System.Reflection.AssemblyName("Game"));
+            var expected = Path.Combine(Folder(cache, original), "Game.dll");
+            Require(assembly?.Location == expected, $"the image is rewritten into {expected}, got {assembly?.Location}");
+            Require(log.SequenceEqual(new[] { "native callbacks kept: Game (1 sites)" }), "the rewrite runs again: " + string.Join(" | ", log));
+        });
+    }
+
     private static PlayerAssemblies Player(string managed, string? cache, List<string> log, AssemblyLoadContext context)
     {
         var player = new PlayerAssemblies(managed, Engine, new[] { "Game" }, callbackCache: cache, log: log.Add);
@@ -107,9 +133,9 @@ internal static class NativeCallbackTests
             var context = new AssemblyLoadContext("cached", isCollectible: false);
             Player(managed, cache, log, context);
             var assembly = context.LoadFromAssemblyName(new System.Reflection.AssemblyName("Game"));
-            var expected = Path.Combine(cache, Hash(original), "Game.dll");
+            var expected = Path.Combine(Folder(cache, original), "Game.dll");
             Require(assembly.Location == expected, $"the rewritten assembly loads from {expected}, got {assembly.Location}");
-            Require(File.Exists(expected) && File.ReadAllBytes(Path.Combine(cache, Hash(original), "Game.pdb")).Length == 3,
+            Require(File.Exists(expected) && File.ReadAllBytes(Path.Combine(Folder(cache, original), "Game.pdb")).Length == 3,
                 "the cache holds the rewritten image and the original's symbols");
             Require(log.SequenceEqual(new[] { "native callbacks kept: Game (1 sites)" }), "one line is logged: " + string.Join(" | ", log));
             var holder = assembly.GetType("Game.Holder", throwOnError: true)!;
@@ -123,7 +149,7 @@ internal static class NativeCallbackTests
         {
             var original = CallbackAssembly.Build();
             File.WriteAllBytes(Path.Combine(managed, "Game.dll"), original);
-            var cached = Path.Combine(cache, Hash(original), "Game.dll");
+            var cached = Path.Combine(Folder(cache, original), "Game.dll");
             var first = new AssemblyLoadContext("first", isCollectible: false);
             Player(managed, cache, [], first).Resolve(first, new System.Reflection.AssemblyName("Game"));
             var stamp = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
@@ -139,7 +165,7 @@ internal static class NativeCallbackTests
             var third = new AssemblyLoadContext("third", isCollectible: false);
             var plain = Player(managed, cache, log, third).Resolve(third, new System.Reflection.AssemblyName("Game"));
             Require(plain?.Location == Path.Combine(managed, "Game.dll"), "an unchanged assembly loads from its original path");
-            Require(!Directory.Exists(Path.Combine(cache, Hash(unmarked))), "an unchanged assembly writes nothing to the cache");
+            Require(!Directory.Exists(Folder(cache, unmarked)), "an unchanged assembly writes nothing to the cache");
 
             // A loaded file stays mapped, so the original image goes to a directory of its own.
             var bare = Directory.CreateDirectory(Path.Combine(managed, "..", "Bare")).FullName;

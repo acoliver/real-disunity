@@ -126,6 +126,10 @@ impl ListReport {
             ("lists made", self.created),
             ("drawing lists drawn", self.drawn),
             ("shadow lists drawn", self.shadow_drawn),
+            (
+                "shadow casters outside the camera's view",
+                self.shadow_outside_view,
+            ),
             ("lists with nothing to draw", self.empty),
         ]
         .into_iter()
@@ -159,6 +163,9 @@ pub struct ListReport {
     pub created: usize,
     pub drawn: usize,
     pub shadow_drawn: usize,
+    /// The renderers the camera's planes dropped that a shadow list casts from, counted for each
+    /// list.
+    pub shadow_outside_view: usize,
     pub empty: usize,
     /// The draws the lists planned, by the `LightMode` of the pass they draw (or `override pass
     /// N`).

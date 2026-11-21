@@ -223,6 +223,7 @@ fn a_shadow_list_draws_a_caster_the_camera_does_not_see_when_the_split_holds_it(
     let report = &adapted.report.lists;
     assert_eq!(report.kept, 1);
     assert_eq!(report.out_by_planes, 2);
+    assert_eq!(report.shadow_outside_view, 1);
     assert_eq!(
         report.left_out,
         counts(&[("outside the split's planes", 1)])

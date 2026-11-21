@@ -15,6 +15,9 @@
 //! matrix places it at. A shadow list leaves out a renderer that casts no shadow, and tests the
 //! sphere only when the split has no planes: the planes of a directional split bound the casters,
 //! which reach toward the light past the sphere that wraps the receivers.
+//! A shadow list takes its casters from every renderer the culling record's layer mask keeps,
+//! those outside the camera's planes included, since a caster out of the camera's view shadows
+//! what the camera sees.
 //!
 //! A drawing list names the `LightMode` values of the passes it draws, in order of preference. A
 //! pass with no `LightMode` counts as `SRPDefaultUnlit` for a list (a camera counts it as
@@ -37,6 +40,7 @@ use super::builtins::{add_screen_size, view_layer};
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
+use super::script::Culled;
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
 /// the passes of the Old World player's shaders come from the decoded pass tags, which the report
@@ -99,26 +103,28 @@ struct Candidate {
 
 impl<'a> Mapper<'a> {
     /// Keeps the renderers a culling record admits: those whose layer is in `mask` and that are
-    /// not wholly outside one of `planes`.
+    /// not wholly outside one of `planes`. The renderers of the mask that the planes drop are kept
+    /// apart for the shadow lists, which cast from outside the camera's view.
     pub(super) fn cull(&mut self, id: u64, mask: u32, planes: &[[f32; 4]]) {
         let snapshot = self.snapshot;
         let (mut by_layer, mut by_planes) = (0, 0);
-        let mut kept = Vec::new();
+        let mut culled = Culled::default();
         for (index, view) in snapshot.renderers.iter().enumerate() {
             if view.layer >= 32 || (mask >> view.layer) & 1 == 0 {
                 by_layer += 1;
             } else if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {
                 by_planes += 1;
+                culled.outside_view.push(index);
             } else {
-                kept.push(index);
+                culled.kept.push(index);
             }
         }
         let report = &mut self.report.lists;
         report.culls += 1;
-        report.kept += kept.len();
+        report.kept += culled.kept.len();
         report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
-        self.script.culls.insert(id, kept);
+        self.script.culls.insert(id, Arc::new(culled));
     }
 
     /// The corners of the box of the renderer's mesh in the world, or the point its matrix places
@@ -171,12 +177,12 @@ impl<'a> Mapper<'a> {
             .script
             .culls
             .get(cull)
-            .cloned()
+            .map(Arc::clone)
             .ok_or(Skip::UnknownList)?;
         let (target, raster) = self.draw_target()?;
         let (values, eye) = self.current_view()?;
         let draws = match &desc {
-            RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
+            RendererListDesc::Draw { .. } => self.draw_items(&culled.kept, &desc, eye),
             RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
         };
         let lists = &mut self.report.lists;
@@ -314,9 +320,11 @@ impl<'a> Mapper<'a> {
         self.items(candidates, replacement, &selector)
     }
 
-    /// The draws of the culled renderers inside a shadow split that cast a shadow and have a pass
-    /// to draw a caster, in the order the renderers were culled.
-    fn shadow_items(&mut self, culled: &[usize], desc: &RendererListDesc) -> Vec<ListDraw> {
+    /// The draws of the renderers inside a shadow split that cast a shadow and have a pass to draw
+    /// a caster: the renderers the culling kept, in the order they were culled, then those of its
+    /// layer mask that the camera's planes dropped. A caster outside the camera's view can shadow
+    /// what the camera sees, so the camera's planes do not bound a shadow list.
+    fn shadow_items(&mut self, culled: &Culled, desc: &RendererListDesc) -> Vec<ListDraw> {
         let RendererListDesc::Shadow { planes, sphere, .. } = desc else {
             return Vec::new();
         };
@@ -325,9 +333,18 @@ impl<'a> Mapper<'a> {
             values: vec![SHADOW_CASTER.to_owned()],
         };
         let mut candidates = Vec::new();
-        for &index in culled {
+        let unseen = culled.outside_view.iter().map(|&index| (index, true));
+        for (index, outside_view) in culled
+            .kept
+            .iter()
+            .map(|&index| (index, false))
+            .chain(unseen)
+        {
             if !self.caster_in_split(index, planes, *sphere) || !self.usable_renderer(index) {
                 continue;
+            }
+            if outside_view {
+                self.report.lists.shadow_outside_view += 1;
             }
             let view = &self.snapshot.renderers[index];
             let slots = self.frame.renderers[&RendererId(index as u64)]

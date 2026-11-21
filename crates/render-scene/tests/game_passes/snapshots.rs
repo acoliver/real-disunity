@@ -7,7 +7,7 @@ use super::snapshot_game::{
     OPAQUE_FILL_PASS, Plan, SnapGame, TRANSPARENT_PASS, built_handle, read_texels, texel,
 };
 use worldrunner_render_scene::{
-    compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics},
+    compositor::{FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics},
     executor::{FrameConfig, FrameError},
     wgpu,
 };
@@ -396,10 +396,20 @@ fn the_allocation_budget_charges_the_snapshots_a_game_declares_it_reads() {
         device_depth,
         "the device depth copy is reserved when a game reads it, and the colour is not"
     );
+    let post_water_linear = SnapshotReads {
+        post_water_depth: PostWaterDepth::Linear,
+        ..COLOR
+    };
+    assert_eq!(
+        resident(post_water_linear) - colour,
+        0,
+        "the post-water linear depth is one of the shared depths"
+    );
     assert_eq!(
         resident(SnapshotReads::ALL) - colour,
-        device_depth,
-        "reading everything costs the shared snapshots and the device depth once"
+        2 * device_depth,
+        "reading everything costs the shared snapshots, the device depth and the post-water \
+         device depth once each"
     );
 }
 

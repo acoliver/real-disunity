@@ -9,6 +9,7 @@ use worldrunner_render_gpu::submission::capture::{
     CaptureError, CaptureWrites, WriteError, WriteKey,
 };
 
+use crate::contracts::ContractError;
 use crate::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, CopyOutput,
     DrawContext, FeatureDeclaration, FeaturePass, FrameConfig, FrameError, FramePlan, GamePlace,
@@ -628,13 +629,14 @@ fn a_compute_pass_writes_in_a_capture_only_the_allocations_the_capture_declares(
     );
 
     let (refused, chain_key, log) = captured(false);
-    assert!(
-        matches!(
-            refused,
-            Err(CaptureError::Write(WriteError::Undeclared(key))) if key == chain_key
-        ),
-        "the compute pass's write of the chain is not declared: {refused:?}"
-    );
+    let undeclared = match &refused {
+        Err(CaptureError::Write(WriteError::Undeclared(key)))
+        | Err(CaptureError::Preparation(FrameError::ResourceContract(
+            ContractError::CaptureWrite(WriteError::Undeclared(key)),
+        ))) => Some(*key),
+        other => panic!("the compute pass's write of the chain is not declared: {other:?}"),
+    };
+    assert_eq!(undeclared, Some(chain_key));
     assert!(
         !log.iter().any(|entry| entry.starts_with("compute:")),
         "nothing was recorded in the compute pass: {log:?}"

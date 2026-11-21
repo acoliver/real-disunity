@@ -193,10 +193,9 @@ engine's choices:
   `unity_SHBr`, `unity_SHBg`, `unity_SHBb` and `unity_SHC` are zero, and `unity_SpecCube0_HDR` is
   `(1, 1, 0, 0)`. The 0.3 is the same constant as the retained scene's ambient from above
   (`AMBIENT_SKY_IRRADIANCE`). This is an engine default for a frame in which nothing sets
-  these names, and nothing more. The scene's authored ambient (RenderSettings, which
-  `unity-serialized` decodes) does not reach the plan, the C# world or the host yet, and the
-  repository has no measured convention for packing a probe into spherical harmonics, so the
-  default is flat. `(1, 1, 0, 0)` for `unity_SpecCube0_HDR` is a neutral decode chosen without a
+  these names, and nothing more. A world whose scene wrote its RenderSettings gets its ambient
+  light from the scene's probe instead (`add_environment`); the default is flat and stands for a
+  world that wrote none. `(1, 1, 0, 0)` for `unity_SpecCube0_HDR` is a neutral decode chosen without a
   measured convention. Like the main light, the values sit in the globals the frame starts from,
   so a world global or a `SetGlobalVector` of the same name replaces them; without them the
   scene shaders of Old World's RomeTurn42 camera output black, because every one of these names

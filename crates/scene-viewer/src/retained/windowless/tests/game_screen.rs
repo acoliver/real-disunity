@@ -20,7 +20,7 @@ const YELLOW: [u8; 4] = [255, 255, 0, 255];
 const RED: [u8; 4] = [255, 0, 0, 255];
 
 fn shared() -> (SharedGpu, wgpu::Device, SubmissionAuthority) {
-    let mut gpu = SharedGpu::headless();
+    let mut gpu = SharedGpu::headless_for_test();
     let (device, authority) = gpu
         .device(&crate::tests::options(), &DeviceRequirements::default())
         .unwrap();
@@ -247,7 +247,7 @@ fn a_submitted_screen_replaces_the_depth_fitted_stock_scene() {
         shadows: Some(crate::renderer::retained_tests::shadow_settings()),
         ..crate::tests::options()
     };
-    let mut gpu = SharedGpu::headless();
+    let mut gpu = SharedGpu::headless_for_test();
     let (device, authority) = gpu
         .device(&options, &DeviceRequirements::default())
         .unwrap();

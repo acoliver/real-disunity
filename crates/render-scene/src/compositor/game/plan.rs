@@ -10,8 +10,12 @@ use worldrunner_render_post::{
 /// One colour output of a game pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorOutput {
-    /// One layer of a declared target. The pass clears it to zero, unless the layer already holds
-    /// contents (written earlier in the frame, or kept from a submitted frame), which it keeps.
+    /// One mip of one layer of a declared target, named with
+    /// [`TargetDeclaration::mip`](super::TargetDeclaration::mip) (`layer(n)` is mip 0, which is the
+    /// only mip of a target without a chain). The pass attaches that single mip, opens with its
+    /// extent (the target's extent halved `mip` times, at least one texel) and clears it to zero,
+    /// unless the mip already holds contents (written earlier in the frame, or kept from a submitted
+    /// frame), which it keeps.
     Target(ResourceRef),
     /// The frame's colour. The first pass to write it clears it to the frame's clear colour; Opaque
     /// then loads what the game's passes left, so the stock objects draw over it. Not available
@@ -52,8 +56,13 @@ pub struct GamePassSpec {
     /// Layers of declared targets the pass samples. A read of a layer is a read of every mip of
     /// it, which the target's sampled view covers. Each mip must be written by an earlier pass or
     /// the preparation of the frame, or hold kept contents; a read of a mip nothing writes is
-    /// refused at planning by the target's name and the mip.
+    /// refused at planning by the target's name and the mip. A pass that renders into a mip of a
+    /// target may not read the layer: it reads the mips it samples with [`Self::mip_reads`].
     pub reads: Vec<ResourceRef>,
+    /// Single mips of declared targets the pass samples, each a read of exactly that
+    /// (layer, mip): the frame orders the pass after the writer of that mip and of no other, so
+    /// the pass may write another mip of the same texture.
+    pub mip_reads: Vec<ResourceRef>,
     /// Stock products of the frame the pass samples through a view a frame handle lends, such as
     /// [`FrameOcclusion::read`](super::FrameOcclusion::read). They attach nothing; frame
     /// validation refuses the frame when no earlier pass of it produces them.
@@ -73,6 +82,7 @@ impl GamePassSpec {
             colors: Vec::new(),
             depth: None,
             reads: Vec::new(),
+            mip_reads: Vec::new(),
             frame_reads: Vec::new(),
             snapshots: SnapshotReads::NONE,
         }
@@ -97,6 +107,15 @@ impl GamePassSpec {
     #[must_use]
     pub fn reading(mut self, reads: impl IntoIterator<Item = ResourceRef>) -> Self {
         self.reads.extend(reads);
+        self
+    }
+
+    /// Samples exactly these (layer, mip) subresources, named with
+    /// [`TargetDeclaration::mip`](super::TargetDeclaration::mip), instead of every mip of their
+    /// layers.
+    #[must_use]
+    pub fn reading_mips(mut self, mips: impl IntoIterator<Item = ResourceRef>) -> Self {
+        self.mip_reads.extend(mips);
         self
     }
 
@@ -140,7 +159,10 @@ impl GameTargets {
     /// [`FrameError::AttachmentHazard`] for a target that shares its name with another
     /// attachment of the frame, and [`FrameError::UnsupportedEffect`] for a pass planned by the
     /// wrong feature, a prepass product outside [`GamePlace::AfterDepthPrepass`] or the frame's
-    /// colour inside it.
+    /// colour inside it,
+    /// and, when the planned frame is validated, [`FrameError::AttachmentHazard`] for a pass that
+    /// samples a mip it also renders into and [`FrameError::MissingProducer`] for a sampled mip
+    /// nothing wrote.
     pub fn plan_pass(
         &self,
         spec: &GamePassSpec,
@@ -160,7 +182,7 @@ impl GameTargets {
         if let Some(access) = spec.depth {
             pass.depth = Some(depth_attachment(spec, access, &source)?);
         }
-        let mut reads = self.layer_reads(&spec.reads);
+        let mut reads = self.pass_reads(spec);
         for resource in &reads {
             added.push(self.view(*resource)?);
         }
@@ -182,6 +204,18 @@ impl GameTargets {
         reads.extend(spec.frame_reads.iter().copied());
         reads.extend(spec.snapshots.resources());
         Ok(FeaturePass { reads, ..feature })
+    }
+
+    /// The subresources a pass samples: every mip of each layer it reads, then the single mips it
+    /// names, once each.
+    fn pass_reads(&self, spec: &GamePassSpec) -> Vec<ResourceRef> {
+        let mut reads = self.layer_reads(&spec.reads);
+        for mip in &spec.mip_reads {
+            if !reads.contains(mip) {
+                reads.push(*mip);
+            }
+        }
+        reads
     }
 
     /// The stock pass whose attachments a pass in `spec`'s place takes: the depth/normal prepass

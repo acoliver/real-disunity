@@ -90,13 +90,32 @@ impl PreparedDispatch {
                 label,
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.pipeline);
-            for (set, group) in &self.groups {
-                pass.set_bind_group(*set, group, &[]);
-            }
-            let [x, y, z] = self.workgroups;
-            pass.dispatch_workgroups(x, y, z);
+            self.encode(&mut pass);
         })
+    }
+
+    /// Records the dispatch into `pass`, which other work shares, inside a debug group of `label`.
+    /// Every bind group of the program is set, so none an earlier dispatch of the pass left bound
+    /// is used.
+    pub(crate) fn record_in_pass(
+        &self,
+        pass: &mut wgpu::ComputePass<'_>,
+        label: &str,
+    ) -> Result<(), ProgramError> {
+        guarded(&self.device, || {
+            pass.push_debug_group(label);
+            self.encode(pass);
+            pass.pop_debug_group();
+        })
+    }
+
+    fn encode(&self, pass: &mut wgpu::ComputePass<'_>) {
+        pass.set_pipeline(&self.pipeline);
+        for (set, group) in &self.groups {
+            pass.set_bind_group(*set, group, &[]);
+        }
+        let [x, y, z] = self.workgroups;
+        pass.dispatch_workgroups(x, y, z);
     }
 
     /// The textures the dispatch writes through its storage images: the base mip of every layer

@@ -8,7 +8,7 @@ fn options() -> ViewerOptions {
 
 #[test]
 fn the_adapter_is_chosen_once_and_the_device_that_follows_is_made_on_it() {
-    let mut gpu = SharedGpu::headless();
+    let mut gpu = SharedGpu::headless_for_test();
     let first = gpu.adapter().unwrap();
     let again = gpu.adapter().unwrap();
     assert_eq!(first.get_info().name, again.get_info().name);

@@ -29,7 +29,8 @@ impl FrameRenderer {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.remember_taa_block(None);
-        encode_frozen_plan(&mut self.chain, device, encoder, plan, features)
+        encode_frozen_plan(&mut self.chain, device, encoder, plan, features)?;
+        self.record_game_work(encoder)
     }
 }
 

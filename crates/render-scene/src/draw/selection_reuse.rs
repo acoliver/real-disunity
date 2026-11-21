@@ -7,7 +7,7 @@
 //! placements, the terrain bounds (fixed after upload) and the receiver matrix.
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
-use super::visibility::Selection;
+use super::visibility::{Selection, ViewStats};
 use super::{FrameUniform, SceneGpu};
 
 /// Index of the camera in `SceneGpu::views`; shadow cascade `n` is at `n + 1`.
@@ -74,30 +74,48 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Key {
+        self.selection_key_at(self.instances.edits(), shadow_matrix, frame)
+    }
+
+    /// `selection_key` for a caller that already read the placements' edit count.
+    pub(super) fn selection_key_at(
+        &self,
+        edits: u64,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+        frame: &FrameUniform,
+    ) -> Key {
         let mut key = Key::new(
-            self.instances.edits(),
+            edits,
             Self::view_matrix(shadow_matrix, frame),
             frame,
             shadow_matrix.is_some(),
         );
         key.slice = self
-            .view_slice(shadow_matrix)
-            .map_or(0, |(_, generation)| generation);
+            .slice_for(shadow_matrix)
+            .and_then(|(slice, matrix)| slice.generation_for(matrix))
+            .unwrap_or(0);
         key
+    }
+
+    /// The slice a cascade culls against and the matrix it is drawn with; none for the camera.
+    fn slice_for(
+        &self,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+    ) -> Option<(&super::slice_hull::CascadeSlice, glam::Mat4)> {
+        let (_, matrix) = shadow_matrix?;
+        #[cfg(test)]
+        if super::slice_hull::UNCULLED.get() {
+            return None;
+        }
+        Some((&self.views[view_index(shadow_matrix)].slice, matrix))
     }
 
     fn view_slice(
         &self,
         shadow_matrix: Option<(u32, glam::Mat4)>,
     ) -> Option<(super::slice_hull::SliceHull, u64)> {
-        let (_, matrix) = shadow_matrix?;
-        #[cfg(test)]
-        if super::slice_hull::UNCULLED.get() {
-            return None;
-        }
-        self.views[view_index(shadow_matrix)]
-            .slice
-            .for_matrix(matrix)
+        let (slice, matrix) = self.slice_for(shadow_matrix)?;
+        slice.for_matrix(matrix)
     }
 
     /// Selects the camera view, or a cascade when `shadow_matrix` is given.
@@ -106,7 +124,21 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Selection {
-        self.select_views(&[shadow_matrix], frame);
+        self.select_objects_for(
+            shadow_matrix,
+            frame,
+            self.selection_key(shadow_matrix, frame),
+        )
+    }
+
+    /// `select_objects` for a caller that already computed the view's `selection_key`.
+    pub(super) fn select_objects_for(
+        &self,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+        frame: &FrameUniform,
+        key: Key,
+    ) -> Selection {
+        self.select_keyed(&[(shadow_matrix, key)], frame);
         self.views[view_index(shadow_matrix)]
             .built
             .borrow()
@@ -120,10 +152,19 @@ impl SceneGpu {
     /// of each placement's level for the frame's eye, and each writes only its own selection,
     /// so their results do not depend on one another or on the order they run in.
     pub(super) fn select_views(&self, views: &[Option<(u32, glam::Mat4)>], frame: &FrameUniform) {
+        let edits = self.instances.edits();
+        let keyed: Vec<_> = views
+            .iter()
+            .map(|&view| (view, self.selection_key_at(edits, view, frame)))
+            .collect();
+        self.select_keyed(&keyed, frame);
+    }
+
+    /// `select_views` with each view's `selection_key`.
+    fn select_keyed(&self, views: &[(Option<(u32, glam::Mat4)>, Key)], frame: &FrameUniform) {
         let mut jobs: Vec<(usize, Key, glam::Mat4, Selection)> = Vec::new();
-        for &shadow_matrix in views {
+        for &(shadow_matrix, key) in views {
             let index = view_index(shadow_matrix);
-            let key = self.selection_key(shadow_matrix, frame);
             let view = &self.views[index];
             if jobs.iter().any(|(queued, ..)| *queued == index)
                 || view
@@ -134,9 +175,18 @@ impl SceneGpu {
             {
                 continue;
             }
-            let mut selection = view.published.borrow().clone();
-            selection.casters_only = key.casters_only;
-            selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
+            // Only the buffers' capacity carries over: a selection resets before it selects.
+            let published = view.published.borrow();
+            let selection = Selection {
+                casters_only: key.casters_only,
+                slice: self.view_slice(shadow_matrix).map(|(hull, _)| hull),
+                ranges: Vec::with_capacity(published.ranges.len()),
+                stats: ViewStats {
+                    drawn_per_lod: Vec::with_capacity(published.stats.drawn_per_lod.len()),
+                    ..ViewStats::default()
+                },
+            };
+            drop(published);
             jobs.push((
                 index,
                 key,

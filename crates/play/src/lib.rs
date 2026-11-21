@@ -26,6 +26,7 @@ mod keys;
 mod managed_array_tests;
 mod navigation;
 pub mod offscreen;
+mod plan_differences;
 mod player;
 mod player_meshes;
 mod player_textures;

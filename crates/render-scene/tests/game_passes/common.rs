@@ -75,12 +75,24 @@ pub fn texture_binding(
 }
 
 pub fn array_binding(binding: u32, name: &str) -> ResourceBinding {
+    texture_array_binding(
+        binding,
+        name,
+        wgpu::TextureSampleType::Float { filterable: true },
+    )
+}
+
+pub fn texture_array_binding(
+    binding: u32,
+    name: &str,
+    sample: wgpu::TextureSampleType,
+) -> ResourceBinding {
     fragment_binding(
         binding,
         name,
         ResourceKind::Texture {
             dimension: wgpu::TextureViewDimension::D2Array,
-            sample: wgpu::TextureSampleType::Float { filterable: true },
+            sample,
             multisampled: false,
         },
     )

@@ -38,6 +38,7 @@ use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::sampling::{self, Sampled, read_unfilterable};
 use super::slot_dimension;
 use super::storage_buffers::{PendingStorage, check_stage_limits, require_buffers};
+use super::texel_size;
 use super::textures::TextureTable;
 use super::tracker::Tracker;
 
@@ -581,7 +582,9 @@ impl Services<'_> {
                 what: "a uniform buffer no parameter describes",
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
-        let values = spec.layers.values();
+        let texel_sizes = texel_size::texel_sizes(self.textures, &spec.layers, &target.buffer);
+        let mut values = spec.layers.values();
+        values.push(&texel_sizes);
         let packed = pack_layout(&target.buffer, &[], &values, min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
             facts.note_constants(&target.buffer, &packed, slot.visibility, &values);

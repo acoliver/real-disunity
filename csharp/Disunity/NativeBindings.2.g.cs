@@ -649,6 +649,24 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_compute_bindings_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_compute_bindings_read(ulong world, uint token, DisunityComputeBindingsInfo* info, DisunityComputeBinding* entries, float* floats, byte* text);
         /// <summary>
+        ///  Reads the world's environment into `output`.
+        ///
+        ///  # Safety
+        ///  `output` must be valid for one write of a `DisunityEnvironment`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_environment_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_environment_read(ulong world, DisunityEnvironment* output);
+        /// <summary>
+        ///  Replaces the world's environment with `input`. A value that is not finite, an intensity below
+        ///  zero, a mode that is none of the listed ones or a texture the world cannot name is refused and
+        ///  the environment stays as it was.
+        ///
+        ///  # Safety
+        ///  `input` must be valid for one read of a `DisunityEnvironment`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_environment_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_environment_write(ulong world, DisunityEnvironment* input);
+        /// <summary>
         ///  Registers the callback a flush of `world` calls, replacing the one registered before; a null
         ///  callback removes it. `user` is handed back to the callback unchanged. The callback and what
         ///  `user` names must stay valid until it is replaced or removed or the world is destroyed.
@@ -724,23 +742,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_destroy(ulong world, ulong material);
-        /// <summary>
-        ///  Points a material at another live shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
-        /// <summary>
-        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
-        /// <summary>
-        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
     }
 }

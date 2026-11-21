@@ -280,6 +280,9 @@ struct Retained {
     contact_heights: Buffer,
     /// Scene textures, counted under `ResourceClass::Texture` while resident.
     textures: Vec<worldrunner_render_gpu::census::Tracked<Texture>>,
+    /// The table as the game's passes are lent it, made on first use and dropped whenever
+    /// `textures` changes.
+    lent_textures: RefCell<Option<std::rc::Rc<[Texture]>>>,
     placeholder: Texture,
     sampler: Sampler,
     material_uniforms: Vec<Buffer>,
@@ -348,6 +351,22 @@ fn mesh_selections(scene: &RenderScene) -> Vec<MeshSelection> {
 }
 
 impl SceneGpu {
+    /// Every resident scene texture by table index, as one shared snapshot that stays the same
+    /// object until an append or a texture replacement changes the table.
+    pub(crate) fn lent_textures(&self) -> std::rc::Rc<[Texture]> {
+        self.retained
+            .lent_textures
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                self.retained
+                    .textures
+                    .iter()
+                    .map(|texture| (**texture).clone())
+                    .collect()
+            })
+            .clone()
+    }
+
     /// Uploads every texture, material, mesh and placement of one scene.
     ///
     /// # Errors
@@ -467,6 +486,7 @@ impl SceneGpu {
             retained: Retained {
                 contact_heights,
                 textures,
+                lent_textures: RefCell::new(None),
                 placeholder,
                 sampler,
                 material_uniforms,

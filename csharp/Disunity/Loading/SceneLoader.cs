@@ -30,6 +30,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             var textures = Textures();
             CreateSprites(textures);
             CreateAssets();
+            ApplyEnvironment();
             CreateObjects(scene, templates);
             CreateComponents();
             BindFields();
@@ -111,9 +112,25 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
                 "ComputeShader" => PlayerComputeShaders.Build(asset),
                 "Material" => PlayerMaterials.Build(asset, PlannedAsset),
                 "Texture2D" => PlayerSprites.BuildTexture(asset, ""),
+                "Cubemap" => PlayerSprites.BuildCubemap(asset, ""),
                 "Sprite" => PlayerSprites.BuildSprite(asset, PlannedAsset),
                 var other => throw new SceneLoadException($"asset type {other} is not supported"),
             });
+    }
+
+    /// <summary>Writes the plan's environment, the scene's ambient light and default reflection, to the world's record as
+    /// <see cref="RenderSettings"/> holds them. A plan without one (a project plan, or a scene with no render settings) leaves
+    /// the record as it was.</summary>
+    private void ApplyEnvironment()
+    {
+        if (!plan.TryGetProperty("environment", out var environment)) return;
+        Texture? Cube(string field) => environment.GetProperty(field) is { ValueKind: JsonValueKind.Number } index ? assets[index.GetInt32()] as Texture : null;
+        var probe = environment.Floats("ambient_probe");
+        if (probe.Length != 27) throw new SceneLoadException($"{plan.Str("scene")}: the ambient probe holds {probe.Length} coefficients, not 27");
+        RenderSettings.LoadEnvironment(new RenderSettings.SceneEnvironment((UnityEngine.Rendering.AmbientMode)environment.Int("ambient_mode"),
+            environment.Rgba("ambient_sky"), environment.Rgba("ambient_equator"), environment.Rgba("ambient_ground"), environment.Float("ambient_intensity"),
+            probe, (UnityEngine.Rendering.DefaultReflectionMode)environment.Int("reflection_mode"), environment.Float("reflection_intensity"),
+            Cube("custom_reflection"), Cube("skybox_reflection")));
     }
 
     private static PhysicsMaterial2D Material(JsonElement asset)

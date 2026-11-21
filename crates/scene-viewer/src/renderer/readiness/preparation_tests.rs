@@ -46,7 +46,7 @@ fn source_deferred_replacement_keeps_old_cube_charged_until_retirement() {
 }
 
 fn check_deferred(check_presentation: bool) {
-    let context = pollster::block_on(super::super::GpuContext::request()).unwrap();
+    let context = pollster::block_on(super::super::GpuContext::request_for_test()).unwrap();
     let old = source(128, false);
     let next = source(4, true);
     let (mut resident, mut presentation, mut host, profile) = setup(&context, &old, &next);

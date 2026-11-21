@@ -9,6 +9,7 @@ use worldrunner_world_simulation::graphics::{MaterialId, ShaderId};
 const SCOPE_MATERIAL: u32 = 0;
 const SCOPE_GLOBAL: u32 = 1;
 const SCOPE_BLOCK: u32 = 2;
+const SCOPE_SLOT_BLOCK: u32 = 4;
 const PLAYER_TEXTURE: u64 = (1 << 40) + 3;
 
 fn new_world() -> u64 {
@@ -425,6 +426,85 @@ fn a_renderers_property_block_is_set_by_properties_and_cleared_by_one_call() {
     assert_eq!(
         read_property(world, SCOPE_BLOCK, renderer, "_Fade").present,
         0
+    );
+}
+
+fn slot_block(world: u64, renderer: u64, material_index: u32) -> u64 {
+    let mut target = 0;
+    unsafe {
+        assert_eq!(
+            disunity_mesh_renderer_slot_block_target(world, renderer, material_index, &mut target)
+                .code,
+            0
+        );
+    }
+    target
+}
+
+#[test]
+fn a_slots_property_block_is_set_read_and_cleared_apart_from_the_other_blocks() {
+    let world = new_world();
+    let renderer = renderer(world);
+    let (first, second) = (
+        slot_block(world, renderer, 0),
+        slot_block(world, renderer, 1),
+    );
+    assert_ne!(first, second);
+    assert_eq!(
+        set_float(world, SCOPE_BLOCK, renderer, "_Fade", 0.5).code,
+        0
+    );
+    assert_eq!(
+        set_float(world, SCOPE_SLOT_BLOCK, second, "_Fade", 0.75).code,
+        0
+    );
+    let read = |scope, target| read_property(world, scope, target, "_Fade");
+    assert_eq!(read(SCOPE_SLOT_BLOCK, second).float_value, 0.75);
+    assert_eq!(
+        read(SCOPE_SLOT_BLOCK, first).present,
+        0,
+        "another slot's block"
+    );
+    assert_eq!(
+        read(SCOPE_BLOCK, renderer).float_value,
+        0.5,
+        "the all-slot block"
+    );
+    assert_eq!(
+        disunity_shader_properties_clear(world, SCOPE_SLOT_BLOCK, second).code,
+        0
+    );
+    assert_eq!(read(SCOPE_SLOT_BLOCK, second).present, 0);
+    assert_eq!(
+        read(SCOPE_BLOCK, renderer).float_value,
+        0.5,
+        "clearing a slot keeps the all-slot block"
+    );
+}
+
+#[test]
+fn a_slot_block_target_needs_a_mesh_renderer_and_a_slot_a_renderer_can_hold() {
+    let world = new_world();
+    let renderer = renderer(world);
+    let mut target = 0;
+    unsafe {
+        assert_ne!(
+            disunity_mesh_renderer_slot_block_target(world, renderer, 64, &mut target).code,
+            0
+        );
+        assert_ne!(
+            disunity_mesh_renderer_slot_block_target(world, renderer + 999, 0, &mut target).code,
+            0
+        );
+        assert_ne!(
+            disunity_mesh_renderer_slot_block_target(world, renderer, 0, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_ne!(
+        set_float(world, SCOPE_SLOT_BLOCK, renderer, "_Fade", 1.0).code,
+        0,
+        "a plain handle is no slot block"
     );
 }
 

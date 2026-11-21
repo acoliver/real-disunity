@@ -286,16 +286,10 @@ impl DefaultTexture {
         self.parts().1.dimension()
     }
 
-    /// The texture to register under [`ids::default_texture`].
-    #[must_use]
-    pub fn texture(self) -> SourceTexture {
-        self.texture_in(StandInLook::Declared)
-    }
-
     /// The texture to register under [`ids::default_texture`] when the host's stand-ins look as
     /// `look` says.
     #[must_use]
-    pub fn texture_in(self, look: StandInLook) -> SourceTexture {
+    pub fn texture(self, look: StandInLook) -> SourceTexture {
         let (colour, shape) = self.parts();
         let (dimension, texels) = shape.source();
         SourceTexture {

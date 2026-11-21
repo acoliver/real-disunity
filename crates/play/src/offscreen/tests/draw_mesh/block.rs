@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use super::super::super::defaults::StandInLook;
 use worldrunner_render_program::unity::synthetic::shaders::{POSITION_AND_UV, no_cull, variant};
 use worldrunner_render_program::unity::synthetic::{
     FRAGMENT, PassSpec, SyntheticShader, binding, shader as synthetic_shader, slot,
@@ -214,7 +215,8 @@ fn a_draw_without_the_block_reads_the_grey_default_and_not_the_blocks_render_tex
 
     let run = flush(&mut world, drawn, &stored([(MESH, left_half())]));
 
-    let [red, green, blue, alpha] = DefaultTexture::Grey.texture().bytes[..] else {
+    let [red, green, blue, alpha] = DefaultTexture::Grey.texture(StandInLook::Declared).bytes[..]
+    else {
         panic!("the grey default is one RGBA8 texel");
     };
     let grey = [red, green, blue, alpha];

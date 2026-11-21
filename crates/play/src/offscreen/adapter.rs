@@ -339,7 +339,7 @@ impl OffscreenAdapter {
                     self.shaders.insert(*id, (source.clone(), info.clone()));
                     available.shaders.insert(*id, info);
                 }
-                Err(error) => notes.fail("shader", &error),
+                Err(error) => notes.fail("shader", None, &error),
             }
         }
     }
@@ -356,11 +356,11 @@ impl OffscreenAdapter {
                 continue;
             }
             let look = self.settings.stand_in_look;
-            match state.set_texture(runtime, &texture.texture_in(look)) {
+            match state.set_texture(runtime, &texture.texture(look)) {
                 Ok(()) => {
                     self.defaults.insert(texture);
                 }
-                Err(error) => notes.fail("defaulttexture", &error),
+                Err(error) => notes.fail("defaulttexture", None, &error),
             }
         }
     }
@@ -654,7 +654,7 @@ fn drop_record_refused_alone(
     };
     let kind = format!("record:{}", record_names::kind(record));
     let note = record_names::drawn_with(record, &adapted.frame, state);
-    adapted.report.fail_with(&kind, note.as_deref(), &error);
+    adapted.report.fail(&kind, note.as_deref(), &error);
     adapted.report.built = adapted.report.built.saturating_sub(1);
     adapted.frame.records.remove(index);
     true
@@ -692,7 +692,7 @@ fn drop_unusable_textures(
     for spec in &adapted.frame.render_textures {
         let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
         if let Err(error) = state.check(runtime, arena, &alone) {
-            adapted.report.fail("rendertexture", &error);
+            adapted.report.fail("rendertexture", None, &error);
             unusable.insert(spec.id);
         }
     }
@@ -750,7 +750,7 @@ fn drop_unusable_records(
             Err(error) => {
                 let kind = format!("record:{}", record_names::kind(&record));
                 let note = record_names::drawn_with(&record, &adapted.frame, state);
-                adapted.report.fail_with(&kind, note.as_deref(), &error);
+                adapted.report.fail(&kind, note.as_deref(), &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

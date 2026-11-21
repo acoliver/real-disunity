@@ -633,7 +633,7 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
     // The Gamma pass paints the albedo times the tint over the left half. The grey texel is one
     // unorm byte, and the height map holds 16-bit floats, so the value is exact to one step of
     // those near 0.25, which is 2^-12.
-    let grey = f32::from(DefaultTexture::Grey.texture().bytes[0]) / 255.0;
+    let grey = f32::from(DefaultTexture::Grey.texture(StandInLook::Declared).bytes[0]) / 255.0;
     let step = SCALE / 4096.0;
     let predicted: Vec<f32> = (0..SIDE * SIDE)
         .map(|index| {
@@ -750,7 +750,7 @@ fn an_unset_texture_reads_the_bump_its_shader_declares() {
     );
     // The pass paints the albedo times the red tint, so the red of the bump texel, 128 of 255,
     // shows. The height map holds 16-bit floats, so the value is exact to one step of those.
-    let bump_red = f32::from(DefaultTexture::Bump.texture().bytes[0]) / 255.0;
+    let bump_red = f32::from(DefaultTexture::Bump.texture(StandInLook::Declared).bytes[0]) / 255.0;
     let step = SCALE / 4096.0;
     let predicted: Vec<f32> = (0..SIDE * SIDE)
         .map(|index| {

@@ -1,15 +1,19 @@
 //! Deterministic sampling-cost regression plus informational ordinary-scene GPU times.
 use super::*;
+use crate::device::DeviceRequest;
 use worldrunner_render_post::{PassId, TimingMode, TimingSupport};
 
 #[test]
 fn ordinary_material_gpu_sampling_cost() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let base = context();
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         base.adapter().clone(),
-        wgpu::Features::empty(),
-        TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     let casters: Vec<_> = (0..1_024)

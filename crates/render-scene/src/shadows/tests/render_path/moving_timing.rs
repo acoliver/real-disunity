@@ -1,5 +1,6 @@
 use super::*;
 use crate::compositor::{FrameRenderer, encode_scene};
+use crate::device::DeviceRequest;
 use crate::frame::FrameUniform;
 use crate::{CameraPose, SceneView, Viewport};
 use std::time::{Duration, Instant};
@@ -232,10 +233,13 @@ fn timing_context() -> GpuContext {
         ..Default::default()
     }))
     .unwrap();
-    pollster::block_on(GpuContext::from_adapter_with_timing(
+    pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap()
 }

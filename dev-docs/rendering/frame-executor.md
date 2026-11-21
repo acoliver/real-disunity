@@ -236,7 +236,7 @@ describes the observation states and pass identities. Depth-fitted geometry
 begins timing in its owned metadata submission; output composition resolves the
 same sample after the remaining passes.
 
-Timing defaults to disabled. Before device creation, call `GpuContext::from_adapter_with_timing` with `TimingMode::Optional` or `Required`. Generic device hosts can instead put `TIMESTAMP_QUERY` in `DeviceRequirements::optional_features` or `required_features`. Required unsupported capability fails device validation. Optional unavailable capability remains usable but `configure_timing` reports `TimingSupport::Unsupported`; it never fabricates zero durations.
+Timing defaults to disabled. Before device creation, call `GpuContext::from_adapter` with a `DeviceRequest` whose `timing` is `TimingMode::Optional` or `Required`. Generic device hosts can instead put `TIMESTAMP_QUERY` in `DeviceRequirements::optional_features` or `required_features`. Required unsupported capability fails device validation. Optional unavailable capability remains usable but `configure_timing` reports `TimingSupport::Unsupported`; it never fabricates zero durations.
 
 For explicit negotiation, request timing as optional when rendering must work without it, or required when the application cannot proceed without measurements:
 

@@ -81,7 +81,11 @@ pub mod ui {
 /// async fn capture(scene: &plan::RenderScene, view: &gpu::SceneView)
 ///     -> Result<gpu::offscreen::RgbaImage, Box<dyn std::error::Error>>
 /// {
-///     let context = gpu::device::GpuContext::request_with_features(gpu::wgpu::Features::empty()).await?;
+///     let request = gpu::device::DeviceRequest {
+///         features: gpu::wgpu::Features::empty(),
+///         ..Default::default()
+///     };
+///     let context = gpu::device::GpuContext::request(&request).await?;
 ///     Ok(gpu::offscreen::capture_scene(&context, scene, view)?)
 /// }
 /// ```

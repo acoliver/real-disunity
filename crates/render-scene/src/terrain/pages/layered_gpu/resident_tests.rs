@@ -1,4 +1,5 @@
 use super::*;
+use crate::device::DeviceRequest;
 use crate::terrain::pages::residency_tests::{context, settings};
 use worldrunner_render_plan::*;
 
@@ -47,9 +48,12 @@ fn residency_is_atomic_per_device_and_owned_by_the_source() {
         wgpu::Features::empty(),
     ))
     .unwrap();
-    let second = pollster::block_on(crate::device::GpuContext::from_adapter_with_features(
+    let second = pollster::block_on(crate::device::GpuContext::from_adapter(
         first.adapter().clone(),
-        wgpu::Features::empty(),
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     assert_ne!(first.device(), second.device());

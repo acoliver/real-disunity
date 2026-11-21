@@ -162,9 +162,9 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
 
 ## Device features
 
-`GpuContext` builds every scene device, production and test, from one request
-(`device.rs` `requirements`). It requires the caller's features (block compression
-from `GpuContext::request`, timestamps under `TimingMode::Required`) and refuses an
+`GpuContext` builds every scene device, production and test, from one
+`DeviceRequest` (`device.rs` `requirements`). It requires the request's features
+(`REQUIRED_FEATURES` for block compression, timestamps under `TimingMode::Required`) and refuses an
 adapter without them by name. It enables these optional features wherever the
 adapter offers them, and leaves them off elsewhere:
 
@@ -188,7 +188,7 @@ adapter that offers fewer keeps its own value, and a program that binds more sto
 images than the device allows is refused by name when it is prepared
 (render-program's `StorageImageLimit { stage, count, limit }`).
 
-`GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
+`DeviceRequest::shared` adds a caller's `DeviceRequirements` to this
 request. Tests: `src/device/tests.rs` (the request negotiated against adapters with
 and without `FLOAT32_FILTERABLE`, the limits the device gets, and an `R32Float` view
 bound to a filterable binding with a linear sampler on the engine device) and

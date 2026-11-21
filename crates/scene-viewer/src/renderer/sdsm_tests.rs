@@ -1,6 +1,7 @@
 use super::retained_tests::{shadow_settings, source};
 use super::*;
 use worldrunner_render_plan::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
+use worldrunner_render_scene::device::DeviceRequest;
 use worldrunner_render_scene::shadows::sdsm::{AdoptedFit, AdoptionPolicy};
 
 fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
@@ -36,10 +37,13 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
     let supported = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        worldrunner_render_post::TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: worldrunner_render_post::TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     assert_eq!(
@@ -98,10 +102,13 @@ fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
     if !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
         return;
     }
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        worldrunner_render_post::TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: worldrunner_render_post::TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     let scene = fitted_scene();

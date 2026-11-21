@@ -31,6 +31,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: ClearRenderTarget records which parts clear, the color, the depth and the stencil");
             GlobalsAreRecordedInOrder();
             Console.WriteLine("PASS: SetGlobal values, textures and keywords are recorded by name and id and not folded into the global state");
+            NonFiniteGlobalsAreSentAsZero();
+            Console.WriteLine("PASS: a NaN or infinity in a SetGlobal float, vector or matrix is sent as 0, as a material property is");
             PlainTexturesAreReadThroughAnIdentifier();
             Console.WriteLine("PASS: a Texture2D named by a RenderTargetIdentifier is read as a global, a blit source and a copy source, and refused as a target");
             TemporariesCarryTheirDescriptions();
@@ -420,6 +422,22 @@ internal static class CommandBufferExecutionTests
         empty.SetGlobalFloat("", 1f);
         Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name reaches the world and is refused there");
         Taken();
+    }
+
+    private static void NonFiniteGlobalsAreSentAsZero()
+    {
+        var buffer = new CommandBuffer();
+        buffer.SetGlobalFloat("_F", float.NaN);
+        buffer.SetGlobalVector("_V", new Vector4(float.PositiveInfinity, float.NaN, 1, 2));
+        var infinite = Matrix4x4.identity;
+        infinite[1, 2] = float.NegativeInfinity;
+        buffer.SetGlobalMatrix("_M", infinite);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Same([
+            "SetGlobal _F=float (0)",
+            "SetGlobal _V=vector (0 0 1 2)",
+            "SetGlobal _M=matrix (1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1)",
+        ], Taken(), "non-finite global values");
     }
 
     private static void TemporariesCarryTheirShape()

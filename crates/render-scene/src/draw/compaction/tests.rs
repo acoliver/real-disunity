@@ -230,3 +230,130 @@ fn the_gather_shader_validates_and_copies_whole_instance_records() {
     );
     assert!(SOURCE.contains("const LANES: u32 = 64u;"));
 }
+
+fn below(state: &mut u64, bound: u32) -> u32 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    u32::try_from(*state >> 33).expect("31 bits") % bound
+}
+
+/// Ranges as a selection lists them: batches one after another, ascending slots inside each,
+/// and levels in whatever order the placements' distances give.
+fn generated(seed: u64, batches: &[BatchKey]) -> Vec<SelectedRange> {
+    let mut state = seed;
+    let mut ranges = Vec::new();
+    for &key in batches {
+        let mut slot = 0;
+        for _ in 0..below(&mut state, 9) {
+            slot += below(&mut state, 4) + 1;
+            let length = below(&mut state, 3) + 1;
+            let lod = usize::try_from(below(&mut state, 3)).expect("small");
+            ranges.push(range(key, lod, slot..slot + length));
+            slot += length;
+        }
+    }
+    ranges
+}
+
+/// Every copy of `ranges` in (batch, LOD) order as a stable sort of all of them gives it.
+fn sorted_copies(ranges: &[SelectedRange]) -> Vec<(BatchKey, Range<u32>, u32)> {
+    let mut order: Vec<&SelectedRange> = ranges.iter().collect();
+    order.sort_by_key(|range| (range.key, range.lod));
+    let mut total = 0;
+    order
+        .into_iter()
+        .map(|range| {
+            let copy = (range.key, range.slots.clone(), total);
+            total += range.slots.end - range.slots.start;
+            copy
+        })
+        .collect()
+}
+
+const BATCHES: [BatchKey; 5] = [A, B, C, (2, 0, 0), (2, 1, 5)];
+
+#[test]
+fn plans_equal_a_stable_sort_by_batch_and_level_in_any_batch_order() {
+    for seed in 0..64 {
+        for turn in [0, 2, 3] {
+            // A turned list is not in key order, as only hand-built selections are.
+            let mut batches = BATCHES;
+            batches.rotate_left(turn);
+            let ranges = generated(seed, &batches);
+            let plan = Plan::new(&ranges).unwrap();
+            let copies: Vec<_> = plan
+                .copies
+                .iter()
+                .map(|copy| (copy.key, copy.source.clone(), copy.destination))
+                .collect();
+            assert_eq!(copies, sorted_copies(&ranges), "seed {seed} turn {turn}");
+            let grouped: u32 = plan
+                .groups
+                .iter()
+                .map(|group| group.slots.end - group.slots.start)
+                .sum();
+            assert_eq!(grouped, plan.total);
+            let keys: Vec<_> = plan.groups.iter().map(|g| (g.key, g.lod)).collect();
+            assert!(keys.windows(2).all(|pair| pair[0] < pair[1]), "{keys:?}");
+        }
+    }
+}
+
+#[test]
+fn plans_equal_a_stable_sort_when_only_a_late_part_of_the_batch_key_is_out_of_order() {
+    // Each list is in order up to its last or middle key part, so a check that read only the
+    // first parts would take the per-batch sort and lose the batch order.
+    let lists: [[BatchKey; 5]; 3] = [
+        [B, A, C, (2, 0, 0), (2, 1, 5)],
+        [A, B, C, (2, 1, 5), (2, 0, 0)],
+        [A, C, B, (2, 0, 0), (2, 1, 5)],
+    ];
+    for seed in 0..64 {
+        for batches in lists {
+            let ranges = generated(seed, &batches);
+            let plan = Plan::new(&ranges).unwrap();
+            let copies: Vec<_> = plan
+                .copies
+                .iter()
+                .map(|copy| (copy.key, copy.source.clone(), copy.destination))
+                .collect();
+            assert_eq!(copies, sorted_copies(&ranges), "seed {seed} {batches:?}");
+        }
+    }
+}
+
+#[test]
+fn runs_look_up_each_batch_once_and_still_read_every_record_from_its_own_base() {
+    let base = |key: BatchKey| 1_000 * u32::try_from(key.0 + key.1 + key.2).unwrap();
+    for seed in 0..32 {
+        let plan = Plan::new(&generated(seed, &BATCHES)).unwrap();
+        let lookups = std::cell::Cell::new(0);
+        let runs = plan.runs(|key| {
+            lookups.set(lookups.get() + 1);
+            base(key)
+        });
+        let mut distinct: Vec<BatchKey> = plan.copies.iter().map(|copy| copy.key).collect();
+        distinct.dedup();
+        assert_eq!(lookups.get(), distinct.len(), "seed {seed}");
+        let mut read = BTreeMap::new();
+        for run in runs {
+            for offset in 0..run.count {
+                assert!(
+                    read.insert(run.destination + offset, run.source + offset)
+                        .is_none()
+                );
+            }
+        }
+        let mut expected = BTreeMap::new();
+        for copy in &plan.copies {
+            for offset in 0..copy.source.end - copy.source.start {
+                expected.insert(
+                    copy.destination + offset,
+                    base(copy.key) + copy.source.start + offset,
+                );
+            }
+        }
+        assert_eq!(read, expected, "seed {seed}");
+    }
+}

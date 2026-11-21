@@ -765,6 +765,7 @@ fn scene() -> (
         material_count: 3,
         slot_materials: vec![Some(first), Some(second), None],
         property_block: Some(block),
+        slot_blocks: std::collections::BTreeMap::new(),
         render_queue: Some(2600),
         ..MeshRenderer::default()
     };

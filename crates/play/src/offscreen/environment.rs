@@ -17,7 +17,9 @@
 //!   decode is applied. The repository has no measurement of how the player decodes a probe, which
 //!   is the choice the default `(1, 1, 0, 0)` already made.
 //! * `unity_SHAr`, `unity_SHAg`, `unity_SHAb`, `unity_SHBr`, `unity_SHBg`, `unity_SHBb` and
-//!   `unity_SHC` are the ambient light as [`spherical_harmonics`] packs it.
+//!   `unity_SHC` are the ambient light as [`spherical_harmonics`] packs it. A scene's probe is
+//!   the coefficients of the polynomial the shader evaluates, so it reaches the names with no
+//!   further constant.
 //!
 //! A name the layer already holds keeps its value: the globals the world holds and the values the
 //! host supplies come first, and a global a script sets later replaces what this adds, as it does
@@ -99,14 +101,14 @@ fn band_one() -> f32 {
     (3.0 / (4.0 * std::f32::consts::PI)).sqrt()
 }
 
-/// The radiance coefficients of the ambient light of `ambient`, nine for each of red, green and
+/// The radiance coefficients of the flat and trilight modes, nine for each of red, green and
 /// blue, with the intensity applied.
 ///
-/// A probe (the skybox and custom modes) is used as it is. The flat mode is a uniform radiance of
-/// its colour. The trilight mode is the sky above, the ground below and the equator between: the
-/// radiance runs linearly from the equator colour to the sky colour over the upper hemisphere and
-/// to the ground colour over the lower one, and its band 0 and the band 1 term along the up axis
-/// are what is kept; the bands above are left out.
+/// The flat mode is a uniform radiance of its colour. The trilight mode is the sky above, the
+/// ground below and the equator between: the radiance runs linearly from the equator colour to
+/// the sky colour over the upper hemisphere and to the ground colour over the lower one, and its
+/// band 0 and the band 1 term along the up axis are what is kept; the bands above are left out.
+/// A probe is not radiance and has no coefficients here (see [`coefficients`]).
 fn radiance(ambient: &Ambient) -> [f32; PROBE_COEFFICIENTS] {
     let mut coefficients = [0.0; PROBE_COEFFICIENTS];
     let tau = 2.0 * std::f32::consts::PI;
@@ -115,63 +117,97 @@ fn radiance(ambient: &Ambient) -> [f32; PROBE_COEFFICIENTS] {
         let [sky, equator, ground, flat] =
             [ambient.sky, ambient.equator, ambient.ground, ambient.flat].map(|rgb| rgb[channel]);
         match ambient.mode {
-            AmbientMode::Skybox | AmbientMode::Custom => {
-                own.copy_from_slice(&ambient.probe[channel * 9..channel * 9 + 9]);
-            }
             AmbientMode::Flat => own[0] = flat / band_zero(),
             AmbientMode::Trilight => {
                 own[0] = tau * band_zero() * (equator + f32::midpoint(sky, ground));
                 own[1] = tau * band_one() * (sky - ground) / 3.0;
             }
+            AmbientMode::Skybox | AmbientMode::Custom => {}
         }
     }
-    coefficients.map(|coefficient| coefficient * ambient.intensity)
+    coefficients
+}
+
+/// The coefficients of the nine terms of one channel that radiance coefficients `l` give: each
+/// radiance coefficient times the constant of its basis function and the weight of the cosine
+/// lobe of its band (1, 2/3 and 1/4), the form in which a scene stores its probe.
+///
+/// The constants are the textbook ones of the real spherical harmonics: `y`, `z` and `x` of band
+/// 1 share one, `x * y`, `y * z` and `x * z` share another, and `3 * z * z - 1` and `x * x - y *
+/// y` have their own.
+fn irradiance(l: &[f32]) -> [f32; 9] {
+    let pi = std::f32::consts::PI;
+    let (lobe_one, lobe_two) = (2.0 / 3.0, 0.25);
+    let cross = 0.5 * (15.0 / pi).sqrt();
+    let axial = 0.25 * (5.0 / pi).sqrt();
+    let difference = 0.25 * (15.0 / pi).sqrt();
+    let weights = [
+        band_zero(),
+        lobe_one * band_one(),
+        lobe_one * band_one(),
+        lobe_one * band_one(),
+        lobe_two * cross,
+        lobe_two * cross,
+        lobe_two * axial,
+        lobe_two * cross,
+        lobe_two * difference,
+    ];
+    std::array::from_fn(|term| weights[term] * l[term])
+}
+
+/// The nine coefficients of each of red, green and blue of the polynomial the shader evaluates
+/// for the ambient light of `ambient`, in the order `1`, `y`, `z`, `x`, `x * y`, `y * z`,
+/// `3 * z * z - 1`, `x * z`, `x * x - y * y`, with the intensity applied.
+///
+/// A probe (the skybox and custom modes) is the scene's own: it is stored in this form already.
+/// The flat and trilight modes are radiance, which [`irradiance`] brings to it.
+fn coefficients(ambient: &Ambient) -> [f32; PROBE_COEFFICIENTS] {
+    let mut coefficients = match ambient.mode {
+        AmbientMode::Skybox | AmbientMode::Custom => ambient.probe,
+        AmbientMode::Flat | AmbientMode::Trilight => {
+            let radiance = radiance(ambient);
+            let mut lit = [0.0; PROBE_COEFFICIENTS];
+            for channel in 0..3 {
+                let own = irradiance(&radiance[channel * 9..channel * 9 + 9]);
+                lit[channel * 9..channel * 9 + 9].copy_from_slice(&own);
+            }
+            lit
+        }
+    };
+    for coefficient in &mut coefficients {
+        *coefficient *= ambient.intensity;
+    }
+    coefficients
 }
 
 /// The ambient light of `ambient` as the seven vectors a shader reads, in the packing the
 /// default ambient uses: the fourth component of `unity_SHA*` is the constant term.
 ///
-/// For a surface that faces `n = (x, y, z)` a shader adds `dot(unity_SHA*.xyz, n) +
-/// unity_SHA*.w`, then `dot(unity_SHB*, (x * y, y * z, z * z, z * x))`, then
-/// `unity_SHC[channel] * (x * x - y * y)`. With radiance coefficients `L` in the real spherical
-/// harmonics `(Y00, Y1-1, Y10, Y11, Y2-2, Y2-1, Y20, Y21, Y22)`, ordered `y, z, x` in band 1
-/// and with no sign on `x`, the irradiance over pi of that surface is the sum of every band's
-/// cosine lobe (1, 2/3, 1/4) times its terms. Expanding the sum in the monomials gives:
+/// A surface that faces `n = (x, y, z)` reads `dot(unity_SHA*, (x, y, z, 1))` plus
+/// `dot(unity_SHB*, (x * y, y * z, z * z, z * x))` plus `unity_SHC[channel] * (x * x - y * y)`
+/// (the evaluation of the player's own shaders, with no scale between the values and the sum).
+/// With the nine coefficients `s` of a channel (see [`coefficients`]) that reads
+/// `s0 + s1 * y + s2 * z + s3 * x + s4 * x * y + s5 * y * z + s6 * (3 * z * z - 1) + s7 * x * z +
+/// s8 * (x * x - y * y)`, and collecting the monomials gives:
 ///
-/// * `A.x, A.y, A.z = 2/3 * Y1 * (L11, L1-1, L10)`
-/// * `A.w = Y00 * L00 - 1/4 * Y20 * L20`
-/// * `B = 1/4 * (Y2xy * L2-2, Y2xy * L2-1, 3 * Y20 * L20, Y2xy * L21)`
-/// * `C = 1/4 * Y22 * L22`
+/// * `A.x, A.y, A.z = s3, s1, s2`
+/// * `A.w = s0 - s6`
+/// * `B = (s4, s5, 3 * s6, s7)`
+/// * `C = s8`
 ///
-/// where `Y2xy` is the basis constant of the `x * y`, `y * z` and `z * x` terms. The repository
-/// has no measurement of the sign or order convention of the player's own probes; this is the
-/// conventional real basis, so a probe with the opposite sign on band 1 is lit from the other
-/// side.
+/// The stored probe of the player's scenes is in that form: its coefficients are those of the
+/// real spherical harmonics of the irradiance over pi, ordered `1, y, z, x, ...` with every sign
+/// positive, so `y`, `z` and `x` of the scene are the same axes the shader reads. See the tests
+/// of `environment_probe` for the measurement.
 #[must_use]
 pub fn spherical_harmonics(ambient: &Ambient) -> PackedHarmonics {
-    let pi = std::f32::consts::PI;
-    let (band_one_lobe, band_two_lobe) = (2.0 / 3.0, 0.25);
-    let cross = 0.5 * (15.0 / pi).sqrt();
-    let axial = 0.25 * (5.0 / pi).sqrt();
-    let difference = 0.25 * (15.0 / pi).sqrt();
-    let radiance = radiance(ambient);
+    let coefficients = coefficients(ambient);
     let mut packed = [[0.0; 4]; 7];
     for channel in 0..3 {
-        let l = &radiance[channel * 9..channel * 9 + 9];
-        let linear = band_one_lobe * band_one();
-        packed[channel] = [
-            linear * l[3],
-            linear * l[1],
-            linear * l[2],
-            band_zero() * l[0] - band_two_lobe * axial * l[6],
-        ];
-        packed[3 + channel] = [
-            band_two_lobe * cross * l[4],
-            band_two_lobe * cross * l[5],
-            3.0 * band_two_lobe * axial * l[6],
-            band_two_lobe * cross * l[7],
-        ];
-        packed[6][channel] = band_two_lobe * difference * l[8];
+        let s = &coefficients[channel * 9..channel * 9 + 9];
+        packed[channel] = [s[3], s[1], s[2], s[0] - s[6]];
+        packed[3 + channel] = [s[4], s[5], 3.0 * s[6], s[7]];
+        packed[6][channel] = s[8];
     }
     packed
 }

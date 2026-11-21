@@ -19,8 +19,11 @@ use crate::textures::{PlayerTextureError, player_rgba8};
 /// RGBA32, ARGB32 and BGRA32.
 const ARRAY_FORMATS: [u32; 5] = [1, 3, 4, 5, 14];
 /// The `GraphicsFormat` of the terrain atlases' normal, metallic and roughness maps. It has no
-/// `TextureFormat` and stores four bytes a texel; it goes to the device as the sRGB RGBA8 whose
-/// layout those bytes have.
+/// `TextureFormat` and stores four bytes a texel, blue first: byte 0 is blue, byte 1 green and
+/// byte 2 red, and the alpha byte is 0 in Old World's atlases. Bytes 1 and 2 sit near 187, the
+/// sRGB encoding of 0.5, which is where a normal's x and y are neutral. It goes to the device as
+/// sRGB RGBA8 with bytes 0 and 2 exchanged, by [`red_first`], on every path that uploads it: 2D
+/// arrays, cubes and volumes. A plain 2D texture has no `TextureFormat` for it and is refused.
 pub(super) const FOUR_BYTE_ARRAY: u32 = 87;
 /// The `GraphicsFormat` of a four-byte data volume, such as a noise volume. It has no
 /// `TextureFormat` and stores four bytes a texel. It goes to the device as the RGBA8 whose layout
@@ -38,6 +41,8 @@ struct Verbatim {
     bytes: usize,
     /// The name of the format, for the refusal.
     name: &'static str,
+    /// Whether a texel stores blue, green, red, alpha and goes up as red, green, blue, alpha.
+    blue_first: bool,
 }
 
 impl Verbatim {
@@ -53,21 +58,23 @@ impl Verbatim {
                 side: BLOCK_SIDE,
                 bytes: 16,
                 name: "BC6H",
+                blue_first: false,
             });
         }
         let by_graphics_format = match stored.graphics_format {
-            FOUR_BYTE_ARRAY => Some((RGBA8_SRGB, 1, 4, "GraphicsFormat 87")),
-            FOUR_BYTE_DATA => Some((four_byte_data(stored), 1, 4, "GraphicsFormat 88")),
-            format @ (DXT1_SRGB | DXT1_LINEAR) => Some((format, BLOCK_SIDE, 8, "DXT1")),
-            format @ (DXT5_SRGB | DXT5_LINEAR) => Some((format, BLOCK_SIDE, 16, "DXT5")),
+            FOUR_BYTE_ARRAY => Some((RGBA8_SRGB, 1, 4, "GraphicsFormat 87", true)),
+            FOUR_BYTE_DATA => Some((four_byte_data(stored), 1, 4, "GraphicsFormat 88", false)),
+            format @ (DXT1_SRGB | DXT1_LINEAR) => Some((format, BLOCK_SIDE, 8, "DXT1", false)),
+            format @ (DXT5_SRGB | DXT5_LINEAR) => Some((format, BLOCK_SIDE, 16, "DXT5", false)),
             _ => None,
         };
-        if let Some((graphics_format, side, bytes, name)) = by_graphics_format {
+        if let Some((graphics_format, side, bytes, name, blue_first)) = by_graphics_format {
             return Some(Self {
                 graphics_format,
                 side,
                 bytes,
                 name,
+                blue_first,
             });
         }
         let (graphics_format, bytes, name) = block_upload(stored)?;
@@ -76,6 +83,7 @@ impl Verbatim {
             side: BLOCK_SIDE,
             bytes,
             name,
+            blue_first: false,
         })
     }
 
@@ -149,7 +157,8 @@ const CUBE_FACES: u32 = 6;
 /// faces of a cube in the order +X, -X, +Y, -Y, +Z, -Z) of one length, each holding the `mips`
 /// levels of a 2D texture one after the other, base level first, as the engine stores them. DXT1
 /// and DXT5 layers go up as the blocks they are, and only to a device that samples blocks, as
-/// layers are not decoded; the four-byte `GraphicsFormat` 87 goes up as the texels it holds.
+/// layers are not decoded; the four-byte `GraphicsFormat` 87 goes up as the texels it holds, with
+/// its blue and red bytes exchanged.
 /// Alpha8, RGB24 and RGBA32 levels are read as RGBA8 as a plain texture is. Every way leaves the
 /// layers and levels in the order the engine stored them.
 pub(super) fn layers_of(
@@ -251,7 +260,20 @@ fn verbatim_layers(
             actual,
         });
     }
+    if layout.blue_first {
+        return Ok(red_first(&stored.bytes));
+    }
     Ok(stored.bytes.clone())
+}
+
+/// Four-byte texels stored blue, green, red, alpha ([`FOUR_BYTE_ARRAY`]) as red, green, blue,
+/// alpha, the order the device's RGBA8 has. Every array, cube and volume that uploads 87 goes
+/// through it.
+pub(super) fn red_first(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .chunks_exact(4)
+        .flat_map(|texel| [texel[2], texel[1], texel[0], texel[3]])
+        .collect()
 }
 
 /// Every layer of `stored` as RGBA8 texels, each layer's levels one after the other.

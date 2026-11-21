@@ -246,6 +246,22 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
     layer_with_defaults(properties, textures, &[], None)
 }
 
+/// The layers of a renderer's slot blocks, by slot index. A block of a slot at or past `slots`, the
+/// number of slots the renderer draws, is left out, as no draw reads its textures.
+pub fn slot_layers(
+    blocks: &BTreeMap<u32, ShaderProperties>,
+    slots: usize,
+    textures: &mut Textures<'_>,
+) -> BTreeMap<usize, PropertyLayer> {
+    blocks
+        .iter()
+        .filter_map(|(slot, block)| {
+            let slot = usize::try_from(*slot).ok().filter(|slot| *slot < slots)?;
+            Some((slot, layer(block, textures)))
+        })
+        .collect()
+}
+
 /// Binds each of a material's `bindings` (property name, buffer) that `uploaded` holds to its
 /// name in `layer`. A buffer the host does not hold, as one destroyed after it was bound, is left
 /// unbound, so a draw that reads it is left out and counted by the name.

@@ -400,7 +400,7 @@ pub(super) fn effects_with(ssao: Option<worldrunner_render_plan::SceneSsao>) -> 
 }
 
 /// The stock quad scene under a sun, which the shadowed scene fits cascades to.
-fn lit_scene() -> RenderScene {
+pub(super) fn lit_scene() -> RenderScene {
     let source = quad_scene();
     source
         .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects()))

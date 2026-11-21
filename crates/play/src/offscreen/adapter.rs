@@ -539,6 +539,14 @@ pub fn build(
             .map(|entry| entry.draws)
             .sum(),
     );
+    adapted.report.count_many(
+        "draw:FeedbackLoop",
+        operations
+            .feedback_loop_draws()
+            .iter()
+            .map(|entry| entry.draws)
+            .sum(),
+    );
     adapted.report.absorb_draws(&operations);
     Ok(operations)
 }

@@ -10,6 +10,9 @@ use worldrunner_unity_serialized::{classes::MonoScript, object::PPtr};
 
 use crate::{PlayerError, player_objects::OpenFile};
 
+/// The directory of a player's data directory that holds the engine's built-in resource files.
+const BUILT_IN_DIR: &str = "Resources";
+
 /// A script class as a `MonoScript` names it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScriptClass {
@@ -124,6 +127,19 @@ impl PlayerFiles {
         if matches!(name.as_str(), "" | "." | "..") || name.contains(':') {
             return Err(unresolved());
         }
-        Ok(self.data_dir.join(name))
+        Ok(self.external_path(&name))
+    }
+
+    /// Where the external file `name` lives: beside the player's serialized files, or in the
+    /// `Resources` directory, where a player keeps the engine's built-in resource files that
+    /// references name as `Resources/unity_builtin_extra` and `Library/unity default resources`.
+    /// A name found in neither stays beside the other files, where opening it reports the miss.
+    fn external_path(&self, name: &str) -> PathBuf {
+        let beside = self.data_dir.join(name);
+        if beside.is_file() {
+            return beside;
+        }
+        let built_in = self.data_dir.join(BUILT_IN_DIR).join(name);
+        if built_in.is_file() { built_in } else { beside }
     }
 }

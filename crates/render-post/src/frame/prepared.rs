@@ -239,7 +239,7 @@ impl PrepareContext<'_> {
     /// texture none of the frame's views show is the commands' owner's own and is not compared; a
     /// write of a subresource of a frame texture that no view shows is named as the frame names
     /// that texture's views, with the written mip and layer.
-    fn check_writes(
+    pub(super) fn check_writes(
         &self,
         label: &'static str,
         declared: &[ResourceRef],
@@ -321,8 +321,9 @@ impl PrepareContext<'_> {
         self.open_preparation();
     }
 
-    /// Closes the features' preparation: every write the plan declared prepared was staged, and
-    /// the capture the frame belongs to, if any, owns each allocation they write.
+    /// Closes the features' preparation: every write the plan declared prepared, and every write
+    /// of a compute pass the frame records, was staged, and the capture the frame belongs to, if
+    /// any, owns each allocation the preparation writes.
     ///
     /// # Errors
     /// [`FrameError::UnstagedWrite`] for a planned write no preparation staged, and the capture's
@@ -338,6 +339,7 @@ impl PrepareContext<'_> {
         {
             return Err(FrameError::UnstagedWrite(view.resource()));
         }
+        self.close_compute_passes()?;
         raster.validate_prepared_writes(self.encoder)?;
         Ok(())
     }

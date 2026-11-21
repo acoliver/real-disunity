@@ -15,7 +15,7 @@ use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedGeometry, ImportedResource, ImportedTexture,
-    PreparedProgramDraw, ProgramRuntime,
+    PreparedProgramDraw, ProgramRuntime, whole_range,
 };
 use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
@@ -128,6 +128,7 @@ impl SamplerFeature {
                     reason: "the frame lends no occlusion".to_owned(),
                 })?;
         Ok(ImportedTexture {
+            range: whole_range(&occlusion.texture),
             texture: occlusion.texture,
             view: occlusion.view,
             dimension: wgpu::TextureViewDimension::D2,

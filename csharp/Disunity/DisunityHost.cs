@@ -110,6 +110,16 @@ public static partial class DisunityHost
         Drain(work);
     }
 
+    /// <summary>Runs only the cleanup messages that destruction queued, with no per-frame message and no clock change.</summary>
+    private static unsafe void AdvanceTeardown()
+    {
+        EnsureWorld();
+        SubmitPending();
+        DisunityAdvance work;
+        ThrowIfError(NativeBindings.disunity_world_advance_teardown(WorldHandle, &work));
+        Drain(work);
+    }
+
     public static unsafe void Dispatch(ulong identity, uint message)
     {
         Exception? failure = null;
@@ -212,15 +222,16 @@ public static partial class DisunityHost
         try
         {
             // The loaded scenes' objects go first and the DontDestroyOnLoad objects after them, the engine's choice, so a
-            // scene object's OnDestroy still finds the persistent objects it registered with.
+            // scene object's OnDestroy still finds the persistent objects it registered with. A quitting player runs no
+            // further Update, so each advance here runs only the cleanup messages.
             foreach (var root in sceneRoots) root.Destroy();
-            if (!_faulted && sceneRoots.Length != 0) Advance(0);
+            if (!_faulted && sceneRoots.Length != 0) AdvanceTeardown();
             // Objects created by final callbacks are retired by another native cleanup advance.
             while (!_faulted && (Tracked.Any(o => !o.IsDestroyed) || Assets.Count != 0))
             {
                 foreach (var asset in Assets.Values.ToArray()) UnityEngine.Object.Destroy(asset);
                 foreach (var value in Tracked.ToArray()) value.Destroy();
-                Advance(0);
+                AdvanceTeardown();
             }
         }
         finally

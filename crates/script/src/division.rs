@@ -1,4 +1,6 @@
-//! The division function behind [`DivisionSemantics::IntegerTruncating`](crate::config::DivisionSemantics).
+//! The division of a game's scripts: two integers divide as integers, as in the original engine's
+//! Lua build. Two integers give the quotient truncated toward zero, a zero integer divisor raises
+//! a Lua error, and any other operands divide as in stock Lua.
 //!
 //! `lua-resume` prints each binary `/` of a loaded chunk as a call of [`DIVIDE_HOOK`]. The
 //! function never yields, so a coroutine is never suspended inside it and a save never meets

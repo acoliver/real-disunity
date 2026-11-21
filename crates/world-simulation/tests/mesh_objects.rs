@@ -123,6 +123,21 @@ fn a_disabled_renderer_or_one_forced_off_is_left_out_and_the_others_stay() {
 }
 
 #[test]
+fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
+    let mut world = new_world();
+    let mut kept = Vec::new();
+    for mode in [0, 1, 2, 3] {
+        let mut renderer = renderer(vec![drawn(1.0, 0)]);
+        renderer.shadow_casting_mode = mode;
+        let object = add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
+        if mode != 3 {
+            kept.push(object);
+        }
+    }
+    assert_eq!(listed(&world), kept);
+}
+
+#[test]
 fn skinned_and_particle_renderers_are_left_out() {
     let mut world = new_world();
     for kind in [RendererKind::Skinned, RendererKind::Particle] {

@@ -1,6 +1,8 @@
 //! Scheduler threads saved while suspended inside `pcall` and `xpcall` (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -36,14 +38,17 @@ end
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts.run("game", "game.lua", GAME.as_bytes()).unwrap();
@@ -82,7 +87,11 @@ fn a_thread_suspended_in_pcall_catches_the_error_after_restore() {
         saved.eval_json("game", "return #Log").unwrap(),
         serde_json::json!(0)
     );
-    let snapshot = round_trip(&saved.save(&[], &PERMANENTS).unwrap());
+    let snapshot = round_trip(
+        &saved
+            .save(&[], &PERMANENTS, &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut restored = game();
     restored.restore(&snapshot, &PERMANENTS).unwrap();
@@ -103,7 +112,11 @@ fn a_thread_suspended_in_xpcall_runs_the_handler_after_restore() {
         )
         .unwrap();
     saved.advance(20).unwrap();
-    let snapshot = round_trip(&saved.save(&[], &PERMANENTS).unwrap());
+    let snapshot = round_trip(
+        &saved
+            .save(&[], &PERMANENTS, &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut restored = game();
     restored.restore(&snapshot, &PERMANENTS).unwrap();
@@ -121,12 +134,20 @@ fn a_restored_pcall_thread_can_be_saved_again() {
         .run("game", "start.lua", b"CreateGameTimeThread(Worker, 'a')")
         .unwrap();
     first.advance(20).unwrap();
-    let snapshot = round_trip(&first.save(&[], &PERMANENTS).unwrap());
+    let snapshot = round_trip(
+        &first
+            .save(&[], &PERMANENTS, &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut second = game();
     second.restore(&snapshot, &PERMANENTS).unwrap();
     second.advance(10).unwrap();
-    let again = round_trip(&second.save(&[], &PERMANENTS).unwrap());
+    let again = round_trip(
+        &second
+            .save(&[], &PERMANENTS, &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut third = game();
     third.restore(&again, &PERMANENTS).unwrap();

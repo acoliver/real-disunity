@@ -53,12 +53,13 @@ pub use game::{
     FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
     FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
     FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
-    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
-    GamePasses, GameReadback, GameResourceError, GameResources, GameSampler, GameTargets,
-    GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape, LevelAccess, OcclusionDepth,
-    PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads,
-    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
-    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
+    GameBufferDeclaration, GameBufferUsage, GameBuild, GameComputeSpec, GameFeatureFactory,
+    GameLevel, GamePassSpec, GamePasses, GameReadback, GameResourceError, GameResources,
+    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
+    LevelAccess, OcclusionDepth, PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade,
+    SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration, TargetExtent,
+    TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
+    prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;

@@ -5,6 +5,7 @@ use super::extraction::{selected_camera, view_basis};
 use crate::graphics::{
     BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MaterialId, ShaderProperties, TextureRef,
 };
+use crate::shadows::SHADOWS_ONLY;
 use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, RendererKind, World, WorldError};
 
 /// One mesh renderer a frame shows.
@@ -38,8 +39,9 @@ pub struct MeshObject {
 /// Lists, in component order, every enabled mesh renderer on an active object whose mesh filter
 /// names a mesh the host has contents for and whose layer the presented camera's culling mask
 /// admits (every layer when no camera is presented). A renderer with `force_rendering_off` is
-/// left out, and so is every renderer that is not a plain mesh renderer: skinned and particle
-/// renderers draw from data a mesh filter does not hold.
+/// left out, and so is one whose shadow casting mode is `ShadowsOnly`, which draws nothing
+/// visible, and every renderer that is not a plain mesh renderer: skinned and particle renderers
+/// draw from data a mesh filter does not hold.
 pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError> {
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
     let mut meshes: HashMap<ObjectHandle, u64> = HashMap::new();
@@ -58,7 +60,8 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
         };
         let shown = renderer.kind == RendererKind::Mesh
             && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off;
+            && !renderer.switches.force_rendering_off
+            && renderer.shadow_casting_mode != SHADOWS_ONLY;
         let Some(mesh) = meshes.get(&component.object).copied().filter(|_| shown) else {
             continue;
         };

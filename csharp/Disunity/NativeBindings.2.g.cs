@@ -10,6 +10,8 @@ namespace Disunity.Native
 {
     internal static unsafe partial class NativeBindings
     {
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
         /// <summary>
         ///  # Safety
         ///  `output` is writable for one identity, or zero when the queue is empty.

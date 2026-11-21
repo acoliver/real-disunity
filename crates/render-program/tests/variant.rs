@@ -184,3 +184,22 @@ fn a_keyword_set_with_no_group_to_default_stays_a_named_error() {
     let variants = [(vec![1], 'a'), (vec![1, 2], 'b')];
     assert!(select_variant(&variants, |v| &v.0, &[1, 2], &set(&[2])).is_err());
 }
+
+#[test]
+fn each_group_is_completed_on_its_own() {
+    // Groups {1, 2} and {3, 4}: every variant has one of each.
+    let variants = [
+        (vec![2, 4], 'a'),
+        (vec![2, 3], 'b'),
+        (vec![1, 4], 'c'),
+        (vec![1, 3], 'd'),
+    ];
+    let pick = |enabled: &[u16]| {
+        select_variant(&variants, |v| &v.0, &[1, 2, 3, 4], &set(enabled))
+            .unwrap()
+            .1
+    };
+    assert_eq!(pick(&[]), 'd');
+    assert_eq!(pick(&[2]), 'b');
+    assert_eq!(pick(&[4]), 'c');
+}

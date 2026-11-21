@@ -16,11 +16,36 @@ pub enum VariantError {
 /// The variant whose keyword set equals the enabled keywords the stage declares. A keyword the
 /// stage does not declare is ignored.
 ///
+/// When no variant has that set, the enabled keywords are completed with the default of each
+/// required group (see [`group_defaults`]) and matched once more. The completed set is only
+/// tried after the exact one fails, so a set that has a variant never changes.
+///
 /// # Errors
-/// Fails when no variant has exactly that keyword set.
+/// Fails when no variant has exactly that keyword set, completed or not. The error names the
+/// enabled keywords as they were passed.
 pub fn select_variant<'a, V>(
     variants: &'a [V],
     keywords: impl Fn(&V) -> &[u16],
+    declared: &[u16],
+    enabled: &BTreeSet<u16>,
+) -> Result<&'a V, VariantError> {
+    let error = match select_exact(variants, &keywords, declared, enabled) {
+        Ok(variant) => return Ok(variant),
+        Err(error) => error,
+    };
+    let sets: Vec<&[u16]> = variants.iter().map(&keywords).collect();
+    let defaults = group_defaults(&sets, enabled);
+    if defaults.is_empty() {
+        return Err(error);
+    }
+    let completed: BTreeSet<u16> = enabled.union(&defaults).copied().collect();
+    select_exact(variants, &keywords, declared, &completed).map_err(|_| error)
+}
+
+/// The variant whose keyword set equals the enabled keywords the stage declares.
+fn select_exact<'a, V>(
+    variants: &'a [V],
+    keywords: &impl Fn(&V) -> &[u16],
     declared: &[u16],
     enabled: &BTreeSet<u16>,
 ) -> Result<&'a V, VariantError> {
@@ -42,6 +67,50 @@ pub fn select_variant<'a, V>(
             .collect(),
         available: variants.len(),
     })
+}
+
+/// The first keyword of each required group that none of the `enabled` keywords belongs to.
+///
+/// A required group is two or more keywords that never occur together and of which every
+/// variant has exactly one, such as `_MAIN_LIGHT_SHADOWS` and `_MAIN_LIGHT_SHADOWS_CASCADE` in
+/// Old World's terrain passes. No variant lacks them, so a draw that enables none of the group
+/// has no exact variant. The player then takes the group's first keyword, the one with the
+/// lowest index (declaration order). The variant lists agree: in each pass of that player that
+/// has such a group and 128 or more variants, the last variant of the list holds the first
+/// keyword of each group and no other keyword. A keyword that every variant carries is a group
+/// of one and a choice nobody makes, so it gets no default, and a group some variant lacks has
+/// an off state of its own.
+fn group_defaults(sets: &[&[u16]], enabled: &BTreeSet<u16>) -> BTreeSet<u16> {
+    let Some(first) = sets.first() else {
+        return BTreeSet::new();
+    };
+    let declared: BTreeSet<u16> = sets.iter().flat_map(|set| set.iter().copied()).collect();
+    first
+        .iter()
+        .filter_map(|&keyword| required_group(sets, &declared, keyword))
+        .filter(|group| group.is_disjoint(enabled))
+        .filter_map(|group| group.first().copied())
+        .collect()
+}
+
+/// The required group `keyword` belongs to: `keyword` and every keyword that no variant has
+/// together with it, when each variant has exactly one of them.
+fn required_group(
+    sets: &[&[u16]],
+    declared: &BTreeSet<u16>,
+    keyword: u16,
+) -> Option<BTreeSet<u16>> {
+    let together: BTreeSet<u16> = sets
+        .iter()
+        .filter(|set| set.contains(&keyword))
+        .flat_map(|set| set.iter().copied())
+        .collect();
+    let mut group: BTreeSet<u16> = declared.difference(&together).copied().collect();
+    group.insert(keyword);
+    let one_each = sets
+        .iter()
+        .all(|set| set.iter().filter(|member| group.contains(member)).count() == 1);
+    (group.len() > 1 && one_each).then_some(group)
 }
 
 /// A keyword index as the feature it stands for.

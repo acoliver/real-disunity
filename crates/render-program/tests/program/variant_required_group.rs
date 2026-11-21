@@ -16,7 +16,9 @@ const SHADOWS: &str = "MAIN_SHADOWS";
 const CASCADE: &str = "MAIN_SHADOWS_CASCADE";
 const TEAM: &str = "TEAM_COLOR";
 const SOFT: &str = "SOFT_SHADOWS";
-const KEYWORDS: [&str; 5] = [STEREO, SHADOWS, CASCADE, TEAM, SOFT];
+const FOG_LINEAR: &str = "FOG_LINEAR";
+const FOG_EXP: &str = "FOG_EXP";
+const KEYWORDS: [&str; 7] = [STEREO, SHADOWS, CASCADE, TEAM, SOFT, FOG_LINEAR, FOG_EXP];
 
 /// Every combination of one shadow keyword, the team colour and soft shadows, in the order of
 /// the player's list: the last keyword of the group first, the all-default variant last.
@@ -116,12 +118,62 @@ fn a_keyword_every_variant_carries_is_not_a_choice_and_gets_no_default() {
 
 #[test]
 fn an_optional_group_gets_no_default_when_a_variant_has_none_of_it() {
+    // The variant `{TEAM}` has neither shadow keyword, so the shadow keywords are a choice with
+    // an off state, and no set without a variant is completed into `{SHADOWS}`.
     let mut shader = program_shader(vec![
-        tint_variant(&[], "fs_main"),
+        tint_variant(&[SHADOWS, TEAM], "fs_main"),
         tint_variant(&[SHADOWS], "fs_main"),
         tint_variant(&[CASCADE], "fs_main"),
+        tint_variant(&[TEAM], "fs_main"),
     ]);
-    let none = blob(&mut shader, &[]).unwrap();
-    assert_ne!(none, blob(&mut shader, &[SHADOWS]).unwrap());
-    assert!(blob(&mut shader, &[SHADOWS, CASCADE]).is_err());
+    let error = blob(&mut shader, &[]).unwrap_err();
+    assert!(
+        matches!(error, ResolveError::NoVariant { pass: 0, .. }),
+        "{error}"
+    );
+    assert!(blob(&mut shader, &[TEAM]).is_ok());
+    assert!(blob(&mut shader, &[SHADOWS]).is_ok());
+}
+
+#[test]
+fn keywords_that_a_variant_has_together_are_not_alternatives() {
+    // `TEAM` and `SOFT` occur together, so no keyword of this pass is a choice among the others
+    // and `{}` is not completed into the variant `{SHADOWS}`.
+    let mut shader = program_shader(vec![
+        tint_variant(&[SHADOWS], "fs_main"),
+        tint_variant(&[CASCADE], "fs_main"),
+        tint_variant(&[TEAM, SOFT], "fs_main"),
+    ]);
+    let error = blob(&mut shader, &[]).unwrap_err();
+    assert!(
+        matches!(error, ResolveError::NoVariant { pass: 0, .. }),
+        "{error}"
+    );
+    assert!(blob(&mut shader, &[TEAM, SOFT]).is_ok());
+}
+
+/// Two required groups, the shadow keywords and the fog keywords, and nothing else.
+fn two_groups() -> Vec<VariantSpec> {
+    let mut variants = Vec::new();
+    for fog in [FOG_EXP, FOG_LINEAR] {
+        for shadow in [CASCADE, SHADOWS] {
+            variants.push(tint_variant(&[shadow, fog], "fs_main"));
+        }
+    }
+    variants
+}
+
+#[test]
+fn each_required_group_is_completed_on_its_own() {
+    let mut shader = program_shader(two_groups());
+    let defaults = blob(&mut shader, &[]).unwrap();
+    assert_eq!(defaults, blob(&mut shader, &[SHADOWS, FOG_LINEAR]).unwrap());
+    // A group the draw has a member of keeps it while the other group takes its default.
+    let cascade = blob(&mut shader, &[CASCADE]).unwrap();
+    assert_eq!(cascade, blob(&mut shader, &[CASCADE, FOG_LINEAR]).unwrap());
+    let fog = blob(&mut shader, &[FOG_EXP]).unwrap();
+    assert_eq!(fog, blob(&mut shader, &[SHADOWS, FOG_EXP]).unwrap());
+    assert_ne!(defaults, cascade);
+    assert_ne!(defaults, fog);
+    assert_ne!(cascade, fog);
 }

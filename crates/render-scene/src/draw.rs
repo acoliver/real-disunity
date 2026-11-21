@@ -38,6 +38,8 @@ mod dynamic;
 mod lod_material;
 mod mesh_arena;
 use mesh_arena::GpuMesh;
+#[cfg(test)]
+pub(crate) use mesh_arena::with_chunk_limit;
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;

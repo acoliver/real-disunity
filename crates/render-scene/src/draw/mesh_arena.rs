@@ -66,6 +66,12 @@ impl Span {
         self.first
     }
 
+    /// Whether `other` is in the same chunk.
+    #[cfg(test)]
+    pub(super) fn shares_chunk(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.chunk, &other.chunk)
+    }
+
     /// The vertex offset a draw adds to the level's indices.
     pub(super) fn base_vertex(&self) -> i32 {
         i32::try_from(self.first).expect("a chunk holds fewer vertices than a draw can offset")
@@ -167,6 +173,10 @@ fn plan(sizes: &[u64], limit: u64) -> Plan {
 
 /// The bytes a chunk may fill before the next level starts another.
 fn chunk_limit(device: &Device) -> u64 {
+    #[cfg(test)]
+    if let Some(limit) = test_limit::get() {
+        return limit;
+    }
     CHUNK_BYTES.min(device.limits().max_buffer_size)
 }
 
@@ -303,6 +313,36 @@ fn build_chunk<'a>(
     }
     let entry = census.track(ResourceClass::Mesh, buffer.size());
     Chunk(Tracked::new(buffer, entry))
+}
+
+#[cfg(test)]
+pub(crate) use test_limit::with_chunk_limit;
+
+/// Lets a test upload with chunks of its own size, down to one level to a chunk, which is how
+/// every level was held before levels shared buffers.
+#[cfg(test)]
+mod test_limit {
+    use std::cell::Cell;
+
+    thread_local! {
+        static LIMIT: Cell<Option<u64>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn get() -> Option<u64> {
+        LIMIT.with(Cell::get)
+    }
+
+    /// Runs `body` with uploads on this thread filling chunks of at most `limit` bytes.
+    pub(crate) fn with_chunk_limit<R>(limit: u64, body: impl FnOnce() -> R) -> R {
+        struct Restore(Option<u64>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                LIMIT.with(|cell| cell.set(self.0));
+            }
+        }
+        let _restore = Restore(LIMIT.with(|cell| cell.replace(Some(limit))));
+        body()
+    }
 }
 
 #[cfg(test)]

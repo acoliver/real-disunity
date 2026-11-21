@@ -136,6 +136,42 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     println!("OBJECT-CAPTURE-SUMMARY set=casters compared={compared} skipped=0");
 }
 
+/// The cascades' depth is the same whether the levels share buffers or have buffers of their own.
+#[test]
+fn object_casters_write_the_same_depth_from_shared_and_separate_buffers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let device = context.device();
+    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let scene = scenes::scene(&prepass::specs());
+    let mut shared = Rig::moving(&context, &pipelines, &scene, false);
+    let mut separate =
+        crate::draw::with_chunk_limit(1, || Rig::moving(&context, &pipelines, &scene, false));
+    let sampling = worldrunner_render_plan::SceneShadowSampling::default();
+    let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    for rig in [&shared, &separate] {
+        rig.gpu.prepare_object_context(&live).unwrap();
+    }
+    for (index, (matrix, name, covers)) in cascades().into_iter().enumerate() {
+        let cascade = (u32::try_from(index).unwrap(), matrix);
+        let buffer = crate::upload::upload_buffer(
+            device,
+            context.queue(),
+            "capture caster frame",
+            wgpu::BufferUsages::UNIFORM,
+            &crate::shadows::light_frame(&shared.frame, matrix).to_bytes(),
+        );
+        let group = crate::draw::decals::empty_group(device, pipelines.frame_layout(), &buffer);
+        let a = capture(&mut shared, &live, (cascade, &group));
+        let b = capture(&mut separate, &live, (cascade, &group));
+        assert!(
+            a.drawn == b.drawn,
+            "caster-{name}: shared buffers wrote other depth than buffers of their own"
+        );
+        assert_eq!(a.drawn != a.untouched, covers, "caster-{name}");
+    }
+}
+
 /// A light frame looking down -Z at the ground plane the skinning ribbon lies on.
 fn ribbon_light() -> Mat4 {
     glam::camera::rh::proj::directx::orthographic(-1.5, 1.5, -1.5, 1.5, 0.5, 12.0)

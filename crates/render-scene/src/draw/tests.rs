@@ -63,6 +63,7 @@ mod mask_mip_bias;
 mod material_channels;
 mod material_factors;
 mod merged_metadata;
+mod mesh_arena;
 mod mip_bias;
 mod mip_end_to_end;
 mod mip_rig;

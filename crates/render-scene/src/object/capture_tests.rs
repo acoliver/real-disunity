@@ -32,6 +32,7 @@ use crate::frame::FrameUniform;
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 
+mod arena;
 mod casters;
 mod gather;
 mod order;

@@ -42,10 +42,15 @@ pub(crate) const TEXTURE_GLOBAL: u32 = 3;
 /// `int` in the low 32 bits. Only recorded blit and copy sources and globals set by recorded work
 /// take one; the world refuses it elsewhere.
 const TEXTURE_TEMPORARY: u32 = 4;
+/// A texture the data names that the engine did not send (a destroyed or empty texture, one the
+/// engine cannot store, one the importer did not build). The world reads it as no texture; only the
+/// host's stand-in census tells it from a null slot. It carries no identity.
+const TEXTURE_UNSENT: u32 = 5;
 
 /// A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
 /// by the identity the host knows it by (a player texture identity), 2 for a world render
-/// texture by its id and 4 for a temporary render texture by its property name id.
+/// texture by its id, 4 for a temporary render texture by its property name id and 5 for a texture
+/// that was named and not sent (`texture` must be 0).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityTextureSlot {
@@ -61,6 +66,7 @@ pub struct DisunityTextureSlot {
 pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiError> {
     match kind {
         TEXTURE_NONE if texture == 0 => Ok(TextureRef::None),
+        TEXTURE_UNSENT if texture == 0 => Ok(TextureRef::Unsent),
         TEXTURE_ASSET if texture >= FIRST_PLAYER_TEXTURE => Ok(TextureRef::Asset(texture)),
         TEXTURE_RENDER if texture != 0 => {
             Ok(TextureRef::Render(RenderTextureId::from_bits(texture)))
@@ -69,7 +75,7 @@ pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiErro
             .map(|bits| TextureRef::Temporary(bits.cast_signed()))
             .map_err(|_| "a temporary render texture's name id is a 32-bit int".into()),
         _ => Err(
-            "a texture is none (0), a player texture identity (1), a render texture (2) or a temporary render texture (4)".into(),
+            "a texture is none (0), a player texture identity (1), a render texture (2), a temporary render texture (4) or a texture named and not sent (5)".into(),
         ),
     }
 }
@@ -78,6 +84,7 @@ pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiErro
 pub(crate) fn texture_parts(texture: &TextureRef) -> (u32, u64) {
     match texture {
         TextureRef::None => (TEXTURE_NONE, 0),
+        TextureRef::Unsent => (TEXTURE_UNSENT, 0),
         TextureRef::Asset(identity) => (TEXTURE_ASSET, *identity),
         TextureRef::Render(id) => (TEXTURE_RENDER, id.to_bits()),
         TextureRef::Global(_) => (TEXTURE_GLOBAL, 0),

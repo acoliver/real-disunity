@@ -422,6 +422,7 @@ EnabledTests.Run();
 PlayerServiceTests.Run();
 PlayerCommandLineTests.Run();
 PlayerScreenTests.Run();
+PlayerProjectGraphicsTests.Run();
 PlayerDeviceTests.Run();
 
 GameApiTests.Run();
@@ -483,6 +484,7 @@ BatchRendererGroupTests.Run();
 BatchCullingTests.Run();
 RenderSettingsTests.Run();
 RenderSettingsEnvironmentTests.Run();
+SceneRenderSettingsTests.Run();
 SetupCameraTests.Run();
 ReflectionProbeTests.Run();
 GuiContentTests.Run();

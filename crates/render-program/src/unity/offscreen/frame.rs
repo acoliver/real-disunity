@@ -239,6 +239,9 @@ pub struct ListDraw {
     pub pass: PassSelector,
     /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
     pub instances: u32,
+    /// The values the list gives this draw alone, such as a light factor that depends on the
+    /// culling result the draw came from. They win over the renderer's own `per_draw` values.
+    pub per_draw: PropertyLayer,
 }
 
 /// The raster state a script set for the draws of a record, over the state their passes resolve.

@@ -26,7 +26,7 @@ use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
 use super::{SKIN_STRIDE, STRIDE};
-use crate::instances::{BatchKey, InstanceBatch, Instances};
+use crate::instances::{Ascending, BatchKey, InstanceBatch, Instances};
 use verified::Verified;
 
 mod verified;
@@ -140,13 +140,13 @@ pub(super) struct State {
 impl State {
     /// The record of what copying `batch` into its range would leave there, or `None` when the
     /// range already holds the batch's current content.
-    fn stale(&self, key: BatchKey, batch: &InstanceBatch, halves: Halves) -> Option<Held> {
+    fn stale(held: Option<&Held>, batch: &InstanceBatch, halves: Halves) -> Option<Held> {
         let wanted = Held {
             content: batch.content(),
             previous: halves.previous,
             skin: halves.skin && batch.skin.is_some(),
         };
-        let current = self.held.get(&key).is_some_and(|held| {
+        let current = held.is_some_and(|held| {
             held.content == wanted.content
                 && (held.previous || !wanted.previous)
                 && (held.skin || !wanted.skin)
@@ -288,14 +288,22 @@ impl Mirror {
             halves,
         );
         let unchecked = state.verified.missing(generation, halves, keys);
-        for &key in &unchecked {
-            let batch = &instances.batches[&key];
-            if let Some(wanted) = state.stale(key, batch, halves) {
-                // The state is shared with the committed one and with earlier publications, so
-                // the first edit of a transaction copies it.
-                let editable = Rc::make_mut(&mut state);
-                Self::refresh(context, editable, (key, batch), wanted);
-            }
+        let outdated: Vec<(BatchKey, &InstanceBatch, Held)> = {
+            let mut batches = Ascending::new(&instances.batches, unchecked.len());
+            let mut held = Ascending::new(&state.held, unchecked.len());
+            unchecked
+                .iter()
+                .filter_map(|key| {
+                    let batch = batches.get(key).expect("a selected batch exists");
+                    State::stale(held.get(key), batch, halves).map(|wanted| (*key, batch, wanted))
+                })
+                .collect()
+        };
+        for (key, batch, wanted) in outdated {
+            // The state is shared with the committed one and with earlier publications, so
+            // the first edit of a transaction copies it.
+            let editable = Rc::make_mut(&mut state);
+            Self::refresh(context, editable, (key, batch), wanted);
         }
         state.verified.remember(generation, halves, &unchecked);
         state
@@ -314,11 +322,24 @@ impl Mirror {
             (!halves.previous || buffers.previous.is_some())
                 && (!halves.skin || buffers.skin.is_some())
         });
-        let outgrown: Vec<(BatchKey, u32)> = unremembered
-            .iter()
-            .map(|&key| (key, reserved(flushed(batches, key))))
-            .filter(|&(key, records)| !state.layout.holds(key, records))
-            .collect();
+        let outgrown: Vec<(BatchKey, u32)> = {
+            let mut sources = Ascending::new(batches, unremembered.len());
+            let mut extents = Ascending::new(&state.layout.extents, unremembered.len());
+            unremembered
+                .iter()
+                .filter_map(|key| {
+                    let buffer = sources
+                        .get(key)
+                        .and_then(|batch| batch.buffer.as_deref())
+                        .expect("flushed instance buffer");
+                    let records = reserved(buffer);
+                    let holds = extents
+                        .get(key)
+                        .is_some_and(|extent| extent.reserved >= records);
+                    (!holds).then_some((*key, records))
+                })
+                .collect()
+        };
         if halves_exist && outgrown.is_empty() {
             return state;
         }

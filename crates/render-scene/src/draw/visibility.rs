@@ -400,6 +400,14 @@ pub(super) struct Selection {
 }
 
 impl Selection {
+    /// An empty selection that will hold `ranges` ranges without growing.
+    pub fn with_capacity(ranges: usize) -> Self {
+        Self {
+            ranges: Vec::with_capacity(ranges),
+            ..Self::default()
+        }
+    }
+
     fn reset(&mut self, meshes: &[MeshSelection]) {
         self.ranges.clear();
         self.stats.considered = 0;

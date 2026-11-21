@@ -3,7 +3,9 @@ use std::path::Path;
 use serde_json::json;
 use worldrunner_unity_import::{
     PlayerError,
-    player_identity::{QualityLevels, player_identity, player_quality, player_scene_paths},
+    player_identity::{
+        QualityLevels, player_identity, player_project_graphics, player_quality, player_scene_paths,
+    },
     player_resources::{ResourceAsset, ResourcesPlan, plan_player_resources},
 };
 use worldrunner_unity_serialized::{
@@ -230,9 +232,17 @@ fn plans_text_by_its_bytes_and_scripts_by_their_fields() {
 /// `PlayerSettings` bytes naming the company, product and version, with every other field
 /// zero and every collection empty.
 fn player_settings() -> Vec<u8> {
+    player_settings_in(0)
+}
+
+/// [`player_settings`] with the stored `m_ActiveColorSpace` `space`.
+fn player_settings_in(space: i32) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     for &(name, field, aligned) in FIELDS {
         match field {
+            Field::I32 if name == "m_ActiveColorSpace" => {
+                w.i32(space);
+            }
             Field::Bool => {
                 w.u8(0);
             }
@@ -329,6 +339,48 @@ fn reads_the_identity_a_player_reports() {
         ),
         ("Other Studio", "Other Demo", "", "LinuxPlayer")
     );
+}
+
+/// Writes a 6000.3 player's managers with the project color space `space` into `data`.
+fn write_managers_in(data: &Path, release: &str, space: i32) {
+    write_file(
+        data,
+        "globalgamemanagers",
+        vec![
+            object(1, ClassId::BUILD_SETTINGS, build_settings(release)),
+            object(2, ClassId::PLAYER_SETTINGS, player_settings_in(space)),
+        ],
+        &[],
+    );
+}
+
+#[test]
+fn the_plan_carries_the_project_color_space() {
+    let dir = tempfile::tempdir().unwrap();
+    for (stored, name) in [(0, "gamma"), (1, "linear")] {
+        write_managers_in(dir.path(), "6000.3.15f1", stored);
+        let graphics = player_project_graphics(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(graphics).unwrap(),
+            json!({ "color_space": name })
+        );
+    }
+}
+
+#[test]
+fn a_color_space_outside_gamma_and_linear_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    write_managers_in(dir.path(), "6000.3.15f1", 5);
+    assert!(player_project_graphics(dir.path()).is_err());
+}
+
+#[test]
+fn a_release_whose_settings_layout_is_unread_gives_no_color_space() {
+    let dir = tempfile::tempdir().unwrap();
+    write_managers_in(dir.path(), "2022.3.1f1", 1);
+    assert_eq!(player_project_graphics(dir.path()).unwrap(), None);
+    write_file(dir.path(), "globalgamemanagers", Vec::new(), &[]);
+    assert_eq!(player_project_graphics(dir.path()).unwrap(), None);
 }
 
 /// Writes a 6000.3 player's managers naming Studio's Demo into `data`.

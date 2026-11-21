@@ -29,3 +29,5 @@ mod storage_images;
 mod surface;
 
 mod texel_buffer;
+mod variant_required_group;
+mod variant_state_mask;

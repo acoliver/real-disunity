@@ -5,7 +5,9 @@ use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
-pub(super) use casters::{caster_matrix, caster_placement};
+#[cfg(test)]
+pub(super) use casters::caster_matrix;
+pub(super) use casters::{CasterScan, FitScratch, caster_placement};
 pub(super) use select::with_placements;
 
 mod casters;
@@ -400,6 +402,14 @@ pub(super) struct Selection {
 }
 
 impl Selection {
+    /// An empty selection that will hold `ranges` ranges without growing.
+    pub fn with_capacity(ranges: usize) -> Self {
+        Self {
+            ranges: Vec::with_capacity(ranges),
+            ..Self::default()
+        }
+    }
+
     fn reset(&mut self, meshes: &[MeshSelection]) {
         self.ranges.clear();
         self.stats.considered = 0;
@@ -518,6 +528,9 @@ mod scale_tests;
 
 #[cfg(test)]
 mod caster_tests;
+
+#[cfg(test)]
+mod caster_scan_tests;
 
 #[cfg(test)]
 mod cache_tests;

@@ -27,6 +27,16 @@ fn moved(x: i64) -> SceneTransform {
 
 /// Two uploaded placements whose last-colour history is published, so every batch is ready.
 fn settled(owner: &Publications) -> (Instances, InstanceHandle) {
+    fixture(owner, true)
+}
+
+/// Uploaded placements whose last-colour history is prepared but not yet published: every batch
+/// is ready, and its history still has work pending.
+fn prepared(owner: &Publications) -> (Instances, InstanceHandle) {
+    fixture(owner, false)
+}
+
+fn fixture(owner: &Publications, publish: bool) -> (Instances, InstanceHandle) {
     let scene = RenderScene::new(SceneParts {
         resources: SceneResources::new(vec![], vec![]).unwrap(),
         geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
@@ -41,10 +51,10 @@ fn settled(owner: &Publications) -> (Instances, InstanceHandle) {
     instances.add(object(), true).unwrap();
     for batch in instances.batches.values_mut() {
         batch.commit(&batch.pending_ranges());
-        batch
-            .history
-            .prepare(&batch.bytes, &batch.dirty, owner)
-            .publish();
+        let candidate = batch.history.prepare(&batch.bytes, &batch.dirty, owner);
+        if publish {
+            candidate.publish();
+        }
     }
     (instances, handle)
 }
@@ -61,10 +71,53 @@ fn an_unchanged_batch_set_is_scanned_once_for_a_transaction() {
 }
 
 #[test]
-fn no_transaction_and_another_transaction_are_checked_on_their_own() {
+fn an_idle_scene_is_scanned_once_whoever_asks() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let owner = Owner::new();
     let (instances, _) = settled(&owner);
+    assert!(instances.batches.values().all(InstanceBatch::is_idle));
+    let other = Owner::new();
+    assert!(instances.ready_for(Some(&owner)));
+    assert!(instances.ready_for(None));
+    assert!(instances.ready_for(Some(&other)));
+    assert!(instances.ready_for(Some(&owner)));
+    assert_eq!(instances.ready_scans(), 1);
+}
+
+#[test]
+fn an_edit_after_an_idle_scan_is_refused_to_every_asker() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let owner = Owner::new();
+    let other = Owner::new();
+    let (mut instances, handle) = settled(&owner);
+    assert!(instances.ready_for(Some(&other)));
+    instances.set_transform(handle, moved(250)).unwrap();
+    assert!(!instances.ready_for(Some(&owner)));
+    assert!(!instances.ready_for(Some(&other)));
+    assert!(!instances.ready_for(None));
+}
+
+#[test]
+fn work_pending_in_the_history_keeps_the_scene_from_being_idle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let owner = Owner::new();
+    let (instances, _) = prepared(&owner);
+    assert!(instances.batches.values().all(|batch| !batch.is_idle()));
+    assert!(instances.ready_for(Some(&owner)));
+    assert!(instances.ready_for(None));
+    assert!(instances.ready_for(None));
+    assert_eq!(
+        instances.ready_scans(),
+        2,
+        "each asker is checked on its own"
+    );
+}
+
+#[test]
+fn no_transaction_and_another_transaction_are_checked_on_their_own() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let owner = Owner::new();
+    let (instances, _) = prepared(&owner);
     assert!(instances.ready_for(Some(&owner)));
     assert!(instances.ready_for(None));
     assert!(instances.ready_for(None));
@@ -126,4 +179,22 @@ fn a_failed_scan_is_not_remembered() {
     assert!(!instances.ready_for(Some(&owner)));
     assert!(!instances.ready_for(Some(&owner)));
     assert_eq!(instances.ready_scans(), 2);
+}
+
+#[test]
+fn a_full_upload_encoded_by_one_transaction_leaves_the_scene_ready_for_that_transaction_only() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let owner = Owner::new();
+    let other = Owner::new();
+    let (mut instances, _) = settled(&owner);
+    // Velocity turned on with no slot dirty, so `grow` made the buffers and cleared the validity
+    // flag, and the transaction `owner` encoded the full upload.
+    for batch in instances.batches.values_mut() {
+        batch.buffer_valid.set(false);
+        batch.encoded = Some((Publications::clone(&owner), batch.edits));
+    }
+    assert!(instances.ready_for(Some(&owner)));
+    assert!(!instances.ready_for(Some(&other)));
+    assert!(!instances.ready_for(None));
+    assert!(instances.batches.values().all(|batch| !batch.is_idle()));
 }

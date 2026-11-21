@@ -49,8 +49,9 @@ mod persistent;
 mod raster;
 mod screen;
 
-/// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
-/// the material's `_Tint` and one that writes its `_Over`.
+/// A vertex stage that places its position by the draw's matrices and negates clip Y as every
+/// compiled player stage does, a fragment stage that writes the material's `_Tint` and one that
+/// writes its `_Over`.
 const WGSL: &str = "
 struct Material { tint: vec4<f32>, over: vec4<f32> }
 struct Draw { object_to_world: mat4x4<f32>, view_projection: mat4x4<f32> }
@@ -59,7 +60,9 @@ struct Draw { object_to_world: mat4x4<f32>, view_projection: mat4x4<f32> }
 struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
 @vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
     var out: VOut;
-    out.position = draw.view_projection * (draw.object_to_world * vec4<f32>(position, 1.0));
+    var clip = draw.view_projection * (draw.object_to_world * vec4<f32>(position, 1.0));
+    clip.y = -clip.y;
+    out.position = clip;
     out.uv = uv;
     return out;
 }

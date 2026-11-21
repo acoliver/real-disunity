@@ -93,7 +93,7 @@ fn affected_command(root: &Path, base: &str) -> Result<(), String> {
     let changed = capture_command(root, "git", &["diff", "--name-only", merge_base.trim()])?;
     let data = metadata::read(root, &["--locked", "--all-features"])?;
     let changed: Vec<String> = changed.lines().map(str::to_owned).collect();
-    let graph = affected::graph(&data);
+    let graph = affected::graph(&data)?;
     println!(
         "{}",
         affected::select(&changed, &graph).describe(graph.dirs.len())

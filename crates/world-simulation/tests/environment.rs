@@ -180,7 +180,7 @@ fn a_snapshot_carries_the_environment_with_the_frames_state() {
 }
 
 #[test]
-fn a_render_texture_destroyed_after_the_environment_named_it_reads_as_no_texture() {
+fn a_render_texture_destroyed_after_the_environment_named_it_reads_as_a_texture_not_sent() {
     let mut world = world();
     let texture = render_texture(&mut world, [4, 4]);
     let mut environment = lit();
@@ -189,7 +189,7 @@ fn a_render_texture_destroyed_after_the_environment_named_it_reads_as_no_texture
     world.destroy_render_texture(texture).unwrap();
     frame(&mut world);
     let held = snapshot(&mut world).environment.reflection.unwrap();
-    assert_eq!(held.custom, TextureRef::None);
+    assert_eq!(held.custom, TextureRef::Unsent);
     assert_eq!(held.skybox, TextureRef::Asset(BAKED));
 }
 

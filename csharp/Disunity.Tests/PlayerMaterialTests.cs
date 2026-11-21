@@ -41,9 +41,9 @@ internal static class PlayerMaterialTests
 
     private static JsonArray Pairs(params (string, JsonNode)[] pairs) => new(pairs.Select(p => (JsonNode)new JsonArray(p.Item1, p.Item2)).ToArray());
 
-    private static JsonObject Slot(string name, int? texture) => new()
+    private static JsonObject Slot(string name, int? texture, bool unsent = false) => new()
     {
-        ["name"] = name, ["texture"] = texture, ["scale"] = Floats(2, 3), ["offset"] = Floats(0.5f, 0.25f),
+        ["name"] = name, ["texture"] = texture, ["unsent"] = unsent, ["scale"] = Floats(2, 3), ["offset"] = Floats(0.5f, 0.25f),
     };
 
     private static JsonObject Lit(int? shader, int? texture) => new()
@@ -51,7 +51,7 @@ internal static class PlayerMaterialTests
         ["type"] = "Material", ["name"] = "Lit", ["shader"] = shader, ["render_queue"] = 3100,
         ["keywords"] = new JsonArray("_A", "_B"), ["tags"] = Pairs(("RenderType", "Opaque")), ["disabled_passes"] = new JsonArray("ShadowCaster"),
         ["floats"] = Pairs(("_Cutoff", 0.5f)), ["ints"] = Pairs(("_Mode", 2)), ["colors"] = Pairs(("_Color", Floats(1, 0.5f, 0.25f, 0.75f))),
-        ["textures"] = new JsonArray(Slot("_MainTex", texture), Slot("_Bump", null)),
+        ["textures"] = new JsonArray(Slot("_MainTex", texture), Slot("_Bump", null), Slot("_Sky", null, unsent: true)),
     };
 
     private static JsonObject Bare() => new()
@@ -135,6 +135,9 @@ internal static class PlayerMaterialTests
         var albedo = material.GetTexture("_MainTex");
         Expect.That(albedo is Texture2D { name: "Albedo" } && ReferenceEquals(albedo, Resources.Load<Texture2D>("textures/albedo")), "the texture slot holds the planned texture");
         Expect.That(material.GetTexture("_Bump") is null && material.HasTexture("_Bump"), "an empty texture slot is present and null");
+        var sky = material.GetTexture("_Sky");
+        Expect.That(sky is Texture2D { width: 0 } && WorldGraphics.TextureOf(sky) == (5u, 0UL), "a slot whose texture the plan did not build is sent as named and not sent");
+        Expect.That(WorldGraphics.TextureOf(material.GetTexture("_Bump")) == (0u, 0UL), "a slot that is null in the game's data is sent as no texture");
         Expect.That(material.GetTextureScale("_MainTex") == new Vector2(2, 3) && material.GetTextureOffset("_MainTex") == new Vector2(0.5f, 0.25f), "the slot has its scale and offset");
         Console.WriteLine("PASS: a planned material carries its name, shader, queue, keywords, tags, passes and properties");
     }

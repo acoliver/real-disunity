@@ -56,7 +56,7 @@ public static partial class DisunityHost
                 target.gameObject = objects[row.owner];
                 var identity = checked(_nextScript++);
                 ThrowIfError(NativeBindings.disunity_clone_bind(WorldHandle, root, row.target, identity));
-                Scripts.Add(identity, target);
+                BindScript(identity, target);
                 remap.Add(source, target);
                 scripts.Add((source, target));
             }
@@ -81,6 +81,7 @@ public static partial class DisunityHost
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_clone_activate(WorldHandle, root, &work));
         Drain(work);
+        RectDimensionMessages.MarkChanged();
         return (T)remap[original];
     }
 

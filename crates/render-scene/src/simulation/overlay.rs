@@ -2,6 +2,7 @@
 use crate::dynamic::{DynamicError, DynamicQuad};
 use std::collections::BTreeMap;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::graphics::RenderTextureId;
 use worldrunner_world_simulation::ui::{
     UiTexture,
     contribution::UiRenderPlan,
@@ -13,10 +14,19 @@ use worldrunner_world_simulation::ui::{
 pub struct UiOverlay {
     pub(crate) textures: Vec<SceneTexture>,
     pub(crate) quads: Vec<DynamicQuad>,
+    /// The render textures the draws read, one slot for each. A quad of a target draw names its
+    /// slot after the overlay's own textures: `textures.len() + slot`.
+    pub(crate) targets: Vec<RenderTextureId>,
 }
 impl UiOverlay {
     pub fn needs_depth(&self) -> bool {
         self.quads.iter().any(|quad| quad.depth_test)
+    }
+
+    /// The render textures the draws read. A host offers the device texture of each through
+    /// [`UiTarget`](super::UiTarget); one it does not offer draws as transparent black.
+    pub fn targets(&self) -> &[RenderTextureId] {
+        &self.targets
     }
 
     /// Builds text and untextured graphics; unresolved image identities are rejected.
@@ -57,58 +67,112 @@ impl UiOverlay {
         let mut result = Self {
             textures: vec![],
             quads: vec![],
+            targets: vec![],
         };
         let mut indices = BTreeMap::new();
+        let mut slotted = Vec::new();
         for draw in &plan.draws {
-            draw.validate().map_err(|_| DynamicError::InvalidQuad {
-                index: result.quads.len(),
-                field: "distance_field",
-            })?;
-            if let Some(style) = draw.distance_field {
-                let Some(UiTexture::Coverage(key)) = draw.texture else {
-                    unreachable!("a validated distance draw names coverage");
-                };
-                let atlas = plan.coverage.get(&key).ok_or(DynamicError::InvalidQuad {
-                    index: result.quads.len(),
-                    field: "distance atlas",
-                })?;
-                style
-                    .validate_extent(
-                        draw.corners,
-                        draw.uv_rect,
-                        glam::UVec2::new(atlas.width, atlas.height),
-                    )
-                    .map_err(|_| DynamicError::InvalidQuad {
-                        index: result.quads.len(),
-                        field: "distance field spread",
-                    })?;
-            }
-            let key = draw.texture.map(|id| (draw.kind, id));
-            let texture = match key {
-                Some(key) => Some(if let Some(&index) = indices.get(&key) {
-                    index
-                } else {
-                    let source = draw_texture(draw, plan, textures, result.quads.len())?;
-                    let index = result.textures.len();
-                    result.textures.push(source);
-                    indices.insert(key, index);
-                    index
-                }),
-                None if draw.kind == UiDrawKind::Text => {
-                    return Err(DynamicError::InvalidQuad {
-                        index: result.quads.len(),
-                        field: "glyph coverage texture",
-                    });
-                }
-                None => None,
+            let index = result.quads.len();
+            check_distance(draw, plan, index)?;
+            let quad = if let Some(UiTexture::Target(id)) = draw.texture {
+                slotted.push((index, result.slot(id)));
+                flipped(dynamic_quad(draw, None))
+            } else {
+                let texture = result.texture_index(draw, (plan, textures), &mut indices)?;
+                dynamic_quad(draw, texture)
             };
-            result.quads.push(dynamic_quad(draw, texture));
+            result.quads.push(quad);
+        }
+        let first_slot = result.textures.len();
+        for (index, slot) in slotted {
+            result.quads[index].texture = Some(first_slot + slot);
         }
         for (index, quad) in result.quads.iter().enumerate() {
-            crate::dynamic::validation::validate_quad(quad, index, result.textures.len())?;
+            crate::dynamic::validation::validate_quad(
+                quad,
+                index,
+                result.textures.len() + result.targets.len(),
+            )?;
         }
         Ok(result)
     }
+
+    /// The slot of the render texture `id`, made when no earlier draw read it.
+    fn slot(&mut self, id: RenderTextureId) -> usize {
+        self.targets
+            .iter()
+            .position(|held| *held == id)
+            .unwrap_or_else(|| {
+                self.targets.push(id);
+                self.targets.len() - 1
+            })
+    }
+
+    /// The index in the overlay's own textures of what `draw` samples, adding the texture when no
+    /// earlier draw sampled it.
+    fn texture_index(
+        &mut self,
+        draw: &UiDraw,
+        (plan, textures): (&UiPresentation, &BTreeMap<u64, SceneTexture>),
+        indices: &mut BTreeMap<(UiDrawKind, UiTexture), usize>,
+    ) -> Result<Option<usize>, DynamicError> {
+        let Some(texture) = draw.texture else {
+            if draw.kind == UiDrawKind::Text {
+                return Err(DynamicError::InvalidQuad {
+                    index: self.quads.len(),
+                    field: "glyph coverage texture",
+                });
+            }
+            return Ok(None);
+        };
+        let key = (draw.kind, texture);
+        if let Some(&index) = indices.get(&key) {
+            return Ok(Some(index));
+        }
+        let source = draw_texture(draw, plan, textures, self.quads.len())?;
+        let index = self.textures.len();
+        self.textures.push(source);
+        indices.insert(key, index);
+        Ok(Some(index))
+    }
+}
+
+/// A render texture is bottom row first and the draw's texture rectangle is top row first, so
+/// the draw samples it with `v` turned over.
+fn flipped(mut quad: DynamicQuad) -> DynamicQuad {
+    let [u0, v0, u1, v1] = quad.uv_rect;
+    quad.uv_rect = [u0, 1. - v0, u1, 1. - v1];
+    quad.triangle_uv = quad
+        .triangle_uv
+        .map(|corners| corners.map(|[u, v]| [u, 1. - v]));
+    quad
+}
+
+fn check_distance(draw: &UiDraw, plan: &UiPresentation, index: usize) -> Result<(), DynamicError> {
+    draw.validate().map_err(|_| DynamicError::InvalidQuad {
+        index,
+        field: "distance_field",
+    })?;
+    let Some(style) = draw.distance_field else {
+        return Ok(());
+    };
+    let Some(UiTexture::Coverage(key)) = draw.texture else {
+        unreachable!("a validated distance draw names coverage");
+    };
+    let atlas = plan.coverage.get(&key).ok_or(DynamicError::InvalidQuad {
+        index,
+        field: "distance atlas",
+    })?;
+    style
+        .validate_extent(
+            draw.corners,
+            draw.uv_rect,
+            glam::UVec2::new(atlas.width, atlas.height),
+        )
+        .map_err(|_| DynamicError::InvalidQuad {
+            index,
+            field: "distance field spread",
+        })
 }
 
 fn dynamic_quad(draw: &UiDraw, texture: Option<usize>) -> DynamicQuad {
@@ -181,3 +245,7 @@ fn coverage_texture(width: u32, height: u32, bytes: &[u8]) -> SceneTexture {
         wrap_v: worldrunner_render_plan::TextureWrap::Clamp,
     })
 }
+
+#[cfg(test)]
+#[path = "overlay_target_tests.rs"]
+mod target_tests;

@@ -347,6 +347,6 @@ pub(super) fn apply_ui(
     }
     resident
         .scene_mut()
-        .set_ui_overlay(context.device(), context.submission(), overlay)
+        .set_ui_overlay(context.device(), context.submission(), overlay, &[])
         .map_err(|error| ViewerError::Gpu(error.to_string()))
 }

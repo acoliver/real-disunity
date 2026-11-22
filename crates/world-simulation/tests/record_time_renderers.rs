@@ -2,7 +2,7 @@
 //! that are drawable when the frame's snapshot is taken.
 
 use glam::{Quat, Vec3};
-use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
+use worldrunner_world_simulation::graphics::snapshot_wire::{WireError, decode, encode};
 use worldrunner_world_simulation::graphics::{GraphicsSnapshot, OffscreenWork, RenderTextureId};
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -610,4 +610,24 @@ fn edits_that_leave_drawability_alone_keep_one_shared_set() {
     for record in 0..4 {
         assert_eq!(drawn_by(&snapshot, record), Some(vec![MESH + 1]));
     }
+}
+
+#[test]
+fn a_set_naming_a_renderer_the_snapshot_does_not_list_is_refused_on_decode() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let mut snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.renderers.len(), 1);
+    assert_eq!(decode(&encode(&snapshot).unwrap()).unwrap(), snapshot);
+    snapshot.renderer_sets[0].push(1);
+    assert_eq!(
+        decode(&encode(&snapshot).unwrap()),
+        Err(WireError::RendererOutOfRange(1))
+    );
+    snapshot.renderer_sets[0] = vec![u32::MAX];
+    assert_eq!(
+        decode(&encode(&snapshot).unwrap()),
+        Err(WireError::RendererOutOfRange(u32::MAX))
+    );
 }

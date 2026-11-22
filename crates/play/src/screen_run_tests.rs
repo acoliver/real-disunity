@@ -123,8 +123,7 @@ fn a_capture_before_any_work_drew_the_screen_is_an_error_naming_the_frame() {
     let (prepared, _data) = prepared("retained-ui.fixture");
 
     let error = play_player_windowless(&prepared, &window([64, 64], Some(2), &[0]))
-        .err()
-        .expect("the run is refused");
+        .expect_err("the run is refused");
 
     assert!(
         error

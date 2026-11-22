@@ -114,11 +114,23 @@ fn normals_tangents_colours_and_every_texture_coordinate_set_are_channels_by_the
 }
 
 #[test]
-fn blend_weights_and_indices_are_not_vertex_inputs_of_this_renderer() {
+fn blend_weights_and_indices_are_channels_by_their_number_of_four_floats_each() {
     let mut stored = mesh();
-    stored.channels.push(channel(12, 4, vec![0.0; 12]));
-    stored.channels.push(channel(13, 4, vec![0.0; 12]));
-    assert_eq!(sources(&mesh_of(&stored).unwrap()), [0, 4]);
+    stored
+        .channels
+        .push(channel(12, 4, (0..12_u8).map(f32::from).collect()));
+    stored.channels.push(channel(
+        13,
+        4,
+        (0..12_u8).map(|v| 100.0 + f32::from(v)).collect(),
+    ));
+    let made = mesh_of(&stored).unwrap();
+    assert_eq!(sources(&made), [0, 4, 12, 13]);
+    assert_eq!(made.channels[2].format, ChannelFormat::Float32x4);
+    assert_eq!(made.channels[3].format, ChannelFormat::Float32x4);
+    let expected = |first: u8| (0..12_u8).map(|v| f32::from(first + v)).collect::<Vec<_>>();
+    assert_eq!(floats(&made.channels[2].bytes), expected(0));
+    assert_eq!(floats(&made.channels[3].bytes), expected(100));
 }
 
 #[test]

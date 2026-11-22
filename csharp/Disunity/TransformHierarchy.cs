@@ -50,6 +50,7 @@ public partial class Transform
             DisunityHost.ThrowIfError(NativeParent(target, false, &work));
         }
         MarkChanged();
+        RectDimensionMessages.MarkChanged();
         if (moved) gameObject.SiblingKey = DisunityHost.NextSiblingKey();
         DisunityHost.Drain(work);
     }

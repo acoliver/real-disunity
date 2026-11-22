@@ -354,6 +354,20 @@ A slot that is null in the game's data is kind 0, `TextureRef::None`.
 The world reads the two alike everywhere except in this report, so `declared-default` says the game left the slot null and `not-loaded` says a texture the game names did not arrive.
 The managed engine's own count of what it could not send, with the reason for each property, is printed as `UnsentTextureSummary`.
 
+### Seeing the globals no draw read
+
+The report also lists the texture globals that were set and that no draw's slot asked for, next to the stand-in lines:
+
+```
+[gpu] globals set and never read by a draw: <name>, <name>, ... and N more
+```
+
+A name is set when the world's globals hold a texture under it at a frame (the names of the `globals at a flush` listing) or when a command of the frame sets one with `SetGlobal`.
+A name is read when a planned draw's texture slot looked it up in the layers, whether or not a layer held a texture under it, so a slot that falls back to the grey `undeclared` stand-in counts as a read of its own name.
+The names are exact and the engine translates none: a game that sets `Foo` while its shader reads `_Foo` shows `Foo` in this line and `_Foo undeclared` in the stand-ins line.
+The line names the first 30 names in name order and counts the rest, and covers the whole run, so `PLAY_REPORT_EACH_FRAME` prints the run's names so far.
+`GlobalReads` in `offscreen/stand_ins.rs` holds the two sets; the lookups come from `OffscreenOperations::looked_up_textures`, which render-program fills when it binds a draw's texture slots.
+
 `--stand-ins magenta` makes every stand-in texture the host supplies read as magenta, RGBA (255, 0, 255, 255), in its own dimension (2D, cube, array and 3D), so a capture shows which draws read stand-ins.
 `--stand-ins declared`, the default, leaves the declared colours.
 The look is `PlayerLaunch::stand_ins`, which the run's `GpuLaunch` carries into `Settings::with_stand_in_look`.

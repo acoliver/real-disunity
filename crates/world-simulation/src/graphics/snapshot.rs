@@ -159,7 +159,7 @@ impl GraphicsSnapshot {
         snapshot.renderers = drawn.views;
         snapshot.renderer_sets = drawn.sets;
         snapshot.record_sets = captured.records;
-        snapshot.skinned_not_drawn = index_of(captured.skinned)?;
+        snapshot.skinned_not_drawn = index_of(captured.skinned);
         snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
@@ -344,7 +344,7 @@ fn set_indices(
             continue;
         };
         let layer = u32::from(world.object_layer(component.object)?);
-        let at = index_of(views.len())?;
+        let at = index_of(views.len());
         views.push(renderer_view(
             world,
             component.object,

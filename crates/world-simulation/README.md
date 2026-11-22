@@ -189,12 +189,15 @@ A script sets values on a material, draws with it, sets others and draws again, 
 The world therefore fixes the renderers of a camera render when it records the render.
 A render pipeline renders a camera by culling inside `Camera.Render`, so a `Cull` record is fixed the same way, with its own culling mask.
 `World::record_offscreen` of a `CameraRender` or a `Cull` captures the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an object active in the hierarchy, on a layer the camera's culling mask admits.
-Records of one mask share a set while nothing changes: a counter that `set_active`, a parent or layer change, a published construction, and an added, removed or edited mesh renderer or mesh filter advance gives each set its validity, where an edit advances it only when the renderer's enabled, forced-off or kind setting changes or the filter gains or loses its drawn mesh (a new material, property block or mesh id keeps the set), so a frame with hundreds of camera renders scans the renderers once for each change, not once for each render.
+Records of one mask share a set while nothing that decides drawing changes, so a frame with hundreds of camera renders scans the renderers once for each change, not once for each render.
+A counter gives each set its validity. `set_active`, a parent or layer change and a published construction advance it, and so does a mesh renderer or mesh filter that is added or removed while it decides drawing.
+Editing a component advances it only when what the component contributes to drawing changes: a renderer's enabled, forced-off or kind setting, or a filter gaining or losing its drawn mesh. A new material, property block or mesh id keeps the set.
 
 `GraphicsSnapshot::take` lists the renderers the sets name, each once, and gives each camera render and each cull its set as indices into `renderers` (`renderer_sets`, `record_sets`, `record_renderers`).
 A renderer in a set whose object or components are gone by then is left out.
 A renderer that is drawable when the snapshot is taken but was not when a record was made is in no set, so no record draws it.
 The world makes a set for every cull and for every camera render whose camera it can read; a record with none draws nothing.
+`snapshot_wire::decode` refuses a set that names a renderer past the end of `renderers` with `WireError::RendererOutOfRange`. No encoder writes such a snapshot, so the wire version is unchanged.
 
 The limits: a renderer's pose, materials and property block are read when the snapshot is taken, not when the record is made, and the camera's mask and settings are read then too, except that the mask at the call decides the set's layers.
 A script that edits a renderer's material between two camera renders of one frame sees the later value in both.

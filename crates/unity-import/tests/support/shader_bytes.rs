@@ -79,6 +79,31 @@ pub fn named_shader_with_platforms(
     sub_shaders: &[&[&str]],
     platforms: &[u32],
 ) -> Vec<u8> {
+    let tags: Vec<(&str, &str)> = queue
+        .map(|queue| vec![("RenderType", "Opaque"), queue])
+        .unwrap_or_default();
+    shader_with_tags(name, &tags, "", sub_shaders, platforms)
+}
+
+/// A shader declared as `name` that falls back to the shader `fallback` (none when empty), with
+/// one sub-shader per entry of `sub_shaders`, whose passes carry the names listed. Every
+/// sub-shader carries `tags`.
+pub fn tagged_shader(
+    name: &str,
+    tags: &[(&str, &str)],
+    fallback: &str,
+    sub_shaders: &[&[&str]],
+) -> Vec<u8> {
+    shader_with_tags(name, tags, fallback, sub_shaders, &[])
+}
+
+fn shader_with_tags(
+    name: &str,
+    tags: &[(&str, &str)],
+    fallback: &str,
+    sub_shaders: &[&[&str]],
+    platforms: &[u32],
+) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string("").unwrap().i32(0);
     w.i32(i32::try_from(sub_shaders.len()).unwrap());
@@ -87,18 +112,9 @@ pub fn named_shader_with_platforms(
         for &pass_name in pass_names {
             write_pass(&mut w, pass_name);
         }
-        match queue {
-            Some((key, value)) => {
-                w.i32(2)
-                    .string("RenderType")
-                    .unwrap()
-                    .string("Opaque")
-                    .unwrap();
-                w.string(key).unwrap().string(value).unwrap();
-            }
-            None => {
-                w.i32(0);
-            }
+        w.i32(i32::try_from(tags.len()).unwrap());
+        for &(key, value) in tags {
+            w.string(key).unwrap().string(value).unwrap();
         }
         w.i32(100);
     }
@@ -107,7 +123,7 @@ pub fn named_shader_with_platforms(
         .unwrap()
         .string("")
         .unwrap()
-        .string("")
+        .string(fallback)
         .unwrap();
     w.i32(0).i32(0).u8(0).align();
     w.i32(i32::try_from(platforms.len()).unwrap());

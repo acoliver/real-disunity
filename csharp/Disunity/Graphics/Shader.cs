@@ -54,10 +54,13 @@ public sealed partial class Shader : Object
     internal string? SourceFile => _sourceFile;
     internal long SourcePathId => _sourcePathId;
 
-    /// <summary>Records what the engine knows about a built-in shader that has no declarations to read.</summary>
+    /// <summary>Records what the engine knows about a shader it defines itself, which has no declarations to read: the sprite and
+    /// UI shaders. The engine declares no tags for them and no fallback shader, so <see cref="Material.GetTag(string, bool, string)"/> gives the caller's
+    /// default.</summary>
     internal Shader Declare(int renderQueue, int? passCount, int? subshaderCount)
     {
         (_renderQueue, _passCount, _subshaderCount) = (renderQueue, passCount, subshaderCount);
+        DeclareNoTags();
         return this;
     }
 
@@ -65,9 +68,10 @@ public sealed partial class Shader : Object
     /// count is the pass count), the number of sub-shaders, and the tags and fallback when it carries them.</summary>
     internal Shader Declare(ShaderDeclaration declaration)
     {
+        (_renderQueue, _passCount, _subshaderCount) = (declaration.RenderQueue, declaration.PassNames.Count, declaration.SubshaderCount);
         _passNames = declaration.PassNames.ToArray();
         DeclareTags(declaration);
-        return Declare(declaration.RenderQueue, declaration.PassNames.Count, declaration.SubshaderCount);
+        return this;
     }
 
     /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, or the queue

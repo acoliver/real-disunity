@@ -14,6 +14,8 @@ internal static class ShaderTagTests
         Console.WriteLine("PASS: Material.GetTag returns a tag its shader declares, the default for one it does not, and the material's override over the shader's value");
         SearchingFallbacksFollowsTheDeclaredChain();
         Console.WriteLine("PASS: Material.GetTag with searchFallbacks reads the fallback shader's tags, ends at a shader with no fallback and survives a cycle");
+        TheEnginesOwnShadersDeclareNoTags();
+        Console.WriteLine("PASS: Material.GetTag gives the default on the sprite and UI shaders the engine defines, with and without searchFallbacks");
         WhatTheEngineCannotKnowThrowsByName();
         Console.WriteLine("PASS: Material.GetTag throws NotSupportedException naming the shader for undeclared tags, an undeclared fallback and a fallback shader the engine does not have");
         ALaterDeclarationCompletesOrDisagrees();
@@ -58,6 +60,20 @@ internal static class ShaderTagTests
         var loop = new Material(Shader.Find("Test/ShaderTags/Loop1")!);
         Expect.Equal("2", loop.GetTag("B", true, "d"), "a fallback cycle still finds a tag on it");
         Expect.Equal("d", loop.GetTag("C", true, "d"), "a fallback cycle ends the search with the default");
+    }
+
+    private static void TheEnginesOwnShadersDeclareNoTags()
+    {
+        var engineDefined = new (string What, Material Material)[]
+        {
+            ("Sprites/Default", Material.SpriteUnlit), ("the lit sprite shader", Material.SpriteLit), ("UI/Default", Canvas.GetDefaultCanvasMaterial()),
+        };
+        foreach (var (what, material) in engineDefined)
+        {
+            Expect.Equal("d", material.GetTag("MohawkStaticBatching", false, "d"), $"{what} declares no tags");
+            Expect.Equal("d", material.GetTag("MRTBlending", true, "d"), $"{what} has no fallback to search");
+            Expect.Equal("", material.GetTag("RenderType", false), $"{what}: the two-argument form gives the empty default");
+        }
     }
 
     private static void WhatTheEngineCannotKnowThrowsByName()

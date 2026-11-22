@@ -201,9 +201,7 @@ impl GpuWorkReport {
         for trace in traces.iter().filter(|trace| trace.error.is_some()) {
             self.refused_records += trace.records;
             self.refused_works += 1;
-            if self.refusal.is_none() {
-                self.refusal = refusal::whole(trace);
-            }
+            refusal::note_whole(&mut self.refusal, trace);
         }
         for trace in &traces {
             self.planner.add(&trace.phases);
@@ -213,9 +211,7 @@ impl GpuWorkReport {
     }
 
     fn add(&mut self, report: &Report, source: &'static str) {
-        if self.refusal.is_none() {
-            self.refusal = refusal::over_budget(report, source);
-        }
+        refusal::note_over_budget(&mut self.refusal, report, source);
         self.records += report.records;
         self.built += report.built;
         self.dispatches += report.dispatches;

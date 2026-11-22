@@ -12,22 +12,31 @@ const OVER_BUDGET: &str = "OverBudget";
 /// once other storage is free.
 const UPLOADS: [&str; 2] = ["texture:", "mesh:"];
 
-/// How a frame or flush the GPU refused whole is worded, with the error it gave.
-pub(super) fn whole(trace: &WorkTrace) -> Option<String> {
-    let error = trace.error.as_ref()?;
-    Some(format!("{} refused by the GPU: {error}", trace.kind))
+/// Keeps how a frame or flush the GPU refused whole is worded, with the error it gave, when no
+/// earlier refusal is kept.
+pub(super) fn note_whole(kept: &mut Option<String>, trace: &WorkTrace) {
+    if kept.is_none()
+        && let Some(error) = &trace.error
+    {
+        *kept = Some(format!("{} refused by the GPU: {error}", trace.kind));
+    }
 }
 
-/// How the first allocation of the frame's own work that the storage budget refused in `report`
-/// is worded, for a frame or flush that `source` names: a render texture or a record the work
-/// went without.
-pub(super) fn over_budget(report: &Report, source: &str) -> Option<String> {
-    let cause = report.causes.keys().find(|cause| {
+/// Keeps how the first allocation of the frame's own work that the storage budget refused in
+/// `report` is worded, for a frame or flush that `source` names (a render texture or a record the
+/// work went without), when no earlier refusal is kept.
+pub(super) fn note_over_budget(kept: &mut Option<String>, report: &Report, source: &str) {
+    if kept.is_some() {
+        return;
+    }
+    let refused = report.causes.keys().find(|cause| {
         cause.split('/').any(|name| name == OVER_BUDGET)
             && !UPLOADS.iter().any(|kind| cause.starts_with(kind))
-    })?;
-    let example = report.examples.get(cause).map_or("", String::as_str);
-    Some(format!("{source} refused by the GPU: {cause}: {example}"))
+    });
+    if let Some(cause) = refused {
+        let example = report.examples.get(cause).map_or("", String::as_str);
+        *kept = Some(format!("{source} refused by the GPU: {cause}: {example}"));
+    }
 }
 
 impl PlayerGpu {

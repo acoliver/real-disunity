@@ -485,7 +485,7 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   A replaced `projectionMatrix` on the presented camera is kept for scripts, and the frame is drawn with the lens settings (field of view or orthographic size, near and far), as the engine's choice; a replaced `worldToCameraMatrix` or a partial `rect` on the presented camera is stored and fails when a frame is prepared.
   `renderingPath`, `opaqueSortMode`, `usePhysicalProperties`, `stereoTargetEye` and `layerCullDistances` (32 values; another length throws `ArgumentException`) are stored and change no frame.
   `current` is always null, `stereoEnabled` is false, and the conversion overloads that take a `MonoOrStereoscopicEye` throw `NotSupportedException` for an eye other than `Mono`.
-  `Render` with a `targetTexture` records a camera render into it as offscreen work (the texture is created if needed) and draws nothing itself: the host executes it with the camera's culling mask, clear flags, lens and pose as they are then.
+  `Render` with a `targetTexture` records a camera render into it as offscreen work (the texture is created if needed) and draws nothing itself: the host executes it with the camera's culling mask, clear flags, lens and pose as they are then, and it draws the renderers that are drawable when `Render` is called, so a script that switches an object on for the call and off after it (a bake into a render texture) gets that object drawn.
   `Render` without a target throws `NotSupportedException`: the host draws the screen from the frame's selected camera and has no explicit screen request.
   `RenderWithShader` completes without drawing: it validates (a null shader or a destroyed camera throws), leaves `targetTexture` and `RenderTexture.active` as they are, and logs a warning the first time it is called in a world.
   While a render pipeline is current (see "When the host renders" below), `Render` renders through it instead: the pipeline's `Render` runs once with that camera alone and no camera render is recorded, and called from inside a pipeline's `Render` it throws `InvalidOperationException` (the engine's choice).
@@ -736,8 +736,12 @@ The offscreen list is a record: the engine draws nothing in C#, and the host tha
 ## Reading offscreen graphics from a host
 
 A host that draws what scripts record reads one `GraphicsSnapshot` (`worldrunner_world_simulation::graphics`) for each frame.
-It holds the offscreen work in call order (`Camera.Render` into a render texture, `Graphics.Blit`, `Graphics.CopyTexture` and `ComputeShader.Dispatch`), the cameras those renders name with their settings and pose, the mesh renderers those cameras may draw, the materials and shaders of the blits and renderers, every live render texture, the global shader state, and the compute shaders and compute buffers (contents included) that the dispatches name.
+It holds the offscreen work in call order (`Camera.Render` into a render texture, `Graphics.Blit`, `Graphics.CopyTexture` and `ComputeShader.Dispatch`), the cameras those renders name with their settings and pose, the mesh renderers those cameras and cullings drew, which are the renderers of the sets that each camera render and culling made when the script called it (`renderer_sets` and `record_sets`, as indices into `renderers`; a renderer whose object was inactive again when the snapshot was taken is still listed), the materials and shaders of the blits and renderers, every live render texture, the global shader state, and the compute shaders and compute buffers (contents included) that the dispatches name.
 A texture a dispatch took from the global shader state is already resolved in its record.
+Which renderers a camera render draws is fixed at the call, but their poses, materials and property blocks are read when the snapshot is taken, so an edit to a renderer's material between a camera render and the end of the frame also changes that render.
+A culling (`Cull`, which a render pipeline makes inside `Camera.Render`) has a set in the same way, with its own culling mask, so the renderer list a pipeline draws from its result holds the renderers that were drawable when it culled.
+A renderer that is drawable only after a record was made is in no set of it, and a record with no set draws nothing.
+The encoding is version 18.
 
 - A host whose world is in its own process calls `GraphicsSnapshot::take(&mut World)`.
 - A host that loads the engine image calls `DisunityHost::graphics_snapshot()`, and a GPU flush handler calls `GpuFlush::snapshot()`.

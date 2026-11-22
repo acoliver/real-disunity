@@ -267,6 +267,9 @@ impl World {
         if self.graphics.offscreen.len() + ordered.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
         }
+        // The record follows the ordered globals, so the set is keyed by the record's own index.
+        let record = self.graphics.offscreen.len() + ordered.len();
+        self.capture_render_set(&work, record)?;
         self.note_handle(&work);
         self.graphics.direct_writes.clear();
         self.graphics.offscreen.extend(ordered);
@@ -323,6 +326,7 @@ impl World {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
+        self.graphics.render_sets.clear();
         let start = self.graphics.take_global_start();
         let copies = self.settle_material_versions(&mut work);
         (work, copies, start)

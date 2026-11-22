@@ -16,7 +16,7 @@ use worldrunner_world_simulation::graphics::{
     ShaderProperties,
 };
 use worldrunner_world_simulation::presentation::Camera;
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
@@ -111,6 +111,31 @@ pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
 
 /// As `camera_render`, with the shader the file `shader_file` names.
 fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str) {
+    let camera = camera_and_renderer(world, shader_file);
+    record_render(world, camera, into);
+}
+
+/// One camera render into each of `into`, after a camera and a renderer was made for each: every
+/// render draws every renderer, as a renderer exists when the render is recorded.
+pub(super) fn camera_renders(world: &mut World, into: &[RenderTextureId]) {
+    let cameras: Vec<_> = into
+        .iter()
+        .map(|_| camera_and_renderer(world, "camera"))
+        .collect();
+    for (camera, target) in cameras.into_iter().zip(into) {
+        record_render(world, camera, *target);
+    }
+}
+
+fn record_render(world: &mut World, camera: ComponentHandle, target: RenderTextureId) {
+    world
+        .record_offscreen(OffscreenWork::CameraRender { camera, target })
+        .unwrap();
+}
+
+/// A camera that clears to `CLEAR` in red, and a renderer that draws `DRAWN` over the left half of
+/// the target with the shader the file `shader_file` names.
+fn camera_and_renderer(world: &mut World, shader_file: &str) -> ComponentHandle {
     let camera = camera(
         world,
         Camera {
@@ -138,12 +163,7 @@ fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str)
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);
-    world
-        .record_offscreen(OffscreenWork::CameraRender {
-            camera,
-            target: into,
-        })
-        .unwrap();
+    camera
 }
 
 /// A compute shader the kernels are found for, scaling by `SCALE`.

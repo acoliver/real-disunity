@@ -23,6 +23,7 @@ mod offscreen;
 mod ordered_globals;
 mod properties;
 mod readback;
+mod render_sets;
 mod render_texture;
 mod renderer_lists;
 mod slab;
@@ -241,6 +242,11 @@ pub(crate) struct GraphicsState {
     /// The target buffers of the cameras whose scripts set them. An entry outlives its camera
     /// until the next set, and a read answers only for a live camera.
     camera_buffers: std::collections::BTreeMap<crate::ComponentHandle, CameraBuffers>,
+    /// The renderers the frame's camera renders draw, fixed when each was recorded.
+    render_sets: render_sets::RenderSets,
+    /// Counts the changes that may alter which renderers are drawable; a set made at one count
+    /// serves every record until the count moves.
+    drawable_epoch: u64,
 }
 
 impl GraphicsState {
@@ -254,6 +260,7 @@ impl GraphicsState {
         self.lists.clear();
         self.readbacks.clear();
         self.retired_textures.clear();
+        self.render_sets.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -276,6 +283,8 @@ impl GraphicsState {
             readbacks: readback::Readbacks::new(),
             retired_textures: std::collections::BTreeMap::new(),
             camera_buffers: std::collections::BTreeMap::new(),
+            render_sets: render_sets::RenderSets::new(),
+            drawable_epoch: 0,
         }
     }
 }

@@ -243,6 +243,7 @@ fn select_frame(
                     .iter_mut()
                     .map(|(matrix, selection)| (*matrix, selection))
                     .collect::<Vec<_>>(),
+                4,
             );
         },
     );
@@ -277,7 +278,7 @@ fn assert_camera_matches_scan(
                     casters_only,
                     ..Selection::default()
                 };
-                selection.select(placements, frame.camera);
+                placements.select_each(&mut [(frame.camera, &mut selection)], 1);
                 assert_eq!(
                     summary(&selection),
                     summary(&scan(

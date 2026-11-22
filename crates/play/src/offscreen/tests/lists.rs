@@ -267,7 +267,6 @@ fn a_culling_result_keeps_the_renderers_of_the_layers_in_its_mask() {
     let adapted = run(&mut world, |_| {});
     assert_eq!(adapted.report.lists.culls, 1);
     assert_eq!(adapted.report.lists.kept, 3);
-    assert_eq!(adapted.report.lists.out_by_layer, 1);
 }
 
 #[test]

@@ -328,6 +328,8 @@ pub struct SceneGpu {
     /// What every view's selection reads of each batch that holds while no placement or table
     /// changes.
     placement_rows: RefCell<visibility::PlacementRows>,
+    /// The threads a frame's view selection may use.
+    selection_threads: usize,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
@@ -481,6 +483,7 @@ impl SceneGpu {
             caster_fits: selection_reuse::CasterFits::default(),
             drawn_pair_memo: RefCell::default(),
             placement_rows: RefCell::default(),
+            selection_threads: visibility::selection_threads(),
             gather: compaction::Shared::default(),
             terrain,
             terrain_draws: Cell::new(TerrainDraws::Stock),

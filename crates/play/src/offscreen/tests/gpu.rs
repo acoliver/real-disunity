@@ -591,8 +591,8 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
     let mut rig = Rig::new();
     let mut world = world();
     let target = render_texture(&mut world, [SIDE, SIDE]);
-    camera_render(&mut world, target);
-    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it.
+    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it. The renderer
+    // exists when the camera render is recorded, which is what a render draws.
     let blit = shader(&mut world, "blit");
     let material = world.create_material(blit).unwrap();
     let ignored = MeshRenderer {
@@ -601,6 +601,7 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
         ..MeshRenderer::default()
     };
     renderer_with(&mut world, (0, true), MESH, ignored);
+    camera_render(&mut world, target);
     let (adapted, operations, reads) = rig.frame(&mut world, &[target]);
     assert_eq!(adapted.report.failures["draw:NoPassForCamera"], 1);
     assert_eq!(adapted.report.built, 1, "the camera render itself");

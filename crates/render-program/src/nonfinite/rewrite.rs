@@ -7,11 +7,11 @@ use super::malformed;
 use super::scan::{Scan, Shape, Value};
 use crate::module::ModuleError;
 use crate::spirv::{id, instruction};
+use crate::spirv_rewrite::Declarations;
 
 struct Rewrite<'a> {
     scan: &'a Scan,
-    next: u32,
-    declarations: Vec<Instruction>,
+    declarations: Declarations,
     uint: u32,
     pointer: u32,
     /// The `u32` constant holding each non-finite bit pattern.
@@ -19,42 +19,6 @@ struct Rewrite<'a> {
 }
 
 impl Rewrite<'_> {
-    fn allocate(&mut self) -> Result<u32, ModuleError> {
-        let id = self.next;
-        self.next = id
-            .checked_add(1)
-            .ok_or_else(|| malformed("ID bound overflow"))?;
-        Ok(id)
-    }
-
-    fn declare(
-        &mut self,
-        op: Op,
-        ty: Option<u32>,
-        operands: Vec<Operand>,
-    ) -> Result<u32, ModuleError> {
-        let id = self.allocate()?;
-        self.declarations
-            .push(instruction(op, ty, Some(id), operands));
-        Ok(id)
-    }
-
-    fn type_id(
-        &mut self,
-        module: &Module,
-        op: Op,
-        operands: Vec<Operand>,
-    ) -> Result<u32, ModuleError> {
-        let existing = module
-            .types_global_values
-            .iter()
-            .find(|i| i.class.opcode == op && i.operands == operands);
-        match existing {
-            Some(i) => Ok(i.result_id.unwrap()),
-            None => self.declare(op, None, operands),
-        }
-    }
-
     /// The instructions that give a function the value of `value`: variables for its entry
     /// block's start, and the loads, bitcasts and constructions that follow them.
     fn materialize(
@@ -66,7 +30,8 @@ impl Rewrite<'_> {
     ) -> Result<(), ModuleError> {
         match &value.shape {
             Shape::Scalar(bits) => {
-                let (variable, loaded) = (self.allocate()?, self.allocate()?);
+                let (variable, loaded) =
+                    (self.declarations.allocate()?, self.declarations.allocate()?);
                 built.variables.push(instruction(
                     Op::Variable,
                     Some(self.pointer),
@@ -127,7 +92,7 @@ impl Rewrite<'_> {
         let mut renamed = BTreeMap::new();
         let mut built = Built::default();
         for value in self.scan.values.iter().filter(|v| needed.contains(&v.id)) {
-            let fresh = self.allocate()?;
+            let fresh = self.declarations.allocate()?;
             self.materialize(value, fresh, &renamed, &mut built)?;
             renamed.insert(value.id, fresh);
         }
@@ -198,19 +163,16 @@ fn rename(i: &mut Instruction, renamed: &BTreeMap<u32, u32>) {
 pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleError> {
     let mut rewrite = Rewrite {
         scan,
-        next: module
-            .header
-            .as_ref()
-            .ok_or_else(|| malformed("header"))?
-            .bound,
-        declarations: vec![],
+        declarations: Declarations::new(module)?,
         uint: 0,
         pointer: 0,
         patterns: BTreeMap::new(),
     };
     let literals = [Operand::LiteralBit32(32), Operand::LiteralBit32(0)];
-    rewrite.uint = rewrite.type_id(module, Op::TypeInt, literals.to_vec())?;
-    rewrite.pointer = rewrite.type_id(
+    rewrite.uint = rewrite
+        .declarations
+        .type_id(module, Op::TypeInt, literals.to_vec())?;
+    rewrite.pointer = rewrite.declarations.type_id(
         module,
         Op::TypePointer,
         vec![
@@ -222,7 +184,7 @@ pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleErro
         if let Shape::Scalar(bits) = value.shape
             && !rewrite.patterns.contains_key(&bits)
         {
-            let constant = rewrite.declare(
+            let constant = rewrite.declarations.declare(
                 Op::Constant,
                 Some(rewrite.uint),
                 vec![Operand::LiteralBit32(bits)],
@@ -236,7 +198,9 @@ pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleErro
     module
         .types_global_values
         .retain(|i| !i.result_id.is_some_and(|result| scan.contains(result)));
-    module.types_global_values.append(&mut rewrite.declarations);
+    module
+        .types_global_values
+        .append(&mut rewrite.declarations.take());
     let removed = |i: &Instruction| {
         i.operands
             .first()
@@ -245,6 +209,6 @@ pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleErro
     };
     module.annotations.retain(|i| !removed(i));
     module.debug_names.retain(|i| !removed(i));
-    module.header.as_mut().unwrap().bound = rewrite.next;
+    module.header.as_mut().unwrap().bound = rewrite.declarations.bound();
     Ok(())
 }

@@ -210,6 +210,11 @@ pub unsafe extern "C" fn disunity_offscreen_record(
 /// and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
 /// the count; a capacity below the count is rejected and drains nothing.
 ///
+/// A draw record names its material by the material's id, or, when the script edited the material
+/// after the draw, by the id of a copy of the state the draw saw (generation 0, which no material
+/// has). The record cannot carry the copy: a host reads the copies, with the rest of the frame,
+/// in the graphics snapshot, and this call is the record reader that the ABI tests use.
+///
 /// # Safety
 /// `records` is writable for `capacity` records, or null when `capacity` is zero; `count` is
 /// writable for one value.
@@ -233,7 +238,7 @@ pub unsafe extern "C" fn disunity_offscreen_take(
         if capacity < pending {
             return Err("offscreen work capacity is too small".into());
         }
-        let drained = s.native.take_offscreen();
+        let (drained, _copies) = s.native.take_offscreen();
         s.dispatch_bindings.clear();
         s.work_details.clear();
         for (index, work) in drained.iter().enumerate() {

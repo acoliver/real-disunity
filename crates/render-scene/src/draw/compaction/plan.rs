@@ -35,53 +35,77 @@ pub(super) struct Plan {
 }
 
 impl Plan {
-    /// Orders the ranges by (batch, LOD) and keeps slot order within each group.
-    /// Returns `None` when the records would not fit a draw's instance range.
-    pub fn new(ranges: &[SelectedRange]) -> Option<Self> {
-        let mut order: Vec<&SelectedRange> = ranges.iter().collect();
-        if order.is_sorted_by_key(|range| range.key) {
+    /// Orders the ranges by (batch, LOD) and keeps slot order within each group, replacing what
+    /// the plan held. `order` is scratch for the ordering and holds indices into `ranges`.
+    /// Returns false when the records would not fit a draw's instance range.
+    fn fill(&mut self, ranges: &[SelectedRange], order: &mut Vec<usize>) -> bool {
+        self.groups.clear();
+        self.copies.clear();
+        self.total = 0;
+        self.groups.reserve(ranges.len());
+        self.copies.reserve(ranges.len());
+        order.clear();
+        order.extend(0..ranges.len());
+        // Ties in the sort keys break by position, which a stable sort would keep.
+        if ranges.is_sorted_by_key(|range| range.key) {
             // A selection lists its batches in key order, so only the levels within each
-            // batch need ordering; a stable sort of each run gives the (batch, LOD) order.
-            for run in order.chunk_by_mut(|a, b| a.key == b.key) {
-                run.sort_by_key(|range| range.lod);
+            // batch need ordering; the order of each run by (LOD, position) is the (batch, LOD)
+            // order of a stable sort.
+            for run in order.chunk_by_mut(|&a, &b| ranges[a].key == ranges[b].key) {
+                if !run.is_sorted_by_key(|&index| ranges[index].lod) {
+                    run.sort_unstable_by_key(|&index| (ranges[index].lod, index));
+                }
             }
         } else {
-            order.sort_by_key(|range| (range.key, range.lod));
+            order.sort_unstable_by_key(|&index| (ranges[index].key, ranges[index].lod, index));
         }
-        let mut plan = Self {
-            copies: Vec::with_capacity(ranges.len()),
-            ..Self::default()
-        };
-        for range in order {
-            let start = plan.total;
-            let end = start.checked_add(range.slots.end - range.slots.start)?;
-            match plan
+        for &index in order.iter() {
+            let range = &ranges[index];
+            let start = self.total;
+            let Some(end) = start.checked_add(range.slots.end - range.slots.start) else {
+                return false;
+            };
+            match self
                 .groups
                 .last_mut()
                 .filter(|group| group.key == range.key && group.lod == range.lod)
             {
                 Some(group) => group.slots.end = end,
-                None => plan.groups.push(SelectedRange {
+                None => self.groups.push(SelectedRange {
                     key: range.key,
                     lod: range.lod,
                     slots: start..end,
                 }),
             }
-            plan.copies.push(Gather {
+            self.copies.push(Gather {
                 key: range.key,
                 source: range.slots.clone(),
                 destination: start,
             });
-            plan.total = end;
+            self.total = end;
         }
-        Some(plan)
+        true
     }
 
-    /// The gather runs that read every selected range from a mirror holding batch `key` from
-    /// record `base(key)`. Ranges contiguous in both the mirror and the view buffer merge, and
-    /// runs longer than [`RUN_RECORDS`] split.
-    pub fn runs(&self, base: impl Fn(BatchKey) -> u32) -> Vec<Run> {
-        let mut merged: Vec<Run> = Vec::with_capacity(self.copies.len());
+    /// A plan of `ranges` held by nothing but itself.
+    #[cfg(test)]
+    pub fn new(ranges: &[SelectedRange]) -> Option<Self> {
+        let mut plan = Self::default();
+        plan.fill(ranges, &mut Vec::new()).then_some(plan)
+    }
+
+    /// Replaces `runs` with the gather runs that read every selected range from a mirror holding
+    /// batch `key` from record `base(key)`, which is asked for once per batch, in ascending key
+    /// order. Ranges contiguous in both the mirror and the view buffer merge, and runs longer
+    /// than [`RUN_RECORDS`] split. `merged` is scratch.
+    fn runs_into(
+        &self,
+        mut base: impl FnMut(BatchKey) -> u32,
+        merged: &mut Vec<Run>,
+        runs: &mut Vec<Run>,
+    ) {
+        merged.clear();
+        merged.reserve(self.copies.len());
         // The copies of one batch are adjacent, so its base is looked up once.
         let mut known: Option<(BatchKey, u32)> = None;
         for copy in &self.copies {
@@ -108,17 +132,88 @@ impl Plan {
                 }),
             }
         }
-        merged
-            .into_iter()
-            .flat_map(|run| {
+        runs.clear();
+        runs.reserve(merged.len());
+        for run in merged.iter() {
+            runs.extend(
                 (0..run.count)
                     .step_by(RUN_RECORDS as usize)
-                    .map(move |offset| Run {
+                    .map(|offset| Run {
                         source: run.source + offset,
                         destination: run.destination + offset,
                         count: (run.count - offset).min(RUN_RECORDS),
-                    })
-            })
-            .collect()
+                    }),
+            );
+        }
+    }
+
+    /// The runs of [`Plan::runs_into`] in a new list.
+    #[cfg(test)]
+    pub fn runs(&self, base: impl FnMut(BatchKey) -> u32) -> Vec<Run> {
+        let mut runs = Vec::new();
+        self.runs_into(base, &mut Vec::new(), &mut runs);
+        runs
+    }
+}
+
+/// A view's plan and the lists built from it, kept from one frame to the next. Each is cleared
+/// and filled again by the next selection, and reserved from its range count, so a view whose
+/// selection stops growing stops allocating for them.
+#[derive(Debug, Default)]
+pub(super) struct Workspace {
+    order: Vec<usize>,
+    plan: Plan,
+    keys: Vec<BatchKey>,
+    merged: Vec<Run>,
+    runs: Vec<Run>,
+}
+
+impl Workspace {
+    /// Plans `ranges`, replacing the earlier plan and key list. Returns false when the records
+    /// would not fit a draw's instance range.
+    pub fn arrange(&mut self, ranges: &[SelectedRange]) -> bool {
+        if !self.plan.fill(ranges, &mut self.order) {
+            return false;
+        }
+        self.keys.clear();
+        self.keys.reserve(ranges.len());
+        for copy in &self.plan.copies {
+            if self.keys.last() != Some(&copy.key) {
+                self.keys.push(copy.key);
+            }
+        }
+        true
+    }
+
+    pub fn plan(&self) -> &Plan {
+        &self.plan
+    }
+
+    /// The batches of the plan, once each in key order.
+    pub fn keys(&self) -> &[BatchKey] {
+        &self.keys
+    }
+
+    /// The gather runs of the plan, with each batch's base asked for once in key order.
+    pub fn runs(&mut self, base: impl FnMut(BatchKey) -> u32) -> &[Run] {
+        self.plan.runs_into(base, &mut self.merged, &mut self.runs);
+        &self.runs
+    }
+
+    /// Where each list lives and how much it can hold: the order, groups, copies, keys, merged
+    /// runs and runs.
+    #[cfg(test)]
+    pub fn buffers(&self) -> [(usize, usize); 6] {
+        fn of<T>(list: &Vec<T>) -> (usize, usize) {
+            (list.as_ptr() as usize, list.capacity())
+        }
+        [
+            of(&self.order),
+            of(&self.plan.groups),
+            of(&self.plan.copies),
+            of(&self.keys),
+            of(&self.merged),
+            of(&self.runs),
+        ]
     }
 }

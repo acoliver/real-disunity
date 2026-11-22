@@ -183,19 +183,25 @@ adapter offers them, and leaves them off elsewhere:
 It asks for the adapter's limits, capped at what the engine binds, for the array
 layers of a texture, the colour bytes per sample (64), the sampled textures per
 shader stage (32) and the storage images per shader stage (16: a single-pass
-downsampler binds its source and six levels, past wgpu's default of four). An
-adapter that offers fewer keeps its own value, and a program that binds more storage
-images than the device allows is refused by name when it is prepared
-(render-program's `StorageImageLimit { stage, count, limit }`).
+downsampler binds its source and six levels, past wgpu's default of four). The
+storage-image count comes from render-gpu's `storage_images_per_stage`, which the
+player's headless device asks too. A program that binds more storage images than the
+device allows is refused by name when it is prepared (render-program's
+`StorageImageLimit { stage, count, limit }`).
 
 `GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
-request. Tests: `src/device/tests.rs` (the request negotiated against adapters with
-and without `FLOAT32_FILTERABLE`, the limits the device gets, and an `R32Float` view
-bound to a filterable binding with a linear sampler on the engine device) and
-`src/device/storage_images_tests.rs` (the storage-image limit asked of adapters
-offering 32, 16, 8 and 4, a kernel of seven storage images over seven mips of one
-texture prepared on a no-op device made with the request, and refused by name where
-the adapter offers four).
+request, each limit at the more demanding of the two values, and every other
+constructor adds wgpu's defaults. So an adapter offering 4 to 16 storage images per
+stage is granted its own count and one offering more is granted 16, while one offering
+fewer than wgpu's default of 4 gets no device (`DeviceError::DeviceRefused`, naming
+`max_storage_textures_per_shader_stage`). Tests: `src/device/tests.rs` (the request
+negotiated against adapters with and without `FLOAT32_FILTERABLE`, the limits the
+device gets, and an `R32Float` view bound to a filterable binding with a linear
+sampler on the engine device) and `src/device/storage_images_tests.rs` (the
+storage-image limit asked of adapters offering 32, 16, 8 and 4, the count granted
+through the negotiation for 4 to 2^20 and the refusal for 0 to 3, a kernel of seven
+storage images over seven mips of one texture prepared on a no-op device made with
+the request, and refused by name where the adapter offers four).
 
 ## Texture upload tiers
 

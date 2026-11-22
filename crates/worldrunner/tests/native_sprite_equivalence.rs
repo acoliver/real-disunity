@@ -177,7 +177,7 @@ fn add_camera(world: &mut World) {
 fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
     use worldrunner::simulation::{
         ParentSpace,
-        ui::{Canvas, FontBook, RectTransform, TextRun},
+        ui::{Canvas, CanvasMode, FontBook, RectTransform, TextRun},
     };
     let canvas = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -187,7 +187,13 @@ fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let label = world.create_object(ObjectDesc::default()).unwrap();
     world

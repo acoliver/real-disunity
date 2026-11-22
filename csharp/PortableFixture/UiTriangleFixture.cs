@@ -9,7 +9,9 @@ internal static class UiTriangleFixture
     {
         var root = DisunityHost.CreateGameObject();
         var canvas = root.AddComponent<RectTransform>();
-        root.AddComponent<Canvas>().sortingOrder = -3;
+        var screen = root.AddComponent<Canvas>();
+        screen.renderMode = RenderMode.ScreenSpaceOverlay;
+        screen.sortingOrder = -3;
         var rect = DisunityHost.CreateGameObject().AddComponent<RectTransform>();
         rect.SetParent(canvas, false);
         rect.sizeDelta = new Vector2(32, 32);

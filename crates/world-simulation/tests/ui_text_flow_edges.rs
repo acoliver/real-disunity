@@ -140,7 +140,13 @@ fn measured_paragraph_height_sizes_and_scrolls_the_existing_content_rectangle() 
         )
         .unwrap();
     world
-        .add_component(viewport, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            viewport,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let content = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -185,6 +191,7 @@ fn pixel_perfect_text() -> (World, worldrunner_world_simulation::ObjectHandle, F
             root,
             ComponentDesc::Canvas(Canvas {
                 pixel_perfect: true,
+                mode: CanvasMode::ScreenSpaceOverlay,
                 ..Canvas::default()
             }),
         )

@@ -1,6 +1,8 @@
 use worldrunner_render_gpu::census::{ResourceClass, Tracked};
 use worldrunner_render_program::runtime::ImportTable;
 
+use crate::object::prepared::LentMaterial;
+
 use super::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
     GpuLod, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle,
@@ -155,7 +157,10 @@ pub(super) fn upload_materials(
         records.assign(&mut bytes);
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
-        tables.push(material_imports(&inputs, material, &uniform, sampler));
+        tables.push(LentMaterial {
+            table: material_imports(&inputs, material, &uniform, sampler),
+            uniform: bytes,
+        });
         uniforms.push(uniform);
     }
     (uniforms, tables, records)
@@ -165,7 +170,7 @@ pub(super) fn upload_materials(
 /// index.
 pub(super) type MaterialUpload = (
     Vec<Buffer>,
-    Vec<ImportTable>,
+    Vec<LentMaterial>,
     crate::gbuffer::records::LightingRecordTable,
 );
 

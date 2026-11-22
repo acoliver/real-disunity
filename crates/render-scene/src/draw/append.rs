@@ -19,6 +19,7 @@ use super::resources::{GroupInputs, material_imports, table_index, upload_textur
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::instances::skin::{SkinNeed, skin_needs};
+use crate::object::prepared::LentMaterial;
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
 use crate::upload::{upload_buffer, upload_texture};
@@ -701,10 +702,7 @@ fn new_material_uploads(
         &mut crate::gbuffer::records::LightingRecordTable,
     ),
     materials: &[worldrunner_render_plan::SceneMaterial],
-) -> (
-    Vec<wgpu::Buffer>,
-    Vec<worldrunner_render_program::runtime::ImportTable>,
-) {
+) -> (Vec<wgpu::Buffer>, Vec<LentMaterial>) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
@@ -713,7 +711,10 @@ fn new_material_uploads(
         records.assign(&mut bytes);
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
-        tables.push(material_imports(inputs, material, &uniform, sampler));
+        tables.push(LentMaterial {
+            table: material_imports(inputs, material, &uniform, sampler),
+            uniform: bytes,
+        });
         uniforms.push(uniform);
     }
     (uniforms, tables)

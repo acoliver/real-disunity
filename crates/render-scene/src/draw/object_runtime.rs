@@ -10,7 +10,8 @@
 //! A sink holds the walk's draws and records them grouped by pipeline and material: a batch is
 //! one mesh in one material, so the walk alternates materials as it moves from mesh to mesh, and
 //! each change binds a material group that wgpu validates texture by texture. Grouped, a pass
-//! binds each material once. The objects of a pass are opaque or masked, drawn with depth tests
+//! binds each material once, and a caster pass binds one group for the materials its stages read
+//! alike ([`PreparedObjects::recorded_as`]). The objects of a pass are opaque or masked, drawn with depth tests
 //! and without blending, so only the winner of an exact depth tie between two draws depends on
 //! the order. Levels share
 //! the chunks of buffers their upload packed them into (see [`super::mesh_arena`]), so the draws
@@ -363,7 +364,12 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
         self.recorder.pass.named.indices = true;
     }
 
-    fn draw(&mut self, draw: Draw) {
+    fn draw(&mut self, mut draw: Draw) {
+        let recorded =
+            self.recorder
+                .objects
+                .recorded_as(self.recorder.context, draw.pipeline, draw.material);
+        (draw.pipeline, draw.material) = recorded;
         let names = &self.names;
         let instances = names.current_instances.expect("a draw names its instances");
         let vertices = names.vertices.expect("a draw names its vertices");

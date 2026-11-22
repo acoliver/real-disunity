@@ -39,6 +39,13 @@ internal static class ShaderTagTests
         Expect.Equal("Transparent", material.GetTag("RenderType", false, "fallback"), "the material's override wins over the shader's value");
         material.SetOverrideTag("RenderType", "");
         Expect.Equal("Opaque", material.GetTag("RenderType", false, "fallback"), "removing the override shows the shader's value again");
+        material.SetOverrideTag("renderTYPE", "Overlay");
+        Expect.Equal("Overlay", material.GetTag("RenderType", false, "fallback"), "an override name matches in any case, as a shader's tag name does");
+        material.SetOverrideTag("RENDERTYPE", "");
+        Expect.Equal("Opaque", material.GetTag("RenderType", false, "fallback"), "an empty value in another case removes the override");
+        material.SetOverrideTag("queue", "Overlay");
+        Expect.Equal("Overlay", material.GetTag("QUEUE", false, "fallback"), "an override set in lower case is read in upper case");
+        material.SetOverrideTag("QUEUE", "");
         var copy = new Material(material);
         Expect.Equal("True", copy.GetTag("MohawkStaticBatching", false, ""), "a copied material reads the same shader's tag");
     }

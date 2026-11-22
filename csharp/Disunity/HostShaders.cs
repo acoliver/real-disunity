@@ -38,8 +38,9 @@ public static partial class DisunityHost
             var shader = RegisterShader(name);
             if (file is not null && shader.SourceFile is null) shader.SetSource(file, pathId);
             if (shader.Agrees(declaration)) return shader.Declare(declaration);
-            var tags = declaration.Tags is null ? "unknown" : string.Join(", ", declaration.Tags.Select(tag => $"{tag.Key}={tag.Value}"));
-            difference($"shader {name}: declared again as queue {declaration.RenderQueue}, {declaration.PassNames.Count} passes ({string.Join(", ", declaration.PassNames)}), {declaration.SubshaderCount} sub-shaders, tags ({tags}) and fallback '{declaration.Fallback ?? "unknown"}', which differs from its first declaration (tags {shader.DescribeTags()}); the first stays");
+            difference($"shader {name}: declared again as queue {declaration.RenderQueue}, {declaration.PassNames.Count} passes "
+                + $"({string.Join(", ", declaration.PassNames)}), {declaration.SubshaderCount} sub-shaders, tags ({Shader.FormatTags(declaration.Tags)}) "
+                + $"and fallback '{declaration.Fallback ?? "unknown"}', which differs from its first declaration (tags {shader.DescribeTags()}); the first stays");
             return shader;
         }
     }

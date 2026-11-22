@@ -152,6 +152,9 @@ internal static unsafe class CommandBufferGlobalReviewTests
         Expect.That(read.texture == id, $"the state keeps the id of the destroyed texture: kind={read.texture_kind} texture={read.texture} was {id}");
         CommandWireReader.AppendMarker();
         CommandWireReader.Take();
+        // The world keeps the destroyed texture's id in this global; later suites expect a world with no unsent texture.
+        Shader.SetGlobalTexture("_RvDead", (Texture?)null);
+        CommandWireReader.Take();
     }
 
     private static void AReleasedRenderTextureStaysTheGlobal()

@@ -98,8 +98,9 @@ internal static unsafe class GlobalArrayTests
     /// <summary>Records a command so the frame has work, which makes the next snapshot carry the global state.</summary>
     private static void Trigger() => CommandWireReader.AppendMarker();
 
-    /// <summary>Drops the ordered copies of the global writes made so far. The world orders a direct write ahead of the next record,
-    /// so a check of the global state alone settles first; the ordered copies are checked on their own.</summary>
+    /// <summary>Ends the take the global writes so far belong to. The world orders a direct write among the take's records and
+    /// replays the take from the state before its first write, so a check of the global state alone settles first and the next take
+    /// starts from a state that holds the values; the ordered copies are checked on their own.</summary>
     private static void Settle() => CommandWireReader.Take();
 
     /// <summary>The native snapshot of the frame, which also drains the frame's work.</summary>
@@ -137,8 +138,8 @@ internal static unsafe class GlobalArrayTests
         Shader.SetGlobalMatrixArray("_GaMat", matrices);
         Trigger();
         var snapshot = Snapshot();
-        Ensure(Count(snapshot, VectorEntry("_GaVec", vectors)) == 2, "the vectors sit in the global state in element order and again in the ordered work");
-        Ensure(Count(snapshot, MatrixEntry("_GaMat", matrices)) == 2, "the matrices sit in the global state column by column and again in the ordered work");
+        Ensure(Count(snapshot, VectorEntry("_GaVec", vectors)) == 1, "the vectors reach the world once, in element order, as ordered work: the replay starts from the state before the write");
+        Ensure(Count(snapshot, MatrixEntry("_GaMat", matrices)) == 1, "the matrices reach the world once, column by column, as ordered work");
         Ensure(InWork(snapshot, VectorEntry("_GaVec", vectors), 5) && InWork(snapshot, MatrixEntry("_GaMat", matrices), 6), "a static setter's value is ordered ahead of the next record");
         var rowMajor = Entry("_GaMat", matrices.Select(m => Enumerable.Range(0, 16).Select(i => m[i / 4, i % 4]).ToArray()));
         Ensure(Count(snapshot, rowMajor) == 0, "the transposed order is not what the world holds");

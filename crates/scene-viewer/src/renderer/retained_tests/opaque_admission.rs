@@ -87,10 +87,9 @@ fn refused_resident_route_change_precedes_effects_and_scheduler_mutation() {
         width: 64,
         height: 64,
     };
-    let mut presentation = super::super::Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        size,
         size,
         profile(),
         source.effects(),

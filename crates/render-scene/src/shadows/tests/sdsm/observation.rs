@@ -80,7 +80,13 @@ fn gpu_depth_fitted_frame_renders_with_the_gbuffer_observation() {
         .unwrap();
         crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
         renderer
-            .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                (&color, &depth),
+                (Some(3), false, &[]),
+                &mut frame,
+            )
             .unwrap_or_else(|error| panic!("{adoption:?}: {error:?}"));
         crate::scene_metadata::EXECUTED_PASSES.with_borrow(|passes| {
             assert_eq!(

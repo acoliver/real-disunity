@@ -61,6 +61,7 @@ impl World {
         for &object in &live {
             self.spatial_touch(object);
         }
+        self.note_drawables_changed();
         self.mark_below_unsettled(&live);
         self.refresh_lifecycle(&live, construction.0);
         Ok(())

@@ -22,6 +22,7 @@ mod shared;
 pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
+mod ui_targets;
 mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
@@ -280,6 +281,13 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // The offer comes first: capture preparation refuses what a screen frame cannot supply,
         // and it does so before the frame takes the host's queued operations.
+        if let Some(host) = host.as_deref() {
+            self.streaming.ui.offer(
+                &self.context,
+                (&mut self.resident, &mut self.presentation),
+                &host.ui_targets,
+            )?;
+        }
         self.game_screen
             .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
         let capture::HostCapture {
@@ -599,17 +607,10 @@ impl Resident {
         if scene.depth_fitting_settings().is_none() {
             return Ok(false);
         }
-        let color = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene color"),
-            targets.color.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        let depth = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene depth"),
-            targets.depth.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        scheduler.render_depth_fitted_terms(context, view, (&color, &depth), frame, scene)?;
+        let (color, depth) = targets
+            .scene_attachments()
+            .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        scheduler.render_depth_fitted(context, view, (color, depth), frame, scene)?;
         Ok(true)
     }
     fn render(
@@ -620,26 +621,19 @@ impl Resident {
         encoder: &mut wgpu::CommandEncoder,
         mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
     ) -> Result<(), ViewerError> {
-        let color = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene color"),
-            targets.color.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        let depth = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene depth"),
-            targets.depth.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        let (color, depth) = targets
+            .scene_attachments()
+            .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
         match self {
             Resident::Shadowed(renderer) => {
-                scheduler.encode_shadowed(context, view, (&color, &depth), encoder, renderer)?;
+                scheduler.encode_shadowed(context, view, (color, depth), encoder, renderer)?;
             }
             Resident::Plain(plain) => {
                 scheduler.encode_scene(
                     context.device(),
                     encoder,
                     (&mut plain.gpu, &plain.pipelines),
-                    (&color, &depth),
+                    (color, depth),
                     FrameUniform::new(view, plain.effects.as_ref())?,
                 )?;
             }

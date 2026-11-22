@@ -15,6 +15,10 @@ use worldrunner_render_plan::{
     TerrainLayeredSource, TerrainLodPolicy, TerrainSplatFilter, TerrainTypeGrid, TexelFormat,
     TextureAnisotropy, TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -28,11 +32,6 @@ use worldrunner_render_scene::{
         TargetDeclaration, TargetExtent, TerrainMaterialArrayError, TerrainMaterialChannel,
     },
     draw::{PreparedAppend, SceneGpu},
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
     frame::FrameUniform,
     wgpu,
 };

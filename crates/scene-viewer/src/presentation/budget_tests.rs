@@ -182,7 +182,7 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         width: 8,
         height: 8,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
@@ -234,13 +234,11 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         capture_pool: crate::CapturePoolPolicy::default(),
         recipes: false,
     };
-    assert!(
-        matches!(Presentation::with_settings(&context, COLOR, [size, size],
+    assert!(matches!(Presentation::new(&context, COLOR, [size, size],
         crate::FrameProfile::Legacy, None, &policy),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget: 1 }))
-            if required > 1)
-    );
-    let mut presentation = Presentation::with_settings(
+            if required > 1));
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],

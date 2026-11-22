@@ -34,6 +34,7 @@ use crate::renderer::ScenePipelines;
 
 mod casters;
 mod gather;
+mod grid;
 pub(in crate::object) mod prepass;
 pub(in crate::object) mod scenes;
 mod shadow;

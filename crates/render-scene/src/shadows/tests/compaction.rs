@@ -26,7 +26,8 @@ fn gpu_cascade_draw_counts_follow_groups_not_ranges() {
         .set_instance_visible(hidden, false)
         .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let counts = renderer.scene_mut().statistics().passes.shadow_cascades;
     let mut split = false;
     for (index, count) in counts.iter().enumerate() {

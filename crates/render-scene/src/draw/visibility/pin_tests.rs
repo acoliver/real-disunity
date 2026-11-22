@@ -4,7 +4,7 @@
 //! The equality tests compare the tree walk with a full scan. These tests pin the selected
 //! ranges, their order and the statistics themselves, so a change that alters any of them
 //! fails even if it altered the scan reference the same way.
-use super::large_scene::{FrameViews, slice_hull, walk, world};
+use super::large_scene::{FrameViews, slice_hull, views as view_from, walk, world};
 use super::*;
 
 /// FNV-1a over 64-bit words, so a digest stays the same on every platform and toolchain.
@@ -74,23 +74,26 @@ fn frame_selections(
     selections
 }
 
-/// Selects every view of the frame together, as the renderer does.
+/// Selects every view of the frame together, as the renderer does, on up to `threads` threads.
 fn select_frame(
     instances: &Instances,
     meshes: &[MeshSelection],
     views: &FrameViews,
+    threads: usize,
 ) -> Vec<Selection> {
     let mut selections = frame_selections(instances, meshes, views);
     with_placements(
         instances,
         meshes,
         (views.eye_millimeters, views.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             placements.select_each(
                 &mut selections
                     .iter_mut()
                     .map(|(matrix, selection)| (*matrix, selection))
                     .collect::<Vec<_>>(),
+                threads,
             );
         },
     );
@@ -125,7 +128,7 @@ fn walking_still_and_returning_cameras_select_the_pinned_ranges() {
     let mut digests = Vec::new();
     let mut counts = Vec::new();
     for frame in FRAMES {
-        let selections = select_frame(&instances, &meshes, &walk(frame));
+        let selections = select_frame(&instances, &meshes, &walk(frame), 4);
         digests.push(digest_of(&selections));
         counts.push(
             selections
@@ -195,4 +198,136 @@ fn one_pass_stamp_equals_the_separate_reads_as_placements_change() {
     instances.remove(handle).unwrap();
     check(&instances);
     assert!(!check(&Instances::new(&super::tests::scene())).skinned);
+}
+
+fn mesh_selections(source: &worldrunner_render_plan::RenderScene) -> Vec<MeshSelection> {
+    source
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect()
+}
+
+/// The frame's selections on each count of threads, which must all equal those on one.
+fn assert_threads_agree(instances: &Instances, meshes: &[MeshSelection], views: &FrameViews) {
+    let alone = select_frame(instances, meshes, views, 1);
+    for threads in [2, 3, 4, 8] {
+        let together = select_frame(instances, meshes, views, threads);
+        assert_eq!(
+            digest_of(&together),
+            digest_of(&alone),
+            "{threads} threads select what one does"
+        );
+        for (together, alone) in together.iter().zip(&alone) {
+            assert_eq!(together.stats, alone.stats, "{threads} threads");
+            let ranges = |selection: &Selection| {
+                selection
+                    .ranges
+                    .iter()
+                    .map(|range| (range.key, range.lod, range.slots.clone()))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(ranges(together), ranges(alone), "{threads} threads");
+        }
+    }
+}
+
+#[test]
+fn every_count_of_threads_selects_the_same_over_moving_eyes_and_edits() {
+    let source = world(8_000, 12, 5);
+    let mut instances = Instances::new(&source);
+    let meshes = mesh_selections(&source);
+    assert!(
+        instances.edits() >= 6_000,
+        "enough to give eight threads chunks"
+    );
+    let handles: Vec<_> = instances.handles().collect();
+    for frame in [0, 1, 2, 9, 40] {
+        assert_threads_agree(&instances, &meshes, &walk(frame));
+    }
+    for (index, &handle) in handles.iter().enumerate() {
+        let (object, _) = instances.get(handle).unwrap();
+        match index % 50 {
+            0..=3 => {
+                let mut moved = *object.transform();
+                moved.position_millimeters[1] -= 25_000;
+                instances.set_transform(handle, moved).unwrap();
+            }
+            10 => {
+                instances.remove(handle).unwrap();
+                instances.add(object, true).unwrap();
+            }
+            20 | 21 => instances.remove(handle).unwrap(),
+            _ => {}
+        }
+    }
+    for frame in [0, 3, 3, 41] {
+        assert_threads_agree(&instances, &meshes, &walk(frame));
+    }
+}
+
+#[test]
+fn views_that_admit_nothing_or_scenes_without_placements_select_nothing_on_any_threads() {
+    let source = world(6_000, 8, 11);
+    let mut instances = Instances::new(&source);
+    let meshes = mesh_selections(&source);
+    let frame = walk(4);
+    // Views far from every placement beside one that sees many, and no view at all.
+    let away = view_from(Vec3::new(20_000.0, 20_000.0, 2.0), 0.4, -0.05).camera;
+    for threads in [1, 3, 8] {
+        let mut selections = [
+            (frame.camera, Selection::default()),
+            (away, Selection::default()),
+            (
+                away,
+                Selection {
+                    casters_only: true,
+                    ..Selection::default()
+                },
+            ),
+        ];
+        with_placements(
+            &instances,
+            &meshes,
+            (frame.eye_millimeters, frame.fade_eye),
+            &std::cell::RefCell::default(),
+            |placements| {
+                placements.select_each(&mut [], threads);
+                placements.select_each(
+                    &mut selections
+                        .iter_mut()
+                        .map(|(matrix, selection)| (*matrix, selection))
+                        .collect::<Vec<_>>(),
+                    threads,
+                );
+            },
+        );
+        assert!(!selections[0].1.ranges.is_empty());
+        for (_, selection) in &selections[1..] {
+            assert!(selection.ranges.is_empty(), "{threads} threads");
+            assert_eq!(selection.stats.considered, selections[0].1.stats.considered);
+            assert_eq!(selection.stats.culled, selection.stats.considered);
+            assert!(
+                selection
+                    .stats
+                    .drawn_per_lod
+                    .iter()
+                    .all(|&drawn| drawn == 0)
+            );
+        }
+    }
+    let handles: Vec<_> = instances.handles().collect();
+    for handle in handles {
+        instances.remove(handle).unwrap();
+    }
+    for threads in [1, 8] {
+        let emptied = select_frame(&instances, &meshes, &frame, threads);
+        assert_eq!(emptied.len(), 6);
+        for selection in &emptied {
+            assert!(selection.ranges.is_empty());
+            assert_eq!(selection.stats.considered, 0);
+            assert_eq!(selection.stats.culled, 0);
+        }
+    }
 }

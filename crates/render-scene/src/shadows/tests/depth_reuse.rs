@@ -247,13 +247,7 @@ fn capture(
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode_with(
-            context,
-            view,
-            (&color, &depth),
-            &mut encoder,
-            Some(&mut frame),
-        )
+        .encode_with(context, view, (&color, &depth), &mut encoder, &mut frame)
         .unwrap();
     assert_eq!(
         frame.forward_depth(&renderer.gpu, &depth),

@@ -140,9 +140,10 @@ impl SceneGpu {
     }
 
     /// Builds the selection of every view in `views` whose inputs changed since it was last
-    /// built, one view per thread. The views read the same placements and fill a shared memo
-    /// of each placement's level for the frame's eye, and each writes only its own selection,
-    /// so their results do not depend on one another or on the order they run in.
+    /// built, on as many of `selection_threads` as the work is worth. The views read the same
+    /// placements and fill a shared memo of each placement's level for the frame's eye, and each
+    /// writes only its own selection, so their results do not depend on one another or on the
+    /// order they run in.
     pub(super) fn select_views(&self, views: &[Option<(u32, glam::Mat4)>], frame: &FrameUniform) {
         let mut jobs: Vec<(usize, Key, glam::Mat4, Selection)> = Vec::new();
         for &shadow_matrix in views {
@@ -182,13 +183,14 @@ impl SceneGpu {
             &self.instances,
             &self.mesh_selection,
             (frame.camera_position_millimeters, frame.camera_position),
+            &self.placement_rows,
             |placements| {
-                placements.select_each(
-                    &mut jobs
-                        .iter_mut()
-                        .map(|(_, _, matrix, selection)| (*matrix, selection))
-                        .collect::<Vec<_>>(),
-                );
+                let mut views: Vec<_> = jobs
+                    .iter_mut()
+                    .map(|(_, _, matrix, selection)| (*matrix, selection))
+                    .collect();
+                let threads = placements.threads_for(views.len(), self.selection_threads);
+                placements.select_each(&mut views, threads);
             },
         );
         for (index, key, _, selection) in jobs {

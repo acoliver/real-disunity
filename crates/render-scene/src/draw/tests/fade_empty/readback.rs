@@ -190,8 +190,11 @@ pub(super) fn capture(
                 .total()
         } else {
             let mut sink = PreparedSink::new(&mut pass, &gpu.objects, forward.object_context());
-            gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
-                .total()
+            let total = gpu
+                .record_selection(&mut sink, (None, &frame), &selected.ranges)
+                .total();
+            sink.finish();
+            total
         }
     };
     let buffers: Vec<_> = colors

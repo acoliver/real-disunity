@@ -1,6 +1,6 @@
 # Native UI layout and text
 
-Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation` and `worldrunner-render-plan`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::plan::ui`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function; `render_plan::ui` re-exports them. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
+Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::contribution`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
 
 ## Layout contract
 
@@ -426,7 +426,7 @@ Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<Te
 ## Immediate overlay lists and atlas-free measurement
 
 `ui::draw_list` owns the immediate CPU API, re-exported through `ui` and
-`render_plan::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
+`worldrunner_world_simulation::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
 layout-local Y-up text coordinates. `UiDrawList` converts once into the existing
 `UiDraw` BL/BR/TR/TL lower-left geometry. It borrows the existing `FontBook`;
 finished presentations retain only owned/shared resources. See the
@@ -548,7 +548,7 @@ the existing overlay graphics path. A real-window reading check remains pending.
 
 ## UI contributions
 
-`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+`worldrunner_world_simulation::ui::contribution::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
 Retained 3D hosts accept overlay text and screen-space graphics through
 `render_scene::simulation::UiOverlay` and `scene_viewer::RetainedUpdate::Ui`.
@@ -556,6 +556,32 @@ Retained 3D hosts accept overlay text and screen-space graphics through
 hierarchy key and clip bounds. Solid and translucent quads and triangles need no texture;
 `UiOverlay::with_textures` resolves image texture identities from an explicitly
 supplied `SceneTexture` map. Unresolved identities return an error.
+
+What a graphic or text draw samples is a `ui::UiTexture`: `Image` is the renderer
+identity of a stored texture, `Coverage` keys `UiPresentation::coverage` and belongs to text
+only, and `Target` is a world `RenderTextureId`. `CanvasRenderer::graphic_texture` is an
+`Image` or a `Target` (`disunity_canvas_renderer_texture_write` takes the kind and refuses a
+render texture the world does not hold), and `UiDraw::validate` states the pairing once: a
+graphic names an image or a target, text names coverage. `extract_graphics` keeps a
+graphic whose target was destroyed since the write, with the target id, so the player decides
+what it shows. Sprite quads (`append_graphics`) sample stored images only and leave a target
+graphic to the overlay.
+
+A draw over `UiTexture::Target` takes a slot in `UiOverlay` (`UiOverlay::targets` lists the
+render textures in slot order, numbered after the overlay's own textures) and samples with `v`
+turned over, because a render texture's first row is its bottom. The player answers for each
+target the draws read: `OffscreenHost::render_texture_for_ui` gives the device texture and
+whether a frame it built wrote it, `PlayerGpu::ui_offers` pairs that with the sampler the world
+holds, and `PlayerUi::offer_targets` keeps the draws it can show (a texture not yet written
+stays, drawing transparent) and leaves out the rest once each with the reason (`destroyed`, or
+the `UiTargetRefusal` name). `RetainedHost::show_ui_textures` takes the resulting `UiTarget`s and
+the renderer stages the overlay again when a texture it reads changes. The overlay samples the
+texture after the frame's own offscreen operations in the same submission. A read also counts as
+naming the texture for storage reclaiming, so a texture the UI shows is the last one given back.
+`render-scene/src/compositor/overlay_target_gpu_tests.rs` checks orientation and sRGB against a
+stored image on a real adapter, `retained::windowless::tests::ui_target` the viewer, and
+`play`'s `retained_driver::screen_tests` plays a script that clears a render texture under a
+canvas quad.
 
 `SceneGpu` owns the dynamic resources. The existing compositor blends text and
 graphics together over the display output after all scene post-processing, in
@@ -626,7 +652,7 @@ The optional rasterizer is `ab_glyph` 0.2.32, licensed Apache-2.0. Its font stac
 ## Scene annotations
 
 `worldrunner_world_simulation::ui::annotations` (also re-exported through
-`worldrunner_render_plan::ui::annotations`) supplies
+`worldrunner_world_simulation::ui::annotations`) supplies
 `AnnotationPrimitive::{Line, Arrow, Circle, Label}`. Each `Annotation` carries the
 same ascending `(layer, order, hierarchy)` tuple as ordinary UI and an optional
 lower-left physical-pixel `[x, y, width, height]` scissor. `Circle` uses `None`

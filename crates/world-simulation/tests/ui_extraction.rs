@@ -4,8 +4,8 @@
 fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() {
     use glam::{DVec3, Vec2};
     use worldrunner_camera::{CameraLens, CameraPose, CameraState, ViewConvention, Viewport};
-    use worldrunner_render_plan::ui::{UiPresentation, annotations::*};
     use worldrunner_world_simulation::ui::TextRun;
+    use worldrunner_world_simulation::ui::{annotations::*, presentation::UiPresentation};
     let view = worldrunner_camera::resolve(&CameraState {
         pose: CameraPose {
             eye_meters: DVec3::Z * 5.,
@@ -47,33 +47,13 @@ fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() 
     assert_eq!(frame.coverage.keys().copied().collect::<Vec<_>>(), [0, 1]);
     assert_eq!(
         frame.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
-        [Some(0), Some(1)]
+        [Some(UiTexture::Coverage(0)), Some(UiTexture::Coverage(1))]
     );
     let before = frame.clone();
     let mut oversized = frame.clone();
     oversized.draws = vec![frame.draws[0].clone(); 10923];
     assert!(frame.append(oversized).is_err());
     assert_eq!(frame, before);
-}
-
-#[test]
-fn ui_contribution_types_are_owned_by_world_simulation() {
-    use std::any::TypeId;
-    use worldrunner_render_plan::ui as plan;
-    use worldrunner_world_simulation::ui::contribution as native;
-
-    assert_eq!(
-        TypeId::of::<plan::UiGlyphQuad>(),
-        TypeId::of::<native::UiGlyphQuad>()
-    );
-    assert_eq!(
-        TypeId::of::<plan::UiTextContribution>(),
-        TypeId::of::<native::UiTextContribution>()
-    );
-    assert_eq!(
-        TypeId::of::<plan::UiRenderPlan>(),
-        TypeId::of::<native::UiRenderPlan>()
-    );
 }
 
 #[test]
@@ -200,8 +180,8 @@ fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
     );
 }
 
-use worldrunner_render_plan::ui::extract_ui;
-use worldrunner_world_simulation::ui::{Canvas, FontBook, RectTransform, UiLimits};
+use worldrunner_world_simulation::ui::contribution::extract_ui;
+use worldrunner_world_simulation::ui::{Canvas, FontBook, RectTransform, UiLimits, UiTexture};
 use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, World, WorldSettings};
 
 #[test]
@@ -231,7 +211,7 @@ fn ui_extraction_is_pathless_and_omits_inactive_rectangles() {
 mod pixel_perfect {
     use super::test_font;
     use glam::{Vec2, Vec3};
-    use worldrunner_render_plan::ui::extract_ui;
+    use worldrunner_world_simulation::ui::contribution::extract_ui;
     use worldrunner_world_simulation::ui::{
         Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits,
     };

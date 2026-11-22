@@ -4,8 +4,8 @@ namespace UnityEngine;
 
 /// <summary>
 /// The HDR output state of a display. The engine has one display with no HDR output: <see cref="available"/> and
-/// <see cref="active"/> are false, <see cref="RequestHDRModeChange"/> changes nothing (the engine's choice) and the
-/// luminance range is unreported (0). <see cref="automaticHDRTonemapping"/> and <see cref="paperWhiteNits"/> are stored.
+/// <see cref="active"/> are false, <see cref="RequestHDRModeChange"/> leaves them false because the display cannot enter an HDR
+/// mode, and the luminance range is 0 because the display reports none. <see cref="automaticHDRTonemapping"/> and <see cref="paperWhiteNits"/> are stored.
 /// </summary>
 public sealed class HDROutputSettings
 {
@@ -27,6 +27,7 @@ public sealed class HDROutputSettings
     public GraphicsFormat graphicsFormat => GraphicsFormat.R8G8B8A8_UNorm;
     public GraphicsFormat format => graphicsFormat;
 
-    /// <summary>Accepted and ignored: the display cannot output HDR.</summary>
+    /// <summary>The display cannot output HDR, so a request in either direction leaves <see cref="active"/> and
+    /// <see cref="HDRModeChangeRequested"/> false.</summary>
     public void RequestHDRModeChange(bool enabled) { }
 }

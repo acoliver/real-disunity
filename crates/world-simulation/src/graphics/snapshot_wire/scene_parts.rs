@@ -228,6 +228,8 @@ wire_struct!(GraphicsSnapshot {
     cameras,
     lights,
     renderers,
+    renderer_sets,
+    record_sets,
     compute_shaders,
     compute_buffers
 });

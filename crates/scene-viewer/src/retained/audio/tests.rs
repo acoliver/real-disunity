@@ -12,7 +12,7 @@ fn unopened_and_failed_devices_reject_playback_and_report_status() {
         AudioUnavailable::UnsupportedConfig,
     ] {
         let status = AudioStatus::Unavailable(reason);
-        let failure = audio.start_device_with(|_| Err((reason, "injected device failure".into())));
+        let failure = audio.start_device(|_| Err((reason, "injected device failure".into())));
         assert!(matches!(failure, Err(AudioServiceError::Unavailable(found)) if found == status));
         assert_eq!(audio.device_error(), Some("injected device failure"));
         assert_eq!(audio.status(), status);
@@ -66,7 +66,7 @@ fn completion_waits_for_callback_consumption_and_retains_voice_capacity() {
     ));
     assert_eq!(audio.take_event(), None);
     assert!(matches!(
-        audio.start_device_with(|_| panic!("device startup must not be attempted")),
+        audio.start_device(|_| panic!("device startup must not be attempted")),
         Err(AudioServiceError::Busy)
     ));
     ring.push(&[[0.0; 2]]);
@@ -83,7 +83,7 @@ fn null_sink_carries_fractional_frames_and_cannot_open_a_device() {
     audio.null_device();
     assert!(
         audio
-            .start_device_with(|_| panic!("device startup must not be attempted"))
+            .start_device(|_| panic!("device startup must not be attempted"))
             .is_err()
     );
     let clip = audio.load_wav(&clip()).unwrap();

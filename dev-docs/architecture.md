@@ -41,10 +41,10 @@ For a Rust game:
 
 1. The game pushes timestamped input into the `World` and calls `World::advance(elapsed)`.
 2. The world admits whole fixed steps, then runs lifecycle work, fixed updates, physics, contacts, the dynamic update, coroutines, the host's delayed tasks, late update and end-of-frame cleanup in a fixed order ([frame advancement](simulation/advancement.md#dispatch-contract)). The delayed-tasks callback runs only when the host registered one with `set_delayed_tasks`; managed hosts use it for main-thread work such as completing `ResourceRequest`s. With no scripts attached, `advance` returns `Advance::Complete` directly.
-3. `render_plan::simulation::extract_world` reads sprites, tiles and the camera into a `WorldRenderPlan`, and `extract_ui` adds UI glyphs. Native XY geometry becomes scene XZ coordinates here, once.
+3. `world_simulation::presentation::extraction::extract_world` reads sprites, tiles and the camera into a `WorldRenderPlan`, and `extract_ui` adds UI glyphs. Native XY geometry becomes scene XZ coordinates here, once.
 4. `render-scene` prepares the plan as a dynamic contribution, and `scene-viewer` presents it, or `render-scene` captures it offscreen.
 
-For C# scripts, step 2 is driven through the ABI. `DisunityHost::advance` calls `disunity_world_advance`. Each time a script must run, the world returns one callback work item. The host releases the ABI call, invokes the managed method, then calls `disunity_world_resume` with the outcome. Managed code never scans for ready scripts itself. Step 3 runs inside the native library through `export_presentation`, and the result is passed to `render_plan::simulation::from_presentation`.
+For C# scripts, step 2 is driven through the ABI. `DisunityHost::advance` calls `disunity_world_advance`. Each time a script must run, the world returns one callback work item. The host releases the ABI call, invokes the managed method, then calls `disunity_world_resume` with the outcome. Managed code never scans for ready scripts itself. Step 3 runs inside the native library through `export_presentation`, and the result is passed to `WorldSceneContribution::new` with the application's sprite textures.
 
 The C# side and the Rust host load the same `disunity-ffi` dynamic library. `disunity-runtime` never links the FFI crate statically, so both sides see one object table.
 

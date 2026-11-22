@@ -140,7 +140,7 @@ fn each_output_of_a_shader_reaches_its_own_texture_and_the_depth_reaches_another
     halves(&images[2], BLUE, CLEAR, "output 2");
     let depth = depths(&images[3]);
     for (index, value) in depth.iter().enumerate() {
-        let expected = if index % 8 < 4 { QUAD_DEPTH } else { 1.0 };
+        let expected = if index % 8 < 4 { QUAD_DEPTH } else { 0.0 };
         assert_eq!(value.to_bits(), expected.to_bits(), "depth texel {index}");
     }
 }

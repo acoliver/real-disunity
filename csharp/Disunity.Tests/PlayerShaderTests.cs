@@ -41,7 +41,7 @@ internal static class PlayerShaderTests
     private static JsonObject Declared(string name, int queue, string[] passNames, int subshaders) => new()
     {
         ["type"] = "Shader", ["name"] = name, ["render_queue"] = queue, ["pass_count"] = passNames.Length,
-        ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders,
+        ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders, ["tags"] = new JsonArray(), ["fallback"] = "",
     };
 
     private static JsonObject Inconsistent()

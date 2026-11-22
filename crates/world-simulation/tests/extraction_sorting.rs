@@ -1,5 +1,4 @@
-#![cfg(feature = "simulation")]
-use worldrunner_render_plan::simulation::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::{
     ComponentDesc, ObjectDesc, World, WorldSettings,
     presentation::{Sprite, SpriteRenderer},
@@ -41,7 +40,7 @@ fn sorting_is_layer_then_order_with_submission_ties_and_inactive_exclusion() {
             )
             .unwrap();
     }
-    let plan = extract_world(&world, &SpriteTextures::default(), [10, 10]).unwrap();
+    let plan = extract_world(&world, [10, 10]).unwrap();
     assert_eq!(
         plan.quads.iter().map(|q| q.texture).collect::<Vec<_>>(),
         [Some(4), Some(2), Some(3), Some(1)]

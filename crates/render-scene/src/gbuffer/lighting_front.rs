@@ -108,19 +108,3 @@ pub(super) fn source(object: &str) -> String {
         displacement()
     )
 }
-
-#[cfg(test)]
-pub(super) fn cascade_with_hardware_differences(composed: &str) -> String {
-    let mut original = composed.to_owned();
-    for (axis, (hardware, direction)) in ["x", "y"].into_iter().zip(AXES) {
-        original = original
-            .replace(
-                &format!(
-                    "let front_d{axis} = scene_front_receiver_delta({hardware}, {direction});\n    "
-                ),
-                "",
-            )
-            .replace(&format!("front_d{axis}"), hardware);
-    }
-    original
-}

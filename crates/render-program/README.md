@@ -692,7 +692,7 @@ FrameEncoding::encode_scene(..)                    encodes the operations with t
 frame.finish().submit()                            the frame's one submission
 ```
 
-`render-scene`'s `encode_scene` already calls `FrameRenderer::encode_frame` after it has encoded other preparation work into the same encoder (terrain geometry, sky, terrain pages).
+`render-scene`'s `FrameEncoding::encode_scene` already calls `FrameRenderer::encode_frame` after it has encoded other preparation work into the same encoder (terrain geometry, sky, terrain pages).
 The offscreen operations are encoded in the same place, before the stock operations.
 The pass timer lives in the post chain (`TimingState`), so the contract gets one entry point that encodes a compiled list with the frame's timer (`TimingState::encode_checked`).
 The passes then appear in `FrameTiming::passes` as `PassId::Operation`.

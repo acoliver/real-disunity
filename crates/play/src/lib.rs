@@ -46,12 +46,11 @@ mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
 pub use gpu_device::compute_census;
-pub use gpu_player::{GpuWorkReport, PlayerGpu};
+pub use gpu_player::{GpuLaunch, GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
-pub use offscreen::{DepthRange, REVERSED_DEPTH_ENV, SuppliedGlobal};
+pub use offscreen::{StandInLook, SuppliedGlobal};
 pub use player::{
-    GpuWork, PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player,
-    run_player_screens, run_player_with,
+    PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player, run_player_screens,
 };
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,

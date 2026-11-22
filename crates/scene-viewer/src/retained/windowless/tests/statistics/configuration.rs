@@ -12,7 +12,7 @@ struct QueuedCapture {
 fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = gbuffer_host().windowless(&mut driver).unwrap();
+    let mut run = gbuffer_host().windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut previous_frame = None;
     // Reinhard maps unit radiance to 2/3 and 3/4, away from native sRGB rounding boundaries.

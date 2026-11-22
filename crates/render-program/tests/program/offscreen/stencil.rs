@@ -171,6 +171,7 @@ fn camera(mask: u32, (clear_color, clear_depth): (bool, bool)) -> Camera {
         pass: alpha(),
         values: PropertyLayer::default(),
         front_face: wgpu::FrontFace::Cw,
+        renderers: super::camera::fixture_renderers(),
     }
 }
 

@@ -98,9 +98,8 @@ fn colors(raster: DrawRaster) -> Vec<u8> {
 }
 
 /// The depths of the target of a depth-only frame, row by row from row 0.
-fn depths(raster: DrawRaster, reversed: bool) -> Vec<f32> {
+fn depths(raster: DrawRaster) -> Vec<f32> {
     let mut rig = rig();
-    rig.state.set_reversed_depth(reversed);
     let frame = frame(NO_COLOR, raster);
     let bytes = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
     bytes
@@ -185,7 +184,7 @@ fn a_scissor_with_no_pixel_left_draws_nothing() {
 
 #[test]
 fn a_slope_bias_moves_the_depth_a_draw_writes_by_the_slope_times_the_factor() {
-    let plain = depths(DrawRaster::default(), false);
+    let plain = depths(DrawRaster::default());
     for (index, depth) in plain.iter().enumerate() {
         let expected = slanted_depth(u32::try_from(index).unwrap() % SIZE);
         assert!(
@@ -193,28 +192,8 @@ fn a_slope_bias_moves_the_depth_a_draw_writes_by_the_slope_times_the_factor() {
             "texel {index}: {depth} vs {expected}"
         );
     }
-    let moved = depths(biased([0.0, 2.0]), false);
+    let moved = depths(biased([0.0, 2.0]));
     for (index, (depth, base)) in moved.iter().zip(&plain).enumerate() {
-        let shift = depth - base;
-        assert!(
-            (shift - 2.0 * SLOPE).abs() < 0.01,
-            "texel {index}: shifted by {shift}, expected {}",
-            2.0 * SLOPE
-        );
-    }
-}
-
-#[test]
-fn a_constant_bias_moves_the_depth_away_and_a_reversed_buffer_takes_the_negated_bias() {
-    let plain = depths(DrawRaster::default(), false);
-    let moved = depths(biased([1_048_576.0, 0.0]), false);
-    assert!(
-        moved.iter().zip(&plain).all(|(m, p)| m - p > 0.01),
-        "{moved:?}"
-    );
-    let reversed_plain = depths(DrawRaster::default(), true);
-    let reversed_moved = depths(biased([0.0, 2.0]), true);
-    for (index, (depth, base)) in reversed_moved.iter().zip(&reversed_plain).enumerate() {
         let shift = depth - base;
         assert!(
             (shift + 2.0 * SLOPE).abs() < 0.01,
@@ -222,6 +201,16 @@ fn a_constant_bias_moves_the_depth_away_and_a_reversed_buffer_takes_the_negated_
             -2.0 * SLOPE
         );
     }
+}
+
+#[test]
+fn a_constant_bias_moves_the_stored_depth_away_from_the_viewer_which_is_toward_zero() {
+    let plain = depths(DrawRaster::default());
+    let moved = depths(biased([1_048_576.0, 0.0]));
+    assert!(
+        moved.iter().zip(&plain).all(|(m, p)| p - m > 0.01),
+        "{moved:?}"
+    );
 }
 
 #[test]

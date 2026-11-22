@@ -14,7 +14,7 @@ Shadow `extent_millimeters` values are light-space coverage-box extents. Camera 
 
 `render-post::PostChain` owns geometry pass opening and post-stage execution. `render-scene::compositor::FrameRenderer` installs the stock scene, shadow, snapshot and effect features on that executor. The convenience APIs `OffscreenTarget::render`, `capture_scene` and `capture_scene_shadowed` use the same executor; there is no separate offscreen drawing loop. `CopyOutput` is the stage factory for the no-look output profile. A procedural byte-comparison regression compares direct drawing, convenience capture and encoder-only composition with copy output.
 
-For a custom host, `compositor::encode_resident` appends a previously prepared resident draw without submitting. It preserves the legacy exposed sRGB path and assumes the host has already set frame uniforms and flushed edits. Use `compositor::encode_scene` for staged frame uploads and camera-aware effects, or `ShadowedScene::encode_with` for shadow composition. Finish with `FrameRenderer::encode_output` and append capture copies to that same encoder. Submit once, then present an acquired surface image immediately. Explicit capture reads wait only for the supplied submission.
+For a custom host, `compositor::encode_resident` appends a previously prepared resident draw without submitting. It preserves the legacy exposed sRGB path and assumes the host has already set frame uniforms and flushed edits. Use `FrameEncoding::encode_scene` for staged frame uploads and camera-aware effects, or `ShadowedScene::encode_with` for shadow composition. Finish with `FrameRenderer::encode_output` and append capture copies to that same encoder. Submit once, then present an acquired surface image immediately. Explicit capture reads wait only for the supplied submission.
 
 For overlapping frames reserve a `FrameAdmission` slot, select it on the scene and renderer, encode, and submit in preparation order through the same admission authority. Reuse a slot only after completion. Successful feature uploads are committed, so successful encoders must be submitted rather than abandoned. Resize builds replacement resources before publishing them; zero-size surfaces suspend acquisition instead of allocating empty targets.
 
@@ -33,8 +33,8 @@ for frame in frames {
     renderer.select_frame_slot(slot);
     let mut encoder = context.device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    compositor::encode_scene(
-        &mut renderer, context.device(), &mut encoder,
+    renderer.encoding().encode_scene(
+        context.device(), &mut encoder,
         (&mut scene, &pipelines),
         (&target.color_attachment(), &target.depth_attachment()), frame,
     )?;
@@ -51,7 +51,7 @@ for (slot, ticket) in tickets {
 flight.retire();
 ```
 
-`FrameAdmission` is exported by `worldrunner-render-gpu::flight` (add that direct public dependency for this host API). In an interactive loop, handle `AdmissionError::WouldBlock` by returning to event handling/polling, rather than waiting for the whole queue. The capture reads above are explicit submission-scoped waits for a capture host. For HDR/effect capture, use `FrameRenderer::hdr` with camera-aware `encode_scene` or `ShadowedScene::encode_with`, and keep exposure at the HDR profile's required value. `encode_resident` and the convenience captures preserve the legacy exposed path and do not opt into those effects.
+`FrameAdmission` is exported by `worldrunner-render-gpu::flight` (add that direct public dependency for this host API). In an interactive loop, handle `AdmissionError::WouldBlock` by returning to event handling/polling, rather than waiting for the whole queue. The capture reads above are explicit submission-scoped waits for a capture host. For HDR/effect capture, use `FrameRenderer::hdr` with camera-aware `FrameEncoding::encode_scene` or `ShadowedScene::encode_with`, and keep exposure at the HDR profile's required value. `encode_resident` and the convenience captures preserve the legacy exposed path and do not opt into those effects.
 
 The legacy profile retains exposed sRGB output. The HDR profile writes unexposed `Rgba16Float` radiance and applies exposure and tone mapping once in post before the final output transfer. Selecting HDR therefore changes colour behavior explicitly. It supports 1x or 4x forward samples; the optional screen-space metadata prepass is single-sample. Ordinary cross-feature transparent sorting and temporal AA remain unsupported and return typed errors.
 
@@ -122,7 +122,7 @@ Run the headless public example:
 cargo run -p worldrunner --features scene --example frame-feature
 ```
 
-`crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::gpu::executor`.
+`crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::post`.
 
 Player shader programs join the frame without registering a feature. `SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted for the frame, and the scene's own feature records them in the stock opaque pass after its geometry, so they share the pass's attachments and the frame's one submission. The slice covers one single-sample color attachment with `Depth32Float`; scenes with temporal reconstruction, screen-space passes or multisampling refuse them by name. See the [scene README](../../crates/render-scene/README.md#player-program-draws).
 
@@ -236,7 +236,7 @@ describes the observation states and pass identities. Depth-fitted geometry
 begins timing in its owned metadata submission; output composition resolves the
 same sample after the remaining passes.
 
-Timing defaults to disabled. Before device creation, call `GpuContext::from_adapter_with_timing` with `TimingMode::Optional` or `Required`. Generic device hosts can instead put `TIMESTAMP_QUERY` in `DeviceRequirements::optional_features` or `required_features`. Required unsupported capability fails device validation. Optional unavailable capability remains usable but `configure_timing` reports `TimingSupport::Unsupported`; it never fabricates zero durations.
+Timing defaults to disabled. Before device creation, call `GpuContext::from_adapter` with a `DeviceRequest` whose `timing` is `TimingMode::Optional` or `Required`. Generic device hosts can instead put `TIMESTAMP_QUERY` in `DeviceRequirements::optional_features` or `required_features`. Required unsupported capability fails device validation. Optional unavailable capability remains usable but `configure_timing` reports `TimingSupport::Unsupported`; it never fabricates zero durations.
 
 For explicit negotiation, request timing as optional when rendering must work without it, or required when the application cannot proceed without measurements:
 

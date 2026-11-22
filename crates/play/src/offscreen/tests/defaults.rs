@@ -29,19 +29,22 @@ fn shader_with(properties: Vec<ShaderProperty>) -> Shader {
 
 #[test]
 fn white_is_every_channel_at_one_and_black_has_no_colour_with_full_alpha() {
-    let white = DefaultTexture::White.texture();
+    let white = DefaultTexture::White.texture(StandInLook::Declared);
     assert_eq!(
         (white.size, white.bytes),
         ([1, 1], vec![255, 255, 255, 255])
     );
-    let black = DefaultTexture::Black.texture();
+    let black = DefaultTexture::Black.texture(StandInLook::Declared);
     assert_eq!((black.size, black.bytes), ([1, 1], vec![0, 0, 0, 255]));
     assert_eq!(white.graphics_format, black.graphics_format);
 }
 
 #[test]
 fn the_default_textures_have_names_of_their_own_that_no_stored_texture_takes() {
-    let ids: Vec<TextureId> = DefaultTexture::ALL.iter().map(|d| d.texture().id).collect();
+    let ids: Vec<TextureId> = DefaultTexture::ALL
+        .iter()
+        .map(|d| d.texture(StandInLook::Declared).id)
+        .collect();
     assert_eq!(ids.len(), DefaultTexture::ALL.len());
     let distinct: std::collections::BTreeSet<_> = ids.iter().collect();
     assert_eq!(distinct.len(), ids.len(), "{ids:?}");
@@ -64,15 +67,19 @@ fn the_default_textures_have_names_of_their_own_that_no_stored_texture_takes() {
 
 #[test]
 fn the_grey_cube_is_one_grey_texel_on_each_of_six_faces_and_a_cube_named_grey_gets_it() {
-    let cube = DefaultTexture::GreyCube.texture();
+    let cube = DefaultTexture::GreyCube.texture(StandInLook::Declared);
     assert_eq!((cube.dimension, cube.size), (SourceDimension::Cube, [1, 1]));
     assert_eq!(cube.bytes, [128, 128, 128, 255].repeat(6));
     assert_eq!(
         cube.graphics_format,
-        DefaultTexture::Grey.texture().graphics_format
+        DefaultTexture::Grey
+            .texture(StandInLook::Declared)
+            .graphics_format
     );
     assert_eq!(
-        DefaultTexture::Grey.texture().dimension,
+        DefaultTexture::Grey
+            .texture(StandInLook::Declared)
+            .dimension,
         SourceDimension::D2
     );
     assert_eq!(
@@ -83,15 +90,20 @@ fn the_grey_cube_is_one_grey_texel_on_each_of_six_faces_and_a_cube_named_grey_ge
 
 #[test]
 fn the_grey_volume_is_one_grey_texel_one_slice_deep_and_a_volume_named_grey_gets_it() {
-    let volume = DefaultTexture::Grey3d.texture();
+    let volume = DefaultTexture::Grey3d.texture(StandInLook::Declared);
     assert_eq!(
         (volume.dimension, volume.size),
         (SourceDimension::D3(1), [1, 1])
     );
-    assert_eq!(volume.bytes, DefaultTexture::Grey.texture().bytes);
+    assert_eq!(
+        volume.bytes,
+        DefaultTexture::Grey.texture(StandInLook::Declared).bytes
+    );
     assert_eq!(
         volume.graphics_format,
-        DefaultTexture::Grey.texture().graphics_format
+        DefaultTexture::Grey
+            .texture(StandInLook::Declared)
+            .graphics_format
     );
     assert_eq!(
         DefaultTexture::named(DefaultTexture::Grey3d.name(), 3),
@@ -120,7 +132,7 @@ fn every_recognised_name_gives_its_texel_in_each_dimension_a_draw_can_sample() {
         ] {
             let texture = DefaultTexture::named(name, dimension)
                 .unwrap_or_else(|| panic!("{name} at dimension {dimension} is a default"))
-                .texture();
+                .texture(StandInLook::Declared);
             assert_eq!(
                 (texture.dimension, texture.size, texture.bytes),
                 (shape, [1, 1], texel.repeat(faces)),
@@ -132,7 +144,7 @@ fn every_recognised_name_gives_its_texel_in_each_dimension_a_draw_can_sample() {
 
 #[test]
 fn the_bump_rgb_decodes_to_the_flat_normal_under_two_rgb_minus_one() {
-    let [x, y, z, _alpha] = DefaultTexture::Bump.texture().bytes[..] else {
+    let [x, y, z, _alpha] = DefaultTexture::Bump.texture(StandInLook::Declared).bytes[..] else {
         panic!("the bump default is one RGBA8 texel");
     };
     let unit = |byte: u8| f32::from(byte) / 255.0;
@@ -251,8 +263,8 @@ const MAGENTA: [u8; 4] = [255, 0, 255, 255];
 #[test]
 fn the_magenta_look_makes_every_default_magenta_in_its_own_dimension() {
     for texture in DefaultTexture::ALL {
-        let plain = texture.texture_in(StandInLook::Declared);
-        let magenta = texture.texture_in(StandInLook::Magenta);
+        let plain = texture.texture(StandInLook::Declared);
+        let magenta = texture.texture(StandInLook::Magenta);
         let texels = plain.bytes.len() / 4;
         assert_eq!(magenta.bytes, MAGENTA.repeat(texels), "{texture:?}");
         assert_eq!(
@@ -268,7 +280,7 @@ fn the_magenta_look_makes_every_default_magenta_in_its_own_dimension() {
     }
     let dimensions: Vec<_> = DefaultTexture::ALL
         .iter()
-        .map(|texture| texture.texture_in(StandInLook::Magenta).dimension)
+        .map(|texture| texture.texture(StandInLook::Magenta).dimension)
         .collect();
     for wanted in [
         SourceDimension::D2,
@@ -284,8 +296,8 @@ fn the_magenta_look_makes_every_default_magenta_in_its_own_dimension() {
 fn the_declared_look_is_the_texture_the_table_names() {
     for texture in DefaultTexture::ALL {
         assert_eq!(
-            texture.texture_in(StandInLook::Declared).bytes,
-            texture.texture().bytes,
+            texture.texture(StandInLook::Declared).bytes,
+            texture.texture(StandInLook::Declared).bytes,
             "{texture:?}"
         );
     }
@@ -293,11 +305,16 @@ fn the_declared_look_is_the_texture_the_table_names() {
 }
 
 #[test]
-fn the_setting_turns_the_magenta_look_on_by_one_or_true_and_nothing_else_does() {
-    for on in ["1", "true", " 1\n"] {
-        assert_eq!(StandInLook::from_setting(Some(on)), StandInLook::Magenta);
-    }
-    for off in [None, Some("0"), Some("false"), Some(""), Some("yes")] {
-        assert_eq!(StandInLook::from_setting(off), StandInLook::Declared);
+fn the_look_is_named_declared_or_magenta_and_nothing_else_names_one() {
+    assert_eq!(
+        StandInLook::from_name("magenta"),
+        Some(StandInLook::Magenta)
+    );
+    assert_eq!(
+        StandInLook::from_name("declared"),
+        Some(StandInLook::Declared)
+    );
+    for other in ["", "1", "true", "Magenta", "yes"] {
+        assert_eq!(StandInLook::from_name(other), None, "{other:?}");
     }
 }

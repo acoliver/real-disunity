@@ -15,7 +15,6 @@ use super::super::builtins::{
     camera_layer, draw_layer,
 };
 use super::super::camera::projection;
-use super::super::depth_range::DepthRange;
 use super::super::frame::{Settings, adapt};
 use super::support::{
     IDENTITY, assert_close, available, camera, matrix, product, render_texture, snapshot, sun,
@@ -74,7 +73,7 @@ fn a_camera_supplies_its_view_and_position() {
         world_matrix: Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)).to_cols_array(),
         target_buffers: None,
     };
-    let layer = camera_layer(&view, 1.0, DepthRange::Forward);
+    let layer = camera_layer(&view, 1.0);
     // Facing +Z from (1, 2, 3), the point (1.5, 2.5, 5) is 0.5 right, 0.5 up and 2 ahead, and
     // the view looks down -Z.
     let found = transform(&matrix(&layer, VIEW), [1.5, 2.5, 5.0, 1.0]);
@@ -98,7 +97,7 @@ fn the_camera_position_follows_a_view_a_script_set() {
         world_matrix: IDENTITY,
         target_buffers: None,
     };
-    let layer = camera_layer(&view, 1.0, DepthRange::Forward);
+    let layer = camera_layer(&view, 1.0);
     assert_eq!(
         layer.values.get(CAMERA_POSITION),
         Some(&PropertyValue::Vector([7.0, 0.0, 0.0, 0.0]))
@@ -244,6 +243,8 @@ fn a_global_the_world_holds_keeps_its_value_and_the_other_ambient_names_get_defa
     world
         .set_global_property(WorldValue::Vector(SH_AR.into(), [1.0, 2.0, 3.0, 4.0]))
         .unwrap();
+    // An earlier take ends with the value in the state the frame starts from.
+    snapshot(&mut world);
     let adapted = unlit_camera_frame(&mut world);
     let globals = &adapted.frame.globals;
     assert_close(&vector(globals, SH_AR), &[1.0, 2.0, 3.0, 4.0]);
@@ -278,7 +279,7 @@ fn an_orthographic_view_sets_the_ortho_flag_and_a_perspective_view_clears_it() {
         ..orthographic
     };
     for (settings, flag) in [(orthographic, 1.0), (perspective, 0.0), (overridden, 0.0)] {
-        let layer = camera_layer(&at(settings), 2.0, DepthRange::Forward);
+        let layer = camera_layer(&at(settings), 2.0);
         assert_close(&vector(&layer, ORTHO_PARAMS), &[0.0, 0.0, 0.0, flag]);
     }
 }
@@ -346,7 +347,7 @@ fn the_projection_params_hold_the_screen_y_sign_and_the_near_plane() {
         ..perspective
     };
     for (settings, near) in [(perspective, 0.5), (orthographic, 0.3), (scripted, 2.0)] {
-        let layer = camera_layer(&at(settings), 2.0, DepthRange::Forward);
+        let layer = camera_layer(&at(settings), 2.0);
         assert_close(&vector(&layer, PROJECTION_PARAMS), &[1.0, near, 0.0, 0.0]);
     }
 }
@@ -363,7 +364,7 @@ fn a_projection_without_a_near_plane_leaves_the_projection_params_missing() {
         target_buffers: None,
     };
     assert!(
-        camera_layer(&view, 1.0, DepthRange::Forward)
+        camera_layer(&view, 1.0)
             .values
             .get(PROJECTION_PARAMS)
             .is_none()

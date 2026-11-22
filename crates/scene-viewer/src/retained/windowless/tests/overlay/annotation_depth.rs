@@ -119,7 +119,7 @@ fn depth_tested_annotation_line_is_partially_occluded_by_box() {
     for profile in profiles() {
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = depth_host(profile).windowless(&mut driver).unwrap();
+        let mut run = depth_host(profile).windowless(&mut driver, None).unwrap();
         let baseline = capture(&mut run, &events).1;
         let a = glam::Vec3::new(-1.8, -1.5, 0.);
         let b = glam::Vec3::new(1.8, 1.5, 0.);
@@ -163,7 +163,7 @@ fn depth_tested_surface_annotation_uses_one_millimetre_bias() {
     for profile in profiles() {
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = depth_host(profile).windowless(&mut driver).unwrap();
+        let mut run = depth_host(profile).windowless(&mut driver, None).unwrap();
         let baseline = capture(&mut run, &events).1;
         for y in [-0.5, -0.4995] {
             submit(
@@ -214,7 +214,9 @@ fn assert_depth_statistics(run: &WindowlessRetained<'_>, events: &RefCell<Vec<Re
 fn depth_tested_annotation_tracks_presented_camera_and_resized_depth() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = depth_host(profiles()[3]).windowless(&mut driver).unwrap();
+    let mut run = depth_host(profiles()[3])
+        .windowless(&mut driver, None)
+        .unwrap();
     for size in [[64, 64], [96, 80]] {
         run.resize(size).unwrap();
         for eye in [-5000, -6000] {
@@ -229,7 +231,7 @@ fn depth_tested_annotation_tracks_presented_camera_and_resized_depth() {
                 })
                 .unwrap();
             let empty = UiOverlay::from_presentation(
-                &worldrunner_render_plan::ui::UiPresentation::default(),
+                &worldrunner_world_simulation::ui::presentation::UiPresentation::default(),
                 &std::collections::BTreeMap::new(),
             )
             .unwrap();
@@ -268,7 +270,7 @@ fn depth_tested_annotation_preserves_shadowed_capture_continuation() {
     let events = driver.events.clone();
     let mut host = depth_host(profiles()[2]);
     host.options.shadows = Some(crate::renderer::retained_tests::shadow_settings());
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     check_presented_line(&mut run, &events);
     assert_eq!(
         run.host()
@@ -287,7 +289,9 @@ fn depth_tested_annotation_preserves_shadowed_capture_continuation() {
 fn depth_tested_and_always_visible_annotations_share_painter_order() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = depth_host(profiles()[2]).windowless(&mut driver).unwrap();
+    let mut run = depth_host(profiles()[2])
+        .windowless(&mut driver, None)
+        .unwrap();
     capture(&mut run, &events);
     let fonts = FontBook::new(UiLimits::default()).unwrap();
     for (tested_order, expected) in [(1, [255, 0, 0, 255]), (-1, [0, 255, 0, 255])] {

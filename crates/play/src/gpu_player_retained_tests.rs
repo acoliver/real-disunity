@@ -43,7 +43,7 @@ fn a_run_without_a_retained_scene_prints_no_retained_lines() {
 #[test]
 fn the_player_gpu_keeps_the_census_it_is_given_for_its_report() {
     let directory = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(directory.path(), &GpuLaunch::default()).unwrap();
     gpu.note_retained(census());
     assert_eq!(gpu.report().retained.as_ref(), Some(&census()));
     assert_eq!(gpu.report().retained_lines().len(), 4);

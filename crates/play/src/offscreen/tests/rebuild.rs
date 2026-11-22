@@ -13,7 +13,7 @@ use worldrunner_world_simulation::graphics::{
     dimension,
 };
 
-use super::super::adapter::build;
+use super::super::adapter::{Settling, build};
 use super::super::frame::Adapted;
 use super::super::ids;
 use super::gpu::{Quad, Rig, SIDE, camera_render, shader, vector};
@@ -169,9 +169,13 @@ fn a_texture_only_a_refused_record_would_write_stays_unwritten_for_the_next_fram
 fn frame_refused_whole(rig: &mut Rig, world: &mut World) -> (Adapted, RenderTextureId) {
     let written = camera_scene(world, "camera", None);
     let snapshot = GraphicsSnapshot::take(world).unwrap();
-    let mut adapted = rig
-        .adapter
-        .adapt(&snapshot, &Quad, &mut rig.state, &mut rig.runtime);
+    let mut adapted = rig.adapter.adapt(
+        &snapshot,
+        &Quad,
+        (&mut rig.state, &mut rig.runtime),
+        (false, &std::collections::BTreeMap::new()),
+        Settling::Wait,
+    );
     adapted.frame.later_reads.push(ReadRange {
         texture: ids::render_texture(written),
         mips: 5..6,

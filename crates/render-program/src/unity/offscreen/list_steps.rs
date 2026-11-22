@@ -284,12 +284,11 @@ fn depth_attachment(
     let view = svc
         .tracker
         .cell_view(key, (mip, 0), wgpu::TextureAspect::All, after)?;
-    let reversed = svc.reversed_depth;
     Ok(Some(DepthAttachment {
         view,
         before: clear.is_none().then_some(before),
         load: clear.map_or(AttachmentLoad::Load, |depth| {
-            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth, reversed))
+            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth))
         }),
         store: wgpu::StoreOp::Store,
         read_only: false,
@@ -416,7 +415,7 @@ pub(super) fn list_step(
         svc.counts.missing_channel,
         svc.counts.feedback_loop,
     );
-    let draws = match raster::resolve(&list.raster, size, svc.reversed_depth) {
+    let draws = match raster::resolve(&list.raster, size) {
         Some(raster) => list_draws(svc, frame, globals, list, (signature, raster), &cells)?,
         None => Vec::new(),
     };

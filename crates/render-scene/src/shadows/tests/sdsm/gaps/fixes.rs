@@ -98,6 +98,7 @@ fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     enable_pages(&context, &mut renderer, 1);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     renderer
         .set_depth_fitting(
             &context,
@@ -117,14 +118,7 @@ fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
         }
         for frame in 0..6 {
             let serial = context.submission().submitted_serial();
-            renderer
-                .render(
-                    &context,
-                    &view(),
-                    &target.color_attachment(),
-                    &target.depth_attachment(),
-                )
-                .unwrap();
+            render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
             assert!(context.submission().submitted_serial() > serial);
             context
                 .device()
@@ -135,11 +129,12 @@ fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
             assert_eq!(renderer.gpu.terrain_pages_ready(), frame >= 4);
         }
         let fit = renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                generation * 7 + 6,
+                (Some(generation * 7 + 6), false, &[]),
+                &mut scheduler,
             )
             .unwrap()
             .unwrap();
@@ -155,6 +150,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     enable_pages(&context, &mut renderer, 5);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let metadata = crate::scene_metadata::SceneMetadata::new(
         context.device(),
         [96, 96],
@@ -165,7 +161,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.scheduler.encode_depth_prefix(
+            scheduler.encode_depth_prefix(
                 context.device(),
                 encoder,
                 (&mut renderer.gpu, &renderer.pipelines),
@@ -190,14 +186,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
             }),
         )
         .unwrap();
-    renderer
-        .render(
-            &context,
-            &view(),
-            &target.color_attachment(),
-            &target.depth_attachment(),
-        )
-        .unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(renderer.gpu.terrain_pages_ready());
 }
 

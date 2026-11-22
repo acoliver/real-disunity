@@ -122,7 +122,7 @@ fn shadowed_velocity_with(
                 &view_from(pose),
                 (&color, &depth),
                 &mut encoder,
-                Some(&mut renderer),
+                &mut renderer,
             )
             .unwrap();
         encoder.finish().submit().unwrap();
@@ -144,15 +144,16 @@ fn reflective_velocity_after(
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame_from(pose),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame_from(pose),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     }
     last_velocity(context, &renderer)
@@ -173,15 +174,16 @@ fn occluded_velocity_after(
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame_from(pose),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame_from(pose),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     }
     last_velocity(context, &renderer)

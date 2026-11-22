@@ -237,10 +237,10 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
     depth.depth_bits = 32;
     frame.render_textures.push(depth);
     rig.state
-        .set_mesh(&mut rig.runtime, super::rig::QUAD, &quad(0.8))
+        .set_mesh(&mut rig.runtime, super::rig::QUAD, &quad(0.2))
         .unwrap();
     rig.state
-        .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &quad(0.2))
+        .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &quad(0.8))
         .unwrap();
     frame.renderers.get_mut(&RendererId(2)).unwrap().mesh = super::rig::NEAR_QUAD;
     for id in [RendererId(1), RendererId(2)] {
@@ -275,7 +275,7 @@ fn a_list_uses_the_depth_of_another_texture_than_its_color() {
         .chunks(4)
         .map(|word| f32::from_le_bytes(word.try_into().unwrap()))
         .collect();
-    assert!(depths.iter().all(|d| d.to_bits() == 0.2_f32.to_bits()));
+    assert!(depths.iter().all(|d| d.to_bits() == 0.8_f32.to_bits()));
 }
 
 const ALBEDO: TextureId = TextureId(7);

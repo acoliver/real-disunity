@@ -147,15 +147,16 @@ fn gpu_relief_ordinary_relief_retains_depth_without_draining_or_rebudgeting() {
         .unwrap();
         let frame = FrameUniform::new(&view, source.effects()).unwrap();
         let mut encoder = context.submission().begin(device).unwrap();
-        encode_scene(
-            renderer,
-            device,
-            &mut encoder,
-            (gpu, &pipelines),
-            (&color, &scene_depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (gpu, &pipelines),
+                (&color, &scene_depth),
+                frame,
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
         let screen = renderer.ssao.as_ref().unwrap();
         assert_eq!(screen.independent_depth, depth);

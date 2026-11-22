@@ -110,8 +110,18 @@ After an intentional ABI change:
    offscreen source accepts with texture identity 0; the world reads it as no texture, and the
    graphics snapshot wire version is 17 to carry it. Revision 22 adds
    `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
-   `OnDestroy` messages and the asset cleanup that destruction queued. Native and managed
-   hosts reject
+   `OnDestroy` messages and the asset cleanup that destruction queued. Revision 23 removes
+   `disunity_offscreen_set_global`, `disunity_offscreen_set_global_keyword`,
+   `disunity_offscreen_set_global_vector_array` and `disunity_offscreen_set_global_matrix_array`
+   and adds `disunity_offscreen_set_global_texture`: a command buffer's global value, array or
+   keyword is a direct write of the world's global state (`disunity_shader_*`), and only a global
+   texture set to a temporary render texture is recorded. Revision 24 removes
+   `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
+   object slot draws from the slot's world material alone. Revision 25 gives
+   `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
+   render texture the world holds) and adds `texture_kind` and a padding word to
+   `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
+   texture of a draw whose kind is 1 is the render texture id. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

@@ -12,7 +12,8 @@ fn built_after_one_frame(
     let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
     renderer.set_shadows_enabled(shadows);
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
-    render_target(&mut renderer, context, camera, &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, context, camera, &target).unwrap();
     renderer
         .scene_and_pipelines_mut()
         .1

@@ -1,5 +1,8 @@
 use super::{wait, wgpu};
-use worldrunner::scene::{gpu::device::GpuContext, post, resources};
+use worldrunner::scene::{
+    gpu::device::{DeviceRequest, GpuContext},
+    post, resources,
+};
 
 #[path = "canonical_factory.rs"]
 mod factory;
@@ -8,8 +11,11 @@ mod store;
 
 #[test]
 fn canonical_post_factory_and_encoded_readback_preserve_scene_and_authored_stage() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
-        .expect("canonical post consumer requires an admitted GPU");
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .expect("canonical post consumer requires an admitted GPU");
     let mut factory = factory::Fixture::new(&context);
     for size in [[65, 47], [130, 94]] {
         let pixels = factory.render(&context, size);
@@ -27,8 +33,11 @@ fn canonical_post_factory_and_encoded_readback_preserve_scene_and_authored_stage
 
 #[test]
 fn a_wrong_authored_output_stage_is_visible_in_the_readback() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
-        .expect("canonical post consumer requires an admitted GPU");
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .expect("canonical post consumer requires an admitted GPU");
     let mut factory = factory::Fixture::with_marker(&context, 0.0);
     let pixels = factory.render(&context, [65, 47]);
     assert_ne!(
@@ -40,8 +49,11 @@ fn a_wrong_authored_output_stage_is_visible_in_the_readback() {
 
 #[test]
 fn canonical_store_content_ids_preserve_old_images_and_admit_new_revisions() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
-        .expect("canonical texture consumer requires an admitted GPU");
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .expect("canonical texture consumer requires an admitted GPU");
     let mut textures = resources::CanonicalTextureStore::new(context.device(), context.queue());
     let original = store::upload(&mut textures, "content:first", [255, 0, 0, 255]);
     let cached = textures

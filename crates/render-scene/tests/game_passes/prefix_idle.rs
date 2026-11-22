@@ -4,12 +4,12 @@
 use super::fixture::{Rig, SIZE, quad_scene};
 use super::shadowed::{capture, shadowed};
 use std::sync::{Arc, Mutex};
+use worldrunner_render_post::{
+    BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
+    PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{GameBuild, GameFeatureFactory, GamePasses},
-    executor::{
-        BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
-        PreparedFeature,
-    },
     wgpu,
 };
 

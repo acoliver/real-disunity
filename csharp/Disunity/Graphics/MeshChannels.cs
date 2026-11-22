@@ -26,6 +26,25 @@ public partial class Mesh
         set => StoreColors("colors", value);
     }
 
+    /// <summary>The bones that move each vertex: empty, or one entry per vertex. Setting it needs the vertices first.</summary>
+    public BoneWeight[] boneWeights
+    {
+        get => Read("boneWeights", _boneWeights);
+        set => StoreBoneWeights(value);
+    }
+
+    /// <summary>The matrix of each bone that takes a vertex from the mesh's space into the bone's space when the mesh is at
+    /// its bind pose. One per bone, so it need not match the vertex count.</summary>
+    public Matrix4x4[] bindposes
+    {
+        get => Read("bindposes", _bindPoses);
+        set
+        {
+            RequireReadable();
+            _bindPoses = value is null ? [] : (Matrix4x4[])value.Clone();
+        }
+    }
+
     public Color32[] colors32
     {
         get => ReadColors32();
@@ -107,6 +126,12 @@ public partial class Mesh
         Changed();
     }
 
+    private void StoreBoneWeights(IReadOnlyList<BoneWeight>? values)
+    {
+        _boneWeights = Validated("boneWeights", Map(values, value => value));
+        Changed();
+    }
+
     private void StoreColors(string channel, IReadOnlyList<Color>? values)
     {
         _colors = Validated(channel, Map(values, value => value));
@@ -126,6 +151,7 @@ public partial class Mesh
         if (_normals.Length != newCount) _normals = [];
         if (_tangents.Length != newCount) _tangents = [];
         if (_colors.Length != newCount) _colors = [];
+        if (_boneWeights.Length != newCount) _boneWeights = [];
         for (var channel = 0; channel < UvChannelCount; channel++)
         {
             if (_uvs[channel].Length == newCount) continue;

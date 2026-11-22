@@ -5,11 +5,11 @@ using UnityEngine.Rendering;
 namespace UnityEngine;
 
 /// <summary>
-/// A <see cref="Renderer"/> that draws a mesh deformed by bones. The native component holds the renderer settings;
-/// the mesh, the bones, the root bone, the quality, the blend shape weights and the bounds are stored on the managed
-/// component. The engine's <see cref="Mesh"/> holds no bone weights, bind poses or blend shapes, so nothing deforms the
-/// shared mesh: <see cref="BakeMesh(Mesh)"/> copies it, and refuses a renderer that has bones or a nonzero blend shape weight.
-/// <see cref="localBounds"/> is the shared mesh's bounds until it is set.
+/// A <see cref="Renderer"/> that draws a mesh deformed by bones. The native component holds the renderer settings and
+/// the skin: the identity the host draws the shared mesh by, the bone objects and the root bone. The quality, the blend
+/// shape weights and the bounds are stored on the managed component. The engine does not deform the shared mesh yet, so
+/// the host draws it in its bind pose, and <see cref="BakeMesh(Mesh)"/> copies it and refuses a renderer that has bones or a
+/// nonzero blend shape weight. <see cref="localBounds"/> is the shared mesh's bounds until it is set.
 /// A clone keeps the mesh and settings, and its bones and root bone are the clones of the original's where those
 /// are in the cloned hierarchy and the original's otherwise.
 /// </summary>
@@ -17,6 +17,8 @@ public sealed class SkinnedMeshRenderer : Renderer
 {
     private readonly Dictionary<int, float> _weights = new();
     private Bounds? _localBounds;
+    private Mesh? _sharedMesh;
+    private Transform? _rootBone;
     private Transform[] _bones = [];
 
     private unsafe DisunityMeshRenderer Read()
@@ -33,14 +35,50 @@ public sealed class SkinnedMeshRenderer : Renderer
 
     internal override Mesh? BoundsMesh => sharedMesh;
 
-    public Mesh? sharedMesh { get; set; }
+    public Mesh? sharedMesh
+    {
+        get => _sharedMesh;
+        set
+        {
+            _sharedMesh = value;
+            WriteSkin();
+        }
+    }
 
-    public Transform? rootBone { get; set; }
+    public Transform? rootBone
+    {
+        get => _rootBone;
+        set
+        {
+            _rootBone = value;
+            WriteSkin();
+        }
+    }
 
     public Transform[] bones
     {
         get => [.. _bones];
-        set => _bones = [.. value ?? throw new ArgumentNullException(nameof(value))];
+        set
+        {
+            _bones = [.. value ?? throw new ArgumentNullException(nameof(value))];
+            WriteSkin();
+        }
+    }
+
+    /// <summary>Sends the world the identity the host draws the shared mesh by and the objects of the bones and the root bone.
+    /// Asking for the mesh's identity stores a dirty mesh and can be refused, so it comes before the write.</summary>
+    private unsafe void WriteSkin()
+    {
+        var drawn = _sharedMesh is { } mesh && mesh ? mesh.RendererIdentity : 0UL;
+        var ids = _bones.Select(bone => bone is { } own && own ? own.gameObject.NativeHandle : 0UL).ToArray();
+        var skin = new DisunityRendererSkin
+        {
+            drawn_mesh = drawn,
+            root_bone = _rootBone is { } root && root ? root.gameObject.NativeHandle : 0UL,
+            bone_count = (uint)ids.Length,
+        };
+        fixed (ulong* pointer = ids)
+            DisunityHost.ThrowIfError(NativeBindings.disunity_skinned_renderer_write(DisunityHost.WorldHandle, Handle, &skin, ids.Length == 0 ? null : pointer));
     }
 
     public SkinQuality quality { get; set; }
@@ -89,13 +127,14 @@ public sealed class SkinnedMeshRenderer : Renderer
     {
         base.CopyManagedState(source, remap);
         var original = (SkinnedMeshRenderer)source;
-        sharedMesh = original.sharedMesh;
         quality = original.quality;
         updateWhenOffscreen = original.updateWhenOffscreen;
         _localBounds = original._localBounds;
         foreach (var (index, weight) in original._weights) _weights[index] = weight;
-        rootBone = Remapped(original.rootBone, remap);
+        _sharedMesh = original._sharedMesh;
+        _rootBone = Remapped(original._rootBone, remap);
         _bones = [.. original._bones.Select(bone => Remapped(bone, remap)!)];
+        WriteSkin();
     }
 
     private static Transform? Remapped(Transform? bone, Func<Object, Object> remap) =>

@@ -3,8 +3,8 @@
 use worldrunner_world_simulation::graphics::ShaderProperties;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, MAX_RENDERER_MATERIALS,
-    MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, World, WorldError,
-    WorldSettings,
+    MAX_SKIN_BONES, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, SkinBinding,
+    World, WorldError, WorldSettings,
 };
 
 fn world_with(desc: ComponentDesc) -> (World, ObjectHandle) {
@@ -265,4 +265,58 @@ fn a_slot_block_is_kept_below_the_slot_bound_and_refused_at_it() {
         ))
     );
     assert_eq!(renderer_of(&world, object), renderer);
+}
+
+fn invalid(result: &Result<ComponentHandle, WorldError>) -> bool {
+    matches!(
+        result,
+        Err(WorldError::InvalidComponent(
+            ComponentError::InvalidMeshRenderer
+        ))
+    )
+}
+
+#[test]
+fn a_skinned_renderer_stores_its_drawn_mesh_bones_and_root_bone() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let bone = world.create_object(ObjectDesc::default()).unwrap();
+    let mut renderer = MeshRenderer::of_kind(RendererKind::Skinned);
+    renderer.skin = SkinBinding {
+        drawn_mesh: 5,
+        bones: vec![Some(bone), None, Some(object)],
+        root_bone: Some(bone),
+    };
+    world
+        .add_component(object, ComponentDesc::MeshRenderer(renderer.clone()))
+        .unwrap();
+    assert_eq!(renderer_of(&world, object), renderer);
+}
+
+#[test]
+fn a_skin_beyond_the_bone_limit_or_on_another_kind_is_rejected() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let skin = |bones| SkinBinding {
+        drawn_mesh: 0,
+        bones,
+        root_bone: None,
+    };
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin = skin(vec![Some(object); MAX_SKIN_BONES + 1]);
+    assert!(invalid(&world.add_component(
+        object,
+        ComponentDesc::MeshRenderer(skinned.clone())
+    )));
+    skinned.skin = skin(vec![Some(object); MAX_SKIN_BONES]);
+    let at_limit = world.add_component(object, ComponentDesc::MeshRenderer(skinned));
+    assert!(at_limit.is_ok());
+    let other = world.create_object(ObjectDesc::default()).unwrap();
+    for kind in [RendererKind::Mesh, RendererKind::Particle] {
+        let mut plain = MeshRenderer::of_kind(kind);
+        plain.skin = skin(vec![Some(object)]);
+        assert!(invalid(
+            &world.add_component(other, ComponentDesc::MeshRenderer(plain))
+        ));
+    }
 }

@@ -331,6 +331,11 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityMeshRenderer>("sorting_order").ToInt32() != 52) throw new InvalidOperationException("DisunityMeshRenderer.sorting_order offset");
         if (Marshal.OffsetOf<DisunityMeshRenderer>("material_count").ToInt32() != 56) throw new InvalidOperationException("DisunityMeshRenderer.material_count offset");
         if (Marshal.SizeOf<DisunityMeshRenderer>() != 60 || typeof(DisunityMeshRenderer).GetFields().Length != 15) throw new InvalidOperationException("DisunityMeshRenderer layout");
+        if (Marshal.OffsetOf<DisunityRendererSkin>("drawn_mesh").ToInt32() != 0) throw new InvalidOperationException("DisunityRendererSkin.drawn_mesh offset");
+        if (Marshal.OffsetOf<DisunityRendererSkin>("root_bone").ToInt32() != 8) throw new InvalidOperationException("DisunityRendererSkin.root_bone offset");
+        if (Marshal.OffsetOf<DisunityRendererSkin>("bone_count").ToInt32() != 16) throw new InvalidOperationException("DisunityRendererSkin.bone_count offset");
+        if (Marshal.OffsetOf<DisunityRendererSkin>("padding").ToInt32() != 20) throw new InvalidOperationException("DisunityRendererSkin.padding offset");
+        if (Marshal.SizeOf<DisunityRendererSkin>() != 24 || typeof(DisunityRendererSkin).GetFields().Length != 4) throw new InvalidOperationException("DisunityRendererSkin layout");
         if (Marshal.OffsetOf<DisunityDrawnMaterial>("r").ToInt32() != 0) throw new InvalidOperationException("DisunityDrawnMaterial.r offset");
         if (Marshal.OffsetOf<DisunityDrawnMaterial>("g").ToInt32() != 4) throw new InvalidOperationException("DisunityDrawnMaterial.g offset");
         if (Marshal.OffsetOf<DisunityDrawnMaterial>("b").ToInt32() != 8) throw new InvalidOperationException("DisunityDrawnMaterial.b offset");
@@ -767,7 +772,7 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 24;
+    internal const uint Version = 27;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

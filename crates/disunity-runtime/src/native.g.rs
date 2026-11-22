@@ -118,6 +118,14 @@ pub struct DisunityMeshRenderer {
     pub material_count: u32,
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityRendererSkin {
+    pub drawn_mesh: u64,
+    pub root_bone: u64,
+    pub bone_count: u32,
+    pub padding: u32,
+}
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityDrawnMaterial {
     pub r: f32,
@@ -634,7 +642,7 @@ pub struct DisunityMeshRange {
     pub topology: u32,
 }
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 24;
+pub const DISUNITY_ABI_VERSION: u32 = 27;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

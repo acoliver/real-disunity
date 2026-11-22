@@ -12,6 +12,53 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is
+    ///  zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of
+    ///  the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per
+    ///  texel), or zero.
+    ///
+    ///  `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
+    ///  2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
+    ///  writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
+    ///  value is refused, and the record reads back with the value it was stored with.
+    ///
+    ///  `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
+    ///  of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
+    ///  after another, each as long as the others and each holding its own mip chain, so `length` is a
+    ///  whole multiple of `depth`. A 3D texture's `bytes` are its mip levels one after another, each
+    ///  level holding its slices one after another and having half the width, height and depth of the
+    ///  one before (at least one), so only a 3D texture of one level has a `length` that is a whole
+    ///  multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
+    ///  `graphics_format`, the engine's `GraphicsFormat` value, because its layers need not have a
+    ///  `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. The host draws
+    ///  all four shapes. `reserved` is zero.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextureInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        public uint format;
+        public uint width;
+        public uint height;
+        public uint mips;
+        /// <summary>
+        ///  Nonzero when the texels are linear data rather than sRGB colour.
+        /// </summary>
+        public uint linear;
+        public uint length;
+        public uint present;
+        public uint distance_spread;
+        public uint depth;
+        public uint graphics_format;
+        public uint dimension;
+        public uint reserved;
+    }
+
+    /// <summary>
     ///  How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
     ///  2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
     ///  `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
@@ -656,59 +703,6 @@ namespace Disunity.Native
         public float sphere_y;
         public float sphere_z;
         public float sphere_radius;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityUiDraw
-    {
-        /// <summary>
-        ///  Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
-        /// </summary>
-        public uint kind;
-        public ulong hierarchy_order;
-        public uint clip_x;
-        public uint clip_y;
-        public uint clip_width;
-        public uint clip_height;
-        /// <summary>
-        ///  Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
-        /// </summary>
-        public float triangle_u0;
-        public float triangle_v0;
-        public float triangle_u1;
-        public float triangle_v1;
-        public float triangle_u2;
-        public float triangle_v2;
-        /// <summary>
-        ///  Zero for white corners, one for explicit linear RGBA in BL/BR/TR/TL order.
-        /// </summary>
-        public uint corner_colors_present;
-        public float corner_0_r;
-        public float corner_0_g;
-        public float corner_0_b;
-        public float corner_0_a;
-        public float corner_1_r;
-        public float corner_1_g;
-        public float corner_1_b;
-        public float corner_1_a;
-        public float corner_2_r;
-        public float corner_2_g;
-        public float corner_2_b;
-        public float corner_2_a;
-        public float corner_3_r;
-        public float corner_3_g;
-        public float corner_3_b;
-        public float corner_3_a;
-        /// <summary>
-        ///  0 ordinary coverage; 1 distance fill, 2 outline, 3 glow.
-        /// </summary>
-        public uint distance_mode;
-        public float distance_spread;
-        public float distance_radius;
-        public float effect_r;
-        public float effect_g;
-        public float effect_b;
-        public float effect_a;
     }
 
 }

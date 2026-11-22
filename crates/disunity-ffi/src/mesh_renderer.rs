@@ -5,7 +5,8 @@ use crate::{
     physics::component,
 };
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
+    ComponentDesc, ComponentHandle, MAX_SKIN_BONES, MeshFilter, MeshRenderer, ObjectHandle,
+    RendererKind, RendererSwitches, SkinBinding,
 };
 
 /// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer, 1 for a
@@ -98,6 +99,7 @@ impl DisunityMeshRenderer {
             property_block: current.property_block,
             slot_blocks: current.slot_blocks,
             render_queue: current.render_queue,
+            skin: current.skin,
         })
     }
 }
@@ -318,6 +320,125 @@ pub unsafe extern "C" fn disunity_mesh_filter_drawn_read(
     mutate(world, |s| {
         let (_, value) = filter(s, handle)?;
         unsafe { *output = value.drawn_mesh };
+        Ok(())
+    })
+}
+
+/// The skin of a skinned mesh renderer: the identity the host knows the drawn mesh by (0 for none,
+/// otherwise a player mesh identity), the object id of the root bone (0 for none) and how many
+/// bones the renderer names. The bone object ids travel in a separate array of `bone_count` ids,
+/// 0 for an empty slot.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityRendererSkin {
+    pub drawn_mesh: u64,
+    pub root_bone: u64,
+    pub bone_count: u32,
+    pub padding: u32,
+}
+
+/// The object a nonzero id names, or `None` for the id 0.
+fn bone_object(session: &crate::store::Session, id: u64) -> Result<Option<ObjectHandle>, AbiError> {
+    if id == 0 {
+        Ok(None)
+    } else {
+        session.object(id).map(Some)
+    }
+}
+
+/// Names the mesh, bones and root bone a skinned renderer draws. Every nonzero object id must
+/// name a live object of this world, there are at most 1024 bones, and a nonzero mesh must be a
+/// player mesh identity. The renderer must be a skinned one. A rejected call changes nothing.
+///
+/// # Safety
+/// `skin` is readable for one record and `bones` for `skin.bone_count` ids, or null when that
+/// count is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_skinned_renderer_write(
+    world: u64,
+    handle: u64,
+    skin: *const DisunityRendererSkin,
+    bones: *const u64,
+) -> DisunityResult {
+    if skin.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let skin = unsafe { *skin };
+    let count = skin.bone_count as usize;
+    if count > MAX_SKIN_BONES || (count > 0 && bones.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    let given: &[u64] = if count == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(bones, count) }
+    };
+    mutate(world, |s| {
+        let (id, mut current) = renderer(s, handle)?;
+        if current.kind != RendererKind::Skinned {
+            return Err("only a skinned mesh renderer has a skin".into());
+        }
+        if skin.drawn_mesh != 0 && skin.drawn_mesh < FIRST_PLAYER_MESH {
+            return Err("a skinned renderer draws a player mesh identity or none".into());
+        }
+        let bones = given
+            .iter()
+            .map(|&bone| bone_object(s, bone))
+            .collect::<Result<Vec<_>, _>>()?;
+        current.skin = SkinBinding {
+            drawn_mesh: skin.drawn_mesh,
+            bones,
+            root_bone: bone_object(s, skin.root_bone)?,
+        };
+        set_renderer(s, id, current)
+    })
+}
+
+/// Reads a skinned renderer's skin. The bone ids are copied into `bones` when `capacity` is
+/// nonzero, which must then hold every bone; a capacity of 0 reports the counts only.
+///
+/// # Safety
+/// `skin` is writable for one record; `bones` is writable for `capacity` ids, or null when
+/// `capacity` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_skinned_renderer_read(
+    world: u64,
+    handle: u64,
+    skin: *mut DisunityRendererSkin,
+    bones: *mut u64,
+    capacity: u32,
+) -> DisunityResult {
+    if skin.is_null() || (capacity > 0 && bones.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (_, current) = renderer(s, handle)?;
+        if current.kind != RendererKind::Skinned {
+            return Err("only a skinned mesh renderer has a skin".into());
+        }
+        let held = &current.skin;
+        if capacity > 0 && (capacity as usize) < held.bones.len() {
+            return Err("skin bone capacity is too small".into());
+        }
+        let id_of = |object: Option<ObjectHandle>| {
+            object
+                .and_then(|object| s.objects.id_of(object))
+                .unwrap_or(0)
+        };
+        let count = u32::try_from(held.bones.len()).map_err(|_| "bone count overflow")?;
+        unsafe {
+            *skin = DisunityRendererSkin {
+                drawn_mesh: held.drawn_mesh,
+                root_bone: id_of(held.root_bone),
+                bone_count: count,
+                padding: 0,
+            };
+        }
+        if capacity > 0 {
+            for (slot, bone) in held.bones.iter().enumerate() {
+                unsafe { bones.add(slot).write(id_of(*bone)) };
+            }
+        }
         Ok(())
     })
 }

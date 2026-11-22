@@ -379,6 +379,27 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
         /// <summary>
+        ///  Names the mesh, bones and root bone a skinned renderer draws. Every nonzero object id must
+        ///  name a live object of this world, there are at most 1024 bones, and a nonzero mesh must be a
+        ///  player mesh identity. The renderer must be a skinned one. A rejected call changes nothing.
+        ///
+        ///  # Safety
+        ///  `skin` is readable for one record and `bones` for `skin.bone_count` ids, or null when that
+        ///  count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_skinned_renderer_write(ulong world, ulong handle, DisunityRendererSkin* skin, ulong* bones);
+        /// <summary>
+        ///  Reads a skinned renderer's skin. The bone ids are copied into `bones` when `capacity` is
+        ///  nonzero, which must then hold every bone; a capacity of 0 reports the counts only.
+        ///
+        ///  # Safety
+        ///  `skin` is writable for one record; `bones` is writable for `capacity` ids, or null when
+        ///  `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_skinned_renderer_read(ulong world, ulong handle, DisunityRendererSkin* skin, ulong* bones, uint capacity);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.
         /// </summary>
@@ -720,30 +741,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_set_enabled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_set_enabled(ulong world, ulong identity, uint enabled, DisunityAdvance* output);
-        /// <summary>
-        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
-        ///  `written` receives the number of children. When `capacity` is smaller the call returns
-        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
-        ///  Children without an ABI identity (objects still being constructed) are not listed.
-        ///
-        ///  # Safety
-        ///  `buffer` is writable for `capacity` identities and `written` for one count.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one callback record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_callback_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
-        [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one coroutine identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
     }
 }

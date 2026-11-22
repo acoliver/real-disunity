@@ -412,8 +412,9 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   The host reads the mesh contents by that identity.
   The list is exported, not drawn; a `SkinnedMeshRenderer` is not listed
 - `SkinnedMeshRenderer`: A `Renderer`.
-  `sharedMesh`, `rootBone`, `bones`, `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
-  The engine's `Mesh` holds no bone weights, bind poses or blend shapes, so nothing deforms the shared mesh: `BakeMesh(Mesh)` and `BakeMesh(Mesh, false)` copy it into the target (the target is emptied without a shared mesh).
+  `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
+  `sharedMesh`, `rootBone` and `bones` are kept on the managed component and sent to the world, which holds the identity the host draws the mesh by (the mesh takes a renderer identity as a filter's mesh does) and the bone and root bone objects; a clone's world skin names the clone's bones where they are in the cloned hierarchy.
+  The engine's `Mesh` holds no blend shapes and nothing deforms the shared mesh yet, so the host draws it in its bind pose: `BakeMesh(Mesh)` and `BakeMesh(Mesh, false)` copy it into the target (the target is emptied without a shared mesh).
   `BakeMesh` throws `NotSupportedException` naming the member, and leaves the target as it was, for a renderer with bones, for a nonzero blend shape weight and for `useScale: true`.
   A clone keeps the mesh and settings and points `rootBone` and `bones` at the clones of the original's where those are in the cloned hierarchy
 - `ParticleSystem`: A native component that requires a `ParticleSystemRenderer`, which `AddComponent` adds first.
@@ -709,9 +710,9 @@ The offscreen list is a record: the engine draws nothing in C#, and the host tha
   The fixed-vertex store (position, normal, first uv, colour and the triangle sub-meshes) is unchanged: sub-meshes that are not triangle lists are reported and left out of it, and base vertices are applied to its indices.
   Beside it the host receives every channel the mesh holds (position, normal, tangent, colour and `uv` to `uv8` with the component count each was set with, as the engine's vertex attributes 0 to 11), all indices with the base vertex applied, and a range for every sub-mesh of any topology (triangles, quads, lines, line strip and points, an empty sub-mesh included, so range `i` is sub-mesh `i`).
   Edits to tangents and to any uv channel store the mesh again.
-  The mesh keeps no skin weights, so the blend channels are never sent.
+  A mesh that holds bone weights sends them as the blend weight and blend index channels (engine vertex attributes 12 and 13, four values per vertex, the bone indices as floats); a mesh without them sends neither. `bindposes` is kept on the managed mesh and is not sent.
   `MeshCollider.sharedMesh` and `BatchRendererGroup.RegisterMesh` only hold the reference.
-  Channels: `vertices`, `normals`, `tangents`, `colors`, `colors32`, and `uv` to `uv8` (uv channels 0 to 7), with array and `List` forms `SetVertices`, `SetNormals`, `SetTangents`, `SetColors` (`Color` and `Color32`), `SetUVs` (`Vector2`, `Vector3`, `Vector4`) and the matching `Get...` that clear the list first.
+  Channels: `vertices`, `normals`, `tangents`, `colors`, `colors32`, `boneWeights` (empty or one `BoneWeight` per vertex, dropped when the vertex count changes), `bindposes` (one matrix per bone) and `uv` to `uv8` (uv channels 0 to 7), with array and `List` forms `SetVertices`, `SetNormals`, `SetTangents`, `SetColors` (`Color` and `Color32`), `SetUVs` (`Vector2`, `Vector3`, `Vector4`) and the matching `Get...` that clear the list first.
   Getters return copies, and a null array or list sets an empty channel.
   Colors are stored as `Color`; `colors32` converts.
   A uv channel remembers the component count of its last set (2, 3 or 4): reading with more components pads zeros and reading with fewer drops the rest.

@@ -72,6 +72,15 @@ internal static class MeshRendererTests
         var bone = NewObject().transform;
         r.rootBone = bone; r.bones = [bone]; r.quality = SkinQuality.Bone2; r.updateWhenOffscreen = true;
         Ensure(r.rootBone == bone && r.bones.Length == 1 && r.bones[0] == bone, "bones");
+        var held = SkinSupport.Read(r);
+        Ensure(held.Root == bone.gameObject.NativeHandle && held.Bones.SequenceEqual([bone.gameObject.NativeHandle]), "the world holds the bone and the root bone");
+        var spare = NewObject().transform;
+        r.bones = [bone, null!, spare];
+        Ensure(SkinSupport.Read(r).Bones.SequenceEqual([bone.gameObject.NativeHandle, 0UL, spare.gameObject.NativeHandle]), "an empty bone slot is held as none");
+        r.bones = [bone];
+        r.rootBone = null;
+        Ensure(SkinSupport.Read(r).Root == 0, "no root bone is held as none");
+        r.rootBone = bone;
         Ensure(r.quality == SkinQuality.Bone2 && r.updateWhenOffscreen, "quality and offscreen");
         Ensure(r.GetBlendShapeWeight(2) == 0f, "a weight starts at 0");
         r.SetBlendShapeWeight(2, 55f);
@@ -79,6 +88,7 @@ internal static class MeshRendererTests
         Throws<ArgumentOutOfRangeException>(() => r.SetBlendShapeWeight(-1, 1f), "a negative blend shape index");
         var shared = RendererTests.Cube();
         r.sharedMesh = shared;
+        Ensure(SkinSupport.Read(r).Mesh == shared.RendererIdentity, "the world holds the identity the host draws the mesh by");
         Ensure(r.localBounds == shared.bounds && r.bounds.size == shared.bounds.size, "bounds come from the mesh");
         r.localBounds = new Bounds(Vector3.zero, Vector3.one);
         Ensure(r.localBounds.size == Vector3.one, "local bounds can be set");
@@ -94,6 +104,7 @@ internal static class MeshRendererTests
         r.BakeMesh(other);
         Ensure(other.vertexCount == 3, "a blend shape weight of zero deforms nothing");
         r.sharedMesh = null;
+        Ensure(SkinSupport.Read(r).Mesh == 0, "without a mesh the world holds none");
         r.BakeMesh(target);
         Ensure(target.vertexCount == 0, "with no mesh the target is emptied");
         Throws<ArgumentNullException>(() => r.BakeMesh(null!), "a null target");
@@ -159,6 +170,10 @@ internal static class MeshRendererTests
         Ensure(ReferenceEquals(cr.sharedMaterial, copy) && ReferenceEquals(cr.material, copy), "materials are shared with the source's copies");
         Ensure(ReferenceEquals(cr.sharedMesh, shared) && cr.GetBlendShapeWeight(0) == 3f, "mesh and weights are cloned");
         Ensure(cr.rootBone == clone.transform && cr.bones.Length == 1 && cr.bones[0] == clone.transform.GetChild(0), "bones point into the clone");
+        var cloned = SkinSupport.Read(cr);
+        Ensure(cloned.Mesh == shared.RendererIdentity && cloned.Root == clone.NativeHandle, "the clone's world skin names the mesh and its own root");
+        Ensure(cloned.Bones.SequenceEqual([clone.transform.GetChild(0).gameObject.NativeHandle]), "the clone's world skin names the clone's bones, not the original's");
+        Ensure(SkinSupport.Read(skinned).Bones.SequenceEqual([boneObject.NativeHandle]), "the original keeps its own bones");
         var read = new MaterialPropertyBlock();
         cr.GetPropertyBlock(read);
         Ensure(read.HasFloat("_A"), "the property block is cloned");
@@ -183,7 +198,7 @@ internal static class MeshRendererTests
         {"type":"MeshFilter"},
         {"type":"MeshRenderer","enabled":false,"receive_shadows":false,"dynamic_occludee":false,"static_shadow_caster":true,"shadow_casting_mode":3,"motion_vector_mode":2,"light_probe_usage":2,"reflection_probe_usage":3,"rendering_layer_mask":4294967295,"renderer_priority":-4,"sorting_layer_id":0,"sorting_order":7,"materials":[null,null]}]},
         {"name":"Skin","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
-        {"type":"SkinnedMeshRenderer","enabled":true,"receive_shadows":true,"dynamic_occludee":true,"static_shadow_caster":false,"shadow_casting_mode":1,"motion_vector_mode":1,"light_probe_usage":1,"reflection_probe_usage":1,"rendering_layer_mask":1,"renderer_priority":0,"sorting_layer_id":0,"sorting_order":0,"materials":[null],"quality":4,"update_when_offscreen":true}]}]}
+        {"type":"SkinnedMeshRenderer","enabled":true,"receive_shadows":true,"dynamic_occludee":true,"static_shadow_caster":false,"shadow_casting_mode":1,"motion_vector_mode":1,"light_probe_usage":1,"reflection_probe_usage":1,"rendering_layer_mask":1,"renderer_priority":0,"sorting_layer_id":0,"sorting_order":0,"materials":[null],"quality":4,"update_when_offscreen":true,"mesh":null,"bones":[0,null],"root_bone":0}]}]}
         """;
 
     private static void Loaded()
@@ -200,5 +215,6 @@ internal static class MeshRendererTests
         Ensure(r.sharedMaterials.Length == 2 && r.sharedMaterials.All(m => m is null), "two empty material slots");
         var s = loaded.Objects[1].GetComponent<SkinnedMeshRenderer>()!;
         Ensure(s.quality == SkinQuality.Bone4 && s.updateWhenOffscreen && s.sharedMaterials.Length == 1, "skinned settings");
+        Ensure(s.sharedMesh is null && s.rootBone == mesh.transform && s.bones.Length == 2 && s.bones[0] == mesh.transform && s.bones[1] is null, "the plan's bones and root bone are the planned objects' transforms");
     }
 }

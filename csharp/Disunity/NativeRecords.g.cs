@@ -183,6 +183,21 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The skin of a skinned mesh renderer: the identity the host knows the drawn mesh by (0 for none,
+    ///  otherwise a player mesh identity), the object id of the root bone (0 for none) and how many
+    ///  bones the renderer names. The bone object ids travel in a separate array of `bone_count` ids,
+    ///  0 for an empty slot.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityRendererSkin
+    {
+        public ulong drawn_mesh;
+        public ulong root_bone;
+        public uint bone_count;
+        public uint padding;
+    }
+
+    /// <summary>
     ///  What the host draws one material slot of a renderer with: a colour multiplier as the
     ///  material holds it and the renderer identity of a texture, 0 for none.
     /// </summary>
@@ -683,53 +698,6 @@ namespace Disunity.Native
         public int x;
         public int y;
         public uint tile;
-    }
-
-    /// <summary>
-    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is
-    ///  zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of
-    ///  the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per
-    ///  texel), or zero.
-    ///
-    ///  `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
-    ///  2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
-    ///  writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
-    ///  value is refused, and the record reads back with the value it was stored with.
-    ///
-    ///  `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
-    ///  of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
-    ///  after another, each as long as the others and each holding its own mip chain, so `length` is a
-    ///  whole multiple of `depth`. A 3D texture's `bytes` are its mip levels one after another, each
-    ///  level holding its slices one after another and having half the width, height and depth of the
-    ///  one before (at least one), so only a 3D texture of one level has a `length` that is a whole
-    ///  multiple of `depth`. A texture of layers (an array, a cube or a 3D texture) states its
-    ///  `graphics_format`, the engine's `GraphicsFormat` value, because its layers need not have a
-    ///  `TextureFormat`; a 2D texture's `graphics_format` is carried and not read. The host draws
-    ///  all four shapes. `reserved` is zero.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityTextureInfo
-    {
-        public ulong identity;
-        /// <summary>
-        ///  Starts at 1 and rises by one each time the identity is stored again.
-        /// </summary>
-        public ulong generation;
-        public uint format;
-        public uint width;
-        public uint height;
-        public uint mips;
-        /// <summary>
-        ///  Nonzero when the texels are linear data rather than sRGB colour.
-        /// </summary>
-        public uint linear;
-        public uint length;
-        public uint present;
-        public uint distance_spread;
-        public uint depth;
-        public uint graphics_format;
-        public uint dimension;
-        public uint reserved;
     }
 
 }

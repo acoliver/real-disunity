@@ -406,18 +406,14 @@ impl GpuWorkReport {
         );
     }
 
-    /// Writes the counts, one line each, to standard error.
-    pub fn print(&self) {
-        self.print_with(&self.stand_in_lines());
-    }
-
-    /// As [`print`](Self::print), with the stand-in census of the work done since it was `before`
-    /// (a clone of `stand_ins` taken then) in place of the run's totals.
-    pub fn print_frame(&self, before: &StandInCounts) {
-        self.print_with(&self.frame_stand_in_lines(before));
-    }
-
-    fn print_with(&self, stand_in_lines: &[String]) {
+    /// Writes the counts, one line each, to standard error. With `since`, a clone of `stand_ins`
+    /// taken at some point, the stand-in census is that of the work done since then, in place of
+    /// the run's totals.
+    pub fn print(&self, since: Option<&StandInCounts>) {
+        let stand_in_lines = since.map_or_else(
+            || self.stand_in_lines(),
+            |before| self.frame_stand_in_lines(before),
+        );
         self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
@@ -446,7 +442,7 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        self.print_texture_lines(stand_in_lines);
+        self.print_texture_lines(&stand_in_lines);
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),

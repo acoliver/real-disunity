@@ -293,7 +293,7 @@ impl PlayerRetainedDriver {
     /// the renderers drawn white.
     fn report_gpu(&self) {
         self.gpu.note_retained(self.tables.census().clone());
-        self.gpu.report().print();
+        self.gpu.report().print(None);
     }
 
     fn push_key(&mut self, code: u16, pressed: bool) -> Result<(), PlayError> {

@@ -408,7 +408,7 @@ pub fn run_player_screens(
         // counts are the run's so far, except the stand-in census, which is the frame's own.
         if prepared.gpu.report_each_frame {
             eprintln!("[gpu] report after frame {frame}");
-            gpu.report().print_frame(&stand_ins_before);
+            gpu.report().print(Some(&stand_ins_before));
         }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
@@ -419,7 +419,7 @@ pub fn run_player_screens(
         eprintln!("[player] ran {frames} frames");
     }
     report_times(&times);
-    gpu.report().print();
+    gpu.report().print(None);
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))

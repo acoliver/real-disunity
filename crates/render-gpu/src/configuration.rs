@@ -431,22 +431,16 @@ pub struct Configuration<T> {
     census: Option<Counted>,
 }
 impl<T> Configuration<T> {
+    /// `policy` is a fixed [`AllocationBudget`] or a policy that resolves one from the
+    /// required bytes.
     pub fn new(
         authority: &SubmissionAuthority,
         current: T,
         allocations: AllocationSet,
         limits: &wgpu::Limits,
-        budget: AllocationBudget,
+        policy: impl Into<AllocationBudgetPolicy>,
     ) -> Result<Self, ConfigurationError<std::convert::Infallible>> {
-        Self::new_with_policy(authority, current, allocations, limits, budget.into())
-    }
-    pub fn new_with_policy(
-        authority: &SubmissionAuthority,
-        current: T,
-        allocations: AllocationSet,
-        limits: &wgpu::Limits,
-        policy: AllocationBudgetPolicy,
-    ) -> Result<Self, ConfigurationError<std::convert::Infallible>> {
+        let policy = policy.into();
         let required = allocations
             .validate(limits)
             .map_err(ConfigurationError::Invalid)?;

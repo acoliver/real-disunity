@@ -502,17 +502,12 @@ pub struct ConfiguredFrameRenderer {
     history: Option<ToneMapOutput>,
 }
 impl ConfiguredFrameRenderer {
+    /// `budget` is a fixed [`AllocationBudget`] or a policy that resolves one from the
+    /// required bytes.
     pub fn new(
         context: &GpuContext,
         settings: RendererConfiguration,
-        budget: AllocationBudget,
-    ) -> Result<Self, ConfigurationError<PostError>> {
-        Self::new_with_policy(context, settings, budget.into())
-    }
-    pub fn new_with_policy(
-        context: &GpuContext,
-        settings: RendererConfiguration,
-        budget: AllocationBudgetPolicy,
+        budget: impl Into<AllocationBudgetPolicy>,
     ) -> Result<Self, ConfigurationError<PostError>> {
         Self::new_with(context, settings, budget, |settings| {
             allocate(context, settings, Carried::default())
@@ -538,7 +533,7 @@ impl ConfiguredFrameRenderer {
         context.submission().check_device()?;
         let renderer = renderer.map_err(ConfigurationError::Allocation)?;
         let history = history(&renderer);
-        let state = Configuration::new_with_policy(
+        let state = Configuration::new(
             context.submission(),
             renderer,
             allocations,

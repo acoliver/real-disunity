@@ -88,15 +88,16 @@ internal static unsafe class WorldGraphicsTests
         return desc;
     }
 
-    /// <summary>Drains the world's offscreen work.</summary>
+    /// <summary>Drains the world's offscreen work. A drain with a capacity of at least one also forgets the global writes the world
+    /// noted for ordering, so a drain before a step leaves earlier steps' globals out of the step's records.</summary>
     private static DisunityOffscreenWork[] Take()
     {
         uint count;
         DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, null, 0, &count));
-        var work = new DisunityOffscreenWork[count];
+        var work = new DisunityOffscreenWork[Math.Max(count, 1u)];
         fixed (DisunityOffscreenWork* pointer = work)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, count == 0 ? null : pointer, count, &count));
-        return work;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, pointer, (uint)work.Length, &count));
+        return work.Take((int)count).ToArray();
     }
 
     private static void MaterialSettersReachTheWorld()

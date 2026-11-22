@@ -40,6 +40,7 @@ mod lists_gpu;
 mod lists_tags;
 mod mesh_cache;
 mod mips;
+mod ordered_globals_gpu;
 mod page_copy;
 mod pixels;
 mod policy;

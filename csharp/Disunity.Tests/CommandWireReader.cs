@@ -8,16 +8,18 @@ using Disunity.Native;
 /// world's record encoding.</summary>
 internal static unsafe class CommandWireReader
 {
-    /// <summary>Drains the world's offscreen work as one line per record, in call order.</summary>
+    /// <summary>Drains the world's offscreen work as one line per record, in call order. A drain with a capacity of at least one
+    /// also forgets the global writes the world noted for ordering, so a drain before a step leaves the globals that
+    /// earlier steps set (and the world's load sent) out of the step's records.</summary>
     internal static string[] Take()
     {
         var world = DisunityHost.WorldHandle;
         uint count;
         DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, null, 0, &count));
-        var work = new DisunityOffscreenWork[count];
+        var work = new DisunityOffscreenWork[Math.Max(count, 1u)];
         fixed (DisunityOffscreenWork* pointer = work)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, count == 0 ? null : pointer, count, &count));
-        return work.Select(record => record.kind >= 4 ? Describe(Detail(world, record.bindings)) : Flat(record)).ToArray();
+            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, pointer, (uint)work.Length, &count));
+        return work.Take((int)count).Select(record => record.kind >= 4 ? Describe(Detail(world, record.bindings)) : Flat(record)).ToArray();
     }
 
     private static string Flat(DisunityOffscreenWork r) => r.kind switch

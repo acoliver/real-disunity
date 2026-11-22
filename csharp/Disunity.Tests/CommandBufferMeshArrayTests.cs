@@ -226,9 +226,12 @@ internal static unsafe class CommandBufferMeshArrayTests
         return stream.ToArray();
     }
 
-    /// <summary>The native snapshot of the frame after recording a keyword so the frame has work. It drains the frame's work.</summary>
+    /// <summary>The native snapshot of the frame after recording a keyword so the frame has work. It drains the frame's work.
+    /// The world orders a direct global write ahead of the next record, so the drain before the keyword drops the ordered copies
+    /// of the static arrays and the snapshot shows the global state alone.</summary>
     private static byte[] Snapshot()
     {
+        CommandWireReader.Take();
         var buffer = new CommandBuffer();
         buffer.EnableShaderKeyword("_MA_TRIGGER");
         Graphics.ExecuteCommandBuffer(buffer);

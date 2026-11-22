@@ -86,7 +86,8 @@ internal static class ComputeDispatchTests
         Shader.SetGlobalTexture("_GlobalTerrainHeightmap", second);
         shader.Dispatch(0, 1, 1, 1);
         Shader.SetGlobalTexture("_GlobalTerrainHeightmap", (Texture)null!);
-        var work = TakeWork(world);
+        // The direct global writes are ordered ahead of the dispatches as records of their own; the dispatches are checked here.
+        var work = TakeWork(world).Where(record => record.kind == 3).ToArray();
         var heights = work.Select(record => Bindings(world, record.bindings).Single(entry => entry.Name == "_Heights")).ToArray();
         Expect.That(heights[0].TextureKind == 2 && heights[0].Resource == first.WorldId, "the first dispatch holds the render texture the global held then");
         Expect.That(heights[1].TextureKind == 2 && heights[1].Resource == second.WorldId, "the second dispatch holds the render texture set after the first");

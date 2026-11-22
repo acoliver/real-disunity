@@ -3,10 +3,10 @@
 //! return and change nothing when they refuse.
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_properties::*,
-    graphics_snapshot::*,
+    graphics_snapshot::*, with_native_world,
 };
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, OffscreenWork, PropertyValue, snapshot_wire,
+    GraphicsSnapshot, OffscreenWork, PropertyValue, ShaderProperties, snapshot_wire,
 };
 
 type Setter = unsafe extern "C" fn(u64, *const u8, u32, *const f32, u32) -> DisunityResult;
@@ -90,6 +90,15 @@ fn snapshot(world: u64) -> GraphicsSnapshot {
     snapshot_wire::decode(&bytes).unwrap()
 }
 
+/// The values of the world's global state. A snapshot replays from the state before its first
+/// write, so the writes of its own frame are ordered work and not part of that state.
+fn global_properties(world: u64) -> ShaderProperties {
+    with_native_world(world, |native| {
+        native.global_shader_state().properties.clone()
+    })
+    .unwrap()
+}
+
 fn vectors(floats: &[f32]) -> Vec<[f32; 4]> {
     floats
         .chunks_exact(4)
@@ -115,7 +124,7 @@ fn the_shader_setters_store_ordered_elements_in_the_global_state() {
     ] {
         assert_eq!(call(setter, world, "_Arr", count, values).code, 0);
     }
-    let state = snapshot(world).global.unwrap().properties;
+    let state = global_properties(world);
     assert_eq!(state.vector_array("_Arr"), Some(vectors(&vector_values)));
     assert_eq!(state.matrix_array("_Arr"), Some(matrices(&matrix_values)));
     let held = state.matrix_array("_Arr").unwrap();
@@ -294,11 +303,18 @@ fn the_input_is_copied_before_the_call_returns() {
     drop((vector_values, matrix_values));
 
     let state = snapshot(world);
-    let global = state.global.unwrap().properties;
+    let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(expected_vectors));
-    let OffscreenWork::SetGlobal(PropertyValue::MatrixArray(_, held)) = &state.work[0] else {
-        panic!("expected the ordered matrix array, got {:?}", state.work[0]);
-    };
+    // The direct vector array is ordered ahead of the matrix array the ordered setter records,
+    // and the blit that took the snapshot comes last.
+    let held = state
+        .work
+        .iter()
+        .find_map(|work| match work {
+            OffscreenWork::SetGlobal(PropertyValue::MatrixArray(_, held)) => Some(held),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected the ordered matrix array in {:?}", state.work));
     assert_eq!(*held, expected_matrices);
 }
 
@@ -311,6 +327,6 @@ fn a_replacement_through_the_shader_setter_drops_the_old_tail() {
     );
     let short = floats_of(2, 4);
     assert_eq!(call(IMMEDIATE[0].0, world, "_V", 2, &short).code, 0);
-    let global = snapshot(world).global.unwrap().properties;
+    let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(vectors(&short)));
 }

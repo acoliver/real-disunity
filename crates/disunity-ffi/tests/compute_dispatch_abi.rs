@@ -64,6 +64,14 @@ fn work(kind: u32) -> DisunityOffscreenWork {
     }
 }
 
+/// The frame's dispatch records. A global written directly before one is ordered ahead of it as
+/// a record of its own, which these tests leave to the world's `ordered_globals.rs`.
+fn take_dispatches(world: u64) -> Vec<DisunityOffscreenWork> {
+    let mut records = take(world);
+    records.retain(|record| record.kind == 3);
+    records
+}
+
 fn take(world: u64) -> Vec<DisunityOffscreenWork> {
     let mut count = 0;
     unsafe {
@@ -149,7 +157,7 @@ fn dispatched_with_values() -> (u64, u64, u64, DisunityOffscreenWork) {
     assert_eq!(int_write(world, id, 0, "_OutputHeight", 1024).code, 0);
     bind_kernel_values(world, id, out);
     assert_eq!(disunity_compute_dispatch(world, id, 0, 256, 128, 1).code, 0);
-    let records = take(world);
+    let records = take_dispatches(world);
     assert_eq!(records.len(), 1);
     (world, id, out, records[0])
 }
@@ -221,7 +229,7 @@ fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_r
             disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(2 << 40));
         assert_eq!(second.code, 0);
     }
-    let held: Vec<(u32, u64)> = take(world)
+    let held: Vec<(u32, u64)> = take_dispatches(world)
         .iter()
         .map(|record| {
             let entries = read_bindings(world, record.bindings);
@@ -230,6 +238,29 @@ fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_r
         })
         .collect();
     assert_eq!(held, [(0, 0), (1, 1 << 40)]);
+}
+
+#[test]
+fn a_global_written_after_the_last_record_is_counted_and_taken_after_it() {
+    let world = new_world();
+    let id = shader(world);
+    let (global, length) = text("_Late");
+    let slot = DisunityTextureSlot {
+        kind: 1,
+        texture: 1 << 40,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        ..Default::default()
+    };
+    unsafe {
+        assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+        let late = disunity_shader_texture_write(world, 1, 0, global, length, &slot);
+        assert_eq!(late.code, 0);
+    }
+    let records = take(world);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].kind, 3);
+    assert_ne!(records[1].kind, 3);
 }
 
 #[test]

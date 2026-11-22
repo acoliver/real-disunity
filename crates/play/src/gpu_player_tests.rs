@@ -353,9 +353,10 @@ fn the_window_and_the_headless_player_ask_for_the_same_device() {
     let headless =
         PlayerGpu::headless_on_adapter(&adapter, data.path(), &inputs, settings()).unwrap();
     let (window, alone) = (shared.device.limits(), headless.device.limits());
-    assert_eq!(
-        window.max_storage_textures_per_shader_stage,
-        alone.max_storage_textures_per_shader_stage
+    // The viewer asks for as many storage images in a stage as the adapter offers, up to 16, so
+    // its device has at least what the player alone asks for.
+    assert!(
+        window.max_storage_textures_per_shader_stage >= alone.max_storage_textures_per_shader_stage
     );
     assert_eq!(window.max_buffer_size, alone.max_buffer_size);
     assert!(

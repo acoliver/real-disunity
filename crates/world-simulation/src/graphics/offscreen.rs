@@ -270,6 +270,8 @@ impl World {
         self.note_handle(&work);
         self.graphics.direct_writes.clear();
         self.graphics.offscreen.extend(ordered);
+        // After the ordered globals, so the set is keyed by the record's own index.
+        self.capture_render_set(&work);
         self.note_material_draw(&mut work);
         self.graphics.offscreen.push(work);
         Ok(())
@@ -323,6 +325,7 @@ impl World {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
+        self.graphics.render_sets.clear();
         let start = self.graphics.take_global_start();
         let copies = self.settle_material_versions(&mut work);
         (work, copies, start)

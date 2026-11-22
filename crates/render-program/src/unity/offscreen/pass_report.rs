@@ -1,7 +1,5 @@
 //! The report of a camera pass: how its draws were set up and what the probed camera's draws did.
 
-use std::collections::BTreeMap;
-
 use crate::ids::{CameraId, TextureId};
 
 use super::depth_range;

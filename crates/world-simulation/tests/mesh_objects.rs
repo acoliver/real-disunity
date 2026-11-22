@@ -127,7 +127,7 @@ fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
     let mut world = new_world();
     let mut kept = Vec::new();
     for mode in [0, 1, 2, 3] {
-        let mut renderer = renderer(vec![drawn(1.0, 0)]);
+        let mut renderer = renderer(1);
         renderer.shadow_casting_mode = mode;
         let object = add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
         if mode != 3 {

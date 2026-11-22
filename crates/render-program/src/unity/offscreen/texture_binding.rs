@@ -2,9 +2,11 @@
 //! layer explains, the partially written mip chains that are noted, and the sampler of each slot.
 use std::collections::HashMap;
 
-use worldrunner_render_post::contracts::{ResourceUse, UseKind};
+use worldrunner_render_post::contracts::{
+    ResourceUse, SamplerBinding, Semantic, TextureBinding, TextureBindingKind, UseKind,
+};
 
-use crate::layers::{Layers, TextureInput};
+use crate::layers::TextureInput;
 use crate::layout::Slot;
 use crate::unity::shader::PassSelector;
 
@@ -55,9 +57,10 @@ impl Services<'_> {
     /// The texture a slot of property `name` reads, and the reason when it is a stand-in.
     ///
     /// A layer's texture wins. It is a stand-in when its layer says why, with the reason of the
-    /// highest layer that explains the property (see [`Layers::stand_in`]), and when it is a
-    /// render texture that nothing has written (`unwritten-render-texture`). With none, and when
-    /// the shader does not declare the property, this engine reads a grey default texture of the
+    /// highest layer that explains the property (see [`crate::layers::Layers::stand_in`]), and
+    /// when it is a render texture that nothing has written (`unwritten-render-texture`). With
+    /// none, and when the shader does not declare the property, this engine reads a grey default
+    /// texture of the
     /// slot's dimension, so the frame's `undeclared_textures` stand in, for a slot that samples a
     /// single-sampled float texture of a dimension with a default. The reason is the one a layer
     /// explains the missing texture with, or `undeclared`. A declared property, a slot of another
@@ -170,7 +173,7 @@ impl Services<'_> {
             .tracker
             .whole_view(imported, mips, view_dimension, versions[0])?;
         let features = self.runtime.device().features();
-        let (sample_type, state) = read_unfilterable(
+        let (sample_type, state) = sampling::read_unfilterable(
             sample_type,
             imported.format,
             features,

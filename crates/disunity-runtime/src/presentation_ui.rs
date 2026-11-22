@@ -7,7 +7,14 @@ use crate::{
     DisunityHost, HostError, native,
     presentation::{Coverage, decode_quad, read_coverage},
 };
-use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
+use worldrunner_world_simulation::{
+    graphics::RenderTextureId,
+    presentation::extraction::SpriteQuad,
+    ui::{
+        UiTexture,
+        presentation::{UiDraw, UiDrawKind, UiPresentation},
+    },
+};
 
 type Count = unsafe extern "C" fn(u64, *mut u32, *mut u32) -> native::DisunityResult;
 type Draw = unsafe extern "C" fn(
@@ -72,16 +79,36 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
         corners: quad.corners,
         uv_rect: quad.uv_rect,
         color: quad.color,
-        texture: quad.texture,
+        texture: decode_texture(kind, meta.texture_kind, &quad)?,
         sorting_layer: quad.sorting_layer,
         sorting_order: quad.sorting_order,
         hierarchy_order: usize::try_from(meta.hierarchy_order)
             .map_err(|_| HostError::Managed("UI hierarchy order overflow".into()))?,
         clip_rect: [meta.clip_x, meta.clip_y, meta.clip_width, meta.clip_height],
     };
-    draw.validate_distance()
+    draw.validate()
         .map_err(|e| HostError::Managed(e.to_string()))?;
     Ok(draw)
+}
+
+/// A target names a world render texture; any other texture is a stored image on a graphic and a
+/// coverage index on text.
+fn decode_texture(
+    kind: UiDrawKind,
+    texture_kind: u32,
+    quad: &SpriteQuad,
+) -> Result<Option<UiTexture>, HostError> {
+    let Some(id) = quad.texture else {
+        return Ok(None);
+    };
+    match (texture_kind, kind) {
+        (0, UiDrawKind::Graphic) => Ok(Some(UiTexture::Image(id))),
+        (0, UiDrawKind::Text) => Ok(Some(UiTexture::Coverage(id))),
+        (1, _) => Ok(Some(UiTexture::Target(RenderTextureId::from_bits(id)))),
+        _ => Err(HostError::Managed(format!(
+            "unknown UI texture kind {texture_kind}"
+        ))),
+    }
 }
 
 fn decode_corner_colors(meta: &native::DisunityUiDraw) -> Result<Option<[[f32; 4]; 4]>, HostError> {

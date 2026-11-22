@@ -557,6 +557,16 @@ hierarchy key and clip bounds. Solid and translucent quads and triangles need no
 `UiOverlay::with_textures` resolves image texture identities from an explicitly
 supplied `SceneTexture` map. Unresolved identities return an error.
 
+What a graphic or text draw samples is a `ui::UiTexture`: `Image` is the renderer
+identity of a stored texture, `Coverage` keys `UiPresentation::coverage` and belongs to text
+only, and `Target` is a world `RenderTextureId`. `CanvasRenderer::graphic_texture` is an
+`Image` or a `Target` (`disunity_canvas_renderer_texture_write` takes the kind and refuses a
+render texture the world does not hold), and `UiDraw::validate` states the pairing once: a
+graphic names an image or a target, text names coverage. `extract_graphics` keeps a
+graphic whose target was destroyed since the write, with the target id, so the player decides
+what it shows. Sprite quads (`append_graphics`) sample stored images only and leave a target
+graphic to the overlay.
+
 `SceneGpu` owns the dynamic resources. The existing compositor blends text and
 graphics together over the display output after all scene post-processing, in
 ascending `RectLayout::draw_order()` with graphics before text on the same object.

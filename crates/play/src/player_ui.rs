@@ -11,14 +11,17 @@ use std::{
 use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::RetainedUpdate;
-use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
+use worldrunner_world_simulation::ui::{
+    UiTexture,
+    presentation::{UiDrawKind, UiPresentation},
+};
 
 /// The textures the UI's graphics draw, by identity.
 pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {
-    plan.draws
-        .iter()
-        .filter(|draw| draw.kind == UiDrawKind::Graphic)
-        .filter_map(|draw| draw.texture)
+    plan.draws.iter().filter_map(|draw| match draw.texture {
+        Some(UiTexture::Image(id)) if draw.kind == UiDrawKind::Graphic => Some(id),
+        _ => None,
+    })
 }
 
 #[derive(Default)]
@@ -26,7 +29,7 @@ pub(crate) struct PlayerUi {
     plan: Option<UiPresentation>,
     generations: BTreeMap<u64, u64>,
     viewport: [u32; 2],
-    reported: BTreeSet<u64>,
+    reported: BTreeSet<UiTexture>,
     #[cfg(test)]
     pub(crate) updates: u64,
 }
@@ -74,17 +77,23 @@ impl PlayerUi {
             if draw.kind != UiDrawKind::Graphic {
                 return true;
             }
-            let Some(id) = draw
-                .texture
-                .filter(|id| !textures.textures.contains_key(id))
-            else {
-                return true;
+            let reason = match draw.texture {
+                Some(UiTexture::Image(id)) if !textures.textures.contains_key(&id) => {
+                    format!(
+                        "UI image {id} is left out: {}",
+                        player.unavailable_reason(id)
+                    )
+                }
+                Some(UiTexture::Target(id)) => {
+                    format!("UI render texture {id:?} is left out: the player does not draw it yet")
+                }
+                _ => return true,
             };
-            if self.reported.insert(id) {
-                report(format!(
-                    "UI image {id} is left out: {}",
-                    player.unavailable_reason(id)
-                ));
+            if draw
+                .texture
+                .is_some_and(|texture| self.reported.insert(texture))
+            {
+                report(reason);
             }
             false
         });

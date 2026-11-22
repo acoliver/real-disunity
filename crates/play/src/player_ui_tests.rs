@@ -1,6 +1,7 @@
 use super::*;
 use crate::player_ui::PlayerUi;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 fn fixture() -> (UiPresentation, SpriteTextures) {
@@ -27,7 +28,7 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
             corners: [[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]],
             uv_rect: [0., 0., 1., 1.],
             color: [1.; 4],
-            texture: Some(identity),
+            texture: Some(UiTexture::Image(identity)),
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 1,
@@ -78,7 +79,7 @@ fn unavailable_images_leave_other_ui_draws_in_the_frame() {
     plan.draws.push(solid);
     for identity in [7, FIRST_PLAYER_TEXTURE + 1, 7] {
         let mut missing = plan.draws[0].clone();
-        missing.texture = Some(identity);
+        missing.texture = Some(UiTexture::Image(identity));
         plan.draws.push(missing);
     }
     let mut ui = PlayerUi::default();
@@ -166,6 +167,7 @@ fn conversion_failure_removes_the_image_and_later_storage_restores_it() {
 fn unavailable_text_coverage_is_still_an_error() {
     let (mut plan, textures) = fixture();
     plan.draws[0].kind = UiDrawKind::Text;
+    plan.draws[0].texture = Some(UiTexture::Coverage(FIRST_PLAYER_TEXTURE));
     let error = PlayerUi::default()
         .update(
             plan,

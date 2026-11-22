@@ -3,6 +3,7 @@ use crate::dynamic::{DynamicError, DynamicQuad};
 use std::collections::BTreeMap;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 use worldrunner_world_simulation::ui::{
+    UiTexture,
     contribution::UiRenderPlan,
     presentation::{UiDraw, UiDrawKind, UiPresentation},
 };
@@ -59,19 +60,18 @@ impl UiOverlay {
         };
         let mut indices = BTreeMap::new();
         for draw in &plan.draws {
-            draw.validate_distance()
-                .map_err(|_| DynamicError::InvalidQuad {
-                    index: result.quads.len(),
-                    field: "distance_field",
-                })?;
+            draw.validate().map_err(|_| DynamicError::InvalidQuad {
+                index: result.quads.len(),
+                field: "distance_field",
+            })?;
             if let Some(style) = draw.distance_field {
-                let atlas = plan
-                    .coverage
-                    .get(&draw.texture.expect("validated distance texture"))
-                    .ok_or(DynamicError::InvalidQuad {
-                        index: result.quads.len(),
-                        field: "distance atlas",
-                    })?;
+                let Some(UiTexture::Coverage(key)) = draw.texture else {
+                    unreachable!("a validated distance draw names coverage");
+                };
+                let atlas = plan.coverage.get(&key).ok_or(DynamicError::InvalidQuad {
+                    index: result.quads.len(),
+                    field: "distance atlas",
+                })?;
                 style
                     .validate_extent(
                         draw.corners,
@@ -137,17 +137,19 @@ fn draw_texture(
     index: usize,
 ) -> Result<SceneTexture, DynamicError> {
     let invalid = |field| DynamicError::InvalidQuad { index, field };
-    let identity = draw.texture.expect("textured draw");
-    if draw.kind == UiDrawKind::Graphic {
-        return textures
+    let texture = match draw.texture.expect("textured draw") {
+        UiTexture::Image(identity) => {
+            return textures
+                .get(&identity)
+                .cloned()
+                .ok_or_else(|| invalid("unresolved UI texture identity"));
+        }
+        UiTexture::Target(_) => return Err(invalid("render texture target")),
+        UiTexture::Coverage(identity) => plan
+            .coverage
             .get(&identity)
-            .cloned()
-            .ok_or_else(|| invalid("unresolved UI texture identity"));
-    }
-    let texture = plan
-        .coverage
-        .get(&identity)
-        .ok_or_else(|| invalid("glyph coverage texture"))?;
+            .ok_or_else(|| invalid("glyph coverage texture"))?,
+    };
     if texture.width == 0
         || texture.height == 0
         || u64::from(texture.width) * u64::from(texture.height) != texture.bytes.len() as u64

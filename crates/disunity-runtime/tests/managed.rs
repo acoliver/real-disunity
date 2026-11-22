@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush, HostError, ManagedHostConfig};
 use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef};
+use worldrunner_world_simulation::ui::UiTexture;
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -173,6 +174,9 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_distance_field_atlas(&mut host, &root);
     assert_managed_overlay_order_and_clipping(&mut host, &root);
     assert_managed_triangle_round_trip(&mut host, &root);
+    assert_a_canvas_renderer_over_a_render_texture_reaches_the_ui_draw_as_a_target(
+        &mut host, &root,
+    );
     assert_gpu_flush(&mut host, &root);
     assert_graphics_snapshot(&mut host, &root);
     host.run_slice(&fixture).unwrap();
@@ -751,9 +755,36 @@ fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Pat
     assert_eq!(ui.draws[3].clip_rect, [24, 24, 8, 8]);
     assert_eq!(ui.draws[0].clip_rect, [0, 0, 64, 64]);
     assert_eq!(ui.coverage.len(), 1);
-    assert!(ui.coverage.contains_key(&ui.draws[2].texture.unwrap()));
+    let Some(UiTexture::Coverage(key)) = ui.draws[2].texture else {
+        panic!("text draws name coverage");
+    };
+    assert!(ui.coverage.contains_key(&key));
     host.unload_slice().unwrap();
     assert!(matches!(host.ui_presentation(), Err(HostError::NoWorld)));
+}
+
+fn assert_a_canvas_renderer_over_a_render_texture_reaches_the_ui_draw_as_a_target(
+    host: &mut DisunityHost,
+    root: &Path,
+) {
+    host.run_slice(&root.join("csharp/PortableFixture/ui-target.fixture"))
+        .unwrap();
+    host.export_presentation([64, 64], 8).unwrap();
+    let ui = host.ui_presentation().unwrap();
+    assert_eq!(ui.draws.len(), 1, "the mesh exports one quad");
+    let Some(UiTexture::Target(target)) = ui.draws[0].texture else {
+        panic!(
+            "a render texture is drawn as a target, not {:?}",
+            ui.draws[0].texture
+        );
+    };
+    let snapshot = host.graphics_snapshot().unwrap();
+    let held = snapshot
+        .render_textures
+        .get(&target)
+        .expect("the id names a render texture the world holds");
+    assert_eq!((held.width, held.height), (16, 8));
+    host.unload_slice().unwrap();
 }
 
 fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
@@ -785,10 +816,10 @@ fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
     assert_eq!((draw.sorting_layer, draw.sorting_order), (0, -3));
     assert_eq!(draw.hierarchy_order, 1);
     assert_eq!(draw.clip_rect, [24, 28, 16, 16]);
-    let texture = host
-        .player_texture(draw.texture.unwrap(), 0)
-        .unwrap()
-        .unwrap();
+    let Some(UiTexture::Image(identity)) = draw.texture else {
+        panic!("a mesh over a texture draws an image");
+    };
+    let texture = host.player_texture(identity, 0).unwrap().unwrap();
     assert_eq!(texture.bytes, [255; 4]);
     assert!(ui.coverage.is_empty());
     host.unload_slice().unwrap();

@@ -268,11 +268,13 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_geometry_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_renderer_geometry_write(ulong world, ulong handle, DisunityUiVertex* vertices, uint vertex_count, uint* indices, uint index_count);
         /// <summary>
-        ///  Sets the renderer identity of the texture the renderer draws with; 0 draws plain colour. A
-        ///  nonzero identity must be a player texture identity.
+        ///  Sets the texture the renderer draws with. Kind 0 is a stored image: `identity` is a player
+        ///  texture identity, or 0 for plain colour. Kind 1 is a render texture: `identity` is the id of a
+        ///  render texture the world holds. Any other kind, and a render texture the world does not hold,
+        ///  is rejected and leaves the renderer unchanged.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity);
+        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity, uint kind);
         /// <summary>
         ///  Reports the renderer's texture and mesh sizes and copies the vertices when `capacity` is
         ///  nonzero. A capacity below the vertex count is rejected.
@@ -739,11 +741,5 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
         [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one coroutine identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
     }
 }

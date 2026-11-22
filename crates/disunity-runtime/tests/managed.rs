@@ -421,7 +421,10 @@ fn assert_player_mesh(host: &mut DisunityHost, identity: u64) {
 
 fn assert_player_mesh_channels(host: &DisunityHost, identity: u64) {
     use worldrunner_disunity_runtime::MeshRange;
-    let mesh = host.mesh_channels(identity).unwrap().expect("the channels");
+    let mesh = host
+        .mesh_channels_since(identity, 0)
+        .unwrap()
+        .expect("the channels");
     assert_eq!((mesh.generation, mesh.vertex_count), (1, 4));
     let shape: Vec<_> = mesh
         .channels
@@ -444,7 +447,7 @@ fn assert_player_mesh_channels(host: &DisunityHost, identity: u64) {
     );
     assert_eq!(host.mesh_channels_since(identity, 1).unwrap(), None);
     assert_eq!(host.mesh_channels_since(identity, 0).unwrap(), Some(mesh));
-    assert_eq!(host.mesh_channels(identity + 1000).unwrap(), None);
+    assert_eq!(host.mesh_channels_since(identity + 1000, 0).unwrap(), None);
 }
 
 fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {
@@ -491,7 +494,7 @@ fn flush_assets(
         .expect("the fixture's texture is readable in a flush");
     let sampler = flush.texture_sampler(identity)?.expect("its sampler");
     let mesh = (MESHES..MESHES + 64)
-        .find_map(|id| flush.mesh_channels(id).transpose())
+        .find_map(|id| flush.mesh_channels_since(id, 0).transpose())
         .transpose()?
         .expect("the fixture's mesh channels are readable in a flush");
     Ok((

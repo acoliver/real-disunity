@@ -3,11 +3,12 @@
 use std::sync::Arc;
 
 use worldrunner_render_post::PreparedWrite;
+use worldrunner_render_post::contracts::TextureRange;
 
 use crate::binding::{BindingAddress, BindingSource, EngineSemantic};
 use crate::budget::Reservation;
 use crate::error::{ProgramError, StorageImageError};
-use crate::import::{Import, ImportedResource};
+use crate::import::{Import, ImportedResource, whole_range};
 use crate::layout::Slot;
 use crate::program::{ComputeProgram, GpuLayout};
 use crate::resources::{BoundResource, Resource};
@@ -538,7 +539,7 @@ fn check_texture(
 impl ProgramRuntime {
     /// The textures a dispatch over `bound` and `imports` writes through the storage images of
     /// `gpu`: a runtime texture's base mip in every layer, which is the view the runtime makes for
-    /// the slot, and every mip and layer of a lent texture, whose view's range is its owner's.
+    /// the slot, and the range of a lent texture's view, which its owner states.
     ///
     /// # Errors
     /// On a handle the runtime does not hold.
@@ -570,8 +571,8 @@ impl ProgramRuntime {
             {
                 written.push(PreparedWrite {
                     texture: lent.texture.clone(),
-                    mips: 0..lent.texture.mip_level_count(),
-                    layers: 0..array_layers(&lent.texture),
+                    mips: lent.range.mips.clone(),
+                    layers: lent.range.layers.clone(),
                 });
             }
         }
@@ -607,7 +608,8 @@ impl ProgramRuntime {
     ///
     /// # Errors
     /// Fails with `StorageImage` for a texture that does not suit its slot, with
-    /// `AliasedTexture` for a texture bound to two slots of which one writes it, and on a handle
+    /// `AliasedTexture` for a texture bound to two slots of which one writes it (a runtime
+    /// texture's slots cover all of it), and on a handle
     /// the runtime does not hold.
     pub fn check_storage_images(
         &self,
@@ -628,35 +630,43 @@ impl ProgramRuntime {
         self.check_aliasing(gpu, bound, &[])
     }
 
-    /// A pass cannot use one texture as a storage image it writes and as anything else, so the
-    /// textures bound to the program's slots must differ wherever one of the slots writes.
+    /// A pass cannot use a subresource as a storage image it writes and as anything else, so the
+    /// views bound to the program's slots must not overlap wherever one of the slots writes. wgpu
+    /// tracks usage per mip and layer, so views of distinct mips or layers of one texture may be
+    /// bound together. A runtime texture and a lent view that states no range cover the whole
+    /// texture.
     fn check_aliasing(
         &self,
         gpu: &GpuLayout,
         bound: &[BoundResource],
         imports: &[Import],
     ) -> Result<(), ProgramError> {
-        let mut uses: Vec<(&Slot, wgpu::Texture)> = Vec::new();
+        let mut uses: Vec<(&Slot, wgpu::Texture, TextureRange)> = Vec::new();
         for item in bound {
             if let (Some(slot), Resource::Texture(handle)) =
                 (gpu.layout.slot(item.set, item.binding), item.resource)
             {
-                uses.push((slot, self.store.texture(handle)?.texture.clone()));
+                let texture = &self.store.texture(handle)?.texture;
+                uses.push((slot, texture.clone(), whole_range(texture)));
             }
         }
         for import in imports {
             let semantic = BindingSource::Engine(import.semantic.clone());
             let slot = gpu.layout.slots().iter().find(|s| s.source == semantic);
-            if let (Some(slot), ImportedResource::Texture(texture)) = (slot, &import.resource) {
-                uses.push((slot, texture.texture.clone()));
+            if let (Some(slot), ImportedResource::Texture(lent)) = (slot, &import.resource) {
+                uses.push((slot, lent.texture.clone(), lent.range.clone()));
             }
         }
-        uses.sort_by_key(|(slot, _)| (slot.set, slot.binding));
-        for (index, (first, texture)) in uses.iter().enumerate() {
+        uses.sort_by_key(|(slot, _, _)| (slot.set, slot.binding));
+        for (index, (first, texture, range)) in uses.iter().enumerate() {
             let clash = uses[index + 1..]
                 .iter()
-                .find(|(second, other)| other == texture && (writes(first) || writes(second)));
-            if let Some((second, _)) = clash {
+                .find(|(second, other, other_range)| {
+                    other == texture
+                        && range.overlaps(other_range)
+                        && (writes(first) || writes(second))
+                });
+            if let Some((second, _, _)) = clash {
                 return Err(ProgramError::AliasedTexture {
                     set: first.set,
                     binding: first.binding,

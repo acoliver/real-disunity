@@ -43,6 +43,7 @@
 //! [`GamePlace::AfterOpaqueSnapshots`]: worldrunner_render_post::GamePlace::AfterOpaqueSnapshots
 //! [`GamePlace::BeforePost`]: worldrunner_render_post::GamePlace::BeforePost
 mod camera;
+mod compute;
 mod declared_textures;
 mod engine;
 mod environment;
@@ -62,6 +63,7 @@ mod targets;
 mod terrain;
 
 pub use camera::{FrameCamera, FrameCameraHandle};
+pub use compute::GameComputeSpec;
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
 pub(crate) use engine::SceneSources;
 pub use engine::{

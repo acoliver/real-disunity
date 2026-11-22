@@ -1,6 +1,8 @@
-//! Stock declarations lower into the shared raster model without changing their operations.
+//! Stock declarations lower into the shared raster model without changing their operations. A
+//! compute pass lowers into the uses it reads and the storage writes it makes, at its position.
 use std::collections::BTreeMap;
 
+use super::raster::{StockCompute, StockPass};
 use super::{
     CheckedView, ColorAttachment, ContractError, DepthAttachment, RasterId, RasterPass,
     ResourceLifetime, ResourceRegistry, ResourceUse, Semantic, TextureRange, UseKind,
@@ -56,6 +58,18 @@ pub(crate) fn compile(
                     .map(|view| ResourceUse::read(view, UseKind::Sampled))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let id = RasterId::new(
+            StageId::new("stock geometry", 0),
+            u32::try_from(index).expect("bounded pass count"),
+        );
+        if pass.compute.is_some() {
+            let writes = storage_writes(registry, &keys, &mut versions, pass)?;
+            raster.push(StockPass::Compute(StockCompute {
+                id,
+                uses: uses.into_iter().chain(writes).collect(),
+            }));
+            continue;
+        }
         let colors = pass
             .color
             .iter()
@@ -85,22 +99,40 @@ pub(crate) fn compile(
                 })
             })
             .transpose()?;
-        raster.push(RasterPass {
-            id: RasterId::new(
-                StageId::new("stock geometry", 0),
-                u32::try_from(index).expect("bounded pass count"),
-            ),
+        raster.push(StockPass::Raster(Box::new(RasterPass {
+            id,
             colors,
             depth,
             uses,
             bindings: Vec::new(),
-        });
+        })));
     }
-    registry.validate_raster_after(device, &prepared, &raster)?;
+    registry.validate_stock_after(device, &prepared, &raster)?;
     Ok(super::raster::StockRaster {
         passes: raster,
         prepared,
     })
+}
+
+/// The storage writes of compute pass `pass`, each a new version of its subresource, as an
+/// attachment's output is.
+fn storage_writes(
+    registry: &ResourceRegistry,
+    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    versions: &mut BTreeMap<ResourceRef, u32>,
+    pass: &PassDeclaration,
+) -> Result<Vec<ResourceUse>, ContractError> {
+    pass.storage_writes()
+        .iter()
+        .map(|write| {
+            let version = versions
+                .get(&write.resource)
+                .map_or(0, |version| version + 1);
+            versions.insert(write.resource, version);
+            checked_view(registry, keys, write.resource, version)
+                .map(|view| ResourceUse::write(view, UseKind::Storage))
+        })
+        .collect()
 }
 
 /// The copy writes a frame's preparation makes before its first pass, one for each view the plan

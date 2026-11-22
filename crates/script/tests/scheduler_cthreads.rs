@@ -107,7 +107,7 @@ fn game() -> GameScripts {
         now: "now".into(),
     };
     scripts
-        .register_scheduler_with(&names, &original_policy())
+        .register_scheduler(&names, &original_policy())
         .unwrap();
     let grants: Vec<&str> = GRANTS.iter().copied().chain(["WakeRaw"]).collect();
     scripts.add_source("game", &grants).unwrap();

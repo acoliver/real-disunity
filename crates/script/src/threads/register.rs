@@ -13,16 +13,11 @@ use crate::error::ScriptError;
 use crate::original::GameScripts;
 
 impl GameScripts {
-    /// Registers the scheduler's functions as natives under the game's names, with the engine's
-    /// own scheduler policy.
-    pub fn register_scheduler(&mut self, names: &SchedulerNames) -> Result<(), ScriptError> {
-        self.register_scheduler_with(names, &SchedulerPolicy::default())
-    }
-
-    /// Registers the scheduler's functions under the game's names, with the semantics of
-    /// `policy`. Natives that a policy names, including the `on_resume` hook of a wait, are
-    /// registered by the game; register the hooks before calling this.
-    pub fn register_scheduler_with(
+    /// Registers the scheduler's functions as natives under the game's names, with the semantics
+    /// of `policy` ([`SchedulerPolicy::default`] is the engine's own). Natives that a policy
+    /// names, including the `on_resume` hook of a wait, are registered by the game; register the
+    /// hooks before calling this.
+    pub fn register_scheduler(
         &mut self,
         names: &SchedulerNames,
         policy: &SchedulerPolicy,

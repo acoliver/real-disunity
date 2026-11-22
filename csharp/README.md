@@ -287,7 +287,10 @@ the suspended native callback. Completion and cancellation dispose iterators.
 MonoBehaviour.enabled delegates eligibility changes to native lifecycle scopes.
 Deactivation, destruction and callback-failure cancellation notifications transfer
 once. Unload releases the world even when an iterator disposer throws; disposal
-failures remain errors. Coroutine joins, end-of-frame and custom yields are not
+failures remain errors. `UnloadWorld` destroys the scenes' objects and then the
+DontDestroyOnLoad objects and assets, and runs each cleanup through
+`disunity_world_advance_teardown`, so no `Update` or other frame message runs while
+the world unloads. Coroutine joins, end-of-frame and custom yields are not
 supported.
 
 Loading a world installs Unity's main thread `SynchronizationContext`

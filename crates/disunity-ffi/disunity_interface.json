@@ -1366,6 +1366,11 @@
       "name": "disunity_world_time_write",
       "since": "5.0.0",
       "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_world_advance_teardown",
+      "since": "22.0.0",
+      "rets": "DisunityResult"
     }
   ],
   "error_reason_tags": {

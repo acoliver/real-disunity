@@ -9,6 +9,9 @@ use worldrunner_world_simulation::ui::{
     presentation::{UiDraw, UiDrawKind, UiLayers, UiPresentation, UiRun},
 };
 
+/// The overlay texture each kind of draw and texture got when first named.
+type TextureIndices = BTreeMap<(UiDrawKind, UiTexture), usize>;
+
 /// Validated, pathless lower-left pixel geometry. World canvases use the scene path.
 #[derive(Clone, Debug)]
 pub struct UiOverlay {
@@ -120,10 +123,7 @@ impl UiOverlay {
         &mut self,
         draw: &UiDraw,
         (plan, textures): (&UiPresentation, &BTreeMap<u64, SceneTexture>),
-        (indices, slotted): (
-            &mut BTreeMap<(UiDrawKind, UiTexture), usize>,
-            &mut Vec<(usize, usize)>,
-        ),
+        (indices, slotted): (&mut TextureIndices, &mut Vec<(usize, usize)>),
     ) -> Result<(), DynamicError> {
         let index = self.quads.len();
         check_distance(draw, plan, index)?;
@@ -164,7 +164,7 @@ impl UiOverlay {
         &mut self,
         draw: &UiDraw,
         (plan, textures): (&UiPresentation, &BTreeMap<u64, SceneTexture>),
-        indices: &mut BTreeMap<(UiDrawKind, UiTexture), usize>,
+        indices: &mut TextureIndices,
     ) -> Result<Option<usize>, DynamicError> {
         let Some(texture) = draw.texture else {
             if draw.kind == UiDrawKind::Text {

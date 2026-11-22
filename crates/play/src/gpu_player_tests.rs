@@ -572,7 +572,7 @@ fn plan_with_a_run() -> worldrunner_world_simulation::ui::presentation::UiPresen
         color: [1.; 4],
         texture: None,
         material: Some(UiMaterial {
-            id: MaterialId::from_bits((1 << 32) | 99),
+            id: MaterialId::from_bits(0x1_0000_0063),
             generation: 1,
         }),
         sorting_layer: 0,

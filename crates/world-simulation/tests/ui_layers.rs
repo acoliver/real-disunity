@@ -80,7 +80,13 @@ fn a_draw_of_another_image_starts_a_new_span() {
         .iter()
         .map(|s| (s.texture, s.draws.clone()))
         .collect();
-    assert_eq!(spans, [(Some(1), 0..1), (Some(2), 1..2)]);
+    assert_eq!(
+        spans,
+        [
+            (Some(UiTexture::Image(1)), 0..1),
+            (Some(UiTexture::Image(2)), 1..2)
+        ]
+    );
 }
 
 #[test]

@@ -224,31 +224,28 @@ impl Vertices {
     /// Adds the vertices of `draw` and the indices that wind its triangles clockwise.
     fn add(&mut self, draw: &UiDraw, indices: &mut Vec<u32>) {
         let first = self.count;
-        match draw.triangle_uv {
-            Some(uv) => {
-                for corner in 0..3 {
-                    let colour = draw
-                        .corner_colors
-                        .map_or(draw.color, |colours| modulate(draw.color, colours[corner]));
-                    self.push(draw.corners[corner], colour, uv[corner]);
-                }
-                indices.extend([first, first + 1, first + 2]);
+        if let Some(uv) = draw.triangle_uv {
+            for corner in 0..3 {
+                let colour = draw
+                    .corner_colors
+                    .map_or(draw.color, |colours| modulate(draw.color, colours[corner]));
+                self.push(draw.corners[corner], colour, uv[corner]);
             }
-            None => {
-                let [u0, v0, u1, v1] = draw.uv_rect;
-                // Corners run lower left, lower right, upper right, upper left; the rectangle's
-                // v counts from the top row.
-                let uv = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
-                for corner in 0..4 {
-                    let colour = draw
-                        .corner_colors
-                        .map_or(draw.color, |colours| modulate(draw.color, colours[corner]));
-                    self.push(draw.corners[corner], colour, uv[corner]);
-                }
-                // Lower left, upper left, upper right; upper right, lower right, lower left.
-                indices.extend([first, first + 3, first + 2, first + 2, first + 1, first]);
-            }
+            indices.extend([first, first + 1, first + 2]);
+            return;
         }
+        let [u0, v0, u1, v1] = draw.uv_rect;
+        // Corners run lower left, lower right, upper right, upper left; the rectangle's
+        // v counts from the top row.
+        let uv = [[u0, v1], [u1, v1], [u1, v0], [u0, v0]];
+        for corner in 0..4 {
+            let colour = draw
+                .corner_colors
+                .map_or(draw.color, |colours| modulate(draw.color, colours[corner]));
+            self.push(draw.corners[corner], colour, uv[corner]);
+        }
+        // Lower left, upper left, upper right; upper right, lower right, lower left.
+        indices.extend([first, first + 3, first + 2, first + 2, first + 1, first]);
     }
 
     /// One vertex. The texture coordinates of the plan count from the top row; the engine's

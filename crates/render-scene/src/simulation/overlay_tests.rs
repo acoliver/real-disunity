@@ -66,13 +66,20 @@ fn a_run_becomes_one_quad_at_the_sort_key_of_its_first_draw() {
     assert_eq!(run.texture, overlay.layer);
     assert!(overlay.shows_layers());
     let corners = run.corners.unwrap();
-    assert_eq!(corners[0], [10., 4., 0.]);
-    assert_eq!(corners[2], [30., 14., 0.]);
+    near(&corners[0], &[10., 4., 0.]);
+    near(&corners[2], &[30., 14., 0.]);
     // The run sits at the atlas origin; the atlas rows are bottom first, so the top edge of
     // the run reads the larger v.
-    assert_eq!(run.uv_rect, [0., 10. / 32., 20. / 64., 0.]);
-    assert_eq!(run.tint, [1.; 4]);
+    near(&run.uv_rect, &[0., 10. / 32., 20. / 64., 0.]);
+    near(&run.tint, &[1.; 4]);
     assert_eq!(run.clip_rect, None);
+}
+
+fn near(actual: &[f32], expected: &[f32]) {
+    assert_eq!(actual.len(), expected.len());
+    for (a, e) in actual.iter().zip(expected) {
+        assert!((a - e).abs() < 1e-6, "{actual:?} is not {expected:?}");
+    }
 }
 
 #[test]

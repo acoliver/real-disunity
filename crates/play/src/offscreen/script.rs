@@ -320,6 +320,9 @@ impl Mapper<'_> {
                 slice,
             } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
             OffscreenWork::SetGlobal(value) => {
+                if let WorldValue::Texture(name, _) = value {
+                    self.report.global_reads.set.insert(name.clone());
+                }
                 let temporary = self.temporary_global(value)?;
                 let globals = &mut self.script.globals;
                 match temporary {

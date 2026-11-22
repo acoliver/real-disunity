@@ -26,12 +26,11 @@ fn requirements(
             max_sampled_textures_per_shader_stage: available
                 .max_sampled_textures_per_shader_stage
                 .min(32),
-            // A single-pass downsampler binds its source and six levels as storage images; 16
-            // covers a full twelve-level chain's thirteen. An adapter that offers fewer keeps its
-            // own limit, and a program that binds more is refused by name when it is prepared.
-            max_storage_textures_per_shader_stage: available
-                .max_storage_textures_per_shader_stage
-                .min(16),
+            // The adapter's count up to 16, which the player's headless device asks too. An
+            // adapter offering fewer than 4 gets no device: the negotiation refuses the limit and
+            // the request reports `DeviceError::DeviceRefused`.
+            max_storage_textures_per_shader_stage:
+                worldrunner_render_gpu::device::storage_images_per_stage(available),
             ..Default::default()
         },
         // Lets frame validation use adapter-reported sample counts (2x and 8x). wgpu filters

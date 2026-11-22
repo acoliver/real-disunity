@@ -31,6 +31,12 @@
 //!   script's matrix is. Which order a shader reads is not measured here; it is inferred from
 //!   there being one way to write a matrix.
 //! * `unity_WorldToObject` is its inverse, left out when the matrix has none.
+//! * A blit with a material draws a quad over clip space with no renderer and no camera
+//!   ([`blit_layer`]): `unity_ObjectToWorld`, `unity_WorldToObject` and `unity_MatrixVP` are the
+//!   identity. Old World's terrain bake blits its normal through a pass of the post-processing
+//!   material whose vertex stage reads `unity_ObjectToWorld` and `unity_MatrixVP` and nothing else
+//!   per draw (the constants of the pass as the engine packs them), so with no value for them the
+//!   quad collapsed to a point and the tile normal stayed empty.
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
@@ -185,6 +191,22 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
             WORLD_TO_OBJECT,
             PropertyValue::Matrix(matrix.inverse().to_cols_array()),
         );
+    }
+    layer
+}
+
+/// The values a blit with a material draws with. The blit's quad is in clip space (see
+/// `adapter::blit_mesh`), so the pass places it with the identity as its object-to-world,
+/// world-to-object and world-to-clip matrices. A blit has no renderer and no camera, so no other
+/// layer holds them, and without them a vertex stage that multiplies its position by one packs a
+/// zero matrix and puts every vertex at the origin.
+#[must_use]
+pub fn blit_layer() -> PropertyLayer {
+    let mut layer = PropertyLayer::default();
+    for name in [OBJECT_TO_WORLD, WORLD_TO_OBJECT, VIEW_PROJECTION] {
+        layer
+            .values
+            .set(name, PropertyValue::Matrix(Mat4::IDENTITY.to_cols_array()));
     }
     layer
 }

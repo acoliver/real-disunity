@@ -79,7 +79,7 @@ fn render_texture(world: &mut World) -> RenderTextureId {
 }
 
 fn dispatched(world: &mut World) -> Vec<OffscreenWork> {
-    world.take_offscreen()
+    world.take_offscreen().0
 }
 
 #[test]

@@ -120,8 +120,7 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let past = output(directory.path(), &[1, 4]);
 
-    let error =
-        run_player(&prepared, 4, Duration::from_millis(16), Some(&past)).unwrap_err();
+    let error = run_player(&prepared, 4, Duration::from_millis(16), Some(&past)).unwrap_err();
 
     assert!(
         error

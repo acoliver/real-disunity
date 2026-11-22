@@ -292,49 +292,31 @@ fn path_component(name: &str) -> String {
     }
 }
 
-/// Whether a run does the player's offscreen work on a device.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GpuWork {
-    /// Takes a device when the machine has an adapter, and runs without GPU work when it has
-    /// none. A frame whose snapshot holds no work leaves the device alone.
-    #[default]
-    Auto,
-    /// Never touches a device: the run is the one before the offscreen host existed.
-    Off,
-}
-
-/// The device and offscreen host a run does its GPU work on, or `None` for [`GpuWork::Off`] and
-/// when the machine has no adapter, which is reported on standard error. Shaders are loaded
-/// from the player's `data` directory.
-pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<PlayerGpu> {
-    match work {
-        GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::headless(&prepared.data, &prepared.globals)
-            .inspect_err(|reason| {
-                eprintln!("[gpu] {reason}; the offscreen work does not run");
-            })
-            .ok(),
-    }
+/// The device and offscreen host a run does its GPU work on. Shaders are loaded from the player's
+/// `data` directory.
+///
+/// # Errors
+/// Fails naming the reason when the machine has no adapter or the device cannot be had.
+pub(crate) fn player_gpu(prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
+    PlayerGpu::headless(&prepared.data, &prepared.globals).map_err(gpu_unavailable)
 }
 
 /// The device and offscreen host a window does its GPU work on, on the device `source` makes for
-/// the viewer, or `None` for [`GpuWork::Off`] and when the device cannot be had, which is
-/// reported on standard error. Shaders are loaded from the player's `data` directory, and the
-/// work starts every frame from the `globals` it supplies, as a headless run does ([`player_gpu`]).
+/// the viewer. Shaders are loaded from the player's `data` directory, and the work starts every
+/// frame from the `globals` it supplies, as a headless run does ([`player_gpu`]).
+///
+/// # Errors
+/// Fails naming the reason when `source` has no adapter or cannot make the device.
 pub(crate) fn window_gpu(
-    work: GpuWork,
     data: &Path,
     globals: &[SuppliedGlobal],
     source: &mut dyn crate::gpu_device::DeviceSource,
-) -> Option<PlayerGpu> {
-    match work {
-        GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::shared(source, data, globals)
-            .inspect_err(|reason| {
-                eprintln!("[gpu] {reason}; the offscreen work does not run");
-            })
-            .ok(),
-    }
+) -> Result<PlayerGpu, PlayError> {
+    PlayerGpu::shared(source, data, globals).map_err(gpu_unavailable)
+}
+
+fn gpu_unavailable(reason: String) -> PlayError {
+    PlayError::Invalid(format!("the player's offscreen work needs a GPU: {reason}"))
 }
 
 /// What a headless run writes of the screen: the screen's size, and a file for the composed frame
@@ -353,58 +335,46 @@ pub struct ScreenOutput {
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
-/// step that failed: starting the scene or the frame that failed.
+/// player's offscreen work on a device. The error names the step that failed: the missing GPU,
+/// starting the scene or the frame that failed. The run has no screen.
+///
+/// # Errors
+/// As [`run_player_screens`] without a screen.
 pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
-    run_player_with(prepared, frames, dt, GpuWork::Auto)
+    run_player_screens(prepared, frames, dt, None)
 }
 
-/// [`run_player`] with `gpu` saying whether the offscreen work runs. The run has no screen.
-pub fn run_player_with(
-    prepared: &PreparedPlayer,
-    frames: u64,
-    dt: Duration,
-    gpu: GpuWork,
-) -> Result<(), PlayError> {
-    run_player_screens(prepared, frames, dt, gpu, None)
-}
-
-/// [`run_player_with`] with a screen, when `screen` is given: the offscreen work draws a
+/// [`run_player`] with a screen, when `screen` is given: the offscreen work draws a
 /// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
 /// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
 /// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
 /// that draws the UI share one device (see [`crate::player_screen_ui`]), and the frame is
 /// presented at the screen's size, which the game's UI lays itself out for. Without `screen` the
-/// run has none and behaves as [`run_player_with`] always did.
+/// run has none.
 ///
 /// # Errors
-/// As [`run_player_with`]. A run with a screen also fails before the scene starts when the work
-/// has no device or a listed frame is not among the `frames` run, and at a listed frame that has no
-/// image yet because no work has drawn into the screen, or whose UI cannot be drawn.
+/// Fails naming the reason when the machine has no GPU adapter or device, when the scene cannot
+/// start, and at a frame that fails. A run with a screen also fails before the scene starts when a
+/// listed frame is not among the `frames` run, and at a listed frame that has no image yet because
+/// no work has drawn into the screen, or whose UI cannot be drawn.
 pub fn run_player_screens(
     prepared: &PreparedPlayer,
     frames: u64,
     dt: Duration,
-    gpu: GpuWork,
     screen: Option<&ScreenOutput>,
 ) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     let mut sink = CaptureSink::default();
     let mut device = screen.map(|screen| ScreenDevice::new(screen.size));
     let gpu = match device.as_mut() {
-        Some(device) => device.player_gpu(gpu, prepared),
-        None => player_gpu(gpu, prepared),
+        Some(device) => device.player_gpu(prepared)?,
+        None => player_gpu(prepared)?,
     };
-    check_screen(gpu.as_ref(), frames, screen)?;
-    let mut composer = match device {
-        Some(device) if gpu.is_some() => Some(device.compose(&mut sink)?),
-        _ => None,
-    };
+    check_screen(frames, screen)?;
+    let mut composer = device.map(|device| device.compose(&mut sink)).transpose()?;
     // Installed before the scene loads: a script may read a compute buffer back while it does.
-    if let Some(gpu) = &gpu {
-        gpu.install(&mut host)?;
-        gpu.set_screen(screen.map(|screen| screen.size));
-    }
+    gpu.install(&mut host)?;
+    gpu.set_screen(screen.map(|screen| screen.size));
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
@@ -413,21 +383,19 @@ pub fn run_player_screens(
     let viewport = screen.map_or(PRESENTED_SIZE, |screen| screen.size);
     let mut times = Vec::new();
     for frame in 0..frames {
-        let stand_ins_before = gpu.as_ref().map(|gpu| gpu.report().stand_ins.clone());
+        let stand_ins_before = gpu.report().stand_ins.clone();
         let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
             .and_then(|()| present_meshes(&mut host, &mut meshes, viewport))
-            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)))
-            .and_then(|()| write_screens(gpu.as_ref(), composer.as_mut(), &host, frame, screen));
+            .and_then(|()| gpu.frame(&mut host))
+            .and_then(|()| write_screens(&gpu, composer.as_mut(), &host, frame, screen));
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it.
-        if std::env::var_os(REPORT_EACH_FRAME).is_some()
-            && let (Some(gpu), Some(before)) = (&gpu, &stand_ins_before)
-        {
+        if std::env::var_os(REPORT_EACH_FRAME).is_some() {
             eprintln!("[gpu] report after frame {frame}");
-            gpu.report().print_frame(before);
+            gpu.report().print_frame(&stand_ins_before);
         }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
@@ -438,29 +406,18 @@ pub fn run_player_screens(
         eprintln!("[player] ran {frames} frames");
     }
     report_times(&times);
-    if let Some(gpu) = &gpu {
-        gpu.report().print();
-    }
+    gpu.report().print();
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
 }
 
-/// Checks that a run with a screen can give the images asked for: the work has a device and every
-/// listed frame is one of the `frames` run.
-fn check_screen(
-    gpu: Option<&PlayerGpu>,
-    frames: u64,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
+/// Checks that a run with a screen can give the images asked for: every listed frame is one of the
+/// `frames` run.
+fn check_screen(frames: u64, screen: Option<&ScreenOutput>) -> Result<(), PlayError> {
     let Some(screen) = screen else {
         return Ok(());
     };
-    if gpu.is_none() {
-        return Err(PlayError::Invalid(
-            "a screen needs the offscreen work on a device, and the run has none".into(),
-        ));
-    }
     match screen.files.iter().find(|(frame, _)| *frame >= frames) {
         Some((frame, _)) => Err(PlayError::Invalid(format!(
             "screen frame {frame} is not among the {frames} frames the run plays"
@@ -473,7 +430,7 @@ fn check_screen(
 /// they will hold: the newest image of the screen, which is this frame's when its work drew into
 /// it.
 fn screens_due<'a>(
-    gpu: Option<&PlayerGpu>,
+    gpu: &PlayerGpu,
     frame: u64,
     screen: Option<&'a ScreenOutput>,
 ) -> Result<(u64, Vec<&'a Path>), PlayError> {
@@ -489,7 +446,7 @@ fn screens_due<'a>(
     if files.is_empty() {
         return Ok((frame, files));
     }
-    let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
+    let image = gpu.screen().ok_or_else(|| {
         PlayError::Invalid(format!(
             "no screen image after frame {frame}: no work has drawn into the screen yet"
         ))
@@ -500,17 +457,15 @@ fn screens_due<'a>(
 /// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest
 /// screen image with the UI the world holds now over it.
 fn write_screens(
-    gpu: Option<&PlayerGpu>,
+    gpu: &PlayerGpu,
     composer: Option<&mut ScreenComposer<'_>>,
     host: &DisunityHost,
     frame: u64,
     screen: Option<&ScreenOutput>,
 ) -> Result<(), PlayError> {
     let (drawn, files) = screens_due(gpu, frame, screen)?;
-    match (composer, gpu) {
-        (Some(composer), Some(gpu)) if !files.is_empty() => {
-            composer.write(host, gpu, drawn, &files)
-        }
+    match composer {
+        Some(composer) if !files.is_empty() => composer.write(host, gpu, drawn, &files),
         _ => Ok(()),
     }
 }

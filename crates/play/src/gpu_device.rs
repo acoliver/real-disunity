@@ -165,7 +165,6 @@ pub(crate) mod headless {
     use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
 
     use super::*;
-    use crate::player::GpuWork;
     use crate::retained_driver::{PlayerWindow, viewer_options};
 
     pub(crate) struct HeadlessViewer {
@@ -184,7 +183,6 @@ pub(crate) mod headless {
                 max_frames: None,
                 capture_frames: BTreeSet::new(),
                 keys: Vec::new(),
-                gpu_work: GpuWork::Auto,
             };
             Self {
                 gpu: SharedGpu::headless_for_test(),

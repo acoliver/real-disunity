@@ -4,7 +4,7 @@ use crate::gpu_device::device_requirements;
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs};
 use crate::offscreen::Settling;
-use crate::player::{GpuWork, window_gpu};
+use crate::player::window_gpu;
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 use crate::storage_budget;
 use worldrunner_render_gpu::device::DeviceRequirements;
@@ -391,34 +391,11 @@ impl DeviceSource for NoAdapter {
 }
 
 #[test]
-fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
+fn a_window_whose_source_has_no_adapter_fails_naming_it() {
     let data = tempfile::tempdir().unwrap();
     let mut source = NoAdapter::default();
-    assert!(
-        window_gpu(
-            GpuWork::Off,
-            data.path(),
-            &[],
-            &mut source
-        )
-        .is_none()
-    );
-    assert_eq!(source.asked, 0, "no adapter and no device was asked for");
-}
-
-#[test]
-fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
-    let data = tempfile::tempdir().unwrap();
-    let mut source = NoAdapter::default();
-    assert!(
-        window_gpu(
-            GpuWork::Auto,
-            data.path(),
-            &[],
-            &mut source
-        )
-        .is_none()
-    );
+    let error = window_gpu(data.path(), &[], &mut source).err().unwrap();
+    assert!(error.to_string().contains("no adapter"), "{error}");
     assert!(source.asked > 0);
 }
 

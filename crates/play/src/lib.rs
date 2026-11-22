@@ -50,8 +50,7 @@ pub use gpu_player::{GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
 pub use offscreen::SuppliedGlobal;
 pub use player::{
-    GpuWork, PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player,
-    run_player_screens, run_player_with,
+    PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player, run_player_screens,
 };
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,

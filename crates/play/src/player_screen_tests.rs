@@ -54,7 +54,6 @@ fn a_run_writes_the_newest_screen_image_to_the_file_of_each_frame_asked_for() {
         &prepared,
         4,
         Duration::from_millis(16),
-        GpuWork::Auto,
         Some(&screen),
     )
     .unwrap();
@@ -102,7 +101,6 @@ fn a_headless_screen_image_has_the_overlay_canvas_over_the_game_screen() {
         &prepared,
         2,
         Duration::from_millis(16),
-        GpuWork::Auto,
         Some(&screen),
     )
     .unwrap();
@@ -138,7 +136,6 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
         &prepared,
         4,
         Duration::from_millis(16),
-        GpuWork::Auto,
         Some(&past),
     )
     .unwrap_err();
@@ -149,7 +146,7 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
             .contains("screen frame 4 is not among the 4 frames"),
         "{error}"
     );
-    run_player_with(&prepared, 2, Duration::from_millis(16), GpuWork::Auto).unwrap();
+    run_player(&prepared, 2, Duration::from_millis(16)).unwrap();
     assert!(
         std::fs::read_dir(directory.path())
             .unwrap()
@@ -161,25 +158,16 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
 }
 
 #[test]
-fn a_screen_needs_the_offscreen_work_on_a_device() {
-    let screen = output(Path::new("."), &[0]);
-    let error = check_screen(None, 1, Some(&screen)).unwrap_err();
-    assert!(
-        error.to_string().contains("needs the offscreen work"),
-        "{error}"
-    );
-    assert!(check_screen(None, 1, None).is_ok());
-}
-
-#[test]
 fn a_frame_asked_for_before_any_work_drew_into_the_screen_is_an_error_naming_the_frame() {
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path(), &[]).expect("the test needs a GPU adapter");
     let screen = output(Path::new("."), &[3]);
     assert!(
-        screens_due(None, 2, Some(&screen)).is_ok(),
+        screens_due(&gpu, 2, Some(&screen)).is_ok(),
         "an unlisted frame"
     );
-    assert!(screens_due(None, 3, None).is_ok(), "no screen");
-    let error = screens_due(None, 3, Some(&screen)).unwrap_err();
+    assert!(screens_due(&gpu, 3, None).is_ok(), "no screen");
+    let error = screens_due(&gpu, 3, Some(&screen)).unwrap_err();
     assert!(
         error.to_string().contains("no screen image after frame 3"),
         "{error}"

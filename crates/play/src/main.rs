@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
+    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
     SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
@@ -20,7 +20,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--gpu-work on|off]
+            [--screen FRAME:FILE.png]...
             [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
@@ -40,8 +40,6 @@ struct Arguments {
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
-    /// Whether a player run, headless or in a window, does its offscreen work on a device.
-    gpu_work: GpuWork,
     /// The globals `--global` supplies for the run, in the order given.
     globals: Vec<SuppliedGlobal>,
     /// The player's command line after its executable path, in the order given.
@@ -116,13 +114,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
-        "--gpu-work" => {
-            arguments.gpu_work = match value {
-                "on" => GpuWork::Auto,
-                "off" => GpuWork::Off,
-                _ => return Err(format!("--gpu-work `{value}` is on or off")),
-            };
-        }
         "--global" => {
             let global = SuppliedGlobal::parse(value)
                 .map_err(|reason| format!("--global `{value}`: {reason}"))?;
@@ -194,7 +185,6 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
             keys: scheduled_keys(&arguments.keys),
-            gpu_work: arguments.gpu_work,
         };
         let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);
@@ -210,7 +200,6 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         &prepared,
         arguments.frames.unwrap_or(1),
         dt,
-        arguments.gpu_work,
         output.as_ref(),
     )
     .map_err(|error| error.to_string())
@@ -263,7 +252,7 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
     Ok(())
 }
 
-/// A screen image comes from a headless player run with the offscreen work on a device.
+/// A screen image comes from a headless player run.
 fn check_screens(arguments: &Arguments) -> Result<(), String> {
     if arguments.screens.is_empty() {
         return Ok(());
@@ -275,9 +264,6 @@ fn check_screens(arguments: &Arguments) -> Result<(), String> {
         return Err(
             "--screen writes from a headless run, which takes no --key or --capture".into(),
         );
-    }
-    if arguments.gpu_work == GpuWork::Off {
-        return Err("--screen needs --gpu-work on".into());
     }
     Ok(())
 }
@@ -291,19 +277,10 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
 }
 
 /// `--global` values start the offscreen work of a player's frames, in a window and headless
-/// alike, so it needs a player and a run that does that work.
+/// alike, so it needs a player.
 fn check_globals(arguments: &Arguments) -> Result<(), String> {
-    if arguments.globals.is_empty() {
-        return Ok(());
-    }
-    if arguments.player.is_none() {
+    if !arguments.globals.is_empty() && arguments.player.is_none() {
         return Err("--global applies only to --player".into());
-    }
-    if matches!(arguments.gpu_work, GpuWork::Off) {
-        return Err(
-            "--global needs the offscreen work of a player: --gpu-work on, which is the default"
-                .into(),
-        );
     }
     Ok(())
 }
@@ -429,28 +406,6 @@ mod tests {
     }
 
     #[test]
-    fn gpu_work_is_on_unless_the_run_says_off() {
-        use worldrunner_play::GpuWork;
-        assert_eq!(
-            parsed(&["--player", "Game_Data"]).expect("parses").gpu_work,
-            GpuWork::Auto
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--gpu-work", "off"])
-                .expect("parses")
-                .gpu_work,
-            GpuWork::Off
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--gpu-work", "on"])
-                .expect("parses")
-                .gpu_work,
-            GpuWork::Auto
-        );
-        assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
-    }
-
-    #[test]
     fn global_options_supply_named_values_in_the_order_given() {
         let arguments = parsed(&[
             "--player",
@@ -507,7 +462,6 @@ mod tests {
             &["--size", "64x64"][..],
             &["--key", "1:w:down"][..],
             &["--capture", "1:out.png"][..],
-            &["--gpu-work", "on", "--size", "64x64"][..],
         ] {
             let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
             args.extend_from_slice(extra);
@@ -531,29 +485,6 @@ mod tests {
         // `--global` is not what stops it.
         let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
         assert!(!error.contains("--global"), "{error}");
-    }
-
-    #[test]
-    fn a_global_is_refused_for_a_run_with_no_gpu_work() {
-        for extra in [&[][..], &["--size", "64x64"][..]] {
-            let mut args = vec![
-                "--player",
-                "Game_Data",
-                "--global",
-                "a=1",
-                "--gpu-work",
-                "off",
-            ];
-            args.extend_from_slice(extra);
-            let arguments = parsed(&args).expect("parses");
-            let error = super::check_globals(&arguments).unwrap_err();
-            assert!(
-                error.starts_with("--global needs") && error.contains("--gpu-work on"),
-                "{error}"
-            );
-            let error = super::play(parsed(&args).expect("parses")).unwrap_err();
-            assert!(error.starts_with("--global needs"), "{error}");
-        }
     }
 
     #[test]
@@ -634,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn a_screen_belongs_to_a_headless_player_run_with_gpu_work_on() {
+    fn a_screen_belongs_to_a_headless_player_run() {
         let screen = ["--player", "Game_Data", "--screen", "0:a.png"];
         assert!(checked(&screen).is_ok());
         assert!(checked(&[&screen[..], &["--size", "64x32", "--frames", "2"]].concat()).is_ok());
@@ -642,11 +573,7 @@ mod tests {
             checked(&["snake", "--screen", "0:a.png"]).is_err(),
             "not a game's"
         );
-        for window in [
-            ["--capture", "0:w.png"],
-            ["--key", "0:w:down"],
-            ["--gpu-work", "off"],
-        ] {
+        for window in [["--capture", "0:w.png"], ["--key", "0:w:down"]] {
             assert!(
                 checked(&[&screen[..], &window[..]].concat()).is_err(),
                 "{window:?}"

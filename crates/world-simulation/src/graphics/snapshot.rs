@@ -101,6 +101,10 @@ pub struct GraphicsSnapshot {
     /// renderers that were drawable when the record was made. The world makes one for every cull
     /// and for every camera render whose camera it can read; a record with no entry draws nothing.
     pub record_sets: BTreeMap<u32, u32>,
+    /// How many skinned mesh renderers the frame's camera renders and culls would have drawn if
+    /// skinned meshes were drawn, each counted once however many records admit it. They are in no
+    /// set and not in `renderers`; the count lets a host say that they are left out.
+    pub skinned_not_drawn: u32,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
     /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
@@ -155,6 +159,7 @@ impl GraphicsSnapshot {
         snapshot.renderers = drawn.views;
         snapshot.renderer_sets = drawn.sets;
         snapshot.record_sets = captured.records;
+        snapshot.skinned_not_drawn = index_of(captured.skinned)?;
         snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);

@@ -230,6 +230,7 @@ wire_struct!(GraphicsSnapshot {
     renderers,
     renderer_sets,
     record_sets,
+    skinned_not_drawn,
     compute_shaders,
     compute_buffers
 });

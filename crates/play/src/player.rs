@@ -315,7 +315,7 @@ fn path_component(name: &str) -> String {
 /// # Errors
 /// Fails naming the reason when the machine has no adapter or the device cannot be had.
 pub(crate) fn player_gpu(prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
-    PlayerGpu::headless(&prepared.data, &prepared.gpu).map_err(gpu_unavailable)
+    PlayerGpu::headless(&prepared.data, &prepared.gpu).map_err(|reason| gpu_unavailable(&reason))
 }
 
 /// The device and offscreen host a window does its GPU work on, on the device `source` makes for
@@ -329,10 +329,10 @@ pub(crate) fn window_gpu(
     launch: &GpuLaunch,
     source: &mut dyn crate::gpu_device::DeviceSource,
 ) -> Result<PlayerGpu, PlayError> {
-    PlayerGpu::shared(source, data, launch).map_err(gpu_unavailable)
+    PlayerGpu::shared(source, data, launch).map_err(|reason| gpu_unavailable(&reason))
 }
 
-fn gpu_unavailable(reason: String) -> PlayError {
+fn gpu_unavailable(reason: &str) -> PlayError {
     PlayError::Invalid(format!("the player's offscreen work needs a GPU: {reason}"))
 }
 

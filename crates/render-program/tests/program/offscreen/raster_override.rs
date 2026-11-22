@@ -266,3 +266,71 @@ fn a_viewport_that_is_not_inside_the_target_or_has_no_area_draws_nothing() {
         assert!(image.chunks(4).all(|texel| texel == CLEAR), "{rect:?}");
     }
 }
+
+/// `Blend SrcAlpha OneMinusSrcAlpha` over the always-writing depth state. One `Blend` line sets
+/// the colour and the alpha factors alike.
+fn alpha_blended(state: &mut ShaderState) {
+    always_writes(state);
+    state.blend[0].src = fixed(5.0);
+    state.blend[0].dst = fixed(10.0);
+    state.blend[0].src_alpha = fixed(5.0);
+    state.blend[0].dst_alpha = fixed(10.0);
+}
+
+/// The texel at the middle of a target cleared to transparent after one draw of `tint` whose pass
+/// has the state `pass`.
+fn over_transparent(tint: [f32; 4], pass: fn(&mut ShaderState), coverage_alpha: bool) -> [u8; 4] {
+    let mut rig = Rig::new();
+    rig.state
+        .add_shader(SHADER, generated_from(WGSL, false, pass));
+    let mut frame = frame(
+        super::rig::RGBA8,
+        DrawRaster {
+            coverage_alpha,
+            ..DrawRaster::default()
+        },
+    );
+    frame
+        .materials
+        .insert(MaterialId(1), material(SHADER, tint, 0.0));
+    frame.records[0] = clear([0.0; 4]);
+    let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
+    pixel(&image, SIZE, (3, 3))
+}
+
+fn near(found: [u8; 4], expected: [u8; 4]) {
+    for (channel, (found, expected)) in found.iter().zip(expected).enumerate() {
+        assert!(
+            found.abs_diff(expected) <= 1,
+            "channel {channel}: {found} against {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_source_alpha_blend_leaves_the_target_alpha_as_the_alpha_squared_without_coverage() {
+    // The pass's own blend scales the alpha channel by the alpha as it does the colour.
+    near(
+        over_transparent([1.0, 0.0, 0.0, 0.5], alpha_blended, false),
+        [128, 0, 0, 64],
+    );
+}
+
+#[test]
+fn a_source_alpha_blend_with_coverage_alpha_leaves_the_alpha_as_the_coverage() {
+    near(
+        over_transparent([1.0, 0.0, 0.0, 0.5], alpha_blended, true),
+        [128, 0, 0, 128],
+    );
+}
+
+#[test]
+fn coverage_alpha_keeps_the_alpha_blend_of_a_pass_that_is_not_a_source_alpha_blend() {
+    // An opaque pass writes its colour and its alpha as they are, whatever the record asks.
+    for coverage_alpha in [false, true] {
+        near(
+            over_transparent([1.0, 0.0, 0.0, 0.5], always_writes, coverage_alpha),
+            [255, 0, 0, 128],
+        );
+    }
+}

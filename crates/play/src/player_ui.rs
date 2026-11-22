@@ -3,7 +3,10 @@
 #[path = "player_ui_order_tests.rs"]
 mod tests;
 
-use crate::{PlayError, player_textures::PlayerTextures, player_ui_materials::GameMaterials};
+use crate::{
+    PlayError, offscreen::UiFrame, player_textures::PlayerTextures,
+    player_ui_materials::GameMaterials,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -11,7 +14,7 @@ use std::{
 use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::RetainedUpdate;
-use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiLayers, UiPresentation};
+use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
 
 /// The textures the UI's graphics draw, by identity.
 pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {
@@ -28,20 +31,27 @@ pub(crate) struct PlayerUi {
     viewport: [u32; 2],
     reported: BTreeSet<u64>,
     materials: GameMaterials,
+    frame: Option<UiFrame>,
     #[cfg(test)]
     pub(crate) updates: u64,
 }
 
 impl PlayerUi {
+    /// The overlay for `plan`, when the draws that can be drawn, their images or the viewport
+    /// changed since the last one. The draws of a game's shader are planned into runs for the UI
+    /// frame ([`Self::frame`]), which draws them every frame, and the overlay shows the runs.
     pub(crate) fn update(
         &mut self,
-        mut plan: UiPresentation,
+        plan: UiPresentation,
         viewport: [u32; 2],
         textures: &SpriteTextures,
         player: &PlayerTextures,
-        report: impl FnMut(String),
+        mut report: impl FnMut(String),
     ) -> Result<Option<RetainedUpdate>, PlayError> {
-        self.filter_unavailable(&mut plan, textures, player, report);
+        let plan = self.available(plan, textures, player, &mut report);
+        let layers = plan.layers(viewport, viewport);
+        self.materials.name_too_large(&plan, &layers, report);
+        self.frame = UiFrame::new(&plan, &layers);
         let generations = graphic_textures(&plan)
             .map(|id| (id, player.generation(id)))
             .collect();
@@ -51,9 +61,10 @@ impl PlayerUi {
         {
             return Ok(None);
         }
-        let overlay = UiOverlay::from_presentation(&plan, &textures.textures, &UiLayers::default()).map_err(|error| {
-            PlayError::Invalid(format!("the player UI cannot be drawn: {error}"))
-        })?;
+        let overlay =
+            UiOverlay::from_presentation(&plan, &textures.textures, &layers).map_err(|error| {
+                PlayError::Invalid(format!("the player UI cannot be drawn: {error}"))
+            })?;
         self.plan = Some(plan);
         self.generations = generations;
         self.viewport = viewport;
@@ -64,21 +75,30 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
-    /// The draws the last update left out because their material is a game's own, by shader.
+    /// The work that draws the last update's runs of UI draws, which the player records every
+    /// frame because a shader may read the time.
+    pub(crate) fn frame(&self) -> Option<&UiFrame> {
+        self.frame.as_ref()
+    }
+
+    /// The draws with a game material in the last frame, by shader.
     pub(crate) fn game_material_draws(&self) -> &BTreeMap<String, usize> {
         self.materials.by_shader()
     }
 
-    fn filter_unavailable(
+    /// The draws of `plan` that can be drawn now. A graphic the engine draws needs its image in
+    /// `textures`; a draw through a game's shader reads its image through the program. Each image
+    /// left out is named once, and the draws of each game shader are counted for the report.
+    fn available(
         &mut self,
-        plan: &mut UiPresentation,
+        mut plan: UiPresentation,
         textures: &SpriteTextures,
         player: &PlayerTextures,
-        mut report: impl FnMut(String),
-    ) {
-        self.materials.leave_out(plan, &mut report);
+        report: &mut impl FnMut(String),
+    ) -> UiPresentation {
+        self.materials.count(&mut plan);
         plan.draws.retain(|draw| {
-            if draw.kind != UiDrawKind::Graphic {
+            if draw.kind != UiDrawKind::Graphic || draw.material.is_some() {
                 return true;
             }
             let Some(id) = draw
@@ -95,5 +115,6 @@ impl PlayerUi {
             }
             false
         });
+        plan
     }
 }

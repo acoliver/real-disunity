@@ -161,6 +161,36 @@ impl GraphicsSnapshot {
         Ok(snapshot)
     }
 
+    /// Adds the materials `ids` name, their shaders and the buffers they bind to a snapshot, for a
+    /// host that draws with them in a frame whose records do not name them, such as the UI's own
+    /// draws. A material a record of the snapshot already copied keeps that copy. A destroyed
+    /// material or shader is left out. When something is added to a snapshot of a frame with no
+    /// work, the global state and the environment are the world's now.
+    pub fn include_materials(&mut self, world: &World, ids: impl IntoIterator<Item = MaterialId>) {
+        let mut added = false;
+        for id in ids {
+            if self.materials.contains_key(&id) {
+                continue;
+            }
+            let Ok(material) = world.material(id) else {
+                continue;
+            };
+            if let Ok(shader) = world.shader(material.shader) {
+                self.shaders.insert(material.shader, shader.clone());
+            }
+            self.materials.insert(id, material.clone());
+            added = true;
+        }
+        if !added {
+            return;
+        }
+        if self.global.is_none() {
+            self.global = Some(world.global_shader_state().clone());
+            self.environment = world.live_environment();
+        }
+        self.copy_material_buffers(world);
+    }
+
     /// The materials the blits, mesh draws and renderers name, and their shaders. A material that
     /// changed after a draw recorded it is the draw's copy of it (`copies`, which the draw names by
     /// the copy's id). A destroyed material or shader is left out.

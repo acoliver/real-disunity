@@ -334,6 +334,15 @@ impl PlayerRetainedDriver {
         let objects = self.host.mesh_objects()?;
         let ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
+        let ui_update = self.ui.update(
+            ui,
+            self.size,
+            &self.sprites,
+            &self.player_textures,
+            |message| {
+                eprintln!("{message}");
+            },
+        )?;
         // After the meshes are refreshed, as in a headless run, and before the frame's textures
         // and UI go to the viewer, so texels a readback filled this frame show this frame.
         self.show_screen(viewer)?;
@@ -349,15 +358,7 @@ impl PlayerRetainedDriver {
         let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
-        if let Some(update) = self.ui.update(
-            ui,
-            self.size,
-            &self.sprites,
-            &self.player_textures,
-            |message| {
-                eprintln!("{message}");
-            },
-        )? {
+        if let Some(update) = ui_update {
             viewer
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
@@ -378,11 +379,13 @@ impl PlayerRetainedDriver {
     /// The offer is made every update so a texture a resize replaced or a screen taken away is
     /// withdrawn at once.
     fn show_screen(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
-        if let Some(operations) = self.gpu.frame_for_viewer(&mut self.host)? {
+        if let Some(operations) = self.gpu.frame_for_viewer(&mut self.host, self.ui.frame())? {
             viewer.admit_offscreen(operations);
         }
         viewer.show_game_screen(self.gpu.game_screen());
-        Ok(())
+        viewer
+            .show_ui_layers(self.gpu.ui_layers())
+            .map_err(|error| PlayError::Invalid(error.to_string()))
     }
 
     /// Sends the viewer new scene effects when the frame's lighting changed.

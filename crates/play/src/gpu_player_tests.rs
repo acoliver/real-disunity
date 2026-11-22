@@ -460,7 +460,7 @@ fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
     let mut host = started_screen_fixture(&gpu);
 
     let before = authority.submitted_serial();
-    let operations = gpu.frame_for_viewer(&mut host).unwrap();
+    let operations = gpu.frame_for_viewer(&mut host, None).unwrap();
 
     assert!(
         operations.is_some(),
@@ -486,11 +486,11 @@ fn a_frame_with_no_work_after_the_clears_gives_the_viewer_nothing() {
     let _turn = fixture_turn();
     let (_viewer, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
-    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    let operations = gpu.frame_for_viewer(&mut host, None).unwrap().unwrap();
     submit_like_the_viewer(&gpu, operations);
 
     host.advance(16_000_000, 1_000_000_000).unwrap();
-    let next = gpu.frame_for_viewer(&mut host).unwrap();
+    let next = gpu.frame_for_viewer(&mut host, None).unwrap();
 
     assert!(next.is_none(), "the script draws nothing more");
     let report = gpu.report();
@@ -502,10 +502,10 @@ fn the_window_reads_nothing_back_from_the_screen_it_shows() {
     let _turn = fixture_turn();
     let (_viewer, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
-    let operations = gpu.frame_for_viewer(&mut host).unwrap().unwrap();
+    let operations = gpu.frame_for_viewer(&mut host, None).unwrap().unwrap();
     submit_like_the_viewer(&gpu, operations);
     host.advance(16_000_000, 1_000_000_000).unwrap();
-    gpu.frame_for_viewer(&mut host).unwrap();
+    gpu.frame_for_viewer(&mut host, None).unwrap();
 
     let screen = gpu.game_screen().expect("the screen texture is offered");
 
@@ -530,7 +530,7 @@ fn there_is_no_screen_to_offer_before_work_made_it_or_after_it_was_taken_away() 
     let (_viewer, gpu, _data) = window_player([8, 4]);
     assert!(gpu.game_screen().is_none(), "no work has made it yet");
     let mut host = started_screen_fixture(&gpu);
-    gpu.frame_for_viewer(&mut host).unwrap();
+    gpu.frame_for_viewer(&mut host, None).unwrap();
     assert!(gpu.game_screen().is_some());
 
     gpu.set_screen(None);
@@ -543,7 +543,7 @@ fn a_screen_of_another_size_than_the_window_is_not_offered() {
     let _turn = fixture_turn();
     let (_viewer, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
-    gpu.frame_for_viewer(&mut host).unwrap();
+    gpu.frame_for_viewer(&mut host, None).unwrap();
     assert!(gpu.game_screen().is_some());
 
     gpu.set_screen(Some([16, 8]));
@@ -551,6 +551,69 @@ fn a_screen_of_another_size_than_the_window_is_not_offered() {
     assert!(
         gpu.game_screen().is_none(),
         "the old texture is the size the window had; the next frame with work makes a new one"
+    );
+}
+
+/// A plan of two draws through one material the host does not have, drawn by one run: the run
+/// has no program to draw it, which the atlas does not need to exist.
+fn plan_with_a_run() -> worldrunner_world_simulation::ui::presentation::UiPresentation {
+    use worldrunner_world_simulation::graphics::MaterialId;
+    use worldrunner_world_simulation::ui::presentation::{
+        UiDraw, UiDrawKind, UiMaterial, UiPresentation,
+    };
+    let draw = UiDraw {
+        kind: UiDrawKind::Graphic,
+        depth_test: false,
+        corner_colors: None,
+        distance_field: None,
+        triangle_uv: None,
+        corners: [[1., 1., 0.], [5., 1., 0.], [5., 3., 0.], [1., 3., 0.]],
+        uv_rect: [0., 0., 1., 1.],
+        color: [1.; 4],
+        texture: None,
+        material: Some(UiMaterial {
+            id: MaterialId::from_bits((1 << 32) | 99),
+            generation: 1,
+        }),
+        sorting_layer: 0,
+        sorting_order: 0,
+        hierarchy_order: 0,
+        clip_rect: [0, 0, 8, 4],
+    };
+    UiPresentation {
+        draws: vec![draw],
+        ..UiPresentation::default()
+    }
+}
+
+#[test]
+fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the_screen() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let mut ui = crate::player_ui::PlayerUi::default();
+    ui.update(
+        plan_with_a_run(),
+        [8, 4],
+        &worldrunner_render_plan::simulation::SpriteTextures::default(),
+        &crate::player_textures::PlayerTextures::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(gpu.ui_layers().is_none(), "no frame has drawn the runs yet");
+
+    let operations = gpu
+        .frame_for_viewer(&mut host, ui.frame())
+        .unwrap()
+        .expect("the runs are work");
+    submit_like_the_viewer(&gpu, operations);
+
+    let layers = gpu.ui_layers().expect("the layer texture is offered");
+    assert_eq!([layers.width(), layers.height()], [8, 4]);
+    gpu.set_screen(Some([16, 8]));
+    assert!(
+        gpu.ui_layers().is_none(),
+        "a texture of the old screen size is not offered"
     );
 }
 

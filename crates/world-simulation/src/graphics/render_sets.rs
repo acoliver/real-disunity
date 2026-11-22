@@ -20,38 +20,28 @@ use std::collections::BTreeMap;
 
 use super::OffscreenWork;
 use crate::{
-    ComponentDesc, ComponentHandle, LimitKind, MeshRenderer, ObjectHandle, RendererKind, World,
-    WorldError,
+    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectHandle, RendererKind, World,
 };
 
-/// What a component contributes to a renderer being drawable. A component that contributes
-/// nothing is not any set's concern, whether it is absent or only present.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DrawInput {
-    /// A mesh renderer that is enabled and not forced off.
-    ShownRenderer,
-    /// A mesh filter that has a drawn mesh. Which mesh it is does not matter to a set: the mesh
-    /// is read when the snapshot is taken.
-    MeshedFilter,
-}
-
 impl ComponentDesc {
-    /// What this component contributes to drawing, or `None` when it contributes nothing.
-    pub(crate) fn draw_input(&self) -> Option<DrawInput> {
+    /// Whether this component takes part in deciding which renderers draw: a mesh renderer that is
+    /// enabled, not forced off and of the mesh kind, or a mesh filter that has a drawn mesh. A
+    /// component that does not is no set's concern, whether it is absent or only present.
+    pub(crate) fn decides_drawing(&self) -> bool {
         match self {
-            Self::MeshRenderer(renderer) => shows(renderer).then_some(DrawInput::ShownRenderer),
-            Self::MeshFilter(filter) => (filter.drawn_mesh != 0).then_some(DrawInput::MeshedFilter),
-            _ => None,
+            Self::MeshRenderer(renderer) => shows(renderer),
+            Self::MeshFilter(filter) => filter_draws(filter).is_some(),
+            _ => false,
         }
     }
 }
 
-/// The 32 bit index of the `count`th record, set or renderer of a frame's snapshot.
-///
-/// # Errors
-/// Fails when `count` does not fit, instead of numbering another record with a taken index.
-pub(super) fn index_of(count: usize) -> Result<u32, WorldError> {
-    u32::try_from(count).map_err(|_| WorldError::CapacityExceeded(LimitKind::Graphics))
+/// The 32 bit index of the `count`th record, set or renderer of a frame's snapshot. A frame holds
+/// fewer than [`MAX_OFFSCREEN_WORK`](super::MAX_OFFSCREEN_WORK) records, which `push_offscreen`
+/// enforces before it numbers one, and no more sets than records. A snapshot lists a renderer at
+/// most once, and the world holds at most `max_components` components, a `u32`.
+pub(super) fn index_of(count: usize) -> u32 {
+    u32::try_from(count).expect("a frame's records, sets and renderers are fewer than 2^32")
 }
 
 /// Whether `renderer` is a mesh renderer that is enabled and not forced off.
@@ -59,6 +49,12 @@ fn shows(renderer: &MeshRenderer) -> bool {
     renderer.kind == RendererKind::Mesh
         && renderer.switches.enabled
         && !renderer.switches.force_rendering_off
+}
+
+/// The mesh a mesh filter draws, or `None` when it has none. Which mesh it is does not matter to
+/// a set, which holds renderers: the mesh is read when the snapshot is taken.
+fn filter_draws(filter: &MeshFilter) -> Option<u64> {
+    (filter.drawn_mesh != 0).then_some(filter.drawn_mesh)
 }
 
 /// The sets the frame's camera renders drew with, and which record drew with which.
@@ -99,19 +95,17 @@ impl RenderSets {
 
 impl World {
     /// Notes that a change may have altered which renderers are drawable: an object's activity,
-    /// parent or layer, or a component that decides drawing (see [`ComponentDesc::draw_input`]).
+    /// parent or layer, or a component that decides drawing (see
+    /// [`ComponentDesc::decides_drawing`]).
     pub(crate) fn note_drawables_changed(&mut self) {
         self.graphics.drawable_epoch += 1;
     }
 
-    /// Notes a component going from `before` to `after`, which is `None` for one that was not
-    /// there or is not there now. Only a change in what the component contributes to drawing
-    /// alters the drawable renderers.
-    pub(crate) fn note_drawable_edit(
-        &mut self,
-        before: Option<DrawInput>,
-        after: Option<DrawInput>,
-    ) {
+    /// Notes a component going from deciding drawing or not (see
+    /// [`ComponentDesc::decides_drawing`]) to `after`, where a component that was not there or is
+    /// not there now does not decide it. Only a change in whether it decides drawing alters the
+    /// drawable renderers.
+    pub(crate) fn note_drawable_edit(&mut self, before: bool, after: bool) {
         if before != after {
             self.note_drawables_changed();
         }
@@ -131,46 +125,40 @@ impl World {
     /// the frame's work draws. A camera render uses its camera's culling mask and a culling its
     /// own. A camera render whose camera is not readable keeps no set, and the snapshot gives it no
     /// camera to draw with.
-    ///
-    /// # Errors
-    /// Fails when the frame holds more records or sets than an index can number.
-    pub(super) fn capture_render_set(
-        &mut self,
-        work: &OffscreenWork,
-        record: usize,
-    ) -> Result<(), WorldError> {
+    pub(super) fn capture_render_set(&mut self, work: &OffscreenWork, record: usize) {
         let mask = match work {
             OffscreenWork::CameraRender { camera, .. } => {
                 match self.component(*camera).map(|held| &held.desc) {
                     Ok(ComponentDesc::Camera(settings)) => settings.culling_mask,
-                    _ => return Ok(()),
+                    _ => return,
                 }
             }
             OffscreenWork::Cull { culling_mask, .. } => *culling_mask,
-            _ => return Ok(()),
+            _ => return,
         };
-        let record = index_of(record)?;
-        let set = self.set_for(mask)?;
-        self.graphics.render_sets.records.insert(record, set);
-        Ok(())
+        let set = self.set_for(mask);
+        self.graphics
+            .render_sets
+            .records
+            .insert(index_of(record), set);
     }
 
     /// The index of the set for `mask`: the one made since the drawable renderers last changed,
     /// or a new one.
-    fn set_for(&mut self, mask: u32) -> Result<u32, WorldError> {
+    fn set_for(&mut self, mask: u32) -> u32 {
         if self.graphics.render_sets.epoch != self.graphics.drawable_epoch {
             self.graphics.render_sets.epoch = self.graphics.drawable_epoch;
             self.graphics.render_sets.by_mask.clear();
         }
         if let Some(set) = self.graphics.render_sets.by_mask.get(&mask) {
-            return Ok(*set);
+            return *set;
         }
         let drawable = self.drawable_renderers(mask);
         let state = &mut self.graphics.render_sets;
-        let set = index_of(state.sets.len())?;
+        let set = index_of(state.sets.len());
         state.sets.push(drawable);
         state.by_mask.insert(mask, set);
-        Ok(set)
+        set
     }
 
     /// The mesh renderers that draw now on a layer `mask` admits.
@@ -212,9 +200,7 @@ impl World {
             .rev()
             .filter_map(|handle| self.components.get(handle.0))
             .find_map(|component| match &component.desc {
-                ComponentDesc::MeshFilter(filter) if filter.drawn_mesh != 0 => {
-                    Some(filter.drawn_mesh)
-                }
+                ComponentDesc::MeshFilter(filter) => filter_draws(filter),
                 _ => None,
             })
     }

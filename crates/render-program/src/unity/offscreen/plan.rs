@@ -244,7 +244,7 @@ impl Services<'_> {
         // Every texture and structured buffer is looked for before anything is bound, so a draw
         // that lacks one changes nothing in the frame.
         self.require_textures(spec, &entry, &slots)?;
-        let storage = require_buffers(spec, &entry, &slots)?;
+        let storage = require_buffers(spec, &entry, &slots, self.defaults)?;
         let mut sampler_states = HashMap::new();
         let mut any_unfiltered = false;
         for slot in &slots {

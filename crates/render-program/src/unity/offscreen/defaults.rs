@@ -35,6 +35,9 @@ const OPTIONAL: std::ops::RangeInclusive<i8> = 1..=11;
 /// The bytes of the widest input, four components of four bytes.
 const WIDEST: usize = 16;
 
+/// The bytes of the zero buffer a DOTS draw reads as its indirect visibility.
+const INDIRECT_VISIBILITY_LEN: usize = 16 * 1024;
+
 /// The constant an input reads when its mesh lacks the channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Fill {
@@ -160,6 +163,9 @@ fn declared(inner: &TypeInner) -> Option<Declared> {
 pub(super) struct DefaultBuffers {
     zeros: BufferHandle,
     ones: BufferHandle,
+    /// What a DOTS draw reads where a game gives it no indirect visibility: zeros, in the size
+    /// the original binds. Made when a frame first draws a batch.
+    indirect_visibility: Option<BufferHandle>,
 }
 
 impl DefaultBuffers {
@@ -170,7 +176,27 @@ impl DefaultBuffers {
         Ok(Self {
             zeros: runtime.create_buffer("offscreen default zeros", &[0; WIDEST])?,
             ones: runtime.create_buffer("offscreen default ones", &ones)?,
+            indirect_visibility: None,
         })
+    }
+
+    /// The zero buffer of a DOTS draw's indirect visibility, once [`Self::provide_indirect`] made it.
+    pub(super) fn indirect_visibility(self) -> Option<BufferHandle> {
+        self.indirect_visibility
+    }
+
+    /// Makes the indirect visibility buffer if it is not made.
+    pub(super) fn provide_indirect(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+    ) -> Result<(), OffscreenError> {
+        if self.indirect_visibility.is_none() {
+            self.indirect_visibility = Some(runtime.create_buffer(
+                "offscreen default indirect visibility",
+                &[0; INDIRECT_VISIBILITY_LEN],
+            )?);
+        }
+        Ok(())
     }
 
     pub(super) fn buffer(self, fill: Fill) -> BufferHandle {

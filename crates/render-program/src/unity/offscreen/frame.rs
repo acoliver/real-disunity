@@ -256,6 +256,9 @@ pub enum Instances {
 pub struct DotsBatch {
     /// The raw buffer the shader reads as `unity_DOTSInstanceData`.
     pub buffer: BufferHandle,
+    /// The bytes of `buffer` the shader reads: the metadata offsets count from the window's
+    /// start, which a device binds only at its storage offset alignment.
+    pub window: Range<u64>,
     /// The metadata word of each per-instance property the game set, by the property's name
     /// (`unity_ObjectToWorld`, `_Color`). The word is the value the game gave the property's
     /// metadata, copied as it is.

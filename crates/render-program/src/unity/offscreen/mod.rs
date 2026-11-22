@@ -334,10 +334,14 @@ impl OffscreenState {
             return Err(OffscreenError::from(ProgramError::ForeignArena).into());
         }
         self.textures.sync(runtime, &frame.render_textures)?;
-        let defaults = match self.defaults {
+        let mut defaults = match self.defaults {
             Some(defaults) => defaults,
-            None => *self.defaults.insert(DefaultBuffers::create(runtime)?),
+            None => DefaultBuffers::create(runtime)?,
         };
+        if dots::frame_has_batch(frame) {
+            defaults.provide_indirect(runtime)?;
+        }
+        self.defaults = Some(defaults);
         let alignment = runtime
             .device()
             .limits()

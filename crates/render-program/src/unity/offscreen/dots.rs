@@ -17,10 +17,13 @@ use crate::properties::{PropertySet, PropertyValue};
 use crate::resources::BufferHandle;
 use crate::unity::buffers::BufferLayout;
 
+use std::ops::Range;
+
 use crate::ids::{MaterialId, RendererId};
 
+use super::defaults::DefaultBuffers;
 use super::error::OffscreenError;
-use super::frame::{DotsBatch, OffscreenFrame};
+use super::frame::{DotsBatch, Instances, OffscreenFrame, Record};
 use super::plan::{ProgramEntry, Services};
 use super::steps::{CameraDraw, Look, planned_draw};
 
@@ -29,6 +32,7 @@ pub(super) const KEYWORD: &str = "DOTS_INSTANCING_ON";
 
 const INSTANCE_DATA: &str = "unity_DOTSInstanceData";
 const VISIBILITY_BLOCK: &str = "UnityInstancingDOTS_InstanceVisibility";
+const INDIRECT_VISIBILITY: &str = "unity_DOTSInstancing_IndirectInstanceVisibility";
 const VISIBLE_MEMBER: &str = "VisibleData";
 const METADATA_BLOCKS: [&str; 2] = [
     "UnityDOTSInstancing_BuiltinPropertyMetadata",
@@ -44,6 +48,17 @@ pub(super) fn select_variant(keywords: &mut Vec<&str>) {
     }
 }
 
+/// Whether a list of the frame draws a batch.
+pub(super) fn frame_has_batch(frame: &OffscreenFrame) -> bool {
+    frame.records.iter().any(|record| match record {
+        Record::Draws(list) => list
+            .draws
+            .iter()
+            .any(|item| matches!(item.instances, Instances::Dots(_))),
+        _ => false,
+    })
+}
+
 /// A batch and the instances one draw of it makes: the visible instances from index `from` on.
 #[derive(Clone, Copy)]
 pub(super) struct DotsDraw<'a> {
@@ -52,9 +67,20 @@ pub(super) struct DotsDraw<'a> {
 }
 
 impl DotsDraw<'_> {
-    /// The buffer the variant's raw-buffer slot `name` reads, if `name` is that slot.
-    pub(super) fn buffer(&self, name: &str) -> Option<BufferHandle> {
-        (name == INSTANCE_DATA).then_some(self.batch.buffer)
+    /// The buffer and the bytes of it the variant's raw-buffer slot `name` reads, if the batch
+    /// gives that slot its data.
+    pub(super) fn buffer(&self, name: &str) -> Option<(BufferHandle, Range<u64>)> {
+        (name == INSTANCE_DATA).then(|| (self.batch.buffer, self.batch.window.clone()))
+    }
+
+    /// The buffer the slot `name` reads when nothing gives it one: the indirect visibility the
+    /// batch has none of reads zeros.
+    pub(super) fn placeholder(&self, name: &str, defaults: DefaultBuffers) -> Option<BufferHandle> {
+        if name == INDIRECT_VISIBILITY {
+            defaults.indirect_visibility()
+        } else {
+            None
+        }
     }
 
     /// The visible indexes this draw shows: those from `from` on, as many as `capacity` holds.

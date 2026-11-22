@@ -127,6 +127,6 @@ pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use sink::BufferSink;
-pub use stand_ins::{StandInCounts, StandInReason};
+pub use stand_ins::{GlobalReads, StandInCounts, StandInReason};
 pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

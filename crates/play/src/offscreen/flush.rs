@@ -424,12 +424,9 @@ impl OffscreenHost {
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
-        let reclaimed = self.adapter.make_room_settling(
-            &mut self.state,
-            &mut self.runtime,
-            &adapted.frame,
-            settling,
-        );
+        let reclaimed =
+            self.adapter
+                .make_room(&mut self.state, &mut self.runtime, &adapted.frame, settling);
         adapted.report.reclaimed.add(reclaimed);
         let built = build(
             &mut self.state,
@@ -473,9 +470,12 @@ impl OffscreenHost {
         adapted
             .report
             .count_many("materialbuffer:BufferUpload", uploaded.refused);
-        let reclaimed = self
-            .adapter
-            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let reclaimed = self.adapter.make_room(
+            &mut self.state,
+            &mut self.runtime,
+            &adapted.frame,
+            Settling::Wait,
+        );
         adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
@@ -763,7 +763,7 @@ impl OffscreenHost {
         };
         // A read waits for its own submission, which follows every other, so it can wait now.
         self.adapter
-            .make_room_for(&mut self.state, &mut self.runtime, bytes)
+            .make_room_for(&mut self.state, &mut self.runtime, bytes, Settling::Wait)
     }
 
     /// Records the operations, then the dispatch, then the copy a pixel read wants into one frame

@@ -116,9 +116,12 @@ impl Room {
             (false, &std::collections::BTreeMap::new()),
             Settling::Wait,
         );
-        let reclaimed = self
-            .adapter
-            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let reclaimed = self.adapter.make_room(
+            &mut self.state,
+            &mut self.runtime,
+            &adapted.frame,
+            Settling::Wait,
+        );
         let built = self
             .state
             .build(&mut self.runtime, &self.device.2, &adapted.frame)
@@ -674,16 +677,16 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
         assert_eq!(adapted.report.built_by_kind["DrawMesh"], 1);
         assert_eq!(room.adapter.mesh_metadata_counts(), (1, 1, 1));
         let budget = room.runtime.budget().0;
-        let protected = room
-            .adapter
-            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        let protected =
+            room.adapter
+                .make_room_for(&mut room.state, &mut room.runtime, budget, Settling::Wait);
         assert_eq!(protected.meshes, 0);
         drop(adapted);
 
         room.adapt(&snapshot(&mut world));
-        let reclaimed = room
-            .adapter
-            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        let reclaimed =
+            room.adapter
+                .make_room_for(&mut room.state, &mut room.runtime, budget, Settling::Wait);
         assert_eq!(reclaimed.meshes, 1);
         assert!(reclaimed.bytes > 0);
         assert_eq!(room.adapter.mesh_metadata_counts(), (0, 0, 0));

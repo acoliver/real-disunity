@@ -6,12 +6,14 @@
 //! outcome depend on the eye and not on the view, so every view of a frame shares them
 //! through each batch's level memo.
 use std::cell::RefCell;
+use std::ops::Range;
 
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::SceneObject;
 
 use super::fade::FadeReach;
 use super::placement::{self, largest_relief};
+use super::workers;
 use super::{
     Bounds, Frustum, MeshSelection, Passed, Selection, distance_squared, relief_ray_stretch,
 };
@@ -206,34 +208,25 @@ pub(in crate::draw) fn with_placements<R>(
 }
 
 impl Selection {
-    /// Selects the placements this view's `matrix`, slice and caster filter admit.
-    pub fn select(&mut self, placements: &Placements<'_>, matrix: Mat4) {
-        self.reset(placements.meshes);
-        // Traversal covers allocated slots; removed slots contribute neither selection work nor
-        // statistics.
-        self.stats.considered = placements.live;
-        let frustum = Frustum::new(matrix);
-        let light = LightMap::new(matrix);
-        let stretch = if placements.relief {
-            relief_ray_stretch(matrix)
-        } else {
-            1.0
-        };
-        let view = ViewTests {
-            frustum: &frustum,
-            light: &light,
-            stretch,
-            flag: if self.casters_only { CASTER } else { CAMERA },
-        };
+    /// Selects from `batches` the placements `view`, with this selection's slice and caster
+    /// filter, admits, into a selection of its own that holds just those.
+    fn select_chunk(
+        &self,
+        placements: &Placements<'_>,
+        view: ViewTests<'_>,
+        batches: Range<usize>,
+    ) -> Selection {
+        let mut chosen = Selection::default();
+        chosen.stats.drawn_per_lod = vec![0; self.stats.drawn_per_lod.len()];
         let mut admitted = Vec::new();
         let mut stack = Vec::new();
-        for batch in &placements.batches {
+        for batch in &placements.batches[batches] {
             if batch.small {
                 // The slots of a lone small leaf ascend, so they are tested and emitted in
                 // place, without the list and sort of a walk.
                 for &slot in batch.bounds.tree().slots() {
                     if self.admits_slot(batch, slot, view, Passed::default()) {
-                        self.push_level(placements, batch, slot);
+                        chosen.push_level(placements, batch, slot);
                     }
                 }
                 continue;
@@ -242,10 +235,23 @@ impl Selection {
             self.admit(batch, view, &mut stack, &mut admitted);
             admitted.sort_unstable();
             for &slot in &admitted {
-                self.push_level(placements, batch, slot);
+                chosen.push_level(placements, batch, slot);
             }
         }
-        self.stats.culled = self.stats.considered - self.stats.drawn_per_lod.iter().sum::<usize>();
+        chosen
+    }
+
+    /// Appends what the next chunk of this view's batches selected.
+    fn append(&mut self, chunk: Selection) {
+        self.ranges.extend(chunk.ranges);
+        for (total, drawn) in self
+            .stats
+            .drawn_per_lod
+            .iter_mut()
+            .zip(chunk.stats.drawn_per_lod)
+        {
+            *total += drawn;
+        }
     }
 
     /// Emits `slot` at the level it draws at, unless every fragment of it is faded out.
@@ -335,18 +341,62 @@ struct ViewTests<'a> {
 }
 
 impl Placements<'_> {
-    /// Selects each view with its matrix, every view after the first on a thread of its own.
-    pub fn select_each(&self, views: &mut [(Mat4, &mut Selection)]) {
-        let Some(((matrix, first), rest)) = views.split_first_mut() else {
-            return;
-        };
-        std::thread::scope(|scope| {
-            for (matrix, selection) in rest.iter_mut() {
-                let matrix = *matrix;
-                scope.spawn(move || selection.select(self, matrix));
-            }
-            first.select(self, *matrix);
+    /// How many of `available` threads selecting `views` views is worth their cost, at least one.
+    pub fn threads_for(&self, views: usize, available: usize) -> usize {
+        workers::threads_for(self.live * views, available)
+    }
+
+    /// Selects each view with its matrix on `threads` threads, the caller's among them.
+    ///
+    /// The views' batches are divided into chunks of about equal work, which the threads take
+    /// as they finish the last. A chunk only reads the placements and fills the shared memo of
+    /// levels, which every view of the frame computes the same, and returns what it selected,
+    /// so the selections equal those of one view after another whatever the threads do.
+    pub fn select_each(&self, views: &mut [(Mat4, &mut Selection)], threads: usize) {
+        let tests: Vec<_> = views
+            .iter_mut()
+            .map(|(matrix, selection)| {
+                selection.reset(self.meshes);
+                // Traversal covers allocated slots; removed slots contribute neither selection
+                // work nor statistics.
+                selection.stats.considered = self.live;
+                let stretch = if self.relief {
+                    relief_ray_stretch(*matrix)
+                } else {
+                    1.0
+                };
+                (Frustum::new(*matrix), LightMap::new(*matrix), stretch)
+            })
+            .collect();
+        let work: Vec<usize> = self
+            .batches
+            .iter()
+            .map(|batch| batch.bounds.tree().len())
+            .collect();
+        let chunks = workers::chunks(&work, views.len(), threads);
+        let selected = workers::run(chunks.len(), threads, |index| {
+            let chunk = &chunks[index];
+            let selection: &Selection = &*views[chunk.view].1;
+            let (frustum, light, stretch) = &tests[chunk.view];
+            let view = ViewTests {
+                frustum,
+                light,
+                stretch: *stretch,
+                flag: if selection.casters_only {
+                    CASTER
+                } else {
+                    CAMERA
+                },
+            };
+            selection.select_chunk(self, view, chunk.batches.clone())
         });
+        for (chunk, selected) in chunks.iter().zip(selected) {
+            views[chunk.view].1.append(selected);
+        }
+        for (_, selection) in views.iter_mut() {
+            selection.stats.culled =
+                selection.stats.considered - selection.stats.drawn_per_lod.iter().sum::<usize>();
+        }
     }
 
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
@@ -408,7 +458,7 @@ impl Selection {
             meshes,
             (eye_millimeters, fade_eye),
             &RefCell::default(),
-            |placements| self.select(placements, matrix),
+            |placements| placements.select_each(&mut [(matrix, self)], 1),
         );
     }
 }

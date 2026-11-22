@@ -11,12 +11,14 @@ pub(super) use casters::caster_matrix;
 pub(super) use casters::{CasterScan, FitScratch, caster_placement};
 pub(super) use frustum::{Frustum, Region};
 pub(super) use select::{PlacementRows, with_placements};
+pub(super) use workers::available as selection_threads;
 
 mod casters;
 mod fade;
 mod frustum;
 mod placement;
 mod select;
+mod workers;
 
 /// Object placement counts for one recorded view, excluding terrain.
 /// Hidden live placements count as culled; removed placements are not considered.

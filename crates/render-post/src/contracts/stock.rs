@@ -121,7 +121,7 @@ pub(crate) fn compile(
 /// attachment's output is.
 fn storage_writes(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     versions: &mut BTreeMap<ResourceRef, u32>,
     pass: &PassDeclaration,
 ) -> Result<Vec<ResourceUse>, ContractError> {

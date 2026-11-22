@@ -262,3 +262,46 @@ fn a_level_is_lent_with_the_range_of_that_level_alone() {
         );
     }
 }
+
+/// A level imported for an array binding is lent as a one-layer `D2Array` view of its texture
+/// with the range of that level alone, and refused as a `D2` import is.
+#[test]
+fn a_level_for_an_array_binding_is_lent_as_a_one_layer_array_view() {
+    let (device, _) = device();
+    let targets = targets(&device);
+    let storage = targets.texture("probe.storage").unwrap();
+    let import = targets
+        .import_level_array(
+            "probe.storage",
+            semantic(),
+            level(2, 0),
+            LevelAccess::Storage,
+        )
+        .unwrap();
+    assert_eq!(import.semantic, semantic());
+    let ImportedResource::Texture(lent) = &import.resource else {
+        panic!("a texture is lent, got {:?}", import.resource)
+    };
+    assert_eq!(&lent.texture, &storage);
+    assert_eq!(lent.dimension, wgpu::TextureViewDimension::D2Array);
+    assert_eq!(
+        lent.range,
+        TextureRange::single(0, 2, wgpu::TextureAspect::All)
+    );
+    let (label, reason) = refused(targets.import_level_array(
+        "probe.storage",
+        semantic(),
+        level(4, 0),
+        LevelAccess::Storage,
+    ));
+    assert_eq!(label, "probe.storage");
+    assert!(reason.contains("layer 4"), "{reason}");
+    let (label, reason) = refused(targets.import_level_array(
+        "probe.sampled",
+        semantic(),
+        level(0, 0),
+        LevelAccess::Storage,
+    ));
+    assert_eq!(label, "probe.sampled");
+    assert!(reason.contains("STORAGE_BINDING"), "{reason}");
+}

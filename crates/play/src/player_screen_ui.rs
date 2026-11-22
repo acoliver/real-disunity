@@ -28,7 +28,7 @@ use crate::{
     driver::Capture,
     gpu_device::DeviceSource,
     gpu_player::PlayerGpu,
-    player::{GpuWork, PreparedPlayer, window_gpu},
+    player::{PreparedPlayer, window_gpu},
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, graphic_textures},
     retained_driver::{PlayerWindow, viewer_options},
@@ -61,7 +61,6 @@ fn session_options(size: [u32; 2]) -> ViewerOptions {
         max_frames: None,
         capture_frames: BTreeSet::new(),
         keys: Vec::new(),
-        gpu_work: GpuWork::Auto,
     };
     ViewerOptions {
         render_clock: RenderClock::Fixed(Duration::ZERO),
@@ -90,20 +89,12 @@ impl ScreenDevice {
         }
     }
 
-    /// The offscreen work of the run on this device, or `None` for [`GpuWork::Off`] and when the
-    /// device cannot be had, which is reported on standard error.
-    pub(crate) fn player_gpu(
-        &mut self,
-        work: GpuWork,
-        prepared: &PreparedPlayer,
-    ) -> Option<PlayerGpu> {
-        window_gpu(
-            work,
-            &prepared.data,
-            prepared.depth,
-            &prepared.globals,
-            self,
-        )
+    /// The offscreen work of the run on this device.
+    ///
+    /// # Errors
+    /// Fails naming the reason when the device cannot be had.
+    pub(crate) fn player_gpu(&mut self, prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
+        window_gpu(&prepared.data, &prepared.gpu, self)
     }
 
     /// The windowless session that composes the run's frames on this device, delivering its
@@ -115,7 +106,7 @@ impl ScreenDevice {
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         let delivered = Rc::clone(&sink.delivered);
         let run = host
-            .windowless_on(sink, self.gpu)
+            .windowless(sink, Some(self.gpu))
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         Ok(ScreenComposer {
             run,

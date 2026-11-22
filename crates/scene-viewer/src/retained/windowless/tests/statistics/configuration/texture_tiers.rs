@@ -11,7 +11,7 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
     let events = driver.events.clone();
     let mut host = gbuffer_host();
     install_reducible_texture(&mut host);
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut plans = Vec::new();
     let mut mesh_residency = None;
@@ -47,7 +47,7 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
         captures.push(capture);
     }
     assert_stock_plan_reused_after_reconfiguration(&plans);
-    run.renderer.drain().unwrap();
+    warm_every_frame_slot(&mut run);
     let before_steady = run.renderer.stock_plan_statistics();
     assert!(run.frame().unwrap());
     let steady = *run.host().statistics().unwrap();
@@ -63,6 +63,21 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
         assert_completed_capture(&events.borrow(), capture);
     }
     run.shutdown().unwrap();
+}
+
+/// The renderer configuration admits at most three frame slots.
+const MOST_FRAME_SLOTS: usize = 3;
+
+/// The first frame in each frame slot resolves that slot's binding table. Frames in the settled
+/// configuration run until every slot has been used, each one finished before the next, so the
+/// frame the test measures finds its slot's table whichever slot the device completion order
+/// gives it.
+fn warm_every_frame_slot(run: &mut WindowlessRetained<'_>) {
+    for _ in 0..2 * MOST_FRAME_SLOTS {
+        assert!(run.frame().unwrap());
+        run.renderer.drain().unwrap();
+        run.poll().unwrap();
+    }
 }
 
 fn install_reducible_texture(host: &mut RetainedHost) {

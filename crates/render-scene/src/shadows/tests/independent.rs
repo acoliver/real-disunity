@@ -35,18 +35,19 @@ fn independent_shadow_depth_fitting_uses_shadow_light_in_both_paths() {
         },
     ] {
         let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+        let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
         let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
         renderer
             .set_depth_fitting(&context, Some(depth_settings(policy)))
             .unwrap();
-        render_target(&mut renderer, &context, &view(), &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
         assert_shadow(
             &target.read_rgba8(&context).unwrap(),
             &baseline,
             Vec3::new(-0.75, 0.0, 0.0),
         );
         renderer.set_effects(changed.effects().unwrap()).unwrap();
-        render_target(&mut renderer, &context, &view(), &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
         let updated = target.read_rgba8(&context).unwrap();
         assert!(renderer.last_depth_fit().is_some());
         assert_shadow(&updated, &baseline, Vec3::new(4.0 / 3.0, 0.0, 0.0));
@@ -148,12 +149,13 @@ fn independent_shadow_moves_and_resizes_without_relighting_or_reupload() {
     );
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let initial = target.read_rgba8(&context).unwrap();
     let handles: Vec<_> = renderer.scene_mut().instance_handles().collect();
     assert_projected_extent(&initial, &baseline, Vec3::new(0.6, 0.0, 0.8));
     renderer.set_effects(changed.effects().unwrap()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let updated = target.read_rgba8(&context).unwrap();
     assert_projected_extent(&updated, &baseline, Vec3::new(-0.8, 0.0, 0.6));
     assert_lit(&updated, &baseline, Vec3::new(-0.75, 0.0, 0.0));
@@ -167,7 +169,7 @@ fn independent_shadow_moves_and_resizes_without_relighting_or_reupload() {
         updated
     );
     renderer.set_effects(source.effects().unwrap()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(target.read_rgba8(&context).unwrap(), initial);
 }
 

@@ -5,6 +5,7 @@
 //! device from it, and the window hands the same requirements to the viewer, which makes the one
 //! device both of them draw on.
 
+use std::num::NonZeroU64;
 use std::path::Path;
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -14,27 +15,25 @@ use worldrunner_render_gpu::device::{
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 
-use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
+use crate::storage_budget::{self, Choice, host_available_bytes};
 
 /// Inputs sampled once when a player starts, so its adapter requests use one storage policy.
 #[derive(Clone, Debug)]
 pub(crate) struct PlayerStartupInputs {
-    storage_budget_mb: Option<String>,
+    storage_budget_mb: Option<NonZeroU64>,
     host_available_bytes: Option<u64>,
 }
 
 impl PlayerStartupInputs {
-    /// Takes the process inputs that determine a software adapter's adaptive storage budget.
-    pub(crate) fn capture() -> Self {
-        Self::from_snapshot(
-            std::env::var(STORAGE_BUDGET_ENV).ok(),
-            host_available_bytes(),
-        )
+    /// Takes the process inputs that determine a software adapter's adaptive storage budget:
+    /// the budget the run asks for in MiB, if it asks for one, and the host's available memory.
+    pub(crate) fn capture(storage_budget_mb: Option<NonZeroU64>) -> Self {
+        Self::from_snapshot(storage_budget_mb, host_available_bytes())
     }
 
     /// Holds a startup snapshot, also used to make parity checks independent of host memory.
     pub(crate) fn from_snapshot(
-        storage_budget_mb: Option<String>,
+        storage_budget_mb: Option<NonZeroU64>,
         host_available_bytes: Option<u64>,
     ) -> Self {
         Self {
@@ -78,7 +77,7 @@ pub(crate) trait DeviceSource {
 /// The storage budget for `adapter`: see [`storage_budget`].
 fn storage_choice(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> Choice {
     storage_budget::choose(
-        inputs.storage_budget_mb.as_deref(),
+        inputs.storage_budget_mb,
         adapter.get_info().device_type,
         inputs.host_available_bytes,
     )
@@ -124,12 +123,12 @@ pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
 }
 
 /// Builds every compute kernel variant of the player in `data` as a compute program on the
-/// device the headless player asks for, and counts what the device cannot hold by cause.
+/// device the headless player asks for with its default storage budget, and counts what the device cannot hold by cause.
 ///
 /// # Errors
 /// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
 pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
-    let inputs = PlayerStartupInputs::capture();
+    let inputs = PlayerStartupInputs::capture(None);
     let instance = headless_gpu_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -161,7 +160,6 @@ pub(crate) mod headless {
     use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
 
     use super::*;
-    use crate::player::GpuWork;
     use crate::retained_driver::{PlayerWindow, viewer_options};
 
     pub(crate) struct HeadlessViewer {
@@ -180,7 +178,6 @@ pub(crate) mod headless {
                 max_frames: None,
                 capture_frames: BTreeSet::new(),
                 keys: Vec::new(),
-                gpu_work: GpuWork::Auto,
             };
             Self {
                 gpu: SharedGpu::headless_for_test(),

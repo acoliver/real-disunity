@@ -51,9 +51,9 @@ impl PreparedFeature for Resident<'_> {
 
 /// Appends a legacy resident draw to the shared executor without submitting.
 /// The caller has already set the frame and flushed instance edits. For staged
-/// frame uploads, snapshots and screen effects use [`super::encode_scene`] instead.
+/// frame uploads, snapshots and screen effects use [`super::FrameEncoding::encode_scene`] instead.
 /// This entry retains the legacy exposed sRGB output, with no new post look. It refuses a scene
-/// that holds admitted player program draws or offscreen operations; use [`super::encode_scene`] for those.
+/// that holds admitted player program draws or offscreen operations; use [`super::FrameEncoding::encode_scene`] for those.
 pub fn encode_resident(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,

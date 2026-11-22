@@ -19,7 +19,7 @@ impl SceneGpu {
     ///
     /// Only [`crate::compositor::FrameEncoding::encode_scene`] draws them. The resident path
     /// ([`crate::compositor::encode_resident`]) and the shadowed path
-    /// ([`crate::shadows::ShadowedScene::encode`]) refuse a scene that holds admitted draws by
+    /// ([`crate::shadows::ShadowedScene::encode_with`]) refuse a scene that holds admitted draws by
     /// name instead of ignoring them.
     ///
     /// Only draws admitted through [`worldrunner_render_program::runtime::ProgramRuntime::admit_draws`]

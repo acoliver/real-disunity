@@ -174,6 +174,7 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
     )
     .unwrap();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let fitted = crate::shadows::sdsm::AdoptedFit {
@@ -193,9 +194,10 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
         let frame = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                renderer.encode_depth_fitted(
-                    &context,
-                    &view,
+                encode_depth_fitted(
+                    &mut renderer,
+                    &mut scheduler,
+                    (&context, &view),
                     (&target.color_attachment(), &target.depth_attachment()),
                     encoder,
                     (fitted, policy()),
@@ -224,6 +226,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     let view = view();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut outputs = Vec::new();
     for adoption in [
         AdoptionPolicy::SameFrameCapture,
@@ -241,7 +244,14 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
                 }),
             )
             .unwrap();
-        let fit = adopted_stock_fit(&mut renderer, &context, &view, &target, adoption);
+        let fit = adopted_stock_fit(
+            &mut renderer,
+            &mut scheduler,
+            &context,
+            &view,
+            &target,
+            adoption,
+        );
         assert_eq!(fit.source_frame, 10);
         assert_eq!(
             fit.adopted_frame,
@@ -255,7 +265,14 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
             matches!(fit.depth, DepthRange::Receivers { near, far } if near > 0.1 && far < 100.0)
         );
         let actual = target.read_rgba8(&context).unwrap();
-        assert_fitted_pixels(&mut renderer, &context, &view, &mut target, fit, &actual);
+        assert_fitted_pixels(
+            (&mut renderer, &mut scheduler),
+            &context,
+            &view,
+            &mut target,
+            fit,
+            &actual,
+        );
         outputs.push(actual);
     }
     assert_eq!(outputs[0].pixels, outputs[1].pixels);
@@ -268,7 +285,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     let baseline = capture_scene(&context, &source, &view).unwrap();
     assert_shadow(&outputs[0], &baseline, Vec3::new(-0.75, 0.0, 0.0));
     renderer.set_depth_fitting(&context, None).unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let disabled = target.read_rgba8(&context).unwrap();
     assert_eq!(
         disabled.pixels,
@@ -280,6 +297,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
 
 fn adopted_stock_fit(
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     context: &GpuContext,
     view: &SceneView,
     target: &OffscreenTarget,
@@ -287,11 +305,12 @@ fn adopted_stock_fit(
 ) -> crate::shadows::sdsm::AdoptedFit {
     use crate::shadows::sdsm::AdoptionPolicy;
     let first = renderer
-        .render_depth_fitted(
+        .render_depth_fitted_host(
             context,
             view,
             (&target.color_attachment(), &target.depth_attachment()),
-            10,
+            (Some(10), false, &[]),
+            scheduler,
         )
         .unwrap();
     if adoption == AdoptionPolicy::SameFrameCapture {
@@ -308,21 +327,23 @@ fn adopted_stock_fit(
             .expect("SDSM interactive frame 10 GPU work did not finish within 30 seconds");
         assert!(
             renderer
-                .render_depth_fitted(
+                .render_depth_fitted_host(
                     context,
                     view,
                     (&target.color_attachment(), &target.depth_attachment()),
-                    11
+                    (Some(11), false, &[]),
+                    scheduler
                 )
                 .unwrap()
                 .is_none()
         );
         renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 context,
                 view,
                 (&target.color_attachment(), &target.depth_attachment()),
-                12,
+                (Some(12), false, &[]),
+                scheduler,
             )
             .unwrap()
             .unwrap()
@@ -330,7 +351,7 @@ fn adopted_stock_fit(
 }
 
 fn assert_fitted_pixels(
-    renderer: &mut ShadowedScene,
+    (renderer, scheduler): (&mut ShadowedScene, &mut crate::compositor::FrameRenderer),
     context: &GpuContext,
     view: &SceneView,
     target: &mut OffscreenTarget,
@@ -340,9 +361,10 @@ fn assert_fitted_pixels(
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode_depth_fitted(
-                context,
-                view,
+            encode_depth_fitted(
+                renderer,
+                scheduler,
+                (context, view),
                 (&target.color_attachment(), &target.depth_attachment()),
                 encoder,
                 (fit, policy()),
@@ -388,7 +410,13 @@ fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
         let source_before = frame.depth_statistics_source().unwrap().unwrap();
         crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
         let fit = renderer
-            .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                (&color, &depth),
+                (Some(3), false, &[]),
+                &mut frame,
+            )
             .unwrap();
         if adoption == AdoptionPolicy::SameFrameCapture {
             assert_eq!(fit.unwrap().source_frame, 3);

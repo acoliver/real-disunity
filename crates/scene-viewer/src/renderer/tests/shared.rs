@@ -8,6 +8,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_post::TimingMode;
 use worldrunner_render_scene::device::DeviceError;
+use worldrunner_render_scene::device::DeviceRequest;
 
 /// The instance and a device without block compression, made before any surface exists.
 fn shared(event_loop: &EventLoop<()>) -> super::super::Shared {
@@ -19,11 +20,13 @@ fn shared(event_loop: &EventLoop<()>) -> super::super::Shared {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
-    let context = pollster::block_on(GpuContext::from_adapter_shared(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        TimingMode::Disabled,
-        &DeviceRequirements::default(),
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: TimingMode::Disabled,
+            shared: DeviceRequirements::default(),
+        },
     ))
     .unwrap();
     super::super::Shared {

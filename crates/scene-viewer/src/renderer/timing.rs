@@ -1,5 +1,6 @@
 use super::{GpuContext, Renderer, ViewerError};
 use crate::{GpuTiming, GpuTimingUnavailable, RetainedHost};
+use worldrunner_render_scene::device::DeviceRequest;
 
 /// Stock geometry and output stages use pass-level timestamp writes.
 pub(crate) fn features() -> wgpu::Features {
@@ -28,7 +29,14 @@ pub(super) async fn context(
     } else {
         wgpu::Features::empty()
     };
-    Ok(GpuContext::from_adapter_with_features(adapter, required | timing).await?)
+    Ok(GpuContext::from_adapter(
+        adapter,
+        &DeviceRequest {
+            features: required | timing,
+            ..DeviceRequest::default()
+        },
+    )
+    .await?)
 }
 
 /// A device made before the window for the viewer and `caller` together: timestamps when
@@ -48,11 +56,13 @@ pub(crate) async fn shared_context(
         optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
         ..worldrunner_render_gpu::device::DeviceRequirements::default()
     };
-    Ok(GpuContext::from_adapter_shared(
+    Ok(GpuContext::from_adapter(
         adapter,
-        timing,
-        worldrunner_render_post::TimingMode::Disabled,
-        &viewer.union(caller),
+        &DeviceRequest {
+            features: timing,
+            timing: worldrunner_render_post::TimingMode::Disabled,
+            shared: viewer.union(caller),
+        },
     )
     .await?)
 }
@@ -99,7 +109,7 @@ mod tests {
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
         assert!(
             !renderer
                 .context
@@ -143,7 +153,7 @@ mod tests {
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
         assert!(!renderer.context.device().features().contains(features()));
         assert_eq!(
             renderer.presentation.scheduler.configuration().timing,

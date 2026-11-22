@@ -9,30 +9,34 @@ use worldrunner_render_gpu::{census::ResourceClass, submission::PreparedFrame};
 fn prepare_frame(
     context: &GpuContext,
     renderer: &mut super::super::ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     camera: &SceneView,
     target: &OffscreenTarget,
 ) -> PreparedFrame {
     context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            encode_frame(context, renderer, camera, target, encoder)
+            encode_frame(context, (renderer, scheduler), camera, target, encoder)
         })
         .unwrap()
 }
 
 fn encode_frame(
     context: &GpuContext,
-    renderer: &mut super::super::ShadowedScene,
+    (renderer, scheduler): (
+        &mut super::super::ShadowedScene,
+        &mut crate::compositor::FrameRenderer,
+    ),
     camera: &SceneView,
     target: &OffscreenTarget,
     encoder: &mut wgpu::CommandEncoder,
 ) -> Result<(), super::super::ShadowError> {
-    renderer.encode(
+    renderer.encode_with(
         context,
         camera,
-        &target.color_attachment(),
-        &target.depth_attachment(),
+        (&target.color_attachment(), &target.depth_attachment()),
         encoder,
+        scheduler,
     )
 }
 
@@ -43,6 +47,7 @@ fn replaced_shadow_map_stays_counted_until_prepared_frame_is_cancelled() {
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let camera = view();
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let old_bytes = census.snapshot().get(ResourceClass::ShadowMap);
@@ -51,7 +56,7 @@ fn replaced_shadow_map_stays_counted_until_prepared_frame_is_cancelled() {
     assert!(layers > 0);
     assert_eq!(old_bytes, layers * old_layer_bytes);
 
-    let prepared = prepare_frame(&context, &mut renderer, &camera, &target);
+    let prepared = prepare_frame(&context, &mut renderer, &mut scheduler, &camera, &target);
     let next_settings = DirectionalShadowSettings {
         resolution: 64,
         ..settings()
@@ -75,13 +80,14 @@ fn replaced_shadow_map_stays_counted_through_submission_completion() {
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let camera = view();
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let old_bytes = census.snapshot().get(ResourceClass::ShadowMap);
     let old_layer_bytes = u64::from(settings().resolution).pow(2) * 4;
     let layers = old_bytes / old_layer_bytes;
     assert_eq!(old_bytes, layers * old_layer_bytes);
-    let prepared = prepare_frame(&context, &mut renderer, &camera, &target);
+    let prepared = prepare_frame(&context, &mut renderer, &mut scheduler, &camera, &target);
     let next_settings = DirectionalShadowSettings {
         resolution: 64,
         ..settings()
@@ -111,6 +117,7 @@ fn shadow_map_replaced_during_encode_retains_the_recorded_generation() {
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let old_bytes = census.snapshot().get(ResourceClass::ShadowMap);
     let camera = view();
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
@@ -118,9 +125,21 @@ fn shadow_map_replaced_during_encode_retains_the_recorded_generation() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            encode_frame(&context, &mut renderer, &camera, &target, encoder)?;
+            encode_frame(
+                &context,
+                (&mut renderer, &mut scheduler),
+                &camera,
+                &target,
+                encoder,
+            )?;
             renderer.set_effects(&next_effects)?;
-            encode_frame(&context, &mut renderer, &camera, &target, encoder)
+            encode_frame(
+                &context,
+                (&mut renderer, &mut scheduler),
+                &camera,
+                &target,
+                encoder,
+            )
         })
         .unwrap();
     let new_bytes = u64::from(settings().resolution).pow(2) * 2 * 4;

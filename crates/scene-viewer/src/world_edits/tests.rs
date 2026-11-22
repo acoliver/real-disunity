@@ -51,7 +51,14 @@ fn show(world: &mut World, object: ObjectHandle) {
 
 fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<SceneObjectEdit> {
     let changes = world.drain_changes();
-    edits_from_world_changes(&changes, world, &resolver, ids).unwrap()
+    edits_from_world_changes(
+        &changes,
+        world,
+        &resolver,
+        worldrunner_render_plan::simulation::mesh_instances::MeshExtractOptions::default(),
+        ids,
+    )
+    .unwrap()
 }
 
 /// A host whose initial scene is the full extraction of `world`, plus its id map.
@@ -287,7 +294,16 @@ fn a_resolution_failure_leaves_the_id_map_unchanged() {
         .add_component(object, ComponentDesc::MeshInstance(unknown))
         .unwrap();
     let changes = world.drain_changes();
-    assert!(edits_from_world_changes(&changes, &world, &resolver, &mut ids).is_err());
+    assert!(
+        edits_from_world_changes(
+            &changes,
+            &world,
+            &resolver,
+            worldrunner_render_plan::simulation::mesh_instances::MeshExtractOptions::default(),
+            &mut ids
+        )
+        .is_err()
+    );
     assert_eq!(ids.len(), before);
     assert_eq!(ids.get(object), None);
 }

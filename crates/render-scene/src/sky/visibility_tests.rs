@@ -51,15 +51,16 @@ fn capture_celestial_target(
     let frame = FrameUniform::new(&view(), source.effects()).unwrap();
     capture(context, |encoder, resolved, _| {
         let mut renderer = crate::compositor::FrameRenderer::new(device);
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame,
+            )
+            .unwrap();
         let reference = occupancy.then(|| gpu.capture_celestial_textures(device, [9, 3]));
         let reference_view = reference
             .as_ref()
@@ -152,6 +153,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
         1,
     )
     .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let image = capture(&context, |encoder, color, depth| {
         let color =
             AttachmentView::new(ResourceRef::new("shadow acceptance color"), color.texture())
@@ -159,7 +161,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
         let depth =
             AttachmentView::new(ResourceRef::new("shadow acceptance depth"), depth.texture())
                 .unwrap();
-        gpu.encode(&context, &view(), &color, &depth, encoder)
+        gpu.encode_with(&context, &view(), (&color, &depth), encoder, &mut scheduler)
             .unwrap();
     });
     assert_eq!(

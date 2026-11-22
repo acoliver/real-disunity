@@ -12,8 +12,6 @@
 use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 
-use super::depth_range::DepthRange;
-
 use worldrunner_world_simulation::graphics::CameraView;
 
 /// The matrix that takes OpenGL clip coordinates to the clip space a Unity Vulkan module is
@@ -31,16 +29,14 @@ use worldrunner_world_simulation::graphics::CameraView;
 /// texture's rows are bottom first like every other texture's. Winding follows from it: a front
 /// face is counter-clockwise in the image (see `lists::IMAGE_FRONT_FACE`).
 ///
-/// Depth changes too. For [`DepthRange::Forward`], `z' = (z + w) / 2` takes -w..w to 0..w. For
-/// [`DepthRange::Reversed`], `z' = (w - z) / 2` takes -w..w to w..0, so near is w and far is 0,
-/// which is what render-program's reversed depth clears and tests expect.
+/// Depth changes too: `z' = (w - z) / 2` takes -w..w to w..0, so near is w and far is 0, which is
+/// what render-program's reversed depth clears and tests expect.
 #[must_use]
-pub fn clip_from_gl(depth: DepthRange) -> Mat4 {
-    let sign = if depth.reversed() { -0.5 } else { 0.5 };
+pub fn clip_from_gl() -> Mat4 {
     Mat4::from_cols(
         Vec4::X,
         Vec4::NEG_Y,
-        Vec4::new(0.0, 0.0, sign, 0.0),
+        Vec4::new(0.0, 0.0, -0.5, 0.0),
         Vec4::new(0.0, 0.0, 0.5, 1.0),
     )
 }

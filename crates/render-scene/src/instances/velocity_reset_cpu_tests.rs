@@ -48,39 +48,6 @@ fn filled(mut batch: InstanceBatch) -> InstanceBatch {
 }
 
 #[test]
-fn velocity_reset_cpu_makes_all_previous_transforms_current_until_submission() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let mut batch = batch();
-    let before = previous_uploads(&mut batch);
-    assert_ne!(before[0].1, batch.bytes[..STRIDE]);
-    batch.reset_velocity_history();
-    for _ in 0..2 {
-        let reset = previous_uploads(&mut batch);
-        assert_eq!(reset, vec![(0, batch.bytes.clone())]);
-        assert!(candidate(&mut batch).moving_slots().is_empty());
-        assert!(batch.history.has_pending());
-    }
-}
-
-#[test]
-fn velocity_reset_cpu_ignores_removed_slots_and_keeps_current_uploads_sparse() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let mut batch = batch();
-    batch.remove(1);
-    let writes = batch.pending_ranges();
-    batch.reset_velocity_history();
-    assert_eq!(batch.pending_ranges(), writes);
-    let candidate = candidate(&mut batch);
-    assert_eq!(candidate.slots().collect::<Vec<_>>(), vec![0]);
-    let reset = batch
-        .history
-        .previous_uploads(&candidate, &batch.bytes, false);
-    assert_eq!(reset, vec![(0, batch.bytes[..STRIDE].to_vec())]);
-    candidate.publish();
-    assert!(!batch.history.has_pending());
-}
-
-#[test]
 fn physical_acknowledgement_keeps_history_pending_without_current_edits() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut batch = batch();

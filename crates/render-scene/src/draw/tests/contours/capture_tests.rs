@@ -108,7 +108,13 @@ impl CaptureRig {
             .unwrap();
         let source_frame = u64::try_from(index).unwrap();
         let fit = scene
-            .render_depth_fitted_with(context, view, (color, depth), source_frame, frame)
+            .render_depth_fitted_host(
+                context,
+                view,
+                (color, depth),
+                (Some(source_frame), false, &[]),
+                frame,
+            )
             .unwrap()
             .unwrap();
         assert_eq!(

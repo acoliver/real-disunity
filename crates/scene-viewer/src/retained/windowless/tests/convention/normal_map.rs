@@ -63,7 +63,7 @@ fn derivative_normal_map_has_independent_normal_and_lighting_oracles() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let host = RetainedHost::new(mapped_scene(), camera_host(None).options).unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     // For +Z, U=+X, V=+Y and downward raster Y, the derivative basis is (-X,-Y,Z).
     let nx = -127.0f32 / 255.0;
     let ny = -63.0f32 / 255.0;

@@ -9,7 +9,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Material, OffscreenFrame, Record, SourceDimension, SourceTexture, UndeclaredTextures,
 };
-use worldrunner_render_program::unity::offscreen::{OffscreenError, UndeclaredDefaultDraws};
+use worldrunner_render_program::unity::offscreen::{OffscreenError, StandInDraws};
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
 use worldrunner_render_program::unity::synthetic::shaders::{blit_passes, cube_blit};
@@ -178,9 +178,10 @@ fn the_draw_is_counted_by_property_and_not_as_missing() {
     with_grey_cube(&mut rig);
     let operations = rig.build(&frame(both())).unwrap();
     assert_eq!(
-        operations.undeclared_default_draws(),
-        [UndeclaredDefaultDraws {
+        operations.stand_in_draws(),
+        [StandInDraws {
             texture: SLOT.to_owned(),
+            reason: "undeclared".to_owned(),
             draws: 1,
         }]
     );

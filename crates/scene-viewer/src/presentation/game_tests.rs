@@ -119,7 +119,7 @@ fn every_renderer_the_viewer_builds_registers_the_games_factory() {
         height: 49,
     };
     let builds = Arc::new(Mutex::new(0));
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],

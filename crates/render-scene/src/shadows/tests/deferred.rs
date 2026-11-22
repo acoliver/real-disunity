@@ -154,13 +154,7 @@ fn capture_frame(
     .unwrap();
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    renderer.encode_with(
-        context,
-        view,
-        (&color, &depth),
-        &mut encoder,
-        Some(&mut *frame),
-    )?;
+    renderer.encode_with(context, view, (&color, &depth), &mut encoder, &mut *frame)?;
     frame
         .encode_output(&mut encoder, output.color_view())
         .unwrap();
@@ -366,7 +360,13 @@ fn depth_fitted_frame(
     )
     .unwrap();
     let fit = renderer
-        .render_depth_fitted_with(context, view, (&color, &depth), 0, &mut frame)
+        .render_depth_fitted_host(
+            context,
+            view,
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut frame,
+        )
         .map_err(|error| format!("{error:?}"))?
         .expect("the same-frame fit adopts");
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));

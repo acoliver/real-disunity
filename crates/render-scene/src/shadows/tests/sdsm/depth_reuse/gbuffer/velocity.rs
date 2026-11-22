@@ -114,20 +114,20 @@ fn residual_after(
         if fitting.is_some() {
             let id = u64::try_from(id).unwrap();
             let fit = renderer
-                .render_depth_fitted_with(context, &view, (&color, &depth), id, &mut frame)
+                .render_depth_fitted_host(
+                    context,
+                    &view,
+                    (&color, &depth),
+                    (Some(id), false, &[]),
+                    &mut frame,
+                )
                 .unwrap()
                 .unwrap();
             assert_eq!((fit.source_frame, fit.adopted_frame), (id, id));
         } else {
             let mut encoder = context.submission().begin(context.device()).unwrap();
             renderer
-                .encode_with(
-                    context,
-                    &view,
-                    (&color, &depth),
-                    &mut encoder,
-                    Some(&mut frame),
-                )
+                .encode_with(context, &view, (&color, &depth), &mut encoder, &mut frame)
                 .unwrap();
             encoder.finish().submit().unwrap();
         }

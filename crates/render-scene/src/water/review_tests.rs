@@ -63,10 +63,10 @@ fn schedule_water(
         .as_ref()
         .unwrap()
         .feature(
-            (context.device(), &*encoder),
+            &encoder,
             &FrameUniform::new(&fixture_view(), None).unwrap(),
             (0.0, 0),
-            (None, None),
+            None,
         )
         .schedule(passes, views)
         .unwrap();

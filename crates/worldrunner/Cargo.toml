@@ -55,8 +55,8 @@ scene = [
     "dep:worldrunner-render-scene",
 ]
 script = ["dep:worldrunner-script"]
-simulation = ["dep:worldrunner-world-simulation"]
-ui = ["simulation", "worldrunner-world-simulation/ui", "dep:worldrunner-render-plan", "worldrunner-render-plan/ui"]
+simulation = ["dep:worldrunner-world-simulation", "worldrunner-render-plan?/simulation"]
+ui = ["simulation", "worldrunner-world-simulation/ui"]
 world = [
     "simulation",
     "dep:worldrunner-render-plan",

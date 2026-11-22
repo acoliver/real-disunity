@@ -96,6 +96,11 @@ A malformed name or value is refused at startup, naming the option and the text 
 
 Each value goes into the globals a frame starts from, as a fallback exactly as the host's main light does (`Mapper::new`).
 A name the world's own globals already hold keeps the world's value, and a `SetGlobal` the script records replaces the supplied value from the place in the frame where it is recorded.
+A global the script writes directly (`Shader.SetGlobalTexture`, `SetGlobalFloat`, `SetGlobalVector`, `SetGlobalMatrix`, `EnableKeyword` and the like) reaches the host the same way: the world puts a `SetGlobal` or `SetGlobalKeyword` for each name written since the previous record in front of the next record, so a draw reads the value the script had set when it recorded the draw and not the one the frame ends with.
+A global an executed command buffer sets (`CommandBuffer.SetGlobalTexture`, `SetGlobalFloat`, `EnableShaderKeyword` and the like) is such a direct write, so it also stays in the state every later take starts from.
+Only a global set to a temporary render texture is a recorded `SetGlobal` that ends with its take.
+`tests/persistent_globals_gpu.rs` (in `offscreen/tests`) checks this on a real adapter with two takes: the first sets a global to a filled render texture and the second draws two quads that sample it, with no stand-in.
+The world also puts a record for each name written after the frame's last record at the end of the work, and the state the frame starts from is the world's global state as it was before the frame's first write, so a draw before a write reads the value the script had set when it recorded the draw.
 A supplied name that is also `_MainLightColor` or `_MainLightPosition` takes the place of the host's light for that name.
 A value a draw reads for a name comes from the first of these that has one: a `SetGlobal` recorded before the draw, the world's own global, the `--global` value, the host's main light (for the two light names), and last the default the shader declares for the property.
 The declared defaults of the two light names and of every supplied name sit below the globals for that reason (`Material::below_globals`); the declared default of any other name keeps its place above them.
@@ -180,7 +185,7 @@ It also prints how many loaded shaders have no pass with a `LightMode` tag and t
 `unity-import player-shader-builtins <player data directory>` is the aggregate measurement the built-in names rest on; see [the importer guide](../../docs/unity-projects.md).
 
 Vector arrays and matrix arrays (`PropertyValue::VectorArray` and `MatrixArray`) are carried by name like the single values.
-An array the global state holds when the frame starts, one a command sets with `OffscreenWork::SetGlobal` and one a dispatch holds is copied into the constant buffer member of its name in element order, each matrix column by column.
+An array the global state holds when the frame starts, one a command sets with `OffscreenWork::SetGlobal` (a direct write is ordered in front of the next record as one) and one a dispatch holds is copied into the constant buffer member of its name in element order, each matrix column by column.
 A command's array applies to the records after it until another command sets that name.
 A pass that declares fewer elements than the array holds is not drawn: its record is left out and counted as `record:Blit:Constant` (the record kind, then the error), with the cause `record:Blit:Constant/ArrayTooLong` and, in the example, the shader and pass of the record followed by the property and the given and declared counts.
 A dispatch in that case is left out as `dispatch:Constants`.

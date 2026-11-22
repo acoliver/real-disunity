@@ -76,6 +76,9 @@ pub struct GraphicsSnapshot {
     /// Every live render texture, and each one destroyed after a record of the frame named it,
     /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
+    /// The global state the frame's records replay from: the state as it was before the frame's
+    /// first change to it, which the records after that carry on in order. `None` for a frame with
+    /// no work.
     pub global: Option<GlobalShaderState>,
     /// The scene's ambient light and default reflection, copied with the global state.
     pub environment: Environment,
@@ -105,7 +108,7 @@ impl GraphicsSnapshot {
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
-        let (work, copies) = world.take_offscreen();
+        let (work, copies, start) = world.take_offscreen();
         // The list is whole for every snapshot: a host drops the render textures a snapshot
         // omits, so a frame with no work must not look like a world with none.
         let render_textures = world
@@ -121,7 +124,7 @@ impl GraphicsSnapshot {
         if snapshot.work.is_empty() {
             return Ok(snapshot);
         }
-        snapshot.global = Some(world.global_shader_state().clone());
+        snapshot.global = Some(start.unwrap_or_else(|| world.global_shader_state().clone()));
         snapshot.environment = world.live_environment();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {

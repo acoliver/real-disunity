@@ -91,7 +91,7 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     let mut compared = 0;
     for (index, (matrix, name, covers)) in cascades().into_iter().enumerate() {
         let cascade = (u32::try_from(index).unwrap(), matrix);
-        let buffer = crate::upload::upload_buffer(
+        let buffer = worldrunner_render_gpu::resource::upload_buffer(
             device,
             context.queue(),
             "capture caster frame",
@@ -146,7 +146,7 @@ fn ribbon_map(
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
     rig.gpu.prepare_object_context(&live).unwrap();
     let matrix = ribbon_light();
-    let buffer = crate::upload::upload_buffer(
+    let buffer = worldrunner_render_gpu::resource::upload_buffer(
         device,
         context.queue(),
         "skinned caster frame",
@@ -192,7 +192,7 @@ fn recorded_casters(
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
     rig.gpu.prepare_object_context(&live).unwrap();
     let matrix = map((0.0, 1.75), 2.8);
-    let buffer = crate::upload::upload_buffer(
+    let buffer = worldrunner_render_gpu::resource::upload_buffer(
         device,
         context.queue(),
         "counted caster frame",

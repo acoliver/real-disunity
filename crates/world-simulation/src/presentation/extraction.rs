@@ -9,11 +9,6 @@ use worldrunner_camera::{
     resolve,
 };
 
-/// Content identity to scene texture table. Bytes use the ordinary scene texture contract.
-#[derive(Clone, Debug, Default)]
-pub struct SpriteTextures {
-    pub textures: BTreeMap<u64, SceneTexture>,
-}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpriteQuad {
     pub lighting: super::SpriteLighting,
@@ -33,18 +28,14 @@ pub struct WorldRenderPlan {
     pub quads: Vec<SpriteQuad>,
     pub textures: BTreeMap<u64, SceneTexture>,
 }
-pub fn extract_world(
-    world: &World,
-    textures: &SpriteTextures,
-    viewport: [u32; 2],
-) -> Result<WorldRenderPlan, WorldError> {
+pub fn extract_world(world: &World, viewport: [u32; 2]) -> Result<WorldRenderPlan, WorldError> {
     let lighting = super::lighting::GlobalLighting::from_world(world)?;
     let mut result = WorldRenderPlan {
         camera: None,
         camera_state: None,
         clear: [0., 0., 0., 1.],
         quads: vec![],
-        textures: textures.textures.clone(),
+        textures: BTreeMap::new(),
     };
     let selected = selected_camera(world, world.published_components())?;
     let culling = selected.map(|(_, camera)| camera);
@@ -267,8 +258,9 @@ pub fn append_ui(
     let next = plan
         .textures
         .keys()
-        .next_back()
         .copied()
+        .chain(plan.quads.iter().filter_map(|q| q.texture))
+        .max()
         .map_or(Some(0), |n| n.checked_add(1))
         .ok_or(worldrunner_camera::ViewError::InvalidWorldPoint)?;
     append_ui_from(plan, ui, next)

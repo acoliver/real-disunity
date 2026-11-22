@@ -6,9 +6,9 @@ use crate::object::prepared::LentMaterial;
 use super::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
     GpuLod, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle,
-    TextureView, TextureViewDescriptor, upload_buffer, upload_palette_array, upload_texture,
-    upload_type_grid,
+    TextureView, TextureViewDescriptor, upload_palette_array, upload_texture, upload_type_grid,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 
 pub(super) fn allocate_frame_slots(
     device: &Device,

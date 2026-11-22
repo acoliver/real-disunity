@@ -10,7 +10,7 @@ use super::*;
 use crate::draw::DrawCount;
 use crate::dynamic::{DynamicBindings, DynamicGpu, QuadTarget};
 use crate::offscreen::OffscreenTarget;
-use crate::upload::{material_bind_group_layout, material_sampler, placeholder_with_view};
+use crate::upload::{material_bind_group_layout, placeholder_with_view};
 
 const FULL: [u32; 4] = [0, 0, SIZE, SIZE];
 
@@ -179,7 +179,9 @@ fn overlay(context: &GpuContext, textures: &[SceneTexture], quads: &[DynamicQuad
     let device = context.device();
     let (queue, format) = (context.queue(), OffscreenTarget::COLOR_FORMAT);
     let (placeholder, _) = placeholder_with_view(device, queue);
-    let sampler = material_sampler(device);
+    let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
+        worldrunner_render_plan::TextureAnisotropy::default(),
+    ));
     let layout = material_bind_group_layout(device);
     let mut staged = DynamicGpu::default();
     staged.set_textures(device, queue, textures).unwrap();

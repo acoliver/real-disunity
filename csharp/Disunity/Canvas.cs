@@ -12,7 +12,11 @@ public sealed partial class Canvas : Behaviour
         DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_read(DisunityHost.WorldHandle, Handle, &value));
         return value;
     }
-    internal unsafe void Write(DisunityCanvas value) => DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_write(DisunityHost.WorldHandle, Handle, &value));
+    internal unsafe void Write(DisunityCanvas value)
+    {
+        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_write(DisunityHost.WorldHandle, Handle, &value));
+        RectDimensionMessages.MarkChanged();
+    }
     private protected override bool EnabledState { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
     public int sortingOrder { get => Read().sorting_order; set { var c = Read(); c.sorting_order = value; Write(c); } }
     /// <summary>On a screen-space canvas, moves each text so its first glyph starts on a whole
@@ -43,6 +47,7 @@ public sealed partial class Canvas : Behaviour
         {
             var scale = new DisunityCanvasScale { mode = 0, factor = value };
             DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_scale_write(DisunityHost.WorldHandle, Handle, &scale));
+            RectDimensionMessages.MarkChanged();
         }
     }
 }

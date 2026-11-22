@@ -301,6 +301,11 @@ namespace Disunity.Native
         ///  and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
         ///  the count; a capacity below the count is rejected and drains nothing.
         ///
+        ///  A draw record names its material by the material's id, or, when the script edited the material
+        ///  after the draw, by the id of a copy of the state the draw saw (generation 0, which no material
+        ///  has). The record cannot carry the copy: a host reads the copies, with the rest of the frame,
+        ///  in the graphics snapshot, and this call is the record reader that the ABI tests use.
+        ///
         ///  # Safety
         ///  `records` is writable for `capacity` records, or null when `capacity` is zero; `count` is
         ///  writable for one value.

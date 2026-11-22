@@ -24,7 +24,8 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, blit_layer,
+    camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::depth_range::DepthRange;
@@ -679,6 +680,7 @@ impl<'a> Mapper<'a> {
         };
         let (id, passes) = self.material_and_passes(material)?;
         self.frame.blit_mesh = Some(BLIT_MESH);
+        self.frame.blit_values = blit_layer();
         let passes = match usize::try_from(pass) {
             Ok(pass) => pass..pass + 1,
             Err(_) => 0..passes,

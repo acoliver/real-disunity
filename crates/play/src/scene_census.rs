@@ -107,8 +107,8 @@ pub struct SubstitutionCensus {
     /// The material slots after the first, over the renderers the last frame drew, which the
     /// viewer does not draw.
     pub slots_not_drawn: usize,
-    /// The UI draws the last frame named a game material for, by the name of the material's
-    /// shader.
+    /// The UI draws the last frame left out because their material is a game's own, by the
+    /// name of the material's shader.
     pub ui_game_materials: BTreeMap<String, usize>,
 }
 

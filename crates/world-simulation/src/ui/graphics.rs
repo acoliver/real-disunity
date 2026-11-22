@@ -183,7 +183,8 @@ pub fn append_graphics(
     plan: &mut WorldRenderPlan,
     graphics: Vec<UiGraphic>,
 ) -> Result<(), worldrunner_camera::ViewError> {
-    for mut graphic in graphics {
+    // A game's material has no path that draws it yet, and the plain quad would show it as white.
+    for mut graphic in graphics.into_iter().filter(|g| g.material.is_none()) {
         for triangle in &graphic.triangles {
             let [a, b, c] = *triangle;
             graphic.quads.push(UiGraphicQuad {

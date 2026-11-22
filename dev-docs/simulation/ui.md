@@ -612,9 +612,12 @@ names no material. `DisunityUiDraw` carries `material` and `material_generation`
 existing material and shader reads into `UiPresentation::shaders`, because the draw
 record carries identities only.
 
-Nothing draws a game's shader in the UI yet, so a draw that names a material still
-draws with the engine's look. The player counts those draws by shader name in one line
-of the run report.
+UI draws with a game shader are not drawn yet. The overlay path
+(`PlayerUi::filter_unavailable`) and the live 2D path (`append_graphics`) leave a
+draw that names a material out, so a graphic such as a silhouette image no longer
+shows as a plain white quad. The player names each material once through
+`UiMaterial::refusal` and counts the left-out draws by shader name in the run report.
+The 2D-only driver reads no UI plan and leaves the draws out without the line.
 
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes

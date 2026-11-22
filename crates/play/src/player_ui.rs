@@ -64,7 +64,7 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
-    /// The draws the last update named a game material for, by shader.
+    /// The draws the last update left out because their material is a game's own, by shader.
     pub(crate) fn game_material_draws(&self) -> &BTreeMap<String, usize> {
         self.materials.by_shader()
     }
@@ -76,7 +76,7 @@ impl PlayerUi {
         player: &PlayerTextures,
         mut report: impl FnMut(String),
     ) {
-        self.materials.count(plan);
+        self.materials.leave_out(plan, &mut report);
         plan.draws.retain(|draw| {
             if draw.kind != UiDrawKind::Graphic {
                 return true;

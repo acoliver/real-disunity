@@ -163,7 +163,7 @@ A coroutine that yields `WaitForEndOfFrame` resumes once, after every `LateUpdat
   Return one shared `Material` named "Default UI Material" on the shader `UI/Default`, which the engine registers with render queue 3000 (transparent) and one pass (the engine's choice).
   The material is created on first use; if a game destroys it the next call makes a new one.
   The ETC1 form returns the same material, since the engine has no split colour and alpha textures.
-  Nothing draws with it yet.
+  A graphic on this material, or on any material whose shader has no source, draws with the engine's own UI look; the material's properties are not read.
 - `UnityEngine.Sprites.DataUtility`: Static.
   `GetOuterUV` is the sprite's `textureRect` divided by its texture size and `GetInnerUV` is that rectangle inset by the border (where the sprite's rectangle has padding around its pixels, the padding counts toward the border), both as (xMin, yMin, xMax, yMax).
   `GetPadding` is the offset of the pixels inside `rect` as (left, bottom, right, top), zero for a tight sprite.
@@ -824,7 +824,9 @@ The encoding is version 18.
   Graphics draw under the engine's own `Text` of the same sorting key.
   A renderer with rect clipping on drops the quads outside its clip rectangle and cuts the quads across its edge, scaling the texture rectangle in proportion.
   The rectangle is measured in the space of the renderer's root canvas (the topmost canvas above it), as `RectMask2D` supplies it; a quad that is not axis aligned in that space is kept whole, and a rectangle that is not finite clips nothing.
-  Softness, masks, materials and shaders are not applied: the world material of slot 0 reaches each draw of the renderer, and the player counts the draws that name a game's shader, but every graphic is still drawn with the engine's own look.
+  Softness and masks are not applied.
+  A graphic whose slot 0 material has a shader with a source of the game's own (any shader except `UI/Default`) is not drawn yet: its draws are left out of the overlay and of the live 2D frame, and the player names the material and its shader once on stderr as `UI material <id> (shader <name>) is left out: UI draws with a game shader are not drawn yet`.
+  A graphic whose material has no shader source, or is the engine's `UI/Default`, draws with the engine's own look; the material's properties are not read.
   A script's `[RequireComponent(typeof(CanvasRenderer))]` makes `AddComponent` add the renderer first.
 - `DrivenRectTransformTracker`: `Add` (throws `ArgumentNullException` for a null rectangle), `Clear`, `StartRecordingUndo` and `StopRecordingUndo`.
   Driving only marks rectangle properties as script-controlled in an editor.

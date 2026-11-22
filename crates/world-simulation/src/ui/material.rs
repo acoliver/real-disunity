@@ -32,4 +32,13 @@ impl UiMaterial {
             generation: material.generation,
         })
     }
+
+    /// The report line for a draw left out because its material is the game's own.
+    #[must_use]
+    pub fn refusal(self, shader: &str) -> String {
+        format!(
+            "UI material {} (shader {shader}) is left out: UI draws with a game shader are not drawn yet",
+            self.id.to_bits()
+        )
+    }
 }

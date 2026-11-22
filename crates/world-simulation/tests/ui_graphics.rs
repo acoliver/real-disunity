@@ -529,3 +529,24 @@ fn a_property_change_gives_the_draw_a_new_material_generation() {
     assert_eq!(after.id, before.id);
     assert_ne!(after.generation, before.generation);
 }
+
+#[test]
+fn a_2d_graphic_with_a_game_material_is_left_out() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    world
+        .add_component(canvas, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+    let own = material_named(&mut world, "Game/Silhouette", true);
+    let (engine_look, game_look) = (element(&mut world, canvas), element(&mut world, canvas));
+    draw(&mut world, engine_look, renderer(unit_quad()));
+    let drawn = CanvasRenderer {
+        material_count: 1,
+        world_material: Some(own),
+        ..renderer(unit_quad())
+    };
+    draw(&mut world, game_look, drawn);
+    assert_eq!(graphics(&world).len(), 2);
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
+    append_graphics(&mut plan, graphics(&world)).unwrap();
+    assert_eq!(plan.quads.len(), 1, "only the engine's own look is drawn");
+}

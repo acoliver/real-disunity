@@ -78,10 +78,11 @@ fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>) {
 }
 
 #[test]
-fn draws_with_a_game_material_are_counted_by_the_name_of_its_shader() {
+fn a_draw_with_a_game_material_is_left_out_and_named_once() {
     let material = game_material();
     let shaped = UiDraw {
         material: Some(material),
+        texture: Some(1 << 40),
         ..draw(7, 2, [0, 0, 64, 64])
     };
     let plan = UiPresentation {
@@ -90,8 +91,17 @@ fn draws_with_a_game_material_are_counted_by_the_name_of_its_shader() {
         ..Default::default()
     };
     let (player, lines) = update_three_times(&plan);
-    assert_eq!(player.plan.as_ref(), Some(&plan), "the draws are all kept");
-    assert!(lines.is_empty());
+    assert_eq!(
+        player.plan.as_ref().unwrap().draws.as_slice(),
+        &plan.draws[..1]
+    );
+    assert_eq!(
+        lines,
+        [
+            "UI material 4294967299 (shader Game/Silhouette) is left out: UI draws with a game shader are not drawn yet"
+        ],
+        "the material is named once and its unavailable texture is not named"
+    );
     assert_eq!(
         player.game_material_draws(),
         &BTreeMap::from([("Game/Silhouette".to_owned(), 2)])

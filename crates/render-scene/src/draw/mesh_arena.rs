@@ -1,22 +1,22 @@
 //! Pooled vertex and index storage for the scene's mesh levels.
 //!
-//! A mesh level used to own one vertex buffer, one index buffer and, for a card level, one buffer
-//! with the complement of the level before it. A pass that draws many levels then set two buffers
-//! per level, and wgpu validates and tracks every one of them. The levels of one upload are now
-//! packed back to back into chunks: one pool of chunks for each vertex format and one for
-//! indices. A level is a [`Span`], the chunk and the first vertex or index it holds there, and a
-//! draw reads it through `first_index` and `base_vertex` over the chunk's whole buffer. Draws of
-//! levels in one chunk set the vertex and index buffers once.
+//! A pass that draws many levels would set two buffers per level, and wgpu validates and tracks
+//! every one of them. The levels of one upload are packed back to back into chunks instead: one
+//! pool of chunks for each vertex format and one for indices. A level is a [`Span`], the chunk
+//! and the first vertex or index it holds there, and a draw reads it through `first_index` and
+//! `base_vertex` over the chunk's whole buffer. Draws of levels in one chunk set the vertex and
+//! index buffers once.
 //!
 //! * **Pools.** Vertices of different formats cannot share a buffer, because `base_vertex`
 //!   counts whole vertices of one stride. A level's card complement repacks the level before it
 //!   and is stored in the pool of that level's format. Every index is a `u32`, so one index
 //!   pool serves every level and a chunk has one index format.
-//! * **Chunks.** An upload packs its levels in the order the old per-level buffers were made, so
-//!   a chunk holds consecutive levels, and splits to a new chunk when the next level would pass
-//!   [`CHUNK_BYTES`] or the device's buffer limit. The last chunk of a pool is exactly as large as
-//!   what it holds, so a scene's chunks add up to the bytes its levels packed to, which the
-//!   budget admission already counts. A level larger than the limit gets a chunk of its own.
+//! * **Chunks.** An upload packs each level's complement, then its vertices, then its indices,
+//!   level by level, so a chunk holds consecutive levels, and splits to a new chunk when the next
+//!   level would pass the arena's chunk size, which is [`MAX_CHUNK_BYTES`] or the device's buffer
+//!   limit when that is smaller. The last chunk of a pool is exactly as large as what it holds,
+//!   so a scene's chunks add up to the bytes its levels packed to, which the budget admission
+//!   already counts. A level larger than a chunk gets a chunk of its own.
 //! * **Lifetime and holes.** A chunk is reference counted by the spans that read it and is
 //!   counted under [`ResourceClass::Mesh`] until the last of them drops. A replaced mesh uploads
 //!   into new chunks and drops its old spans. The bytes it leaves in a chunk other meshes still
@@ -41,8 +41,8 @@ pub(super) const INDEX_FORMAT: IndexFormat = IndexFormat::Uint32;
 /// Bytes of one index.
 const INDEX_BYTES: u64 = 4;
 
-/// The size a chunk fills before the next level starts another.
-pub(super) const CHUNK_BYTES: u64 = 64 << 20;
+/// The most a chunk fills before the next level starts another.
+pub(super) const MAX_CHUNK_BYTES: u64 = 64 << 20;
 
 /// One buffer that a pool packed levels into, counted as mesh memory while any span reads it.
 #[derive(Debug)]
@@ -64,12 +64,6 @@ impl Span {
     /// The vertex or index the level starts at in the chunk.
     pub(super) fn first(&self) -> u32 {
         self.first
-    }
-
-    /// Whether `other` is in the same chunk.
-    #[cfg(test)]
-    pub(super) fn shares_chunk(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.chunk, &other.chunk)
     }
 
     /// The vertex offset a draw adds to the level's indices.
@@ -171,41 +165,97 @@ fn plan(sizes: &[u64], limit: u64) -> Plan {
     }
 }
 
-/// The bytes a chunk may fill before the next level starts another.
-fn chunk_limit(device: &Device) -> u64 {
-    #[cfg(test)]
-    if let Some(limit) = test_limit::get() {
-        return limit;
-    }
-    CHUNK_BYTES.min(device.limits().max_buffer_size)
+/// The packer of a scene's mesh levels into chunks.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MeshArena {
+    /// The bytes a chunk may fill before the next level starts another.
+    chunk_bytes: u64,
 }
 
-/// Uploads already packed mesh levels without processing source geometry.
-pub(super) fn upload_meshes(
-    device: &Device,
-    census: &MemoryCensus,
-    meshes: &[PreparedMesh],
-) -> Vec<GpuMesh> {
-    let requests = requests(meshes);
-    let limit = chunk_limit(device);
-    let mut spans = pool_spans(device, census, &requests, limit).into_iter();
-    let mut next = || spans.next().expect("a span for every request");
-    meshes
-        .iter()
-        .map(|mesh| GpuMesh {
-            lods: mesh
-                .lods
+impl MeshArena {
+    /// An arena whose chunks fill to `chunk_bytes`, which the largest buffer of the device it
+    /// uploads to bounds.
+    pub(super) fn new(chunk_bytes: u64) -> Self {
+        Self { chunk_bytes }
+    }
+
+    /// Uploads already packed mesh levels without processing source geometry.
+    pub(super) fn upload(
+        &self,
+        device: &Device,
+        census: &MemoryCensus,
+        meshes: &[PreparedMesh],
+    ) -> Vec<GpuMesh> {
+        let requests = requests(meshes);
+        let mut spans = self.pool_spans(device, census, &requests).into_iter();
+        let mut next = || spans.next().expect("a span for every request");
+        meshes
+            .iter()
+            .map(|mesh| GpuMesh {
+                lods: mesh
+                    .lods
+                    .iter()
+                    .map(|lod| MeshLod {
+                        layout: lod.layout,
+                        transition: lod.transition.as_ref().map(|_| next()),
+                        vertices: next(),
+                        indices: next(),
+                        index_count: lod.index_count,
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Packs each pool's requests into chunks and returns one span for each request, in order.
+    fn pool_spans(
+        &self,
+        device: &Device,
+        census: &MemoryCensus,
+        requests: &[Request<'_>],
+    ) -> Vec<Span> {
+        let mut spans: Vec<Option<Span>> = vec![None; requests.len()];
+        for pool in Pool::ALL {
+            let members: Vec<usize> = (0..requests.len())
+                .filter(|&index| requests[index].pool == pool)
+                .collect();
+            let unit = pool.unit();
+            for &member in &members {
+                let bytes = requests[member].bytes.len() as u64;
+                assert_eq!(bytes % unit, 0, "a level packs whole {pool:?} units");
+            }
+            let sizes: Vec<u64> = members
                 .iter()
-                .map(|lod| MeshLod {
-                    layout: lod.layout,
-                    transition: lod.transition.as_ref().map(|_| next()),
-                    vertices: next(),
-                    indices: next(),
-                    index_count: lod.index_count,
+                .map(|&member| requests[member].bytes.len() as u64)
+                .collect();
+            let packed = plan(&sizes, self.chunk_bytes);
+            let chunks: Vec<Rc<Chunk>> = packed
+                .chunk_bytes
+                .iter()
+                .enumerate()
+                .map(|(chunk, &bytes)| {
+                    let items = members
+                        .iter()
+                        .zip(&packed.places)
+                        .filter(|(_, place)| place.0 == chunk)
+                        .map(|(&member, place)| (place.1, requests[member].bytes));
+                    Rc::new(build_chunk(device, census, pool, bytes, items))
                 })
-                .collect(),
-        })
-        .collect()
+                .collect();
+            for (&member, &(chunk, offset)) in members.iter().zip(&packed.places) {
+                let first =
+                    u32::try_from(offset / unit).expect("a chunk holds fewer than 2^32 units");
+                spans[member] = Some(Span {
+                    chunk: chunks[chunk].clone(),
+                    first,
+                });
+            }
+        }
+        spans
+            .into_iter()
+            .map(|span| span.expect("every request belongs to a pool"))
+            .collect()
+    }
 }
 
 /// The bytes of every level in the order the levels' buffers were made: for each level its
@@ -233,55 +283,6 @@ fn requests(meshes: &[PreparedMesh]) -> Vec<Request<'_>> {
         }
     }
     requests
-}
-
-/// Packs each pool's requests into chunks and returns one span for each request, in order.
-fn pool_spans(
-    device: &Device,
-    census: &MemoryCensus,
-    requests: &[Request<'_>],
-    limit: u64,
-) -> Vec<Span> {
-    let mut spans: Vec<Option<Span>> = vec![None; requests.len()];
-    for pool in Pool::ALL {
-        let members: Vec<usize> = (0..requests.len())
-            .filter(|&index| requests[index].pool == pool)
-            .collect();
-        let unit = pool.unit();
-        for &member in &members {
-            let bytes = requests[member].bytes.len() as u64;
-            assert_eq!(bytes % unit, 0, "a level packs whole {pool:?} units");
-        }
-        let sizes: Vec<u64> = members
-            .iter()
-            .map(|&member| requests[member].bytes.len() as u64)
-            .collect();
-        let packed = plan(&sizes, limit);
-        let chunks: Vec<Rc<Chunk>> = packed
-            .chunk_bytes
-            .iter()
-            .enumerate()
-            .map(|(chunk, &bytes)| {
-                let items = members
-                    .iter()
-                    .zip(&packed.places)
-                    .filter(|(_, place)| place.0 == chunk)
-                    .map(|(&member, place)| (place.1, requests[member].bytes));
-                Rc::new(build_chunk(device, census, pool, bytes, items))
-            })
-            .collect();
-        for (&member, &(chunk, offset)) in members.iter().zip(&packed.places) {
-            let first = u32::try_from(offset / unit).expect("a chunk holds fewer than 2^32 units");
-            spans[member] = Some(Span {
-                chunk: chunks[chunk].clone(),
-                first,
-            });
-        }
-    }
-    spans
-        .into_iter()
-        .map(|span| span.expect("every request belongs to a pool"))
-        .collect()
 }
 
 /// Makes one chunk of `bytes` bytes and writes each item at its offset.
@@ -313,36 +314,6 @@ fn build_chunk<'a>(
     }
     let entry = census.track(ResourceClass::Mesh, buffer.size());
     Chunk(Tracked::new(buffer, entry))
-}
-
-#[cfg(test)]
-pub(crate) use test_limit::with_chunk_limit;
-
-/// Lets a test upload with chunks of its own size, down to one level to a chunk, which is how
-/// every level was held before levels shared buffers.
-#[cfg(test)]
-mod test_limit {
-    use std::cell::Cell;
-
-    thread_local! {
-        static LIMIT: Cell<Option<u64>> = const { Cell::new(None) };
-    }
-
-    pub(super) fn get() -> Option<u64> {
-        LIMIT.with(Cell::get)
-    }
-
-    /// Runs `body` with uploads on this thread filling chunks of at most `limit` bytes.
-    pub(crate) fn with_chunk_limit<R>(limit: u64, body: impl FnOnce() -> R) -> R {
-        struct Restore(Option<u64>);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                LIMIT.with(|cell| cell.set(self.0));
-            }
-        }
-        let _restore = Restore(LIMIT.with(|cell| cell.replace(Some(limit))));
-        body()
-    }
 }
 
 #[cfg(test)]

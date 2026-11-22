@@ -39,9 +39,7 @@ mod dynamic;
 mod lent_meshes;
 mod lod_material;
 mod mesh_arena;
-use mesh_arena::GpuMesh;
-#[cfg(test)]
-pub(crate) use mesh_arena::with_chunk_limit;
+use mesh_arena::{GpuMesh, MeshArena};
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
@@ -310,6 +308,8 @@ pub struct SceneGpu {
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
+    /// Packs the levels of every mesh the scene uploads or replaces.
+    arena: MeshArena,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
@@ -419,7 +419,9 @@ impl SceneGpu {
                 heights: &contact_heights,
             },
         );
-        let meshes = upload_meshes(device, authority.census(), &prepared.meshes);
+        let arena =
+            MeshArena::new(mesh_arena::MAX_CHUNK_BYTES.min(device.limits().max_buffer_size));
+        let meshes = arena.upload(device, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
                 device,
@@ -464,6 +466,7 @@ impl SceneGpu {
             frame_slots,
             lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
+            arena,
             meshes,
             mesh_selection: prepared.selection,
             instances: Instances::new(scene)
@@ -735,7 +738,6 @@ impl SceneGpu {
     }
 }
 
-use mesh_arena::upload_meshes;
 use resources::upload_textures;
 mod environment;
 mod prepared;

@@ -15,7 +15,6 @@ use worldrunner_render_plan::{
     SceneTexture, SkeletonHandle, TextureHandle,
 };
 
-use super::mesh_arena::upload_meshes;
 use super::resources::{GroupInputs, material_imports, table_index, upload_textures};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
@@ -548,7 +547,9 @@ impl SceneGpu {
             };
             new_material_uploads(device, queue, (&inputs, &mut records), &prepared.materials)
         };
-        let meshes = upload_meshes(device, authority.census(), &prepared.meshes);
+        let meshes = self
+            .arena
+            .upload(device, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
         self.resource_counters
             .append(&prepared.texture_bytes(), &prepared.mesh_bytes());
@@ -653,7 +654,6 @@ impl SceneGpu {
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
-        _queue: &wgpu::Queue,
         replacement: PreparedMeshReplacement,
     ) -> Result<(), DrawError> {
         let index = replacement.index;
@@ -670,13 +670,15 @@ impl SceneGpu {
         }
         self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
-        let uploaded = upload_meshes(
-            device,
-            &self.instances.census,
-            std::slice::from_ref(&replacement.mesh),
-        )
-        .pop()
-        .expect("one mesh uploaded");
+        let uploaded = self
+            .arena
+            .upload(
+                device,
+                &self.instances.census,
+                std::slice::from_ref(&replacement.mesh),
+            )
+            .pop()
+            .expect("one mesh uploaded");
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.retained.lent_meshes.get_mut().take();

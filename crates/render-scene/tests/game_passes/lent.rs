@@ -587,7 +587,7 @@ fn the_lent_meshes_change_snapshot_on_append_and_replacement_and_refuse_by_type(
     )
     .unwrap();
     rig.gpu
-        .replace_mesh_prepared(rig.context.device(), rig.context.queue(), replacement)
+        .replace_mesh_prepared(rig.context.device(), replacement)
         .unwrap();
     rig.render().unwrap();
 

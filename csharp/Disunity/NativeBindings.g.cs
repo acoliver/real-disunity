@@ -268,11 +268,13 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_geometry_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_renderer_geometry_write(ulong world, ulong handle, DisunityUiVertex* vertices, uint vertex_count, uint* indices, uint index_count);
         /// <summary>
-        ///  Sets the renderer identity of the texture the renderer draws with; 0 draws plain colour. A
-        ///  nonzero identity must be a player texture identity.
+        ///  Sets the texture the renderer draws with. Kind 0 is a stored image: `identity` is a player
+        ///  texture identity, or 0 for plain colour. Kind 1 is a render texture: `identity` is the id of a
+        ///  render texture the world holds. Any other kind, and a render texture the world does not hold,
+        ///  is rejected and leaves the renderer unchanged.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity);
+        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity, uint kind);
         /// <summary>
         ///  Reports the renderer's texture and mesh sizes and copies the vertices when `capacity` is
         ///  nonzero. A capacity below the vertex count is rejected.
@@ -378,27 +380,6 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
-        /// <summary>
-        ///  Replaces what the host draws each material slot with. `count` is at most the renderer's
-        ///  `material_count`; slots past it draw white and untextured. Colour channels must be finite and
-        ///  not negative, and a nonzero texture must be a player texture identity. A rejected call changes
-        ///  nothing.
-        ///
-        ///  # Safety
-        ///  `slots` is readable for `count` records, or null when `count` is zero.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_mesh_renderer_slots_write(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint count);
-        /// <summary>
-        ///  Reads the slots the host draws with into `slots` (up to `capacity` records) and writes how
-        ///  many the renderer holds to `count`.
-        ///
-        ///  # Safety
-        ///  `slots` is writable for `capacity` records, or null when `capacity` is zero; `count` is
-        ///  writable for one value.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_mesh_renderer_slots_read(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint capacity, uint* count);
         /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.
@@ -741,5 +722,24 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_set_enabled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_set_enabled(ulong world, ulong identity, uint enabled, DisunityAdvance* output);
+        /// <summary>
+        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
+        ///  `written` receives the number of children. When `capacity` is smaller the call returns
+        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
+        ///  Children without an ABI identity (objects still being constructed) are not listed.
+        ///
+        ///  # Safety
+        ///  `buffer` is writable for `capacity` identities and `written` for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one callback record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_callback_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
+        [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
     }
 }

@@ -89,7 +89,13 @@ pub(super) fn completed_color(
     let (color, depth) = attachments(frame);
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
     let fit = renderer
-        .render_depth_fitted_with(context, &view(), (&color, &depth), id, frame)
+        .render_depth_fitted_host(
+            context,
+            &view(),
+            (&color, &depth),
+            (Some(id), false, &[]),
+            frame,
+        )
         .unwrap()
         .unwrap();
     assert_eq!((fit.source_frame, fit.adopted_frame), (id, id));
@@ -111,8 +117,13 @@ pub(super) fn refuse_suffix(
     let before_selection = renderer.view_stats();
     let serial = context.submission().submitted_serial();
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
-    let refused =
-        renderer.render_depth_fitted_with(context, &view(), (&color, &depth), source_frame, frame);
+    let refused = renderer.render_depth_fitted_host(
+        context,
+        &view(),
+        (&color, &depth),
+        (Some(source_frame), false, &[]),
+        frame,
+    );
     assert!(
         matches!(
             refused,

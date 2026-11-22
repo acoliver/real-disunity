@@ -46,7 +46,7 @@ fn host(scene: RenderScene) -> RetainedHost {
 fn environment_source_preparation_rejects_budget_before_upload() {
     let mut host = host(prepared_scene(1024));
     host.options.presentation_budget = crate::PresentationBudget(300 * 1024 * 1024).into();
-    let result = pollster::block_on(crate::renderer::Renderer::windowless(&mut host));
+    let result = pollster::block_on(crate::renderer::Renderer::windowless(&mut host, None));
     assert!(matches!(result,
         Err(crate::ViewerError::Configuration(
             worldrunner_render_gpu::configuration::ConfigurationError::Budget { required, budget }
@@ -58,7 +58,7 @@ fn environment_source_installation_publication_and_shutdown() {
     let scene = prepared_scene(4);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene.clone()).windowless(&mut driver).unwrap();
+    let mut run = host(scene.clone()).windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events);
     run.host_mut()
         .apply(RetainedUpdate::Resources {

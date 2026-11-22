@@ -205,7 +205,13 @@ fn completed_compacted(
     let serial = context.submission().submitted_serial();
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
     let fit = renderer
-        .render_depth_fitted_with(context, &view(), (&color, &depth), id, frame)
+        .render_depth_fitted_host(
+            context,
+            &view(),
+            (&color, &depth),
+            (Some(id), false, &[]),
+            frame,
+        )
         .unwrap()
         .unwrap();
     assert_eq!((fit.source_frame, fit.adopted_frame), (id, id));
@@ -274,7 +280,13 @@ pub(super) fn refuse_caller_suffix(
     let (color, depth) = attachments(frame);
     let serial = context.submission().submitted_serial();
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
-    let refused = renderer.render_depth_fitted_with(context, &view(), (&color, &depth), 1, frame);
+    let refused = renderer.render_depth_fitted_host(
+        context,
+        &view(),
+        (&color, &depth),
+        (Some(1), false, &[]),
+        frame,
+    );
     assert!(
         matches!(
             &refused,

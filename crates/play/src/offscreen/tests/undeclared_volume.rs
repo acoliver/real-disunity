@@ -31,8 +31,8 @@ fn a_blit_whose_3d_slot_nothing_sets_reads_the_grey_volume_and_is_counted_by_pro
         adapted.report.failures
     );
     assert_eq!(
-        adapted.report.undeclared_defaults,
-        BTreeMap::from([("_3DNoiseTexture".to_owned(), 1)])
+        adapted.report.stand_ins.by_property,
+        BTreeMap::from([("_3DNoiseTexture undeclared".to_owned(), 1)])
     );
     assert_eq!(adapted.report.missing_textures, BTreeMap::new());
     rig.run(operations);

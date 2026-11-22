@@ -9,10 +9,10 @@
 //! so a stream of new meshes costs what the new meshes weigh. The viewer applies the edits in
 //! order, so an object may use a mesh appended in the same frame.
 //!
-//! A mesh renderer with several material slots draws its whole mesh with slot 0, as the
-//! engine's choice for now. The slot's texture picks the material and the slot's colour tints
-//! the object, so two objects sharing a texture share a material however they are coloured.
-//! Alpha and the other slots are not drawn.
+//! A mesh renderer with several material slots draws its whole mesh with slot 0, because the
+//! viewer's object holds one material. The slot's texture picks the material and the slot's
+//! colour tints the object, so two objects sharing a texture share a material however they are
+//! coloured. Alpha is not drawn, and the other slots are counted in the census as not drawn.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -305,6 +305,7 @@ impl SceneTables {
         });
         let tint = SceneTint::new(tint).map_err(|error| error.to_string())?;
         census.drawn(white);
+        census.slots_not_drawn(view.slots.len().saturating_sub(1));
         Ok(Some(
             SceneObject::new(
                 transform,

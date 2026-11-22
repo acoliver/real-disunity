@@ -2,9 +2,9 @@
 //! and destruction.
 use worldrunner_world_simulation::graphics::ShaderProperties;
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, DrawnMaterial,
-    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind,
-    World, WorldError, WorldSettings,
+    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, MAX_RENDERER_MATERIALS,
+    MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, World, WorldError,
+    WorldSettings,
 };
 
 fn world_with(desc: ComponentDesc) -> (World, ObjectHandle) {
@@ -130,27 +130,12 @@ fn a_mesh_identity_is_stored() {
 fn modes_and_counts_out_of_range_are_rejected() {
     let (mut world, object) = world_with(ComponentDesc::MeshRenderer(MeshRenderer::default()));
     let handle = find(&world, object, false).unwrap();
-    let bad: [fn(&mut MeshRenderer); 8] = [
+    let bad: [fn(&mut MeshRenderer); 5] = [
         |r| r.shadow_casting_mode = 4,
         |r| r.motion_vector_mode = 3,
         |r| r.light_probe_usage = 3,
         |r| r.reflection_probe_usage = 4,
         |r| r.material_count = MAX_RENDERER_MATERIALS + 1,
-        |r| r.drawn = vec![DrawnMaterial::default()],
-        |r| {
-            r.material_count = 1;
-            r.drawn = vec![DrawnMaterial {
-                color: [f32::NAN, 1.0, 1.0, 1.0],
-                texture: 0,
-            }];
-        },
-        |r| {
-            r.material_count = 1;
-            r.drawn = vec![DrawnMaterial {
-                color: [1.0, -0.5, 1.0, 1.0],
-                texture: 0,
-            }];
-        },
     ];
     for change in bad {
         let mut renderer = MeshRenderer::default();

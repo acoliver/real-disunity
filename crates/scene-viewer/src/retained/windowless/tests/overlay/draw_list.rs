@@ -3,6 +3,7 @@ mod panel;
 use super::*;
 use std::collections::BTreeMap;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 const COLORS: [[f32; 4]; 4] = [
@@ -22,7 +23,7 @@ fn draw(depth_test: bool) -> UiDraw {
         color: [1.; 4],
         corner_colors: Some(COLORS),
         distance_field: None,
-        texture: Some(7),
+        texture: Some(UiTexture::Image(7)),
         sorting_layer: 0,
         sorting_order: 0,
         hierarchy_order: 0,
@@ -56,7 +57,7 @@ fn submit(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>) {
 fn corner_tint_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     for depth in [false, true] {
         let quad = draw(depth);

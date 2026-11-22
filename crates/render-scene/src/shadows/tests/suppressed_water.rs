@@ -47,7 +47,7 @@ fn run(
                 &view,
                 (&color, &depth),
                 &mut encoder,
-                Some(&mut renderer),
+                &mut renderer,
             )
             .unwrap();
         renderer

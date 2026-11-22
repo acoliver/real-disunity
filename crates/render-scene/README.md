@@ -140,9 +140,9 @@ legacy profile rejects post requests before upload. Textured-sky rendering, vign
 nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
 requests still fail.
 
-`ShadowedScene::encode_term_capture` and `encode_term_capture_with` replay initialized
-scene/frame state with its matching selected slot. Both return `Result<(), ShadowError>`
-and require the encoder of the active prepared transaction. Transaction or map-lease
+`ShadowedScene::encode_term_capture` replays initialized scene/frame state against the
+host's `ConfiguredFrameRenderer` with its matching selected slot. It returns
+`Result<(), ShadowError>` and requires the encoder of the active prepared transaction. Transaction or map-lease
 errors propagate as `ShadowError::Submission` before replay. A capture-only transaction
 retains the shadow-map generation independently of the ordinary frame that initialized it.
 
@@ -162,9 +162,9 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
 
 ## Device features
 
-`GpuContext` builds every scene device, production and test, from one request
-(`device.rs` `requirements`). It requires the caller's features (block compression
-from `GpuContext::request`, timestamps under `TimingMode::Required`) and refuses an
+`GpuContext` builds every scene device, production and test, from one
+`DeviceRequest` (`device.rs` `requirements`). It requires the request's features
+(`REQUIRED_FEATURES` for block compression, timestamps under `TimingMode::Required`) and refuses an
 adapter without them by name. It enables these optional features wherever the
 adapter offers them, and leaves them off elsewhere:
 
@@ -189,9 +189,9 @@ player's headless device asks too. A program that binds more storage images than
 device allows is refused by name when it is prepared (render-program's
 `StorageImageLimit { stage, count, limit }`).
 
-`GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
-request, each limit at the more demanding of the two values, and every other
-constructor adds wgpu's defaults. So an adapter offering 4 to 16 storage images per
+`DeviceRequest::shared` adds a caller's `DeviceRequirements` to this
+request, each limit at the more demanding of the two values, and a request without
+them adds wgpu's defaults. So an adapter offering 4 to 16 storage images per
 stage is granted its own count and one offering more is granted 16, while one offering
 fewer than wgpu's default of 4 gets no device (`DeviceError::DeviceRefused`, naming
 `max_storage_textures_per_shader_stage`). Tests: `src/device/tests.rs` (the request
@@ -224,7 +224,7 @@ including all cube faces and block-compressed mip levels. Allocations absent fro
 
 ## Player program draws
 
-`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
+`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `FrameEncoding::encode_scene` takes them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
 
 Encoding checks the draws before it declares anything:
 
@@ -243,6 +243,8 @@ The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_
 `DynamicQuad::corner_colors: Some(_)` with `DynamicError::CornerColorsRequireRetainedUi`
 before allocating contribution resources, regardless of the quad's `overlay` flag.
 Corner colours require the retained UI overlay path.
+
+The overlay also draws render textures a host owns. `UiOverlay::from_presentation` gives each `UiTexture::Target` a slot (`UiOverlay::targets` lists them) and numbers it after the overlay's own textures; it turns `v` over for such a draw, because a render texture's first row is its bottom and a draw's texture rectangle starts at the top. `SceneGpu::set_ui_overlay` takes the host's `UiTarget`s for those ids (the device texture and sampler; `UiTarget::new` refuses by name what a quad cannot sample: not 2D, multisampled, not bound for sampling, depth or stencil, not filterable as float). A slot with no offered texture draws one transparent texel. The view of a target is level 0 of one layer. Offering another texture for an id means staging the overlay again. `src/compositor/overlay_target_gpu_tests.rs` checks the orientation against a stored image, the sRGB and linear formats against the same texel stored as an image, an unbound slot and a rebound texture.
 
 Dynamic quads, native sprites and tilemaps, and UI glyphs routed into the world draw with the scene shader's `vs_unlit` and `fs_unlit`. That material is a `render-program` graphics program over the unchanged scene WGSL, and `ScenePipelines` no longer builds a pipeline for it. The runtime builds the pipeline for the pass it is given, with straight alpha over location zero, `LessEqual` depth without a depth write, no culling and an empty write mask on every other colour attachment, so the velocity and reflection targets of a pass keep what other materials wrote. Plain, SSAO, velocity and SSR pipeline sets, `Rgba8UnormSrgb` and `Rgba16Float`, and any sample count the pipelines were built for take the same material.
 
@@ -950,7 +952,9 @@ For retained instance draws, pair the reset with `SceneGpu::reset_velocity_histo
 previous transforms then initialize from current placements for the next completed colour
 frame. Cancelled preparations and upload-only submissions leave the reset pending.
 `ShadowedScene::reset_camera_history()`
-also discards depth-fitting evidence, contraction filters and retained cascade maps.
+also discards depth-fitting evidence, contraction filters and retained cascade maps. A
+`ShadowedScene` owns no frame renderer; the host resets the one it passes to `encode_with`
+and `render_depth_fitted_host`.
 Exposure adaptation has its separate `reset_exposure()` operation.
 
 Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also
@@ -1152,7 +1156,7 @@ The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
 The first 30 views warm up; the remaining 120 are sampled. Each path keeps a
 separate scene upload, frame renderer and output resident. A shared immutable
 source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve both
-calls to public `compositor::encode_scene`, with alternating path order. No shadows,
+calls to public `FrameEncoding::encode_scene`, with alternating path order. No shadows,
 SDSM, image readback or speed threshold is involved.
 
 CPU encode/submit ends when submission returns. Serialized completion ends after
@@ -1428,7 +1432,7 @@ with a typed error.
 
 ## Composing with the stock scene
 
-A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
+A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `FrameEncoding::encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
 
 Retaining or taking admitted offscreen work does not execute it. `encode_frame` supplies no head, and a `None` head in `encode_frame_with` records the stock draws without refreshing their offscreen inputs. Forward any returned work on the preparation encoder before the stock passes, or abandon the frame. The omission characterizations in `src/draw/tests/program_frame/offscreen/composition/omission.rs` cover both leaving work in the feature and taking it without forwarding; the parent test keeps the forwarded pixel, pass-order and single-submission control.
 

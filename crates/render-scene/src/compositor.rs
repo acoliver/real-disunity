@@ -4,6 +4,8 @@ mod capture;
 mod contours;
 pub mod opaque;
 #[cfg(test)]
+mod overlay_target_gpu_tests;
+#[cfg(test)]
 mod overlay_tests;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
@@ -713,8 +715,8 @@ pub(crate) fn attachment(
 }
 
 pub use depth_prefix::StockDepthPrefix;
-pub(crate) use scene::{SceneFeature, declare_velocity};
-pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
+pub(crate) use scene::{ColorDepth, SceneFeature, declare_velocity};
+pub use scene::{StockSceneFeature, prepare_stock_scene};
 mod scene;
 
 #[cfg(test)]

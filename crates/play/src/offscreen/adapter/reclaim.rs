@@ -125,6 +125,14 @@ impl OffscreenAdapter {
             .retain(|_, held| held.usable || held.last_named == self.epoch);
     }
 
+    /// Notes that the UI read the render texture `id` since the last snapshot, as a frame naming it
+    /// would: of the textures nothing names, the one read last is given back last.
+    pub(crate) fn note_ui_read(&mut self, id: TextureId) {
+        if let Some(named) = self.targets.get_mut(&id) {
+            *named = self.epoch;
+        }
+    }
+
     /// Notes that the snapshot names the render textures given, and forgets the ones that no
     /// longer exist.
     pub(super) fn stamp_targets(
@@ -168,20 +176,9 @@ impl OffscreenAdapter {
     }
 
     /// Gives back what the last snapshot did not name until the render textures of `frame` fit in
-    /// the budget, or nothing more can go. It waits for the GPU to finish with what it gives
-    /// back, as the caller's own submission follows.
-    pub fn make_room(
-        &mut self,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        frame: &OffscreenFrame,
-    ) -> Reclaimed {
-        self.make_room_settling(state, runtime, frame, Settling::Wait)
-    }
-
-    /// As [`make_room`](Self::make_room); with `settling`, the way the GPU is got to finish with
-    /// what is given back.
-    pub(crate) fn make_room_settling(
+    /// the budget, or nothing more can go. `settling` says how the GPU is got to finish with what
+    /// is given back: wait for it, or take only what is already done.
+    pub(crate) fn make_room(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
@@ -190,24 +187,13 @@ impl OffscreenAdapter {
     ) -> Reclaimed {
         runtime.collect();
         let needed = state.new_render_texture_bytes(runtime, &frame.render_textures);
-        self.make_room_for_settling(state, runtime, needed, settling)
+        self.make_room_for(state, runtime, needed, settling)
     }
 
     /// Gives back what the last snapshot did not name until `needed` bytes are free in the budget,
-    /// or nothing more can go, waiting for the GPU to finish with it. Call it while no frame is
-    /// being recorded.
-    pub fn make_room_for(
-        &mut self,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        needed: u64,
-    ) -> Reclaimed {
-        self.make_room_for_settling(state, runtime, needed, Settling::Wait)
-    }
-
-    /// As [`make_room_for`](Self::make_room_for); with `settling`, the way the GPU is got to
-    /// finish with what is given back.
-    pub(crate) fn make_room_for_settling(
+    /// or nothing more can go, with `settling` as for [`make_room`](Self::make_room). Call it while
+    /// no frame is being recorded.
+    pub(crate) fn make_room_for(
         &mut self,
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,

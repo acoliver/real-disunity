@@ -250,12 +250,12 @@ A coroutine that yields `WaitForEndOfFrame` resumes once, after every `LateUpdat
   A format outside the tables throws `NotSupportedException` naming it.
   No member draws.
 - `HDROutputSettings`: `main` and `displays` (one display) report no HDR output: `available`, `active` and `HDRModeChangeRequested` are false, `displayColorGamut` is `sRGB`, `graphicsFormat` and `format` are `R8G8B8A8_UNorm` and the luminance range is 0.
-  `RequestHDRModeChange` is accepted and changes nothing (the engine's choice).
+  `RequestHDRModeChange` leaves `active` and `HDRModeChangeRequested` false, because the display cannot enter an HDR mode.
   `automaticHDRTonemapping` (true at first) and `paperWhiteNits` (160 at first) are stored.
 - `ScalableBufferManager`: `widthScaleFactor` and `heightScaleFactor` start at 1 and `ResizeBuffers(width, height)` stores them; a factor outside 0 to 1 or NaN throws `ArgumentOutOfRangeException` and leaves both as they were.
   The engine draws no dynamically scaled buffer, so a factor changes nothing else.
 - `FrameTiming`, `FrameTimingManager`: `FrameTiming` is plain data.
-  The engine measures no frame: `IsFeatureEnabled()` is false, `CaptureFrameTimings()` does nothing, `GetLatestTimings(count, timings)` returns 0 and leaves the array alone (a null array throws `ArgumentNullException`, a count above the array's length `ArgumentException`), and the timer frequencies and `GetVSyncsPerSecond()` are 0.
+  The engine measures no frame: `IsFeatureEnabled()` is false, `CaptureFrameTimings()` has no timings to capture, `GetLatestTimings(count, timings)` returns 0 and leaves the array as it was (a null array throws `ArgumentNullException`, a count above the array's length `ArgumentException`), and the timer frequencies and `GetVSyncsPerSecond()` are 0.
 - `GL`: `GetGPUProjectionMatrix(projection, renderIntoTexture)` returns the matrix unchanged: the engine records every projection in one convention (camera space looks down negative Z, depth maps to -1 to 1) and the host that draws converts it for its device (the engine's choice).
   The immediate-mode members do not exist.
 - `RenderSettings`, `FogMode`, `UnityEngine.Rendering.AmbientMode`, `UnityEngine.Rendering.DefaultReflectionMode`: The scene's environment values: `fog`, `fogMode`, `fogColor`, `fogDensity`, `fogStartDistance`, `fogEndDistance`, `ambientMode`, `ambientSkyColor`, `ambientEquatorColor`, `ambientGroundColor`, `ambientLight`, `ambientIntensity`, `ambientProbe`, `subtractiveShadowColor`, `defaultReflectionMode`, `defaultReflectionResolution`, `reflectionIntensity`, `reflectionBounces`, `customReflectionTexture`, `haloStrength`, `flareFadeSpeed`, `flareStrength`, `skybox` and `sun`.
@@ -380,9 +380,11 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `isVisible` is always false because the host does not draw these yet; a mesh renderer's data is exported (see `MeshRenderer`).
   `localToWorldMatrix` and `worldToLocalMatrix` come from the transform.
   `bounds` is the world box of the mesh bounds of a `MeshRenderer` with a `MeshFilter` mesh (or of a `SkinnedMeshRenderer`'s shared mesh) and the zero box without a mesh; `localBounds` is the mesh bounds (settable on a skinned renderer, otherwise `NotSupportedException`).
-  Materials stay in managed memory for reads: `sharedMaterial`, `sharedMaterials`, `GetSharedMaterials` and `SetSharedMaterials` (up to 64, else `DisunityException`); each time the shared materials are set the renderer sends the host one drawn colour and texture per slot: the material's `_Color`, else `_BaseColor`, else white (a negative channel is 0 and a value that is not a number is 1), and the renderer identity of the material's `mainTexture` when that is a `Texture2D` with pixels (0 for no texture, any other texture type, or an empty slot).
-  The renderer also sends each slot's world material: the material is made in the world when the slot is set, and then follows every change to its shader, queue, keywords, passes and properties.
-  The drawn colour and texture identity above are not sent again when the material changes (the engine's choice); `material`, `materials`, `GetMaterials` and `SetMaterials` copy the shared materials with `new Material(source)` on first use, name each copy `"<name> (Instance)"`, assign the copies as the shared materials and return the same copies afterwards, and setting a shared material drops them.
+  Materials stay in managed memory for reads: `sharedMaterial`, `sharedMaterials`, `GetSharedMaterials` and `SetSharedMaterials` (up to 64, else `DisunityException`); each time the shared materials are set the renderer sends each slot's world material: the material is made in the world when the slot is set, and then follows every change to its shader, queue, keywords, passes and properties.
+  The host draws a slot from that world material alone, as it is when the frame is presented: the material's `_Color`, else `_BaseColor`, else white (a negative channel is 0 and a value that is not a number, which the world holds as 0, draws as 0), and the renderer identity of the material's `_MainTex` when that is a `Texture2D` with pixels (0 for no texture, a render texture or an empty `Texture2D`; the window draws an array, a cube or a volume as white because it has no single image).
+  A slot with no material draws white with texture 0.
+  A property block of the slot or of the renderer overrides the material's values for that slot.
+  The slot follows later changes to the material; `material`, `materials`, `GetMaterials` and `SetMaterials` copy the shared materials with `new Material(source)` on first use, name each copy `"<name> (Instance)"`, assign the copies as the shared materials and return the same copies afterwards, and setting a shared material drops them.
   A renderer starts with no material.
   `SetPropertyBlock` (for all materials, or one material index), `GetPropertyBlock` (clears the caller's block, then copies the stored one in) and `HasPropertyBlock` store copies; a block set for all materials is also sent to the world as the renderer's property block (removed by `SetPropertyBlock(null)`), and a block set for one material index below 64 is sent as that slot's block (removed by `SetPropertyBlock(null, index)`) and applies to the draws of that slot only.
   Where the slot's block and the block for all materials set the same property, the slot's block wins, and both sit above the material and the globals.
@@ -406,12 +408,13 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `additionalVertexStreams` is stored, `subMeshStartIndex` is 0.
   One `MeshRenderer` or `SkinnedMeshRenderer` per object.
   `AddComponent`, `GetComponent<Renderer>()`, `Instantiate`, `Destroy` of the component and destroying the object work as for other native components.
-  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the drawn colour and texture of each material slot.
+  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the colour and texture each material slot draws.
   The host reads the mesh contents by that identity.
   The list is exported, not drawn; a `SkinnedMeshRenderer` is not listed
 - `SkinnedMeshRenderer`: A `Renderer`.
   `sharedMesh`, `rootBone`, `bones`, `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
-  The engine does not skin: `BakeMesh(Mesh)` and `BakeMesh(Mesh, bool)` copy the shared mesh into the target unchanged (the target is emptied without a shared mesh), and the bones and weights have no effect.
+  The engine's `Mesh` holds no bone weights, bind poses or blend shapes, so nothing deforms the shared mesh: `BakeMesh(Mesh)` and `BakeMesh(Mesh, false)` copy it into the target (the target is emptied without a shared mesh).
+  `BakeMesh` throws `NotSupportedException` naming the member, and leaves the target as it was, for a renderer with bones, for a nonzero blend shape weight and for `useScale: true`.
   A clone keeps the mesh and settings and points `rootBone` and `bones` at the clones of the original's where those are in the cloned hierarchy
 - `ParticleSystem`: A native component that requires a `ParticleSystemRenderer`, which `AddComponent` adds first.
   The engine does not simulate (the engine's choice for now): the system tracks `isPlaying`, `isPaused`, `isStopped`, `isEmitting` and `time`, stores every module value, and emits no particle, so `Emit(int)` adds nothing and `particleCount` is 0.
@@ -431,7 +434,7 @@ The 3D types are defined so that scripts that mention them compile, and they beh
 - `Sprite`: An `Object`, so it has `name` (the plan's name for a scene or player sprite, otherwise empty), an instance ID, and works with `Resources.Load<Sprite>` and `Resources.LoadAll<Sprite>`.
   Members: `rect`, `pivot` (pixels, from the fractional pivot a sprite is made with), `pixelsPerUnit`, `bounds`, `texture`, `textureRect`, `textureRectOffset`, `border` (left, bottom, right, top) and `packed`.
   `Sprite.Create(Texture2D, Rect, Vector2)` and its overloads with `pixelsPerUnit` (default 100), `extrude`, `SpriteMeshType`, `border` and the fallback physics flag make a sprite over a rectangle of a texture: a null texture throws `ArgumentNullException`, and a rect that is empty or outside the texture, a pivot that is not finite, or pixels per unit that are not finite and positive throw `ArgumentException`.
-  Extrusion, the mesh type and the physics shape are accepted and not simulated: a sprite is drawn as its rectangle.
+  A sprite is drawn as its rectangle, so `SpriteMeshType.Tight`, an `extrude` above 0 and `generateFallbackPhysicsShape: true` throw `NotSupportedException` naming `Sprite.Create` and the argument; the overloads without a mesh type make the full rectangle with no extrusion and no physics shape.
   A sprite of the scene is created by the host with `DisunityHost.CreateSprite` and has no managed texture, so `texture` is null, `textureRect` is `rect` and `border` is zero.
   `associatedAlphaSplitTexture` is null: the engine has no split-alpha textures.
   A sprite from a player's resources, a sprite a player scene's script field references (planned as a scene asset with the texture it draws, read from the player's file) or `Sprite.Create` keeps its `Texture2D`, and the renderer draws it from the texture's stored bytes (see `Texture2D` from a player's resources); a sprite whose texture has a format the host cannot draw is left out of the frame and its texture is named once on stderr.
@@ -456,6 +459,8 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `CopyPropertiesFromMaterial` and `Lerp` work on the stored values.
   `SetPass(pass)` checks the pass against the shader's declared `passCount` (a shader without a declared pass count throws `NotSupportedException` from `Shader.passCount`); a pass outside 0 to `passCount - 1` logs an error naming the material, the pass and the count and returns false, leaving the earlier active pass (the engine's choice), and any other pass returns true and, for a material that has a world material, becomes the world's active pass.
   Immediate-mode draws (`Graphics.DrawMeshNow`, `GL`) are still unsupported, so nothing draws with the active pass.
+  `GetTag(tag, searchFallbacks, defaultValue)` returns the material's override tag, else the tag the shader declares in its first sub-shader (the tags a player's plan carries), and with `searchFallbacks` else the tag of the shader's fallback shader and that shader's fallback in turn, else the default; a shader's tag names match in any case and the material's override names exactly.
+  A shader whose tags nothing declared (the built-in sprite shaders and the fallback shader of a material with none) throws `NotSupportedException` naming `Material.GetTag` for a tag the material does not override, and so does a search of fallbacks that reaches a fallback whose declaration is unknown or whose shader the engine does not have.
   `GetPassName(pass)` returns the name of a pass of the shader's first sub-shader as the player's plan declares it (empty for an unnamed pass); a pass outside 0 to `passCount - 1` logs an error naming the material, the pass and the count and returns the empty string (the engine's choice).
   `FindPass(name)` returns the index of the first pass with that name, ignoring case (the engine's choice), or -1 when none has it, and throws `ArgumentNullException` for null.
   Both throw `NotSupportedException` naming the member for a shader whose pass names nothing declared (the built-in sprite shaders, until a plan declares them).
@@ -502,8 +507,7 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   Its enabled state, `sortingLayerID`, `sortingOrder` and `sortAtRoot` are stored natively and a clone has its own.
   `sortingOrder` is stored as given, without clamping to 16 bits, as `Renderer.sortingOrder` is (the engine's choice).
   `sortingLayerName` follows the renderers: it reads the registered name of `sortingLayerID`, and sets the id of the named layer or, for an unregistered name, keeps the layer and logs a warning once per name.
-  `UpdateAllSortingGroups()` does nothing.
-  Nothing draws with it yet, so the values affect no ordering.
+  The settings are stored and no draw orders by them yet, so the values affect no ordering and `UpdateAllSortingGroups()` has no sorted result to refresh.
   A script's `[RequireComponent(typeof(SortingGroup))]` makes `AddComponent` add it first, and `GetComponentInParent<SortingGroup>` finds it
 - `AudioListener`, `GUILayer`, `FlareLayer`: Exist as enable-able components.
   There is no audio output.
@@ -612,10 +616,10 @@ Nothing in this section is drawn: the renderer receives no texture, shader or ma
   A write after the frame's last record is recorded after it, and the frame starts from the global state as it was before its first write, so a render never sees a value written after it.
   A command buffer's `SetGlobal*` values, arrays and keywords set the same globals when the buffer runs, and so do its `SetGlobalBuffer` and `SetGlobalConstantBuffer` (the world holds no GPU buffers yet), except a global texture set to a temporary render texture, which stays ordered work of its frame.
   Values set before a world is loaded are sent when it loads.
-  `globalShaderHardwareTier`, `globalMaximumLOD` and `globalRenderPipeline` are stored, and `WarmupAllShaders` does nothing.
+  `globalShaderHardwareTier`, `globalMaximumLOD` and `globalRenderPipeline` are stored, and `WarmupAllShaders` has no variants to compile.
   A player's plans register the shaders their script fields reference, the shaders its build always includes and every shader in its Resources folders (`DisunityHost.DeclareShader`) when the player starts, so `Shader.Find` and `Resources.Load<Shader>` return them before anything loads them and `new Material(shader)` accepts them.
-  A planned shader has its declared name, `renderQueue` (the first sub-shader's `Queue` tag; Geometry, 2000, without one), `subshaderCount`, `passCount` (the passes of the first sub-shader) and the names of those passes, which `Material.FindPass` and `Material.GetPassName` read.
-  A second declaration of the same shader that differs in queue, counts or a pass name is noted as a difference and not applied.
+  A planned shader has its declared name, `renderQueue` (the first sub-shader's `Queue` tag; Geometry, 2000, without one), `subshaderCount`, `passCount` (the passes of the first sub-shader), the names of those passes, which `Material.FindPass` and `Material.GetPassName` read, the first sub-shader's tags in declared order and the name of its fallback shader (empty for none), which `Material.GetTag` reads.
+  A second declaration of the same shader that differs in queue, counts, a pass name, the tags or the fallback is noted as a difference and not applied.
   It also keeps the serialized `file` and `path_id` of its object, and the world's shader carries them so a host can read its programs; a shader made by name alone has no source.
   Every reference to one name is one object; a second declaration of a name that disagrees with the first keeps the first and is noted in the resource database's or the scene's differences.
   A shader whose object did not decode binds null in a field and throws `InvalidOperationException` naming the cause when loaded.
@@ -648,7 +652,7 @@ Nothing in this section is drawn: the renderer receives no texture, shader or ma
   `IRenderPipelineResources` is a settings group that holds a pipeline's resources, and `RenderPipelineGraphicsSettingsCollection` is a `[Serializable]` class holding the groups of a global settings asset in a `[SerializeReference]` list (`settingsList`).
   `RenderPipelineAsset` has a protected virtual `OnDisable` that a pipeline asset overrides and calls, and a protected abstract `CreatePipeline()` that returns the asset's `RenderPipeline`; a pipeline package's asset overrides it.
   `RenderPipeline` has a protected abstract `Render(ScriptableRenderContext, List<Camera>)` (the form the player's bundled pipeline package implements), a protected virtual `Render(ScriptableRenderContext, Camera[])` that calls the list form, a protected virtual `Dispose(bool)` and a public `Dispose()` that calls `Dispose(true)` once however often it is called, and `disposed`.
-  `RenderPipeline` also has the protected static helpers a pipeline calls: `BeginContextRendering` and `EndContextRendering` do nothing, because the host raises those two events itself, and `BeginCameraRendering`, `EndCameraRendering`, `BeginFrameRendering` and `EndFrameRendering` raise the matching `RenderPipelineManager` event.
+  `RenderPipeline` also has the protected static helpers a pipeline calls: `BeginContextRendering`, `EndContextRendering`, `BeginCameraRendering`, `EndCameraRendering`, `BeginFrameRendering` and `EndFrameRendering` raise the matching `RenderPipelineManager` event once per call; the host raises none of them.
   See "When the host renders" for when `Render` is called.
   On each `DisunityHost.Step`, the host follows `currentRenderPipeline` (the engine's choice): with an active asset and no pipeline for it, it calls the asset's `CreatePipeline()` and stores the result as `RenderPipelineManager.currentPipeline`; when the active asset changes or is cleared, that step disposes the old pipeline and the next step creates the new one; unloading the world disposes it.
   A `CreatePipeline` that throws is reported once as a script exception, leaves `currentPipeline` null, and is not retried while the asset stays active.
@@ -663,7 +667,7 @@ Nothing in this section is drawn: the renderer receives no texture, shader or ma
 
 Once per `DisunityHost.Step`, after the frame's script phases (`Update`, `LateUpdate` and the coroutines they resume, which run inside the world's advance), the host calls the current pipeline's `Render(context, cameras)` (the engine's choice).
 `cameras` holds the enabled cameras on active objects in ascending `depth`, cameras of equal depth in creation order; it is empty when no camera is enabled, and `Render` is still called.
-`beginContextRendering` is raised before the call and `endContextRendering` after it.
+The host raises no context event: `beginContextRendering` and `endContextRendering` fire where the pipeline calls `BeginContextRendering` and `EndContextRendering` (Old World's pipeline calls each once per `Render`).
 With no current pipeline the host renders nothing and `Camera.Render` records a camera render as before.
 A host that advances the world through the native scheduler (the Rust runtime's `advance`) calls the bridge's `RenderFrame` export after each advance, which is the same call (`DisunityHost.RenderFrame`); a bridge without the export renders nothing.
 
@@ -724,7 +728,7 @@ The offscreen list is a record: the engine draws nothing in C#, and the host tha
   `RecalculateTangents` needs normals and `uv` (else `InvalidOperationException` naming what is missing) and gives each vertex the direction in which u grows, orthogonal to its normal, with w = -1 or 1 for the handedness; a vertex without usable uvs gets an arbitrary perpendicular and w = 1.
   `Clear()` and `Clear(bool)` empty everything (one empty sub-mesh remains) and zero the bounds.
   `UploadMeshData(true)` makes the mesh unreadable: reading or writing data throws `InvalidOperationException` ("mesh is not readable"), while `bounds`, `vertexCount`, `subMeshCount`, `indexFormat`, `GetIndexStart`, `GetIndexCount`, `GetBaseVertex` and `GetTopology` keep working.
-  `Optimize`, `OptimizeIndexBuffers`, `OptimizeReorderVertexBuffer` and `MarkDynamic` leave the data as it is.
+  `Optimize`, `OptimizeIndexBuffers` and `OptimizeReorderVertexBuffer` keep the vertex and index order as set, so the mesh describes the same triangles in the order they were set; `MarkDynamic` leaves the data as it is.
   A Mesh asset of a player's resource plan builds as a readable mesh (the engine's choice: the player keeps every mesh readable) with the planned name, positions, normals, tangents, colors, uv channels, sub-meshes (topology and base vertex), `indexFormat` and `bounds`; `Resources.Load<Mesh>` and every `MeshFilter` that names the mesh return the one object.
 - `MeshTopology`, `UnityEngine.Rendering.IndexFormat`: `MeshTopology` has Triangles (0), Quads (2), Lines (3), LineStrip (4) and Points (5); `IndexFormat` has UInt16 (0) and UInt32 (1).
   `Mesh` stores any topology and the renderer does not draw them yet.
@@ -815,7 +819,8 @@ The encoding is version 18.
   `SplitUIVertexStreams`, `CreateUIVertexStream` and `AddUIVertexStream` are plain conversions between a `List<UIVertex>` and separate channel lists (Split gives each vertex its own entry and indices 0 through n-1).
   `SetMesh` sends sub-mesh 0 of the mesh to the native renderer (each vertex's position, first texture coordinate and color, white when the mesh has no colors, and the triangle indices with the base vertex applied; a null mesh clears it, a sub-mesh that is not a triangle list sends no indices, and the native side rejects an index past the vertices).
   `SetTexture` and `SetMaterial(material, texture)` record the renderer identity of a `Texture2D` that has pixels, which also stores its bytes for the host; with no texture the material's main texture is used when it is a `Texture2D`, and no texture at all draws plain color.
-  Any other texture (a render texture, which no camera draws into yet, a texture of no size, or a one-texel `Alpha8` texture, the placeholder atlas of a dynamic font that has drawn no glyph, which the engine's choice treats as holding no shapes) has no texels for the frame, so the quads that sample it are left out and the frame names the texture once.
+  A `RenderTexture` records the id of its render texture in the world (a kind of texture the native renderer distinguishes from a stored image), so the quads sample what the cameras and command buffers that draw into it have written. A window and a screen capture of `play` show that content over the scene, bottom row at the bottom, the frame's own offscreen work running first in the same submission; a texture nothing has drawn yet is transparent, the player names it once, and a destroyed or unsampleable one (multisampled, depth or stencil, not 2D) is left out and named once with the reason. A `RenderTexture` that is already destroyed when it is set draws plain color.
+  Any other texture (a cube, 3D or array texture, a texture of no size, or a one-texel `Alpha8` texture, the placeholder atlas of a dynamic font that has drawn no glyph, which the engine's choice treats as holding no shapes) has no texels for the frame, so the quads that sample it are left out and the frame names the texture once.
   The presentation draws the mesh as quads: two triangles that share two vertices and whose four vertices carry the texture coordinates of an upright or flipped rectangle (the usual UI quad, triangles 0 1 2 and 2 3 0, in either winding) make one quad, tinted by the renderer color times the first vertex's color times the inherited alpha, and drawn on the canvas's sorting layer and order, in hierarchy order within equal keys (depth first, siblings in the order the native world lists them, which is creation order and does not follow `SetSiblingIndex`).
   Triangles that make no such quad (filled or sliced shapes with slanted coordinates, rotated texture coordinates) are left out and counted once per renderer on stderr.
   A culled renderer, an inactive object, an object under a disabled canvas, a zero inherited alpha and a world-space canvas the camera's culling mask leaves out draw nothing.
@@ -900,10 +905,10 @@ The others exist so that game code which references them loads, and where the en
   `LoadFromFile` and every instance member (`LoadAsset`, `LoadAssetWithSubAssets`, `LoadAllAssets`, `GetAllAssetNames`, `Unload`) throw `NotSupportedException`: asset bundles are not loaded yet.
 - `UnityEngine.Networking.UnityWebRequest`: The request object model: `UnityWebRequest(url, method)`, `Get`, `EscapeURL` (form encoding, a space becomes `+`), `uri`, `method`, `SetRequestHeader`, `downloadHandler`, `uploadHandler`, `Dispose`, and before any send `isDone` (false), `responseCode` (0), `result` (`InProgress`) and `GetResponseHeaders()` (null).
   A URL must be absolute and have a scheme, or the constructor throws `ArgumentException`.
-  `Abort` on a request never sent does nothing.
+  A request is never sent, so `Abort` has no transfer to stop.
   `SendWebRequest` throws `NotSupportedException`: the engine makes no web requests yet.
 - `DownloadHandler`, `DownloadHandlerBuffer`, `DownloadHandlerTexture`, `UnityWebRequestTexture`: `data`, `text` and `texture` are null because no content arrives.
-  `DownloadHandler` has a `protected virtual CompleteContent()` that does nothing.
+  `DownloadHandler` has a `protected virtual CompleteContent()` with an empty body for a handler to override; it is never called because no content arrives.
   `UnityWebRequestTexture.GetTexture` returns a GET request with a texture handler.
 - `DownloadHandlerScript`: A `DownloadHandler` a game derives from.
   Both constructors (no arguments, or a preallocated buffer, which a null buffer rejects with `ArgumentNullException`) work.
@@ -1076,7 +1081,7 @@ The others exist so that game code which references them loads, and where the en
   The engine has no read manager, so the default value is the only one: `IsValid()` is false, a file's `Status` is `Absent`, a read's `Status` is `Failed`, `GetBytesRead()` is 0 and `Close`, `Cancel` and `Dispose` do nothing.
 - `UnityEngine.VFX.VFXCameraXRSettings`: Plain data: `viewTotal`, `viewCount` and `viewOffset`.
   The engine has no stereo, so a pipeline fills in one view.
-- `GUIContent`: The text, image and tooltip of an interface element, as plain data: the constructors for each combination and a copy, `text`, `image`, `tooltip` (a null text or tooltip becomes empty), `none` (one shared empty value), `Temp` (one scratch value that every call refills, resetting the parts it does not set), `ClearStaticCache` (does nothing) and `ToString` (the text).
+- `GUIContent`: The text, image and tooltip of an interface element, as plain data: the constructors for each combination and a copy, `text`, `image`, `tooltip` (a null text or tooltip becomes empty), `none` (one shared empty value), `Temp` (one scratch value that every call refills, resetting the parts it does not set), `ClearStaticCache` (empties that scratch value) and `ToString` (the text).
   The engine has no immediate-mode interface, so nothing draws it.
 - `Unity.IO.LowLevel.Unsafe.ReadCommand`, `ReadCommandArray`: Plain data: a read of `Size` bytes from `Offset` of a file into `Buffer`, and a pointer to a list of them with a count.
   The engine has no asynchronous read manager, so nothing runs a command.
@@ -1084,7 +1089,7 @@ The others exist so that game code which references them loads, and where the en
   `ExecuteCommandBuffer(buffer)` copies the buffer's commands onto the engine's pending list, in order, and `Submit()` sends the pending commands to the world in order and empties the list; the list is the engine's single one, so every copy of a context shares it.
   `Cull(ref parameters)` queues a culling record for the world's renderers, collects the visible lights for the parameters at the call and returns a distinct `CullingResults` handle that carries them; parameters that did not come from `Camera.TryGetCullingParameters` throw `InvalidOperationException`.
   `SetupCameraProperties(camera)` reads the camera's view matrix, projection matrix and target when it is called (a target texture, or the camera target for the screen) and queues a camera setup record; a null camera throws `ArgumentNullException`, a destroyed one `InvalidOperationException` and `stereoSetup: true` `NotSupportedException`.
-  `EmitGeometryForCamera(camera)` is static and does nothing, since the engine draws canvases itself.
+  `EmitGeometryForCamera(camera)` is static and checks only that the camera is not null (`ArgumentNullException`): it asks for canvas geometry for the camera's culling, and the engine draws canvases from the world's canvas renderers whether or not a pipeline asks, so there is no geometry to emit.
   Queued records reach the world's offscreen list at `Submit()`, in order with the executed command buffers; the host drops what a pipeline queued and did not submit when its `Render` returns.
   `HasInvokeOnRenderObjectCallbacks` reports whether an active, enabled script defines `OnRenderObject`, and `InvokeOnRenderObjectCallback` calls each such script at once.
   The other members (`ExecuteCommandBufferAsync`, `SubmitForRenderPassValidation`, `DrawRenderers` in its three forms, `DrawSkybox`, `DrawGizmos`, `DrawUIOverlay`, `DrawWireOverlay`, the render pass and sub pass members) throw `NotSupportedException` naming the member, because the engine does not draw through a context yet.
@@ -1095,7 +1100,7 @@ The others exist so that game code which references them loads, and where the en
   A list lasts for the frame that made it, and `CommandBuffer.DrawRendererList` draws it.
   `QueryRendererListStatus` reports `kRendererListInvalid` for the null list, `kRendererListEmpty` for the overlay UI list and `kRendererListPopulated` for any other list, the engine's choice, because it cannot know how many renderers a list holds before the host draws it.
   `CreateUIOverlayRendererList` (with or without a `UISubset`) gives the camera's screen-space overlay UI as a valid list that records nothing when drawn, because the engine's UI presentation draws that UI after the cameras; a null camera throws `ArgumentNullException`.
-  `PrepareRendererListsAsync` does nothing.
+  The world builds a renderer list when it is created, so `PrepareRendererListsAsync` has no list left to prepare.
   `RendererList.isValid` is true for a list the world recorded and false for the null list (the static read-only field `nullRendererList`, the default value); lists are equal when their ids are equal.
   `RendererListParams` is data (culling results, drawing and filtering settings, tag name and values, state blocks); it is valid once its culling results hold a culling result, and the engine reads the tag name, tag values and state blocks from none of them.
   The host draws each list item with `unity_LightData` set to `(0, 0, z, 0)`, where `z` is 1 when the main light of the list's culling result affects the renderer and 0 when it does not.
@@ -1109,7 +1114,8 @@ The others exist so that game code which references them loads, and where the en
   The engine does not run render passes yet.
 - `UnityEngine.Rendering.RenderPipelineManager`: The events `beginContextRendering`, `endContextRendering`, `beginFrameRendering`, `endFrameRendering`, `beginCameraRendering`, `endCameraRendering`, `activeRenderPipelineCreated` and `activeRenderPipelineDisposed` accept and drop handlers.
   The host raises `activeRenderPipelineCreated` after it stores a newly created pipeline as `currentPipeline` and `activeRenderPipelineDisposed` after it disposes one (`currentPipeline` is already null then).
-  The host raises `beginContextRendering` before and `endContextRendering` after each call of the pipeline's `Render` (the end event is not raised when `Render` throws); the camera and frame events are raised by the pipeline's own calls of the `RenderPipeline` helpers.
+  The context, camera and frame events are raised by the pipeline's own calls of the `RenderPipeline` helpers; the host raises none of them.
+  A pipeline that never calls `BeginContextRendering` or `EndContextRendering` fires neither context event.
   `currentPipeline` is null with no active pipeline asset, before the first step creates the pipeline, and when `CreatePipeline` threw.
 - `UnityEngine.Rendering.SupportedRenderingFeatures`: `active` holds the feature set of the active pipeline (a default set at first; assigning null throws `ArgumentNullException`), and a pipeline's constructor replaces it.
   The instance flags `overridesEnvironmentLighting`, `overridesFog`, `overridesOtherLightingSettings`, `overridesLODBias`, `overridesMaximumLODLevel`, `overridesEnableLODCrossFade`, `overridesRealtimeReflectionProbes`, `overridesLightProbeSystem`, `overridesShadowmask`, `rendersUIOverlay` and `skyOcclusion` default to false, and `editableMaterialRenderQueue`, `autoAmbientProbeBaking`, `autoDefaultReflectionProbeBaking`, `lightProbeProxyVolumes`, `motionVectors`, `supportsHDR` (the engine's choice of default), `receiveShadows`, `reflectionProbes`, `reflectionProbesBlendDistance` and `particleSystemInstancing` to true.

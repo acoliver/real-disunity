@@ -4,7 +4,7 @@ use worldrunner_scene_viewer::{AudioService, AudioStatus};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut audio = AudioService::default();
-    audio.start_device()?;
+    audio.start_device(AudioService::open_default_device)?;
     let AudioStatus::Ready { sample_rate } = audio.status() else {
         unreachable!("opened device");
     };

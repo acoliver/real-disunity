@@ -122,11 +122,11 @@ fn gpu_fused_gbuffer_depth_prefix_supplies_declared_level_one_to_registered_read
     crate::compositor::plan_trace::take();
     let source_frame = 23;
     let fit = renderer
-        .render_depth_fitted_with(
+        .render_depth_fitted_host(
             &context,
             &view(),
             (&color, &depth),
-            source_frame,
+            (Some(source_frame), false, &[]),
             &mut frame,
         )
         .unwrap()

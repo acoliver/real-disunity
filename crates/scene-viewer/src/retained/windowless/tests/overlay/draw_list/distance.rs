@@ -1,6 +1,7 @@
 //! Distance masks through the retained compositor. These tests require a GPU.
 use super::*;
 use worldrunner_world_simulation::presentation::CoverageTexture;
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
 
 fn panel() -> UiDraw {
@@ -15,7 +16,7 @@ fn glyph(mode: UiDistanceMode, radius: f32) -> UiDraw {
     let mut q = draw(false);
     q.kind = UiDrawKind::Text;
     q.corner_colors = None;
-    q.texture = Some(0);
+    q.texture = Some(UiTexture::Coverage(0));
     q.hierarchy_order = 1;
     q.distance_field = Some(UiDistanceStyle {
         spread_px: 25.5,
@@ -61,7 +62,7 @@ fn stripes() -> Vec<u8> {
 fn outline_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     for depth in [false, true] {
         let mut q = glyph(UiDistanceMode::Outline, 2.);
@@ -87,7 +88,7 @@ fn outline_pixels() {
 fn glow_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     for (radius, expected, color) in [
         (2., [0, 237, 0, 255], [0., 1., 0., 1.]),
         (5., [0, 252, 0, 255], [0., 1., 0., 1.]),
@@ -120,7 +121,7 @@ fn glow_pixels() {
 fn distance_rotation_stretch_alpha_and_mode_transitions_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     for (scale, angle, alpha, green) in [
         (glam::Vec2::ONE, 0., 1., 237),
         (glam::Vec2::splat(2.), 0., 1., 188),

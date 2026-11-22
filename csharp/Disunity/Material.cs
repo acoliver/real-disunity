@@ -249,13 +249,16 @@ public partial class Material : Object
         else _overrideTags[tag] = val;
     }
 
-    /// <summary>The override set on this material, or <paramref name="defaultValue"/>. The shader's own tags are
-    /// not available, so a tag the shader declares but this material does not override also reads as
-    /// <paramref name="defaultValue"/>, and <paramref name="searchFallbacks"/> has no effect.</summary>
+    /// <summary>The value of <paramref name="tag"/>: the override set on this material, else the tag the shader declares in its
+    /// first sub-shader, and with <paramref name="searchFallbacks"/> else the tag of the shader's fallback, and that shader's
+    /// fallback in turn, else <paramref name="defaultValue"/>. A shader whose tags are not declared throws
+    /// <see cref="NotSupportedException"/> naming this member unless the material overrides the tag, and so does a search of
+    /// fallbacks that reaches a fallback the engine does not know. A shader's tag names match in any case; the names of the material's own override tags match exactly.</summary>
     public string GetTag(string tag, bool searchFallbacks, string defaultValue)
     {
         ArgumentNullException.ThrowIfNull(tag);
-        return _overrideTags.GetValueOrDefault(tag, defaultValue);
+        if (_overrideTags.TryGetValue(tag, out var overridden)) return overridden;
+        return shader.FindTag(tag, searchFallbacks, "Material.GetTag") ?? defaultValue;
     }
 
     public string GetTag(string tag, bool searchFallbacks) => GetTag(tag, searchFallbacks, "");

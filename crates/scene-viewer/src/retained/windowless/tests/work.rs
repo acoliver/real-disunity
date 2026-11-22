@@ -72,7 +72,7 @@ fn work_ready_between_frames_precedes_next_update_and_is_delivered_once() {
     let mut driver = WorkDriver::new(&mut host);
     let queue = driver.queue.clone();
     let observed = driver.observations.clone();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let ready = ready(&mut run);
     assert!(run.frame().unwrap());
     run.renderer.drain().unwrap();
@@ -95,7 +95,7 @@ fn poll_delivers_work_without_requesting_a_frame_even_when_zero_sized() {
         let mut driver = WorkDriver::new(&mut host);
         let queue = driver.queue.clone();
         let observed = driver.observations.clone();
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         run.resize(size).unwrap();
         let ready = ready(&mut run);
         let ticket = queue.submit(|_| 42).unwrap();
@@ -116,7 +116,7 @@ fn cancelled_and_replaced_ready_tickets_never_notify_or_deliver_stale_results() 
     let mut driver = WorkDriver::new(&mut host);
     let queue = driver.queue.clone();
     let observed = driver.observations.clone();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let ready = ready(&mut run);
     let cancelled = queue.submit(|_| 1).unwrap();
     ready.recv_timeout(WAIT).unwrap();
@@ -153,7 +153,7 @@ fn exit_and_shutdown_discard_ready_work_without_delivery() {
         let mut driver = WorkDriver::new(&mut host);
         let queue = driver.queue.clone();
         let observed = driver.observations.clone();
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         let ready = ready(&mut run);
         queue.submit(|_| 42).unwrap();
         ready.recv_timeout(WAIT).unwrap();
@@ -179,7 +179,7 @@ fn work_ready_exit_shuts_down_before_windowless_update_or_presentation() {
         driver.exit_on_ready = true;
         let queue = driver.queue.clone();
         let observed = driver.observations.clone();
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         let ready = ready(&mut run);
         let ticket = queue.submit(|_| 42).unwrap();
         ready.recv_timeout(WAIT).unwrap();

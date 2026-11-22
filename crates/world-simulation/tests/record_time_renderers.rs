@@ -2,12 +2,14 @@
 //! that are drawable when the frame's snapshot is taken.
 
 use glam::{Quat, Vec3};
-use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
-use worldrunner_world_simulation::graphics::{GraphicsSnapshot, OffscreenWork, RenderTextureId};
+use worldrunner_world_simulation::graphics::snapshot_wire::{WireError, decode, encode};
+use worldrunner_world_simulation::graphics::{
+    GraphicsSnapshot, OffscreenWork, PropertyValue, RenderTextureId,
+};
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle,
-    ParentSpace, RendererSwitches, World,
+    ComponentDesc, ComponentHandle, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
+    ObjectHandle, ParentSpace, RendererKind, RendererSwitches, World,
 };
 
 mod graphics_world;
@@ -46,6 +48,14 @@ impl Scene {
         self.world
             .published_components()
             .find(|c| c.object == object && matches!(c.desc, ComponentDesc::MeshRenderer(_)))
+            .map(|c| c.handle)
+            .unwrap()
+    }
+
+    fn mesh_filter(&self, object: ObjectHandle) -> ComponentHandle {
+        self.world
+            .published_components()
+            .find(|c| c.object == object && matches!(c.desc, ComponentDesc::MeshFilter(_)))
             .map(|c| c.handle)
             .unwrap()
     }
@@ -449,4 +459,232 @@ fn the_next_frame_starts_without_the_sets_of_the_last() {
     let second = snapshot(&mut scene.world);
     assert_eq!(second.renderer_sets.len(), 1);
     assert_eq!(drawn_by(&second, 0), Some(vec![MESH]));
+}
+
+/// Records a culling of `mask` with the camera of the scene.
+fn cull(scene: &mut Scene, id: u64, mask: u32) {
+    scene
+        .world
+        .record_offscreen(OffscreenWork::Cull {
+            id,
+            camera: scene.camera,
+            culling_mask: mask,
+            planes: vec![],
+            options: 0,
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_renderer_component_removed_after_a_render_gives_the_later_render_its_own_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let renderer = scene.mesh_renderer(object);
+    scene.world.remove_component(renderer).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]), "the renderer is gone");
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![]));
+    assert_eq!(snapshot.renderer_sets.len(), 2);
+}
+
+#[test]
+fn a_renderer_added_after_a_render_is_only_in_the_later_set() {
+    let mut scene = scene();
+    let object = scene.world.create_object(ObjectDesc::default()).unwrap();
+    let filter = MeshFilter {
+        mesh: 3,
+        drawn_mesh: MESH,
+    };
+    scene
+        .world
+        .add_component(object, ComponentDesc::MeshFilter(filter))
+        .unwrap();
+    scene.render();
+    let renderer = ComponentDesc::MeshRenderer(MeshRenderer::default());
+    scene.world.add_component(object, renderer).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]));
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH]));
+}
+
+#[test]
+fn a_renderer_that_is_published_after_a_render_is_only_in_the_later_set() {
+    let mut scene = scene();
+    let construction = scene.world.begin_construction().unwrap();
+    let object = scene
+        .world
+        .create_object_in(construction, ObjectDesc::default())
+        .unwrap();
+    let filter = MeshFilter {
+        mesh: 3,
+        drawn_mesh: MESH,
+    };
+    scene
+        .world
+        .add_component(object, ComponentDesc::MeshFilter(filter))
+        .unwrap();
+    let renderer = ComponentDesc::MeshRenderer(MeshRenderer::default());
+    scene.world.add_component(object, renderer).unwrap();
+    scene.render();
+    scene.world.publish_construction(construction).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]), "not yet published");
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH]));
+}
+
+#[test]
+fn a_camera_render_and_a_culling_with_other_masks_get_their_own_sets_while_nothing_changes() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    renderer_with(
+        &mut scene.world,
+        (2, true),
+        MESH + 1,
+        MeshRenderer::default(),
+    );
+    scene.render();
+    cull(&mut scene, 1, 1 << 2);
+    cull(&mut scene, 2, u32::MAX);
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH, MESH + 1]));
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH + 1]));
+    assert_eq!(drawn_by(&snapshot, 2), Some(vec![MESH, MESH + 1]));
+    assert_eq!(
+        snapshot.renderer_sets.len(),
+        2,
+        "the all-layers set is shared"
+    );
+}
+
+#[test]
+fn work_taken_without_a_snapshot_leaves_no_sets_for_the_next_frame() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    scene.render();
+    assert_eq!(scene.world.take_offscreen().0.len(), 2);
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.work.len(), 1);
+    assert_eq!(snapshot.record_sets.len(), 1);
+    assert_eq!(snapshot.renderer_sets.len(), 1);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH]));
+}
+
+#[test]
+fn edits_that_leave_drawability_alone_keep_one_shared_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let tuned = MeshRenderer {
+        shadow_casting_mode: 1,
+        renderer_priority: 5,
+        ..MeshRenderer::default()
+    };
+    let renderer = scene.mesh_renderer(object);
+    scene
+        .world
+        .set_component(renderer, ComponentDesc::MeshRenderer(tuned))
+        .unwrap();
+    scene.render();
+    let other_mesh = MeshFilter {
+        mesh: 4,
+        drawn_mesh: MESH + 1,
+    };
+    let filter = scene.mesh_filter(object);
+    scene
+        .world
+        .set_component(filter, ComponentDesc::MeshFilter(other_mesh))
+        .unwrap();
+    scene.render();
+    scene
+        .world
+        .set_local_transform(object, LocalTransform::default())
+        .unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.renderer_sets.len(), 1);
+    assert_eq!(snapshot.record_sets.len(), 4);
+    for record in 0..4 {
+        assert_eq!(drawn_by(&snapshot, record), Some(vec![MESH + 1]));
+    }
+}
+
+// Adapted from mini-branch-3's review probes p6 and p10 of the render-set follow-up (board 237).
+#[test]
+fn a_renderer_changed_to_another_kind_gives_the_later_render_its_own_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let skinned = MeshRenderer {
+        kind: RendererKind::Skinned,
+        ..MeshRenderer::default()
+    };
+    let renderer = scene.mesh_renderer(object);
+    scene
+        .world
+        .set_component(renderer, ComponentDesc::MeshRenderer(skinned))
+        .unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_ne!(snapshot.record_sets[&0], snapshot.record_sets[&1]);
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![]));
+}
+
+#[test]
+fn a_render_after_direct_global_writes_is_keyed_by_its_own_index() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    for (name, value) in [("_A", 1.0), ("_B", 2.0)] {
+        let property = PropertyValue::Float(name.into(), value);
+        scene.world.set_global_property(property).unwrap();
+    }
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    let renders: Vec<usize> = snapshot
+        .work
+        .iter()
+        .enumerate()
+        .filter(|(_, work)| matches!(work, OffscreenWork::CameraRender { .. }))
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(
+        renders,
+        vec![0, 3],
+        "two global records precede the second render"
+    );
+    assert_eq!(snapshot.record_sets.len(), 2);
+    assert_eq!(drawn_by(&snapshot, 3), Some(vec![MESH]));
+    for global in [1, 2] {
+        assert_eq!(
+            snapshot.record_renderers(global),
+            None,
+            "global record {global}"
+        );
+    }
+}
+
+#[test]
+fn a_set_naming_a_renderer_the_snapshot_does_not_list_is_refused_on_decode() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let mut snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.renderers.len(), 1);
+    assert_eq!(decode(&encode(&snapshot).unwrap()).unwrap(), snapshot);
+    snapshot.renderer_sets[0].push(1);
+    assert_eq!(
+        decode(&encode(&snapshot).unwrap()),
+        Err(WireError::RendererOutOfRange(1))
+    );
+    snapshot.renderer_sets[0] = vec![u32::MAX];
+    assert_eq!(
+        decode(&encode(&snapshot).unwrap()),
+        Err(WireError::RendererOutOfRange(u32::MAX))
+    );
 }

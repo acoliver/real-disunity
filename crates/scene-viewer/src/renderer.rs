@@ -22,6 +22,7 @@ mod shared;
 pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
+mod ui_targets;
 mod windowless;
 pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
@@ -280,6 +281,13 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // The offer comes first: capture preparation refuses what a screen frame cannot supply,
         // and it does so before the frame takes the host's queued operations.
+        if let Some(host) = host.as_deref() {
+            self.streaming.ui.offer(
+                &self.context,
+                (&mut self.resident, &mut self.presentation),
+                &host.ui_targets,
+            )?;
+        }
         self.game_screen
             .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
         let capture::HostCapture {
@@ -602,7 +610,7 @@ impl Resident {
         let (color, depth) = targets
             .scene_attachments()
             .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        scheduler.render_depth_fitted_terms(context, view, (color, depth), frame, scene)?;
+        scheduler.render_depth_fitted(context, view, (color, depth), frame, scene)?;
         Ok(true)
     }
     fn render(

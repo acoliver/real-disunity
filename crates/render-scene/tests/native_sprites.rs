@@ -4,8 +4,8 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_scene},
-    device::GpuContext,
+    compositor::FrameRenderer,
+    device::{DeviceRequest, GpuContext},
     draw::SceneGpu,
     frame::FrameUniform,
     renderer::ScenePipelines,
@@ -126,15 +126,16 @@ fn capture_with_stages(
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer.begin_timing(1).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::unlit(&contribution.view),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::unlit(&contribution.view),
+        )
+        .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     renderer.finish_timing(&mut encoder).unwrap();
     encoder.finish().submit().unwrap();
@@ -597,9 +598,10 @@ fn texture_samplers_are_independent_within_one_frame() {
 #[test]
 fn feature_off_pixels_and_stage_ids_remain_identical() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request_with_features(
-        wgpu::Features::TIMESTAMP_QUERY,
-    ))
+    let context = pollster::block_on(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::TIMESTAMP_QUERY,
+        ..DeviceRequest::default()
+    }))
     .unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(

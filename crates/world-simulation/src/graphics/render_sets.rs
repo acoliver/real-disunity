@@ -11,13 +11,51 @@
 //! object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
 //! of one mask share a set while nothing that decides drawability changes; `drawable_epoch` counts
 //! those changes.
+//!
+//! Changes that follow from one already noted need no note of their own. A renderer's removal
+//! retires its components first, which note it, so removing the object notes nothing more, and a
+//! rolled back edit undoes a change that noted itself when it was made, with no record between.
 
 use std::collections::BTreeMap;
 
 use super::OffscreenWork;
 use crate::{
-    ComponentDesc, ComponentHandle, ComponentKind, MeshRenderer, ObjectHandle, RendererKind, World,
+    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectHandle, RendererKind, World,
 };
+
+impl ComponentDesc {
+    /// Whether this component takes part in deciding which renderers draw: a mesh renderer that is
+    /// enabled, not forced off and of the mesh kind, or a mesh filter that has a drawn mesh. A
+    /// component that does not is no set's concern, whether it is absent or only present.
+    pub(crate) fn decides_drawing(&self) -> bool {
+        match self {
+            Self::MeshRenderer(renderer) => shows(renderer),
+            Self::MeshFilter(filter) => filter_draws(filter).is_some(),
+            _ => false,
+        }
+    }
+}
+
+/// The 32 bit index of the `count`th record, set or renderer of a frame's snapshot. A frame holds
+/// fewer than [`MAX_OFFSCREEN_WORK`](super::MAX_OFFSCREEN_WORK) records, which `push_offscreen`
+/// enforces before it numbers one, and no more sets than records. A snapshot lists a renderer at
+/// most once, and the world holds at most `max_components` components, a `u32`.
+pub(super) fn index_of(count: usize) -> u32 {
+    u32::try_from(count).expect("a frame's records, sets and renderers are fewer than 2^32")
+}
+
+/// Whether `renderer` is a mesh renderer that is enabled and not forced off.
+fn shows(renderer: &MeshRenderer) -> bool {
+    renderer.kind == RendererKind::Mesh
+        && renderer.switches.enabled
+        && !renderer.switches.force_rendering_off
+}
+
+/// The mesh a mesh filter draws, or `None` when it has none. Which mesh it is does not matter to
+/// a set, which holds renderers: the mesh is read when the snapshot is taken.
+fn filter_draws(filter: &MeshFilter) -> Option<u64> {
+    (filter.drawn_mesh != 0).then_some(filter.drawn_mesh)
+}
 
 /// The sets the frame's camera renders drew with, and which record drew with which.
 #[derive(Clone)]
@@ -56,37 +94,38 @@ impl RenderSets {
 }
 
 impl World {
-    /// Notes that a change may have altered which renderers are drawable: an object's activity or
-    /// parent, a renderer's switches, a mesh filter, a layer, or the existence of any of them.
+    /// Notes that a change may have altered which renderers are drawable: an object's activity,
+    /// parent or layer, or a component that decides drawing (see
+    /// [`ComponentDesc::decides_drawing`]).
     pub(crate) fn note_drawables_changed(&mut self) {
         self.graphics.drawable_epoch += 1;
     }
 
-    /// Notes a change to a component of `kind`, which alters the drawable renderers when it is a
-    /// mesh renderer or a mesh filter.
-    pub(crate) fn note_component_drawables(&mut self, kind: ComponentKind) {
-        if matches!(
-            kind,
-            ComponentKind::MeshRenderer | ComponentKind::MeshFilter
-        ) {
+    /// Notes a component going from deciding drawing or not (see
+    /// [`ComponentDesc::decides_drawing`]) to `after`, where a component that was not there or is
+    /// not there now does not decide it. Only a change in whether it decides drawing alters the
+    /// drawable renderers.
+    pub(crate) fn note_drawable_edit(&mut self, before: bool, after: bool) {
+        if before != after {
             self.note_drawables_changed();
         }
     }
 
-    /// Takes what the frame's camera renders captured.
+    /// Takes what the frame's camera renders captured. [`World::take_offscreen`], which a take
+    /// follows, drops the sets by mask along with the rest of the frame.
     pub(crate) fn take_render_sets(&mut self) -> CapturedSets {
         let state = &mut self.graphics.render_sets;
-        state.by_mask.clear();
         CapturedSets {
             sets: std::mem::take(&mut state.sets),
             records: std::mem::take(&mut state.records),
         }
     }
 
-    /// Fixes the renderers the camera render or culling about to be recorded draws. A camera
-    /// render uses its camera's culling mask and a culling its own. A camera render whose camera is
-    /// not readable keeps no set, and the snapshot gives it no camera to draw with.
-    pub(super) fn capture_render_set(&mut self, work: &OffscreenWork) {
+    /// Fixes the renderers the camera render or culling about to be recorded at index `record` of
+    /// the frame's work draws. A camera render uses its camera's culling mask and a culling its
+    /// own. A camera render whose camera is not readable keeps no set, and the snapshot gives it no
+    /// camera to draw with.
+    pub(super) fn capture_render_set(&mut self, work: &OffscreenWork, record: usize) {
         let mask = match work {
             OffscreenWork::CameraRender { camera, .. } => {
                 match self.component(*camera).map(|held| &held.desc) {
@@ -97,11 +136,11 @@ impl World {
             OffscreenWork::Cull { culling_mask, .. } => *culling_mask,
             _ => return,
         };
-        let Ok(record) = u32::try_from(self.graphics.offscreen.len()) else {
-            return;
-        };
         let set = self.set_for(mask);
-        self.graphics.render_sets.records.insert(record, set);
+        self.graphics
+            .render_sets
+            .records
+            .insert(index_of(record), set);
     }
 
     /// The index of the set for `mask`: the one made since the drawable renderers last changed,
@@ -116,7 +155,7 @@ impl World {
         }
         let drawable = self.drawable_renderers(mask);
         let state = &mut self.graphics.render_sets;
-        let set = u32::try_from(state.sets.len()).unwrap_or(u32::MAX);
+        let set = index_of(state.sets.len());
         state.sets.push(drawable);
         state.by_mask.insert(mask, set);
         set
@@ -145,10 +184,7 @@ impl World {
     /// mesh renderer that is enabled and not forced off, or its object has no drawn mesh. Whether
     /// the object is active is a separate question.
     fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off;
-        if shown {
+        if shows(renderer) {
             self.filter_mesh(object)
         } else {
             None
@@ -164,9 +200,7 @@ impl World {
             .rev()
             .filter_map(|handle| self.components.get(handle.0))
             .find_map(|component| match &component.desc {
-                ComponentDesc::MeshFilter(filter) if filter.drawn_mesh != 0 => {
-                    Some(filter.drawn_mesh)
-                }
+                ComponentDesc::MeshFilter(filter) => filter_draws(filter),
                 _ => None,
             })
     }

@@ -16,6 +16,7 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, OffscreenWork, RenderTextureId, TargetRef, TextureRef,
 };
 
+use super::super::adapter::Settling;
 use super::super::assets::{AssetError, Assets};
 use super::super::frame::{Report, Skip};
 use super::flush::host_with_budget;
@@ -125,9 +126,13 @@ fn blitting(textures: &[u64]) -> GraphicsSnapshot {
 impl Room {
     /// Maps the snapshot against `engine`, then waits for the GPU and collects what was released.
     fn adapt_textures(&mut self, engine: &Engine, snapshot: &GraphicsSnapshot) -> Report {
-        let adapted = self
-            .adapter
-            .adapt(snapshot, engine, &mut self.state, &mut self.runtime);
+        let adapted = self.adapter.adapt(
+            snapshot,
+            engine,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         let _ = self
             .runtime
             .device()

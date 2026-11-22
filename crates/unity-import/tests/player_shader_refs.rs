@@ -17,7 +17,7 @@ use worldrunner_unity_serialized::{
 
 #[path = "support/shader_bytes.rs"]
 mod shader_bytes;
-use shader_bytes::{lit, named_shader, shader};
+use shader_bytes::{lit, named_shader, shader, tagged_shader};
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
@@ -118,7 +118,7 @@ fn layouts(fields: &[&str]) -> ScriptLayouts {
     }])
 }
 
-const RESOURCE_FIELDS: [&str; 5] = ["lit", "hidden", "broken", "late", "again"];
+const RESOURCE_FIELDS: [&str; 6] = ["lit", "hidden", "broken", "late", "again", "mohawk"];
 
 fn resource_manager() -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
@@ -147,7 +147,14 @@ fn planned_resources() -> (tempfile::TempDir, ResourcesPlan) {
         vec![object(1, ClassId::RESOURCE_MANAGER, resource_manager())],
         &["resources.assets"],
     );
-    let references = [ptr(0, 2), ptr(0, 5), ptr(0, 3), ptr(0, 7), ptr(0, 2)];
+    let references = [
+        ptr(0, 2),
+        ptr(0, 5),
+        ptr(0, 3),
+        ptr(0, 7),
+        ptr(0, 2),
+        ptr(0, 9),
+    ];
     write_file(
         dir.path(),
         "resources.assets",
@@ -174,6 +181,20 @@ fn planned_resources() -> (tempfile::TempDir, ResourcesPlan) {
                 8,
                 ClassId::SHADER,
                 shader("Test/Odd", Some(("QUEUE", "Sideways")), &[1]),
+            ),
+            object(
+                9,
+                ClassId::SHADER,
+                tagged_shader(
+                    "Test/Mohawk",
+                    &[
+                        ("RenderType", "Opaque"),
+                        ("Queue", "Geometry"),
+                        ("MohawkStaticBatching", "True"),
+                    ],
+                    "Test/Base",
+                    &[&["Forward"], &["Other"]],
+                ),
             ),
         ],
         &[],
@@ -283,6 +304,25 @@ fn the_shader_plan_json_carries_the_pass_names() {
 }
 
 #[test]
+fn a_planned_shader_carries_the_tags_and_fallback_of_its_first_sub_shader() {
+    let (_dir, plan) = planned_resources();
+    let planned = serde_json::to_value(&plan.assets[6]).unwrap();
+    assert_eq!(planned["name"], "Test/Mohawk");
+    assert_eq!(
+        planned["tags"],
+        json!([
+            ["RenderType", "Opaque"],
+            ["Queue", "Geometry"],
+            ["MohawkStaticBatching", "True"]
+        ])
+    );
+    assert_eq!(planned["fallback"], "Test/Base");
+    let untagged = serde_json::to_value(&plan.assets[4]).unwrap();
+    assert_eq!(untagged["tags"], json!([]));
+    assert_eq!(untagged["fallback"], "");
+}
+
+#[test]
 fn binds_references_to_the_planned_shaders_and_a_shared_one_to_one_asset() {
     let (dir, plan) = planned_resources();
     let ResourceAsset::Script { fields, .. } = &plan.assets[3] else {
@@ -299,6 +339,7 @@ fn binds_references_to_the_planned_shaders_and_a_shared_one_to_one_asset() {
             "broken": null,
             "late": {"$asset": 5},
             "again": {"$asset": 0},
+            "mohawk": {"$asset": 6},
         })
     );
 }
@@ -395,6 +436,8 @@ fn a_scene_script_field_plans_its_shader_as_a_scene_asset_shared_by_both_referen
             pass_count,
             pass_names,
             subshader_count,
+            tags,
+            fallback,
             file,
             path_id,
         },
@@ -408,6 +451,14 @@ fn a_scene_script_field_plans_its_shader_as_a_scene_asset_shared_by_both_referen
         ("Test/Lit", 3000, 2, 1)
     );
     assert_eq!(pass_names.len(), *pass_count);
+    assert_eq!(
+        *tags,
+        [
+            ("RenderType".to_owned(), "Opaque".to_owned()),
+            ("QUEUE".to_owned(), "Transparent".to_owned())
+        ]
+    );
+    assert_eq!(fallback, "");
     let [PlanComponent::Script { fields, .. }] = &plan.objects[0].components[..] else {
         panic!("the root has one script: {:?}", plan.objects[0].components)
     };

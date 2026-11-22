@@ -62,6 +62,8 @@ pub enum WireError {
     InvalidPropertyArray,
     #[error("memory for a vector or matrix array could not be reserved")]
     AllocationFailed,
+    #[error("a renderer set names the renderer {0}, which the snapshot does not list")]
+    RendererOutOfRange(u32),
 }
 
 /// Encodes a snapshot.
@@ -93,7 +95,8 @@ pub fn encode(snapshot: &GraphicsSnapshot) -> Result<Vec<u8>, WireError> {
 ///
 /// # Errors
 /// Fails on input that is truncated, has another marker or version, holds a value no encoder
-/// writes, or has bytes after the snapshot.
+/// writes, has a renderer set that names a renderer the snapshot does not list, or has bytes after
+/// the snapshot.
 pub fn decode(bytes: &[u8]) -> Result<GraphicsSnapshot, WireError> {
     let mut input = Reader::new(bytes);
     if input.take(MARKER.len())? != MARKER {
@@ -117,7 +120,23 @@ pub fn decode(bytes: &[u8]) -> Result<GraphicsSnapshot, WireError> {
     if input.remaining() != 0 {
         return Err(WireError::TrailingBytes);
     }
+    check_renderer_sets(&snapshot)?;
     Ok(snapshot)
+}
+
+/// Refuses a set that names a renderer past the end of the snapshot's list, which a reader would
+/// index.
+fn check_renderer_sets(snapshot: &GraphicsSnapshot) -> Result<(), WireError> {
+    let listed = snapshot.renderers.len();
+    let outside = snapshot
+        .renderer_sets
+        .iter()
+        .flatten()
+        .find(|&&index| !usize::try_from(index).is_ok_and(|at| at < listed));
+    match outside {
+        Some(&index) => Err(WireError::RendererOutOfRange(index)),
+        None => Ok(()),
+    }
 }
 
 /// Encodes one record of offscreen work in the encoding the snapshot holds it in, without the

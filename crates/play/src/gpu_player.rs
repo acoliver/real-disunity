@@ -20,6 +20,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -32,15 +33,17 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
+mod ui_offer;
+pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
-use crate::counts_line::{top_counts_line, unset_constants_line};
+use crate::counts_line::{names_line, top_counts_line};
 use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts,
-    StandInLook, SuppliedGlobal, WorkTrace, supplied_line,
+    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
+    PlayerKernels, Reclaimed, Report, ScreenImage, Settings, StandInCounts, StandInLook,
+    SuppliedGlobal, WorkTrace, supplied_line,
 };
 use crate::scene_census::SubstitutionCensus;
 
@@ -56,24 +59,34 @@ const TOP_TEXTURES: usize = 5;
 /// The most names the unset constants line gives.
 const TOP_UNSET: usize = 8;
 
+/// The most names the line of globals no draw read gives.
+const TOP_UNREAD_GLOBALS: usize = 30;
+
 /// The most property and reason pairs the stand-ins line names.
 const TOP_STAND_INS: usize = 8;
 
-/// The settings of a player run's offscreen work: camera renders drawing with `depth`, and
-/// `supplied` as the fallback globals every frame starts from, with stand-in textures drawn as
-/// `look`.
-fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
-    Settings {
-        supplied: supplied.to_vec(),
-        ..Settings::cameras()
-            .with_depth(depth)
-            .with_stand_in_look(look)
-    }
+/// What a run asks of its offscreen work besides the player's files.
+#[derive(Clone, Debug, Default)]
+pub struct GpuLaunch {
+    /// The globals the run supplies by name, which its GPU work starts every frame from.
+    pub globals: Vec<SuppliedGlobal>,
+    /// How the stand-in textures the host supplies look.
+    pub stand_ins: StandInLook,
+    /// The storage budget in MiB, in place of the one chosen for the adapter.
+    pub storage_mb: Option<NonZeroU64>,
+    /// Whether a headless run prints the GPU report after every frame, not only at the end.
+    pub report_each_frame: bool,
 }
 
-/// The stand-in look the environment asks for.
-fn stand_in_look_from_env() -> StandInLook {
-    StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref())
+impl GpuLaunch {
+    /// The settings of the run's offscreen work: `globals` as the fallback globals every frame
+    /// starts from, with stand-in textures drawn as `stand_ins` says.
+    fn settings(&self) -> Settings {
+        Settings {
+            supplied: self.globals.clone(),
+            ..Settings::cameras().with_stand_in_look(self.stand_ins)
+        }
+    }
 }
 
 /// What the offscreen work of a run did.
@@ -149,13 +162,13 @@ pub struct GpuWorkReport {
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
     pub defaulted_channels: BTreeMap<String, usize>,
-    /// The draws that read the grey default for a texture no layer set and the shader does not
-    /// declare, which are recorded.
-    pub undeclared_defaults: BTreeMap<String, usize>,
-    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    /// The texture properties that named no texture the frame can read and read no stand-in, by
+    /// `name: reason`. A property that reads a stand-in is counted in `stand_ins`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, over every piece of work, by property and reason.
     pub stand_ins: StandInCounts,
+    /// The texture globals the run set and the names its draws looked up (see `GlobalReads`).
+    pub global_reads: GlobalReads,
     /// The retained renderers drawn white and left out, when the run drew a retained scene.
     pub retained: Option<SubstitutionCensus>,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
@@ -303,13 +316,11 @@ impl GpuWorkReport {
         for (name, count) in &report.missing_textures {
             *self.missing_textures.entry(name.clone()).or_default() += count;
         }
-        for (name, count) in &report.undeclared_defaults {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
-        }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
         self.stand_ins.add(&report.stand_ins);
+        self.global_reads.add(&report.global_reads);
     }
 
     /// The lines of the stand-in census, without the `[gpu] ` prefix.
@@ -342,6 +353,9 @@ impl GpuWorkReport {
         for line in stand_in_lines.iter().chain(&self.retained_lines()) {
             eprintln!("[gpu] {line}");
         }
+        if let Some(line) = self.global_reads.line(TOP_UNREAD_GLOBALS) {
+            eprintln!("[gpu] {line}");
+        }
     }
 
     /// The line of the report about the screen's readbacks.
@@ -364,7 +378,11 @@ impl GpuWorkReport {
     }
 
     fn print_unset_constants(&self) {
-        if let Some(line) = unset_constants_line(&self.unset_constants, TOP_UNSET) {
+        if let Some(line) = names_line(
+            "constants or state properties no layer set",
+            &self.unset_constants,
+            TOP_UNSET,
+        ) {
             eprintln!("[gpu] {line}");
         }
     }
@@ -403,18 +421,14 @@ impl GpuWorkReport {
         );
     }
 
-    /// Writes the counts, one line each, to standard error.
-    pub fn print(&self) {
-        self.print_with(&self.stand_in_lines());
-    }
-
-    /// As [`print`](Self::print), with the stand-in census of the work done since it was `before`
-    /// (a clone of `stand_ins` taken then) in place of the run's totals.
-    pub fn print_frame(&self, before: &StandInCounts) {
-        self.print_with(&self.frame_stand_in_lines(before));
-    }
-
-    fn print_with(&self, stand_in_lines: &[String]) {
+    /// Writes the counts, one line each, to standard error. With `since`, a clone of `stand_ins`
+    /// taken at some point, the stand-in census is that of the work done since then, in place of
+    /// the run's totals.
+    pub fn print(&self, since: Option<&StandInCounts>) {
+        let stand_in_lines = since.map_or_else(
+            || self.stand_in_lines(),
+            |before| self.frame_stand_in_lines(before),
+        );
         self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
@@ -443,14 +457,13 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
-        self.print_texture_lines(stand_in_lines);
+        self.print_texture_lines(&stand_in_lines);
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
             ("draw:MissingBuffer by buffer", &self.missing_buffers),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
-            ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
             ("renderer lists", &self.lists),
             ("records built, by kind", &self.built_by_kind),
             ("records skipped, by kind", &self.skipped_by_kind),
@@ -513,42 +526,21 @@ impl PlayerGpu {
         self.offscreen.borrow().storage_budget()
     }
 
-    /// Whether the host's render-program state has depth reversed.
-    #[must_use]
-    pub fn reversed_depth(&self) -> bool {
-        self.offscreen.borrow().reversed_depth()
-    }
-
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`, depth running as `depth` says, and the globals in `supplied` as fallbacks under
-    /// the world's own (see `SuppliedGlobal`).
+    /// `data`, and the run's globals as fallbacks under the world's own (see `SuppliedGlobal`),
+    /// stand-in look and storage budget as `launch` says.
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
-    /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(
-        data: &Path,
-        depth: DepthRange,
-        supplied: &[SuppliedGlobal],
-    ) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture();
-        Self::headless_with_inputs(
-            data,
-            &inputs,
-            run_settings(depth, supplied, stand_in_look_from_env()),
-        )
-    }
-
-    fn headless_with_inputs(
-        data: &Path,
-        inputs: &PlayerStartupInputs,
-        settings: Settings,
-    ) -> Result<Self, String> {
+    /// program runtime cannot reserve its arena.
+    pub fn headless(data: &Path, launch: &GpuLaunch) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let settings = launch.settings();
         let instance = headless_gpu_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        Self::headless_on_adapter(&adapter, data, inputs, settings)
+        Self::headless_on_adapter(&adapter, data, &inputs, settings)
     }
 
     fn headless_on_adapter(
@@ -575,7 +567,7 @@ impl PlayerGpu {
     /// The host on the one device `source` makes for a window: the adapter's requirements and
     /// budget come from the same function the headless player uses, and the device meets the
     /// viewer's own needs as well. The window's frames and this player's work then share the
-    /// device and its submission order. `depth` and `supplied` mean what they do for
+    /// device and its submission order. `launch` means what it does for
     /// [`PlayerGpu::headless`].
     ///
     /// # Errors
@@ -584,26 +576,12 @@ impl PlayerGpu {
     pub(crate) fn shared(
         source: &mut dyn DeviceSource,
         data: &Path,
-        depth: DepthRange,
-        supplied: &[SuppliedGlobal],
+        launch: &GpuLaunch,
     ) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture();
-        Self::shared_with_inputs(
-            source,
-            data,
-            &inputs,
-            run_settings(depth, supplied, stand_in_look_from_env()),
-        )
-    }
-
-    fn shared_with_inputs(
-        source: &mut dyn DeviceSource,
-        data: &Path,
-        inputs: &PlayerStartupInputs,
-        settings: Settings,
-    ) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let settings = launch.settings();
         let adapter = source.adapter()?;
-        Self::shared_on_adapter(source, &adapter, data, inputs, settings)
+        Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
     }
 
     fn shared_on_adapter(

@@ -19,10 +19,9 @@ fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
                 tone_map: ToneMap::Reinhard,
             };
             let mut resident = Resident::new(&context, &source, shadows, profile).unwrap();
-            let mut presentation = Presentation::with_profile(
+            let mut presentation = crate::presentation::fixtures::presentation_with_profile(
                 &context,
                 crate::presentation::COLOR,
-                INITIAL_SIZE,
                 INITIAL_SIZE,
                 profile,
                 source.effects(),
@@ -88,10 +87,9 @@ fn viewer_reduced_resolution_reconfigures_scene_and_output_together() {
         },
     };
     let mut resident = Resident::new(&context, &source, None, profile).unwrap();
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        INITIAL_SIZE,
         INITIAL_SIZE,
         profile,
         source.effects(),

@@ -1,8 +1,8 @@
 //! A shadow-map read: a camera writes depth into a depth-only render texture and a later blit
 //! compares a reference depth with it through a comparison sampler.
 //!
-//! The renderer's depth is not reversed (0 is near, 1 is far, the camera clears to 1 and a pass's
-//! `ZTest LEqual` is `LessEqual`), so a receiver is lit when its reference depth is at most the
+//! The renderer's depth is reversed (1 is near, 0 is far, the camera clears to 0 and a pass's
+//! `ZTest LEqual` is `GreaterEqual`), so a receiver is lit when its reference depth is at least the
 //! stored depth. The shader writes the comparison result as colour, so the expected image is a
 //! table of ones and zeros computed here from the depths.
 
@@ -28,8 +28,8 @@ const BOTH: u32 = (1 << 1) | (1 << 2);
 const LEFT_DEPTH: f32 = 0.5;
 const RIGHT_DEPTH: f32 = 0.25;
 /// What the camera clears to where it draws nothing.
-const FAR: f32 = 1.0;
-/// Between the two drawn depths, so the receiver is in front of the left half and behind the
+const FAR: f32 = 0.0;
+/// Between the two drawn depths, so the receiver is behind the left half and in front of the
 /// right half.
 const REFERENCE: f32 = 0.375;
 
@@ -68,7 +68,7 @@ fn shadow_frame(rig: &mut Rig, mask: u32, source: TextureId) -> OffscreenFrame {
 }
 
 fn lit(stored: f32) -> u8 {
-    if REFERENCE <= stored { 255 } else { 0 }
+    if REFERENCE >= stored { 255 } else { 0 }
 }
 
 fn assert_columns(image: &[u8], left: f32, right: f32) {
@@ -94,9 +94,9 @@ fn a_comparison_sampler_reads_one_where_the_receiver_is_in_front_of_the_stored_d
     let mut rig = Rig::new();
     let frame = shadow_frame(&mut rig, BOTH, SHADOW_MAP);
     let image = rig.run(&frame, &[(LIT_MAP, 0, 0)]).unwrap().remove(0);
-    // The receiver at 0.375 is in front of the left half's 0.5 and behind the right half's 0.25.
-    assert_eq!(lit(LEFT_DEPTH), 255);
-    assert_eq!(lit(RIGHT_DEPTH), 0);
+    // The receiver at 0.375 is behind the left half's 0.5 and in front of the right half's 0.25.
+    assert_eq!(lit(LEFT_DEPTH), 0);
+    assert_eq!(lit(RIGHT_DEPTH), 255);
     assert_columns(&image, LEFT_DEPTH, RIGHT_DEPTH);
 }
 

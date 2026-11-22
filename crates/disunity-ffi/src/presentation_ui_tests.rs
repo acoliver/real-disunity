@@ -1,4 +1,5 @@
 use super::*;
+use worldrunner_world_simulation::{graphics::RenderTextureId, ui::UiTexture};
 
 #[test]
 fn triangle_copy_out_keeps_uvs_topology_clip_and_draw_order() {
@@ -280,14 +281,15 @@ fn metadata_colors(meta: DisunityUiDraw) -> [[f32; 4]; 4] {
 #[test]
 fn distance_metadata_keeps_its_layout_at_revision_12() {
     use std::mem::{align_of, offset_of, size_of};
-    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 23);
-    assert_eq!(size_of::<DisunityUiDraw>(), 152);
+    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 25);
+    assert_eq!(size_of::<DisunityUiDraw>(), 160);
     assert_eq!(align_of::<DisunityUiDraw>(), 8);
     assert_eq!(offset_of!(DisunityUiDraw, distance_mode), 124);
     assert_eq!(offset_of!(DisunityUiDraw, distance_spread), 128);
     assert_eq!(offset_of!(DisunityUiDraw, distance_radius), 132);
     assert_eq!(offset_of!(DisunityUiDraw, effect_r), 136);
     assert_eq!(offset_of!(DisunityUiDraw, effect_a), 148);
+    assert_eq!(offset_of!(DisunityUiDraw, texture_kind), 152);
 }
 
 #[test]
@@ -295,7 +297,7 @@ fn distance_metadata_encodes_modes_and_rejects_invalid_styles() {
     use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
     let mut draw = snapshot_draw(0, 0);
     draw.kind = UiDrawKind::Text;
-    draw.texture = Some(7);
+    draw.texture = Some(UiTexture::Coverage(7));
     draw.corners = [[0., 0., 0.], [16., 0., 0.], [16., 16., 0.], [0., 16., 0.]];
     draw.uv_rect = [0., 0., 1., 1.];
     for (mode, code) in [
@@ -333,7 +335,7 @@ fn distance_copy_out_preserves_style_and_atlas_bytes() {
     };
     let mut draw = snapshot_draw(0, 0);
     draw.kind = UiDrawKind::Text;
-    draw.texture = Some(7);
+    draw.texture = Some(UiTexture::Coverage(7));
     draw.corners = [[0., 0., 0.], [16., 0., 0.], [16., 16., 0.], [0., 16., 0.]];
     draw.uv_rect = [0., 0., 1., 1.];
     draw.distance_field = Some(UiDistanceStyle {
@@ -380,4 +382,27 @@ fn distance_copy_out_preserves_style_and_atlas_bytes() {
     assert_eq!(quad.texture, 7);
     assert_eq!(bytes, [0, 125, 130, 255]);
     crate::store::destroy_world(&mut crate::lock_store(), world).unwrap();
+}
+
+#[test]
+fn a_target_draw_round_trips_the_abi() {
+    let target = RenderTextureId::from_bits((3 << 32) | 5);
+    let mut draw = snapshot_draw(0, 0);
+    draw.texture = Some(UiTexture::Target(target));
+    assert!(validate_draw(&draw, None).is_ok());
+    let (meta, quad) = (encode_metadata(&draw), encode(&draw));
+    assert_eq!(meta.texture_kind, 1);
+    assert_eq!((quad.texture, quad.textured), (target.to_bits(), 1));
+    draw.texture = Some(UiTexture::Image(1 << 40));
+    let (meta, quad) = (encode_metadata(&draw), encode(&draw));
+    assert_eq!(meta.texture_kind, 0);
+    assert_eq!((quad.texture, quad.textured), (1 << 40, 1));
+}
+
+#[test]
+fn a_target_draw_on_a_text_quad_is_refused() {
+    let mut draw = snapshot_draw(0, 0);
+    draw.kind = UiDrawKind::Text;
+    draw.texture = Some(UiTexture::Target(RenderTextureId::from_bits(5)));
+    assert!(validate_draw(&draw, None).is_err());
 }

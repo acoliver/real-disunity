@@ -135,15 +135,16 @@ pub(super) fn capture_with_renderer(
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut frame = frame_from(pose());
     frame.unlit = unlit;
-    crate::compositor::encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            frame,
+        )
+        .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(

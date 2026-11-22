@@ -271,8 +271,7 @@ pub struct DrawRaster {
     pub viewport: Option<[f32; 4]>,
     /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
     /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
-    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
-    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// the viewer, so the reversed buffer takes the negated values. The constant is rounded to whole units of the buffer's
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],
@@ -399,8 +398,7 @@ pub struct OffscreenFrame {
     /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
     /// the Old World player makes with such a slot is drawn and counted instead of left out. The
     /// host uploads each as it does any source texture. A draw that reads one is counted by
-    /// property in
-    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// property and reason in [`OffscreenOperations::stand_in_draws`](super::OffscreenOperations::stand_in_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
     /// before. Without a default for a dimension, which is the default, every slot of that

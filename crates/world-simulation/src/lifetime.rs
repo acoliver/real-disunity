@@ -167,9 +167,11 @@ impl World {
         self.lifecycle.remove_script(component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);
-        if let Some(kind) = self.components.get(component.0).map(|c| c.desc.kind()) {
-            self.note_component_drawables(kind);
-        }
+        let held = self
+            .components
+            .get(component.0)
+            .is_some_and(|stored| stored.desc.decides_drawing());
+        self.note_drawable_edit(held, false);
         if let Some(owner) = self.components.get(component.0).map(|c| c.object)
             && let Some(object) = self.objects.get_mut(owner.0)
         {
@@ -201,7 +203,6 @@ impl World {
             return;
         }
         self.note_object_removed(object);
-        self.note_drawables_changed();
         self.clear_follow_links(object);
         let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
         self.relink_child(object, parent, None);

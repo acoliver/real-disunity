@@ -82,7 +82,7 @@ impl PlayerGpu {
         let built = self
             .offscreen
             .borrow_mut()
-            .frame_with(&snapshot, &*host, delivery.settling());
+            .frame(&snapshot, &*host, delivery.settling());
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         let mut handed = None;
         match built {

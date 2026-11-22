@@ -226,7 +226,11 @@ fn a_take_replays_from_the_state_the_previous_take_ended_with() {
         .unwrap();
     world.record_offscreen(blit(target)).unwrap();
     let first = GraphicsSnapshot::take(&mut world).unwrap();
-    assert_eq!(first.global.unwrap().properties.float("_Gain"), Some(1.0));
+    assert_eq!(first.global.unwrap().properties.float("_Gain"), None);
+    assert_eq!(
+        first.work[0],
+        set_global(PropertyValue::Float("_Gain".into(), 1.0))
+    );
     world.record_offscreen(blit(target)).unwrap();
     world
         .set_global_property(PropertyValue::Float("_Gain".into(), 2.0))

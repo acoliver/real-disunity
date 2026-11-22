@@ -45,7 +45,8 @@ public sealed class SortingGroup : Behaviour
         set { var settings = Read(); settings.sort_at_root = value ? 1u : 0u; Write(settings); }
     }
 
-    /// <summary>Does nothing: the engine keeps no sorting state to refresh.</summary>
+    /// <summary>Sorting groups are stored settings, and no draw orders by them yet, so the engine keeps no sorted result
+    /// to refresh: this call changes no state.</summary>
     public static void UpdateAllSortingGroups() { }
 
     private unsafe DisunitySortingGroup Read()

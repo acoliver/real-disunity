@@ -18,7 +18,7 @@ internal static class MeshRendererTests
             MeshRendererMembers();
             Console.WriteLine("PASS: MeshRenderer stores additionalVertexStreams and has subMeshStartIndex 0");
             Skinned();
-            Console.WriteLine("PASS: SkinnedMeshRenderer stores mesh, bones, quality and weights; BakeMesh copies the mesh unchanged");
+            Console.WriteLine("PASS: SkinnedMeshRenderer stores mesh, bones, quality and weights; BakeMesh copies the mesh when nothing deforms it and refuses bones, blend shape weights and useScale");
             Attach();
             Console.WriteLine("PASS: AddComponent builds the three components, one of each per object, and they are found by type");
             Cloning();
@@ -83,17 +83,38 @@ internal static class MeshRendererTests
         r.localBounds = new Bounds(Vector3.zero, Vector3.one);
         Ensure(r.localBounds.size == Vector3.one, "local bounds can be set");
         var target = new Mesh();
+        BakeRefusesWhatTheMeshCannotCarry(r, target);
         r.BakeMesh(target);
         Ensure(target.vertexCount == 3 && target.GetIndexCount(0) == 3 && target.bounds == shared.bounds, "BakeMesh copies the shared mesh");
         Ensure(target.vertices[1] == shared.vertices[1], "unskinned, the vertices are the same");
         var other = new Mesh();
-        r.BakeMesh(other, true);
-        Ensure(other.vertexCount == 3, "BakeMesh with useScale");
+        r.BakeMesh(other, false);
+        Ensure(other.vertexCount == 3 && other.bounds == shared.bounds, "BakeMesh without useScale is the single-argument bake");
+        r.SetBlendShapeWeight(2, 0f);
+        r.BakeMesh(other);
+        Ensure(other.vertexCount == 3, "a blend shape weight of zero deforms nothing");
         r.sharedMesh = null;
         r.BakeMesh(target);
         Ensure(target.vertexCount == 0, "with no mesh the target is emptied");
         Throws<ArgumentNullException>(() => r.BakeMesh(null!), "a null target");
         Throws<ArgumentNullException>(() => r.bones = null!, "null bones");
+    }
+
+    /// <summary>Deforming inputs the engine's mesh cannot carry (bone weights, bind poses, blend shapes) and a scale to apply
+    /// are refused by name instead of baked as if they were absent. The renderer leaves with no bones and a zero weight.</summary>
+    private static void BakeRefusesWhatTheMeshCannotCarry(SkinnedMeshRenderer r, Mesh target)
+    {
+        r.SetBlendShapeWeight(2, 0f);
+        var error = Expect.Catch<NotSupportedException>(() => r.BakeMesh(target), "BakeMesh with bones");
+        Ensure(error.Message.Contains("SkinnedMeshRenderer.BakeMesh") && error.Message.Contains("bones") && error.Message.Contains("not supported yet"), $"the message names the member and the bones: {error.Message}");
+        Ensure(target.vertexCount == 0, "a refused bake leaves the target as it was");
+        r.bones = [];
+        error = Expect.Catch<NotSupportedException>(() => r.BakeMesh(target, true), "BakeMesh with useScale");
+        Ensure(error.Message.Contains("SkinnedMeshRenderer.BakeMesh") && error.Message.Contains("useScale"), $"the message names the member and useScale: {error.Message}");
+        r.SetBlendShapeWeight(2, 55f);
+        error = Expect.Catch<NotSupportedException>(() => r.BakeMesh(target), "BakeMesh with a blend shape weight");
+        Ensure(error.Message.Contains("SkinnedMeshRenderer.BakeMesh") && error.Message.Contains("blend shape"), $"the message names the member and the blend shapes: {error.Message}");
+        r.SetBlendShapeWeight(2, 0f);
     }
 
     private static void Attach()

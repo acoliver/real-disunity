@@ -9,6 +9,9 @@ use worldrunner_render_plan::{
     SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
     TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap,
+};
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
@@ -17,9 +20,8 @@ use worldrunner_render_scene::{
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap};
 
 pub const SIZE: [u32; 2] = [64, 48];
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;

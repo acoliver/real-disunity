@@ -8,6 +8,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -21,11 +25,8 @@ use worldrunner_render_scene::{
         GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, LevelAccess, PassTarget, TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 /// The four-layer target the kernel writes layer 2 of, through a one-layer import.
 const LAYERS: &str = "level.layers";

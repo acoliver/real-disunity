@@ -6,11 +6,11 @@ use super::snapshot_game::{
     COLOR_COPY, COLOR_PASS, DEPTH_PROBE, FILL_PASS, FRAME_PASS, Fill, LATE_COLOR_PASS,
     OPAQUE_FILL_PASS, Plan, SnapGame, TRANSPARENT_PASS, built_handle, read_texels, texel,
 };
+use worldrunner_render_post::{FrameConfig, FrameError};
 use worldrunner_render_scene::{
     compositor::{FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics},
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{FrameConfig, FrameError};
 
 /// A pixel the quad covers, and one it does not.
 pub const COVERED: (usize, usize) = (32, 24);

@@ -7,6 +7,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -22,11 +26,8 @@ use worldrunner_render_scene::{
         GameSampler, GameTargets, GameTexture, GameTextureDeclaration, PassTarget,
         TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 /// Every 4 columns of the target sample one level: the BC1 chain's four mips, the array's two
 /// layers of three mips, the volume's texel and the shared texture's; the rest stay clear.

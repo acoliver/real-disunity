@@ -8,6 +8,10 @@ use super::lighting::ssao;
 use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -26,10 +30,8 @@ use worldrunner_render_scene::{
         CascadeRefreshPolicy, DirectionalShadowSettings, ShadowedScene,
         sdsm::{AdoptionPolicy, DepthRange, RangeFit, SdsmSettings},
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 use worldrunner_render_shadow::{MinimumSpanPolicy, SplitPolicy};
 
 const KEPT: &str = "prefix kept";

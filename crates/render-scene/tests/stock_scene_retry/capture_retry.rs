@@ -3,13 +3,15 @@ use worldrunner_render_gpu::submission::capture::{
     CaptureError, CaptureOutcome, CaptureWrites, WriteError, WriteKey,
 };
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry, PassSlot,
+    ResourceRef,
+};
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry,
-        PassSlot, ResourceRef};
 
 pub(super) fn assert_retry(context: &GpuContext, source: &RenderScene) {
     let mut scene = Scene::new(context, source);

@@ -418,7 +418,7 @@ impl PlayerRetainedDriver {
     fn refresh(
         &mut self,
         objects: &[worldrunner_disunity_runtime::MeshObjectView],
-        ui: &worldrunner_render_plan::ui::UiPresentation,
+        ui: &worldrunner_world_simulation::ui::presentation::UiPresentation,
     ) -> Result<(), PlayError> {
         let shown = objects
             .iter()

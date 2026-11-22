@@ -5,6 +5,10 @@ use super::common::{self, Counts, array_binding, graphics, uniform_binding};
 use std::sync::{Arc, Mutex};
 use wgpu::TextureFormat;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -16,11 +20,8 @@ use worldrunner_render_scene::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GameTargets,
         PassTarget, TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 const FILL_WGSL: &str = "
 struct Fill { colour: vec4<f32> }

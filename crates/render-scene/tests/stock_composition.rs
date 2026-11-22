@@ -17,6 +17,10 @@ use worldrunner_render_gpu::submission::{
     capture::{CaptureError, CaptureObserver, CaptureOutcome, CaptureWrites, WriteKey},
 };
 use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
+    PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
+};
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
@@ -25,10 +29,8 @@ use worldrunner_render_scene::{
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
-        PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture};
 
 const NEAR_METRES: f32 = 0.1;
 const FAR_METRES: f32 = 20.0;

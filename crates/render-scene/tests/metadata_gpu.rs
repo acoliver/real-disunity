@@ -1,9 +1,9 @@
+use worldrunner_render_post::{FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
     device::GpuContext,
     frame::metadata::{FrameProduct, MetadataMeaning, MetadataSampling},
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{FrameConfig, Readback, ResourceRef};
 
 #[test]
 fn integration_contexts_share_gpu_handles_without_sharing_submission_state() {

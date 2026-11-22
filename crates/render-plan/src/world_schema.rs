@@ -1,4 +1,4 @@
-//! World-schema vocabulary and the single Y-up to Z-up scene boundary.
+//! The single Y-up to Z-up scene boundary for world-schema placements and meshes.
 //!
 //! Producers quantize metres to millimetres before this boundary. The basis
 //! change is a proper rotation: `(x, y, z) -> (x, -z, y)`. Apply it to both

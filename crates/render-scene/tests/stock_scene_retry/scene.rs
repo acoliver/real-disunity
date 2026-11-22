@@ -1,5 +1,6 @@
 use super::fixture;
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
 use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer, encode_scene},
     device::GpuContext,
@@ -7,9 +8,8 @@ use worldrunner_render_scene::{
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
 
 pub(super) struct Scene {
     pub frame: FrameRenderer,

@@ -2,15 +2,17 @@
 //! reading them. The shadowed route's side is in `src/shadows/tests/game_shadows.rs`.
 use super::fixture::{Rig, SIZE, quad_scene};
 use std::sync::{Arc, Mutex};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameInputError, FrameShadowHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef};
 
 type Seen = Arc<Mutex<Vec<Result<usize, FrameInputError>>>>;
 

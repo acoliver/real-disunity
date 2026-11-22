@@ -5,6 +5,12 @@ use super::common::{self, Counts, graphics, texture_binding};
 use std::sync::{Arc, Mutex};
 use wgpu::TextureFormat;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::{
+    DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
+    PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
@@ -13,17 +19,13 @@ use worldrunner_render_program::runtime::{
     PreparedProgramDraw, ProgramRuntime, TargetSignature,
 };
 use worldrunner_render_program::state::RasterState;
-use worldrunner_render_post::AttachmentView;
-use worldrunner_render_post::BuildContext;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
-        PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef};
 
 pub const STRIP_WGSL: &str = "
 @vertex fn vs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {

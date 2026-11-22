@@ -5,10 +5,7 @@ use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, TimeSpan, World,
     WorldSettings,
     physics2d::{Body2d, Interpolation},
-    presentation::{
-        Sprite, SpriteRenderer,
-        extraction::{SpriteTextures, extract_world},
-    },
+    presentation::{Sprite, SpriteRenderer, extraction::extract_world},
 };
 
 /// A body moving 10 m/s along x from the origin, with a unit sprite, and its component.
@@ -79,7 +76,7 @@ fn interpolated_bodies_draw_between_their_last_two_step_poses() {
         "without interpolation it draws the step pose"
     );
 
-    let plan = extract_world(&world, &SpriteTextures::default(), [10, 10]).unwrap();
+    let plan = extract_world(&world, [10, 10]).unwrap();
     let centres: Vec<String> = plan
         .quads
         .iter()

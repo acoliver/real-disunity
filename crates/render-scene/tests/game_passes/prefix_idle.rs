@@ -4,12 +4,14 @@
 use super::fixture::{Rig, SIZE, quad_scene};
 use super::shadowed::{capture, shadowed};
 use std::sync::{Arc, Mutex};
+use worldrunner_render_post::{
+    BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
+    PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{GameBuild, GameFeatureFactory, GamePasses},
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PrepareContext,
-        PreparedFeature};
 
 /// How often the frames prepared, committed and finished the depth-prefix feature.
 type Calls = Arc<Mutex<[u32; 3]>>;

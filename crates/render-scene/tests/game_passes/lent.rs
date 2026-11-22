@@ -10,6 +10,10 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{
     MeshHandle, RenderScene, SceneAppend, SceneSpecularConvention, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -27,11 +31,8 @@ use worldrunner_render_scene::{
         GameResources, GameTargets, PassTarget, TargetDeclaration, TargetExtent,
     },
     draw::{PreparedAppend, PreparedMeshReplacement},
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 const OUT: &str = "lent.out";
 const ENTRY: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);

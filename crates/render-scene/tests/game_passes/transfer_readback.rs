@@ -9,6 +9,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     BlockSource, GraphicsProgram, ImportedDraw, ImportedGeometry, PreparedProgramDraw, TargetImage,
@@ -20,11 +24,8 @@ use worldrunner_render_scene::{
         GamePasses, GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, GameTextureLevel, PassTarget, TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 /// The float target: two layers of 8 x 4 texels. The pass writes layer 1.
 const FLOAT: &str = "work.float";

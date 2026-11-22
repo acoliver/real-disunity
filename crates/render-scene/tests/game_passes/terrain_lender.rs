@@ -6,6 +6,10 @@ use super::fixture::{Rig, SIZE, quad_scene, streamed_terrain_scene, terrain_scen
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedVertexInput,
@@ -20,10 +24,8 @@ use worldrunner_render_scene::{
     },
     draw::{TerrainChunkDraw, TerrainChunkEdge},
     geometry::{VERTEX_STRIDE, vertex_attributes},
-    wgpu::{self, util::DeviceExt}
+    wgpu::{self, util::DeviceExt},
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 const TERRAIN: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);
 const GREEN: [u8; 4] = [0, 255, 0, 255];

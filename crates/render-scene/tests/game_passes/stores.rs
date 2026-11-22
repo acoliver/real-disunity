@@ -3,15 +3,17 @@
 //! declared target's name is a different texture and never marks it.
 use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
 use std::sync::{Arc, Mutex};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
         TargetDeclaration, TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PrepareContext, PreparedFeature, ResourceRef};
 
 const PAD: &str = "pad";
 /// A stock attachment's name, which a game may also choose for a target of its own.

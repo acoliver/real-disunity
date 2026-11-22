@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use glam::UVec2;
-use worldrunner_world_simulation::presentation::extraction::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 use worldrunner_world_simulation::ui::{
     Canvas, CanvasGroup, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry,
@@ -334,7 +334,7 @@ fn appended_quads_keep_hierarchy_order_for_equal_sorting_keys() {
     untextured.graphic_texture = 0;
     draw(&mut world, second, renderer(unit_quad()));
     draw(&mut world, first, untextured);
-    let mut plan = extract_world(&world, &SpriteTextures::default(), VIEWPORT).unwrap();
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
     append_graphics(&mut plan, graphics(&world)).unwrap();
     let textures: Vec<_> = plan.quads.iter().map(|q| q.texture).collect();
     assert_eq!(textures, [None, Some(1 << 40)]);
@@ -400,7 +400,7 @@ fn overlay_quads_under_a_perspective_camera_lie_inside_its_view() {
         .unwrap();
     let object = element(&mut world, canvas);
     draw(&mut world, object, renderer(unit_quad()));
-    let mut plan = extract_world(&world, &SpriteTextures::default(), VIEWPORT).unwrap();
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
     append_graphics(&mut plan, graphics(&world)).unwrap();
     let view = plan.camera.expect("a presented camera");
     assert_eq!(plan.quads.len(), 1);

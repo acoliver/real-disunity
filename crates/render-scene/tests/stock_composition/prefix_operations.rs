@@ -11,13 +11,15 @@ use std::{
     rc::Rc,
     sync::mpsc,
 };
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
+    OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
+};
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     frame::FrameUniform,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
-        OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture};
 
 struct ClearRetained {
     texture: wgpu::Texture,

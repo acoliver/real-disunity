@@ -5,6 +5,10 @@ mod fixture;
 use fixture::{SIZE, view};
 use std::time::Duration;
 use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
+    color_texture,
+};
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FrameRenderer, encode_scene, prepare_stock_scene},
@@ -14,10 +18,8 @@ use worldrunner_render_scene::{
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
     test_support::SceneTestSession,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
-        color_texture};
 
 struct CameraTaaFrame {
     context: GpuContext,

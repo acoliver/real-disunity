@@ -3,16 +3,18 @@
 use super::fixture::{FORMAT, SIZE};
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
+    FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{
         ConfiguredFrameRenderer, GameBuild, GameFeatureFactory, GamePasses, RendererConfiguration,
         TargetDeclaration, TargetExtent,
     },
     device::GpuContext,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-        FrameFeature, PassDeclaration, PrepareContext, PreparedFeature};
 
 const FIXED: [u32; 2] = [256, 256];
 /// The bytes of the fixed backing: 256 by 256 texels of four bytes.

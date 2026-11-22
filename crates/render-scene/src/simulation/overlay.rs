@@ -1,9 +1,10 @@
 //! Screen-space native text and graphics for the retained scene compositor.
 use crate::dynamic::{DynamicError, DynamicQuad};
 use std::collections::BTreeMap;
-use worldrunner_render_plan::{
-    SceneTexture, TexelFormat, TextureColorSpace,
-    ui::{UiDraw, UiDrawKind, UiPresentation, UiRenderPlan},
+use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::{
+    contribution::UiRenderPlan,
+    presentation::{UiDraw, UiDrawKind, UiPresentation},
 };
 
 /// Validated, pathless lower-left pixel geometry. World canvases use the scene path.
@@ -49,7 +50,7 @@ impl UiOverlay {
             .iter()
             .map(|d| if d.triangle_uv.is_some() { 3 } else { 6 })
             .sum();
-        if vertices > worldrunner_render_plan::ui::annotations::MAX_ANNOTATION_VERTICES {
+        if vertices > worldrunner_world_simulation::ui::annotations::MAX_ANNOTATION_VERTICES {
             return Err(DynamicError::DeviceLimit("UI frame vertex budget (65536)"));
         }
         let mut result = Self {

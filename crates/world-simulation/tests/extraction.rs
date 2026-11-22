@@ -1,6 +1,5 @@
-#![cfg(feature = "simulation")]
 use glam::{Mat4, Vec3};
-use worldrunner_render_plan::simulation::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::presentation::{Camera, Sprite, SpriteRenderer};
 use worldrunner_world_simulation::tilemap::{Tile, TileCell, Tilemap};
 use worldrunner_world_simulation::{
@@ -33,7 +32,7 @@ fn sprites_keep_texture_tint_uv_flip_and_stable_sorting() {
         }),
     )
     .unwrap();
-    let plan = extract_world(&w, &SpriteTextures::default(), [80, 40]).unwrap();
+    let plan = extract_world(&w, [80, 40]).unwrap();
     assert_eq!(plan.quads.len(), 1);
     assert_eq!(plan.quads[0].texture, Some(7));
     assert_eq!(
@@ -91,7 +90,7 @@ fn tile_matrix_and_object_hierarchy_are_composed_without_decomposition() {
     ]);
     w.add_component(object, ComponentDesc::Tilemap(one_tile(shear, [1, -1])))
         .unwrap();
-    let plan = extract_world(&w, &SpriteTextures::default(), [20, 20]).unwrap();
+    let plan = extract_world(&w, [20, 20]).unwrap();
     let basis = Mat4::from_cols_array(&[
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ]);
@@ -130,7 +129,7 @@ fn camera_clear_alpha_and_queries_use_the_render_camera() {
         }),
     )
     .unwrap();
-    let plan = extract_world(&w, &SpriteTextures::default(), [80, 40]).unwrap();
+    let plan = extract_world(&w, [80, 40]).unwrap();
     assert_eq!(
         plan.clear.map(f64::to_bits),
         [0.1, 0.2, 0.3, 0.25].map(f64::to_bits)

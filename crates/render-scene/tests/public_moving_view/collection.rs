@@ -13,9 +13,8 @@ use worldrunner_render_scene::{
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
-    wgpu
+    wgpu,
 };
-
 
 pub const WARMUP: usize = 30;
 pub const SAMPLES: usize = 120;

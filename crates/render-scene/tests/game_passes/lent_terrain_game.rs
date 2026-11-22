@@ -15,6 +15,10 @@ use worldrunner_render_plan::{
     TerrainLayeredSource, TerrainLodPolicy, TerrainSplatFilter, TerrainTypeGrid, TexelFormat,
     TextureAnisotropy, TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -29,11 +33,8 @@ use worldrunner_render_scene::{
     },
     draw::{PreparedAppend, SceneGpu},
     frame::FrameUniform,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef};
 
 pub(super) const OUT: &str = "lent.terrain";
 const ENTRY: PassEntry = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 0);

@@ -11,6 +11,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
+};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -28,10 +32,8 @@ use worldrunner_render_scene::{
         GamePasses, GameResources, GameTargets, LevelAccess, PassTarget, TargetDeclaration,
         TargetExtent,
     },
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature};
 
 const FLOAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 const SEED: &str = "compute.seed";

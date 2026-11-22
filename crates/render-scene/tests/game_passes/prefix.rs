@@ -8,6 +8,10 @@ use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::SceneCamera;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
@@ -21,10 +25,8 @@ use worldrunner_render_scene::{
     },
     frame::metadata::FrameProduct,
     shadows::sdsm::DepthRange,
-    wgpu
+    wgpu,
 };
-use worldrunner_render_post::{AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature};
 
 /// The central square of the screen at device depth `depth`, nearer the camera than the stock
 /// quad behind it, with a view-space normal that faces the camera and covers the pixel.

@@ -224,19 +224,19 @@ Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSett
 composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
 `AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
-`AntiAliasing::jitter: Option<ProjectionJitter>` shifts the projection by a sub-pixel offset.
+`ProjectionJitter` shifts the projection by a sub-pixel offset.
 `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64 frames
 (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
 offset in internal raster pixels, strictly inside (-0.5, 0.5) with +y down, and
 `clip_offset(frame_index, size)` the matching clip-space translation. The projection shift moves
-the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. `AntiAliasing::new`
-leaves jitter off. `PostResolve::Taa` turns it on with the default sequence
+the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. Only
+`PostResolve::Taa` jitters, with the default sequence
 (`PostResolve::effective_jitter`); see [Temporal antialiasing](#temporal-antialiasing).
 `ProjectionJitter::for_extents(render, output)` returns the sequence for a scene rasterised below
 its output extent. Its length is `ceil(8 * max(Ow / Rw, Oh / Rh)^2)`, computed per axis with integers
 from the rounded extents: 8 at equal extents, 32 at 0.5, 18 at 0.67 and 14 at 0.77 of 1920x1080.
 It rejects empty extents, a render extent above the output or below half of it, and a length above
-64. Pass it through `AntiAliasing::with_jitter`; no default uses it yet.
+64. Temporal upscaling selects it by itself (`HdrPostSettings::effective_jitter`).
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -1048,7 +1048,7 @@ exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` foll
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
 frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
 0.00046 against 0.00161 with jitter at 64x64; resampling the shifted frame gave 0.00153), the box is the
-3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. An explicit `with_jitter` sequence on a multisampled target is ignored; `taa_reference.rs` is the f64 reference the GPU tests compare against.
+3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. A multisampled target is never jittered; `taa_reference.rs` is the f64 reference the GPU tests compare against.
 
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
 `texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and

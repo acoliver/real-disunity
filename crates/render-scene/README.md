@@ -909,10 +909,11 @@ CMAA2 remains available through the post descriptor, not the scene recipe.
 
 The TAA resolve (`PostResolve::Taa`, issue 256) accumulates jittered frames; see the
 [rendering guide](../../docs/rendering.md#temporal-antialiasing). Projection jitter and
-previous-frame view data are off unless requested or implied by TAA, and byte-identical when off.
+previous-frame view data are on exactly when the resolve is TAA.
 
-Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiased`, or
-`FrameRenderer::set_projection_jitter` on an existing renderer. `prepare_uniform` then adds
+A TAA resolve selects its sequence when the renderer is built
+(`PostResolve::effective_jitter`, or the extent-derived sequence under temporal upscaling);
+`FrameRenderer::set_projection_jitter` replaces it on an existing renderer. `prepare_uniform` then adds
 the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
 rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
 matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and

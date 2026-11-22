@@ -240,9 +240,8 @@ impl FrameRenderer {
     /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
-    /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
-    /// see [`Self::set_projection_jitter`]. It is off unless requested, except that a TAA
-    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]).
+    /// A TAA resolve turns on sub-pixel projection jitter and previous-frame view data
+    /// ([`PostResolve::effective_jitter`]); see [`Self::set_projection_jitter`].
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],

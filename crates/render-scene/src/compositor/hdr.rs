@@ -95,7 +95,7 @@ fn validate_hdr(request: &HdrRequest<'_>) -> Result<HdrPostSettings, PostError> 
         config,
         request.effects.and_then(|effects| effects.ssr()),
     )?;
-    post.validate_frame_with_jitter(config, request.antialiasing.jitter)?;
+    post.validate_frame(config)?;
     opaque::validate_hdr_admission(request.context.device(), config, &post, request.effects)?;
     Ok(post)
 }
@@ -168,11 +168,7 @@ fn finish_renderer(
     renderer.install_reflections(request.context.device())?;
     renderer.install_gbuffer_producer(request.context.device());
     renderer.share_metadata_depth(request.context.device());
-    renderer.set_projection_jitter(crate::post::jitter(
-        post,
-        config,
-        request.antialiasing.jitter,
-    )?)?;
+    renderer.set_projection_jitter(crate::post::jitter(post, config)?)?;
     if let Some(effects) = request.effects {
         renderer.install_water_bodies(
             request.context.device(),

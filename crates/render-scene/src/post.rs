@@ -121,9 +121,8 @@ fn smaa(
 pub(crate) fn jitter(
     post: &HdrPostSettings,
     config: worldrunner_render_post::FrameConfig,
-    explicit: Option<ProjectionJitter>,
 ) -> Result<Option<ProjectionJitter>, PostError> {
-    post.effective_jitter(config, explicit)
+    post.effective_jitter(config)
 }
 /// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
 /// the descriptor may not both choose a resolve.

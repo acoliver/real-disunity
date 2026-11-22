@@ -34,7 +34,7 @@ fn smaa_presets_translate_exactly_with_both_edge_modes_and_no_jitter() {
                 })
             );
             let config = p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1);
-            assert_eq!(post::jitter(&settings, config, None), Ok(None));
+            assert_eq!(post::jitter(&settings, config), Ok(None));
             assert_eq!(crate::frame::validate_stock_effects(&authored), Ok(()));
         }
     }
@@ -157,8 +157,7 @@ fn existing_scene_choices_keep_their_settings_and_jitter() {
         assert_eq!(
             post::jitter(
                 &settings,
-                p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1),
-                None
+                p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
             ),
             Ok(jitter)
         );

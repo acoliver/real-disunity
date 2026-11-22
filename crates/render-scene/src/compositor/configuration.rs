@@ -707,7 +707,7 @@ fn install_jitter(
     renderer: &mut FrameRenderer,
     settings: &RendererConfiguration,
 ) -> Result<(), PostError> {
-    renderer.set_projection_jitter(crate::post::jitter(&settings.post, settings.frame, None)?)
+    renderer.set_projection_jitter(crate::post::jitter(&settings.post, settings.frame)?)
 }
 #[cfg(test)]
 #[path = "configuration_tests.rs"]

@@ -378,7 +378,7 @@ fn a_frame_without_jitter_data_publishes_nothing() {
 }
 
 #[test]
-fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
+fn the_public_descriptor_without_taa_renders_unjittered() {
     use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
@@ -395,10 +395,6 @@ fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
     };
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
     assert_eq!(build(plain).projection_jitter(), None);
-    assert_eq!(
-        build(plain.with_jitter(jitter())).projection_jitter(),
-        Some(jitter())
-    );
 }
 
 #[test]
@@ -458,9 +454,6 @@ fn taa_builds_at_construction_with_jitter_enabled_automatically() {
     };
     let automatic = build(taa_descriptor(), None);
     assert_eq!(automatic.projection_jitter(), Some(jitter()));
-    let explicit = ProjectionJitter::new(16).unwrap();
-    let chosen = build(taa_descriptor().with_jitter(explicit), None);
-    assert_eq!(chosen.projection_jitter(), Some(explicit));
     let authored =
         crate::post_taa_tests::effects(worldrunner_render_plan::SceneAntiAlias::taa(900_000), None);
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);

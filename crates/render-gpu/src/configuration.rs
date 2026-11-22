@@ -503,10 +503,6 @@ impl<T> Configuration<T> {
     pub fn retired_count(&self) -> usize {
         self.retired.len()
     }
-    pub fn set_budget(&mut self, budget: AllocationBudget) {
-        self.budget = budget;
-        self.policy = budget.into();
-    }
     pub fn budget(&self) -> AllocationBudget {
         self.budget
     }

@@ -159,7 +159,7 @@ fn scene_fxaa_and_taa_match_the_existing_descriptor_path_bytes() {
             SceneAntiAlias::Fxaa {
                 subpixel_micro: 750_000,
             },
-            PostResolve::fxaa(0.75),
+            PostResolve::fxaa(0.75, worldrunner_render_post::FxaaQuality::default()),
         ),
         (SceneAntiAlias::taa(900_000), PostResolve::taa(0.9)),
     ] {

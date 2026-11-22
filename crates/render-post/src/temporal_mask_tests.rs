@@ -34,7 +34,10 @@ fn only_the_temporal_upscale_asks_for_masks() {
     for mode in [None, Some(UpscaleMode::Bilinear), Some(UpscaleMode::Easu)] {
         assert!(!needs(settings(PostResolve::taa(0.9), mode)), "{mode:?}");
     }
-    assert!(!needs(settings(PostResolve::fxaa(0.5), None)));
+    assert!(!needs(settings(
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
+        None
+    )));
     assert!(!needs(settings(PostResolve::None, None)));
 }
 
@@ -131,7 +134,7 @@ fn only_reconstructing_temporal_upscale_declares_mask_bytes() {
     for mode in [None, Some(UpscaleMode::Bilinear), Some(UpscaleMode::Easu)] {
         for resolve in [
             PostResolve::None,
-            PostResolve::fxaa(0.5),
+            PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
             PostResolve::taa(0.9),
         ] {
             assert_eq!(masks(config(), settings(resolve, mode)), 0, "{mode:?}");

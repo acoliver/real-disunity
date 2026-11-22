@@ -110,7 +110,7 @@ fn smaa_rejects_duplicate_resolves_even_with_zero_fxaa_weight() {
     }
     let authored = effects(smaa, None);
     for resolve in [
-        p::PostResolve::fxaa(0.5),
+        p::PostResolve::fxaa(0.5, p::FxaaQuality::default()),
         p::PostResolve::taa(0.9),
         p::PostResolve::Smaa(p::SmaaSettings::LOW),
     ] {
@@ -132,7 +132,7 @@ fn existing_scene_choices_keep_their_settings_and_jitter() {
             s::SceneAntiAlias::Fxaa {
                 subpixel_micro: 750_000,
             },
-            p::PostResolve::fxaa(0.75),
+            p::PostResolve::fxaa(0.75, p::FxaaQuality::default()),
             None,
         ),
         (

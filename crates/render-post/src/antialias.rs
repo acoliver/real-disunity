@@ -72,12 +72,7 @@ pub enum PostResolve {
     Taa(TaaSettings),
 }
 impl PostResolve {
-    /// FXAA with the default quality controls.
-    pub fn fxaa(strength: f32) -> Self {
-        Self::fxaa_with(strength, FxaaQuality::default())
-    }
-
-    pub fn fxaa_with(strength: f32, quality: FxaaQuality) -> Self {
+    pub fn fxaa(strength: f32, quality: FxaaQuality) -> Self {
         Self::Fxaa(FxaaSettings { strength, quality })
     }
 

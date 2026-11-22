@@ -102,7 +102,10 @@ fn a_descriptor_resolve_and_an_authored_resolve_conflict_in_either_order() {
     let aa = |resolve| p::AntiAliasing::new(p::MsaaSamples::X1, resolve);
     for (effects, resolve) in [
         (&authored_taa, p::PostResolve::taa(0.5)),
-        (&authored_taa, p::PostResolve::fxaa(0.5)),
+        (
+            &authored_taa,
+            p::PostResolve::fxaa(0.5, p::FxaaQuality::default()),
+        ),
         (&authored_fxaa, p::PostResolve::taa(0.5)),
     ] {
         assert_eq!(

@@ -318,7 +318,7 @@ fn gpu_fxaa_smooths_diagonal_preserves_flat_within_the_half_store_and_disabled_b
     let filtered = chain(
         &device,
         &HdrPostSettings {
-            resolve: crate::PostResolve::fxaa(1.0),
+            resolve: crate::PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
             ..HdrPostSettings::default()
         },
         [32, 32],

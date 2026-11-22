@@ -5,7 +5,7 @@ use crate::*;
 fn gpu_native_rcas_follows_resolve_and_cas() {
     let (device, queue) = crate::gpu_tests::gpu();
     for resolve in [
-        PostResolve::fxaa(1.0),
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::Low),
         PostResolve::cmaa2(Cmaa2Preset::High),
     ] {

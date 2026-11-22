@@ -33,7 +33,10 @@ fn unsupported(message: &'static str) -> Result<(), PostError> {
 
 #[test]
 fn temporal_without_taa_is_rejected_at_reduced_and_equal_extents() {
-    for resolve in [PostResolve::None, PostResolve::fxaa(1.0)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
+    ] {
         for render in [REDUCED, OUTPUT] {
             assert_eq!(
                 temporal(resolve).validate_frame(config(render, 1)),

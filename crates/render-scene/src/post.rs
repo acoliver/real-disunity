@@ -58,7 +58,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
             fxaa_strength
                 .filter(|weight| *weight > 0.0)
                 .map_or(PostResolve::None, |weight| {
-                    PostResolve::fxaa_with(weight, fxaa_quality)
+                    PostResolve::fxaa(weight, fxaa_quality)
                 })
         },
         PostResolve::taa_with,

@@ -497,7 +497,10 @@ fn clearing_jitter_is_allowed_without_taa() {
     let context = context();
     let mut renderer = renderer(&context);
     assert_eq!(renderer.set_projection_jitter(None), Ok(()));
-    for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
+    ] {
         renderer.post_requested.resolve = resolve;
         assert_eq!(renderer.set_projection_jitter(Some(jitter())), Ok(()));
         assert_eq!(renderer.set_projection_jitter(None), Ok(()), "{resolve:?}");

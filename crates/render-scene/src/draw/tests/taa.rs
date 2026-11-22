@@ -62,7 +62,10 @@ fn renderers_without_taa_accept_any_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let host = foreign_depth(&context);
-    for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
+    ] {
         let plain = renderer(&context, resolve);
         assert_eq!(
             plain.validate_taa_depth(&attachment("scene depth", &host)),

@@ -604,7 +604,7 @@ fn renderers_without_taa_do_not_jitter_or_accumulate() {
     let context = context();
     let resolves = [
         PostResolve::None,
-        PostResolve::fxaa(0.5),
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::Medium),
         PostResolve::cmaa2(Cmaa2Preset::Medium),
     ];

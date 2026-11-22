@@ -115,7 +115,10 @@ fn active_taa_is_only_present_for_the_taa_resolve() {
         Some(TaaSettings::new(0.9))
     );
     assert_eq!(PostResolve::None.active_taa(), None);
-    assert_eq!(PostResolve::fxaa(0.5).active_taa(), None);
+    assert_eq!(
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()).active_taa(),
+        None
+    );
     assert_eq!(PostResolve::smaa(SmaaPreset::High).active_taa(), None);
 }
 
@@ -142,7 +145,7 @@ fn other_resolves_keep_their_explicit_jitter_choice() {
     let jitter = ProjectionJitter::new(4).unwrap();
     for resolve in [
         PostResolve::None,
-        PostResolve::fxaa(0.5),
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::High),
         PostResolve::Fxaa(FxaaSettings {
             strength: 0.0,

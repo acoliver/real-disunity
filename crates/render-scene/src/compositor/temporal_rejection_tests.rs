@@ -51,7 +51,10 @@ fn below_half() -> RendererConfiguration {
 fn unsupported() -> Vec<RendererConfiguration> {
     vec![
         without_taa(PostResolve::None),
-        without_taa(PostResolve::fxaa(1.0)),
+        without_taa(PostResolve::fxaa(
+            1.0,
+            worldrunner_render_post::FxaaQuality::default(),
+        )),
         without_taa(PostResolve::Smaa(SmaaSettings::default())),
         without_taa(PostResolve::Cmaa2(Cmaa2Settings::default())),
         multisampled(4),

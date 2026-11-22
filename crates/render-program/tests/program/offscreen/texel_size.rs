@@ -6,7 +6,9 @@ use worldrunner_render_program::layers::TextureInput;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::shader::ProgramShader;
-use worldrunner_render_program::unity::synthetic::shaders::{albedo_parameters, no_cull, variant};
+use worldrunner_render_program::unity::synthetic::shaders::{
+    albedo_parameters, no_cull, tint_parameters, variant,
+};
 use worldrunner_render_program::unity::synthetic::{
     PassSpec, constant_buffer, shader, vector_member,
 };
@@ -40,28 +42,45 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
         + textureSample(albedo, albedo_sampler, in.uv) * 0.0;
 }";
 
-fn parameters() -> VariantParameters {
-    let mut parameters = albedo_parameters();
+/// The same readout for a texture `_G` that the pass declares a `_G_TexelSize` member for and
+/// never samples, the way a shadow caster reads the size of a global texture.
+const SHOW_UNSAMPLED_TEXEL_SIZE: &str = "
+struct Material { tint: vec4<f32>, g_texel_size: vec4<f32> }
+struct Draw { place: vec4<f32> }
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+@vertex fn vs_main(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(position.xy * draw.place.xy + draw.place.zw, position.z, 1.0);
+}
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    let t = material.g_texel_size;
+    return vec4<f32>(t.x * 4.0, t.y * 2.0, t.z * 0.25, t.w * 0.5);
+}";
+
+fn parameters(base: VariantParameters, member: &str) -> VariantParameters {
+    let mut parameters = base;
     parameters.constant_buffers[0] = constant_buffer(
         "Material",
         32,
-        vec![
-            vector_member("_Tint", 0),
-            vector_member("_Albedo_TexelSize", 16),
-        ],
+        vec![vector_member("_Tint", 0), vector_member(member, 16)],
     );
     parameters
 }
 
-/// One renderer over a 4x4 target, drawn by the pass that shows the texel size, with an albedo
-/// texture of `size` bound to the material.
-fn frame(rig: &mut Rig, size: [u32; 2]) -> OffscreenFrame {
+/// One renderer over a 4x4 target, drawn by `wgsl` with `parameters`, and a texture of `size`
+/// uploaded as `ALBEDO` that no layer binds yet.
+fn base(
+    rig: &mut Rig,
+    wgsl: &str,
+    parameters: VariantParameters,
+    size: [u32; 2],
+) -> OffscreenFrame {
     let mut frame = fixture(rig, 1 << 1);
     let synthetic = no_cull(shader(
         &[],
         &[PassSpec {
             tags: vec![("LIGHTMODE", "Alpha")],
-            variants: vec![variant(&[], SHOW_TEXEL_SIZE, "fs_main", parameters())],
+            variants: vec![variant(&[], wgsl, "fs_main", parameters)],
         }],
     ));
     rig.state.add_shader(
@@ -75,6 +94,14 @@ fn frame(rig: &mut Rig, size: [u32; 2]) -> OffscreenFrame {
     rig.state
         .set_texture(&mut rig.runtime, &source(7, size, bytes))
         .unwrap();
+    frame
+}
+
+/// `base` for the pass that samples `_Albedo` and shows its texel size, with the texture bound
+/// to the material.
+fn frame(rig: &mut Rig, size: [u32; 2]) -> OffscreenFrame {
+    let parameters = parameters(albedo_parameters(), "_Albedo_TexelSize");
+    let mut frame = base(rig, SHOW_TEXEL_SIZE, parameters, size);
     let properties = &mut frame.materials.get_mut(&MaterialId(1)).unwrap().properties;
     properties.values = layer(&[("_Tint", [1.0; 4])]).values;
     properties.textures.insert(
@@ -119,6 +146,59 @@ fn a_texel_size_a_layer_sets_is_the_one_the_draw_reads() {
         .values
         .set(
             "_Albedo_TexelSize",
+            PropertyValue::Vector([0.125, 0.25, 0.0, 0.0]),
+        );
+    assert_eq!(center(&mut rig, &frame), [128, 128, 0, 0]);
+}
+
+/// `base` for the pass that reads `_G_TexelSize` and samples no `_G`; the caller decides which
+/// layer, if any, names a texture `_G`.
+fn unsampled(rig: &mut Rig) -> OffscreenFrame {
+    let parameters = parameters(tint_parameters(), "_G_TexelSize");
+    let mut frame = base(rig, SHOW_UNSAMPLED_TEXEL_SIZE, parameters, [4, 2]);
+    let properties = &mut frame.materials.get_mut(&MaterialId(1)).unwrap().properties;
+    properties.values = layer(&[("_Tint", [1.0; 4])]).values;
+    frame
+}
+
+fn global_g(frame: &mut OffscreenFrame) {
+    frame.globals.textures.insert(
+        "_G".to_owned(),
+        TextureInput {
+            texture: ALBEDO,
+            sampler: None,
+        },
+    );
+}
+
+#[test]
+fn a_texel_size_comes_from_the_texture_a_layer_names_though_the_draw_never_samples_it() {
+    let mut rig = Rig::new();
+    let mut frame = unsampled(&mut rig);
+    global_g(&mut frame);
+    assert_eq!(center(&mut rig, &frame), WHITE);
+}
+
+#[test]
+fn a_texel_size_no_layer_names_a_texture_for_is_zero() {
+    let mut rig = Rig::new();
+    let frame = unsampled(&mut rig);
+    assert_eq!(center(&mut rig, &frame), [0; 4]);
+}
+
+#[test]
+fn an_explicit_texel_size_wins_over_the_texture_the_name_resolves_to() {
+    let mut rig = Rig::new();
+    let mut frame = unsampled(&mut rig);
+    global_g(&mut frame);
+    frame
+        .materials
+        .get_mut(&MaterialId(1))
+        .unwrap()
+        .properties
+        .values
+        .set(
+            "_G_TexelSize",
             PropertyValue::Vector([0.125, 0.25, 0.0, 0.0]),
         );
     assert_eq!(center(&mut rig, &frame), [128, 128, 0, 0]);

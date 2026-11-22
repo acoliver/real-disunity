@@ -181,7 +181,7 @@ impl MeshArena {
 
     /// Uploads already packed mesh levels without processing source geometry.
     pub(super) fn upload(
-        &self,
+        self,
         device: &Device,
         census: &MemoryCensus,
         meshes: &[PreparedMesh],
@@ -209,7 +209,7 @@ impl MeshArena {
 
     /// Packs each pool's requests into chunks and returns one span for each request, in order.
     fn pool_spans(
-        &self,
+        self,
         device: &Device,
         census: &MemoryCensus,
         requests: &[Request<'_>],

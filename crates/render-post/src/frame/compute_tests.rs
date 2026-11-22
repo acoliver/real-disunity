@@ -633,16 +633,14 @@ fn a_compute_pass_writes_in_a_capture_only_the_allocations_the_capture_declares(
     );
 
     let (refused, chain_key, log) = captured(false);
-    let undeclared = match &refused {
-        Err(
-            CaptureError::Write(WriteError::Undeclared(key))
-            | CaptureError::Preparation(FrameError::ResourceContract(ContractError::CaptureWrite(
-                WriteError::Undeclared(key),
-            ))),
-        ) => Some(*key),
-        other => panic!("the compute pass's write of the chain is not declared: {other:?}"),
+    // The frame's encoding refuses the undeclared write, so the capture's suffix never runs.
+    let Err(CaptureError::Preparation(FrameError::ResourceContract(ContractError::CaptureWrite(
+        WriteError::Undeclared(undeclared),
+    )))) = refused
+    else {
+        panic!("the compute pass's write of the chain is not declared: {refused:?}");
     };
-    assert_eq!(undeclared, Some(chain_key));
+    assert_eq!(undeclared, chain_key);
     assert!(
         !log.iter().any(|entry| entry.starts_with("compute:")),
         "nothing was recorded in the compute pass: {log:?}"

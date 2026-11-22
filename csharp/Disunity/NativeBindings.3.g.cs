@@ -11,6 +11,12 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
+        ///  caller checks the pass against the shader's pass count; the world holds none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
+        /// <summary>
         ///  Binds the compute buffer `buffer` to the property `name` of a material as a structured
         ///  buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
         ///  that is not alive is refused and the material is unchanged. Draws of the material read the

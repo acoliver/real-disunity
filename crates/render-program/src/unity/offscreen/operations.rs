@@ -233,6 +233,14 @@ impl OffscreenOperations {
             .collect()
     }
 
+    /// The texture property names the slots of the planned draws looked up in the layers, whether
+    /// or not a layer held a texture under the name, sorted. A name that a global is set under and
+    /// that is not here is a global no draw read.
+    #[must_use]
+    pub fn looked_up_textures(&self) -> &std::collections::BTreeSet<String> {
+        &self.counts.texture_lookups
+    }
+
     /// The recorded draws that read at least one stand-in texture.
     #[must_use]
     pub fn draws_with_stand_ins(&self) -> usize {

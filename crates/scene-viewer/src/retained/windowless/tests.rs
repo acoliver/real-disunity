@@ -14,6 +14,7 @@ mod shared_device;
 mod terrain;
 mod timers;
 mod timing;
+mod ui_target;
 mod watchdog;
 mod work;
 use watchdog::CaptureWatchdog;

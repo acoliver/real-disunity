@@ -6,7 +6,8 @@ namespace UnityEngine;
 /// <summary>
 /// A shader known to the engine by name. A shader exists once <see cref="DisunityHost.RegisterShader"/> has
 /// registered it, and <see cref="Find"/> returns only registered shaders. The engine has no shader programs
-/// or declarations, so the members that read a shader's passes, tags, keywords or properties throw
+/// or declarations beyond what a player's plan carries (queue, pass names, sub-shader count, the first sub-shader's tags and
+/// the fallback name), so the members that read a shader's other passes, keywords or properties, or its undeclared passes or tags, throw
 /// <see cref="NotSupportedException"/>, and so do renderQueue, passCount, subshaderCount and an unset maximumLOD,
 /// except for the two built-in sprite shaders, whose queue (3000) and, for Sprites/Default, pass and subshader
 /// counts (1) are known. The global properties and keywords are stored and read back, and sent to the world.
@@ -61,18 +62,20 @@ public sealed partial class Shader : Object
     }
 
     /// <summary>Records what a player's plan declares: the queue, the names of the first sub-shader's passes in order (whose
-    /// count is the pass count) and the number of sub-shaders.</summary>
-    internal Shader Declare(int renderQueue, IReadOnlyList<string> passNames, int subshaderCount)
+    /// count is the pass count), the number of sub-shaders, and the tags and fallback when it carries them.</summary>
+    internal Shader Declare(ShaderDeclaration declaration)
     {
-        _passNames = passNames.ToArray();
-        return Declare(renderQueue, passNames.Count, subshaderCount);
+        _passNames = declaration.PassNames.ToArray();
+        DeclareTags(declaration);
+        return Declare(declaration.RenderQueue, declaration.PassNames.Count, declaration.SubshaderCount);
     }
 
     /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, or the queue
-    /// matches and each count and each list of names that is known matches.</summary>
-    internal bool Agrees(int renderQueue, IReadOnlyList<string> passNames, int subshaderCount) =>
-        _renderQueue is null || (_renderQueue == renderQueue && (_passCount ?? passNames.Count) == passNames.Count
-            && (_subshaderCount ?? subshaderCount) == subshaderCount && (_passNames is null || _passNames.SequenceEqual(passNames)));
+    /// matches and each count, list of names, tag set and fallback that is known matches.</summary>
+    internal bool Agrees(ShaderDeclaration declaration) =>
+        _renderQueue is null || (_renderQueue == declaration.RenderQueue && (_passCount ?? declaration.PassNames.Count) == declaration.PassNames.Count
+            && (_subshaderCount ?? declaration.SubshaderCount) == declaration.SubshaderCount
+            && (_passNames is null || _passNames.SequenceEqual(declaration.PassNames)) && TagsAgree(declaration));
 
     /// <summary>The names of the first sub-shader's passes in order. A shader whose names are not declared throws
     /// <see cref="NotSupportedException"/> naming <paramref name="member"/>.</summary>

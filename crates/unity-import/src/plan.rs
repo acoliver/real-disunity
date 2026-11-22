@@ -283,6 +283,8 @@ pub enum PlanAsset {
         pass_count: usize,
         pass_names: Vec<String>,
         subshader_count: usize,
+        tags: Vec<(String, String)>,
+        fallback: String,
         file: String,
         path_id: i64,
     },

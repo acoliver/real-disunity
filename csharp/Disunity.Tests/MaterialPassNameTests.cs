@@ -24,7 +24,7 @@ internal static class MaterialPassNameTests
     }
 
     private static Material Declared(string shader) =>
-        new(DisunityHost.DeclareShader(shader, 2000, Names, 1, _ => { })) { name = "Lit" };
+        new(DisunityHost.DeclareShader(shader, new ShaderDeclaration(2000, Names, 1), _ => { })) { name = "Lit" };
 
     private static void FindPassFindsAPassByNameAndIgnoresCase()
     {
@@ -85,9 +85,9 @@ internal static class MaterialPassNameTests
         var shader = DisunityHost.RegisterShader("Test/PassNames/Completed").Declare(2000, 4, 1);
         Expect.Catch<NotSupportedException>(() => new Material(shader).FindPass("ForwardLit"), "FindPass before the names are declared");
         var differences = new List<string>();
-        DisunityHost.DeclareShader("Test/PassNames/Completed", 2000, Names, 1, differences.Add);
+        DisunityHost.DeclareShader("Test/PassNames/Completed", new ShaderDeclaration(2000, Names, 1), differences.Add);
         Expect.That(differences.Count == 0 && new Material(shader).FindPass("ShadowCaster") == 2, "the later declaration supplies the names without a difference");
-        DisunityHost.DeclareShader("Test/PassNames/Completed", 2000, ["ForwardLit", "", "Meta", "ForwardLit"], 1, differences.Add);
+        DisunityHost.DeclareShader("Test/PassNames/Completed", new ShaderDeclaration(2000, ["ForwardLit", "", "Meta", "ForwardLit"], 1), differences.Add);
         Expect.That(differences.Count == 1 && new Material(shader).FindPass("Meta") == -1, "a third declaration with another name is noted and not applied");
     }
 }

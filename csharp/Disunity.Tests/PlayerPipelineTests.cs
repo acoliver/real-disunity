@@ -109,8 +109,8 @@ internal static class PlayerPipelineTests
             File.WriteAllText(Path.Combine(directory, $"{i}.json"), classes[i].Item3);
             assets.Add(new JsonObject { ["type"] = "Script", ["class"] = classes[i].Item2, ["assembly"] = AssemblyName, ["name"] = classes[i].Item1, ["fields"] = $"{i}.json" });
         }
-        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1 });
-        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = InResources, ["render_queue"] = 3000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1 });
+        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1, ["tags"] = new JsonArray(), ["fallback"] = "" });
+        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = InResources, ["render_queue"] = 3000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1, ["tags"] = new JsonArray(), ["fallback"] = "" });
         assets.Add(new JsonObject { ["type"] = "UnplannedShader", ["error"] = "the shader did not decode" });
         var plan = new JsonObject { ["entries"] = entries ?? new JsonArray(), ["assets"] = assets, ["differences"] = new JsonArray() };
         if (graphics is not null) plan["graphics"] = graphics;

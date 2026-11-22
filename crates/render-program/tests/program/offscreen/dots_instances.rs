@@ -10,6 +10,7 @@
 
 use worldrunner_render_program::ids::{MaterialId, RendererId};
 use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 use worldrunner_render_program::unity::offscreen::frame::{
     DotsBatch, Instances, ListDraw, OffscreenFrame,
 };
@@ -295,5 +296,58 @@ fn three_instances_are_drawn_at_the_matrices_their_visible_indexes_name() {
     assert!(
         !image.chunks(4).any(|texel| texel == MARKER),
         "the plain variant drew"
+    );
+}
+
+fn drawn(operations: &OffscreenOperations) -> usize {
+    operations.list_draws()[0].drawn
+}
+
+#[test]
+fn a_batch_longer_than_the_visible_block_is_drawn_in_chunks_of_the_blocks_length() {
+    let mut rig = Rig::new();
+    let cells = 300;
+    let buffer = instance_data(&mut rig, &(0..cells).collect::<Vec<_>>(), cells);
+    let visible = (0..u32::try_from(cells).unwrap()).collect();
+    let frame = dots_frame(&mut rig, 256, cells, vec![dots_item(buffer, visible)]);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(drawn(&operations), 2, "256 instances, then 44");
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    let width = u32::try_from(cells * 2).unwrap();
+    for cell in 0..u32::try_from(cells).unwrap() {
+        let texel = pixel(&image, width, (cell * 2, 1));
+        assert!(
+            texel != CLEAR && texel != MARKER,
+            "cell {cell} is {texel:?}, not drawn by the DOTS variant"
+        );
+    }
+}
+
+#[test]
+fn chunks_of_a_batch_draw_the_instances_in_the_order_the_batch_lists_them() {
+    let mut rig = Rig::new();
+    let buffer = instance_data(&mut rig, &[0, 1, 2, 3, 4], 5);
+    let frame = dots_frame(&mut rig, 2, 5, vec![dots_item(buffer, vec![4, 3, 2, 1, 0])]);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(drawn(&operations), 3, "chunks of 2, 2 and 1");
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_cells(&image, &[0, 1, 2, 3, 4].map(|e| Some(element_color(e))));
+}
+
+#[test]
+fn a_batch_with_no_visible_instance_draws_nothing_and_its_neighbours_still_draw() {
+    let mut rig = Rig::new();
+    let buffer = instance_data(&mut rig, &[3, 1], 4);
+    let items = vec![dots_item(buffer, Vec::new()), dots_item(buffer, vec![1, 0])];
+    let frame = dots_frame(&mut rig, 4, 4, items);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(drawn(&operations), 1);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_cells(
+        &image,
+        &[None, Some(element_color(1)), None, Some(element_color(0))],
     );
 }

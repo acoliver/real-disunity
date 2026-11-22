@@ -21,7 +21,7 @@ use crate::ids::{MaterialId, RendererId};
 
 use super::error::OffscreenError;
 use super::frame::{DotsBatch, OffscreenFrame};
-use super::plan::Services;
+use super::plan::{ProgramEntry, Services};
 use super::steps::{CameraDraw, Look, planned_draw};
 
 /// The keyword of the variant that reads instances from a raw buffer.
@@ -57,6 +57,12 @@ impl DotsDraw<'_> {
         (name == INSTANCE_DATA).then_some(self.batch.buffer)
     }
 
+    /// The visible indexes this draw shows: those from `from` on, as many as `capacity` holds.
+    pub(super) fn indexes(&self, capacity: usize) -> &[u32] {
+        let rest = &self.batch.visible[self.from..];
+        &rest[..rest.len().min(capacity)]
+    }
+
     /// The values the members of the constant block `layout` take from the batch: the game's
     /// words for the metadata members, and the draw's visible indexes for the visibility block.
     ///
@@ -73,7 +79,8 @@ impl DotsDraw<'_> {
                 }
             }
         } else if block == VISIBILITY_BLOCK {
-            let indexes = self.batch.visible[self.from..]
+            let indexes = self
+                .indexes(capacity(layout)?)
                 .iter()
                 .map(|index| [index.cast_signed(), 0, 0, 0])
                 .collect();
@@ -94,11 +101,29 @@ impl DotsDraw<'_> {
     }
 }
 
-/// The draws of a batch: one, whose instances are the batch's visible instances.
+/// How many instances one draw of the variant `entry` can show: the length of the visibility
+/// block's struct array. A variant with no such block shows as many as it is given.
+fn block_capacity(entry: &ProgramEntry) -> Result<usize, OffscreenError> {
+    for target in &entry.constants {
+        if target.buffer.name.resolve(&[])? == VISIBILITY_BLOCK {
+            return capacity(&target.buffer);
+        }
+    }
+    Ok(usize::MAX)
+}
+
+fn capacity(layout: &BufferLayout) -> Result<usize, OffscreenError> {
+    let placement = layout.struct_placement(&[])?;
+    Ok(placement.map_or(usize::MAX, |(_, placement)| placement.count))
+}
+
+/// The draws of a batch: one for each run of visible instances that fits the variant's
+/// visibility block, in order. The instance index of a draw starts at 0, so each draw's block
+/// holds the indexes of its own run.
 ///
 /// # Errors
-/// Fails with the refusal that planning the draw gives. A draw left out for a counted cause gives
-/// none.
+/// Fails with the refusal that planning a draw gives. A draw left out for a counted cause ends
+/// the batch's draws there.
 pub(super) fn draws(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
@@ -106,25 +131,24 @@ pub(super) fn draws(
     ids: (MaterialId, RendererId, usize),
     batch: &DotsBatch,
 ) -> Result<Vec<CameraDraw>, OffscreenError> {
-    let Ok(count) = u32::try_from(batch.visible.len()) else {
-        return Err(OffscreenError::Unknown(
-            "a batch of fewer instances".to_owned(),
-        ));
-    };
-    if count == 0 {
-        return Ok(Vec::new());
+    let mut draws = Vec::new();
+    let mut from = 0;
+    while from < batch.visible.len() {
+        let dots = DotsDraw { batch, from };
+        let look = Look {
+            dots: Some(dots),
+            ..*look
+        };
+        let Some(mut draw) = planned_draw(svc, frame, &look, ids)? else {
+            break;
+        };
+        let taken = dots.indexes(block_capacity(&draw.plan.entry)?).len();
+        let count = u32::try_from(taken).map_err(|_| {
+            OffscreenError::Unknown("fewer than 2^32 instances in one draw".to_owned())
+        })?;
+        draw.geometry.instances = 0..count;
+        draws.push(draw);
+        from += taken;
     }
-    let dots = DotsDraw { batch, from: 0 };
-    let look = Look {
-        dots: Some(dots),
-        ..*look
-    };
-    let planned = planned_draw(svc, frame, &look, ids)?;
-    Ok(planned
-        .into_iter()
-        .map(|mut draw| {
-            draw.geometry.instances = 0..count;
-            draw
-        })
-        .collect())
+    Ok(draws)
 }

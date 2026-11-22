@@ -94,3 +94,11 @@ These come from `.llxprt/skills/disunity-code-standards`. CI enforces the config
 ## Writing these pages
 
 Follow the project writing guide ([acoliver/vibetools, docs/writing/styleguide.md](https://github.com/acoliver/vibetools/blob/main/docs/writing/styleguide.md)): specific statements, no em dashes, no "not X, but Y" pivots, no empty adjectives. Put a contract where its reader will look: in the crate README when it concerns one crate's API, here when it spans crates. Give each page a title that names its subject and an opening paragraph that says what it covers.
+
+Write reference pages that several proposals edit with one sentence per line, and describe each entry as a bullet.
+Git merges by line, so two proposals that change different sentences of one entry merge without a conflict.
+A table row or a long paragraph holds a whole entry on one line, and any two edits to it conflict.
+Start an entry with `- name: first sentence`, put each further sentence on its own line indented by two spaces, and add a new sentence to the entry it belongs to.
+Keep a table for short cells, below 200 characters a row.
+`docs/unity-api.md`, `crates/play/README.md` and `crates/render-program/README.md` follow this form.
+Convert another page the first time two proposals conflict on it.

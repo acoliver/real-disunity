@@ -1,12 +1,14 @@
 // The terrain G-buffer write: the material terrain_material evaluates for the forward path,
 // stored instead of lit. Terrain has no emission, no material AO map and no flags, and it stores
-// lighting record 0, the neutral standard model.
+// lighting record 0, the neutral standard model. G3 stores the normal of the triangle the pixel
+// rasterises on: the front lighting's receiver plane follows the triangle, so a pair of screen
+// neighbours is on one plane exactly when their G3 codes agree.
 @fragment
 fn fs_terrain(input: TerrainVertexOutput) -> SceneGbufferTargets {
     let material = terrain_material(input);
     let surface = SceneGbufferSurface(
         material.projected.normal,
-        material.geometric,
+        material.facet,
         material.projected.albedo,
         material.projected.properties.x,
         material.projected.properties.y,

@@ -77,21 +77,28 @@ impl PlayerUi {
     }
 
     /// Leaves out the draws that use a game's shader, whatever they sample, and names each such
-    /// material once. Then asks `offers_for` for the render textures the remaining draws read, leaves
-    /// out the draws of the textures it cannot answer for and names each of those once, and
-    /// returns the textures the viewer binds. A texture no frame has written yet stays in: the
-    /// viewer draws it as transparent until one does.
+    /// material once. Then keeps the draws of the render textures `offers` answer for, leaves out
+    /// the others and names each of those once, and returns the textures the remaining draws read
+    /// for the viewer to bind. A texture no frame has written yet stays in: the viewer draws it as
+    /// transparent until one does.
     pub(crate) fn offer_targets(
         &mut self,
         plan: &mut UiPresentation,
-        offers_for: impl FnOnce(&UiPresentation) -> Vec<(RenderTextureId, UiOffer)>,
+        offers: Vec<(RenderTextureId, UiOffer)>,
         mut report: impl FnMut(String),
     ) -> Vec<UiTarget> {
         self.materials.leave_out(plan, &mut report);
-        let offers = offers_for(plan);
+        let read: BTreeSet<_> = plan
+            .draws
+            .iter()
+            .filter_map(|draw| match draw.texture {
+                Some(UiTexture::Target(id)) => Some(id),
+                _ => None,
+            })
+            .collect();
         let mut shown = Vec::new();
         let mut gone = BTreeMap::new();
-        for (id, offer) in offers {
+        for (id, offer) in offers.into_iter().filter(|(id, _)| read.contains(id)) {
             match offer {
                 UiOffer::Written(target) => shown.push(target),
                 UiOffer::Unwritten(target) => {

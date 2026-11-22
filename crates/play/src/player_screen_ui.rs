@@ -242,11 +242,10 @@ impl ScreenComposer<'_> {
         let mut plan = host.ui_presentation()?;
         self.textures
             .refresh(host, graphic_textures(&plan), &mut self.sprites)?;
-        let targets = self.ui.offer_targets(
-            &mut plan,
-            |plan| gpu.ui_offers(host, plan),
-            |message| eprintln!("{message}"),
-        );
+        let offers = gpu.ui_offers(host, &plan);
+        let targets = self
+            .ui
+            .offer_targets(&mut plan, offers, |message| eprintln!("{message}"));
         self.run.host_mut().show_ui_textures(targets);
         let update = self
             .ui

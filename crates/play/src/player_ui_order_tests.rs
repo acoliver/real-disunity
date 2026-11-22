@@ -1,4 +1,6 @@
 use super::*;
+use worldrunner_render_plan::{TextureFilter, TextureSampler, TextureWrap};
+use worldrunner_render_scene::simulation::UiTarget;
 use worldrunner_world_simulation::graphics::MaterialId;
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiMaterial};
 
@@ -70,7 +72,7 @@ fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>) {
     for _ in 0..3 {
         let viewport = [64, 64];
         let mut plan = plan.clone();
-        player.offer_targets(&mut plan, |_| Vec::new(), |line| lines.push(line));
+        player.offer_targets(&mut plan, Vec::new(), |line| lines.push(line));
         let update = player.update(plan, viewport, &textures, &images, |line| lines.push(line));
         update.unwrap();
     }
@@ -82,7 +84,7 @@ fn a_draw_with_a_game_material_is_left_out_and_named_once() {
     let material = game_material();
     let shaped = UiDraw {
         material: Some(material),
-        texture: Some(1 << 40),
+        texture: Some(UiTexture::Image(1 << 40)),
         ..draw(7, 2, [0, 0, 64, 64])
     };
     let plan = UiPresentation {
@@ -134,18 +136,19 @@ fn a_render_texture_draw_with_a_game_material_is_left_out_before_its_offer() {
         shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
         ..Default::default()
     };
-    let (mut asked_about, mut lines) = (Vec::new(), Vec::new());
-    let shown = PlayerUi::default().offer_targets(
-        &mut plan,
-        |remaining| {
-            asked_about.extend(remaining.draws.iter().filter_map(|draw| draw.texture));
-            Vec::new()
-        },
-        |line| lines.push(line),
-    );
+    let sampler = TextureSampler {
+        filter: TextureFilter::Point,
+        wrap_u: TextureWrap::Clamp,
+        wrap_v: TextureWrap::Clamp,
+    };
+    let offers = vec![(
+        target,
+        UiOffer::Written(UiTarget::new(target, None, sampler).unwrap()),
+    )];
+    let mut lines = Vec::new();
+    let shown = PlayerUi::default().offer_targets(&mut plan, offers, |line| lines.push(line));
     assert_eq!(plan.draws.len(), 1);
-    assert!(asked_about.is_empty(), "a left-out draw offers no texture");
-    assert!(shown.is_empty());
+    assert!(shown.is_empty(), "a left-out draw binds no texture");
     assert_eq!(lines.len(), 1);
     assert!(lines[0].contains("Game/Silhouette") && lines[0].contains("is left out"));
 }

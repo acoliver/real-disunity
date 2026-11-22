@@ -390,12 +390,10 @@ impl PlayerRetainedDriver {
     /// Offers the viewer the render textures the UI's draws read, as the player's device holds them
     /// now, and takes out the draws whose texture cannot be shown.
     fn offer_ui_textures(&mut self, viewer: &mut RetainedHost, ui: &mut UiPresentation) {
-        let (gpu, host) = (&self.gpu, &self.host);
-        let targets = self.ui.offer_targets(
-            ui,
-            |plan| gpu.ui_offers(host, plan),
-            |message| eprintln!("{message}"),
-        );
+        let offers = self.gpu.ui_offers(&self.host, ui);
+        let targets = self
+            .ui
+            .offer_targets(ui, offers, |message| eprintln!("{message}"));
         viewer.show_ui_textures(targets);
     }
 

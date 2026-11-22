@@ -10,6 +10,12 @@ namespace Disunity.Native
 {
     internal static unsafe partial class NativeBindings
     {
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one coroutine identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
         [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
         /// <summary>
@@ -735,11 +741,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
-        /// <summary>
-        ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
-        ///  caller checks the pass against the shader's pass count; the world holds none.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
     }
 }

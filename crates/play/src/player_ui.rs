@@ -3,7 +3,7 @@
 #[path = "player_ui_order_tests.rs"]
 mod tests;
 
-use crate::{PlayError, player_textures::PlayerTextures};
+use crate::{PlayError, player_textures::PlayerTextures, player_ui_materials::GameMaterials};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -27,6 +27,7 @@ pub(crate) struct PlayerUi {
     generations: BTreeMap<u64, u64>,
     viewport: [u32; 2],
     reported: BTreeSet<u64>,
+    materials: GameMaterials,
     #[cfg(test)]
     pub(crate) updates: u64,
 }
@@ -63,6 +64,11 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
+    /// The draws the last update named a game material for, by shader.
+    pub(crate) fn game_material_draws(&self) -> &BTreeMap<String, usize> {
+        self.materials.by_shader()
+    }
+
     fn filter_unavailable(
         &mut self,
         plan: &mut UiPresentation,
@@ -70,6 +76,7 @@ impl PlayerUi {
         player: &PlayerTextures,
         mut report: impl FnMut(String),
     ) {
+        self.materials.count(plan);
         plan.draws.retain(|draw| {
             if draw.kind != UiDrawKind::Graphic {
                 return true;

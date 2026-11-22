@@ -709,6 +709,15 @@ namespace Disunity.Native
         public float effect_g;
         public float effect_b;
         public float effect_a;
+        /// <summary>
+        ///  The world material of a graphic the game draws with its own shader, from
+        ///  `MaterialId::to_bits`; zero for the engine's look and for text.
+        /// </summary>
+        public ulong material;
+        /// <summary>
+        ///  The generation of that material's state; zero when `material` is zero.
+        /// </summary>
+        public ulong material_generation;
     }
 
 }

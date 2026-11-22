@@ -363,4 +363,9 @@ pub struct DisunityUiDraw {
     pub effect_g: f32,
     pub effect_b: f32,
     pub effect_a: f32,
+    /// The world material of a graphic the game draws with its own shader, from
+    /// `MaterialId::to_bits`; zero for the engine's look and for text.
+    pub material: u64,
+    /// The generation of that material's state; zero when `material` is zero.
+    pub material_generation: u64,
 }

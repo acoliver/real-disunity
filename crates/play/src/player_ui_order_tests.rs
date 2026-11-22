@@ -1,5 +1,6 @@
 use super::*;
-use worldrunner_world_simulation::ui::presentation::UiDraw;
+use worldrunner_world_simulation::graphics::MaterialId;
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiMaterial};
 
 fn draw(order: i32, hierarchy: usize, clip_rect: [u32; 4]) -> UiDraw {
     UiDraw {
@@ -12,6 +13,7 @@ fn draw(order: i32, hierarchy: usize, clip_rect: [u32; 4]) -> UiDraw {
         uv_rect: [0., 0., 1., 1.],
         color: [1.; 4],
         texture: None,
+        material: None,
         sorting_layer: 2,
         sorting_order: order,
         hierarchy_order: hierarchy,
@@ -52,4 +54,58 @@ fn exported_ui_replaces_retained_contributions_when_only_order_or_clip_changes()
             plan.draws[1].clip_rect = [14, 14, 4, 4];
         }
     }
+}
+
+fn game_material() -> UiMaterial {
+    UiMaterial {
+        id: MaterialId::from_bits((1 << 32) | 3),
+        generation: 2,
+    }
+}
+
+fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>) {
+    let mut player = PlayerUi::default();
+    let (textures, images) = (SpriteTextures::default(), PlayerTextures::default());
+    let mut lines = Vec::new();
+    for _ in 0..3 {
+        let viewport = [64, 64];
+        let update = player.update(plan.clone(), viewport, &textures, &images, |line| {
+            lines.push(line);
+        });
+        update.unwrap();
+    }
+    (player, lines)
+}
+
+#[test]
+fn draws_with_a_game_material_are_counted_by_the_name_of_its_shader() {
+    let material = game_material();
+    let shaped = UiDraw {
+        material: Some(material),
+        ..draw(7, 2, [0, 0, 64, 64])
+    };
+    let plan = UiPresentation {
+        draws: vec![draw(-3, 1, [0, 0, 64, 64]), shaped.clone(), shaped],
+        shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
+        ..Default::default()
+    };
+    let (player, lines) = update_three_times(&plan);
+    assert_eq!(player.plan.as_ref(), Some(&plan), "the draws are all kept");
+    assert!(lines.is_empty());
+    assert_eq!(
+        player.game_material_draws(),
+        &BTreeMap::from([("Game/Silhouette".to_owned(), 2)])
+    );
+}
+
+#[test]
+fn a_default_draw_is_unchanged() {
+    let plan = UiPresentation {
+        draws: vec![draw(-3, 1, [0, 0, 64, 64]), draw(7, 2, [4, 4, 8, 8])],
+        ..Default::default()
+    };
+    let (player, lines) = update_three_times(&plan);
+    assert_eq!(player.plan.as_ref(), Some(&plan));
+    assert!(lines.is_empty());
+    assert!(player.game_material_draws().is_empty());
 }

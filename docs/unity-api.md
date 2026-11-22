@@ -809,7 +809,7 @@ The encoding is version 18.
   Its color, alpha, `cull`, `cullTransparentMesh`, `hasPopInstruction`, rect clipping (`EnableRectClipping`, `DisableRectClipping`, `hasRectClipping`), `clippingSoftness`, mesh, textures, `materialCount` and `popMaterialCount` are stored in the native renderer, so a clone has its own.
   `SetColor` and `SetAlpha` are separate; `SetAlpha(NaN)` throws `DisunityException` and any other alpha is kept as given.
   `GetInheritedAlpha` is the renderer's alpha times the `alpha` of every enabled `CanvasGroup` on its object and above, stopping at a group with `ignoreParentGroups`.
-  `SetMesh`, `SetTexture`, `SetAlphaTexture`, `SetMaterial` and `SetPopMaterial` store instance ids; `GetMesh`, `GetMaterial` and `GetPopMaterial` return the object that was set while it is alive (null after it is destroyed or collected).
+  `SetMesh`, `SetTexture`, `SetAlphaTexture`, `SetMaterial` and `SetPopMaterial` store instance ids, and `SetMaterial` at slot 0 also sends the material's world material (none for a null or destroyed material), which the UI presentation carries to each draw of the renderer; `GetMesh`, `GetMaterial` and `GetPopMaterial` return the object that was set while it is alive (null after it is destroyed or collected).
   `materialCount` and `popMaterialCount` are 0 through 8 and a larger count throws `ArgumentOutOfRangeException`; `SetMaterial(material, index)` needs the index below the count, lowering the count drops the later materials, and `SetMaterial(material, texture)` sets material 0, the count 1 and the main texture.
   `SetSecondaryTextureCount(count)` (negative throws `ArgumentOutOfRangeException`) and `SetSecondaryTexture(index, name, texture)` (the texture is a `Texture2D`; an index outside the count throws `ArgumentOutOfRangeException`) store named secondary texture slots in managed memory; a clone copies them, lowering the count drops the later slots, and nothing reads them yet.
   `Clear` drops the mesh and the geometry drawn from it and keeps the materials, the textures, the secondary textures and the color (the engine's choice), so a graphic that clears its renderer and sends a new mesh draws with the texture it set before.
@@ -824,7 +824,7 @@ The encoding is version 18.
   Graphics draw under the engine's own `Text` of the same sorting key.
   A renderer with rect clipping on drops the quads outside its clip rectangle and cuts the quads across its edge, scaling the texture rectangle in proportion.
   The rectangle is measured in the space of the renderer's root canvas (the topmost canvas above it), as `RectMask2D` supplies it; a quad that is not axis aligned in that space is kept whole, and a rectangle that is not finite clips nothing.
-  Softness, masks, materials and shaders are not applied.
+  Softness, masks, materials and shaders are not applied: the world material of slot 0 reaches each draw of the renderer, and the player counts the draws that name a game's shader, but every graphic is still drawn with the engine's own look.
   A script's `[RequireComponent(typeof(CanvasRenderer))]` makes `AddComponent` add the renderer first.
 - `DrivenRectTransformTracker`: `Add` (throws `ArgumentNullException` for a null rectangle), `Clear`, `StartRecordingUndo` and `StopRecordingUndo`.
   Driving only marks rectangle properties as script-controlled in an editor.

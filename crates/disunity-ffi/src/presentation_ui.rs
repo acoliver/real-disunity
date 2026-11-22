@@ -83,6 +83,11 @@ pub struct DisunityUiDraw {
     pub effect_g: f32,
     pub effect_b: f32,
     pub effect_a: f32,
+    /// The world material of a graphic the game draws with its own shader, from
+    /// `MaterialId::to_bits`; zero for the engine's look and for text.
+    pub material: u64,
+    /// The generation of that material's state; zero when `material` is zero.
+    pub material_generation: u64,
 }
 
 /// # Safety
@@ -232,6 +237,8 @@ fn encode_metadata(draw: &UiDraw) -> DisunityUiDraw {
         corner_3_g,
         corner_3_b,
         corner_3_a,
+        material: draw.material.map_or(0, |m| m.id.to_bits()),
+        material_generation: draw.material.map_or(0, |m| m.generation),
     }
 }
 

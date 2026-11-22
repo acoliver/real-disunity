@@ -600,6 +600,22 @@ a world or accessing versioned records, managed startup compares the native
 revision with its generated revision. A mismatch throws
 `DisunityAbiRevisionException` with both expected and actual revisions.
 
+ABI revision 23 adds the material of a graphic. `disunity_canvas_renderer_material_write`
+takes the world material of the slot (0 for none); only main slot 0 holds one, a
+non-zero value for another slot is rejected, and lowering `material_count` to 0
+clears it. The extraction resolves it once per renderer. A draw names a `UiMaterial`
+(the world material and its generation) only when the material is live and its
+shader is the game's own; `draws_natively(shader)` is the one rule: a shader with no
+source, or the engine's `UI/Default`, is drawn with the engine's look and the draw
+names no material. `DisunityUiDraw` carries `material` and `material_generation`
+(0 for none), 168 bytes. The host reads each named material's shader name through the
+existing material and shader reads into `UiPresentation::shaders`, because the draw
+record carries identities only.
+
+Nothing draws a game's shader in the UI yet, so a draw that names a material still
+draws with the engine's look. The player counts those draws by shader name in one line
+of the run report.
+
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;

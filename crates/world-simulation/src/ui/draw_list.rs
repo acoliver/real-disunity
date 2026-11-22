@@ -201,6 +201,7 @@ impl<'fonts> UiDrawList<'fonts> {
             corner_colors: None,
             distance_field: None,
             texture,
+            material: None,
             sorting_layer: self.order.layer,
             sorting_order: self.order.order,
             hierarchy_order: 0,

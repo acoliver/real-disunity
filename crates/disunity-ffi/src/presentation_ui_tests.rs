@@ -24,6 +24,7 @@ fn triangle_copy_out(depth_test: bool) {
         uv_rect: [0.; 4],
         color: [1.; 4],
         texture: None,
+        material: None,
         sorting_layer: 2,
         sorting_order: 3,
         hierarchy_order: 4,
@@ -34,7 +35,7 @@ fn triangle_copy_out(depth_test: bool) {
         .unwrap()
         .ui_presentation = Some(UiPresentation {
         draws: vec![draw],
-        coverage: std::collections::BTreeMap::new(),
+        ..Default::default()
     });
     let mut meta = DisunityUiDraw::default();
     let mut quad = DisunityQuad::default();
@@ -125,6 +126,7 @@ fn snapshot_draw(order: i32, hierarchy: usize) -> UiDraw {
         uv_rect: [0.; 4],
         color: [1.; 4],
         texture: None,
+        material: None,
         sorting_layer: 0,
         sorting_order: order,
         hierarchy_order: hierarchy,
@@ -280,14 +282,16 @@ fn metadata_colors(meta: DisunityUiDraw) -> [[f32; 4]; 4] {
 #[test]
 fn distance_metadata_keeps_its_layout_at_revision_12() {
     use std::mem::{align_of, offset_of, size_of};
-    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 24);
-    assert_eq!(size_of::<DisunityUiDraw>(), 152);
+    assert_eq!(crate::abi::DISUNITY_ABI_VERSION, 26);
+    assert_eq!(size_of::<DisunityUiDraw>(), 168);
     assert_eq!(align_of::<DisunityUiDraw>(), 8);
     assert_eq!(offset_of!(DisunityUiDraw, distance_mode), 124);
     assert_eq!(offset_of!(DisunityUiDraw, distance_spread), 128);
     assert_eq!(offset_of!(DisunityUiDraw, distance_radius), 132);
     assert_eq!(offset_of!(DisunityUiDraw, effect_r), 136);
     assert_eq!(offset_of!(DisunityUiDraw, effect_a), 148);
+    assert_eq!(offset_of!(DisunityUiDraw, material), 152);
+    assert_eq!(offset_of!(DisunityUiDraw, material_generation), 160);
 }
 
 #[test]
@@ -356,6 +360,7 @@ fn distance_copy_out_preserves_style_and_atlas_bytes() {
                 bytes: std::sync::Arc::from([0, 125, 130, 255]),
             },
         )]),
+        ..Default::default()
     });
     let mut meta = DisunityUiDraw::default();
     let mut quad = DisunityQuad::default();
@@ -379,5 +384,40 @@ fn distance_copy_out_preserves_style_and_atlas_bytes() {
     );
     assert_eq!(quad.texture, 7);
     assert_eq!(bytes, [0, 125, 130, 255]);
+    crate::store::destroy_world(&mut crate::lock_store(), world).unwrap();
+}
+
+#[test]
+fn a_draw_with_a_material_round_trips_the_abi() {
+    use worldrunner_world_simulation::{
+        graphics::MaterialId,
+        ui::presentation::{UiMaterial, UiPresentation},
+    };
+    let material = UiMaterial {
+        id: MaterialId::from_bits((3 << 32) | 5),
+        generation: 9,
+    };
+    let (mut shaped, plain) = (snapshot_draw(0, 0), snapshot_draw(0, 1));
+    shaped.material = Some(material);
+    let world = crate::store::create_world(&mut crate::lock_store()).unwrap();
+    crate::lock_store()
+        .session_mut(world)
+        .unwrap()
+        .ui_presentation = Some(UiPresentation {
+        draws: vec![shaped, plain],
+        ..Default::default()
+    });
+    let read = |index| {
+        let (mut meta, mut quad) = (DisunityUiDraw::default(), DisunityQuad::default());
+        let result = unsafe { disunity_presentation_ui_draw(world, index, &mut meta, &mut quad) };
+        assert_eq!(result.code, 0);
+        (meta.material, meta.material_generation)
+    };
+    assert_eq!(read(0), (material.id.to_bits(), 9));
+    assert_eq!(
+        read(1),
+        (0, 0),
+        "a draw with the engine's look names no material"
+    );
     crate::store::destroy_world(&mut crate::lock_store(), world).unwrap();
 }

@@ -32,6 +32,7 @@ mod player_meshes;
 mod player_screen_ui;
 mod player_textures;
 mod player_ui;
+mod player_ui_materials;
 mod prepare;
 mod retained_driver;
 mod scene_census;

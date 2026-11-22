@@ -761,13 +761,15 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_g").ToInt32() != 140) throw new InvalidOperationException("DisunityUiDraw.effect_g offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_b").ToInt32() != 144) throw new InvalidOperationException("DisunityUiDraw.effect_b offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_a").ToInt32() != 148) throw new InvalidOperationException("DisunityUiDraw.effect_a offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 152 || typeof(DisunityUiDraw).GetFields().Length != 36) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material").ToInt32() != 152) throw new InvalidOperationException("DisunityUiDraw.material offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material_generation").ToInt32() != 160) throw new InvalidOperationException("DisunityUiDraw.material_generation offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 168 || typeof(DisunityUiDraw).GetFields().Length != 38) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 24;
+    internal const uint Version = 26;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

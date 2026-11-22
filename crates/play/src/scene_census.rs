@@ -107,6 +107,9 @@ pub struct SubstitutionCensus {
     /// The material slots after the first, over the renderers the last frame drew, which the
     /// viewer does not draw.
     pub slots_not_drawn: usize,
+    /// The UI draws the last frame named a game material for, by the name of the material's
+    /// shader.
+    pub ui_game_materials: BTreeMap<String, usize>,
 }
 
 /// `counts` under the names `label` gives their keys, for the ranked lines.
@@ -154,6 +157,10 @@ impl SubstitutionCensus {
             (
                 "retained objects left out",
                 by_name(&self.left_out, LeftOut::label),
+            ),
+            (
+                "UI draws with a game material by shader (last frame)",
+                self.ui_game_materials.clone(),
             ),
         ];
         lines.extend(

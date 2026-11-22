@@ -28,6 +28,7 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
             uv_rect: [0., 0., 1., 1.],
             color: [1.; 4],
             texture: Some(identity),
+            material: None,
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 1,

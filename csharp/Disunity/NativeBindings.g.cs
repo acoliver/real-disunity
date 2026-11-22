@@ -313,9 +313,12 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_canvas_renderer_material_read(ulong world, ulong handle, uint pop, uint index, ulong* output);
         /// <summary>
         ///  Writes one material identity (0 for none); `pop` and `index` are as for the read.
+        ///  `world_material` is the world material of the slot (0 for none), which the presentation draws
+        ///  a graphic with. Only main slot 0 holds one: a non-zero value for any other slot is rejected.
+        ///  A world material that is destroyed later is no material when the frame is prepared.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_renderer_material_write(ulong world, ulong handle, uint pop, uint index, ulong instance);
+        internal static extern DisunityResult disunity_canvas_renderer_material_write(ulong world, ulong handle, uint pop, uint index, ulong instance, ulong world_material);
         /// <summary>
         ///  Reads the alpha the renderer's element is drawn with: the renderer's alpha times the alpha
         ///  of the enabled canvas groups above it.
@@ -739,11 +742,5 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
         [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one coroutine identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
     }
 }

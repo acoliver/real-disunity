@@ -419,6 +419,10 @@ The driver names each unavailable identity once on stderr as
 managed host has not stored, or a texture conversion failure.
 A texture stored
 later becomes visible without changing the UI draw.
+The run report counts the UI draws whose material has a shader of the game's own (a
+shader with a source other than `UI/Default`) by shader name in one line,
+`UI draws with a game material by shader (last frame)`. The overlay still draws them with
+the engine's look.
 Other images, text and 3D
 objects continue to draw; missing text coverage remains an error.
 The renderer's

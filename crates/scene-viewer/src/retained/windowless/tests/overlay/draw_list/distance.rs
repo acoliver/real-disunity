@@ -40,6 +40,7 @@ fn publish(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>, bytes: Vec<u8>)
                 bytes: bytes.into(),
             },
         )]),
+        ..Default::default()
     };
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(

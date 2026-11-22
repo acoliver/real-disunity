@@ -117,7 +117,10 @@ After an intentional ABI change:
    keyword is a direct write of the world's global state (`disunity_shader_*`), and only a global
    texture set to a temporary render texture is recorded. Revision 24 removes
    `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
-   object slot draws from the slot's world material alone. Native and managed hosts reject
+   object slot draws from the slot's world material alone. Revision 26 adds the
+   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
+   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
+   `DisunityUiDraw` (152 to 168 bytes). Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

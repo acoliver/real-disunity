@@ -170,3 +170,53 @@ fn an_adapter_that_offers_fewer_storage_images_refuses_the_kernel_by_name() {
         }
     );
 }
+
+/// What a device made for an adapter offering `offered` storage images is granted through the
+/// negotiation every scene device goes through: the scene's request combined with a caller that
+/// asks for nothing beyond wgpu's defaults.
+fn granted(offered: u32) -> Result<u32, worldrunner_render_gpu::device::DeviceError> {
+    let available = wgpu::Limits {
+        max_storage_textures_per_shader_stage: offered,
+        ..wgpu::Limits::default()
+    };
+    let wanted = requirements(&available, wgpu::Features::empty(), TimingMode::Disabled)
+        .union(&worldrunner_render_gpu::device::DeviceRequirements::default());
+    worldrunner_render_gpu::device::negotiate(wgpu::Features::empty(), &available, &wanted)
+        .map(|device| device.limits.max_storage_textures_per_shader_stage)
+}
+
+#[test]
+fn a_device_is_granted_the_adapters_storage_images_up_to_sixteen_through_the_negotiation() {
+    for (offered, expected) in [
+        (4, 4),
+        (5, 5),
+        (8, 8),
+        (12, 12),
+        (16, 16),
+        (17, 16),
+        (1 << 20, 16),
+    ] {
+        assert_eq!(
+            granted(offered).ok(),
+            Some(expected),
+            "an adapter offering {offered}"
+        );
+    }
+}
+
+#[test]
+fn an_adapter_offering_fewer_storage_images_than_wgpus_default_is_refused_by_name() {
+    for offered in [0, 2, 3] {
+        let Err(worldrunner_render_gpu::device::DeviceError::LimitsExceeded { failures }) =
+            granted(offered)
+        else {
+            panic!("a device was made for an adapter offering {offered} storage images");
+        };
+        assert!(
+            failures
+                .iter()
+                .any(|failure| failure.contains("max_storage_textures_per_shader_stage")),
+            "{failures:?}"
+        );
+    }
+}

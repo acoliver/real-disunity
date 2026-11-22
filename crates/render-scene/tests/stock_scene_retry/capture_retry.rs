@@ -213,7 +213,7 @@ fn encode_suffix(
     let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
     let (declaration, frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    scene.frame.encode_frame_with(
+    scene.frame.encode_frame(
         device,
         encoder,
         (&passes, &views),

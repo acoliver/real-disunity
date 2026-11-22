@@ -124,11 +124,12 @@ fn checked_mips_layers_and_versions_reach_all_snapshot_producers() {
                 context.device(),
                 &mut encoder,
                 (&[earlier, source, output], &views),
+                None,
                 &mut [BorrowedFeature {
                     declaration,
                     prepared: &mut probe,
                 }],
-                (frame, None),
+                &(frame, None),
             )
             .unwrap();
         encoder.finish().submit().unwrap();
@@ -199,11 +200,12 @@ fn independent_readers_omit_unused_attachments_and_producers() {
                     context.device(),
                     &mut encoder,
                     (&passes, &views),
+                    None,
                     &mut [BorrowedFeature {
                         declaration,
                         prepared: &mut probe,
                     }],
-                    (frame, None),
+                    &(frame, None),
                 )
                 .unwrap();
             encoder.finish().submit().unwrap();
@@ -287,11 +289,12 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
             context.device(),
             &mut encoder,
             (&passes, &[color.clone(), depth.clone()]),
+            None,
             &mut [BorrowedFeature {
                 declaration: FeatureDeclaration::new(PassSlot::Opaque),
                 prepared: &mut probe,
             }],
-            (invalid_frame, None),
+            &(invalid_frame, None),
         );
         assert_eq!(result, Err(expected));
         assert_eq!(probe.0, 0);

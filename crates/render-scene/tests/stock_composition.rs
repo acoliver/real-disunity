@@ -234,7 +234,7 @@ impl Frame {
         views.push(view);
         let (declaration, frame) = (stock.declaration(), stock.frame());
         let offscreen = stock.take_offscreen_operations();
-        self.renderer.encode_frame_with(
+        self.renderer.encode_frame(
             device,
             encoder,
             (&passes, &views),
@@ -690,7 +690,7 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
             views.push(contribution.view.clone());
             let (declaration, stock_frame) = (stock.declaration(), stock.frame());
             let offscreen = stock.take_offscreen_operations();
-            frame.renderer.encode_frame_with(
+            frame.renderer.encode_frame(
                 &device,
                 encoder,
                 (&passes, &views),

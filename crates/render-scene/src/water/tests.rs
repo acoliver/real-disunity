@@ -195,8 +195,9 @@ fn encode_fixture(
             context.device(),
             &mut encoder,
             (&[pass], &[color.clone(), depth.clone()]),
+            None,
             &mut [],
-            (*frame, None),
+            &(*frame, None),
         )
         .unwrap();
     renderer.encode_resolve(&mut encoder);

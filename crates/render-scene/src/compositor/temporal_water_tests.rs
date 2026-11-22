@@ -208,8 +208,9 @@ pub(super) fn submit_to(
                 device,
                 encoder,
                 (&[opaque], &[color, depth]),
+                None,
                 &mut features,
-                (prepared, None),
+                &(prepared, None),
             )?;
             if let Some(output) = output {
                 renderer.encode_output(encoder, output).unwrap();

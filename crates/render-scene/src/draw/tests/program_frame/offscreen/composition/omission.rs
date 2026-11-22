@@ -42,7 +42,7 @@ fn encode_without_forwarding(
     fixture
         .renderer
         .renderer_mut()
-        .encode_frame_with(
+        .encode_frame(
             device,
             encoder,
             (&passes, &views),

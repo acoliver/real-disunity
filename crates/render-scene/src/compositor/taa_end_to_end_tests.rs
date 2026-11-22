@@ -312,7 +312,14 @@ impl<'a> Rig<'a> {
                     depth: targets.depth(),
                 };
                 scene.draw(device, encoder, &target, prepared.view_projection);
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 Ok::<_, FrameError>(())
             })

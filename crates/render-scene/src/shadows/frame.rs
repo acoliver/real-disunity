@@ -226,7 +226,7 @@ impl ShadowFrameResources<'_> {
             sampling: self.effects.shadows().sampling(),
             deferred,
         };
-        scheduler.encode_frame_with(
+        scheduler.encode_frame(
             context.device(),
             encoder,
             (&schedule.passes, &schedule.views),

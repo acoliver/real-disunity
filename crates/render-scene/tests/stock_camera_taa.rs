@@ -178,7 +178,7 @@ impl CameraTaaFrame {
         let (declaration, frame) = (stock.declaration(), stock.frame());
         let offscreen = stock.take_offscreen_operations();
         self.renderer
-            .encode_frame_with(
+            .encode_frame(
                 device,
                 encoder,
                 (&passes, &views),

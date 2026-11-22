@@ -234,7 +234,14 @@ impl<'a> Harness<'a> {
                     (targets.scene(), targets.depth()),
                     prepared.view_projection,
                 );
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 if let Some(e) = envelope {
                     e.end(encoder);

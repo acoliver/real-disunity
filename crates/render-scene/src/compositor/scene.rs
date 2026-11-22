@@ -261,7 +261,7 @@ fn validate_effects(
 /// passes.push(caller_pass);
 /// views.push(caller_view);
 /// let offscreen = stock.take_offscreen_operations();
-/// renderer.encode_frame_with(
+/// renderer.encode_frame(
 ///     device,
 ///     encoder,
 ///     (&passes, &views),
@@ -302,7 +302,7 @@ impl StockSceneFeature<'_> {
 
     /// Takes the admitted offscreen work retained during preparation, at most once.
     /// Keep it alive and pass its `FrameOperations` reference as the head of
-    /// [`FrameRenderer::encode_frame_with`]; it is not included in [`Self::plan`].
+    /// [`FrameRenderer::encode_frame`]; it is not included in [`Self::plan`].
     /// Retaining or taking this work does not encode it. A `None` head still records the
     /// stock draws without refreshing their offscreen inputs. Forward any returned work
     /// on the preparation encoder before the stock passes, or abandon the frame.
@@ -314,7 +314,7 @@ impl StockSceneFeature<'_> {
     }
 
     /// The frame uniform the renderer prepared, with exposure and jitter applied. Pass this to
-    /// `encode_frame_with`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
+    /// `encode_frame`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
     #[must_use]
     pub fn frame(&self) -> crate::frame::FrameUniform {
         self.feature.frame
@@ -380,7 +380,7 @@ fn declare_scene_passes(
 /// Checked attachments retain their selected mip, array layer and view format.
 ///
 /// Take the returned feature's offscreen operations and forward them to
-/// [`FrameRenderer::encode_frame_with`]. Preparation retains that work without encoding it;
+/// [`FrameRenderer::encode_frame`]. Preparation retains that work without encoding it;
 /// the frame executor runs it ahead of the stock passes.
 ///
 /// The submission and abandonment rules of [`FrameRenderer`] apply. Dynamic uploads are staged
@@ -520,7 +520,7 @@ impl<'a> SceneDraw<'a, '_> {
 ///
 /// This is [`prepare_stock_scene`] encoded alone: callers that add passes or features of their
 /// own prepare the stock scene themselves and forward its offscreen operations to
-/// [`FrameRenderer::encode_frame_with`].
+/// [`FrameRenderer::encode_frame`].
 pub fn encode_scene(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -534,7 +534,7 @@ pub fn encode_scene(
     let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
     let (declaration, frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    renderer.encode_frame_with(
+    renderer.encode_frame(
         device,
         encoder,
         (&passes, &views),

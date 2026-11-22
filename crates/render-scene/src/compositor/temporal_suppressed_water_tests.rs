@@ -192,11 +192,12 @@ fn gpu_suppressed_water_lists_the_snapshot_banks_once_a_caller_feature_has_read_
             device,
             &mut encoder,
             (&[opaque, output], &views),
+            None,
             &mut [BorrowedFeature {
                 declaration: reads_snapshot(),
                 prepared: &mut idle,
             }],
-            (uniform, None),
+            &(uniform, None),
         )
         .unwrap();
     encoder.finish().submit().unwrap();

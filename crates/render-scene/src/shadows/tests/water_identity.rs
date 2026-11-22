@@ -347,8 +347,9 @@ fn submit_binary(
             context.device(),
             encoder,
             (&[pass], &[color, depth]),
+            None,
             &mut [],
-            (uniform, Some(shadow)),
+            &(uniform, Some(shadow)),
         )
         .unwrap();
 }

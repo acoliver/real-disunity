@@ -108,6 +108,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
             context.device(),
             &mut encoder,
             (&[source, output], &[color, depth]),
+            None,
             &mut [
                 BorrowedFeature {
                     declaration: geometry_declaration,
@@ -118,7 +119,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
                     prepared: &mut probe,
                 },
             ],
-            (frame, None),
+            &(frame, None),
         )
         .unwrap();
     encoder.finish().submit().unwrap();

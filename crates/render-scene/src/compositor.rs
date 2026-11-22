@@ -530,28 +530,17 @@ impl FrameRenderer {
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
-    /// declaration-requested snapshots. The optional binding supplies shared shadows.
-    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
-    /// take it and forward it through [`Self::encode_frame_with`] instead.
-    pub fn encode_frame(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        plan: (&[PassDeclaration], &[AttachmentView]),
-        features: &mut [BorrowedFeature<'_>],
-        input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
-    ) -> Result<(), FrameError> {
-        self.encode_frame_with(device, encoder, plan, None, features, &input)
-    }
-    /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
-    /// by the executor immediately before the first pass of the ordered frame.
-    /// A `None` head supplies no work; it does not discover operations retained by borrowed
-    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
+    /// declaration-requested snapshots. The optional binding in `input` supplies shared shadows.
+    ///
+    /// `head` is work that records commands of its own, encoded by the executor immediately
+    /// before the first pass of the ordered frame. A `None` head supplies no work; it does not
+    /// discover operations retained by borrowed features. Forward any
+    /// [`StockSceneFeature::take_offscreen_operations`] result here.
     ///
     /// # Errors
-    /// The validation and preparation errors of [`Self::encode_frame`], or an error returned
-    /// while recording `head`. Abandon the frame on failure.
-    pub fn encode_frame_with(
+    /// Validation and preparation errors, or an error returned while recording `head`. Abandon
+    /// the frame on failure.
+    pub fn encode_frame(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,

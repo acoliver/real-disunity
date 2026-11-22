@@ -537,6 +537,7 @@ fn encode_with_declared_reader(context: &GpuContext, reads: &[ResourceRef]) -> D
         context.device(),
         &mut encoder,
         (&[opaque, after], &[color, output]),
+        None,
         &mut [BorrowedFeature {
             declaration: FeatureDeclaration {
                 passes: vec![pass],
@@ -544,7 +545,7 @@ fn encode_with_declared_reader(context: &GpuContext, reads: &[ResourceRef]) -> D
             },
             prepared: &mut reader,
         }],
-        (
+        &(
             crate::frame::FrameUniform::new(&view(), None).unwrap(),
             None,
         ),

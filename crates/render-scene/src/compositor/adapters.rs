@@ -121,10 +121,11 @@ pub fn encode_resident(
         device,
         encoder,
         (&passes, &views),
+        None,
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut feature,
         }],
-        (scene.resident_frame(), None),
+        &(scene.resident_frame(), None),
     )
 }

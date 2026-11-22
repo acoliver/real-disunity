@@ -327,6 +327,7 @@ impl Mapper<'_> {
                 let globals = &mut self.script.globals;
                 match temporary {
                     Some((name, input)) => {
+                        globals.layer.none_textures.remove(&name);
                         globals.layer.textures.insert(name, input);
                     }
                     None => set_value(&mut globals.layer, value, &mut self.textures),

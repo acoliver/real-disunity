@@ -175,7 +175,8 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
 }
 
 /// Sets `value` in the global `layer`: a texture the frame can read replaces the one of its name
-/// and one it cannot read takes the name away, since a global names one texture at most.
+/// and one it cannot read takes the name away, since a global names one texture at most. A null
+/// texture leaves the name set to none.
 pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut Textures<'_>) {
     match value {
         WorldValue::Float(name, held) => layer.values.set(name, PropertyValue::Float(*held)),
@@ -194,24 +195,31 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
         }
         WorldValue::Texture(name, slot) => {
             layer.stand_ins.remove(name);
+            layer.none_textures.remove(name);
             if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
                 layer
                     .textures
                     .insert(name.clone(), TextureInput { texture, sampler });
             } else {
                 layer.textures.remove(name);
-                explain(layer, name, textures.why_missing(&slot.texture));
+                leave_unbound(layer, name, textures.why_missing(&slot.texture));
             }
         }
     }
 }
 
-/// Says in `layer` why the property `name` has no texture, when the reference named one.
-fn explain(layer: &mut PropertyLayer, name: &str, why: Option<StandInReason>) {
-    if let Some(reason) = why {
-        layer
-            .stand_ins
-            .insert(name.to_owned(), reason.label().to_owned());
+/// Records in `layer` that the property `name` has no texture: the reason when the reference
+/// named a texture the frame cannot read, and none when the reference is null.
+fn leave_unbound(layer: &mut PropertyLayer, name: &str, why: Option<StandInReason>) {
+    match why {
+        Some(reason) => {
+            layer
+                .stand_ins
+                .insert(name.to_owned(), reason.label().to_owned());
+        }
+        None => {
+            layer.none_textures.insert(name.to_owned());
+        }
     }
 }
 
@@ -313,7 +321,7 @@ pub fn layer_with_defaults(
             stand_in(&mut layer, name, rule.texture, StandInReason::Undeclared);
         } else {
             textures.count_unresolved(name, Textures::why_unresolved(&slot.texture));
-            explain(&mut layer, name, textures.why_missing(&slot.texture));
+            leave_unbound(&mut layer, name, textures.why_missing(&slot.texture));
         }
     }
     for (name, texture) in defaults {

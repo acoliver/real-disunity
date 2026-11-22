@@ -1,19 +1,23 @@
 //! The constants a draw gets from the textures it reads: the member `<texture>_TexelSize` of a
 //! constant buffer holds (1 / width, 1 / height, width, height) of the texture bound under
-//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`).
+//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`). A texture a layer
+//! sets to none is drawn as the frame's 2D stand-in, and the member has that texture's size.
 
 use crate::layers::Layers;
 use crate::properties::{PropertySet, PropertyValue};
 use crate::unity::buffers::BufferLayout;
 
 use super::blit_steps::texels;
+use super::frame::UndeclaredTextures;
 use super::textures::TextureTable;
 
 /// The `<texture>_TexelSize` members `buffer` declares, with the size of the first level of the
-/// texture a layer binds under `<texture>`. A member whose texture no layer binds is left out,
-/// and a draw lists this set below every layer, so a value a layer sets wins.
+/// texture a layer binds under `<texture>`, or of the stand-in a layer that sets it to none is
+/// drawn with. A member whose texture no layer names is left out, and a draw lists this set below
+/// every layer, so a value a layer sets wins.
 pub(super) fn texel_sizes(
     textures: &TextureTable,
+    stand_in: UndeclaredTextures,
     layers: &Layers<'_>,
     buffer: &BufferLayout,
 ) -> PropertySet {
@@ -22,13 +26,15 @@ pub(super) fn texel_sizes(
         let Ok(name) = member.name.resolve(&[]) else {
             continue;
         };
-        let Some(input) = name
-            .strip_suffix("_TexelSize")
-            .and_then(|texture| layers.texture(texture))
-        else {
+        let Some(texture) = name.strip_suffix("_TexelSize").and_then(|texture| {
+            layers
+                .texture(texture)
+                .map(|input| input.texture)
+                .or_else(|| layers.is_none(texture).then_some(stand_in.d2).flatten())
+        }) else {
             continue;
         };
-        if let Ok(info) = textures.get(input.texture) {
+        if let Ok(info) = textures.get(texture) {
             let [width, height] = info.size.map(texels);
             sizes.set(
                 name,

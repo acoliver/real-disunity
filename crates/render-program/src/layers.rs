@@ -1,6 +1,6 @@
 //! Property layers: where a draw finds the value of a constant buffer member or a texture.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ids::TextureId;
 use crate::properties::PropertySet;
@@ -21,6 +21,9 @@ pub struct TextureInput {
 pub struct PropertyLayer {
     pub values: PropertySet,
     pub textures: BTreeMap<String, TextureInput>,
+    /// The texture properties the layer sets to none, as a script's `SetGlobalTexture(name, null)`
+    /// does. A name is in `textures` or here, not both.
+    pub none_textures: BTreeSet<String>,
     /// The runtime buffers a read-only structured buffer slot of a graphics program reads, by the
     /// property name the shader declares. The handle is the one a compute dispatch binds, made
     /// with [`ProgramRuntime::create_buffer`](crate::runtime::ProgramRuntime::create_buffer).
@@ -84,12 +87,28 @@ impl<'a> Layers<'a> {
             .map(String::as_str)
     }
 
-    /// The texture input of the first layer that names `name`.
+    /// The texture input of the first layer that names `name`. A layer that sets `name` to none
+    /// names it, so the texture of a layer below it is not the one the draw reads.
     #[must_use]
     pub fn texture(&self, name: &str) -> Option<&'a TextureInput> {
-        self.highest_first
-            .iter()
-            .find_map(|layer| layer.textures.get(name))
+        self.naming(name).flatten()
+    }
+
+    /// Whether the first layer that names `name` sets it to none: the draw reads its stand-in.
+    #[must_use]
+    pub fn is_none(&self, name: &str) -> bool {
+        self.naming(name) == Some(None)
+    }
+
+    /// What the first layer that names `name` gives it: a texture, or none.
+    fn naming(&self, name: &str) -> Option<Option<&'a TextureInput>> {
+        self.highest_first.iter().find_map(|layer| {
+            layer
+                .textures
+                .get(name)
+                .map(Some)
+                .or_else(|| layer.none_textures.contains(name).then_some(None))
+        })
     }
 
     /// The buffer of the first layer that names `name`.

@@ -12,7 +12,8 @@ use wgpu::Buffer;
 use crate::object::layout::GeometryLayout;
 
 /// What orders one held draw: draws that share a pipeline, then a material, then buffers sort
-/// together. Buffers are by rank.
+/// together, and those that draw the same indices sort by where their instances start. Buffers are
+/// by rank.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct GroupKey {
     pub pipeline: usize,
@@ -22,6 +23,24 @@ pub(super) struct GroupKey {
     pub base_vertex: i32,
     pub indices: u32,
     pub instances: u32,
+    /// Where the draw's indices start in the index buffer, and how many it draws.
+    pub first_index: u32,
+    pub index_count: u32,
+    /// Where the draw's instances start in the instance buffer.
+    pub first_instance: u32,
+}
+
+impl GroupKey {
+    /// Whether a draw with this key draws more instances of what a run of draws with the key `run`
+    /// draws, the instances of the run ending at `end`: the same pipeline, material, buffers and
+    /// indices, and instances that start where the run's end.
+    pub fn continues(&self, run: &Self, end: u32) -> bool {
+        self.first_instance == end
+            && Self {
+                first_instance: run.first_instance,
+                ..*self
+            } == *run
+    }
 }
 
 /// The positions of `keys` in the order a stable sort by key leaves them: keys that tie keep
@@ -60,6 +79,9 @@ struct Packing {
     base_vertex: u32,
     indices: u32,
     instances: u32,
+    first_index: u32,
+    index_count: u32,
+    first_instance: u32,
     position: u32,
 }
 
@@ -73,6 +95,7 @@ impl Packing {
     fn fitting(keys: &[GroupKey]) -> Option<Self> {
         let (mut pipeline, mut material, mut vertices, mut indices, mut instances) =
             (0_u64, 0_u64, 0_u64, 0_u64, 0_u64);
+        let (mut first_index, mut index_count, mut first_instance) = (0_u64, 0_u64, 0_u64);
         let (mut least, mut greatest) = (i32::MAX, i32::MIN);
         for key in keys {
             pipeline = pipeline.max(key.pipeline as u64);
@@ -80,6 +103,9 @@ impl Packing {
             vertices = vertices.max(u64::from(key.vertices));
             indices = indices.max(u64::from(key.indices));
             instances = instances.max(u64::from(key.instances));
+            first_index = first_index.max(u64::from(key.first_index));
+            index_count = index_count.max(u64::from(key.index_count));
+            first_instance = first_instance.max(u64::from(key.first_instance));
             least = least.min(key.base_vertex);
             greatest = greatest.max(key.base_vertex);
         }
@@ -92,6 +118,9 @@ impl Packing {
                 base_vertex: 0,
                 indices: 0,
                 instances: 0,
+                first_index: 0,
+                index_count: 0,
+                first_instance: 0,
                 position: 0,
             });
         }
@@ -103,6 +132,9 @@ impl Packing {
             base_vertex: bits(i64::from(greatest).abs_diff(i64::from(least))),
             indices: bits(indices),
             instances: bits(instances),
+            first_index: bits(first_index),
+            index_count: bits(index_count),
+            first_instance: bits(first_instance),
             position: bits(keys.len() as u64 - 1),
         };
         // One bit for the vertex layout.
@@ -113,6 +145,9 @@ impl Packing {
             + packing.base_vertex
             + packing.indices
             + packing.instances
+            + packing.first_index
+            + packing.index_count
+            + packing.first_instance
             + packing.position;
         (total <= u128::BITS).then_some(packing)
     }
@@ -127,6 +162,9 @@ impl Packing {
             (u128::from(base_vertex), self.base_vertex),
             (u128::from(key.indices), self.indices),
             (u128::from(key.instances), self.instances),
+            (u128::from(key.first_index), self.first_index),
+            (u128::from(key.index_count), self.index_count),
+            (u128::from(key.first_instance), self.first_instance),
             (u128::from(position), self.position),
         ] {
             packed = packed << width | field;
@@ -253,6 +291,9 @@ mod tests {
             base_vertex: below::<i32>(state, spread * 3) - i32::try_from(spread).unwrap(),
             indices: below(state, spread),
             instances: below(state, spread),
+            first_index: below(state, spread * 4),
+            index_count: below(state, spread * 4),
+            first_instance: below(state, spread * 4),
         }
     }
 
@@ -317,10 +358,13 @@ mod tests {
                 pipeline: below(&mut state, 2),
                 geometry: GeometryLayout::Static,
                 material: below(&mut state, 3),
-                vertices: [0, u32::MAX][index % 2],
+                vertices: [0, 1 << 12][index % 2],
                 base_vertex: [i32::MIN, -1, 0, 1, i32::MAX][index % 5],
-                indices: [0, u32::MAX][(index / 2) % 2],
+                indices: [0, 1 << 12][(index / 2) % 2],
                 instances: [0, 1][(index / 4) % 2],
+                first_index: [0, 1 << 12][(index / 8) % 2],
+                index_count: [0, 1 << 12][(index / 8) % 2],
+                first_instance: [0, 1 << 12][(index / 16) % 2],
             })
             .collect();
         assert!(Packing::fitting(&keys).is_some());
@@ -337,12 +381,76 @@ mod tests {
             base_vertex: 0,
             indices: 0,
             instances: 0,
+            first_index: 0,
+            index_count: 0,
+            first_instance: 0,
         };
         let earlier = GroupKey {
             pipeline: 0,
             ..tied
         };
         assert_eq!(grouped(&[tied, earlier, tied, tied]), [1, 0, 2, 3]);
+    }
+
+    /// The keys of draws of one mesh level in one material that draw the instances `starts`, each
+    /// with the count after it.
+    fn level(starts: &[(u32, u32)]) -> Vec<GroupKey> {
+        starts
+            .iter()
+            .map(|&(first_instance, _)| GroupKey {
+                pipeline: 1,
+                geometry: GeometryLayout::Static,
+                material: 2,
+                vertices: 0,
+                base_vertex: 7,
+                indices: 0,
+                instances: 0,
+                first_index: 30,
+                index_count: 6,
+                first_instance,
+            })
+            .collect()
+    }
+
+    /// The instances each run of `order` draws, as a recording joins them.
+    fn runs(order: &[u32], keys: &[GroupKey], ends: &[u32]) -> Vec<(u32, u32)> {
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        let mut first: Option<usize> = None;
+        for &position in order {
+            let position = position as usize;
+            match (first, runs.last_mut()) {
+                (Some(run), Some((_, end))) if keys[position].continues(&keys[run], *end) => {
+                    *end = ends[position];
+                }
+                _ => {
+                    first = Some(position);
+                    runs.push((keys[position].first_instance, ends[position]));
+                }
+            }
+        }
+        runs
+    }
+
+    #[test]
+    fn draws_of_one_level_whose_instances_follow_one_another_are_one_run_however_they_were_named() {
+        // Named out of order, the instances 0..2, 2..5 and 5..6 sort side by side.
+        let keys = level(&[(5, 6), (0, 2), (2, 5)]);
+        let order = grouped(&keys);
+        assert_eq!(order, [1, 2, 0]);
+        assert_eq!(runs(&order, &keys, &[6, 2, 5]), [(0, 6)]);
+    }
+
+    #[test]
+    fn a_gap_between_instances_or_a_change_of_what_is_drawn_ends_a_run() {
+        let mut keys = level(&[(0, 2), (2, 4), (5, 6), (6, 8), (8, 9), (9, 10)]);
+        keys[3].material = 3;
+        keys[4].index_count = 3;
+        keys[5].first_index = 31;
+        let order = grouped(&keys);
+        assert_eq!(
+            runs(&order, &keys, &[2, 4, 6, 8, 9, 10]),
+            [(8, 9), (0, 4), (5, 6), (9, 10), (6, 8)]
+        );
     }
 
     #[test]

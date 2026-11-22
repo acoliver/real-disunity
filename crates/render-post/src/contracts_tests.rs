@@ -16,6 +16,9 @@ mod initialized_allocation;
 #[path = "contracts_prepared_writes.rs"]
 mod prepared_writes;
 
+#[path = "contracts_attachment_views.rs"]
+mod attachment_views;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();

@@ -13,7 +13,6 @@
 use super::Resident;
 use crate::game_screen::{GAME_SCREEN, GameScreen, Ledger};
 use crate::{RetainedHost, ViewerError, presentation::Targets};
-use worldrunner_render_post::{AttachmentView, ResourceRef};
 use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{
     SceneView,
@@ -129,8 +128,7 @@ impl Frames {
         let (context, view, targets) = scene;
         let (operations, writes) = self.screen_writer(work.operations);
         let composite = if let Some(show) = self.ledger.plan(writes) {
-            let color =
-                AttachmentView::new(ResourceRef::new("scene color"), targets.color.texture())?;
+            let color = targets.scene_attachments()?.0.clone();
             if self
                 .pass
                 .as_ref()

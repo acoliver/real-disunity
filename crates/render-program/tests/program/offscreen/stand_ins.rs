@@ -221,3 +221,26 @@ fn a_render_texture_an_earlier_frame_wrote_is_a_real_texture() {
         .unwrap();
     assert!(operations.stand_in_draws().is_empty());
 }
+
+#[test]
+fn a_reallocated_texture_is_never_written() {
+    let mut rig = Rig::new();
+    setup(&mut rig);
+    assert!(
+        !rig.state.render_texture_is_unwritten(RENDERED),
+        "a texture the state does not hold is not one it counts as unwritten"
+    );
+    let reads = |records| frame_of(with_source(RENDERED, None), records);
+    rig.build(&reads(vec![through_material(TARGET)])).unwrap();
+    assert!(rig.state.render_texture_is_unwritten(RENDERED));
+    assert!(!rig.state.render_texture_is_unwritten(TARGET));
+    rig.build(&reads(vec![plain_blit(RENDERED)])).unwrap();
+    assert!(!rig.state.render_texture_is_unwritten(RENDERED));
+    let mut resized = reads(vec![through_material(TARGET)]);
+    resized.render_textures = vec![texture(11, [4, 4]), texture(12, [8, 8])];
+    rig.build(&resized).unwrap();
+    assert!(
+        rig.state.render_texture_is_unwritten(RENDERED),
+        "storage made again starts unwritten"
+    );
+}

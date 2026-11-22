@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use glam::{Quat, UVec2, Vec2};
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, CanvasScale, RectTransform, UiGeometry, UiGraphic, UiVertex,
+    Canvas, CanvasRenderer, CanvasScale, RectTransform, UiGeometry, UiGraphic, UiTexture, UiVertex,
     extract_graphics,
 };
 use worldrunner_world_simulation::{
@@ -37,7 +37,7 @@ fn quad(u: [f32; 2], v: [f32; 2]) -> Arc<UiGeometry> {
 fn clipped(clip: Option<[f32; 4]>) -> CanvasRenderer {
     CanvasRenderer {
         geometry: Some(quad([0.25, 0.75], [0.5, 1.])),
-        graphic_texture: 1 << 40,
+        graphic_texture: Some(UiTexture::Image(1 << 40)),
         clip_rect: clip,
         ..CanvasRenderer::default()
     }

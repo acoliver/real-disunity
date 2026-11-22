@@ -1,8 +1,8 @@
 use super::{AnnotationPoint, MAX_ANNOTATION_VERTICES, draw, point};
 use crate::presentation::CoverageTexture;
 use crate::ui::{
-    FontBook, HorizontalAlign, HorizontalOverflow, TextRun, UiError, UiLimits, VerticalAlign,
-    VerticalOverflow,
+    FontBook, HorizontalAlign, HorizontalOverflow, TextRun, UiError, UiLimits, UiTexture,
+    VerticalAlign, VerticalOverflow,
     presentation::{UiDrawKind, UiPresentation},
 };
 use glam::Vec2;
@@ -106,7 +106,7 @@ fn glyph_draw(
     let mut glyph_draw = draw(corners, colour);
     glyph_draw.kind = UiDrawKind::Text;
     glyph_draw.triangle_uv = None;
-    glyph_draw.texture = Some(identity);
+    glyph_draw.texture = Some(UiTexture::Coverage(identity));
     let uv_min = glyph.atlas_min.as_vec2() / size;
     let uv_max = (glyph.atlas_min + glyph.atlas_size).as_vec2() / size;
     glyph_draw.uv_rect = [uv_min.x, uv_min.y, uv_max.x, uv_max.y];

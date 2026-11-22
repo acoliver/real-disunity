@@ -47,7 +47,7 @@ fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() 
     assert_eq!(frame.coverage.keys().copied().collect::<Vec<_>>(), [0, 1]);
     assert_eq!(
         frame.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
-        [Some(0), Some(1)]
+        [Some(UiTexture::Coverage(0)), Some(UiTexture::Coverage(1))]
     );
     let before = frame.clone();
     let mut oversized = frame.clone();
@@ -181,7 +181,7 @@ fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
 }
 
 use worldrunner_world_simulation::ui::contribution::extract_ui;
-use worldrunner_world_simulation::ui::{Canvas, FontBook, RectTransform, UiLimits};
+use worldrunner_world_simulation::ui::{Canvas, FontBook, RectTransform, UiLimits, UiTexture};
 use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, World, WorldSettings};
 
 #[test]

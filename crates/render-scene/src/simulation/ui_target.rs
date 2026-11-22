@@ -54,7 +54,7 @@ pub(crate) fn refusal(
 
 /// A render texture the UI reads: the world's id, the host's GPU texture, and the sampler the
 /// world describes. A texture of `None` has no storage yet and shows as transparent black.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UiTarget {
     id: RenderTextureId,
     texture: Option<wgpu::Texture>,

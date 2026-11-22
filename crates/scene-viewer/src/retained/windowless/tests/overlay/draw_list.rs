@@ -47,7 +47,12 @@ fn submit(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>) {
             bytes: vec![255; 4].into(),
         },
     )]);
-    let overlay = UiOverlay::from_presentation(&presentation, &textures).unwrap();
+    let overlay = UiOverlay::from_presentation(
+        &presentation,
+        &textures,
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap();
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(overlay)))
         .unwrap();

@@ -337,7 +337,7 @@ pub(super) fn apply_ui(
     context: &super::GpuContext,
     resident: &mut Resident,
     presentation: &mut super::Presentation,
-    overlay: &worldrunner_render_scene::simulation::UiOverlay,
+    overlay: &std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>,
 ) -> Result<(), ViewerError> {
     let mut settings = presentation.scheduler.configuration().clone();
     if settings.ui_depth != overlay.needs_depth() {

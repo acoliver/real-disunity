@@ -282,6 +282,7 @@ impl Renderer {
         // and it does so before the frame takes the host's queued operations.
         self.game_screen
             .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
+        self.bind_ui_layers(host.as_deref().and_then(|host| host.ui_layers.as_ref()))?;
         let capture::HostCapture {
             request: mut retained_capture,
             misses,
@@ -295,6 +296,14 @@ impl Renderer {
         self.game_screen.submitted();
         retained::finish_admitted_frame(self, host, view, retained_capture, ticket.clone())?;
         Ok(Some(ticket))
+    }
+
+    /// Points the overlay's runs of UI draws at the texture the host offers for them.
+    fn bind_ui_layers(&mut self, layers: Option<&wgpu::Texture>) -> Result<(), ViewerError> {
+        self.resident
+            .scene_mut()
+            .bind_ui_layers(self.context.device(), self.context.submission(), layers)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
 
     fn apply_retained_shadow_policy(

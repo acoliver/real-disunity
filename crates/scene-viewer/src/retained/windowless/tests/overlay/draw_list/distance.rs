@@ -44,7 +44,12 @@ fn publish(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>, bytes: Vec<u8>)
     };
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-            UiOverlay::from_presentation(&p, &BTreeMap::new()).unwrap(),
+            UiOverlay::from_presentation(
+                &p,
+                &BTreeMap::new(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+            )
+            .unwrap(),
         )))
         .unwrap();
 }

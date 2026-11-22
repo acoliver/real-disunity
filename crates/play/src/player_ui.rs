@@ -11,7 +11,7 @@ use std::{
 use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::RetainedUpdate;
-use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
+use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiLayers, UiPresentation};
 
 /// The textures the UI's graphics draw, by identity.
 pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {
@@ -51,7 +51,7 @@ impl PlayerUi {
         {
             return Ok(None);
         }
-        let overlay = UiOverlay::from_presentation(&plan, &textures.textures).map_err(|error| {
+        let overlay = UiOverlay::from_presentation(&plan, &textures.textures, &UiLayers::default()).map_err(|error| {
             PlayError::Invalid(format!("the player UI cannot be drawn: {error}"))
         })?;
         self.plan = Some(plan);

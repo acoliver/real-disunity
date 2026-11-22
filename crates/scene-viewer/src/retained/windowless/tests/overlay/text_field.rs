@@ -158,6 +158,11 @@ fn text_field_and_annotations_share_overlay_contributions_without_a_gpu() {
         .collect();
     assert_eq!(text_ids, [0, 1].into());
     assert!(
-        UiOverlay::from_presentation(&presentation, &std::collections::BTreeMap::new()).is_ok()
+        UiOverlay::from_presentation(
+            &presentation,
+            &std::collections::BTreeMap::new(),
+            &worldrunner_world_simulation::ui::presentation::UiLayers::default()
+        )
+        .is_ok()
     );
 }

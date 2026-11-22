@@ -771,7 +771,7 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 25;
+    internal const uint Version = 26;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

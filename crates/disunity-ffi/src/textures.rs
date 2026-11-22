@@ -19,9 +19,9 @@ const MAX_TEXTURE_BYTES: u32 = 1 << 29;
 /// texel), or zero.
 ///
 /// `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
-/// 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
-/// writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
-/// value is refused, and the record reads back with the value it was stored with.
+/// 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Every writer states
+/// it; any other value, zero included, is refused, and the record reads back with the value it was
+/// stored with.
 ///
 /// `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
 /// of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
@@ -131,8 +131,11 @@ fn check_shape(info: &DisunityTextureInfo, length: u32) -> Result<(), &'static s
         return Err("the reserved word of a stored texture is zero");
     }
     match info.dimension {
-        0 | dimension::TEX_2D if info.depth <= 1 => Ok(()),
-        0 | dimension::TEX_2D => Err("a 2D texture has a depth of 0 or 1"),
+        0 => {
+            Err("a stored texture states its dimension; dimension 0 is refused, a 2D texture is 2")
+        }
+        dimension::TEX_2D if info.depth <= 1 => Ok(()),
+        dimension::TEX_2D => Err("a 2D texture (dimension 2) has a depth of 0 or 1"),
         dimension::TEX_2D_ARRAY => check_layers(info, length),
         dimension::TEX_3D => check_volume(info, length),
         dimension::CUBE if info.depth != CUBE_FACES => Err("a cube has six faces"),

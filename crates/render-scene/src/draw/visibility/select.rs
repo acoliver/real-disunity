@@ -5,7 +5,7 @@
 //! levels and statistics equal those of a scan over every slot. A placement's level and fade
 //! outcome depend on the eye and not on the view, so every view of a frame shares them
 //! through each batch's level memo.
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::SceneObject;
@@ -40,12 +40,9 @@ pub(in crate::draw) struct Placements<'a> {
 /// Slots in a leaf up to which a view tests them one by one instead of classifying the leaf.
 pub(super) const SMALL_LEAF: usize = 4;
 
-/// The placements of one batch by slot, none where a slot is free.
-type Placed<'a> = &'a [Option<(SceneObject, bool)>];
-
 struct IndexedBatch<'a> {
     key: BatchKey,
-    placements: Placed<'a>,
+    placements: &'a [Option<(SceneObject, bool)>],
     /// What each slot is to a view, in one byte per slot (see `CAMERA` and `CASTER`).
     flags: &'a [u8],
     bounds: &'a SlotBounds,
@@ -103,7 +100,7 @@ impl PlacementRows {
         stamp: LayoutStamp,
         instances: &Instances,
         meshes: &[MeshSelection],
-        batches: impl ExactSizeIterator<Item = (&'b SlotBounds, Placed<'b>)>,
+        batches: impl ExactSizeIterator<Item = (&'b SlotBounds, &'b [Option<(SceneObject, bool)>])>,
     ) {
         if self.at == Some(stamp) && self.rows.len() == batches.len() {
             debug_assert!(
@@ -167,7 +164,7 @@ pub(in crate::draw) fn with_placements<R>(
     };
     placement::refresh_all(instances, meshes);
     let epoch = instances.level_epoch(key);
-    let borrowed: Vec<(Ref<'_, SlotBounds>, Placed<'_>)> = instances
+    let borrowed: Vec<_> = instances
         .batches
         .values()
         .map(|batch| (batch.bounds.borrow(), batch.slots()))

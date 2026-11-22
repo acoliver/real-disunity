@@ -14,6 +14,8 @@ mod contracts;
 mod default_tests;
 #[path = "diffuse_tests.rs"]
 mod diffuse_tests;
+#[path = "key_cost_tests.rs"]
+mod key_cost_tests;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]

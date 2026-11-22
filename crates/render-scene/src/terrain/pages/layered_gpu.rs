@@ -15,6 +15,8 @@ mod channel_tests;
 #[cfg(test)]
 mod finite_footprint_tests;
 #[cfg(test)]
+mod kernel_tests;
+#[cfg(test)]
 mod mip_tests;
 #[cfg(test)]
 mod principal_tests;
@@ -271,10 +273,7 @@ fn pipeline(device: &wgpu::Device, group: &CheckedBindings) -> wgpu::ComputePipe
         bind_group_layouts: &[Some(group.layout())],
         ..Default::default()
     });
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("layered terrain composition"),
-        source: wgpu::ShaderSource::Wgsl(LAYERED_WGSL.into()),
-    });
+    let module = super::kernel_module(device, "layered terrain composition", LAYERED_WGSL);
     worldrunner_render_post::compute_pipeline(
         device,
         worldrunner_render_post::ComputeDescriptor {

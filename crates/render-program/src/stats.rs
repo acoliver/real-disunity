@@ -15,6 +15,9 @@ pub struct RuntimeStats {
     pub modules_built: u64,
     /// Render and compute pipelines created. Equal programs, state and targets share one.
     pub pipelines_built: u64,
+    /// Content keys computed for render pipeline requests. A program computes the key of each
+    /// distinct request once; a request repeated in later frames reuses it.
+    pub pipeline_keys_computed: u64,
     /// Bind groups created. A set that a lender binds (an external set) never adds to this.
     pub bind_groups_built: u64,
     /// Reusable bind group sets prepared ahead of any draw by `prepare_set`. Each also adds its
@@ -34,6 +37,7 @@ pub struct RuntimeStats {
 pub(crate) struct Counters {
     modules: AtomicU64,
     pipelines: AtomicU64,
+    pipeline_keys: AtomicU64,
     bind_groups: AtomicU64,
     sets: AtomicU64,
     draws: AtomicU64,
@@ -47,6 +51,10 @@ impl Counters {
 
     pub(crate) fn pipeline_built(&self) {
         self.pipelines.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn pipeline_key_computed(&self) {
+        self.pipeline_keys.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn bind_group_built(&self) {
@@ -69,6 +77,7 @@ impl Counters {
         RuntimeStats {
             modules_built: self.modules.load(Ordering::Relaxed),
             pipelines_built: self.pipelines.load(Ordering::Relaxed),
+            pipeline_keys_computed: self.pipeline_keys.load(Ordering::Relaxed),
             bind_groups_built: self.bind_groups.load(Ordering::Relaxed),
             sets_prepared: self.sets.load(Ordering::Relaxed),
             draws_prepared: self.draws.load(Ordering::Relaxed),

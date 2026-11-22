@@ -13,7 +13,7 @@ pub(crate) fn capture_sources(shadowed: bool) -> (&'static str, &'static str) {
 impl ShadowedScene {
     /// Replays against a host's selected frame products: the directional map, the opaque
     /// receiver state and the host's AO and environment bindings.
-    pub fn encode_term_capture_with(
+    pub fn encode_term_capture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,

@@ -46,7 +46,7 @@ fn assert_transaction_error(foreign: bool) {
     };
     let mut check = || {
         assert!(matches!(
-            renderer.encode_term_capture_with(context.device(), &mut encoder, &capture, &scheduler),
+            renderer.encode_term_capture(context.device(), &mut encoder, &capture, &scheduler),
             Err(ShadowError::Submission(SubmitError::Transaction(actual))) if actual == expected
         ));
     };

@@ -39,7 +39,7 @@ fn capture_only_frame_retains_replaced_shadow_map() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode_term_capture_with(context.device(), encoder, &capture, &scheduler)?;
+            renderer.encode_term_capture(context.device(), encoder, &capture, &scheduler)?;
             Ok::<_, ShadowError>(())
         })
         .unwrap();

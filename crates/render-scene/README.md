@@ -140,7 +140,7 @@ legacy profile rejects post requests before upload. Textured-sky rendering, vign
 nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
 requests still fail.
 
-`ShadowedScene::encode_term_capture_with` replays initialized scene/frame state against the
+`ShadowedScene::encode_term_capture` replays initialized scene/frame state against the
 host's `ConfiguredFrameRenderer` with its matching selected slot. It returns
 `Result<(), ShadowError>` and requires the encoder of the active prepared transaction. Transaction or map-lease
 errors propagate as `ShadowError::Submission` before replay. A capture-only transaction

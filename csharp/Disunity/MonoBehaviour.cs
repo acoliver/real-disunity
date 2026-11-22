@@ -18,6 +18,7 @@ public abstract class MonoBehaviour : Behaviour
             Disunity.Hosting.DisunityHost.ThrowIfError(Disunity.Native.NativeBindings.disunity_script_set_enabled(Disunity.Hosting.DisunityHost.WorldHandle,
                 Disunity.Hosting.DisunityHost.ScriptIdentity(this), value ? 1u : 0u, &work));
             Disunity.Hosting.DisunityHost.Drain(work);
+            Disunity.Hosting.RectDimensionMessages.MarkChanged();
         }
     }
 

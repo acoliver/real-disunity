@@ -339,7 +339,7 @@ fn set_indices(
             continue;
         };
         let layer = u32::from(world.object_layer(component.object)?);
-        let at = index_of(views.len())?;
+        let at = index_of(views.len());
         views.push(renderer_view(
             world,
             component.object,

@@ -237,7 +237,7 @@ fn fitted_temporal_fixture(
             }),
         )
         .unwrap();
-    frame.set_frame_time(0.125).unwrap();
+    frame.set_frame_time(std::time::Duration::from_secs_f32(0.125));
     (frame, renderer)
 }
 

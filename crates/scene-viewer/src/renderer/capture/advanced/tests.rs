@@ -247,11 +247,7 @@ fn direct(renderer: &mut Renderer, view: &SceneView, time: Duration) -> Retained
         .presentation
         .scheduler
         .select_frame_slot(ready.admission.slot());
-    renderer
-        .presentation
-        .scheduler
-        .set_frame_time_duration(time)
-        .unwrap();
+    renderer.presentation.scheduler.set_frame_time(time);
     let output = ready
         .frame
         .texture

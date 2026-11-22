@@ -90,9 +90,7 @@ fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut render = |frame, millis, scale| {
         scale_receiver(&mut renderer, scale);
-        scheduler
-            .set_frame_time_duration(Duration::from_millis(millis))
-            .unwrap();
+        scheduler.set_frame_time(Duration::from_millis(millis));
         let fit = scheduler
             .encoding()
             .render_depth_fitted(

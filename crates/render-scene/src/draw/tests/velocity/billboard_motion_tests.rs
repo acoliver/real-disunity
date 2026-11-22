@@ -135,8 +135,9 @@ impl Card {
             .unwrap();
         self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer
-            .set_frame_time(f32::from(self.frame) * 0.03125)
-            .unwrap();
+            .set_frame_time(std::time::Duration::from_secs_f32(
+                f32::from(self.frame) * 0.03125,
+            ));
         let mut encoder = self.context.submission().begin(device).unwrap();
         crate::compositor::encode_scene(
             &mut self.renderer,

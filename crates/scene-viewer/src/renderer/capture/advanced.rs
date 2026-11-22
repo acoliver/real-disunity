@@ -200,7 +200,7 @@ impl Renderer {
             .scheduler
             .select_frame_slot(ready.admission.slot());
         self.frame_time = time;
-        self.presentation.scheduler.set_frame_time_duration(time)?;
+        self.presentation.scheduler.set_frame_time(time);
         self.prepare_camera_history(host);
         self.encode_recipe_sample(host, &view, ready, (outputs.as_slice(), readiness.misses))
     }

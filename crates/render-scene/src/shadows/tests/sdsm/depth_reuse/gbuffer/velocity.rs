@@ -110,7 +110,7 @@ fn residual_after(
         .zip([0.125, 0.25])
         .enumerate()
     {
-        frame.set_frame_time(seconds).unwrap();
+        frame.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         if fitting.is_some() {
             let id = u64::try_from(id).unwrap();
             let fit = renderer

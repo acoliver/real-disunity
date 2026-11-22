@@ -212,7 +212,7 @@ fn velocity_after(
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         crate::compositor::encode_scene(
             &mut renderer,
@@ -488,7 +488,7 @@ fn output_after(
     .unwrap();
     for (index, &seconds) in clocks.iter().enumerate() {
         renderer.select_frame_slot(index % 3);
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(device).unwrap();
         crate::compositor::encode_scene(
             &mut renderer,

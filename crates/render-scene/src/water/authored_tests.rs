@@ -255,7 +255,7 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
         .unwrap();
         let mut outputs = Vec::new();
         for time in [0.0, 0.375] {
-            renderer.set_frame_time(time).unwrap();
+            renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
             encode(&context, &mut renderer, &mut gpu, &pipelines);
             let (normal, _, _) = renderer.water_receivers().unwrap();
             let bytes =

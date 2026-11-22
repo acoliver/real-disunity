@@ -481,7 +481,8 @@ fn gpu_contour_skin_and_wind_match_visible_color_coverage() {
                 .with_objects_and_effects(fixture.geometry().objects().to_vec(), effects)
                 .unwrap();
             let mut rig = Rig::new(&context, &scene, 1);
-            rig.renderer.set_frame_time(0.25).unwrap();
+            rig.renderer
+                .set_frame_time(std::time::Duration::from_secs_f32(0.25));
             let baseline = rig.draw(&context);
             let handles: Vec<_> = rig.gpu.instance_handles().collect();
             for handle in handles {

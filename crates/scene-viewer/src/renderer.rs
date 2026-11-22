@@ -378,9 +378,7 @@ impl Renderer {
         self.resident.select_frame_slot(slot);
         self.presentation.scheduler.select_frame_slot(slot);
         self.frame_time = self.clock.time();
-        self.presentation
-            .scheduler
-            .set_frame_time_duration(self.frame_time)?;
+        self.presentation.scheduler.set_frame_time(self.frame_time);
         Ok(())
     }
 }

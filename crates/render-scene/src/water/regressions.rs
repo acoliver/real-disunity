@@ -276,7 +276,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
     draw_water_slot(&context, &renderer, 0);
     let before = read(&context, renderer.targets().texture());
     let cases = invalid_plans(&color, &depth);
-    renderer.set_frame_time(99.0).unwrap();
+    renderer.set_frame_time(std::time::Duration::from_secs_f32(99.0));
     let mut invalid_frame = frame;
     invalid_frame.ambient_sky = glam::Vec3::splat(0.75);
     invalid_frame.sun_irradiance = glam::Vec3::splat(10.0);

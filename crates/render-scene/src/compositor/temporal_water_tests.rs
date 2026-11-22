@@ -174,7 +174,7 @@ pub(super) fn submit_to(
 ) {
     let device = context.device();
     renderer.select_frame_slot(slot);
-    renderer.set_frame_time(seconds).unwrap();
+    renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
     let prepared = renderer
         .prepare_uniform(frame(renderer.targets().config().size[0]))
         .unwrap();

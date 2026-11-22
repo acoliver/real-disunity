@@ -20,35 +20,21 @@ impl FrameRenderer {
         Ok(self.jitter_frame(frame))
     }
 
-    /// Supplies animation time for the next prepared frame, in seconds.
-    /// Adaptation uses time since the last encoded output, capped at ten seconds.
-    pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
-        if !seconds.is_finite() || seconds < 0.0 {
-            return Err(FrameError::WaterSettings(
-                "frame time must be finite and nonnegative",
-            ));
-        }
-        self.selected_time = Some(
-            std::time::Duration::try_from_secs_f32(seconds)
-                .map_err(|_| FrameError::WaterSettings("frame time exceeds duration range"))?,
-        );
+    /// Supplies the admitted clock sample for the next prepared frame, without rounding timed
+    /// shadow adoption. Adaptation uses time since the last encoded output, capped at ten
+    /// seconds. Moving time backwards resets depth-fitting evidence and contraction history.
+    pub fn set_frame_time(&mut self, time: std::time::Duration) {
+        let seconds = time.as_secs_f32();
+        self.selected_time = Some(time);
         self.frame_delta = (seconds - self.post_time.get()).clamp(0.0, 10.0);
         self.elapsed_seconds = seconds;
         let period = f64::from(u32::MAX) + 1.0;
-        let time =
+        let wrapped =
             std::time::Duration::from_secs_f64(((f64::from(seconds) * 1000.0) % period) / 1000.0);
         self.animation_time = Some(
-            u32::try_from(time.as_millis() % (u128::from(u32::MAX) + 1))
+            u32::try_from(wrapped.as_millis() % (u128::from(u32::MAX) + 1))
                 .expect("wrapped animation milliseconds"),
         );
-        Ok(())
-    }
-    /// Supplies the admitted clock sample without rounding timed shadow adoption.
-    /// Moving time backwards resets depth-fitting evidence and contraction history.
-    pub fn set_frame_time_duration(&mut self, time: std::time::Duration) -> Result<(), FrameError> {
-        self.set_frame_time(time.as_secs_f32())?;
-        self.selected_time = Some(time);
-        Ok(())
     }
     /// Explicit simulation delta in seconds. Fixed capture steps in the scene override it.
     pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {

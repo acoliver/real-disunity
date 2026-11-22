@@ -114,7 +114,7 @@ fn shadowed_velocity_with(
     let mut shadowed = ShadowedScene::with_taa_velocity(context, &scene, settings, HDR, 1).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         shadowed
             .encode_with(
@@ -142,7 +142,7 @@ fn reflective_velocity_after(
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         crate::compositor::encode_scene(
             &mut renderer,
@@ -171,7 +171,7 @@ fn occluded_velocity_after(
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         crate::compositor::encode_scene(
             &mut renderer,

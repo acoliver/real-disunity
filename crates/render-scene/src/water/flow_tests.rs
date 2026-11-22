@@ -224,7 +224,7 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
                 .into_iter()
                 .enumerate()
             {
-                renderer.set_frame_time(time).unwrap();
+                renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
                 encode(&context, &mut renderer, &mut gpu, &pipelines);
                 let (normal, _, _) = renderer.water_receivers().unwrap();
                 for sample in 0..samples {

@@ -39,6 +39,7 @@ public static partial class DisunityHost
         ResetScriptExceptions();
         UnsentTextures.Reset();
         RectDimensionMessages.Reset();
+        ScriptExecutionOrders.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try
@@ -80,6 +81,7 @@ public static partial class DisunityHost
         ulong script;
         ThrowIfError(NativeBindings.disunity_script_register(WorldHandle, behaviour.gameObject.NativeHandle, identity, &script));
         ReportScriptMessages(script, behaviour.GetType());
+        ReportScriptExecutionOrder(script, behaviour.GetType());
         Scripts.Add(identity, behaviour);
         RectDimensionMessages.Register(behaviour);
         DisunityAdvance work;

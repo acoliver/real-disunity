@@ -105,6 +105,7 @@ impl Planner<'_> {
             script,
             class,
             assembly: None,
+            execution_order: None,
             enabled,
             fields,
         })

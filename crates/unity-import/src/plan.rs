@@ -238,6 +238,10 @@ pub enum PlanComponent {
         class: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         assembly: Option<String>,
+        /// The class's execution order when it is not the default, 0. A player stores it with
+        /// the class's script.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        execution_order: Option<i32>,
         enabled: bool,
         fields: serde_json::Value,
     },

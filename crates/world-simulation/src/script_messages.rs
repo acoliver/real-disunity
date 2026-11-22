@@ -67,6 +67,23 @@ impl World {
         self.lifecycle.set_messages(script, messages);
         Ok(())
     }
+
+    /// Sets the execution order of one registered script. A phase delivers its message to the
+    /// scripts with the lowest order first and to scripts of equal order in registration order,
+    /// as the order of a script class does in a built player. A new script has order 0 and a
+    /// clone takes its source's order.
+    pub fn set_script_execution_order(
+        &mut self,
+        script: ComponentHandle,
+        order: i32,
+    ) -> Result<(), WorldError> {
+        self.component(script)?;
+        if !self.lifecycle.scripts.contains_key(&script) {
+            return Err(WorldError::NotScript);
+        }
+        self.lifecycle.set_execution_order(script, order);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -49,6 +49,8 @@ pub(crate) struct ScriptState {
     pub active: bool,
     pub entered: EnteredState,
     pub messages: crate::ScriptMessages,
+    /// The script's execution order: scripts with a lower order receive a phase's messages first.
+    pub execution_order: i32,
 }
 
 impl ScriptState {
@@ -76,6 +78,7 @@ impl Default for ScriptState {
             active: false,
             entered: EnteredState::Dormant,
             messages: crate::ScriptMessages::ALL,
+            execution_order: 0,
         }
     }
 }
@@ -144,12 +147,20 @@ impl Lifecycle {
         self.edit_script(script, |state| state.messages = messages);
     }
 
-    /// The scripts a phase for `message` has to look at, in handle order.
+    /// Gives a registered script its execution order.
+    pub(crate) fn set_execution_order(&mut self, script: ComponentHandle, order: i32) {
+        self.edit_script(script, |state| state.execution_order = order);
+    }
+
+    /// The scripts a phase for `message` has to look at: lowest execution order first, and in
+    /// handle order among equal orders.
     pub(crate) fn phase_candidates(&self, message: crate::ScriptMessage) -> Vec<ComponentHandle> {
-        match self.index.visit(message) {
+        let mut scripts = match self.index.visit(message) {
             crate::phase_index::Visit::Listed(scripts) => scripts,
             crate::phase_index::Visit::All => self.scripts.keys().copied().collect(),
-        }
+        };
+        scripts.sort_by_key(|script| self.scripts[script].execution_order);
+        scripts
     }
 
     #[cfg(test)]

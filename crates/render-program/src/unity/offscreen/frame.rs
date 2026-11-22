@@ -3,7 +3,7 @@
 //! These are this crate's own types. A host adapter maps the world's export onto them; nothing
 //! here depends on the world.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -179,6 +179,17 @@ pub struct Camera {
     pub values: PropertyLayer,
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
+    /// The renderers the camera draws, as the frame fixed them at the camera's record: those of
+    /// the set whose layer the mask also admits.
+    pub renderers: Arc<BTreeSet<RendererId>>,
+}
+
+impl Camera {
+    /// Whether the camera draws the renderer `id` on `layer`.
+    #[must_use]
+    pub fn draws(&self, id: RendererId, layer: u32) -> bool {
+        layer < 32 && self.culling_mask & (1 << layer) != 0 && self.renderers.contains(&id)
+    }
 }
 
 /// One mip of a render texture that a pass draws into.
@@ -454,10 +465,9 @@ impl OffscreenFrame {
         match record {
             Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
                 self.renderers
-                    .values()
-                    .filter(|renderer| {
-                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
-                    })
+                    .iter()
+                    .filter(|(id, renderer)| camera.draws(**id, renderer.layer))
+                    .map(|(_, renderer)| renderer)
                     .map(|renderer| renderer.materials.len())
                     .sum()
             }),

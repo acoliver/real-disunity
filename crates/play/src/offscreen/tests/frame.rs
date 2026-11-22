@@ -409,6 +409,25 @@ fn a_camera_destroyed_after_it_rendered_is_skipped() {
 }
 
 #[test]
+fn a_camera_render_the_world_made_no_set_for_is_skipped() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
+    let handle = world
+        .add_component(
+            object,
+            worldrunner_world_simulation::ComponentDesc::Camera(Camera::default()),
+        )
+        .unwrap();
+    draw(&mut world, handle, target);
+    let mut snapshot = snapshot(&mut world);
+    snapshot.record_sets.clear();
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
+    assert_eq!(adapted.report.skipped.get(&Skip::StaleCamera), Some(&1));
+    assert!(adapted.frame.records.is_empty());
+}
+
+#[test]
 fn a_blit_whose_shader_could_not_be_loaded_is_skipped() {
     let mut world = world();
     let (a, b) = (

@@ -116,6 +116,7 @@ impl World {
         };
         slot.desc = desc;
         let (owner, kind) = (slot.object, slot.desc.kind());
+        self.note_component_drawables(kind);
         if kind == ComponentKind::Transform {
             self.spatial_touch(owner);
         }
@@ -126,6 +127,11 @@ impl World {
             return;
         };
         let owner = component.object;
+        let kind = component.desc.kind();
+        self.note_component_drawables(kind);
+        let Some(component) = self.components.get(handle.0) else {
+            return;
+        };
         if matches!(component.desc, ComponentDesc::Renderer { .. })
             && let Some(object) = self.objects.get_mut(owner.0)
         {

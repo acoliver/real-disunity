@@ -124,7 +124,6 @@ impl ListReport {
         let mut lines: Vec<(String, usize)> = [
             ("culling records", self.culls),
             ("renderers kept by culling", self.kept),
-            ("renderers culled by layer", self.out_by_layer),
             ("renderers culled by planes", self.out_by_planes),
             ("lists made", self.created),
             ("drawing lists drawn", self.drawn),
@@ -155,11 +154,11 @@ impl ListReport {
 /// What the culling records and renderer lists of a frame did, as counts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ListReport {
-    /// The culling records, the renderers they kept (summed) and those they left out by the layer
-    /// mask and by the view volume's planes.
+    /// The culling records, the renderers they kept (summed) and those they left out by the view
+    /// volume's planes. The layer mask is applied by the world when it makes the record's set, so
+    /// the adapter has no renderer of another layer to count.
     pub culls: usize,
     pub kept: usize,
-    pub out_by_layer: usize,
     pub out_by_planes: usize,
     /// The lists made, the drawing lists and the shadow lists drawn with something to draw, and
     /// the draws of lists with nothing left to draw.

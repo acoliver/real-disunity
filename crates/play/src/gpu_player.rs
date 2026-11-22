@@ -33,6 +33,8 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
+mod ui_offer;
+pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
 use crate::counts_line::{names_line, top_counts_line};

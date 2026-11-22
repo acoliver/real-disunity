@@ -88,7 +88,7 @@ fn effects_share_fill_atlas_preserve_order_and_alpha() {
     assert_eq!(p.coverage.len(), 1);
     for (i, draw) in p.draws.iter().enumerate() {
         assert_eq!(draw.hierarchy_order, i);
-        assert_eq!(draw.texture, Some(0));
+        assert_eq!(draw.texture, Some(UiTexture::Coverage(0)));
         let style = draw.distance_field.unwrap();
         assert_eq!(style.spread_px.to_bits(), 5_f32.to_bits());
         assert_eq!(style.radius_px.to_bits(), 2_f32.to_bits());

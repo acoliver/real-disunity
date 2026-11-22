@@ -58,6 +58,7 @@ impl Default for GlyphRaster {
     }
 }
 pub use text_field::{TextFieldStyle, TextReject, UiTextField};
+mod texture;
 mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;
@@ -76,6 +77,7 @@ pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,
     UiLinkId, VerticalAlign, VerticalOverflow,
 };
+pub use texture::UiTexture;
 pub use wrap::{LineBreakCandidates, advance_text, line_break_info};
 
 pub use crate::{FontId, UiError};

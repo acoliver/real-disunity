@@ -1,7 +1,8 @@
 #![cfg(feature = "ui")]
 mod ui_font;
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits, contribution::extract_ui,
+    Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits, UiTexture,
+    contribution::extract_ui,
 };
 use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, ParentSpace, World, WorldSettings};
 
@@ -130,8 +131,15 @@ fn assert_screen_snapshot(plan: &worldrunner_world_simulation::ui::contribution:
         assert_eq!(draw.clip_rect, [16, 16, 16, 16]);
         assert_eq!(draw.corners, glyph.corners);
         assert_eq!(
-            snapshot.coverage.get(&draw.texture.unwrap()),
+            snapshot.coverage.get(&coverage_key(draw.texture)),
             text.texture.as_ref()
         );
+    }
+}
+
+fn coverage_key(texture: Option<UiTexture>) -> u64 {
+    match texture {
+        Some(UiTexture::Coverage(key)) => key,
+        other => panic!("{other:?} is not a coverage texture"),
     }
 }

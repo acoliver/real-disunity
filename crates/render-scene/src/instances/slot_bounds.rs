@@ -108,6 +108,7 @@ impl SlotBounds {
                     .into_iter()
                     .map(|position| (position, self.union(position)))
                     .collect(),
+                (&self.boxes, stride),
             );
             self.stale = false;
         }

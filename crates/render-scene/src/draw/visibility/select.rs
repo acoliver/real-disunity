@@ -226,8 +226,13 @@ impl Selection {
             if batch.small {
                 // The slots of a lone small leaf ascend, so they are tested and emitted in
                 // place, without the list and sort of a walk.
-                for &slot in batch.bounds.tree().slots() {
-                    if self.admits_slot(batch, slot, view, Passed::default()) {
+                let tree = batch.bounds.tree();
+                let members = tree
+                    .slots()
+                    .iter()
+                    .zip(tree.boxes().chunks_exact(tree.stride()));
+                for (&slot, boxes) in members {
+                    if self.admits_slot(batch, (slot, boxes), view, Passed::default()) {
                         chosen.push_level(placements, batch, slot);
                     }
                 }
@@ -268,17 +273,13 @@ impl Selection {
     fn admits_slot(
         &self,
         batch: &IndexedBatch<'_>,
-        slot: u32,
+        (slot, boxes): (u32, &[[Vec3; 2]]),
         view: ViewTests<'_>,
         passed: Passed,
     ) -> bool {
         batch.flags[slot as usize] & view.flag != 0
             && self.admits(view.frustum, view.light, passed, || {
-                placement::placement(
-                    batch.bounds.boxes(slot as usize),
-                    batch.bounds.reliefs(),
-                    view.stretch,
-                )
+                placement::placement(boxes, batch.bounds.reliefs(), view.stretch)
             })
     }
 
@@ -317,9 +318,9 @@ impl Selection {
                 Node::Inner { children, .. } => {
                     stack.extend(children.map(|child| (child, passed)));
                 }
-                Node::Leaf { slots, .. } => {
-                    for &slot in slots {
-                        if self.admits_slot(batch, slot, view, passed) {
+                Node::Leaf { slots, boxes, .. } => {
+                    for (&slot, boxes) in slots.iter().zip(boxes.chunks_exact(tree.stride())) {
+                        if self.admits_slot(batch, (slot, boxes), view, passed) {
                             admitted.insert(slot);
                         }
                     }

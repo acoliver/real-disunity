@@ -3,11 +3,13 @@
 
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{WireError, decode, encode};
-use worldrunner_world_simulation::graphics::{GraphicsSnapshot, OffscreenWork, RenderTextureId};
+use worldrunner_world_simulation::graphics::{
+    GraphicsSnapshot, OffscreenWork, PropertyValue, RenderTextureId,
+};
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
-    ObjectHandle, ParentSpace, RendererSwitches, World,
+    ObjectHandle, ParentSpace, RendererKind, RendererSwitches, World,
 };
 
 mod graphics_world;
@@ -609,6 +611,61 @@ fn edits_that_leave_drawability_alone_keep_one_shared_set() {
     assert_eq!(snapshot.record_sets.len(), 4);
     for record in 0..4 {
         assert_eq!(drawn_by(&snapshot, record), Some(vec![MESH + 1]));
+    }
+}
+
+// Adapted from mini-branch-3's review probes p6 and p10 of the render-set follow-up (board 237).
+#[test]
+fn a_renderer_changed_to_another_kind_gives_the_later_render_its_own_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let skinned = MeshRenderer {
+        kind: RendererKind::Skinned,
+        ..MeshRenderer::default()
+    };
+    let renderer = scene.mesh_renderer(object);
+    scene
+        .world
+        .set_component(renderer, ComponentDesc::MeshRenderer(skinned))
+        .unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_ne!(snapshot.record_sets[&0], snapshot.record_sets[&1]);
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![]));
+}
+
+#[test]
+fn a_render_after_direct_global_writes_is_keyed_by_its_own_index() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    for (name, value) in [("_A", 1.0), ("_B", 2.0)] {
+        let property = PropertyValue::Float(name.into(), value);
+        scene.world.set_global_property(property).unwrap();
+    }
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    let renders: Vec<usize> = snapshot
+        .work
+        .iter()
+        .enumerate()
+        .filter(|(_, work)| matches!(work, OffscreenWork::CameraRender { .. }))
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(
+        renders,
+        vec![0, 3],
+        "two global records precede the second render"
+    );
+    assert_eq!(snapshot.record_sets.len(), 2);
+    assert_eq!(drawn_by(&snapshot, 3), Some(vec![MESH]));
+    for global in [1, 2] {
+        assert_eq!(
+            snapshot.record_renderers(global),
+            None,
+            "global record {global}"
+        );
     }
 }
 

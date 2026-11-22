@@ -189,7 +189,7 @@ A script sets values on a material, draws with it, sets others and draws again, 
 The world therefore fixes the renderers of a camera render when it records the render.
 A render pipeline renders a camera by culling inside `Camera.Render`, so a `Cull` record is fixed the same way, with its own culling mask.
 `World::record_offscreen` of a `CameraRender` or a `Cull` captures the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an object active in the hierarchy, on a layer the camera's culling mask admits.
-Records of one mask share a set while nothing changes: a counter that `set_active`, a parent or layer change, a renderer or mesh filter edit, an added or removed component, a published construction and the destruction of an object advance gives each set its validity, so a frame with hundreds of camera renders scans the renderers once for each change, not once for each render.
+Records of one mask share a set while nothing changes: a counter that `set_active`, a parent or layer change, a published construction, and an added, removed or edited mesh renderer or mesh filter advance gives each set its validity, where an edit advances it only when the renderer's enabled, forced-off or kind setting changes or the filter gains or loses its drawn mesh (a new material, property block or mesh id keeps the set), so a frame with hundreds of camera renders scans the renderers once for each change, not once for each render.
 
 `GraphicsSnapshot::take` lists the renderers the sets name, each once, and gives each camera render and each cull its set as indices into `renderers` (`renderer_sets`, `record_sets`, `record_renderers`).
 A renderer in a set whose object or components are gone by then is left out.

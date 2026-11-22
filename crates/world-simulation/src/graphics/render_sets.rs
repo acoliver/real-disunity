@@ -19,9 +19,36 @@
 use std::collections::BTreeMap;
 
 use super::OffscreenWork;
-use crate::{
-    ComponentDesc, ComponentHandle, ComponentKind, MeshRenderer, ObjectHandle, RendererKind, World,
-};
+use crate::{ComponentDesc, ComponentHandle, MeshRenderer, ObjectHandle, RendererKind, World};
+
+/// What a component contributes to a renderer being drawable. A component that contributes
+/// nothing is not any set's concern, whether it is absent or only present.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DrawInput {
+    /// A mesh renderer that is enabled and not forced off.
+    ShownRenderer,
+    /// A mesh filter that has a drawn mesh. Which mesh it is does not matter to a set: the mesh
+    /// is read when the snapshot is taken.
+    MeshedFilter,
+}
+
+impl ComponentDesc {
+    /// What this component contributes to drawing, or `None` when it contributes nothing.
+    pub(crate) fn draw_input(&self) -> Option<DrawInput> {
+        match self {
+            Self::MeshRenderer(renderer) => shows(renderer).then_some(DrawInput::ShownRenderer),
+            Self::MeshFilter(filter) => (filter.drawn_mesh != 0).then_some(DrawInput::MeshedFilter),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `renderer` is a mesh renderer that is enabled and not forced off.
+fn shows(renderer: &MeshRenderer) -> bool {
+    renderer.kind == RendererKind::Mesh
+        && renderer.switches.enabled
+        && !renderer.switches.force_rendering_off
+}
 
 /// The sets the frame's camera renders drew with, and which record drew with which.
 #[derive(Clone)]
@@ -60,19 +87,21 @@ impl RenderSets {
 }
 
 impl World {
-    /// Notes that a change may have altered which renderers are drawable: an object's activity or
-    /// parent, a renderer's switches, a mesh filter, a layer, or the existence of any of them.
+    /// Notes that a change may have altered which renderers are drawable: an object's activity,
+    /// parent or layer, or a component that decides drawing (see [`ComponentDesc::draw_input`]).
     pub(crate) fn note_drawables_changed(&mut self) {
         self.graphics.drawable_epoch += 1;
     }
 
-    /// Notes a change to a component of `kind`, which alters the drawable renderers when it is a
-    /// mesh renderer or a mesh filter.
-    pub(crate) fn note_component_drawables(&mut self, kind: ComponentKind) {
-        if matches!(
-            kind,
-            ComponentKind::MeshRenderer | ComponentKind::MeshFilter
-        ) {
+    /// Notes a component going from `before` to `after`, which is `None` for one that was not
+    /// there or is not there now. Only a change in what the component contributes to drawing
+    /// alters the drawable renderers.
+    pub(crate) fn note_drawable_edit(
+        &mut self,
+        before: Option<DrawInput>,
+        after: Option<DrawInput>,
+    ) {
+        if before != after {
             self.note_drawables_changed();
         }
     }
@@ -149,10 +178,7 @@ impl World {
     /// mesh renderer that is enabled and not forced off, or its object has no drawn mesh. Whether
     /// the object is active is a separate question.
     fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off;
-        if shown {
+        if shows(renderer) {
             self.filter_mesh(object)
         } else {
             None

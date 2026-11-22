@@ -6,8 +6,8 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{GraphicsSnapshot, OffscreenWork, RenderTextureId};
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle,
-    ParentSpace, RendererSwitches, World,
+    ComponentDesc, ComponentHandle, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
+    ObjectHandle, ParentSpace, RendererSwitches, World,
 };
 
 mod graphics_world;
@@ -46,6 +46,14 @@ impl Scene {
         self.world
             .published_components()
             .find(|c| c.object == object && matches!(c.desc, ComponentDesc::MeshRenderer(_)))
+            .map(|c| c.handle)
+            .unwrap()
+    }
+
+    fn mesh_filter(&self, object: ObjectHandle) -> ComponentHandle {
+        self.world
+            .published_components()
+            .find(|c| c.object == object && matches!(c.desc, ComponentDesc::MeshFilter(_)))
             .map(|c| c.handle)
             .unwrap()
     }
@@ -563,4 +571,43 @@ fn work_taken_without_a_snapshot_leaves_no_sets_for_the_next_frame() {
     assert_eq!(snapshot.record_sets.len(), 1);
     assert_eq!(snapshot.renderer_sets.len(), 1);
     assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH]));
+}
+
+#[test]
+fn edits_that_leave_drawability_alone_keep_one_shared_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let tuned = MeshRenderer {
+        shadow_casting_mode: 1,
+        renderer_priority: 5,
+        ..MeshRenderer::default()
+    };
+    let renderer = scene.mesh_renderer(object);
+    scene
+        .world
+        .set_component(renderer, ComponentDesc::MeshRenderer(tuned))
+        .unwrap();
+    scene.render();
+    let other_mesh = MeshFilter {
+        mesh: 4,
+        drawn_mesh: MESH + 1,
+    };
+    let filter = scene.mesh_filter(object);
+    scene
+        .world
+        .set_component(filter, ComponentDesc::MeshFilter(other_mesh))
+        .unwrap();
+    scene.render();
+    scene
+        .world
+        .set_local_transform(object, LocalTransform::default())
+        .unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.renderer_sets.len(), 1);
+    assert_eq!(snapshot.record_sets.len(), 4);
+    for record in 0..4 {
+        assert_eq!(drawn_by(&snapshot, record), Some(vec![MESH + 1]));
+    }
 }

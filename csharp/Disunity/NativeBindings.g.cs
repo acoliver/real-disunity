@@ -381,26 +381,18 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
         /// <summary>
-        ///  Names the mesh, bones and root bone a skinned renderer draws. Every nonzero object id must
-        ///  name a live object of this world, there are at most 1024 bones, and a nonzero mesh must be a
-        ///  player mesh identity. The renderer must be a skinned one. A rejected call changes nothing.
+        ///  Names the mesh a skinned renderer draws and the root bone that places it. `drawn_mesh` is 0 for
+        ///  none or a player mesh identity. `root_bone` is the object id of the root bone, a live object of
+        ///  this world, with `root_bind_pose` the root bone's bind pose as 16 finite column-major floats.
+        ///  A renderer whose skeleton is not in the world passes 0 and a null pose and is left out of
+        ///  frames. A bone without a pose, or a pose without a bone, is refused. The renderer must be a
+        ///  skinned one. A rejected call changes nothing.
         ///
         ///  # Safety
-        ///  `skin` is readable for one record and `bones` for `skin.bone_count` ids, or null when that
-        ///  count is zero.
+        ///  `root_bind_pose` is null or readable for 16 floats.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_skinned_renderer_write(ulong world, ulong handle, DisunityRendererSkin* skin, ulong* bones);
-        /// <summary>
-        ///  Reads a skinned renderer's skin. The bone ids are copied into `bones` when `capacity` is
-        ///  nonzero, which must then hold every bone; a capacity of 0 reports the counts only.
-        ///
-        ///  # Safety
-        ///  `skin` is writable for one record; `bones` is writable for `capacity` ids, or null when
-        ///  `capacity` is zero.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_skinned_renderer_read(ulong world, ulong handle, DisunityRendererSkin* skin, ulong* bones, uint capacity);
+        internal static extern DisunityResult disunity_skinned_renderer_write(ulong world, ulong handle, ulong drawn_mesh, ulong root_bone, float* root_bind_pose);
         /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.

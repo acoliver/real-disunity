@@ -18,9 +18,12 @@
 
 use std::collections::BTreeMap;
 
+use glam::Mat4;
+
 use super::OffscreenWork;
 use crate::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectHandle, RendererKind, World,
+    WorldError,
 };
 
 impl ComponentDesc {
@@ -203,38 +206,26 @@ impl World {
         }
     }
 
-    /// The object whose matrix places the mesh of `renderer` on `object`. A mesh renderer's mesh is
-    /// in its own object's space. A skinned renderer is drawn in its bind pose, and bone matrices
-    /// times bind poses cancel to the matrix of the space the bind poses were authored in, which
-    /// is the nearest object at or above it that holds an animator; the renderer's own matrix
-    /// carries the model's import rotation, which the skin does not use. Without an animator it
-    /// is the renderer's own object.
-    pub(crate) fn placing_object(
+    /// The matrix that places the mesh of `renderer` on `object`. A mesh renderer's mesh is in its
+    /// own object's space. A skinned renderer is drawn in its bind pose, where every bone's matrix
+    /// times its bind pose is the matrix the mesh was bound at, so the root bone's matrix times the
+    /// root bone's bind pose places it. `None` when the skin names no root bone or the root bone is
+    /// gone: the skin then does not say where the mesh goes, and the renderer is left out.
+    ///
+    /// # Errors
+    /// Fails when the world cannot describe the object of a mesh renderer.
+    pub(crate) fn renderer_placement(
         &self,
         object: ObjectHandle,
         renderer: &MeshRenderer,
-    ) -> ObjectHandle {
+    ) -> Result<Option<Mat4>, WorldError> {
         if renderer.kind != RendererKind::Skinned {
-            return object;
+            return self.presented_matrix(object).map(Some);
         }
-        let mut at = Some(object);
-        while let Some(current) = at {
-            if self.holds_animator(current) {
-                return current;
-            }
-            at = self.parent(current).ok().flatten();
-        }
-        object
-    }
-
-    fn holds_animator(&self, object: ObjectHandle) -> bool {
-        self.live_object(object).is_ok_and(|stored| {
-            stored.components.iter().any(|handle| {
-                self.components.get(handle.0).is_some_and(|component| {
-                    matches!(component.desc, ComponentDesc::Animator { .. })
-                })
-            })
-        })
+        Ok(renderer.skin.root.and_then(|root| {
+            let bone = self.presented_matrix(root.bone).ok()?;
+            Some(bone * Mat4::from_cols_array(&root.bind_pose))
+        }))
     }
 
     /// The drawn mesh of the object's mesh filter, when it has one with a mesh.

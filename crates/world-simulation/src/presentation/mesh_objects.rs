@@ -41,8 +41,9 @@ pub struct MeshObject {
 /// admits (every layer when no camera is presented). A renderer with `force_rendering_off` is
 /// left out, and so is one whose shadow casting mode is `ShadowsOnly`, which draws nothing
 /// visible, and a particle renderer, which draws from data no mesh holds. A mesh renderer draws its
-/// mesh filter's mesh and a skinned renderer the mesh it names, in its bind pose at the matrix of
-/// its animator.
+/// mesh filter's mesh at its own matrix. A skinned renderer draws the mesh it names in its bind pose
+/// where its root bone puts it, and is left out when its skin names no root bone that is in the
+/// world.
 pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError> {
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
     let basis = view_basis();
@@ -56,6 +57,9 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             .renderer_mesh(component.object, renderer)
             .filter(|_| shown)
         else {
+            continue;
+        };
+        let Some(placement) = world.renderer_placement(component.object, renderer)? else {
             continue;
         };
         let layer = world.object(component.object)?.layer;
@@ -82,9 +86,7 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             .collect();
         objects.push(MeshObject {
             object: component.object,
-            local_to_world: (basis
-                * world.presented_matrix(world.placing_object(component.object, renderer))?)
-            .to_cols_array(),
+            local_to_world: (basis * placement).to_cols_array(),
             mesh,
             slots,
             layer: u32::from(layer),

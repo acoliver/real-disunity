@@ -5,7 +5,6 @@ use super::command_parts::{read_command, write_command};
 use crate::ComponentHandle;
 use crate::graphics::{
     CameraBuffers, CameraView, GraphicsSnapshot, OffscreenWork, RenderTextureId, RendererView,
-    SkinView,
 };
 use crate::handles::Identity;
 use crate::presentation::{Camera, CameraClear, CameraFlags, Projection};
@@ -116,10 +115,8 @@ wire_struct!(RendererView {
     materials,
     render_queue,
     property_block,
-    slot_blocks,
-    skin
+    slot_blocks
 });
-wire_struct!(SkinView { bone_count });
 
 const WORK_CAMERA_RENDER: u8 = 0;
 const WORK_BLIT: u8 = 1;
@@ -233,6 +230,7 @@ wire_struct!(GraphicsSnapshot {
     renderers,
     renderer_sets,
     record_sets,
+    skinned_not_drawn,
     compute_shaders,
     compute_buffers
 });

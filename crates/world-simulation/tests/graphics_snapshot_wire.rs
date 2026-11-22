@@ -8,11 +8,11 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
 };
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, GraphicsSnapshot, MaterialEdit, MaterialId, OffscreenWork,
-    PropertyValue, RenderTextureId, ShaderSource, SkinView, TargetRef, TextureRef, TextureSlot,
+    PropertyValue, RenderTextureId, ShaderSource, TargetRef, TextureRef, TextureSlot,
     WorldComputeShader, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
-use worldrunner_world_simulation::{MeshRenderer, RendererKind, World};
+use worldrunner_world_simulation::{MeshRenderer, RendererKind, SkinRoot, World};
 
 mod graphics_world;
 use graphics_world::{
@@ -130,8 +130,14 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     let bone = renderer(world, 4, (1 << 41) + 3, vec![]);
     let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
     skinned.skin.drawn_mesh = (1 << 41) + 4;
-    skinned.skin.bones = vec![Some(bone), None, Some(bone)];
+    skinned.skin.root = Some(SkinRoot {
+        bone,
+        bind_pose: std::array::from_fn(|i| i as f32),
+    });
     renderer_with(world, (0, true), 0, skinned);
+    let mut unrooted = MeshRenderer::of_kind(RendererKind::Skinned);
+    unrooted.skin.drawn_mesh = (1 << 41) + 5;
+    renderer_with(world, (0, true), 0, unrooted);
 }
 
 /// A compute shader with a sized and an unsized kernel, a buffer bound to the first and every
@@ -241,10 +247,16 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
 }
 
 #[test]
-fn a_skinned_renderer_view_keeps_its_skin() {
-    let decoded = decode(&encode(&full_snapshot()).unwrap()).unwrap();
-    let skins: Vec<_> = decoded.renderers.iter().map(|view| view.skin).collect();
-    assert_eq!(skins, [None, None, None, Some(SkinView { bone_count: 3 })]);
+fn the_count_of_skinned_renderers_left_out_round_trips() {
+    let full = full_snapshot();
+    assert_eq!(full.skinned_not_drawn, 1);
+    let decoded = decode(&encode(&full).unwrap()).unwrap();
+    assert_eq!(decoded.skinned_not_drawn, 1);
+    assert_eq!(
+        decoded.renderers.len(),
+        4,
+        "the rooted skinned renderer is listed"
+    );
 }
 
 #[test]

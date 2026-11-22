@@ -1,9 +1,9 @@
 //! Renderer components of 3D objects: the settings of a mesh renderer or skinned mesh renderer,
 //! and the mesh a mesh filter names. Meshes are managed instance ids; materials, property blocks
-//! and bones stay in the managed component, which keeps a material count here and, per material
-//! slot, the world material the slot draws with. A skinned renderer also holds its skin binding: the
-//! mesh the host draws and the world objects of its bones and root bone. The presentation lists them
-//! as mesh objects with the colour and texture each slot draws.
+//! stay in the managed component, which keeps a material count here and, per material slot, the
+//! world material the slot draws with. A skinned renderer also holds its skin binding: the mesh the
+//! host draws and the root bone that places it. The presentation lists them as mesh objects with the
+//! colour and texture each slot draws.
 use std::collections::BTreeMap;
 
 use crate::graphics::{MaterialId, ShaderProperties};
@@ -11,9 +11,6 @@ use crate::{ComponentError, ObjectHandle, WorldError};
 
 /// Most materials one renderer holds.
 pub const MAX_RENDERER_MATERIALS: u32 = 64;
-
-/// Most bones one skinned renderer names.
-pub const MAX_SKIN_BONES: usize = 1024;
 
 /// Which renderer class the component is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -64,15 +61,24 @@ impl Default for DrawnMaterial {
     }
 }
 
-/// What a skinned renderer draws and deforms by. The world holds the bone objects, not their
-/// matrices: a bone's matrix is read from its object when a frame needs it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The bone that places a skinned renderer's mesh, with that bone's bind pose.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkinRoot {
+    /// The object of the root bone, whose matrix is read from the object when a frame needs it.
+    pub bone: ObjectHandle,
+    /// The root bone's bind pose from the mesh, column-major. With every bone at rest the matrix
+    /// of the bone times this pose is the matrix the mesh was bound at.
+    pub bind_pose: [f32; 16],
+}
+
+/// What a skinned renderer draws and where its skin puts it.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SkinBinding {
     /// The renderer identity the host knows the mesh's contents by, 0 when the host has none.
     pub drawn_mesh: u64,
-    /// The bone of each slot of the mesh's bind poses, `None` for an empty slot.
-    pub bones: Vec<Option<ObjectHandle>>,
-    pub root_bone: Option<ObjectHandle>,
+    /// The root bone and its bind pose, `None` when the renderer's skeleton is not in the world.
+    /// Such a renderer has no placement and is left out.
+    pub root: Option<SkinRoot>,
 }
 
 /// The settings of a mesh renderer or a skinned mesh renderer.
@@ -152,11 +158,14 @@ impl MeshRenderer {
         }
     }
 
-    /// Whether the skin is one this kind of renderer holds: a skinned renderer names at most
-    /// [`MAX_SKIN_BONES`] bones, and every other kind names nothing.
+    /// Whether the skin is one this kind of renderer holds: a skinned renderer's root bind pose is
+    /// finite, and every other kind names nothing.
     fn skin_fits_kind(&self) -> bool {
         match self.kind {
-            RendererKind::Skinned => self.skin.bones.len() <= MAX_SKIN_BONES,
+            RendererKind::Skinned => self
+                .skin
+                .root
+                .is_none_or(|root| root.bind_pose.iter().all(|value| value.is_finite())),
             _ => self.skin == SkinBinding::default(),
         }
     }

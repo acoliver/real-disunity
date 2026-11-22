@@ -72,14 +72,12 @@ internal static class MeshRendererTests
         var bone = NewObject().transform;
         r.rootBone = bone; r.bones = [bone]; r.quality = SkinQuality.Bone2; r.updateWhenOffscreen = true;
         Ensure(r.rootBone == bone && r.bones.Length == 1 && r.bones[0] == bone, "bones");
-        var held = SkinSupport.Read(r);
-        Ensure(held.Root == bone.gameObject.NativeHandle && held.Bones.SequenceEqual([bone.gameObject.NativeHandle]), "the world holds the bone and the root bone");
         var spare = NewObject().transform;
         r.bones = [bone, null!, spare];
-        Ensure(SkinSupport.Read(r).Bones.SequenceEqual([bone.gameObject.NativeHandle, 0UL, spare.gameObject.NativeHandle]), "an empty bone slot is held as none");
+        Ensure(r.bones.Length == 3 && r.bones[1] is null, "an empty bone slot is kept");
         r.bones = [bone];
         r.rootBone = null;
-        Ensure(SkinSupport.Read(r).Root == 0, "no root bone is held as none");
+        Ensure(r.rootBone is null, "no root bone");
         r.rootBone = bone;
         Ensure(r.quality == SkinQuality.Bone2 && r.updateWhenOffscreen, "quality and offscreen");
         Ensure(r.GetBlendShapeWeight(2) == 0f, "a weight starts at 0");
@@ -88,7 +86,8 @@ internal static class MeshRendererTests
         Throws<ArgumentOutOfRangeException>(() => r.SetBlendShapeWeight(-1, 1f), "a negative blend shape index");
         var shared = RendererTests.Cube();
         r.sharedMesh = shared;
-        Ensure(SkinSupport.Read(r).Mesh == shared.RendererIdentity, "the world holds the identity the host draws the mesh by");
+        Ensure(SkinSupport.Placed(r) is null, "a mesh with no bind pose for the root bone has no placement and is left out");
+        PlacedByItsRootBone(r, shared, bone, spare);
         Ensure(r.localBounds == shared.bounds && r.bounds.size == shared.bounds.size, "bounds come from the mesh");
         r.localBounds = new Bounds(Vector3.zero, Vector3.one);
         Ensure(r.localBounds.size == Vector3.one, "local bounds can be set");
@@ -104,11 +103,33 @@ internal static class MeshRendererTests
         r.BakeMesh(other);
         Ensure(other.vertexCount == 3, "a blend shape weight of zero deforms nothing");
         r.sharedMesh = null;
-        Ensure(SkinSupport.Read(r).Mesh == 0, "without a mesh the world holds none");
+        Ensure(SkinSupport.Placed(r) is null, "without a mesh nothing is drawn");
         r.BakeMesh(target);
         Ensure(target.vertexCount == 0, "with no mesh the target is emptied");
         Throws<ArgumentNullException>(() => r.BakeMesh(null!), "a null target");
         Throws<ArgumentNullException>(() => r.bones = null!, "null bones");
+    }
+
+    /// <summary>The mesh is drawn where the root bone's matrix times its bind pose puts it: the bone's position moves it, a
+    /// root bone that is not one of the bones leaves it out, and a change of the renderer's settings does not forget the
+    /// skin.</summary>
+    private static void PlacedByItsRootBone(SkinnedMeshRenderer r, Mesh shared, Transform bone, Transform spare)
+    {
+        shared.bindposes = [Matrix4x4.Translate(new Vector3(1, 2, 3))];
+        bone.position = new Vector3(3, 4, 5);
+        r.sharedMesh = shared;
+        var placed = SkinSupport.Placed(r);
+        Ensure(placed is { } drawn && drawn.Mesh == shared.RendererIdentity && SkinSupport.PlacedAtWorld(drawn.Matrix, 4, 6, 8), "the mesh is placed at the root bone's matrix times its bind pose");
+        bone.position = new Vector3(-2, 0, 1);
+        Ensure(SkinSupport.Placed(r) is { } moved && SkinSupport.PlacedAtWorld(moved.Matrix, -1, 2, 4), "the placement follows the root bone");
+        r.enabled = false;
+        Ensure(SkinSupport.Placed(r) is null, "a disabled renderer is not drawn");
+        r.enabled = true;
+        Ensure(SkinSupport.Placed(r) is { } kept && kept.Mesh == shared.RendererIdentity && SkinSupport.PlacedAtWorld(kept.Matrix, -1, 2, 4), "switching the renderer on again draws the same skin");
+        r.bones = [spare];
+        Ensure(SkinSupport.Placed(r) is null, "a root bone that is not one of the bones has no placement");
+        r.bones = [bone];
+        Ensure(SkinSupport.Placed(r) is not null, "naming the root bone among the bones places the mesh again");
     }
 
     /// <summary>Deforming inputs the engine's mesh cannot carry (bone weights, bind poses, blend shapes) and a scale to apply
@@ -155,9 +176,10 @@ internal static class MeshRendererTests
         var copy = skinned.material!;
         skinned.shadowCastingMode = ShadowCastingMode.TwoSided;
         skinned.sortingOrder = 9;
+        shared.bindposes = [Matrix4x4.identity, Matrix4x4.identity];
         skinned.sharedMesh = shared;
         skinned.rootBone = root.transform;
-        skinned.bones = [boneObject.transform];
+        skinned.bones = [root.transform, boneObject.transform];
         skinned.SetBlendShapeWeight(0, 3f);
         var block = new MaterialPropertyBlock();
         block.SetFloat("_A", 1f);
@@ -169,11 +191,11 @@ internal static class MeshRendererTests
         Ensure(cr.shadowCastingMode == ShadowCastingMode.TwoSided && cr.sortingOrder == 9, "settings are cloned");
         Ensure(ReferenceEquals(cr.sharedMaterial, copy) && ReferenceEquals(cr.material, copy), "materials are shared with the source's copies");
         Ensure(ReferenceEquals(cr.sharedMesh, shared) && cr.GetBlendShapeWeight(0) == 3f, "mesh and weights are cloned");
-        Ensure(cr.rootBone == clone.transform && cr.bones.Length == 1 && cr.bones[0] == clone.transform.GetChild(0), "bones point into the clone");
-        var cloned = SkinSupport.Read(cr);
-        Ensure(cloned.Mesh == shared.RendererIdentity && cloned.Root == clone.NativeHandle, "the clone's world skin names the mesh and its own root");
-        Ensure(cloned.Bones.SequenceEqual([clone.transform.GetChild(0).gameObject.NativeHandle]), "the clone's world skin names the clone's bones, not the original's");
-        Ensure(SkinSupport.Read(skinned).Bones.SequenceEqual([boneObject.NativeHandle]), "the original keeps its own bones");
+        Ensure(cr.rootBone == clone.transform && cr.bones.Length == 2 && cr.bones[1] == clone.transform.GetChild(0), "bones point into the clone");
+        root.transform.position = new Vector3(3, 0, 0);
+        clone.transform.position = new Vector3(0, 6, 0);
+        Ensure(SkinSupport.Placed(cr) is { } clonePlaced && clonePlaced.Mesh == shared.RendererIdentity && SkinSupport.PlacedAtWorld(clonePlaced.Matrix, 0, 6, 0), "the clone is placed by its own root bone, not the original's");
+        Ensure(SkinSupport.Placed(skinned) is { } originalPlaced && SkinSupport.PlacedAtWorld(originalPlaced.Matrix, 3, 0, 0), "the original keeps its own root bone");
         var read = new MaterialPropertyBlock();
         cr.GetPropertyBlock(read);
         Ensure(read.HasFloat("_A"), "the property block is cloned");

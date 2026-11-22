@@ -284,3 +284,46 @@ fn a_mesh_with_varying_bone_counts_is_left_out_and_named() {
         "{listed}"
     );
 }
+
+/// The skinned mesh with its first blend index replaced by the 32-bit pattern `index`.
+fn with_first_blend_index(format: u8, index: u32) -> MeshSpec {
+    let mut spec = skinned_mesh(format);
+    spec.vertex_data[28..32].copy_from_slice(&index.to_le_bytes());
+    spec
+}
+
+#[test]
+fn a_blend_index_that_is_negative_or_beyond_sixteen_bits_leaves_the_mesh_out_and_names_why() {
+    for (format, index) in [(11, u32::MAX), (10, 70_000), (11, 65_536)] {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = plan_prefab(
+            dir.path(),
+            mesh_bytes(&with_first_blend_index(format, index)),
+        );
+        assert_eq!(mesh_index(&plan), None, "format {format} index {index}");
+        let listed = plan.differences.join("\n");
+        assert!(
+            listed.contains("resource mesh Body: a blend index outside 0 to 65535"),
+            "format {format} index {index}: {listed}"
+        );
+    }
+}
+
+#[test]
+fn the_largest_blend_index_a_mesh_may_hold_is_kept_exactly() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan_prefab(dir.path(), mesh_bytes(&with_first_blend_index(10, 65_535)));
+    let index = mesh_index(&plan).expect("the mesh is planned");
+    let resource = asset_json(&plan, index)["resource"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let bytes = std::fs::read(dir.path().join("out").join(resource)).unwrap();
+    // One float array per channel in plan order: the positions of the three vertices (9 floats),
+    // their blend weights (12), then their blend indices, the first of which is the one set.
+    let at = (3 * 3 + 4 * 3) * 4;
+    assert_eq!(
+        f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()),
+        65_535.0
+    );
+}

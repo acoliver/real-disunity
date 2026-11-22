@@ -60,9 +60,9 @@ fn global_snapshot(arrays: &[u8]) -> Vec<u8> {
     body.extend_from_slice(&0_u64.to_le_bytes());
     // No environment ambient or reflection.
     body.extend_from_slice(&[0; 2]);
-    // Empty work, cameras, lights and renderers, no renderer sets and no record sets, then empty
-    // compute shaders and compute buffers.
-    body.extend_from_slice(&[0; 32]);
+    // Empty work, cameras, lights and renderers, no renderer sets and no record sets, no skinned
+    // renderers left out, then empty compute shaders and compute buffers.
+    body.extend_from_slice(&[0; 36]);
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
     bytes.extend_from_slice(&u32::try_from(body.len()).unwrap().to_le_bytes());
@@ -113,9 +113,9 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_twenty_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 20);
-    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19_u32] {
+fn the_version_is_nineteen_and_older_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 19);
+    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());
         assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));
@@ -203,7 +203,6 @@ fn every_location() -> GraphicsSnapshot {
         render_queue: None,
         property_block: Some(properties.clone()),
         slot_blocks: std::collections::BTreeMap::new(),
-        skin: None,
     });
     snapshot.work = vec![
         OffscreenWork::SetGlobal(PropertyValue::VectorArray(

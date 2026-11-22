@@ -3,8 +3,8 @@
 use worldrunner_world_simulation::graphics::ShaderProperties;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, MAX_RENDERER_MATERIALS,
-    MAX_SKIN_BONES, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, SkinBinding,
-    World, WorldError, WorldSettings,
+    MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, SkinBinding, SkinRoot, World,
+    WorldError, WorldSettings,
 };
 
 fn world_with(desc: ComponentDesc) -> (World, ObjectHandle) {
@@ -277,15 +277,17 @@ fn invalid(result: &Result<ComponentHandle, WorldError>) -> bool {
 }
 
 #[test]
-fn a_skinned_renderer_stores_its_drawn_mesh_bones_and_root_bone() {
+fn a_skinned_renderer_stores_its_drawn_mesh_and_root_bone_with_its_bind_pose() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     let bone = world.create_object(ObjectDesc::default()).unwrap();
     let mut renderer = MeshRenderer::of_kind(RendererKind::Skinned);
     renderer.skin = SkinBinding {
         drawn_mesh: 5,
-        bones: vec![Some(bone), None, Some(object)],
-        root_bone: Some(bone),
+        root: Some(SkinRoot {
+            bone,
+            bind_pose: std::array::from_fn(|i| i as f32),
+        }),
     };
     world
         .add_component(object, ComponentDesc::MeshRenderer(renderer.clone()))
@@ -294,27 +296,34 @@ fn a_skinned_renderer_stores_its_drawn_mesh_bones_and_root_bone() {
 }
 
 #[test]
-fn a_skin_beyond_the_bone_limit_or_on_another_kind_is_rejected() {
+fn a_skin_with_a_bind_pose_that_is_not_finite_or_on_another_kind_is_rejected() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
-    let skin = |bones| SkinBinding {
+    let skin = |value: f32| SkinBinding {
         drawn_mesh: 0,
-        bones,
-        root_bone: None,
+        root: Some(SkinRoot {
+            bone: object,
+            bind_pose: [value; 16],
+        }),
     };
     let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
-    skinned.skin = skin(vec![Some(object); MAX_SKIN_BONES + 1]);
-    assert!(invalid(&world.add_component(
-        object,
-        ComponentDesc::MeshRenderer(skinned.clone())
-    )));
-    skinned.skin = skin(vec![Some(object); MAX_SKIN_BONES]);
-    let at_limit = world.add_component(object, ComponentDesc::MeshRenderer(skinned));
-    assert!(at_limit.is_ok());
+    for value in [f32::NAN, f32::INFINITY] {
+        skinned.skin = skin(value);
+        assert!(invalid(&world.add_component(
+            object,
+            ComponentDesc::MeshRenderer(skinned.clone())
+        )));
+    }
+    skinned.skin = skin(1.0);
+    assert!(
+        world
+            .add_component(object, ComponentDesc::MeshRenderer(skinned))
+            .is_ok()
+    );
     let other = world.create_object(ObjectDesc::default()).unwrap();
     for kind in [RendererKind::Mesh, RendererKind::Particle] {
         let mut plain = MeshRenderer::of_kind(kind);
-        plain.skin = skin(vec![Some(object)]);
+        plain.skin = skin(1.0);
         assert!(invalid(
             &world.add_component(other, ComponentDesc::MeshRenderer(plain))
         ));

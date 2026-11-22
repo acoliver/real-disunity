@@ -45,6 +45,10 @@ public partial class Mesh
         }
     }
 
+    /// <summary>The bind pose of the bone at <paramref name="slot"/>, or null when the mesh has no such bone. It reads the
+    /// held poses whether or not the mesh is still readable.</summary>
+    internal Matrix4x4? BindPoseAt(int slot) => (uint)slot < (uint)_bindPoses.Length ? _bindPoses[slot] : null;
+
     public Color32[] colors32
     {
         get => ReadColors32();

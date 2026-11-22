@@ -147,10 +147,10 @@ impl Component {
     }
 
     /// The value of the component at the start of `bytes` as a float.
-    fn read(self, bytes: &[u8]) -> f32 {
+    fn read(self, bytes: &[u8]) -> Result<f32, &'static str> {
         let two = || u16::from_le_bytes([bytes[0], bytes[1]]);
         let four = || [bytes[0], bytes[1], bytes[2], bytes[3]];
-        match self {
+        Ok(match self {
             Self::Float32 => f32::from_le_bytes(four()),
             Self::Float16 => half_to_float(two()),
             Self::UNorm8 => f32::from(bytes[0]) / 255.0,
@@ -161,17 +161,18 @@ impl Component {
             Self::SInt8 => f32::from(bytes[0].cast_signed()),
             Self::UInt16 => f32::from(two()),
             Self::SInt16 => f32::from(two().cast_signed()),
-            Self::UInt32 => bone_index(i64::from(u32::from_le_bytes(four()))),
-            Self::SInt32 => bone_index(i64::from(i32::from_le_bytes(four()))),
-        }
+            Self::UInt32 => return blend_index(i64::from(u32::from_le_bytes(four()))),
+            Self::SInt32 => return blend_index(i64::from(i32::from_le_bytes(four()))),
+        })
     }
 }
 
 /// A 32-bit integer channel value as a float. Only blend indices are stored in these formats, and a
-/// mesh has fewer than 65536 bones, so a value outside the 16-bit range saturates.
-fn bone_index(value: i64) -> f32 {
-    let bounded = value.clamp(i64::from(i16::MIN), i64::from(u16::MAX));
-    u16::try_from(bounded).map_or_else(|_| i16::try_from(bounded).map_or(0.0, f32::from), f32::from)
+/// mesh has fewer than 65536 bones, so a value outside 0 to 65535 is refused instead of changed.
+fn blend_index(value: i64) -> Result<f32, &'static str> {
+    u16::try_from(value)
+        .map(f32::from)
+        .map_err(|_| "a blend index outside 0 to 65535")
 }
 
 /// An IEEE 754 half precision float as a single precision one.
@@ -288,7 +289,12 @@ fn planned_dimension(attribute: usize, serialized: usize) -> u8 {
 
 /// Appends the values of `source` for every vertex to `out`, padded or cut to the planned
 /// dimension: missing components are 0, or 1 for a color's alpha.
-fn append_attribute(source: &Source, data: &[u8], vertices: usize, out: &mut Vec<u8>) {
+fn append_attribute(
+    source: &Source,
+    data: &[u8],
+    vertices: usize,
+    out: &mut Vec<u8>,
+) -> Result<(), &'static str> {
     let planned = usize::from(planned_dimension(source.attribute, source.dimension));
     let size = source.component.size();
     for vertex in 0..vertices {
@@ -297,13 +303,14 @@ fn append_attribute(source: &Source, data: &[u8], vertices: usize, out: &mut Vec
             let missing = if source.attribute == 3 { 1.0 } else { 0.0 };
             let value = if slot < source.dimension {
                 let from = at + slot * size;
-                source.component.read(&data[from..from + size])
+                source.component.read(&data[from..from + size])?
             } else {
                 missing
             };
             out.extend(value.to_le_bytes());
         }
     }
+    Ok(())
 }
 
 /// The bytes of the vertex data: inline, or read from the `.resS` file the mesh names.
@@ -422,7 +429,8 @@ fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String>
     }
     let mut bytes = Vec::new();
     for source in &layout {
-        append_attribute(source, data, vertices, &mut bytes);
+        append_attribute(source, data, vertices, &mut bytes)
+            .map_err(|reason| flaw(mesh, reason))?;
     }
     let channels = layout
         .iter()

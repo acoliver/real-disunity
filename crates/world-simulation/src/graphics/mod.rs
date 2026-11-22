@@ -48,7 +48,7 @@ pub use properties::{
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};
 pub use renderer_lists::{MAX_LIST_PASS_TAGS, RendererListDesc};
-pub use snapshot::{CameraView, GraphicsSnapshot, RendererView, SkinView, WorldLight};
+pub use snapshot::{CameraView, GraphicsSnapshot, RendererView, WorldLight};
 
 use slab::Slab;
 

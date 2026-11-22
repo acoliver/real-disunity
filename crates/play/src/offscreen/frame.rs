@@ -228,6 +228,9 @@ pub enum RendererSkip {
     /// The slots name materials, but the first of them left out is not in the snapshot.
     StaleMaterial,
     EmptySlot,
+    /// A skinned mesh renderer the snapshot leaves out because its skin names no root bone that is
+    /// in the world, so nothing says where its mesh goes. It is counted once for the frame.
+    SkinnedNotDrawn,
 }
 
 impl RendererSkip {
@@ -342,6 +345,7 @@ pub fn adapt_probing(
     }
     mapper.records();
     mapper.renderers();
+    mapper.skinned_renderers();
     mapper.finish()
 }
 

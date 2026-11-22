@@ -174,9 +174,10 @@ fn first_update_after_resize_flushes_into_resized_screen() {
 #[test]
 fn a_canvas_quad_over_a_render_texture_a_script_cleared_shows_it_in_the_window() {
     let _turn = fixture_turn();
-    let (driver, _) = play_fixture("ui-target-draw.fixture");
+    let (mut driver, _) = play_fixture("ui-target-draw.fixture");
+    let captures = driver.script.take_captures();
 
-    let shown = capture_of(&driver, 3);
+    let shown = capture_of(&captures, 3);
     assert_eq!(
         shown.rgb(32, 32),
         YELLOW,

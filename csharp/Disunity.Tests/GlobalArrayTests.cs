@@ -23,7 +23,7 @@ internal static unsafe class GlobalArrayTests
             FloatArraysNameThemselves();
             Console.WriteLine("PASS: Shader.SetGlobalFloatArray and CommandBuffer.SetGlobalFloatArray throw NotSupportedException naming the member");
             EveryCommandBufferOverloadRecordsInOrder();
-            Console.WriteLine("PASS: all eight CommandBuffer vector and matrix array overloads record in order, once per execution, apart from the global state");
+            Console.WriteLine("PASS: all eight CommandBuffer vector and matrix array overloads set the global state, and the world orders one record for each name in front of the next record, once per execution");
             RecordedArraysAreSnapshotsOfTheCall();
             Console.WriteLine("PASS: a recorded array is a copy: later changes to the array or list, Clear, re-recording and Release do not change what is sent");
             ContextDefersArraysUntilSubmit();
@@ -85,9 +85,9 @@ internal static unsafe class GlobalArrayTests
         return stream.ToArray();
     }
 
-    private static byte[] VectorEntry(string name, Vector4[] values) => Entry(name, values.Select(Floats));
+    internal static byte[] VectorEntry(string name, Vector4[] values) => Entry(name, values.Select(Floats));
 
-    private static byte[] MatrixEntry(string name, Matrix4x4[] values) => Entry(name, values.Select(Columns));
+    internal static byte[] MatrixEntry(string name, Matrix4x4[] values) => Entry(name, values.Select(Columns));
 
     private static string Element(float[] floats) => "(" + string.Join(" ", floats.Select(f => f.ToString("R", Invariant))) + ")";
 
@@ -95,14 +95,8 @@ internal static unsafe class GlobalArrayTests
 
     private static string MatrixLine(string name, Matrix4x4[] values) => $"SetGlobal {name}=matrices [{values.Length}] {string.Join(" ", values.Select(m => Element(Columns(m))))}";
 
-    /// <summary>Records a keyword so the frame has work, which makes the next snapshot carry the global state.</summary>
-    private static void Trigger()
-    {
-        var buffer = new CommandBuffer();
-        buffer.EnableShaderKeyword("_GA_TRIGGER");
-        Graphics.ExecuteCommandBuffer(buffer);
-        buffer.Release();
-    }
+    /// <summary>Records a command so the frame has work, which makes the next snapshot carry the global state.</summary>
+    private static void Trigger() => CommandWireReader.AppendMarker();
 
     /// <summary>Ends the take the global writes so far belong to. The world orders a direct write among the take's records and
     /// replays the take from the state before its first write, so a check of the global state alone settles first and the next take
@@ -110,7 +104,7 @@ internal static unsafe class GlobalArrayTests
     private static void Settle() => CommandWireReader.Take();
 
     /// <summary>The native snapshot of the frame, which also drains the frame's work.</summary>
-    private static byte[] Snapshot()
+    internal static byte[] Snapshot()
     {
         var world = DisunityHost.WorldHandle;
         uint length;
@@ -121,7 +115,7 @@ internal static unsafe class GlobalArrayTests
         return bytes;
     }
 
-    private static int Count(byte[] haystack, byte[] needle)
+    internal static int Count(byte[] haystack, byte[] needle)
     {
         var count = 0;
         for (var at = 0; at + needle.Length <= haystack.Length; at++)
@@ -248,10 +242,12 @@ internal static unsafe class GlobalArrayTests
         return buffer;
     }
 
+    /// <summary>What the world orders in front of the next record after <see cref="RecordEveryOverload"/> ran: one record for each
+    /// name, with the last array set under it, the vectors before the matrices and each kind by name.</summary>
     private static string[] ExpectedLines(Vector4[] vectors, Matrix4x4[] matrices) =>
     [
-        VectorLine("_GaCbVec", vectors), VectorLine("_GaCbVecList", vectors), VectorLine("_GaCbVecId", vectors), VectorLine("_GaCbVecId", vectors.Take(1).ToArray()),
-        MatrixLine("_GaCbMat", matrices), MatrixLine("_GaCbMatList", matrices), MatrixLine("_GaCbMatId", matrices), MatrixLine("_GaCbMatId", matrices.Take(1).ToArray()),
+        VectorLine("_GaCbVec", vectors), VectorLine("_GaCbVecId", vectors.Take(1).ToArray()), VectorLine("_GaCbVecList", vectors),
+        MatrixLine("_GaCbMat", matrices), MatrixLine("_GaCbMatId", matrices.Take(1).ToArray()), MatrixLine("_GaCbMatList", matrices),
     ];
 
     private static void EveryCommandBufferOverloadRecordsInOrder()
@@ -261,17 +257,20 @@ internal static unsafe class GlobalArrayTests
         CommandWireReader.Take();
         var buffer = RecordEveryOverload(vectors, matrices);
         Ensure(buffer.commandCount == 8 && CommandWireReader.Take().Length == 0, "recording sends the world nothing");
+        Ensure(Shader.GetGlobalVectorArray("_GaCbVec") == null, "recording sets no global");
         Graphics.ExecuteCommandBuffer(buffer);
-        var first = CommandWireReader.Take();
+        var first = CommandWireReader.TakeOrdered();
         Ensure(first.SequenceEqual(expected), $"the world received:\n{string.Join("\n", first)}\nexpected:\n{string.Join("\n", expected)}");
         Graphics.ExecuteCommandBuffer(buffer);
-        Ensure(CommandWireReader.Take().SequenceEqual(expected), "executing an unchanged buffer again delivers the same records again");
+        Ensure(CommandWireReader.TakeOrdered().SequenceEqual(expected), "executing an unchanged buffer again delivers the same records again");
 
-        Ensure(Shader.GetGlobalVectorArray("_GaCbVec") == null && Shader.GetGlobalMatrixArray("_GaCbMat") == null, "a command buffer array is not a managed global");
+        Ensure(Shader.GetGlobalVectorArray("_GaCbVec")!.SequenceEqual(vectors) && Shader.GetGlobalMatrixArray("_GaCbMat")!.SequenceEqual(matrices), "a command buffer array is a managed global once the buffer ran");
+        Ensure(Shader.GetGlobalVectorArray("_GaCbVecId")!.Length == 1 && Shader.GetGlobalMatrixArray("_GaCbMatId")!.Length == 1, "the last array set under a name is the one held");
         Graphics.ExecuteCommandBuffer(buffer);
+        CommandWireReader.AppendMarker();
         var snapshot = Snapshot();
         Ensure(InWork(snapshot, VectorEntry("_GaCbVec", vectors), 5) && InWork(snapshot, MatrixEntry("_GaCbMat", matrices), 6), "the ordered records are work");
-        Ensure(Count(snapshot, VectorEntry("_GaCbVec", vectors)) == 1, "the world's initial global state does not hold an ordered array");
+        Ensure(Count(snapshot, VectorEntry("_GaCbVec", vectors)) == 2, "the world's global state holds the array and the ordered work sets it again in front of the marker");
         buffer.Release();
     }
 
@@ -289,8 +288,8 @@ internal static unsafe class GlobalArrayTests
         matrices[0] = Matrix4x4.zero;
         CommandWireReader.Take();
         Graphics.ExecuteCommandBuffer(buffer);
-        var sent = CommandWireReader.Take();
-        Ensure(sent.SequenceEqual([VectorLine("_GaSnapVec", heldVectors), VectorLine("_GaSnapList", heldVectors), MatrixLine("_GaSnapMat", heldMatrices)]),
+        var sent = CommandWireReader.TakeOrdered();
+        Ensure(sent.SequenceEqual([VectorLine("_GaSnapList", heldVectors), VectorLine("_GaSnapVec", heldVectors), MatrixLine("_GaSnapMat", heldMatrices)]),
             $"the call's values were sent:\n{string.Join("\n", sent)}");
 
         var context = new ScriptableRenderContext();
@@ -299,7 +298,7 @@ internal static unsafe class GlobalArrayTests
         buffer.SetGlobalVectorArray("_GaSnapVec", Vectors(1, 99f));
         buffer.Release();
         context.Submit();
-        var queued = CommandWireReader.Take();
+        var queued = CommandWireReader.TakeOrdered();
         Ensure(queued.SequenceEqual(sent), $"commands queued before Clear, a new record and Release are still sent as they were:\n{string.Join("\n", queued)}");
     }
 
@@ -310,12 +309,12 @@ internal static unsafe class GlobalArrayTests
         new ScriptableRenderContext().Submit();
         CommandWireReader.Take();
         Graphics.ExecuteCommandBuffer(buffer);
-        var direct = CommandWireReader.Take();
+        var direct = CommandWireReader.TakeOrdered();
         var context = new ScriptableRenderContext();
         context.ExecuteCommandBuffer(buffer);
         Ensure(ScriptableRenderContext.PendingCount == 8 && CommandWireReader.Take().Length == 0, "the context holds all eight array commands until Submit");
         context.Submit();
-        Ensure(CommandWireReader.Take().SequenceEqual(direct) && direct.Length == 8, "Submit sends the same records as Graphics.ExecuteCommandBuffer");
+        Ensure(CommandWireReader.TakeOrdered().SequenceEqual(direct) && direct.Length == 6, "Submit sends the same records as Graphics.ExecuteCommandBuffer: one for each of the six names");
         buffer.Release();
     }
 

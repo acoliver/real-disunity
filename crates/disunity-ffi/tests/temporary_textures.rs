@@ -5,7 +5,6 @@ use worldrunner_disunity_ffi::{
 };
 
 const SCOPE_MATERIAL: u32 = 0;
-const GLOBAL_TEXTURE: u32 = 4;
 const TEXTURE_TEMPORARY: u32 = 4;
 const TARGET_TEMPORARY: u32 = 1;
 const NAME_ID: i32 = -7;
@@ -152,15 +151,7 @@ fn a_global_set_by_recorded_work_takes_a_temporary_and_a_material_does_not() {
         let stored =
             disunity_shader_texture_write(world, SCOPE_MATERIAL, material, name, length, &slot);
         assert_ne!(stored.code, 0);
-        let recorded = disunity_offscreen_set_global(
-            world,
-            GLOBAL_TEXTURE,
-            name,
-            length,
-            std::ptr::null(),
-            0,
-            &slot,
-        );
+        let recorded = disunity_offscreen_set_global_texture(world, name, length, &slot);
         assert_eq!(recorded.code, 0);
     }
     assert_eq!(take(world).len(), 1);

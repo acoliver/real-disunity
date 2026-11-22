@@ -1,6 +1,6 @@
-//! Vector and matrix array globals through the ABI: the immediate shader setters and the ordered
-//! command-buffer records validate their shape before they read, copy their input before they
-//! return and change nothing when they refuse.
+//! Vector and matrix array globals through the ABI: the shader setters validate their shape before
+//! they read, copy their input before they return and change nothing when they refuse. The world
+//! orders each write in front of the next offscreen record.
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_properties::*,
     graphics_snapshot::*, with_native_world,
@@ -11,14 +11,9 @@ use worldrunner_world_simulation::graphics::{
 
 type Setter = unsafe extern "C" fn(u64, *const u8, u32, *const f32, u32) -> DisunityResult;
 
-/// Shader setters write the global state now; the offscreen setters record ordered work.
-const IMMEDIATE: [(Setter, usize); 2] = [
+const SETTERS: [(Setter, usize); 2] = [
     (disunity_shader_global_vector_array_write, 4),
     (disunity_shader_global_matrix_array_write, 16),
-];
-const ORDERED: [(Setter, usize); 2] = [
-    (disunity_offscreen_set_global_vector_array, 4),
-    (disunity_offscreen_set_global_matrix_array, 16),
 ];
 
 fn new_world() -> u64 {
@@ -119,8 +114,8 @@ fn the_shader_setters_store_ordered_elements_in_the_global_state() {
     let vector_values = floats_of(3, 4);
     let matrix_values = floats_of(2, 16);
     for (setter, values, count) in [
-        (IMMEDIATE[0].0, &vector_values, 3),
-        (IMMEDIATE[1].0, &matrix_values, 2),
+        (SETTERS[0].0, &vector_values, 3),
+        (SETTERS[1].0, &matrix_values, 2),
     ] {
         assert_eq!(call(setter, world, "_Arr", count, values).code, 0);
     }
@@ -132,24 +127,26 @@ fn the_shader_setters_store_ordered_elements_in_the_global_state() {
 }
 
 #[test]
-fn the_ordered_setters_record_work_in_call_order_and_leave_the_global_state() {
+fn array_writes_are_ordered_in_front_of_the_next_record_with_their_last_value() {
     let world = new_world();
-    let first = floats_of(2, 4);
-    let second = floats_of(1, 16);
+    let (first, second) = (floats_of(2, 4), floats_of(1, 16));
     let third = floats_of(5, 4);
-    assert_eq!(call(ORDERED[0].0, world, "_Arr", 2, &first).code, 0);
-    assert_eq!(call(ORDERED[1].0, world, "_Arr", 1, &second).code, 0);
-    assert_eq!(call(ORDERED[0].0, world, "_Arr", 5, &third).code, 0);
+    assert_eq!(call(SETTERS[0].0, world, "_Arr", 2, &first).code, 0);
+    assert_eq!(call(SETTERS[1].0, world, "_Arr", 1, &second).code, 0);
+    assert_eq!(call(SETTERS[0].0, world, "_Arr", 5, &third).code, 0);
 
+    let held = global_properties(world);
+    assert_eq!(held.vector_array("_Arr"), Some(vectors(&third)));
+    assert_eq!(held.matrix_array("_Arr"), Some(matrices(&second)));
     let snapshot = snapshot(world);
-    let global = snapshot.global.unwrap().properties;
-    assert_eq!(global.vector_array("_Arr"), None);
-    assert_eq!(global.matrix_array("_Arr"), None);
-    assert_eq!(snapshot.work.len(), 4);
+    // The replay starts from the state before the writes, which the ordered work carries.
+    let start = snapshot.global.unwrap().properties;
+    assert_eq!(start.vector_array("_Arr"), None);
+    assert_eq!(start.matrix_array("_Arr"), None);
+    assert_eq!(snapshot.work.len(), 3, "two ordered values and the blit");
     let expected = [
-        PropertyValue::VectorArray("_Arr".into(), vectors(&first)),
-        PropertyValue::MatrixArray("_Arr".into(), matrices(&second)),
         PropertyValue::VectorArray("_Arr".into(), vectors(&third)),
+        PropertyValue::MatrixArray("_Arr".into(), matrices(&second)),
     ];
     for (work, value) in snapshot.work.iter().zip(expected) {
         assert_eq!(*work, OffscreenWork::SetGlobal(value));
@@ -157,17 +154,18 @@ fn the_ordered_setters_record_work_in_call_order_and_leave_the_global_state() {
 }
 
 #[test]
-fn the_ordered_setters_hand_out_their_detail_in_a_buffer_sized_by_a_query() {
+fn an_ordered_array_hands_out_its_detail_in_a_buffer_sized_by_a_query() {
     let world = new_world();
     let values = floats_of(1023, 16);
-    assert_eq!(call(ORDERED[1].0, world, "_Big", 1023, &values).code, 0);
+    assert_eq!(call(SETTERS[1].0, world, "_Big", 1023, &values).code, 0);
+    assert_eq!(disunity_offscreen_release_temporary(world, 3).code, 0);
     let mut count = 0;
     let mut records = [DisunityOffscreenWork::default(); 4];
     unsafe {
         let taken = disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count);
         assert_eq!(taken.code, 0);
     }
-    assert_eq!(count, 1);
+    assert_eq!(count, 2, "the ordered array and the release it precedes");
     assert_eq!(records[0].kind, 6);
     let mut length = 0;
     unsafe {
@@ -201,7 +199,7 @@ fn the_ordered_setters_hand_out_their_detail_in_a_buffer_sized_by_a_query() {
 
 #[test]
 fn the_most_elements_are_accepted_and_one_more_is_refused_by_shape() {
-    for (setter, width) in IMMEDIATE.into_iter().chain(ORDERED) {
+    for (setter, width) in SETTERS {
         let world = new_world();
         let values = floats_of(1023, width);
         assert_eq!(call(setter, world, "_Max", 1023, &values).code, 0);
@@ -217,7 +215,7 @@ fn the_most_elements_are_accepted_and_one_more_is_refused_by_shape() {
 
 #[test]
 fn a_null_or_misaligned_pointer_is_an_invalid_argument() {
-    for (setter, width) in IMMEDIATE.into_iter().chain(ORDERED) {
+    for (setter, width) in SETTERS {
         let world = new_world();
         let (name, length) = text("_A");
         let null = unsafe { setter(world, name, length, std::ptr::null(), 1) };
@@ -232,7 +230,7 @@ fn a_null_or_misaligned_pointer_is_an_invalid_argument() {
 
 #[test]
 fn a_bad_name_is_refused_and_nothing_is_recorded_or_stored() {
-    for (setter, width) in IMMEDIATE.into_iter().chain(ORDERED) {
+    for (setter, width) in SETTERS {
         let world = new_world();
         let values = floats_of(1, width);
         let (name, _) = text("_A");
@@ -256,7 +254,7 @@ fn a_bad_name_is_refused_and_nothing_is_recorded_or_stored() {
 
 #[test]
 fn a_non_finite_component_anywhere_is_refused_and_nothing_changes() {
-    for (setter, width) in IMMEDIATE.into_iter().chain(ORDERED) {
+    for (setter, width) in SETTERS {
         let world = new_world();
         for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             for at in [0, width - 1, width, 2 * width - 1] {
@@ -276,7 +274,7 @@ fn a_non_finite_component_anywhere_is_refused_and_nothing_changes() {
 
 #[test]
 fn a_stale_world_is_refused_like_any_other_call() {
-    for (setter, width) in IMMEDIATE.into_iter().chain(ORDERED) {
+    for (setter, width) in SETTERS {
         let world = new_world();
         unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
         let result = call(setter, world, "_A", 1, &floats_of(1, width));
@@ -294,19 +292,18 @@ fn the_input_is_copied_before_the_call_returns() {
     let world = new_world();
     let mut vector_values = floats_of(3, 4);
     let expected_vectors = vectors(&vector_values);
-    assert_eq!(call(IMMEDIATE[0].0, world, "_V", 3, &vector_values).code, 0);
+    assert_eq!(call(SETTERS[0].0, world, "_V", 3, &vector_values).code, 0);
     vector_values.fill(-1.0);
     let mut matrix_values = floats_of(2, 16);
     let expected_matrices = matrices(&matrix_values);
-    assert_eq!(call(ORDERED[1].0, world, "_M", 2, &matrix_values).code, 0);
+    assert_eq!(call(SETTERS[1].0, world, "_M", 2, &matrix_values).code, 0);
     matrix_values.fill(-1.0);
     drop((vector_values, matrix_values));
 
     let state = snapshot(world);
     let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(expected_vectors));
-    // The direct vector array is ordered ahead of the matrix array the ordered setter records,
-    // and the blit that took the snapshot comes last.
+    // Both arrays are ordered ahead of the blit that took the snapshot.
     let held = state
         .work
         .iter()
@@ -321,12 +318,9 @@ fn the_input_is_copied_before_the_call_returns() {
 #[test]
 fn a_replacement_through_the_shader_setter_drops_the_old_tail() {
     let world = new_world();
-    assert_eq!(
-        call(IMMEDIATE[0].0, world, "_V", 6, &floats_of(6, 4)).code,
-        0
-    );
+    assert_eq!(call(SETTERS[0].0, world, "_V", 6, &floats_of(6, 4)).code, 0);
     let short = floats_of(2, 4);
-    assert_eq!(call(IMMEDIATE[0].0, world, "_V", 2, &short).code, 0);
+    assert_eq!(call(SETTERS[0].0, world, "_V", 2, &short).code, 0);
     let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(vectors(&short)));
 }

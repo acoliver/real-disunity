@@ -26,11 +26,11 @@ use super::lights_gpu::{filled, halves, quad, record, two_lists};
 use super::support::{assert_close, snapshot, texture_slot, world};
 
 const ARGB32: u32 = 8;
-const LAST: &str = "_Last";
+pub(super) const LAST: &str = "_Last";
 /// What the test fills the render texture with.
-const FILL: [f32; 3] = [0.2, 0.4, 0.6];
+pub(super) const FILL: [f32; 3] = [0.2, 0.4, 0.6];
 /// What an unset texture the shader does not declare reads: one texel of 128 in each channel.
-const GREY: [f32; 3] = [128.0 / 255.0; 3];
+pub(super) const GREY: [f32; 3] = [128.0 / 255.0; 3];
 
 /// A vertex stage that places its position by the draw constants `_Place`, and a fragment stage
 /// that samples the 2D texture `_Last` at its middle.
@@ -79,14 +79,14 @@ pub(super) fn sampling_passes() -> SyntheticShader {
     ))
 }
 
-fn set_last(world: &mut World, texture: TextureRef) {
+pub(super) fn set_last(world: &mut World, texture: TextureRef) {
     world
         .set_global_property(PropertyValue::Texture(LAST.into(), texture_slot(texture)))
         .unwrap();
 }
 
 /// Fills `texture` with `FILL` through recorded work.
-fn fill(world: &mut World, texture: RenderTextureId) {
+pub(super) fn fill(world: &mut World, texture: RenderTextureId) {
     record(
         world,
         OffscreenWork::SetRenderTarget {

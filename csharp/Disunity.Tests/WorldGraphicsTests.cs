@@ -56,7 +56,7 @@ internal static unsafe class WorldGraphicsTests
 
     private static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 
-    private static DisunityPropertyRead Read(uint scope, ulong target, string name)
+    internal static DisunityPropertyRead Read(uint scope, ulong target, string name)
     {
         var bytes = Utf8(name);
         DisunityPropertyRead value;
@@ -65,7 +65,7 @@ internal static unsafe class WorldGraphicsTests
         return value;
     }
 
-    private static bool KeywordOn(uint scope, ulong target, string name)
+    internal static bool KeywordOn(uint scope, ulong target, string name)
     {
         var bytes = Utf8(name);
         uint on;

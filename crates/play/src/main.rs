@@ -449,7 +449,10 @@ mod tests {
         let budget = |value: &str| {
             parsed(&["--player", "Game_Data", "--gpu-storage-mb", value]).map(|a| a.gpu_storage_mb)
         };
-        assert_eq!(budget("1536").unwrap().map(|mib| mib.get()), Some(1536));
+        assert_eq!(
+            budget("1536").unwrap().map(std::num::NonZero::get),
+            Some(1536)
+        );
         for bad in [
             "0",
             "-4",

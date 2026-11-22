@@ -35,13 +35,13 @@ use worldrunner_scene_viewer::GameScreen;
 mod frame;
 
 use crate::PlayError;
-use crate::counts_line::{top_counts_line, unset_constants_line};
+use crate::counts_line::{names_line, top_counts_line};
 use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases, PlayerKernels,
-    Reclaimed, Report, ScreenImage, Settings, StandInCounts, StandInLook, SuppliedGlobal,
-    WorkTrace, supplied_line,
+    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
+    PlayerKernels, Reclaimed, Report, ScreenImage, Settings, StandInCounts, StandInLook,
+    SuppliedGlobal, WorkTrace, supplied_line,
 };
 use crate::scene_census::SubstitutionCensus;
 
@@ -56,6 +56,9 @@ const TOP_TEXTURES: usize = 5;
 
 /// The most names the unset constants line gives.
 const TOP_UNSET: usize = 8;
+
+/// The most names the line of globals no draw read gives.
+const TOP_UNREAD_GLOBALS: usize = 30;
 
 /// The most property and reason pairs the stand-ins line names.
 const TOP_STAND_INS: usize = 8;
@@ -162,6 +165,8 @@ pub struct GpuWorkReport {
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, over every piece of work, by property and reason.
     pub stand_ins: StandInCounts,
+    /// The texture globals the run set and the names its draws looked up (see `GlobalReads`).
+    pub global_reads: GlobalReads,
     /// The retained renderers drawn white and left out, when the run drew a retained scene.
     pub retained: Option<SubstitutionCensus>,
     /// The constant buffer members and fixed-state properties no layer set for a draw (see
@@ -313,6 +318,7 @@ impl GpuWorkReport {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
         self.stand_ins.add(&report.stand_ins);
+        self.global_reads.add(&report.global_reads);
     }
 
     /// The lines of the stand-in census, without the `[gpu] ` prefix.
@@ -345,6 +351,9 @@ impl GpuWorkReport {
         for line in stand_in_lines.iter().chain(&self.retained_lines()) {
             eprintln!("[gpu] {line}");
         }
+        if let Some(line) = self.global_reads.line(TOP_UNREAD_GLOBALS) {
+            eprintln!("[gpu] {line}");
+        }
     }
 
     /// The line of the report about the screen's readbacks.
@@ -367,7 +376,11 @@ impl GpuWorkReport {
     }
 
     fn print_unset_constants(&self) {
-        if let Some(line) = unset_constants_line(&self.unset_constants, TOP_UNSET) {
+        if let Some(line) = names_line(
+            "constants or state properties no layer set",
+            &self.unset_constants,
+            TOP_UNSET,
+        ) {
             eprintln!("[gpu] {line}");
         }
     }

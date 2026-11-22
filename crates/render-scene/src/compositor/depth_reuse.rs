@@ -182,15 +182,7 @@ impl FrameRenderer {
         self.install_reflections(device).unwrap();
         self.install_gbuffer_producer(device);
         if self.water.is_some() {
-            self.chain
-                .register(
-                    device,
-                    Box::new(crate::water::WaterRegistration {
-                        state: self.water_state.clone(),
-                        samples: config.samples,
-                    }),
-                )
-                .unwrap();
+            self.register_water(device).unwrap();
         }
     }
 

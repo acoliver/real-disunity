@@ -400,6 +400,7 @@ PhysicsMaterialTests.Run();
 UiTests.Run();
 PoolTests.Run();
 RectTransformMemberTests.Run();
+RectDimensionMessageTests.Run();
 DestroyedRectTests.Run();
 CanvasMemberTests.Run();
 SortingLayerTests.Run();

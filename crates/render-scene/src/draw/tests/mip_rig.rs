@@ -53,7 +53,7 @@ pub(super) fn center(
     scene: &RenderScene,
     frame: &FrameUniform,
 ) -> [f32; 3] {
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
     // The resident scene has no post effects of its own; it adopts the renderer's requested ones.

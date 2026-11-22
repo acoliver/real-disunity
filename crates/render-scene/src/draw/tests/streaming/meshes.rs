@@ -37,7 +37,8 @@ struct Rig {
 impl Rig {
     fn new() -> Self {
         let context = context();
-        let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+        let pipelines =
+            ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
         let gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
@@ -126,7 +127,8 @@ fn dropping_the_gpu_scene_stops_the_mesh_worker() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let _unsynchronized = unsynchronized();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let source = streamed_scene();
     let terrain = source.shared_terrain().unwrap().clone();
     let baseline = std::sync::Arc::strong_count(&terrain);

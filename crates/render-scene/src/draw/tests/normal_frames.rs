@@ -37,7 +37,7 @@ fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
         include_str!("fixtures/stock_environment.wgsl"),
     );
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = normal_scene([191, 159, 7, 255], None, &mapped_material());
     let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(
@@ -165,7 +165,7 @@ pub(super) fn assert_normal(pixels: &[u8], normal: Vec3) {
 fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_passes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let xy = Vec3::new(191.0 / 255.0 * 2.0 - 1.0, 159.0 / 255.0 * 2.0 - 1.0, 0.0);
     let z = (1.0 - xy.x * xy.x - xy.y * xy.y).sqrt();
     for scale in [
@@ -211,7 +211,7 @@ fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_
 fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for encoding in [SceneNormalEncoding::Rgb, SceneNormalEncoding::TwoChannelXy] {
         for y in [SceneNormalY::Up, SceneNormalY::Down] {
             for rgba in [[191, 159, 231, 255], [255, 255, 231, 255]] {

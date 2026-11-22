@@ -166,7 +166,7 @@ impl<'a> Rig<'a> {
         )
         .unwrap();
         let pipelines =
-            ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
+            ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
         Self {

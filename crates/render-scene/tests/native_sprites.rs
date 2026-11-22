@@ -166,7 +166,7 @@ fn native_sprites_share_srgb_alpha_msaa_resize_and_unload() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -257,7 +257,7 @@ fn glyph_coverage_and_tint_alpha_reach_the_shared_srgb_target() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -291,7 +291,7 @@ fn native_global_lights_multiply_exact_gpu_pixels() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -510,7 +510,7 @@ fn per_texture_sampling_has_exact_pixels_and_default_output() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -550,7 +550,7 @@ fn texture_samplers_are_independent_within_one_frame() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -601,7 +601,7 @@ fn feature_off_pixels_and_stage_ids_remain_identical() {
     ))
     .unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -657,7 +657,7 @@ fn authored_bilinear_selects_one_mip_and_unspecified_preserves_linear_mips() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,

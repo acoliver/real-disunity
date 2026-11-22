@@ -12,7 +12,8 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     ))
     .unwrap();
     let view = page_view();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),

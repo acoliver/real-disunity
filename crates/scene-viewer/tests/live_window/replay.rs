@@ -12,7 +12,8 @@ pub(super) fn verify(desktop: &Driver) {
         wgpu::Features::empty(),
     ))
     .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let mut replay = Driver::default();
     replay.initialize(desktop.ticks[0].viewport).unwrap();

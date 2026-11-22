@@ -18,7 +18,8 @@ impl Fixture {
     fn new() -> Self {
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
             .expect("actual GPU required");
-        let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+        let pipelines =
+            ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
         let gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         let viewport = Viewport {
             width: 128,

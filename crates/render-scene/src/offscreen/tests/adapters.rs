@@ -6,7 +6,8 @@ fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
     let context = required_context();
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(

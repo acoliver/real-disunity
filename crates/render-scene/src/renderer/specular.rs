@@ -454,7 +454,8 @@ mod tests {
     fn convention_cache_reuses_each_selection_and_preserves_default_pipelines() {
         let _session = crate::test_support::SceneTestSession::acquire();
         let context = crate::device::GpuContext::shared_for_test().unwrap();
-        let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+        let pipelines =
+            ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
         for roughness in [
             SceneRoughnessRemap::Perceptual045,
             SceneRoughnessRemap::Perceptual04,
@@ -495,7 +496,8 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
     use worldrunner_render_plan::{SceneSpecularConvention, SceneSurfaceDisk};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::device::GpuContext::shared_for_test().unwrap();
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let convention = |radius| SceneSpecularConvention {
         surface_disk: Some(
             SceneSurfaceDisk::new(1_000_000, 1_000_000)
@@ -517,7 +519,8 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
 fn winding_uses_existing_specialization_cache_without_changing_default_pipelines() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::device::GpuContext::shared_for_test().unwrap();
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let convention = worldrunner_render_plan::SceneSpecularConvention::default();
     let right = pipelines.for_raster(convention, wgpu::FrontFace::Ccw);
     let left = pipelines.for_raster(convention, wgpu::FrontFace::Cw);

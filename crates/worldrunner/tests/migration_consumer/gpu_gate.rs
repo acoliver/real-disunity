@@ -68,7 +68,8 @@ fn external_device_target_and_live_contribution_reach_landmark_pixels() {
     eprintln!("migration adapter: {:?}", context.adapter().get_info());
     let resolved = super::camera::planar([65, 47], ViewHandedness::RightHanded);
     let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let contribution = DynamicQuad {
         tint: [1.0, 0.0, 0.0, 1.0],

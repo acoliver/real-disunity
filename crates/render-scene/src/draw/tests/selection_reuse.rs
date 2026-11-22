@@ -22,7 +22,7 @@ fn rebuilds_after(
 fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -68,7 +68,7 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
 fn caster_fits_are_reused_until_a_placement_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -133,7 +133,7 @@ fn fresh_fits(gpu: &SceneGpu, receivers: &[glam::Mat4]) -> Vec<[u32; 16]> {
 fn cascade_fits_follow_the_receivers_and_placements_frame_after_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -192,7 +192,7 @@ fn receivers_after(receivers: &[glam::Mat4]) -> Vec<glam::Mat4> {
 fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -236,7 +236,7 @@ fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
 fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -305,7 +305,7 @@ fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
 fn replacing_a_materials_texture_prepares_the_pair_list_again() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -341,7 +341,7 @@ fn replacing_a_materials_texture_prepares_the_pair_list_again() {
 fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -376,7 +376,7 @@ fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
 fn passes_share_one_selection_of_a_view_instead_of_copying_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),

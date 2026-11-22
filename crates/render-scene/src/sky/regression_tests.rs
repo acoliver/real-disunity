@@ -186,7 +186,8 @@ fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
         MaterialHandle::from_raw(0),
     );
     let source = custom(sky, quad(), vec![object]);
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut frame =

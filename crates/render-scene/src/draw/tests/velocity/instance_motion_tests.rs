@@ -49,7 +49,7 @@ impl Moving {
             (
                 still(),
                 effects(),
-                ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
+                ScenePipelines::new(device, HDR, samples.count()).unwrap(),
             )
         } else if previous == Previous::Occluded {
             let (scene, effects) = super::screen_space::with_occlusion(&still());

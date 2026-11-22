@@ -30,7 +30,7 @@ fn cancelling_resident_uploads_preserves_pending_edits_until_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
@@ -128,7 +128,7 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = retained_target(&context);
@@ -170,7 +170,7 @@ fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let expected = gpu.instances.batches.values().next().unwrap().bytes.clone();
@@ -212,7 +212,7 @@ fn owned_statistics_can_be_retained_across_publication() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
@@ -232,7 +232,7 @@ fn resident_upload_rejects_standalone_and_foreign_encoders() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
@@ -264,7 +264,7 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
@@ -310,7 +310,7 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));

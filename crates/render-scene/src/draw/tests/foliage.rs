@@ -120,7 +120,7 @@ fn wind_and_alpha_have_identical_depth_bytes_in_every_geometry_pass() {
         1_000_000,
     );
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm);
+    let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm, 1).unwrap();
     let gpu = SceneGpu::upload(
         device,
         &worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone()),
@@ -381,7 +381,7 @@ fn card_transition_scene(coverage: u32) -> RenderScene {
 fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     for masked in [false, true] {
@@ -541,7 +541,7 @@ fn foliage_resources_retire_after_scene_drop() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::test_support::test_instance();
     let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let before = instance.generate_report().unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());

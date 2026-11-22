@@ -60,7 +60,7 @@ fn modifier_only_replace_updates_each_slot_without_rebuilding_palettes() {
     let context = context();
     let d = decal();
     let scene = source(false, false).with_decals(vec![d]).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());

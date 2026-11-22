@@ -76,7 +76,7 @@ fn timed() -> Fixture {
     ))
     .expect("a device with timestamp queries");
     Fixture::with_context(context, &engine_scene(), settings, |device| {
-        ScenePipelines::new(device, SCENE_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 

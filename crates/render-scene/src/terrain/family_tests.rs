@@ -172,7 +172,7 @@ fn through_reconfiguration(source: Source) {
         scenes::pose(),
         scene.effects().expect("the scene has effects"),
     );
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame);

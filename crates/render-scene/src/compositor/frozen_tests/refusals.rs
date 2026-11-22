@@ -35,7 +35,8 @@ fn an_entry_that_differs_from_the_stock_scene_declaration_is_refused() {
     let mut rig = Rig::new();
     // The stock scene feature declares an sRGB colour target, and the plan's Opaque entry
     // draws into the renderer's HDR scene format.
-    let pipelines = ScenePipelines::new(rig.device(), wgpu::TextureFormat::Rgba8UnormSrgb)
+    let pipelines = ScenePipelines::new(rig.device(), wgpu::TextureFormat::Rgba8UnormSrgb, 1)
+        .unwrap()
         .for_depth(DepthMode::Independent);
     let declaration = crate::compositor::SceneFeature::declaration(&pipelines);
     assert_ne!(rig.format(), pipelines.color_format);
@@ -54,7 +55,8 @@ fn an_entry_that_differs_from_the_stock_scene_declaration_is_refused() {
 fn the_stock_gbuffer_producer_without_a_prepass_is_refused() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new();
-    let pipelines = ScenePipelines::new(rig.device(), wgpu::TextureFormat::Rgba16Float)
+    let pipelines = ScenePipelines::new(rig.device(), wgpu::TextureFormat::Rgba16Float, 1)
+        .unwrap()
         .for_depth(DepthMode::Independent);
     // The stock producer declares the G-buffer slot with a depth format, so it tests a depth
     // that a prepass must have completed; this plan has no prepass.

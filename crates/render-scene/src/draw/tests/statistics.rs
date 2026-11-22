@@ -9,7 +9,7 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 3);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = target(&context);
@@ -84,7 +84,7 @@ fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
     use worldrunner_render_plan::SceneFadeDirection;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let impostor = super::fade_handoff::handoff_scene(true, true, &[SceneFadeDirection::Keep]);
     let cases = [
         (
@@ -135,7 +135,7 @@ fn decal_statistics_apply_visibility_and_shader_capacity_at_submission() {
     let source = super::decals::source(false, false)
         .with_decals(decals)
         .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
@@ -200,7 +200,7 @@ fn raw_terrain_and_sky_draw_preserves_submitted_statistics() {
             ),
         )
         .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), TextureFormat::Rgba16Float);
+    let pipelines = ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
     let gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));

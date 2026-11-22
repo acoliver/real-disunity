@@ -396,7 +396,7 @@ pub fn capture_scene(
     // Reject oversized targets before uploading any scene resources.
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1)?;
     let mut gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
     gpu.set_frame(context.queue(), frame);
     target.render(context, &mut gpu, &pipelines)

@@ -555,7 +555,7 @@ impl Resident {
             let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
                 ScenePipelines::with_ssao
             } else {
-                ScenePipelines::with_samples
+                ScenePipelines::new
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
             let gpu = SceneGpu::upload_prepared_reusing(

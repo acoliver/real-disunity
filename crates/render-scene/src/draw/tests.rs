@@ -630,7 +630,7 @@ fn render_from(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> V
 fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform) -> Vec<u8> {
     let device = context.device();
     let queue = context.queue();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines)
         .expect("the fixture scene uploads");
     gpu.set_frame(queue, *frame);

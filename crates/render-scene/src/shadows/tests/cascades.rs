@@ -41,7 +41,8 @@ fn resident_statistics_clear_shadows_only_after_submission() {
             .iter()
             .any(|count| count.calls > 0)
     );
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     for submit in [false, true] {
         let mut encoder = context.submission().begin(context.device()).unwrap();

@@ -857,7 +857,7 @@ bias remains in world metres.
 `FrameRenderer::hdr` compiles a fixed scene-exposure profile into the retained
 post executor. Its scene target is `Rgba16Float`; choose one or four samples.
 Object, masked and terrain receiver pipelines must use the same colour attachment
-and sample count (`ScenePipelines::with_samples` or `ShadowedScene::with_target`).
+and sample count (`ScenePipelines::new` or `ShadowedScene::with_target`).
 Shadow depth arrays stay single-sample. `FrameTargets::depth` supplies the matching
 camera depth attachment. Resizing builds colour, depth and output bindings before
 replacing the live generation; a rejected extent leaves the old generation usable.

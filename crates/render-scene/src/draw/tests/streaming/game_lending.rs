@@ -5,7 +5,7 @@ use super::*;
 fn resident_frames_lend_their_streamed_terrain_to_game_features() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),

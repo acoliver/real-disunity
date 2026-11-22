@@ -35,7 +35,8 @@ fn page_settings(interior: [u32; 2]) -> TerrainPageSettings {
 fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let view = page_view();
     for (interior, color) in [([4, 4], [64, 128, 192, 255]), ([7, 3], [192, 64, 128, 255])] {
         let source = fixture::scene(interior != [4, 4]);

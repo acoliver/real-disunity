@@ -237,7 +237,7 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
     let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let (bodies, source) = authored_scene();
-        let pipelines = crate::renderer::ScenePipelines::with_samples(
+        let pipelines = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
             samples,
@@ -294,7 +294,7 @@ fn configured_environment_survives_extent_replacement() {
         body.color_micro = [0; 3];
         body.absorption_micro = [10_000_000; 3];
         let source = scene(vec![body.clone()], vec![]);
-        let pipelines = crate::renderer::ScenePipelines::with_samples(
+        let pipelines = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
             samples,

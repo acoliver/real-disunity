@@ -79,7 +79,7 @@ fn encode_scene_refuses_a_host_depth_that_is_not_the_frame_depth_before_changing
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mut taa = renderer(&context, PostResolve::taa(0.9));

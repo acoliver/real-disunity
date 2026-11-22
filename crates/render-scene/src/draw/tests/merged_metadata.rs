@@ -178,8 +178,7 @@ fn products(
 /// A frame with reflections on: the prepass writes the normals and the material together.
 fn merged(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> Products {
     let pipelines =
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
-            .unwrap();
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let renderer = render(context, (&lit(scene, true), pose), &pipelines);
     let material = renderer.ssr.as_ref().unwrap().material_target();
     products(context, &renderer, Some(material))
@@ -329,7 +328,7 @@ fn differential_frame(
     let (ssr, samples, reference) = config;
     let scene = lit(shot.0, ssr);
     let pipelines = if ssr {
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
     } else {
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
     }

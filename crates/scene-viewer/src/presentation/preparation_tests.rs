@@ -171,7 +171,8 @@ fn resident(
         .prepare_scene(context, &prepared(scene))
         .unwrap();
     let pipelines =
-        worldrunner_render_scene::renderer::ScenePipelines::new(context.device(), COLOR);
+        worldrunner_render_scene::renderer::ScenePipelines::new(context.device(), COLOR, 1)
+            .unwrap();
     let mut gpu = worldrunner_render_scene::draw::SceneGpu::upload(
         context.device(),
         context.submission(),

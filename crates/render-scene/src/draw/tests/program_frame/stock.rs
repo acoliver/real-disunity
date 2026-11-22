@@ -7,7 +7,7 @@ use crate::draw::DrawCount;
 
 fn fixture() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, SCENE_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 

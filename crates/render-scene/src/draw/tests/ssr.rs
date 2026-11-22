@@ -66,8 +66,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     )
     .unwrap();
     let pipelines =
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
-            .unwrap();
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, samples).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let color = AttachmentView::new(

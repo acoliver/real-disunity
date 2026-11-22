@@ -32,8 +32,7 @@ pub(super) fn rig_configured(
     configure(&mut settings);
     let renderer =
         ConfiguredFrameRenderer::new(context, settings, AllocationBudget(64 << 20)).unwrap();
-    let pipelines =
-        ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
     let gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     Rig {

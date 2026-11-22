@@ -95,7 +95,7 @@ impl Card {
             (
                 self::scene(mask),
                 effects(),
-                ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
+                ScenePipelines::new(device, HDR, samples.count()).unwrap(),
             )
         } else {
             let (scene, effects) = with_taa(&self::scene(mask));

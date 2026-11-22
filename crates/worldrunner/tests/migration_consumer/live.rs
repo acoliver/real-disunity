@@ -16,7 +16,8 @@ fn two_resident_updates_and_caller_stage_obey_capture_policy() {
     let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let resolved = planar([65, 47], ViewHandedness::RightHanded);
     let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let frame = FrameUniform::unlit(&view);
     scene.set_frame(context.queue(), frame);
@@ -124,7 +125,8 @@ fn canonical_generation_output_drives_visible_consumer_state() {
         planar([65, 47], ViewHandedness::RightHanded),
         [0, -10_000, 0],
     );
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let frame = FrameUniform::unlit(&view);
     scene.set_frame(context.queue(), frame);

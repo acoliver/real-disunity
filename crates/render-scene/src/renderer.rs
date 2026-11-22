@@ -100,22 +100,12 @@ pub struct ScenePipelines {
 }
 
 impl ScenePipelines {
-    /// Builds shared layouts and terrain pipelines for one colour target format.
+    /// Builds shared layouts and terrain pipelines for one colour target format and sample
+    /// count, refused when the device cannot render that pair.
     ///
     /// Material variants are shared and compiled on demand. Relief variants
     /// must not add shader compilation cost to scenes that never use them.
-    #[must_use]
-    pub fn new(device: &Device, color_format: TextureFormat) -> Self {
-        Self::with_environment(
-            device,
-            (color_format, 1),
-            ENVIRONMENT_WGSL,
-            TERRAIN_WGSL,
-            None,
-        )
-    }
-
-    pub fn with_samples(
+    pub fn new(
         device: &Device,
         color_format: TextureFormat,
         samples: u32,

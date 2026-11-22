@@ -66,7 +66,7 @@ fn keys(gpu: &SceneGpu) -> Vec<TerrainChunk> {
 fn terrain_pixels_are_identical_after_different_completion_schedules() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
     let mut immediate =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -127,7 +127,7 @@ fn lender_reports_camera_order_and_keeps_offscreen_geometric_neighbors() {
 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
     let gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();

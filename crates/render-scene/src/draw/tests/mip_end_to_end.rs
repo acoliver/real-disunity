@@ -62,7 +62,7 @@ impl<'a> Harness<'a> {
         let device = context.device();
         let renderer =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();
-        let pipelines = ScenePipelines::new(device, HDR);
+        let pipelines = ScenePipelines::new(device, HDR, 1).unwrap();
         let mut gpu = SceneGpu::upload(
             device,
             context.submission(),

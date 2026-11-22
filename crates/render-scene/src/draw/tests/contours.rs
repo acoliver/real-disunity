@@ -176,7 +176,7 @@ impl Rig {
         let pipelines = if source.effects().unwrap().ssao().is_some() {
             ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, samples).unwrap()
         } else {
-            ScenePipelines::with_samples(device, TextureFormat::Rgba16Float, samples).unwrap()
+            ScenePipelines::new(device, TextureFormat::Rgba16Float, samples).unwrap()
         };
         let renderer = FrameRenderer::hdr(
             context,

@@ -44,7 +44,7 @@ fn fully_clipped_depth_tested_overlay_does_not_publish_draws() {
 fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
     let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(device, context.submission(), &pipelines).unwrap();
     scene
         .set_ui_overlay(

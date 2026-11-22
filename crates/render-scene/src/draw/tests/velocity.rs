@@ -383,7 +383,7 @@ fn a_renderer_without_taa_allocates_no_velocity_target_and_refuses_velocity_pipe
     .unwrap();
     assert!(plain.targets().velocity_texture().is_none());
     assert!(
-        !ScenePipelines::with_samples(context.device(), HDR, 1)
+        !ScenePipelines::new(context.device(), HDR, 1)
             .unwrap()
             .writes_velocity()
     );
@@ -466,7 +466,7 @@ fn output_after(
     let pipelines = if taa == Some(true) {
         ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap()
     } else {
-        ScenePipelines::with_samples(device, HDR, samples.count()).unwrap()
+        ScenePipelines::new(device, HDR, samples.count()).unwrap()
     };
     let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
     let mut renderer = FrameRenderer::hdr_antialiased(

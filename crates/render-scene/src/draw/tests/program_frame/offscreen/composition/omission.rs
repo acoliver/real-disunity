@@ -60,7 +60,7 @@ fn encode_without_forwarding(
 fn characterize_omission(omission: Omission) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, SCENE_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     });
     let mut player = player(&mut fixture);
     let authority = fixture.context.submission().clone();

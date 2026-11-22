@@ -137,7 +137,7 @@ fn reflective_velocity_after(
     frames: &[(f32, CameraPose)],
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_reflections(scene);
-    let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);

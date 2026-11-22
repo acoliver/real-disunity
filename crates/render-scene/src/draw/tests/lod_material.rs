@@ -91,7 +91,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
         assert_eq!(a.transition, b.transition);
     }
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -118,7 +118,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
 fn selected_level_changes_material_topology_and_pipeline() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -154,7 +154,7 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
     use crate::object::cost_tests::Tally;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -180,7 +180,7 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
 fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -265,7 +265,7 @@ pub(super) fn transition_scene(coverage: u32) -> RenderScene {
 fn transition_complement_keeps_the_preceding_levels_material() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {

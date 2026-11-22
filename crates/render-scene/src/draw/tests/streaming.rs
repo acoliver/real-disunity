@@ -36,7 +36,7 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
     let context = context();
     let device = context.device();
     let source = streamed_scene();
-    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     gpu.set_frame(context.queue(), frame);
@@ -76,7 +76,7 @@ fn streaming_admits_contact_pages_and_capture_publications() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = streamed_scene();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
     assert!(
@@ -141,7 +141,7 @@ fn withheld_completion_setup(budget: u32) -> (GpuContext, SceneGpu, FrameUniform
     let source = source
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let near = frame_from(pose());
@@ -208,7 +208,7 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = streamed_scene();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = target(&context);
@@ -263,7 +263,7 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
 fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = streamed_scene();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -296,7 +296,7 @@ fn geometry_dependency_waits_for_submitted_chunks_and_rejects_other_sources() {
         .submit()
         .unwrap();
     assert!(gpu.terrain_geometry_ready(&request).unwrap());
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let other = SceneGpu::upload(
         context.device(),
         context.submission(),

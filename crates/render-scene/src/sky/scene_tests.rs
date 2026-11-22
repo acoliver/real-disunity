@@ -209,7 +209,7 @@ pub(super) fn render_at(
     view: &SceneView,
 ) -> Capture {
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
     let mut frame = FrameUniform::new(view, source.effects()).unwrap();
     frame.exposure = exposure;
@@ -449,7 +449,8 @@ fn dome_without_an_atmosphere_is_rejected_on_upload() {
         effects: Some(base_effects(true)),
     })
     .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let error =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap_err();
     assert!(matches!(

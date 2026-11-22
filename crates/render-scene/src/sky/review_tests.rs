@@ -39,7 +39,7 @@ fn render(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
     use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
     let device = context.device();
     let format = wgpu::TextureFormat::Rgba16Float;
-    let pipelines = crate::renderer::ScenePipelines::with_samples(device, format, samples).unwrap();
+    let pipelines = crate::renderer::ScenePipelines::new(device, format, samples).unwrap();
     let mut gpu =
         crate::draw::SceneGpu::upload(device, context.submission(), scene, &pipelines).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::hdr(

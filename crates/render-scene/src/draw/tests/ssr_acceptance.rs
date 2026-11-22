@@ -220,8 +220,7 @@ fn render_selected_environment(
     }
     .unwrap();
     let pipelines =
-        ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, samples)
-            .unwrap();
+        ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, samples).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(

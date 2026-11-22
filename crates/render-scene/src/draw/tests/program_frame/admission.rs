@@ -18,7 +18,7 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 
 fn stock() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, SCENE_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 
@@ -79,7 +79,7 @@ fn a_multisampled_scene_refuses_programs_by_name() {
     let mut settings = settings();
     settings.frame = FrameConfig::new([TARGET; 2], SCENE_FORMAT, 4);
     let fixture = Fixture::new(settings, |device| {
-        ScenePipelines::with_samples(device, SCENE_FORMAT, 4).unwrap()
+        ScenePipelines::new(device, SCENE_FORMAT, 4).unwrap()
     });
     expect_unsupported(fixture, "player programs with multisampling");
 }
@@ -98,7 +98,9 @@ fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
         ..HdrPostSettings::default()
     };
     // Plain pipelines write no velocity; the jitter alone makes the frame temporal.
-    let fixture = Fixture::new(settings, |device| ScenePipelines::new(device, HDR));
+    let fixture = Fixture::new(settings, |device| {
+        ScenePipelines::new(device, HDR, 1).unwrap()
+    });
     expect_unsupported(fixture, "player programs with temporal reconstruction");
 }
 

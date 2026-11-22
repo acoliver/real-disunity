@@ -256,7 +256,7 @@ impl Rig {
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
         Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
-            ScenePipelines::new(device, SCENE_FORMAT)
+            ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
         })
     }
 
@@ -274,7 +274,7 @@ impl Rig {
                 settings.hdr = (1.0, ToneMap::Reinhard);
                 configure(settings);
             },
-            |device| ScenePipelines::new(device, SCENE_FORMAT),
+            |device| ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap(),
         )
     }
 

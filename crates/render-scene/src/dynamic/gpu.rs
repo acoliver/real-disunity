@@ -19,7 +19,8 @@ use crate::geometry::{BILLBOARD_FIXED, pack_model_instance, push_f32, push_vec3}
 use crate::pipeline::MATERIAL_UNIFORM_BYTES;
 use crate::renderer::ScenePipelines;
 use crate::texture::prepare_texture;
-use crate::upload::{MATERIAL_GROUP, material_group, upload_buffer, upload_texture};
+use crate::upload::{MATERIAL_GROUP, material_group, upload_texture};
+use worldrunner_render_gpu::resource::upload_buffer;
 
 /// What staging quads needs besides the quads: the scene's placeholder texture and sampler, and
 /// where the quads are drawn.

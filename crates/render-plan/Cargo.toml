@@ -10,7 +10,6 @@ publish.workspace = true
 [features]
 default = []
 simulation = ["dep:worldrunner-world-simulation"]
-ui = ["simulation", "dep:worldrunner-world-simulation", "worldrunner-world-simulation/ui"]
 
 [dependencies]
 worldrunner-camera = { path = "../camera" }

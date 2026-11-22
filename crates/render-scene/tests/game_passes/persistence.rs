@@ -5,11 +5,8 @@ use super::layers::{self, ARRAY, HISTORY, HISTORY_PRODUCER, LAYERS, LayersGame, 
 use super::prepared;
 use std::sync::Arc;
 use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
-use worldrunner_render_scene::{
-    compositor::GamePasses,
-    executor::{FrameConfig, FrameError},
-    wgpu,
-};
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::{compositor::GamePasses, wgpu};
 
 pub const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 pub const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];

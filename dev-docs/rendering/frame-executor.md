@@ -122,7 +122,7 @@ Run the headless public example:
 cargo run -p worldrunner --features scene --example frame-feature
 ```
 
-`crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::gpu::executor`.
+`crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::post`.
 
 Player shader programs join the frame without registering a feature. `SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted for the frame, and the scene's own feature records them in the stock opaque pass after its geometry, so they share the pass's attachments and the frame's one submission. The slice covers one single-sample color attachment with `Depth32Float`; scenes with temporal reconstruction, screen-space passes or multisampling refuse them by name. See the [scene README](../../crates/render-scene/README.md#player-program-draws).
 

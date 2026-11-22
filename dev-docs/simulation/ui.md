@@ -1,6 +1,6 @@
 # Native UI layout and text
 
-Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation` and `worldrunner-render-plan`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::plan::ui`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function; `render_plan::ui` re-exports them. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
+Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::contribution`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
 
 ## Layout contract
 
@@ -426,7 +426,7 @@ Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<Te
 ## Immediate overlay lists and atlas-free measurement
 
 `ui::draw_list` owns the immediate CPU API, re-exported through `ui` and
-`render_plan::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
+`worldrunner_world_simulation::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
 layout-local Y-up text coordinates. `UiDrawList` converts once into the existing
 `UiDraw` BL/BR/TR/TL lower-left geometry. It borrows the existing `FontBook`;
 finished presentations retain only owned/shared resources. See the
@@ -548,7 +548,7 @@ the existing overlay graphics path. A real-window reading check remains pending.
 
 ## UI contributions
 
-`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+`worldrunner_world_simulation::ui::contribution::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
 Retained 3D hosts accept overlay text and screen-space graphics through
 `render_scene::simulation::UiOverlay` and `scene_viewer::RetainedUpdate::Ui`.
@@ -626,7 +626,7 @@ The optional rasterizer is `ab_glyph` 0.2.32, licensed Apache-2.0. Its font stac
 ## Scene annotations
 
 `worldrunner_world_simulation::ui::annotations` (also re-exported through
-`worldrunner_render_plan::ui::annotations`) supplies
+`worldrunner_world_simulation::ui::annotations`) supplies
 `AnnotationPrimitive::{Line, Arrow, Circle, Label}`. Each `Annotation` carries the
 same ascending `(layer, order, hierarchy)` tuple as ordinary UI and an optional
 lower-left physical-pixel `[x, y, width, height]` scissor. `Circle` uses `None`

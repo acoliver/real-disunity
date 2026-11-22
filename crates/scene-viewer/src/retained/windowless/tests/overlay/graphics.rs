@@ -52,7 +52,7 @@ pub(super) fn graphic_world() -> (World, ObjectHandle) {
 }
 
 pub(super) fn extracted(world: &World) -> UiRenderPlan {
-    worldrunner_render_plan::ui::extract_ui(
+    worldrunner_world_simulation::ui::contribution::extract_ui(
         world,
         &FontBook::new(UiLimits::default()).unwrap(),
         [64, 64],

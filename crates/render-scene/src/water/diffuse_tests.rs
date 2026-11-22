@@ -89,20 +89,20 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
     // The fixture clears its shadow map in a submission of its own, before the frame opens.
     let shadow = crate::dynamic::capture_tests::shadow_fixture::groups(&context);
     let encoder = context.submission().begin(context.device()).unwrap();
-    let gpu = (context.device(), &*encoder);
+    let gpu = &*encoder;
     let built = || water.programs.borrow().built();
-    let a = water.feature(gpu, &prepared_frame(false), (0.0, 0), (None, None));
-    let b = water.feature(gpu, &prepared_frame(true), (0.0, 0), (None, None));
+    let a = water.feature(gpu, &prepared_frame(false), (0.0, 0), None);
+    let b = water.feature(gpu, &prepared_frame(true), (0.0, 0), None);
     assert_eq!(
         built(),
         2,
         "the two diffuse conventions draw with distinct programs"
     );
-    let again = water.feature(gpu, &prepared_frame(true), (0.0, 0), (None, None));
+    let again = water.feature(gpu, &prepared_frame(true), (0.0, 0), None);
     assert_eq!(built(), 2, "a convention drawn again reuses its program");
     let mut frame = prepared_frame(false);
     frame.specular_convention = SceneSpecularConvention::default();
-    let default = water.feature(gpu, &frame, (0.0, 0), (None, None));
+    let default = water.feature(gpu, &frame, (0.0, 0), None);
     assert_eq!(
         built(),
         3,
@@ -110,26 +110,26 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
     );
     frame.specular_convention.surface_disk =
         Some(worldrunner_render_plan::SceneSurfaceDisk::new(2_000_000, 3_000_000).unwrap());
-    let scene_disk = water.feature(gpu, &frame, (0.0, 0), (None, None));
+    let scene_disk = water.feature(gpu, &frame, (0.0, 0), None);
     assert_eq!(
         built(),
         3,
         "a scene disk shares the default convention's program"
     );
     let shadowed = Some(&shadow[0]);
-    let a_shadowed = water.feature(gpu, &prepared_frame(false), (0.0, 0), (shadowed, None));
+    let a_shadowed = water.feature(gpu, &prepared_frame(false), (0.0, 0), shadowed);
     assert_eq!(
         built(),
         4,
         "a shadowed convention draws with a program of its own"
     );
-    let a_again = water.feature(gpu, &prepared_frame(false), (0.0, 0), (shadowed, None));
+    let a_again = water.feature(gpu, &prepared_frame(false), (0.0, 0), shadowed);
     assert_eq!(
         built(),
         4,
         "a shadowed convention drawn again reuses its program"
     );
-    let b_shadowed = water.feature(gpu, &prepared_frame(true), (0.0, 0), (shadowed, None));
+    let b_shadowed = water.feature(gpu, &prepared_frame(true), (0.0, 0), shadowed);
     assert_eq!(
         built(),
         5,

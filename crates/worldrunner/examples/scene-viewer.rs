@@ -8,9 +8,9 @@ use worldrunner::scene::{
         MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
         SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh,
-        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneShadowCascades, SceneSky,
-        SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
-        TextureHandle,
+        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
+        SceneSky, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
+        TextureColorSpace, TextureHandle,
     },
     viewer::{OrbitLimits, PresentMode, ViewerOptions, run},
 };
@@ -86,23 +86,27 @@ fn effects(terrain: bool) -> SceneEffects {
 }
 
 fn identity() -> SceneTransform {
-    SceneTransform::from_world_schema(
-        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
-        [0; 3],
-        [0, 0, 0, ROTATION_MICRO_SCALE],
-        1_000_000,
-    )
-    .expect("the example placement uses the schema boundary")
+    SceneTransform {
+        position_millimeters: [0; 3],
+        rotation: SceneRotation {
+            x: 0,
+            y: 0,
+            z: 0,
+            w: ROTATION_MICRO_SCALE,
+        },
+        scale_millionths: 1_000_000,
+    }
 }
 
-fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
-    SceneVertex::from_world_schema(
-        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
-        position,
-        [0, MICRO, 0],
-        texcoord,
-    )
-    .expect("the example mesh uses the schema boundary")
+/// A vertex given in Y-up (x, up, z) millimetres, placed in the scene's Z-up basis
+/// (east, north, elevation) as `(x, -z, up)`, facing up.
+fn vertex([x, up, z]: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
+    SceneVertex {
+        position_millimeters: [x, -z, up],
+        normal_micro: [0, 0, MICRO],
+        tangent_micro: None,
+        texcoord_micro: texcoord,
+    }
 }
 
 /// A two-metre ground quad at elevation zero, facing up.

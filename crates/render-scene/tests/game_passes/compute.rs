@@ -13,6 +13,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
+};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -29,10 +33,6 @@ use worldrunner_render_scene::{
         ColorOutput, GameBuild, GameComputeSpec, GameFeatureFactory, GameLevel, GamePassSpec,
         GamePasses, GameResources, GameTargets, LevelAccess, PassTarget, TargetDeclaration,
         TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
     },
     wgpu,
 };

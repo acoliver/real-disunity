@@ -17,7 +17,6 @@ fn fixture_named(request: &str) -> PreparedPlayer {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture").join(request),
         data: tempfile::tempdir().unwrap().keep(),
-        depth: DepthRange::default(),
         globals: Vec::new(),
     }
 }

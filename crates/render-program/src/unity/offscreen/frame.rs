@@ -260,8 +260,7 @@ pub struct DrawRaster {
     pub viewport: Option<[f32; 4]>,
     /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
     /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
-    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
-    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// the viewer, so the reversed buffer takes the negated values. The constant is rounded to whole units of the buffer's
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],

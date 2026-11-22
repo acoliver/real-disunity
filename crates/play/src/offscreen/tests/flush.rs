@@ -21,7 +21,6 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
 use super::super::defaults::{DefaultTexture, StandInLook};
-use super::super::depth_range::DepthRange;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -103,20 +102,6 @@ fn host_over(directory: &Path, adapter: OffscreenAdapter, gpu: super::gpu::Gpu) 
         adapter,
         ComputeAdapter::new(PlayerKernels::new(directory)),
     )
-}
-
-#[test]
-fn the_host_draws_with_the_depth_range_of_its_settings() {
-    let directory = tempfile::tempdir().unwrap();
-    for depth in [DepthRange::Forward, DepthRange::Reversed] {
-        let settings = Settings::default().with_depth(depth);
-        let host = host_with(directory.path(), settings);
-        assert_eq!(host.reversed_depth(), depth.reversed(), "{depth:?}");
-    }
-    assert!(
-        !host(directory.path()).reversed_depth(),
-        "a plain host stays forward"
-    );
 }
 
 /// A camera that clears to `CLEAR` in red and draws `DRAWN` over the left half of its target.
@@ -457,7 +442,7 @@ fn the_trace_reads_as_report_lines() {
             "    after the operations before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
             "    right before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
             "    camera CameraId(0) drew 1 into color Some(R16Float) depth None, states \
-             [(\"cull None, depth test LessEqual write true, color mask RGBA, blend off\", 1)], \
+             [(\"cull None, depth test GreaterEqual write true, color mask RGBA, blend off\", 1)], \
              without a value []",
             "    setup: viewport [4, 4], color clear [0.25, 0.0, 1.0, 1.0] (Some(R16Float)), depth \
              no depth (None)",

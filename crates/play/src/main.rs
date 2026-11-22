@@ -6,9 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
-    ScheduledKey, ScreenOutput, SuppliedGlobal, key_code, play_player_window, prepare,
-    prepare_player, run_player_screens,
+    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
+    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -21,7 +20,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--gpu-work on|off] [--depth reversed|forward]
+            [--screen FRAME:FILE.png]... [--gpu-work on|off]
             [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
@@ -43,9 +42,6 @@ struct Arguments {
     scene: Option<String>,
     /// Whether a player run, headless or in a window, does its offscreen work on a device.
     gpu_work: GpuWork,
-    /// The depth range `--depth` names; without it the environment and then the player's default
-    /// choose (see `DepthRange::choose`).
-    depth: Option<DepthRange>,
     /// The globals `--global` supplies for the run, in the order given.
     globals: Vec<SuppliedGlobal>,
     /// The player's command line after its executable path, in the order given.
@@ -127,12 +123,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 _ => return Err(format!("--gpu-work `{value}` is on or off")),
             };
         }
-        "--depth" => {
-            arguments.depth = Some(
-                DepthRange::from_name(value)
-                    .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
-            );
-        }
         "--global" => {
             let global = SuppliedGlobal::parse(value)
                 .map_err(|reason| format!("--global `{value}`: {reason}"))?;
@@ -189,16 +179,10 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     // The window opens at `--size`, else at the size the live loop defaults to; a headless run
     // that writes the screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
-    // The one place the environment is read: the request and the GPU work get this value.
-    let depth = DepthRange::choose(
-        arguments.depth,
-        std::env::var(REVERSED_DEPTH_ENV).ok().as_deref(),
-    )?;
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
         screen: (windowed || screens).then_some(size),
         plugins: &arguments.plugins,
-        depth,
         globals: &arguments.globals,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
@@ -464,28 +448,6 @@ mod tests {
             GpuWork::Auto
         );
         assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
-    }
-
-    #[test]
-    fn depth_is_named_by_the_option_or_left_to_the_environment_and_the_player_default() {
-        use worldrunner_play::DepthRange;
-        assert_eq!(
-            parsed(&["--player", "Game_Data"]).expect("parses").depth,
-            None
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--depth", "forward"])
-                .expect("parses")
-                .depth,
-            Some(DepthRange::Forward)
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--depth", "reversed"])
-                .expect("parses")
-                .depth,
-            Some(DepthRange::Reversed)
-        );
-        assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
     }
 
     #[test]

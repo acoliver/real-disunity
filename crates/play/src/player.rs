@@ -16,7 +16,7 @@ use worldrunner_unity_import::{
 };
 
 use crate::PlayError;
-use crate::offscreen::{DepthRange, SuppliedGlobal};
+use crate::offscreen::SuppliedGlobal;
 use crate::plan_differences::shader_difference_lines;
 use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
@@ -28,8 +28,6 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
     /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
     pub data: PathBuf,
-    /// The depth range the request told the managed side about and the run's GPU work draws with.
-    pub depth: DepthRange,
     /// The globals the run supplies by name, which its GPU work starts every frame from.
     pub globals: Vec<SuppliedGlobal>,
 }
@@ -37,31 +35,15 @@ pub struct PreparedPlayer {
 /// How a player is started besides its files: the command line after its executable path,
 /// the size of the window the frame is drawn into, which is the size the player's `Screen`
 /// reports (a headless run gives none), and extra native plugin directories the player
-/// searches after its own `Plugins` directories and the engine's substitutes. `depth` is the
-/// run's one depth range (see [`DepthRange`]): `prepare_player` sends it to the managed side as
-/// the request's `reversed_z_buffer`, and the run's GPU work draws with the same value. `globals`
-/// are the values `--global` supplies; they reach the GPU work only, not the request.
-#[derive(Clone, Copy)]
+/// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
+/// values `--global` supplies; they reach the GPU work only, not the request. The default has no
+/// arguments, no window, no extra plugins and no globals.
+#[derive(Clone, Copy, Default)]
 pub struct PlayerLaunch<'a> {
     pub arguments: &'a [String],
     pub screen: Option<[u32; 2]>,
     pub plugins: &'a [PathBuf],
-    pub depth: DepthRange,
     pub globals: &'a [SuppliedGlobal],
-}
-
-impl Default for PlayerLaunch<'_> {
-    /// No arguments, no window, no extra plugins, and the depth range of a built player,
-    /// [`DepthRange::PLAYER`].
-    fn default() -> Self {
-        Self {
-            arguments: &[],
-            screen: None,
-            plugins: &[],
-            depth: DepthRange::PLAYER,
-            globals: &[],
-        }
-    }
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -115,7 +97,6 @@ pub fn prepare_player(
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
-        depth: launch.depth,
         globals: launch.globals.to_vec(),
     })
 }
@@ -253,8 +234,8 @@ fn write_request(
 /// the `GraphicsFormat` codes the offscreen renderer draws into and samples, which the player's
 /// device reports as supported. `shadow_sampling` says the offscreen renderer reads a depth render
 /// texture through a comparison sampler, which the player's device reports as shadow support.
-/// `reversed_z_buffer` is `launch.depth`, the value the run's GPU work draws with, so the player's
-/// device declares a reversed depth buffer exactly when the host's depth is reversed.
+/// `reversed_z_buffer` is true: the run's GPU work draws with reversed depth, so the player's
+/// device declares a reversed depth buffer.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
@@ -267,7 +248,6 @@ fn request_body(
         arguments,
         screen,
         plugins,
-        depth,
         globals: _,
     } = launch;
     let mut body = serde_json::json!({
@@ -281,7 +261,7 @@ fn request_body(
         "callback_cache": callback_cache,
         "render_formats": worldrunner_render_program::unity::offscreen::RENDER_FORMATS,
         "shadow_sampling": true,
-        "reversed_z_buffer": depth.reversed(),
+        "reversed_z_buffer": true,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
@@ -329,7 +309,7 @@ pub enum GpuWork {
 pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<PlayerGpu> {
     match work {
         GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::headless(&prepared.data, prepared.depth, &prepared.globals)
+        GpuWork::Auto => PlayerGpu::headless(&prepared.data, &prepared.globals)
             .inspect_err(|reason| {
                 eprintln!("[gpu] {reason}; the offscreen work does not run");
             })
@@ -340,18 +320,16 @@ pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<Pla
 /// The device and offscreen host a window does its GPU work on, on the device `source` makes for
 /// the viewer, or `None` for [`GpuWork::Off`] and when the device cannot be had, which is
 /// reported on standard error. Shaders are loaded from the player's `data` directory, and the
-/// work draws with the run's `depth` and starts every frame from the `globals` it supplies, as a
-/// headless run does ([`player_gpu`]).
+/// work starts every frame from the `globals` it supplies, as a headless run does ([`player_gpu`]).
 pub(crate) fn window_gpu(
     work: GpuWork,
     data: &Path,
-    depth: DepthRange,
     globals: &[SuppliedGlobal],
     source: &mut dyn crate::gpu_device::DeviceSource,
 ) -> Option<PlayerGpu> {
     match work {
         GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::shared(source, data, depth, globals)
+        GpuWork::Auto => PlayerGpu::shared(source, data, globals)
             .inspect_err(|reason| {
                 eprintln!("[gpu] {reason}; the offscreen work does not run");
             })
@@ -590,24 +568,6 @@ mod tests {
         body_in(arguments, None)
     }
 
-    fn body_with_depth(depth: DepthRange) -> serde_json::Value {
-        let (plan, resources, persistent) = (
-            Path::new("plan.json"),
-            Path::new("resources.json"),
-            Path::new("persistent"),
-        );
-        request_body(
-            Path::new("/games/Game/Game_Data"),
-            [plan, resources, persistent],
-            &identity(),
-            PlayerLaunch {
-                depth,
-                ..PlayerLaunch::default()
-            },
-            Path::new("/out/callback-cache"),
-        )
-    }
-
     fn body_in(arguments: &[String], screen: Option<[u32; 2]>) -> serde_json::Value {
         let (plan, resources, persistent) = (
             Path::new("plan.json"),
@@ -665,19 +625,8 @@ mod tests {
     }
 
     #[test]
-    fn a_built_player_declares_a_reversed_depth_buffer_unless_the_launch_says_otherwise() {
-        assert_eq!(
-            body_with_depth(PlayerLaunch::default().depth)["reversed_z_buffer"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            body_with_depth(DepthRange::Reversed)["reversed_z_buffer"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            body_with_depth(DepthRange::Forward)["reversed_z_buffer"],
-            serde_json::json!(false)
-        );
+    fn a_built_player_declares_a_reversed_depth_buffer() {
+        assert_eq!(body(&[])["reversed_z_buffer"], serde_json::json!(true));
     }
 
     #[test]

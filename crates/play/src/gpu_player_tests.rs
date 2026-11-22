@@ -140,31 +140,12 @@ fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
 }
 
 #[test]
-fn the_headless_host_draws_with_the_depth_range_it_is_given() {
-    let directory = tempfile::tempdir().unwrap();
-    for depth in [DepthRange::Forward, DepthRange::Reversed] {
-        let gpu = PlayerGpu::headless(directory.path(), depth, &[]).unwrap();
-        assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
-    }
-}
-
-#[test]
-fn the_window_host_draws_with_the_depth_range_it_is_given() {
-    let directory = tempfile::tempdir().unwrap();
-    for depth in [DepthRange::Forward, DepthRange::Reversed] {
-        let mut viewer = HeadlessViewer::new([8, 4]);
-        let gpu = PlayerGpu::shared(&mut viewer, directory.path(), depth, &[]).unwrap();
-        assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
-    }
-}
-
-#[test]
 fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_supplied_none() {
     let directory = tempfile::tempdir().unwrap();
-    let none = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
+    let none = PlayerGpu::headless(directory.path(), &[]).unwrap();
     assert_eq!(none.report().supplied_globals, None);
     let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
-    let some = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[value]).unwrap();
+    let some = PlayerGpu::headless(directory.path(), &[value]).unwrap();
     assert_eq!(
         some.report().supplied_globals.as_deref(),
         Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
@@ -177,7 +158,7 @@ fn the_window_report_says_which_globals_the_run_supplied() {
     let mut viewer = HeadlessViewer::new([8, 4]);
     let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
     let gpu =
-        PlayerGpu::shared(&mut viewer, directory.path(), DepthRange::Forward, &[value]).unwrap();
+        PlayerGpu::shared(&mut viewer, directory.path(), &[value]).unwrap();
     assert_eq!(
         gpu.report().supplied_globals.as_deref(),
         Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
@@ -187,7 +168,7 @@ fn the_window_report_says_which_globals_the_run_supplied() {
 #[test]
 fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
     let directory = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(directory.path(), &[]).unwrap();
     assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
     assert!(
         gpu.report().device.contains("runtime budget"),
@@ -213,7 +194,7 @@ fn play_screen_fixture(gpu: &PlayerGpu, frames: u64) {
 fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_image_alone() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     assert!(gpu.screen().is_none(), "nothing drew yet");
 
@@ -244,7 +225,7 @@ fn a_frame_that_clears_the_screen_gives_its_image_and_frames_after_it_leave_the_
 fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), &[]).unwrap();
 
     play_screen_fixture(&gpu, 2);
 
@@ -264,7 +245,7 @@ fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
 fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     let mut host = booted_fixture_host();
     gpu.install(&mut host).unwrap();
@@ -334,7 +315,7 @@ fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
 fn window_player(size: [u32; 2]) -> (HeadlessViewer, PlayerGpu, tempfile::TempDir) {
     let data = tempfile::tempdir().unwrap();
     let mut viewer = HeadlessViewer::new(size);
-    let gpu = PlayerGpu::shared(&mut viewer, data.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::shared(&mut viewer, data.path(), &[]).unwrap();
     gpu.set_screen(Some(size));
     (viewer, gpu, data)
 }
@@ -416,7 +397,6 @@ fn a_window_with_gpu_work_off_asks_its_source_for_nothing() {
         window_gpu(
             GpuWork::Off,
             data.path(),
-            DepthRange::Forward,
             &[],
             &mut source
         )
@@ -433,7 +413,6 @@ fn a_window_whose_source_has_no_device_runs_without_gpu_work() {
         window_gpu(
             GpuWork::Auto,
             data.path(),
-            DepthRange::Forward,
             &[],
             &mut source
         )
@@ -548,7 +527,7 @@ fn a_screen_of_another_size_than_the_window_is_not_offered() {
 fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path(), DepthRange::Forward, &[]).unwrap();
+    let gpu = PlayerGpu::headless(data.path(), &[]).unwrap();
     gpu.set_screen(Some([8, 4]));
     let mut host = booted_fixture_host();
     gpu.install(&mut host).unwrap();

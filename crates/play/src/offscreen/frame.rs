@@ -27,7 +27,6 @@ use super::builtins::{
     OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
-use super::depth_range::DepthRange;
 use super::environment::add_environment;
 use super::ids;
 use super::mips::AutoMips;
@@ -78,10 +77,6 @@ pub struct Settings {
     /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
     /// names it, or `None` for a host with no screen, where such a record is left out.
     pub screen: Option<[u32; 2]>,
-    /// How depth runs in the camera renders: the clip space of every camera's view-projection,
-    /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
-    /// Forward unless the caller says otherwise.
-    pub depth: DepthRange,
     /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
     pub supplied: Vec<SuppliedGlobal>,
     /// How the stand-in textures the host supplies look: their declared colours, or magenta.
@@ -99,13 +94,6 @@ impl Settings {
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
             ..Self::default()
         }
-    }
-
-    /// These settings with depth running as `depth` says.
-    #[must_use]
-    pub fn with_depth(mut self, depth: DepthRange) -> Self {
-        self.depth = depth;
-        self
     }
 
     /// These settings with the stand-in textures looking as `look` says.
@@ -632,7 +620,7 @@ impl<'a> Mapper<'a> {
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
-        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]), self.settings.depth);
+        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
         add_screen_size(&mut values, size);
         Camera {
             culling_mask: view.settings.culling_mask,

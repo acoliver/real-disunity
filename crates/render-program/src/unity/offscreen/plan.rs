@@ -302,8 +302,6 @@ pub(super) struct Services<'a> {
     /// Whether the draws planned now use a fragment stage that writes a constant colour, whatever
     /// the pass's own does.
     pub(super) constant_fragment: bool,
-    /// Whether depth is reversed (near 1, far 0): see `depth_range`.
-    pub(super) reversed_depth: bool,
 }
 
 impl Services<'_> {
@@ -485,8 +483,7 @@ impl Services<'_> {
         };
         self.counts.program_time += started.elapsed();
         let mut state = resolve_state(&resolved.state, &spec.layers.values())?;
-        state.state.depth_compare =
-            depth_range::depth_test(state.state.depth_compare, self.reversed_depth);
+        state.state.depth_compare = depth_range::depth_test(state.state.depth_compare);
         Ok(Chosen {
             entry,
             state: state.state,
@@ -743,9 +740,7 @@ impl Services<'_> {
                 SamplerBinding {
                     binding: slot.binding,
                     visibility: slot.visibility,
-                    sampler: self
-                        .samplers
-                        .comparison(state, depth_range::shadow_compare(self.reversed_depth)),
+                    sampler: self.samplers.comparison(state, sampling::SHADOW_COMPARE),
                 },
             ));
             return;

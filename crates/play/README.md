@@ -40,19 +40,17 @@ It writes the script layouts of the player's game assemblies with `csharp/Disuni
 
 ### Depth range
 
-A player run draws with reversed depth unless the run says otherwise: near is 1 and far is 0, depth clears to 0, a pass's `ZTest LEqual` is `GreaterEqual` (and `Less` is `Greater`), a shadow lookup's comparison is `GreaterEqual`, and a camera's `unity_MatrixVP` maps near to w and far to 0. One value, the run's `DepthRange` (`worldrunner_play::DepthRange`), drives all of it, so the GPU side and the managed side cannot disagree:
+Every player run draws with reversed depth: near is 1 and far is 0, depth clears to 0, a pass's `ZTest LEqual` is `GreaterEqual` (and `Less` is `Greater`), a shadow lookup's comparison is `GreaterEqual`, and a camera's `unity_MatrixVP` maps near to w and far to 0. There is no setting for it, so the GPU side and the managed side cannot disagree:
 
-| Where the value goes | What it does |
+| Where it applies | What it does |
 | --- | --- |
-| `PlayerLaunch::depth` | `prepare_player` writes it into the bridge's request as `"reversed_z_buffer": true` or `false`, and the managed `PlayerDevice` declares a reversed depth buffer (`SystemInfo.usesReversedZBuffer`) exactly when it is true. |
-| `PreparedPlayer::depth` | `run_player_with` hands it to `PlayerGpu::headless`, which puts it in `Settings::depth`. |
-| `Settings::depth` | `OffscreenHost::new` calls `OffscreenState::set_reversed_depth` with it, and the adapter builds the clip space of every camera render and renderer list view with `clip_from_gl` for the same value. `clip_from_gl` also negates clip Y, ahead of the negation every compiled player stage applies, so the scene's up lands in the last rows and a render texture's rows are bottom first like a stored texture's (a shader's texture coordinate, a pixel read and a blit then agree on which row is which). |
+| `prepare_player` | Writes `"reversed_z_buffer": true` into the bridge's request, and the managed `PlayerDevice` declares a reversed depth buffer (`SystemInfo.usesReversedZBuffer`). |
+| `OffscreenState` | Clears depth to `1 - d`, reverses depth tests and the shadow comparison, and negates the constant and slope terms of a depth bias. |
+| `clip_from_gl` | The adapter builds the clip space of every camera render and renderer list view with it. It also negates clip Y, ahead of the negation every compiled player stage applies, so the scene's up lands in the last rows and a render texture's rows are bottom first like a stored texture's (a shader's texture coordinate, a pixel read and a blit then agree on which row is which). |
 
-The default is reversed. `--depth forward` or the environment variable `RD_REVERSED_DEPTH=0` (or `false`) turns it off, and `--depth reversed` or `RD_REVERSED_DEPTH=1` (or `true`) states the default; the command line wins over the environment, and `play`'s `main` reads the environment once. Library callers that build `Settings` or an `OffscreenState` directly get forward depth, as before, unless they ask: `Settings::default().depth` is `DepthRange::Forward`, and `PlayerLaunch::default().depth` is `DepthRange::PLAYER`, which is reversed.
+Forward depth gives constant camera textures. The evidence is an Old World RomeTurn42 run, frame 16 (board 133, posts 3214, 3220 and 3238). With forward depth (clear 1, `ZTest LEqual` as `LessEqual`), every camera texture held one value across the screen: the normals were exactly (0, 0, -1, 0) and the depth 0.0076. With reversed depth and the request field declaring it to the managed side, the normals varied across the screen (mean z -0.99) and real geometry won the depth test.
 
-The evidence is an Old World RomeTurn42 run, frame 16 (board 133, posts 3214, 3220 and 3238). With forward depth (clear 1, `ZTest LEqual` as `LessEqual`), every camera texture held one value across the screen: the normals were exactly (0, 0, -1, 0) and the depth 0.0076. With reversed depth and the request field declaring it to the managed side, the normals varied across the screen (mean z -0.99) and real geometry won the depth test.
-
-What this does not supply: `glstate_matrix_projection` and `_ZBufferParams` are still not set (see `builtins`), so a shader that reads them gets zero in either range. A depth clear record maps its value d to 1 - d under reversed depth, so a record that clears to 1 stores 0. A windowed player run (`--size`, `--capture` or `--key`) draws with the same value: `window_gpu` hands `PreparedPlayer::depth` to `PlayerGpu::shared`, which puts it in the `Settings` of the host that runs on the viewer's device.
+`glstate_matrix_projection` and `_ZBufferParams` are still not set (see `builtins`), so a shader that reads them gets zero. A depth clear record maps its value d to 1 - d, so a record that clears to 1 stores 0. A windowed player run (`--size`, `--capture` or `--key`) draws the same way.
 
 ### Supplying a named global for one run
 

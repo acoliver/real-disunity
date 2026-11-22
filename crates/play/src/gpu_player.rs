@@ -38,7 +38,7 @@ use crate::counts_line::{top_counts_line, unset_constants_line};
 use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
     PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts,
     StandInLook, SuppliedGlobal, WorkTrace, supplied_line,
 };
@@ -59,15 +59,12 @@ const TOP_UNSET: usize = 8;
 /// The most property and reason pairs the stand-ins line names.
 const TOP_STAND_INS: usize = 8;
 
-/// The settings of a player run's offscreen work: camera renders drawing with `depth`, and
-/// `supplied` as the fallback globals every frame starts from, with stand-in textures drawn as
-/// `look`.
-fn run_settings(depth: DepthRange, supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
+/// The settings of a player run's offscreen work: `supplied` as the fallback globals every frame
+/// starts from, with stand-in textures drawn as `look`.
+fn run_settings(supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
     Settings {
         supplied: supplied.to_vec(),
-        ..Settings::cameras()
-            .with_depth(depth)
-            .with_stand_in_look(look)
+        ..Settings::cameras().with_stand_in_look(look)
     }
 }
 
@@ -507,26 +504,16 @@ impl PlayerGpu {
         self.offscreen.borrow().storage_budget()
     }
 
-    /// Whether the host's render-program state has depth reversed.
-    #[must_use]
-    pub fn reversed_depth(&self) -> bool {
-        self.offscreen.borrow().reversed_depth()
-    }
-
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`, depth running as `depth` says, and the globals in `supplied` as fallbacks under
-    /// the world's own (see `SuppliedGlobal`).
+    /// `data`, and the globals in `supplied` as fallbacks under the world's own (see
+    /// `SuppliedGlobal`).
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(
-        data: &Path,
-        depth: DepthRange,
-        supplied: &[SuppliedGlobal],
-    ) -> Result<Self, String> {
+    pub fn headless(data: &Path, supplied: &[SuppliedGlobal]) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        let settings = run_settings(depth, supplied, stand_in_look_from_env());
+        let settings = run_settings(supplied, stand_in_look_from_env());
         let instance = headless_gpu_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -558,7 +545,7 @@ impl PlayerGpu {
     /// The host on the one device `source` makes for a window: the adapter's requirements and
     /// budget come from the same function the headless player uses, and the device meets the
     /// viewer's own needs as well. The window's frames and this player's work then share the
-    /// device and its submission order. `depth` and `supplied` mean what they do for
+    /// device and its submission order. `supplied` means what it does for
     /// [`PlayerGpu::headless`].
     ///
     /// # Errors
@@ -567,11 +554,10 @@ impl PlayerGpu {
     pub(crate) fn shared(
         source: &mut dyn DeviceSource,
         data: &Path,
-        depth: DepthRange,
         supplied: &[SuppliedGlobal],
     ) -> Result<Self, String> {
         let inputs = PlayerStartupInputs::capture();
-        let settings = run_settings(depth, supplied, stand_in_look_from_env());
+        let settings = run_settings(supplied, stand_in_look_from_env());
         let adapter = source.adapter()?;
         Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
     }

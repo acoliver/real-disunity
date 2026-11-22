@@ -95,8 +95,6 @@ pub struct OffscreenState {
     /// runtime's budget has left.
     constants_total_limit: Option<u64>,
     retired_constants: Vec<BufferHandle>,
-    /// Whether depth is reversed (near 1, far 0); see [`depth_range`].
-    reversed_depth: bool,
 }
 
 /// The most bytes a constants buffer holds unless the host sets less. A frame with more constants
@@ -119,21 +117,7 @@ impl OffscreenState {
             constants_limit: None,
             constants_total_limit: None,
             retired_constants: Vec::new(),
-            reversed_depth: false,
         }
-    }
-
-    /// Sets whether offscreen depth is reversed: near is 1 and far is 0. Depth clears store
-    /// `1 - depth`, depth tests and the shadow comparison swap their direction, and the host
-    /// builds projections that map near to 1. Off by default.
-    pub fn set_reversed_depth(&mut self, reversed: bool) {
-        self.reversed_depth = reversed;
-    }
-
-    /// Whether depth is reversed: see [`set_reversed_depth`](Self::set_reversed_depth).
-    #[must_use]
-    pub fn reversed_depth(&self) -> bool {
-        self.reversed_depth
     }
 
     /// Sets the most bytes one constants buffer may hold, which the device's buffer size also
@@ -363,7 +347,6 @@ impl OffscreenState {
                 shares: &mut shares,
                 probing: false,
                 constant_fragment: false,
-                reversed_depth: self.reversed_depth,
             };
             // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {

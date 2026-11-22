@@ -317,10 +317,7 @@ fn pass_report(
             },
             depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
                 (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!(
-                    "clear {:?}",
-                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
-                ),
+                (Some(_), true) => format!("clear {:?}", depth_range::depth_clear(DEPTH_CLEAR)),
                 (Some(_), false) => "load".to_owned(),
             },
         },

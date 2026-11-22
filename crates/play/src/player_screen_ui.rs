@@ -97,13 +97,7 @@ impl ScreenDevice {
         work: GpuWork,
         prepared: &PreparedPlayer,
     ) -> Option<PlayerGpu> {
-        window_gpu(
-            work,
-            &prepared.data,
-            prepared.depth,
-            &prepared.globals,
-            self,
-        )
+        window_gpu(work, &prepared.data, &prepared.globals, self)
     }
 
     /// The windowless session that composes the run's frames on this device, delivering its

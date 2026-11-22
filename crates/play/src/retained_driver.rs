@@ -96,7 +96,6 @@ pub fn play_player_window(
     let gpu = window_gpu(
         window.gpu_work,
         &prepared.data,
-        prepared.depth,
         &prepared.globals,
         &mut ViewerDevice {
             start: &mut start,

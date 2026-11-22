@@ -14,12 +14,11 @@ use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
 use super::super::defaults::StandInLook;
-use super::super::depth_range::DepthRange;
 use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{
-    assert_close, available, camera, compute_buffer, compute_shader, dispatch, material,
-    render_texture, renderer, renderer_with, set, shader, snapshot, texture_slot, world,
+    available, camera, compute_buffer, compute_shader, dispatch, material, render_texture,
+    renderer, renderer_with, set, shader, snapshot, texture_slot, world,
 };
 
 const MESH: u64 = (1 << 41) + 3;
@@ -29,7 +28,6 @@ pub(super) fn settings() -> Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
         untagged_light_mode: None,
         screen: None,
-        depth: DepthRange::Forward,
         supplied: Vec::new(),
         stand_in_look: StandInLook::Declared,
     }
@@ -614,62 +612,6 @@ fn a_camera_maps_its_clear_flags_mask_pass_list_and_front_face() {
         // Unity's clockwise front faces are counter-clockwise in the image, which is turned over.
         assert_eq!(made.front_face, wgpu::FrontFace::Ccw);
     }
-}
-
-/// The `unity_MatrixVP` of the only camera of a frame adapted with `settings`.
-fn view_projection_with(settings: &Settings) -> [f32; 16] {
-    let mut world = world();
-    let target = render_texture(&mut world, [8, 8]);
-    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
-    draw(&mut world, camera, target);
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), settings);
-    match adapted.frame.cameras[&CameraId(0)]
-        .values
-        .values
-        .get("unity_MatrixVP")
-    {
-        Some(PropertyValue::Matrix(matrix)) => *matrix,
-        other => panic!("unity_MatrixVP is {other:?}"),
-    }
-}
-
-#[test]
-fn a_cameras_clip_depth_follows_the_depth_range_of_the_settings() {
-    let forward = view_projection_with(&settings().with_depth(DepthRange::Forward));
-    let reversed = view_projection_with(&settings().with_depth(DepthRange::Reversed));
-    assert!(
-        forward
-            .iter()
-            .zip(&reversed)
-            .any(|(forward, reversed)| (forward - reversed).abs() > 1e-6),
-        "the two ranges give different matrices"
-    );
-    for column in 0..4 {
-        let at = |matrix: &[f32; 16], row: usize| matrix[column * 4 + row];
-        // Only the clip depth differs. For one OpenGL depth z and w, forward is (z + w) / 2 and
-        // reversed is (w - z) / 2, so the two add up to w, which both keep.
-        for row in [0, 1, 3] {
-            assert!(
-                (at(&forward, row) - at(&reversed, row)).abs() < 1e-6,
-                "row {row}"
-            );
-        }
-        assert!(
-            (at(&forward, 2) + at(&reversed, 2) - at(&forward, 3)).abs() < 1e-5,
-            "column {column}"
-        );
-    }
-}
-
-#[test]
-fn settings_without_a_depth_range_keep_depth_forward() {
-    assert_eq!(Settings::default().depth, DepthRange::Forward);
-    assert_eq!(Settings::cameras().depth, DepthRange::Forward);
-    assert_close(
-        &view_projection_with(&Settings::default()),
-        &view_projection_with(&settings()),
-    );
 }
 
 #[test]

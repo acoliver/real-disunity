@@ -414,7 +414,7 @@ internal static unsafe class WorldGraphicsTests
         var first = new RenderTexture(8, 8, 0);
         var second = new RenderTexture(8, 8, 0);
         var target = new RenderTexture(8, 8, 0);
-        var material = new Material(DisunityHost.DeclareShader("Test/World/Bake", 2000, Unnamed(1), 1, _ => { }));
+        var material = new Material(DisunityHost.DeclareShader("Test/World/Bake", new ShaderDeclaration(2000, Unnamed(1), 1), _ => { }));
         material.SetTexture("_PrimaryTex", first);
         Graphics.Blit(first, target, material, 0);
         material.SetTexture("_PrimaryTex", second);

@@ -1,6 +1,8 @@
 //! Native world contributions use the resident scene's existing unlit quad pipeline.
 mod overlay;
+mod ui_target;
 pub use overlay::UiOverlay;
+pub use ui_target::{UiTarget, UiTargetRefusal};
 
 use crate::{
     SceneView,

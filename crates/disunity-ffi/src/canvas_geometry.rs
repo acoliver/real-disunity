@@ -7,8 +7,9 @@ use crate::{
     textures::FIRST_PLAYER_TEXTURE,
 };
 use worldrunner_world_simulation::{
-    ComponentDesc, WorldError,
-    ui::{CanvasRenderer, UiGeometry, UiVertex},
+    ComponentDesc, World, WorldError,
+    graphics::RenderTextureId,
+    ui::{CanvasRenderer, UiGeometry, UiTexture, UiVertex},
 };
 
 /// One mesh vertex: its position in the element's local space, its first texture coordinate
@@ -27,14 +28,23 @@ pub struct DisunityUiVertex {
     pub a: f32,
 }
 
-/// What a renderer holds to draw: the renderer identity of its texture (0 for none) and the
-/// sizes of its mesh.
+/// What a renderer holds to draw: its texture (0 for none) with the kind that says what the
+/// identity names, and the sizes of its mesh.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityUiGraphicInfo {
     pub texture: u64,
     pub vertex_count: u32,
     pub index_count: u32,
+    /// 0 a stored image identity, 1 a render texture; see `disunity_canvas_renderer_texture_write`.
+    pub texture_kind: u32,
+    pub padding: u32,
+}
+
+/// The texture kinds `DisunityUiGraphicInfo` and `DisunityUiDraw` carry.
+pub(crate) mod texture_kind {
+    pub const IMAGE: u32 = 0;
+    pub const TARGET: u32 = 1;
 }
 
 impl From<DisunityUiVertex> for UiVertex {
@@ -66,7 +76,7 @@ impl From<UiVertex> for DisunityUiVertex {
 fn update(
     world: u64,
     handle: u64,
-    change: impl FnOnce(&mut CanvasRenderer) -> Result<(), AbiError>,
+    change: impl FnOnce(&World, &mut CanvasRenderer) -> Result<(), AbiError>,
 ) -> DisunityResult {
     mutate(world, |s| {
         let id = component(s, handle)?;
@@ -74,7 +84,7 @@ fn update(
         else {
             return Err("component is not a CanvasRenderer".into());
         };
-        change(&mut renderer)?;
+        change(&s.native, &mut renderer)?;
         s.native
             .set_component(id, ComponentDesc::CanvasRenderer(renderer))?;
         Ok(())
@@ -115,7 +125,7 @@ pub unsafe extern "C" fn disunity_canvas_renderer_geometry_write(
     } else {
         unsafe { std::slice::from_raw_parts(indices, index_count as usize) }.to_vec()
     };
-    update(world, handle, |renderer| {
+    update(world, handle, |_, renderer| {
         renderer.geometry = if vertices.is_empty() && indices.is_empty() {
             None
         } else {
@@ -127,19 +137,39 @@ pub unsafe extern "C" fn disunity_canvas_renderer_geometry_write(
     })
 }
 
-/// Sets the renderer identity of the texture the renderer draws with; 0 draws plain colour. A
-/// nonzero identity must be a player texture identity.
+/// Sets the texture the renderer draws with. Kind 0 is a stored image: `identity` is a player
+/// texture identity, or 0 for plain colour. Kind 1 is a render texture: `identity` is the id of a
+/// render texture the world holds. Any other kind, and a render texture the world does not hold,
+/// is rejected and leaves the renderer unchanged.
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_canvas_renderer_texture_write(
     world: u64,
     handle: u64,
     identity: u64,
+    kind: u32,
 ) -> DisunityResult {
-    update(world, handle, |renderer| {
-        if identity != 0 && identity < FIRST_PLAYER_TEXTURE {
-            return Err("a canvas renderer draws with a player texture identity or none".into());
-        }
-        renderer.graphic_texture = identity;
+    update(world, handle, |native, renderer| {
+        renderer.graphic_texture = match kind {
+            texture_kind::IMAGE if identity == 0 => None,
+            texture_kind::IMAGE if identity >= FIRST_PLAYER_TEXTURE => {
+                Some(UiTexture::Image(identity))
+            }
+            texture_kind::IMAGE => {
+                return Err(
+                    "a canvas renderer draws with a player texture identity or none".into(),
+                );
+            }
+            texture_kind::TARGET => {
+                let target = RenderTextureId::from_bits(identity);
+                native.render_texture(target)?;
+                Some(UiTexture::Target(target))
+            }
+            _ => {
+                return Err(
+                    "a canvas renderer texture kind is 0 (image) or 1 (render texture)".into(),
+                );
+            }
+        };
         Ok(())
     })
 }
@@ -168,8 +198,15 @@ pub unsafe extern "C" fn disunity_canvas_renderer_geometry_read(
         };
         let mesh = renderer.geometry.as_deref();
         let held = mesh.map_or(0, |m| m.vertices().len());
+        let (texture, texture_kind) = match renderer.graphic_texture {
+            None => (0, texture_kind::IMAGE),
+            Some(UiTexture::Image(id) | UiTexture::Coverage(id)) => (id, texture_kind::IMAGE),
+            Some(UiTexture::Target(id)) => (id.to_bits(), texture_kind::TARGET),
+        };
         let value = DisunityUiGraphicInfo {
-            texture: renderer.graphic_texture,
+            texture,
+            texture_kind,
+            padding: 0,
             vertex_count: u32::try_from(held).map_err(|_| "vertex count overflow")?,
             index_count: u32::try_from(mesh.map_or(0, |m| m.indices().len()))
                 .map_err(|_| "index count overflow")?,

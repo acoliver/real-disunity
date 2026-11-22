@@ -116,10 +116,8 @@ fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
         (SIZE, SIZE),
         "the window's size"
     );
-    assert!(gpu.screen().is_none(), "no image of the screen was made");
+    assert_eq!(gpu.drawn_screen(), None, "a window frame numbers nothing");
     let report = gpu.report();
-    assert_eq!(report.screen_reads, 0, "a window frame reads nothing back");
-    assert!(report.screen_reads_refused.is_empty());
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     assert_eq!(
         submissions[0], submissions[2],

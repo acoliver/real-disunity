@@ -13,7 +13,8 @@ namespace UnityEngine.Rendering;
 /// <see cref="NotSupportedException"/> naming themselves. <see cref="DrawMesh(Mesh, Matrix4x4, Material)"/>
 /// is recorded for the host to draw (see CommandBufferMesh.cs), and so are <see cref="DrawMeshInstancedIndirect"/> (see
 /// CommandBufferMeshIndirect.cs), the renderer draws (see CommandBufferRenderer.cs), <see cref="SetViewport"/> and the non-indexed
-/// procedural draws (see CommandBufferProcedural.cs). Global vector and matrix arrays are recorded in order (see
+/// procedural draws (see CommandBufferProcedural.cs). The globals a buffer sets, arrays included, are written when
+/// the buffer runs, as the matching <c>Shader.SetGlobal*</c> calls write them (see CommandBufferGlobals.cs and
 /// CommandBufferArrays.cs).
 /// After <see cref="Release"/> every member except <see cref="name"/> and Release throws <see cref="ObjectDisposedException"/>;
 /// releasing twice is allowed. The name starts empty, which is the engine's choice, and a null name becomes empty.

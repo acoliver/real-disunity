@@ -507,6 +507,7 @@ JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
 CommandBufferPersistentGlobalTests.Run();
+CommandBufferGlobalReviewTests.Run();
 CommandBufferMeshRefreshTests.Run();
 CommandBufferMeshLifecycleTests.Run();
 CommandBufferMeshFailureTests.Run();

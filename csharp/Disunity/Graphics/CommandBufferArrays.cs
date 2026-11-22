@@ -7,8 +7,8 @@ namespace UnityEngine.Rendering;
 /// or list afterwards, or clearing, re-recording or releasing the buffer after it was sent, never changes what was sent. At
 /// <see cref="Graphics.ExecuteCommandBuffer"/> or a context's <see cref="ScriptableRenderContext.Submit"/> the copy is set as
 /// <see cref="Shader.SetGlobalVectorArray(string, Vector4[])"/> and <see cref="Shader.SetGlobalMatrixArray(string, Matrix4x4[])"/>
-/// set it: in the managed global store and in the world's global state, where it outlives the buffer, and the world orders it in
-/// front of the next offscreen record. A matrix is sent column by column. A
+/// set it: in the managed global store and in the world's global state, where it outlives the buffer, and the world orders it
+/// among the take's offscreen records. A matrix is sent column by column. A
 /// released buffer throws <see cref="ObjectDisposedException"/> before any other check. The float array forms have no host to
 /// receive them and throw <see cref="NotSupportedException"/> naming the member, whatever the array holds.
 /// </summary>

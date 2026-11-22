@@ -4,8 +4,9 @@ namespace UnityEngine.Rendering;
 /// The recording members that set global shader values and keywords. Executing the buffer (<see cref="Graphics.ExecuteCommandBuffer"/>
 /// or a context's <see cref="ScriptableRenderContext.Submit"/>) makes each write the way the matching <c>Shader.SetGlobal*</c> or
 /// <c>Shader.EnableKeyword</c> call does: it sets the managed global and the world's global shader state, so the value outlives
-/// the buffer and the take of work that ran it, and <c>Shader.GetGlobal*</c> reads it back. The world orders a direct write in
-/// front of the next offscreen record, so the host still applies the value at its place among the buffer's other commands.
+/// the buffer and the take of work that ran it, and <c>Shader.GetGlobal*</c> reads it back. The world orders every direct write
+/// of a take among its records, a write after the last one included, and the take replays from the state before its first write,
+/// so the host still applies the value at its place among the buffer's other commands.
 /// A temporary render texture has no identity that outlives its take; a global set to one stays an ordered record of that take and
 /// changes neither the managed global nor the world's state. A property id that no name was ever registered for throws
 /// <see cref="ArgumentException"/> when it is recorded, and a name the world refuses (empty, or over 256 UTF-8 bytes) throws it when the

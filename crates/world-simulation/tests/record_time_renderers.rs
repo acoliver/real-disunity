@@ -450,3 +450,117 @@ fn the_next_frame_starts_without_the_sets_of_the_last() {
     assert_eq!(second.renderer_sets.len(), 1);
     assert_eq!(drawn_by(&second, 0), Some(vec![MESH]));
 }
+
+/// Records a culling of `mask` with the camera of the scene.
+fn cull(scene: &mut Scene, id: u64, mask: u32) {
+    scene
+        .world
+        .record_offscreen(OffscreenWork::Cull {
+            id,
+            camera: scene.camera,
+            culling_mask: mask,
+            planes: vec![],
+            options: 0,
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_renderer_component_removed_after_a_render_gives_the_later_render_its_own_set() {
+    let mut scene = scene();
+    let object = renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    let renderer = scene.mesh_renderer(object);
+    scene.world.remove_component(renderer).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]), "the renderer is gone");
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![]));
+    assert_eq!(snapshot.renderer_sets.len(), 2);
+}
+
+#[test]
+fn a_renderer_added_after_a_render_is_only_in_the_later_set() {
+    let mut scene = scene();
+    let object = scene.world.create_object(ObjectDesc::default()).unwrap();
+    let filter = MeshFilter {
+        mesh: 3,
+        drawn_mesh: MESH,
+    };
+    scene
+        .world
+        .add_component(object, ComponentDesc::MeshFilter(filter))
+        .unwrap();
+    scene.render();
+    let renderer = ComponentDesc::MeshRenderer(MeshRenderer::default());
+    scene.world.add_component(object, renderer).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]));
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH]));
+}
+
+#[test]
+fn a_renderer_that_is_published_after_a_render_is_only_in_the_later_set() {
+    let mut scene = scene();
+    let construction = scene.world.begin_construction().unwrap();
+    let object = scene
+        .world
+        .create_object_in(construction, ObjectDesc::default())
+        .unwrap();
+    let filter = MeshFilter {
+        mesh: 3,
+        drawn_mesh: MESH,
+    };
+    scene
+        .world
+        .add_component(object, ComponentDesc::MeshFilter(filter))
+        .unwrap();
+    let renderer = ComponentDesc::MeshRenderer(MeshRenderer::default());
+    scene.world.add_component(object, renderer).unwrap();
+    scene.render();
+    scene.world.publish_construction(construction).unwrap();
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![]), "not yet published");
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH]));
+}
+
+#[test]
+fn a_camera_render_and_a_culling_with_other_masks_get_their_own_sets_while_nothing_changes() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    renderer_with(
+        &mut scene.world,
+        (2, true),
+        MESH + 1,
+        MeshRenderer::default(),
+    );
+    scene.render();
+    cull(&mut scene, 1, 1 << 2);
+    cull(&mut scene, 2, u32::MAX);
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH, MESH + 1]));
+    assert_eq!(drawn_by(&snapshot, 1), Some(vec![MESH + 1]));
+    assert_eq!(drawn_by(&snapshot, 2), Some(vec![MESH, MESH + 1]));
+    assert_eq!(
+        snapshot.renderer_sets.len(),
+        2,
+        "the all-layers set is shared"
+    );
+}
+
+#[test]
+fn work_taken_without_a_snapshot_leaves_no_sets_for_the_next_frame() {
+    let mut scene = scene();
+    renderer_with(&mut scene.world, (0, true), MESH, MeshRenderer::default());
+    scene.render();
+    scene.render();
+    assert_eq!(scene.world.take_offscreen().0.len(), 2);
+    scene.render();
+    let snapshot = snapshot(&mut scene.world);
+    assert_eq!(snapshot.work.len(), 1);
+    assert_eq!(snapshot.record_sets.len(), 1);
+    assert_eq!(snapshot.renderer_sets.len(), 1);
+    assert_eq!(drawn_by(&snapshot, 0), Some(vec![MESH]));
+}

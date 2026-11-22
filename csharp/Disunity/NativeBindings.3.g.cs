@@ -299,7 +299,8 @@ namespace Disunity.Native
         /// <summary>
         ///  Drains the frame's offscreen work into `records` (up to `capacity` of them, in call order)
         ///  and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
-        ///  the count; a capacity below the count is rejected and drains nothing.
+        ///  the count; a capacity below the count is rejected and drains nothing. The count includes the
+        ///  records for the globals written after the last record, which the take orders after it.
         ///
         ///  A draw record names its material by the material's id, or, when the script edited the material
         ///  after the draw, by the id of a copy of the state the draw saw (generation 0, which no material

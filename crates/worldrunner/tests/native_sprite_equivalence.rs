@@ -44,25 +44,6 @@ fn rust_and_csharp_worlds_produce_equivalent_sprite_contributions() {
     )
     .unwrap();
     assert!(prepared.quads.len() >= 5);
-    #[cfg(feature = "scene-viewer")]
-    {
-        let live = worldrunner::scene::viewer::LiveFrame::from_world(
-            worldrunner::scene::gpu::simulation::WorldSceneContribution::new(
-                native,
-                &textures.textures,
-            )
-            .unwrap(),
-        );
-        assert_eq!(
-            prepared.clear.map(f64::to_bits),
-            live.clear.map(f64::to_bits)
-        );
-        assert_eq!(prepared.quads.len(), live.quads.len());
-        for (headless, live) in prepared.quads.iter().zip(live.quads) {
-            assert_eq!(headless.corners, live.corners);
-            assert_eq!(headless.texture, live.texture);
-        }
-    }
 
     host.unload_slice().unwrap();
     assert!(host.export_sprites().is_err());

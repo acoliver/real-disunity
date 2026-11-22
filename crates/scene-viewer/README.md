@@ -421,7 +421,7 @@ when no capture is requested. This host-wide pool is counted once across rendere
 generations. Admitting a recipe reserves storage without replacing targets.
 Executing accumulated recipes can replace targets for their raster footprint or
 RCAS selection; restoring ordinary presentation uses the same admission policy.
-Ordinary desktop and live presentation do not reserve that pool. Attachment
+Ordinary desktop presentation does not reserve that pool. Attachment
 replacement creates targets while previous generations remain alive, so the full
 replacement peak must fit.
 

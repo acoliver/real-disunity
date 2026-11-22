@@ -40,14 +40,6 @@ worldrunner-render-scene = { path = "../render-scene", features = ["test-support
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 
 [[test]]
-name = "callback_failure"
-harness = false
-
-[[test]]
-name = "live_window"
-harness = false
-
-[[test]]
 name = "presentation_budget"
 harness = false
 

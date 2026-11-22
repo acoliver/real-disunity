@@ -80,11 +80,7 @@ impl SurfaceExecution {
         Ok(())
     }
 
-    pub fn acquire(
-        &mut self,
-        context: &GpuContext,
-        update: impl FnOnce() -> Result<(), ViewerError>,
-    ) -> Result<Option<ReadyFrame>, ViewerError> {
+    pub fn acquire(&mut self, context: &GpuContext) -> Result<Option<ReadyFrame>, ViewerError> {
         let _configuration = if self.presenter.has_pending_transition() {
             match context.submission().try_configuration() {
                 Ok(guard) => Some(guard),
@@ -99,7 +95,7 @@ impl SurfaceExecution {
             execution: self,
             context,
         };
-        acquire_frame(&mut surface, &flight, update).map(|ready| {
+        acquire_frame(&mut surface, &flight).map(|ready| {
             ready.map(|(admission, frame)| ReadyFrame {
                 admission,
                 frame: OutputFrame {
@@ -144,7 +140,6 @@ trait SurfaceOps {
 fn acquire_frame<S: SurfaceOps>(
     surface: &mut S,
     flight: &FrameAdmission,
-    update: impl FnOnce() -> Result<(), ViewerError>,
 ) -> Result<Option<(Admission, S::Frame)>, ViewerError> {
     if surface.suspended() {
         return Ok(None);
@@ -163,7 +158,6 @@ fn acquire_frame<S: SurfaceOps>(
     let Some(frame) = surface.acquire()? else {
         return Ok(None);
     };
-    update()?;
     Ok(Some((admission, frame)))
 }
 

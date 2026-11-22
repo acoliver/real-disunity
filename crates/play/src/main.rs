@@ -7,10 +7,10 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player_screens,
+    Capture, Game, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
+    SuppliedGlobal, key_code, play_game_window, play_player_window, prepare, prepare_player,
+    run_player_screens,
 };
-use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
 /// The window a player opens in when `--size` is not given.
 const WINDOW_SIZE: [u32; 2] = [1920, 1080];
@@ -31,7 +31,7 @@ struct Arguments {
     size: Option<[u32; 2]>,
     frames: Option<u64>,
     fixed_dt: Option<Duration>,
-    keys: Vec<ScheduledInput>,
+    keys: Vec<ScheduledKey>,
     captures: Vec<(u64, PathBuf)>,
     /// The frames of a headless player run whose composed frame is written, and the files.
     screens: Vec<(u64, PathBuf)>,
@@ -59,26 +59,22 @@ fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
 }
 
 /// `FRAME:KEY:down|up`, with KEY a key name such as `w`, `space` or `arrowup`.
-fn key(text: &str) -> Result<ScheduledInput, String> {
+fn key(text: &str) -> Result<ScheduledKey, String> {
     let [frame, key, state] = text.split(':').collect::<Vec<_>>()[..] else {
         return Err(format!("--key `{text}` is not FRAME:KEY:down|up"));
     };
-    if key_code(key).is_none() {
+    let Some(code) = key_code(key) else {
         return Err(format!("--key `{text}`: the engine has no key `{key}`"));
-    }
+    };
     let pressed = match state {
         "down" => true,
         "up" => false,
         _ => return Err(format!("--key `{text}`: the state is down or up")),
     };
-    let event = LiveInputEvent::Key {
-        key: key.to_owned(),
-        pressed,
-        repeat: false,
-    };
-    Ok(ScheduledInput {
+    Ok(ScheduledKey {
         frame: number(frame, "--key frame")?,
-        event,
+        code,
+        pressed,
     })
 }
 
@@ -189,7 +185,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         && (arguments.size.is_some()
             || !arguments.keys.is_empty()
             || !arguments.captures.is_empty());
-    // The window opens at `--size`, else at the size the live loop defaults to; a headless run
+    // The window opens at `--size`, else at `WINDOW_SIZE`; a headless run
     // that writes the screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
     let launch = PlayerLaunch {
@@ -209,9 +205,9 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
             fixed_dt: arguments.fixed_dt,
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
-            keys: scheduled_keys(&arguments.keys),
+            keys: arguments.keys.clone(),
         };
-        let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
+        let captured = play_player_window(&prepared, &window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);
     }
     let dt = arguments
@@ -230,33 +226,23 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-/// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
-fn live(
-    mut driver: PlayDriver,
+/// Plays `prepared` in a window of `--size` (else `size`) and writes the requested captures.
+fn play_game(
+    prepared: worldrunner_play::Prepared,
     title: String,
     size: [u32; 2],
     arguments: Arguments,
 ) -> Result<(), String> {
-    let mut options = LiveOptions::new(title, arguments.size.unwrap_or(size));
-    options.fixed_dt = arguments.fixed_dt;
-    options.max_frames = arguments.frames;
-    options.scheduled_input = arguments.keys;
-    run_live(&mut driver, options).map_err(|error| error.to_string())?;
-    write_captures(driver.captures(), &arguments.captures)
-}
-
-/// The keys the command line schedules, as the game's key codes.
-fn scheduled_keys(keys: &[ScheduledInput]) -> Vec<ScheduledKey> {
-    keys.iter()
-        .filter_map(|input| match &input.event {
-            LiveInputEvent::Key { key, pressed, .. } => Some(ScheduledKey {
-                frame: input.frame,
-                code: key_code(key)?,
-                pressed: *pressed,
-            }),
-            _ => None,
-        })
-        .collect()
+    let window = PlayerWindow {
+        title,
+        size: arguments.size.unwrap_or(size),
+        fixed_dt: arguments.fixed_dt,
+        max_frames: arguments.frames,
+        capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
+        keys: arguments.keys,
+    };
+    let captured = play_game_window(prepared, &window).map_err(|error| error.to_string())?;
+    write_captures(&captured, &arguments.captures)
 }
 
 /// Writes each captured frame to the file requested for it, and fails when a requested frame
@@ -320,10 +306,8 @@ fn play(arguments: Arguments) -> Result<(), String> {
     let game = arguments.game.ok_or("name a game")?;
     let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
         .map_err(|error| error.to_string())?;
-    let driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
-        .map_err(|error| error.to_string())?;
-    live(
-        driver,
+    play_game(
+        prepared,
         format!("Disunity: {}", game.name()),
         [960, 540],
         arguments,

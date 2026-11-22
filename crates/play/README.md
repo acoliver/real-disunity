@@ -2,7 +2,7 @@
 
 `worldrunner-play` runs Snake, Pong or Breakout from its original Unity scene in a window.
 It fetches the game with `worldrunner-original-games`, plans the scene with `unity-import`, compiles the game's scripts unchanged with `csharp/OriginalGames`, and loads the scene through the `csharp/Disunity.Play` bridge.
-Each frame advances the world and draws its presentation in the desktop host from `worldrunner-scene-viewer`.
+Each frame advances the world and shows its presentation in the retained host's window from `worldrunner-scene-viewer` (`play_game_window`, which applies a `RetainedUpdate::World` per frame).
 
 ## Command line
 
@@ -403,7 +403,7 @@ A script's synchronous flush still runs and waits in its own submission, between
 A script's `Texture2D.ReadPixels` after a `Graphics.Blit` therefore fills its texture, and `Apply` stores the new texels under a higher generation, which `PlayerTextures::refresh` and the UI's image generations pick up in the same frame.
 What the player asks of an adapter (storage images, buffer size from the storage budget, block compression, filterable 32-bit floats) is one function in `gpu_device.rs`, used by the headless player, the compute census and the window.
 Each startup snapshots the requested storage budget and host `MemAvailable` once, so repeated device requests in that startup use identical inputs while retaining the adaptive budget policy.
-The live driver (`PlayDriver`, the original games) has no hook that gives the player the viewer's device, so the live driver does not run the offscreen work yet.
+The original games' driver (`play_game_window`) draws 2D worlds through `RetainedUpdate::World`, has no player GPU and runs no offscreen work. Both drivers share the window script (`window_script.rs`): scheduled keys, the step of each update, requested captures and the update after which the window closes.
 Headless runs without `--screen` keep the player's own device and its submit-and-wait path (`gpu_player/frame.rs`); a `--screen` run keeps that path for its frames and makes its device through the viewer instead (see "Headless screen frames").
 
 `play_player_window` draws built-player mesh objects and screen-space overlay UI

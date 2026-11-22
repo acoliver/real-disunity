@@ -16,6 +16,7 @@ mod timers;
 mod timing;
 mod watchdog;
 mod work;
+mod world;
 use watchdog::CaptureWatchdog;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {

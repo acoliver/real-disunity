@@ -11,7 +11,7 @@ use super::*;
 use std::{path::PathBuf, time::Instant};
 
 use worldrunner_render_gpu::submission::SubmissionAuthority;
-use worldrunner_scene_viewer::SharedGpu;
+use worldrunner_scene_viewer::{RetainedInput, SharedGpu};
 
 use crate::GpuLaunch;
 use crate::PreparedPlayer;
@@ -62,9 +62,8 @@ fn run_frames(
     submissions
 }
 
-fn capture_of(driver: &PlayerRetainedDriver, frame: u64) -> &Capture {
-    driver
-        .captures
+fn capture_of(captures: &[Capture], frame: u64) -> &Capture {
+    captures
         .iter()
         .find(|capture| capture.frame == frame)
         .unwrap_or_else(|| panic!("no capture of frame {frame}"))
@@ -85,7 +84,7 @@ fn play_screen_fixture() -> (PlayerRetainedDriver, Vec<u64>) {
     let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
         .expect("the test needs a GPU adapter");
     let authority = source.authority();
-    let (viewer, mut driver) = start_window(&prepared, window(&[0, 3]), gpu).unwrap();
+    let (viewer, mut driver) = start_window(&prepared, &window(&[0, 3]), gpu).unwrap();
     let submissions = run_frames(viewer, &mut driver, 4, (source.gpu, authority));
     (driver, submissions)
 }
@@ -93,10 +92,11 @@ fn play_screen_fixture() -> (PlayerRetainedDriver, Vec<u64>) {
 #[test]
 fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
     let _turn = fixture_turn();
-    let (driver, submissions) = play_screen_fixture();
+    let (mut driver, submissions) = play_screen_fixture();
+    let captures = driver.script.take_captures();
 
     for frame in [0, 3] {
-        let capture = capture_of(&driver, frame);
+        let capture = capture_of(&captures, frame);
         for y in 0..SIZE {
             for x in 0..SIZE {
                 assert_eq!(capture.rgb(x, y), YELLOW, "frame {frame} at {x},{y}");
@@ -137,7 +137,7 @@ fn first_update_after_resize_flushes_into_resized_screen() {
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
     let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
         .expect("the test needs a GPU adapter");
-    let (mut viewer, mut driver) = start_window(&prepared, window(&[]), gpu).unwrap();
+    let (mut viewer, mut driver) = start_window(&prepared, &window(&[]), gpu).unwrap();
 
     let resized = [SIZE * 2, SIZE];
     viewer.input(RetainedInput::Resized(resized));

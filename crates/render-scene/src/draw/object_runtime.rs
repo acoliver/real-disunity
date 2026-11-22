@@ -11,12 +11,14 @@
 //! one mesh in one material, so the walk alternates materials as it moves from mesh to mesh, and
 //! each change binds a material group that wgpu validates texture by texture. Grouped, a pass
 //! binds each material once, and a caster pass binds one group for the materials its stages read
-//! alike ([`PreparedObjects::recorded_as`]). The objects of a pass are opaque or masked, drawn with depth tests
-//! and without blending, so only the winner of an exact depth tie between two draws depends on
-//! the order. Levels share
-//! the chunks of buffers their upload packed them into (see [`super::mesh_arena`]), so the draws
-//! of a material in one chunk set the vertex and index buffers once and differ in `first_index`
-//! and `base_vertex`.
+//! alike ([`PreparedObjects::recorded_as`]). Grouped draws of one mesh level whose instances
+//! follow one another in the buffer are recorded as one draw, which is what a caster pass over
+//! a compacted view makes of the batches of one mesh in materials it reads alike. The objects of
+//! a pass are opaque or masked, drawn with depth tests and without blending, so only the winner
+//! of an exact depth tie between two draws depends on the order. Levels share the chunks of
+//! buffers their upload packed them into (see [`super::mesh_arena`]), so the draws of a material
+//! in one chunk set the vertex and index buffers once and differ in `first_index` and
+//! `base_vertex`.
 
 use std::rc::Rc;
 
@@ -56,6 +58,14 @@ struct Instances {
     current: Buffer,
     previous: Option<Buffer>,
     skin: Option<Buffer>,
+}
+
+impl Instances {
+    /// Whether `other` names the same previous-placement and skin streams, so that instances
+    /// that follow one another in the current buffer are read alike from both.
+    fn streams_equal(&self, other: &Self) -> bool {
+        self.previous == other.previous && self.skin == other.skin
+    }
 }
 
 /// A pass that leaves out the commands a recording already issued.
@@ -242,18 +252,37 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
                 base_vertex: held.draw.base_vertex,
                 indices: index_ranks[held.indices as usize],
                 instances: current_ranks[names.instances[held.instances as usize].1 as usize],
+                first_index: held.draw.indices.start,
+                index_count: held.draw.indices.end - held.draw.indices.start,
+                first_instance: held.draw.instances.start,
             })
             .collect();
-        for position in grouped(&keys) {
-            let held = &held[position as usize];
+        let mut order = grouped(&keys).into_iter();
+        let mut next = order.next();
+        while let Some(first) = next {
+            let held_first = &held[first as usize];
+            let mut draw = held_first.draw.clone();
+            let instances = &names.instances[held_first.instances as usize].0;
+            // Draws of one mesh level whose instances follow one another in the same buffers are
+            // one draw of all their instances.
+            next = order.next();
+            while let Some(position) = next
+                && keys[position as usize].continues(&keys[first as usize], draw.instances.end)
+                && names.instances[held[position as usize].instances as usize]
+                    .0
+                    .streams_equal(instances)
+            {
+                draw.instances.end = held[position as usize].draw.instances.end;
+                next = order.next();
+            }
             // The walk's names say nothing about the order recorded here; the pass leaves out
             // what the buffers it holds already are.
             self.recorder.pass.named = Named::ALL;
             self.recorder.record(
-                held.draw.clone(),
-                names.vertex_buffers.get(held.vertices),
-                names.index_buffers.get(held.indices),
-                &names.instances[held.instances as usize].0,
+                draw,
+                names.vertex_buffers.get(held_first.vertices),
+                names.index_buffers.get(held_first.indices),
+                instances,
             );
         }
     }

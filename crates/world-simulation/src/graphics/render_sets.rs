@@ -11,6 +11,10 @@
 //! object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
 //! of one mask share a set while nothing that decides drawability changes; `drawable_epoch` counts
 //! those changes.
+//!
+//! Changes that follow from one already noted need no note of their own. A renderer's removal
+//! retires its components first, which note it, so removing the object notes nothing more, and a
+//! rolled back edit undoes a change that noted itself when it was made, with no record between.
 
 use std::collections::BTreeMap;
 
@@ -73,10 +77,10 @@ impl World {
         }
     }
 
-    /// Takes what the frame's camera renders captured.
+    /// Takes what the frame's camera renders captured. [`World::take_offscreen`], which a take
+    /// follows, drops the sets by mask along with the rest of the frame.
     pub(crate) fn take_render_sets(&mut self) -> CapturedSets {
         let state = &mut self.graphics.render_sets;
-        state.by_mask.clear();
         CapturedSets {
             sets: std::mem::take(&mut state.sets),
             records: std::mem::take(&mut state.records),

@@ -201,7 +201,6 @@ impl World {
             return;
         }
         self.note_object_removed(object);
-        self.note_drawables_changed();
         self.clear_follow_links(object);
         let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
         self.relink_child(object, parent, None);

@@ -138,7 +138,7 @@ fn depth_fitted(effects: SceneEffects) -> SceneEffects {
 #[test]
 fn requesting_timing_preserves_rendered_bytes() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,

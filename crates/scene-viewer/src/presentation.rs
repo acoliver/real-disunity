@@ -114,15 +114,7 @@ impl Presentation {
         format: wgpu::TextureFormat,
         size: Viewport,
     ) -> Self {
-        Self::with_profile(
-            context,
-            format,
-            size,
-            size,
-            crate::FrameProfile::Legacy,
-            None,
-        )
-        .unwrap()
+        Self::with_profile(context, format, size, size, crate::tests::CLAMP, None).unwrap()
     }
 
     #[cfg(test)]

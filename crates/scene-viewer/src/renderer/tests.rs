@@ -234,7 +234,7 @@ impl ApplicationHandler for Harness {
                     Arc::new(window),
                     &crate::tests::scene(false),
                     None,
-                    crate::FrameProfile::Legacy,
+                    crate::tests::CLAMP,
                     2.into(),
                 ))
                 .unwrap(),
@@ -333,7 +333,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
             window,
             &crate::tests::scene(false),
             None,
-            crate::FrameProfile::Legacy,
+            crate::tests::CLAMP,
             2.into(),
         ))
         .unwrap(),

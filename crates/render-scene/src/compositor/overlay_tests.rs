@@ -133,8 +133,11 @@ fn assert_submission(
 fn overlay_depth_inventory_reserves_snapshots_only_for_depth_consumers() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
-    let mut settings =
-        super::RendererConfiguration::legacy([64, 64], OffscreenTarget::COLOR_FORMAT);
+    let mut settings = super::RendererConfiguration::new(
+        [64, 64],
+        OffscreenTarget::COLOR_FORMAT,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let before = settings.allocations().validate(&limits).unwrap();
     settings.ui_depth = true;
     let with_depth = settings.allocations().validate(&limits).unwrap();

@@ -398,14 +398,18 @@ fn gbuffer_producer_depth_is_the_completed_scene_depth_read_only_or_refused() {
 #[test]
 fn gbuffer_targets_are_allocated_only_for_the_observation_path() {
     use crate::compositor::RendererConfiguration;
-    let mut settings = RendererConfiguration::legacy([64, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [64, 32],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let limits = wgpu::Limits::default();
     let forward = settings.allocations().validate(&limits).unwrap();
     settings.opaque_path = worldrunner_render_plan::SceneOpaquePath::GBUFFER_OBSERVATION;
     let observed = settings.allocations().validate(&limits).unwrap();
     // Fourteen G-buffer bytes and the lighting colour target in the frame's own format.
     let colour = settings.frame.format.block_copy_size(None).unwrap();
-    assert_eq!(colour, 4);
+    assert_eq!(colour, 8);
     assert_eq!(observed - forward, 64 * 32 * (14 + u64::from(colour)));
     // A refused multisampled observation allocates nothing extra; `validate` reports it.
     settings.frame.samples = 4;

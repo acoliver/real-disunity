@@ -182,8 +182,11 @@ fn scene(bodies: Vec<SceneWaterBody>, textures: Vec<SceneTexture>) -> RenderScen
     .unwrap()
 }
 fn configuration(samples: u32, bodies: Vec<SceneWaterBody>) -> RendererConfiguration {
-    let mut config = RendererConfiguration::legacy([32, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
-    config.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut config = RendererConfiguration::new(
+        [32, 32],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     config.frame = FrameConfig::new([32, 32], wgpu::TextureFormat::Rgba16Float, samples);
     config.water = bodies;
     config

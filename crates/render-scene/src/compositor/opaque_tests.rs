@@ -96,9 +96,10 @@ fn prepared() -> PreparedScene {
 #[test]
 fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
     let limits = wgpu::Limits::default();
-    let configuration = crate::compositor::RendererConfiguration::legacy(
+    let configuration = crate::compositor::RendererConfiguration::new(
         [2, 2],
         wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
     );
     let allocations_before = configuration.allocations().validate(&limits).unwrap();
     let report = configuration
@@ -145,9 +146,10 @@ fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
 
 #[test]
 fn layout_admission_uses_wgpu_color_target_byte_cost() {
-    let configuration = crate::compositor::RendererConfiguration::legacy(
+    let configuration = crate::compositor::RendererConfiguration::new(
         [2, 2],
         wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
     );
     for (limit, expected_compact, expected_wide) in [
         (25, false, false),

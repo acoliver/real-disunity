@@ -11,7 +11,11 @@ pub(super) fn admit_empty_programs(
     const ARENA: u64 = 4096;
     let mut allocator = ConfiguredFrameRenderer::new(
         context,
-        RendererConfiguration::legacy([1, 1], OffscreenTarget::COLOR_FORMAT),
+        RendererConfiguration::new(
+            [1, 1],
+            OffscreenTarget::COLOR_FORMAT,
+            worldrunner_render_post::ToneMap::Clamp,
+        ),
         AllocationBudget(1 << 26),
     )
     .unwrap();

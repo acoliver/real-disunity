@@ -683,11 +683,13 @@ fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_
 /// of a 64x48 output, built through the public configuration path.
 fn reduced_temporal_renderer(context: &GpuContext) -> ConfiguredFrameRenderer {
     use worldrunner_render_post as post;
-    let mut settings =
-        RendererConfiguration::legacy([64, 48], crate::offscreen::OffscreenTarget::COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(
+        [64, 48],
+        crate::offscreen::OffscreenTarget::COLOR_FORMAT,
+        post::ToneMap::Reinhard,
+    );
     settings.frame = post::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
         .with_render_extent([43, 32]);
-    settings.hdr = Some((1.0, post::ToneMap::Reinhard));
     settings.post = post::HdrPostSettings {
         resolve: post::PostResolve::taa(0.9),
         upscale: Some(worldrunner_render_plan::post::UpscaleSettings {

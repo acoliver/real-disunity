@@ -70,10 +70,12 @@ impl Frame {
     }
 
     fn configuration(self, opaque_path: SceneOpaquePath) -> RendererConfiguration {
-        let mut settings =
-            RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+        let mut settings = RendererConfiguration::new(
+            [SIZE; 2],
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            ToneMap::Reinhard,
+        );
         settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
-        settings.hdr = Some((1.0, ToneMap::Reinhard));
         if matches!(self, Self::Reflecting | Self::Flat) {
             settings.ssr = Some(reflections());
         }

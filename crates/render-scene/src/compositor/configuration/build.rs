@@ -41,21 +41,14 @@ fn output(
     settings: &RendererConfiguration,
     history: Option<&ToneMapOutput>,
 ) -> Result<FrameOutput, PostError> {
-    let device = context.device();
-    if let Some((exposure, tone)) = settings.hdr {
-        Ok(FrameOutput::Hdr(
-            ToneMapOutput::new(settings.output_format, exposure, tone)?.with_retained_effects(
-                device,
-                settings.post,
-                history,
-            )?,
-        ))
-    } else {
-        Ok(FrameOutput::Copy(worldrunner_render_post::CopyOutput::new(
-            device,
-            settings.output_format,
-        )))
-    }
+    let (exposure, tone) = settings.hdr;
+    Ok(FrameOutput::Hdr(
+        ToneMapOutput::new(settings.output_format, exposure, tone)?.with_retained_effects(
+            context.device(),
+            settings.post,
+            history,
+        )?,
+    ))
 }
 
 fn new_renderer(

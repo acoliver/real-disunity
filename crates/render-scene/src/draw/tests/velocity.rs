@@ -393,12 +393,16 @@ fn taa_configuration(resolve: PostResolve) -> RendererConfiguration {
     RendererConfiguration {
         frame: FrameConfig::new([TARGET, TARGET], HDR, 1),
         output_format: COLOR_FORMAT,
-        hdr: Some((1.0, ToneMap::Reinhard)),
+        hdr: (1.0, ToneMap::Reinhard),
         post: HdrPostSettings {
             resolve,
             ..HdrPostSettings::default()
         },
-        ..RendererConfiguration::legacy([TARGET, TARGET], COLOR_FORMAT)
+        ..RendererConfiguration::new(
+            [TARGET, TARGET],
+            COLOR_FORMAT,
+            worldrunner_render_post::ToneMap::Clamp,
+        )
     }
 }
 

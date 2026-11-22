@@ -25,7 +25,7 @@ fn offscreen_work_and_gbuffer_observation_share_one_submission() {
 fn fixture(path: SceneOpaquePath) -> Fixture {
     let mut config = settings();
     config.frame = FrameConfig::new(config.frame.size, HDR, 1);
-    config.hdr = Some((1.0, ToneMap::Reinhard));
+    config.hdr = (1.0, ToneMap::Reinhard);
     config.ssao = Some(crate::ssr::neutral_ao());
     config.opaque_path = path;
     config.receiver_gradients = ReceiverGradientReservation::None;

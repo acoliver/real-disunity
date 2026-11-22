@@ -58,9 +58,8 @@ impl<'a> Rig<'a> {
             }),
             ..HdrPostSettings::default()
         };
-        let mut settings = RendererConfiguration::legacy(OUTPUT_EXTENT, OUTPUT);
+        let mut settings = RendererConfiguration::new(OUTPUT_EXTENT, OUTPUT, ToneMap::Reinhard);
         settings.frame = frame_config;
-        settings.hdr = Some((1.0, ToneMap::Reinhard));
         settings.post = post;
         let renderer =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();

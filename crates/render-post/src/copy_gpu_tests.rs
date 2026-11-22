@@ -357,3 +357,84 @@ fn clear_hdr(encoder: &mut wgpu::CommandEncoder, targets: &FrameTargets) {
         ..wgpu::RenderPassDescriptor::default()
     });
 }
+
+/// A game's finished screen shown the way play's window shows it: the screen is sampled into
+/// the `Rgba16Float` scene colour, which the `ToneMap::Clamp` output writes to an sRGB target.
+/// Every 8-bit code reaches the output unchanged.
+#[test]
+fn a_screen_through_the_clamp_output_keeps_every_srgb_code() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let size = [257, 3];
+    let screen_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let screen = color_texture(&device, "game screen", size, screen_format);
+    let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1);
+    let chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        crate::ToneMapOutput::new(screen_format, 1.0, crate::ToneMap::Clamp).unwrap(),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
+    let copy = CopyOutput::bottom_first(&device, config.format)
+        .source(
+            &device,
+            &crate::AttachmentView::new(crate::ResourceRef::new("game screen"), &screen).unwrap(),
+        )
+        .unwrap();
+    let output = color_texture(&device, "window", size, screen_format);
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    fullscreen_pass(
+        &mut encoder,
+        Some("screen pattern"),
+        wgpu::RenderPassColorAttachment {
+            view: &screen.create_view(&wgpu::TextureViewDescriptor::default()),
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        },
+        &pattern_pipeline(&device, screen_format),
+        &[],
+    );
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("screen into scene colour"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: chain.targets().scene(),
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        copy.record(&mut pass);
+    }
+    chain.encode(
+        &mut encoder,
+        &output.create_view(&wgpu::TextureViewDescriptor::default()),
+    );
+    queue.submit([encoder.finish()]);
+    let readable = FrameConfig::new(size, screen_format, 1);
+    let mut readback = Readback::new(&device, readable, 1024 * 1024).unwrap();
+    let shown = readback
+        .read(&device, &crate::test_authority(&queue), &output)
+        .unwrap();
+    let drawn = readback
+        .read(&device, &crate::test_authority(&queue), &screen)
+        .unwrap();
+    let row = 257 * 4;
+    for y in 0..3 {
+        // The screen's first stored row is its bottom row.
+        let source = &drawn[(2 - y) * row..(3 - y) * row];
+        let window = &shown[y * row..(y + 1) * row];
+        assert_eq!(window, source, "row {y}");
+    }
+    let red: std::collections::BTreeSet<_> = drawn.chunks_exact(4).map(|pixel| pixel[0]).collect();
+    assert_eq!(red.len(), 256, "the pattern exercises every code");
+}

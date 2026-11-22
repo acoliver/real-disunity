@@ -121,10 +121,12 @@ fn prepare_lighting(
     if !matches!(frame, Frame::Flat) {
         return prepare_scene(context, frame, path, scene);
     }
-    let mut settings =
-        RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [SIZE; 2],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssao = scene.effects().unwrap().ssao().copied();
     settings.opaque_path = path;
     prepare_with(context, scene, &frame.uniform(scene), settings)

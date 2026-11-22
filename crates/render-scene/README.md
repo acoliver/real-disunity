@@ -134,9 +134,9 @@ Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. Each recorded
 frame retains the census entry for the shadow-map generation it uses: cancellation
 releases that hold, while submitted work keeps the generation counted until GPU
-completion, even after the scene replaces it. The HDR profile also supports SSAO,
-water, SSR, adaptive exposure, bloom and FXAA through validated scene settings. The
-legacy profile rejects post requests before upload. Textured-sky rendering, vignette,
+completion, even after the scene replaces it. The frame also supports SSAO, water,
+SSR, adaptive exposure, bloom and FXAA through validated scene settings. Textured-sky
+rendering, vignette,
 nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
 requests still fail.
 
@@ -885,7 +885,7 @@ override wall-clock timing. `reset_exposure` resets the ordered history once at 
 The shared temporal carry and slot-local published results survive resize. Nonneutral grading remains
 rejected, including requests with zero weights. An authored TAA (`SceneAntiAlias::Taa { history_micro, clip_scale_micro }`) maps to `PostResolve::Taa` with `TaaSettings { history_weight, clip_scale }`. MSAA and FXAA may run together.
 
-`FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
+`FrameProfile::Hdr { samples: 1, tone_map: worldrunner_scene_viewer::ToneMap::Clamp }` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
@@ -1500,7 +1500,7 @@ A layer is recorded as written when the *last* attachment that wrote that exact 
 
 ```rust,ignore
 let passes = GamePasses::new().with(Arc::new(MyGame::new()));
-let mut settings = RendererConfiguration::legacy(size, format);
+let mut settings = RendererConfiguration::new(size, format, ToneMap::AcesFitted);
 settings.game_passes = passes;
 settings.terrain_draws = TerrainDraws::CastersOnly; // optional: the game draws the terrain, the stock casters stay
 let renderer = ConfiguredFrameRenderer::new(&context, settings, budget)?;

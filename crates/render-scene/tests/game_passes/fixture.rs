@@ -22,7 +22,10 @@ use worldrunner_render_scene::{
 };
 
 pub const SIZE: [u32; 2] = [64, 48];
+/// The output a rig's frame is shown in.
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// The scene colour of every rig's frame.
+pub const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// The texel of the stock quad's albedo.
 pub const STOCK_TEXEL: [u8; 4] = [200, 120, 60, 255];
 
@@ -224,7 +227,8 @@ pub fn view_from(height_millimeters: i64, size: [u32; 2]) -> SceneView {
     .unwrap()
 }
 
-/// A configured legacy renderer with a resident scene, and the frames it draws.
+/// A configured renderer with a resident scene, and the frames it draws. Unless a constructor
+/// says otherwise the output shows the scene colour unchanged (`ToneMap::Clamp`).
 pub struct Rig {
     pub context: GpuContext,
     pub renderer: ConfiguredFrameRenderer,
@@ -252,28 +256,25 @@ impl Rig {
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
         Self::with_pipelines(scene, (size, view(size)), features, configure, |device| {
-            ScenePipelines::new(device, FORMAT)
+            ScenePipelines::new(device, SCENE_FORMAT)
         })
     }
 
-    /// A rig whose frame is HDR: the scene colour is `Rgba16Float`, which the opaque colour
-    /// snapshot needs, and the output is tone mapped into [`FORMAT`].
+    /// A rig whose output is tone mapped into [`FORMAT`] with Reinhard.
     pub fn hdr(
         scene: &RenderScene,
         size: [u32; 2],
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        let hdr = wgpu::TextureFormat::Rgba16Float;
         Self::with_pipelines(
             scene,
             (size, view(size)),
             wgpu::Features::empty(),
             |settings| {
-                settings.frame.format = hdr;
-                settings.hdr = Some((1.0, ToneMap::Reinhard));
+                settings.hdr = (1.0, ToneMap::Reinhard);
                 configure(settings);
             },
-            |device| ScenePipelines::new(device, hdr),
+            |device| ScenePipelines::new(device, SCENE_FORMAT),
         )
     }
 
@@ -295,18 +296,16 @@ impl Rig {
         ssao: worldrunner_render_plan::SceneSsao,
         configure: impl FnOnce(&mut RendererConfiguration),
     ) -> Self {
-        let hdr = wgpu::TextureFormat::Rgba16Float;
         Self::with_pipelines(
             scene,
             (size, camera),
             wgpu::Features::empty(),
             |settings| {
-                settings.frame = FrameConfig::new(size, hdr, 1);
-                settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
+                settings.hdr = (1.0, ToneMap::Reinhard);
                 settings.ssao = Some(ssao);
                 configure(settings);
             },
-            |device| ScenePipelines::with_ssao(device, hdr, 1).unwrap(),
+            |device| ScenePipelines::with_ssao(device, SCENE_FORMAT, 1).unwrap(),
         )
     }
 
@@ -319,7 +318,7 @@ impl Rig {
     ) -> Self {
         let context = GpuContext::shared_for_test_with_features(features)
             .expect("game pass acceptance requires a real adapter; never skip");
-        let mut settings = RendererConfiguration::legacy(size, FORMAT);
+        let mut settings = RendererConfiguration::new(size, FORMAT, ToneMap::Clamp);
         configure(&mut settings);
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
@@ -368,16 +367,28 @@ impl Rig {
         Ok(())
     }
 
-    /// Draws one frame, submits it and returns the frame's colour.
+    /// Draws one frame, submits it and returns the frame's output, in [`FORMAT`].
     pub fn render(&mut self) -> Result<Vec<[u8; 4]>, FrameError> {
+        let output = worldrunner_render_scene::executor::color_texture(
+            self.context.device(),
+            "rig output",
+            self.size,
+            FORMAT,
+        );
         let mut encoder = self
             .context
             .submission()
             .begin(self.context.device())
             .unwrap();
         self.encode(&mut encoder)?;
+        self.renderer
+            .encode_output(
+                &mut encoder,
+                &output.create_view(&wgpu::TextureViewDescriptor::default()),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
-        Ok(self.read(self.renderer.targets().texture()))
+        Ok(self.read(&output))
     }
 
     /// Draws one frame in the host's frame `slot`, as seen from `height_millimeters`, submits it

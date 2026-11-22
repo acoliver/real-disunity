@@ -285,12 +285,12 @@ fn render_frame(
 
 fn fixture(context: &GpuContext) -> (Resident, Presentation) {
     let scene = fitted_scene();
-    assert!(Resident::new(context, &scene, None, crate::FrameProfile::Legacy).is_err());
+    assert!(Resident::new(context, &scene, None, crate::tests::CLAMP).is_err());
     let resident = Resident::new(
         context,
         &scene,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let size = Viewport {
@@ -338,7 +338,7 @@ fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
         &context,
         &base,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let mut presentation = Presentation::new(

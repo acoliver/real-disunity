@@ -3,13 +3,8 @@ fn blocked_redraws_do_not_advance_retained_placement_state() {
     use super::super::{Resident, retained_tests::terrain_source};
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
-    let mut resident = Resident::new(
-        &context,
-        &terrain_source(),
-        None,
-        crate::FrameProfile::Legacy,
-    )
-    .unwrap();
+    let mut resident =
+        Resident::new(&context, &terrain_source(), None, crate::tests::CLAMP).unwrap();
     let handle = resident.scene_mut().instance_handles().next().unwrap();
     let flight = FrameAdmission::new(1).unwrap();
     let mut surface = Surface::new();

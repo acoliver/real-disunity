@@ -20,7 +20,7 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 
 fn stock() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT)
     })
 }
 
@@ -79,9 +79,9 @@ fn expect_unsupported(mut fixture: Fixture, effect: &'static str) {
 fn a_multisampled_scene_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
-    settings.frame = FrameConfig::new([TARGET; 2], COLOR_FORMAT, 4);
+    settings.frame = FrameConfig::new([TARGET; 2], SCENE_FORMAT, 4);
     let fixture = Fixture::new(settings, |device| {
-        ScenePipelines::with_samples(device, COLOR_FORMAT, 4).unwrap()
+        ScenePipelines::with_samples(device, SCENE_FORMAT, 4).unwrap()
     });
     expect_unsupported(fixture, "player programs with multisampling");
 }
@@ -89,9 +89,8 @@ fn a_multisampled_scene_refuses_programs_by_name() {
 #[test]
 fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([TARGET; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve: PostResolve::taa(0.9),
         upscale: Some(UpscaleSettings {
@@ -108,9 +107,8 @@ fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
 #[test]
 fn a_scene_with_screen_space_passes_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([TARGET; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssao = Some(super::super::ssao::settings(1_000_000));
     let fixture = Fixture::with_scene(
         &super::super::ssao::source(1_000_000, true, 255),

@@ -86,7 +86,10 @@ pub(super) fn resolve<'a>(
         SceneSource::Live => Resolved {
             scene: Cow::Owned(super::live::empty_scene()),
             shadows: None,
-            profile: crate::FrameProfile::Legacy,
+            profile: crate::FrameProfile::Hdr {
+                samples: 1,
+                tone_map: crate::ToneMap::Clamp,
+            },
             startup: 2.into(),
         },
     };

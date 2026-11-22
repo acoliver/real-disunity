@@ -172,13 +172,6 @@ impl RetainedHost {
         if let Some(water) = effects.water() {
             worldrunner_render_scene::water::validate_settings(water)?;
         }
-        if matches!(options.frame_profile, crate::FrameProfile::Legacy)
-            && (effects.ssao().is_some() || effects.ssr().is_some() || effects.water().is_some())
-        {
-            return Err(ViewerError::UnsupportedScene(
-                "water, SSAO and SSR streaming require HDR",
-            ));
-        }
         Ok(())
     }
 

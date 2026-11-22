@@ -3,7 +3,7 @@
 //! persistent one, has to be part of the capture's write contract in every frame, including the
 //! ones that read persistent contents an earlier frame left.
 use super::common::{self, texture_binding};
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene, view};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene, view};
 use super::prepared;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -417,7 +417,7 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });
-    let scene = fitted(&rig, &lit_scene(), FORMAT);
+    let scene = fitted(&rig, &lit_scene(), SCENE_FORMAT);
     (rig, scene)
 }
 

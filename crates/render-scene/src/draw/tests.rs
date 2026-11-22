@@ -99,6 +99,10 @@ mod view_pins;
 /// The colour format every test renders into.
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
+/// The scene colour of every configured renderer, which its output stage shows in
+/// [`COLOR_FORMAT`].
+const SCENE_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+
 /// Edge length of the render target, chosen so a readback stays cheap.
 const TARGET: u32 = 64;
 

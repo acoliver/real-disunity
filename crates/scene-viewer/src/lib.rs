@@ -318,14 +318,8 @@ fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerEr
     if let Some(ssr) = scene.effects().and_then(|effects| effects.ssr()) {
         ssr.validate()
             .map_err(|error| ViewerError::Driver(error.to_string()))?;
-        if matches!(options.frame_profile, FrameProfile::Legacy) {
-            return Err(ViewerError::UnsupportedScene("SSR requires HDR"));
-        }
     }
     if let Some(water) = scene.effects().and_then(|effects| effects.water()) {
-        if matches!(options.frame_profile, FrameProfile::Legacy) {
-            return Err(ViewerError::UnsupportedScene("water requires HDR"));
-        }
         worldrunner_render_scene::water::validate_settings(water)?;
     }
     OrbitCamera::new(options.pose, options.orbit)?;

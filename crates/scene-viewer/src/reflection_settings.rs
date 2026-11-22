@@ -1,4 +1,4 @@
-use crate::{FrameProfile, ViewerError, ViewerOptions};
+use crate::{ViewerError, ViewerOptions};
 use worldrunner_render_plan::RenderScene;
 
 pub(crate) fn startup_scene(
@@ -11,9 +11,6 @@ pub(crate) fn startup_scene(
     settings
         .validate()
         .map_err(|error| ViewerError::Driver(error.to_string()))?;
-    if matches!(options.frame_profile, FrameProfile::Legacy) {
-        return Err(ViewerError::UnsupportedScene("SSR requires HDR"));
-    }
     let effects = scene
         .effects()
         .ok_or(ViewerError::InvalidOptions(
@@ -30,6 +27,7 @@ pub(crate) fn startup_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FrameProfile;
     use worldrunner_render_plan::{SceneSsr, SceneSsrComposition};
 
     #[test]

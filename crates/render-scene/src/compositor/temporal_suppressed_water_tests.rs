@@ -25,9 +25,8 @@ const REFUSAL: &str = "SSAO requires stock geometry composition";
 
 /// An HDR renderer with, when `water`, one body whose draws are `draws`.
 fn settings(water: bool, draws: WaterDraws) -> RendererConfiguration {
-    let mut settings = RendererConfiguration::legacy(EXTENT, OUTPUT);
+    let mut settings = RendererConfiguration::new(EXTENT, OUTPUT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(EXTENT, wgpu::TextureFormat::Rgba16Float, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.water_draws = draws;
     if water {
         settings.water = vec![body(false)];

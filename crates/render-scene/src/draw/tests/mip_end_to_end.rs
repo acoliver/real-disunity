@@ -45,9 +45,8 @@ impl<'a> Harness<'a> {
         texture: SceneTexture,
     ) -> Self {
         let extent = [output; 2];
-        let mut settings = RendererConfiguration::legacy(extent, COLOR_FORMAT);
+        let mut settings = RendererConfiguration::new(extent, COLOR_FORMAT, ToneMap::Reinhard);
         settings.frame = FrameConfig::new(extent, HDR, 1);
-        settings.hdr = Some((1.0, ToneMap::Reinhard));
         if let Some(scale) = scale_micro {
             let render = RenderScale::new(scale).unwrap().extent(extent).unwrap();
             settings.frame = settings.frame.with_render_extent(render);

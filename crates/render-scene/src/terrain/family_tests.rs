@@ -101,10 +101,12 @@ fn request() -> SceneSsr {
 }
 
 fn configuration() -> RendererConfiguration {
-    let mut settings =
-        RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [SIZE; 2],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssr = Some(request());
     settings
 }

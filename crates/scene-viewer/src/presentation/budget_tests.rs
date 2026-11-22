@@ -15,9 +15,7 @@ fn receiver_inventory_reserves_only_the_configured_shadow_bias_domain() {
         normal_bias_meters: 0.0,
         refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
     };
-    let mut settings = RendererConfiguration::legacy([65, 49], COLOR);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, crate::ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new([65, 49], COLOR, crate::ToneMap::Reinhard);
     settings.ssr = Some(worldrunner_render_plan::SceneSsr {
         enabled: true,
         ..Default::default()
@@ -72,7 +70,8 @@ fn default_budget_preserves_ordinary_scene_admission() {
         crate::PresentationBudget::default().into()
     );
     assert_eq!(fixed_budget(&options), 1024 * 1024 * 1024);
-    let mut settings = RendererConfiguration::legacy([800, 600], COLOR);
+    let mut settings =
+        RendererConfiguration::new([800, 600], COLOR, worldrunner_render_post::ToneMap::Clamp);
     settings.additional = capture_allocations(Viewport {
         width: 800,
         height: 600,
@@ -186,7 +185,7 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         &context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),
@@ -236,7 +235,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
     };
     assert!(
         matches!(Presentation::with_settings(&context, COLOR, [size, size],
-        crate::FrameProfile::Legacy, None, &policy),
+        crate::tests::CLAMP, None, &policy),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget: 1 }))
             if required > 1)
     );
@@ -244,7 +243,7 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         &context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),
@@ -310,10 +309,7 @@ fn hdr_depth_fitting_reserves_the_prepass_it_draws() {
     assert_eq!(with, fitted.depth_fitting().copied());
     // At least the prepass normals (Rgba16Float) and their float depth.
     assert!(with_bytes >= without_bytes + 65 * 49 * (8 + 4));
-    assert_eq!(
-        fitting_inventory(crate::FrameProfile::Legacy, &fitted).0,
-        None
-    );
+    assert_eq!(fitting_inventory(crate::tests::CLAMP, &fitted).0, None);
 }
 
 fn fitting_inventory(

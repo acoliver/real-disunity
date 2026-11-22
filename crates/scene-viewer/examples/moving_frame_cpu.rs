@@ -1,7 +1,7 @@
 //! Per-frame CPU cost of a moving-camera frame through the real retained host.
 //!
 //! Builds a synthetic outdoor scene (terrain, a few thousand props over a few dozen materials,
-//! a shadowed sun and, unless `--legacy` is given, the HDR bloom + FXAA chain), then renders
+//! a shadowed sun and the HDR bloom + FXAA chain), then renders
 //! frames without a window while the camera walks a circle, moving every frame. Each frame is
 //! timed from the driver's camera update to the submit. The example waits for the GPU between
 //! frames, outside the timed span. Build it in release mode: debug builds run far slower and say
@@ -10,7 +10,7 @@
 //! ```text
 //! VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
 //!   cargo run --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
-//!   [--frames 300] [--warmup 60] [--objects 3000] [--in-flight 1] [--size 1280x720] [--legacy]
+//!   [--frames 300] [--warmup 60] [--objects 3000] [--in-flight 1] [--size 1280x720]
 //! ```
 //!
 //! Lavapipe makes GPU time meaningless; the CPU figures stay valid. `--in-flight 1` keeps the
@@ -43,7 +43,6 @@ struct Config {
     objects: usize,
     in_flight: usize,
     size: [u32; 2],
-    hdr: bool,
 }
 
 impl Config {
@@ -54,7 +53,6 @@ impl Config {
             objects: 3000,
             in_flight: 1,
             size: [1280, 720],
-            hdr: true,
         };
         let mut args = std::env::args().skip(1);
         while let Some(flag) = args.next() {
@@ -65,7 +63,6 @@ impl Config {
                 "--objects" => config.objects = value()?.parse()?,
                 "--in-flight" => config.in_flight = value()?.parse()?,
                 "--size" => config.size = parse_size(&value()?)?,
-                "--legacy" => config.hdr = false,
                 other => return Err(format!("unknown argument {other}").into()),
             }
         }
@@ -101,13 +98,9 @@ impl Config {
                 normal_bias_meters: 0.02,
                 refresh_policy: CascadeRefreshPolicy::default(),
             }),
-            frame_profile: if self.hdr {
-                FrameProfile::Hdr {
-                    samples: 1,
-                    tone_map: ToneMap::Reinhard,
-                }
-            } else {
-                FrameProfile::Legacy
+            frame_profile: FrameProfile::Hdr {
+                samples: 1,
+                tone_map: ToneMap::Reinhard,
             },
             frames_in_flight: self.in_flight,
             present_mode: worldrunner_scene_viewer::PresentMode::Fifo,
@@ -235,7 +228,7 @@ fn submit_one(
 fn main() -> Result<(), Failure> {
     let started = Instant::now();
     let config = Config::from_args()?;
-    let scene = scene::scene(config.objects, config.hdr)?;
+    let scene = scene::scene(config.objects)?;
     let spent = Rc::new(Cell::new(Duration::ZERO));
     let mut walker = Walker {
         spent: Rc::clone(&spent),
@@ -269,16 +262,7 @@ fn main() -> Result<(), Failure> {
 
 fn config_summary(config: &Config) -> String {
     format!(
-        "{} objects, {}x{}, {} profile, {} in flight, {} warm-up frames",
-        config.objects,
-        config.size[0],
-        config.size[1],
-        if config.hdr {
-            "HDR bloom+FXAA"
-        } else {
-            "legacy"
-        },
-        config.in_flight,
-        config.warmup,
+        "{} objects, {}x{}, HDR bloom+FXAA profile, {} in flight, {} warm-up frames",
+        config.objects, config.size[0], config.size[1], config.in_flight, config.warmup,
     )
 }

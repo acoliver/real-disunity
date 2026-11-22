@@ -22,12 +22,14 @@ pub struct RendererConfiguration {
     pub frame: FrameConfig,
     pub clear_color: wgpu::Color,
     pub output_format: wgpu::TextureFormat,
-    pub hdr: Option<(f64, ToneMap)>,
+    /// The fixed exposure and the display curve the output stage applies to the
+    /// `Rgba16Float` frame.
+    pub hdr: (f64, ToneMap),
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
     /// Shadow depth fitting reduces the depth and normal prepass, which this frame then owns
-    /// and pairs with Opaque, as for SSAO and SSR. Requires HDR, like those effects.
+    /// and pairs with Opaque, as for SSAO and SSR.
     pub depth_fitting: Option<worldrunner_render_plan::SceneDepthFitting>,
     /// Upper bound for dynamically present shadow receiver displacements.
     pub receiver_gradients: super::ReceiverGradientReservation,
@@ -61,12 +63,14 @@ impl RendererConfiguration {
         super::terms::TermCapture::allocations(size)
     }
 
-    pub fn legacy(size: [u32; 2], output_format: wgpu::TextureFormat) -> Self {
+    /// A single-sample `Rgba16Float` frame of `size` with unit exposure, `tone_map` and no
+    /// effects, written to `output_format`.
+    pub fn new(size: [u32; 2], output_format: wgpu::TextureFormat, tone_map: ToneMap) -> Self {
         Self {
-            frame: FrameConfig::new(size, wgpu::TextureFormat::Rgba8UnormSrgb, 1),
+            frame: FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1),
             clear_color: wgpu::Color::BLACK,
             output_format,
-            hdr: None,
+            hdr: (1.0, tone_map),
             post: HdrPostSettings::default(),
             ssao: None,
             ssr: None,
@@ -131,9 +135,7 @@ impl RendererConfiguration {
         let mut allocations = self.allocations_after(previous);
         if retained_effect_history && !self.post.enabled() {
             allocations.extend(worldrunner_render_post::allocation::exposure_allocations());
-            if self.hdr.is_some() {
-                allocations.buffer("exposure staging", 16, 3);
-            }
+            allocations.buffer("exposure staging", 16, 3);
         }
         allocations
     }
@@ -176,10 +178,6 @@ impl RendererConfiguration {
         {
             return Err(PostError::UnsupportedProfile("timestamp-query capability"));
         }
-        if self.hdr.is_none() {
-            worldrunner_render_post::CopyOutput::new(context.device(), self.output_format)
-                .validate_config(context.device(), self.frame)?;
-        }
         if !(1..=3).contains(&self.frame_slots) {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
@@ -196,21 +194,10 @@ impl RendererConfiguration {
                 self.frame.samples,
             )?;
         }
-        if self.hdr.is_none()
-            && (self.post.enabled()
-                || self.ssao.is_some()
-                || self.ssr.is_some()
-                || self.depth_fitting.is_some()
-                || !self.water.is_empty())
-        {
-            return Err(PostError::UnsupportedProfile("effects require HDR"));
-        }
-        if let Some((exposure, tone)) = self.hdr {
-            self.post.validate_frame(self.frame)?;
-            ToneMapOutput::new(self.output_format, exposure, tone)?;
-            if self.frame.format != wgpu::TextureFormat::Rgba16Float {
-                return Err(PostError::CopySourceFormat(self.frame.format));
-            }
+        self.post.validate_frame(self.frame)?;
+        ToneMapOutput::new(self.output_format, self.hdr.0, self.hdr.1)?;
+        if self.frame.format != wgpu::TextureFormat::Rgba16Float {
+            return Err(PostError::CopySourceFormat(self.frame.format));
         }
         if let Some(ssao) = &self.ssao {
             crate::ssao::validate_settings(ssao)?;
@@ -499,7 +486,7 @@ fn reflection_depth_allocations(mut size: [u32; 2], count: usize, set: &mut Allo
 pub struct ConfiguredFrameRenderer {
     state: Configuration<FrameRenderer>,
     settings: RendererConfiguration,
-    history: Option<ToneMapOutput>,
+    history: ToneMapOutput,
 }
 impl ConfiguredFrameRenderer {
     /// `budget` is a fixed [`AllocationBudget`] or a policy that resolves one from the
@@ -610,9 +597,7 @@ impl ConfiguredFrameRenderer {
     }
     /// Whether replacement must retain exposure storage from prior effects.
     pub fn has_effect_history(&self) -> bool {
-        self.history
-            .as_ref()
-            .is_some_and(ToneMapOutput::has_effect_history)
+        self.history.has_effect_history()
     }
     pub fn collect(&mut self) {
         self.state.collect();
@@ -652,7 +637,7 @@ impl ConfiguredFrameRenderer {
         let timing = previous.chain.timing_state();
         let (elapsed, animation_time) = (previous.elapsed_seconds, previous.animation_time);
         let (selected_time, delta) = (previous.selected_time, previous.frame_delta);
-        let history_bank = self.history.as_ref();
+        let history_bank = Some(&self.history);
         let water = previous.water.clone();
         let environment_conventions = previous.environment_conventions;
         let reflection = previous.ssr.as_ref().map(ReflectionInputs::new);
@@ -679,9 +664,7 @@ impl ConfiguredFrameRenderer {
                 next.frame_delta = delta;
                 Ok(next)
             })?;
-        if let Some(next) = history(self.state.current()) {
-            self.history = Some(next);
-        }
+        self.history = history(self.state.current());
         self.settings = settings;
         Ok(())
     }
@@ -690,10 +673,10 @@ impl ConfiguredFrameRenderer {
         self.state.current_mut().select_frame_slot(slot);
     }
 }
-fn history(renderer: &FrameRenderer) -> Option<ToneMapOutput> {
+fn history(renderer: &FrameRenderer) -> ToneMapOutput {
     match renderer.chain.factory() {
-        FrameOutput::Hdr(factory) => Some(factory.clone()),
-        FrameOutput::Copy(_) => None,
+        FrameOutput::Hdr(factory) => factory.clone(),
+        FrameOutput::Copy(_) => unreachable!("a configured renderer builds an HDR output"),
     }
 }
 /// Selects the jitter the settings imply: the default sequence under native TAA, the sequence

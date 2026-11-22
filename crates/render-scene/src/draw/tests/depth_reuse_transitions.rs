@@ -94,9 +94,8 @@ fn gpu_relief_ordinary_relief_retains_depth_without_draining_or_rebudgeting() {
     let [ordinary, relief, _] = scenes();
     let pipelines =
         ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1).unwrap();
-    let mut settings = RendererConfiguration::legacy(SIZE, COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(SIZE, COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame.format = TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     let effects = ordinary.effects().unwrap();
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();

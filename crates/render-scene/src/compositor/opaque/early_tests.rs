@@ -54,7 +54,11 @@ fn render_refuses_foreign_depth_without_stencil_and_other_paths_keep_it() {
 
 #[test]
 fn render_allocations_exclude_receiver_payload_backing() {
-    let mut settings = RendererConfiguration::legacy([8, 8], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [8, 8],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     settings.ssao = Some(crate::ssr::neutral_ao());
     settings.opaque_path = SceneOpaquePath::GBUFFER_RENDER;
     settings.receiver_gradients = Reservation::None;
@@ -189,7 +193,11 @@ fn opposing_is_named_only_for_render_and_zero_bias_front_is_admitted() {
 
 #[test]
 fn configuration_preflight_is_pure_and_uses_the_composed_plan() {
-    let mut settings = RendererConfiguration::legacy([2, 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [2, 2],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     settings.opaque_path = SceneOpaquePath::GBUFFER_RENDER;
     settings.receiver_gradients = Reservation::Front;
     let before = settings.allocations().validate(&limits(64, 8)).unwrap();
@@ -251,8 +259,11 @@ fn configuration_preflight_includes_enabled_velocity_and_reflection_outputs() {
         (false, true, 42, 6),
         (true, true, 46, 7),
     ] {
-        let mut settings =
-            RendererConfiguration::legacy([2, 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+        let mut settings = RendererConfiguration::new(
+            [2, 2],
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            worldrunner_render_post::ToneMap::Clamp,
+        );
         settings.opaque_path = SceneOpaquePath::GBUFFER_RENDER;
         settings.receiver_gradients = Reservation::Front;
         if velocity {

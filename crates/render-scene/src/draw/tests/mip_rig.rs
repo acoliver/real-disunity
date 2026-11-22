@@ -20,9 +20,8 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 const BOUND: f32 = 0.005;
 
 pub(super) fn plain(context: &GpuContext) -> ConfiguredFrameRenderer {
-    let mut settings = RendererConfiguration::legacy([RENDER; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([RENDER; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([RENDER; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
 }
 
@@ -31,9 +30,8 @@ const FORCED_BIAS: f32 = -2.0;
 
 pub(super) fn temporal(context: &GpuContext) -> ConfiguredFrameRenderer {
     let output = [2 * RENDER; 2];
-    let mut settings = RendererConfiguration::legacy(output, COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(output, COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(output, HDR, 1).with_render_extent([RENDER; 2]);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve: PostResolve::taa(0.9),
         upscale: Some(UpscaleSettings {

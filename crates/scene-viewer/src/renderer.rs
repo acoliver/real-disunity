@@ -110,7 +110,7 @@ impl Renderer {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows: None,
-                profile: crate::FrameProfile::Legacy,
+                profile: crate::tests::CLAMP,
                 startup: 2.into(),
             })
         })

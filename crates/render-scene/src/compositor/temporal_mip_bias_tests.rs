@@ -21,9 +21,8 @@ fn bias_of(scale_micro: Option<u32>, resolve: PostResolve, mode: Option<UpscaleM
             .unwrap();
         frame_config = frame_config.with_render_extent(render);
     }
-    let mut settings = RendererConfiguration::legacy(OUTPUT_EXTENT, OUTPUT);
+    let mut settings = RendererConfiguration::new(OUTPUT_EXTENT, OUTPUT, ToneMap::Reinhard);
     settings.frame = frame_config;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve,
         upscale: mode.map(|mode| UpscaleSettings {

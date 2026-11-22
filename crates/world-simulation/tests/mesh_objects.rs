@@ -138,13 +138,85 @@ fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
 }
 
 #[test]
-fn skinned_and_particle_renderers_are_left_out() {
+fn a_skinned_renderer_is_listed_by_its_own_mesh_and_a_particle_renderer_is_left_out() {
     let mut world = new_world();
-    for kind in [RendererKind::Skinned, RendererKind::Particle] {
-        let renderer = MeshRenderer::of_kind(kind);
-        add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
-    }
-    assert!(listed(&world).is_empty());
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin.drawn_mesh = MESH + 1;
+    let listed_object = add_mesh_object(&mut world, MESH, skinned, ObjectDesc::default());
+    let no_mesh = MeshRenderer::of_kind(RendererKind::Skinned);
+    add_mesh_object(&mut world, MESH, no_mesh, ObjectDesc::default());
+    let particle = MeshRenderer::of_kind(RendererKind::Particle);
+    add_mesh_object(&mut world, MESH, particle, ObjectDesc::default());
+    let objects = extract_mesh_objects(&world).unwrap();
+    let found: Vec<_> = objects.iter().map(|o| (o.object, o.mesh)).collect();
+    assert_eq!(
+        found,
+        [(listed_object, MESH + 1)],
+        "a skinned renderer draws the mesh it names, not its filter's, and a particle renderer draws none"
+    );
+}
+
+#[test]
+fn a_skinned_renderer_is_placed_at_its_animator_and_a_mesh_renderer_at_itself() {
+    let mut world = new_world();
+    let rig = world
+        .create_object(ObjectDesc {
+            local_transform: LocalTransform {
+                translation: Vec3::new(5.0, 0.0, 0.0),
+                ..LocalTransform::default()
+            },
+            ..ObjectDesc::default()
+        })
+        .unwrap();
+    world
+        .add_component(rig, ComponentDesc::Animator { enabled: true })
+        .unwrap();
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin.drawn_mesh = MESH;
+    let body = add_mesh_object(
+        &mut world,
+        0,
+        skinned,
+        ObjectDesc {
+            local_transform: LocalTransform {
+                translation: Vec3::new(0.0, 9.0, 0.0),
+                ..LocalTransform::default()
+            },
+            ..ObjectDesc::default()
+        },
+    );
+    world
+        .set_parent(
+            body,
+            Some(rig),
+            worldrunner_world_simulation::ParentSpace::KeepLocal,
+        )
+        .unwrap();
+    let placed = add_mesh_object(
+        &mut world,
+        MESH,
+        renderer(1),
+        ObjectDesc {
+            local_transform: LocalTransform {
+                translation: Vec3::new(5.0, 0.0, 0.0),
+                ..LocalTransform::default()
+            },
+            ..ObjectDesc::default()
+        },
+    );
+    let objects = extract_mesh_objects(&world).unwrap();
+    let matrix = |object| {
+        objects
+            .iter()
+            .find(|o| o.object == object)
+            .unwrap()
+            .local_to_world
+    };
+    let (a, b) = (matrix(body), matrix(placed));
+    assert!(
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5),
+        "{a:?} {b:?}"
+    );
 }
 
 #[test]

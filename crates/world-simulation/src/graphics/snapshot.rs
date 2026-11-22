@@ -62,6 +62,17 @@ pub struct RendererView {
     /// The values that override one slot's material, by slot index. A slot's draws read its own
     /// block first, then `property_block`, then the material.
     pub slot_blocks: BTreeMap<u32, ShaderProperties>,
+    /// The skin of a skinned renderer, `None` for a mesh renderer. The renderer is drawn in its
+    /// bind pose at the matrix of the object that holds its animator, which `local_to_world`
+    /// already is.
+    pub skin: Option<SkinView>,
+}
+
+/// What a skinned renderer is deformed by. At its bind pose every bone's palette matrix is the
+/// identity, so the view carries the number of bones, which is the length of the palette.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SkinView {
+    pub bone_count: u32,
 }
 
 impl RendererView {
@@ -332,10 +343,7 @@ fn set_indices(
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let Some(mesh) = world
-            .filter_mesh(component.object)
-            .filter(|_| renderer.kind == RendererKind::Mesh)
-        else {
+        let Some(mesh) = world.renderer_mesh(component.object, renderer) else {
             continue;
         };
         let layer = u32::from(world.object_layer(component.object)?);
@@ -360,8 +368,9 @@ fn renderer_view(
     (mesh, layer): (u64, u32),
 ) -> Result<RendererView, WorldError> {
     let slots = renderer.material_count as usize;
+    let placed_by = world.placing_object(object, renderer);
     Ok(RendererView {
-        local_to_world: world.presented_matrix(object)?.to_cols_array(),
+        local_to_world: world.presented_matrix(placed_by)?.to_cols_array(),
         mesh,
         layer,
         shadow_casting_mode: renderer.shadow_casting_mode,
@@ -374,5 +383,8 @@ fn renderer_view(
         render_queue: renderer.render_queue,
         property_block: renderer.property_block.clone(),
         slot_blocks: renderer.slot_blocks.clone(),
+        skin: (renderer.kind == RendererKind::Skinned).then(|| SkinView {
+            bone_count: index_of(renderer.skin.bones.len()),
+        }),
     })
 }

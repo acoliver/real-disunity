@@ -161,6 +161,21 @@ impl MeshRenderer {
         }
     }
 
+    /// Whether the renderer draws a mesh, as a mesh or skinned renderer does, and is enabled and
+    /// not forced off.
+    pub(crate) fn shows(&self) -> bool {
+        self.kind != RendererKind::Particle
+            && self.switches.enabled
+            && !self.switches.force_rendering_off
+    }
+
+    /// The mesh a skinned renderer names itself, `None` for a renderer whose mesh is its object's
+    /// mesh filter's and for one without a drawn mesh.
+    pub(crate) fn own_mesh(&self) -> Option<u64> {
+        (self.kind == RendererKind::Skinned && self.skin.drawn_mesh != 0)
+            .then_some(self.skin.drawn_mesh)
+    }
+
     pub(crate) fn validate(&self) -> Result<(), WorldError> {
         let valid = self.shadow_casting_mode <= 3
             && self.motion_vector_mode <= 2

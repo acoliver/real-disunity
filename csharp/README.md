@@ -120,7 +120,8 @@ After an intentional ABI change:
    object slot draws from the slot's world material alone. Revision 27 adds
    `disunity_skinned_renderer_write` and `disunity_skinned_renderer_read`, which name and read the
    mesh identity, bone objects and root bone of a skinned mesh renderer in the 24-byte
-   `DisunityRendererSkin` and an array of bone object ids. Native and managed hosts reject
+   `DisunityRendererSkin` and an array of bone object ids; the graphics snapshot, at wire
+   version 20, lists the skinned renderers it draws with their bone count. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

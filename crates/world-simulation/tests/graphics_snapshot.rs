@@ -3,14 +3,15 @@
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
-    ComputeKernel, OffscreenWork, ShaderSource, TargetRef, TextureRef, WorldComputeShader,
+    ComputeKernel, OffscreenWork, ShaderSource, SkinView, TargetRef, TextureRef, WorldComputeShader,
 };
 use worldrunner_world_simulation::presentation::{
     Camera, Light, LightBakeType, LightKind, LightSettings, LightShadowMode,
     mesh_objects::extract_mesh_objects,
 };
-use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, World};
+use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, ParentSpace, World};
 use worldrunner_world_simulation::{MeshRenderer, RendererSwitches};
+use worldrunner_world_simulation::{RendererKind, SkinBinding};
 
 mod graphics_world;
 use graphics_world::{
@@ -410,4 +411,164 @@ fn lights_round_trip_through_the_byte_encoding_exactly() {
     let taken = snapshot(&mut world);
     assert_eq!(taken.lights.len(), 3);
     assert_eq!(decode(&encode(&taken).unwrap()).unwrap(), taken);
+}
+
+/// An object under `parent` at `position` that holds an animator.
+fn animated(world: &mut World, parent: Option<ObjectHandle>, position: Vec3) -> ObjectHandle {
+    let object = object(world, 0, position, Quat::IDENTITY);
+    world
+        .set_parent(object, parent, ParentSpace::KeepLocal)
+        .unwrap();
+    world
+        .add_component(object, ComponentDesc::Animator { enabled: true })
+        .unwrap();
+    object
+}
+
+/// Whether two column-major matrices agree to within rounding.
+fn same_matrix(a: [f32; 16], b: [f32; 16]) -> bool {
+    a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5)
+}
+
+/// An object under `parent` at `position`, turned by `rotation`, holding a skinned renderer with
+/// one material slot that draws `mesh` and names `bones`.
+fn skinned(
+    world: &mut World,
+    parent: Option<ObjectHandle>,
+    (position, rotation): (Vec3, Quat),
+    (mesh, bones): (u64, Vec<Option<ObjectHandle>>),
+) -> ObjectHandle {
+    let object = object(world, 0, position, rotation);
+    world
+        .set_parent(object, parent, ParentSpace::KeepLocal)
+        .unwrap();
+    let mut renderer = MeshRenderer::of_kind(RendererKind::Skinned);
+    renderer.material_count = 1;
+    renderer.skin = SkinBinding {
+        drawn_mesh: mesh,
+        bones,
+        root_bone: None,
+    };
+    world
+        .add_component(object, ComponentDesc::MeshRenderer(renderer))
+        .unwrap();
+    object
+}
+
+/// The one renderer a frame drawing every layer lists, after a camera render of `world`.
+fn drawn(world: &mut World) -> worldrunner_world_simulation::graphics::GraphicsSnapshot {
+    let target = render_texture(world, [8, 8]);
+    let camera = camera(world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    world
+        .record_offscreen(OffscreenWork::CameraRender { camera, target })
+        .unwrap();
+    snapshot(world)
+}
+
+fn quarter_turn() -> Quat {
+    Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2)
+}
+
+#[test]
+fn a_skinned_renderer_is_placed_at_the_matrix_of_its_animator_not_its_own() {
+    let mut world = world();
+    let rig = animated(&mut world, None, Vec3::new(5.0, 0.0, 0.0));
+    let body = skinned(
+        &mut world,
+        Some(rig),
+        (Vec3::new(0.0, 2.0, 0.0), quarter_turn()),
+        (MESH, vec![Some(rig), None]),
+    );
+    let snapshot = drawn(&mut world);
+    let [view] = &snapshot.renderers[..] else {
+        panic!("one renderer: {:?}", snapshot.renderers)
+    };
+    assert_eq!(view.mesh, MESH);
+    assert!(
+        same_matrix(
+            view.local_to_world,
+            glam::Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0)).to_cols_array()
+        ),
+        "the rig's matrix, not the renderer's rotation and offset"
+    );
+    assert_eq!(view.skin, Some(SkinView { bone_count: 2 }));
+    assert!(!same_matrix(
+        world.world_matrix(body).unwrap().to_cols_array(),
+        view.local_to_world
+    ));
+}
+
+#[test]
+fn a_skinned_renderer_without_an_animator_above_it_keeps_its_own_matrix() {
+    let mut world = world();
+    let parent = object(&mut world, 0, Vec3::new(1.0, 0.0, 0.0), Quat::IDENTITY);
+    let body = skinned(
+        &mut world,
+        Some(parent),
+        (Vec3::new(0.0, 3.0, 0.0), quarter_turn()),
+        (MESH, vec![]),
+    );
+    let snapshot = drawn(&mut world);
+    assert!(same_matrix(
+        snapshot.renderers[0].local_to_world,
+        world.world_matrix(body).unwrap().to_cols_array()
+    ));
+    assert_eq!(snapshot.renderers[0].skin, Some(SkinView { bone_count: 0 }));
+}
+
+#[test]
+fn the_nearest_animator_above_a_skinned_renderer_places_it() {
+    let mut world = world();
+    let outer = animated(&mut world, None, Vec3::new(1.0, 0.0, 0.0));
+    let inner = animated(&mut world, Some(outer), Vec3::new(0.0, 4.0, 0.0));
+    skinned(
+        &mut world,
+        Some(inner),
+        (Vec3::new(7.0, 7.0, 7.0), Quat::IDENTITY),
+        (MESH, vec![]),
+    );
+    let snapshot = drawn(&mut world);
+    let place = &snapshot.renderers[0].local_to_world[12..15];
+    assert!(
+        place
+            .iter()
+            .zip([1.0, 4.0, 0.0])
+            .all(|(a, b)| (a - b).abs() < 1e-5),
+        "the inner animator, itself under the outer one: {place:?}"
+    );
+}
+
+#[test]
+fn a_mesh_renderer_has_no_skin_and_a_skinned_one_draws_its_own_mesh_not_a_filters() {
+    let mut world = world();
+    renderer(&mut world, 0, MESH, vec![]);
+    let body = skinned(
+        &mut world,
+        None,
+        (Vec3::ZERO, Quat::IDENTITY),
+        (MESH + 1, vec![]),
+    );
+    world
+        .add_component(
+            body,
+            ComponentDesc::MeshFilter(worldrunner_world_simulation::MeshFilter {
+                mesh: 3,
+                drawn_mesh: MESH + 2,
+            }),
+        )
+        .unwrap();
+    let snapshot = drawn(&mut world);
+    let meshes: Vec<(u64, bool)> = snapshot
+        .renderers
+        .iter()
+        .map(|view| (view.mesh, view.skin.is_some()))
+        .collect();
+    assert_eq!(meshes, [(MESH, false), (MESH + 1, true)]);
+}
+
+#[test]
+fn a_skinned_renderer_that_names_no_drawn_mesh_is_not_copied() {
+    let mut world = world();
+    skinned(&mut world, None, (Vec3::ZERO, Quat::IDENTITY), (0, vec![]));
+    assert!(drawn(&mut world).renderers.is_empty());
 }

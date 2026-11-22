@@ -8,11 +8,11 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
 };
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, GraphicsSnapshot, MaterialEdit, MaterialId, OffscreenWork,
-    PropertyValue, RenderTextureId, ShaderSource, TargetRef, TextureRef, TextureSlot,
+    PropertyValue, RenderTextureId, ShaderSource, SkinView, TargetRef, TextureRef, TextureSlot,
     WorldComputeShader, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{MeshRenderer, RendererKind, World};
 
 mod graphics_world;
 use graphics_world::{
@@ -127,6 +127,11 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     };
     renderer_with(world, (0, true), (1 << 41) + 1, block);
     renderer(world, 4, (1 << 41) + 2, vec![Some(blit)]);
+    let bone = renderer(world, 4, (1 << 41) + 3, vec![]);
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin.drawn_mesh = (1 << 41) + 4;
+    skinned.skin.bones = vec![Some(bone), None, Some(bone)];
+    renderer_with(world, (0, true), 0, skinned);
 }
 
 /// A compute shader with a sized and an unsized kernel, a buffer bound to the first and every
@@ -233,6 +238,13 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
             .is_none()
     );
     assert!(decoded.renderers[1].slot_blocks.is_empty());
+}
+
+#[test]
+fn a_skinned_renderer_view_keeps_its_skin() {
+    let decoded = decode(&encode(&full_snapshot()).unwrap()).unwrap();
+    let skins: Vec<_> = decoded.renderers.iter().map(|view| view.skin).collect();
+    assert_eq!(skins, [None, None, None, Some(SkinView { bone_count: 3 })]);
 }
 
 #[test]

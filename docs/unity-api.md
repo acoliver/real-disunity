@@ -408,9 +408,10 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `additionalVertexStreams` is stored, `subMeshStartIndex` is 0.
   One `MeshRenderer` or `SkinnedMeshRenderer` per object.
   `AddComponent`, `GetComponent<Renderer>()`, `Instantiate`, `Destroy` of the component and destroying the object work as for other native components.
-  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the colour and texture each material slot draws.
+  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, and each enabled `SkinnedMeshRenderer` that names a mesh, whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the colour and texture each material slot draws.
+  A skinned renderer is listed at the matrix of the nearest object at or above it that holds an `Animator`, or at its own matrix without one, and its mesh is drawn in its bind pose.
   The host reads the mesh contents by that identity.
-  The list is exported, not drawn; a `SkinnedMeshRenderer` is not listed
+  The list is exported, not drawn
 - `SkinnedMeshRenderer`: A `Renderer`.
   `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
   `sharedMesh`, `rootBone` and `bones` are kept on the managed component and sent to the world, which holds the identity the host draws the mesh by (the mesh takes a renderer identity as a filter's mesh does) and the bone and root bone objects; a clone's world skin names the clone's bones where they are in the cloned hierarchy.

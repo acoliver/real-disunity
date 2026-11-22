@@ -601,6 +601,12 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_world_advance(ulong world, ulong numerator, ulong denominator, DisunityAdvance* output);
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_advance_teardown", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_advance_teardown(ulong world, DisunityAdvance* output);
+        /// <summary>
+        ///  # Safety
         ///  Input points to `length` bytes; output is writable for one record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_world_resume", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

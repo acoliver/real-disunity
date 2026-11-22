@@ -96,8 +96,28 @@ impl Layout {
         layout
     }
 
+    /// The first record of `key`'s range, found by a search.
     pub fn base(&self, key: BatchKey) -> u32 {
         self.extents[&key].base
+    }
+
+    /// Looks up the bases of `wanted` batches asked for in ascending key order.
+    pub fn bases(&self, wanted: usize) -> Bases<'_> {
+        Bases(Ascending::new(&self.extents, wanted))
+    }
+}
+
+/// The bases of a layout's ranges for keys in ascending order, one walk along the layout for a
+/// view that names many of its batches.
+pub(super) struct Bases<'a>(Ascending<'a, Extent>);
+
+impl Bases<'_> {
+    /// The first record of `key`'s range, which is not below any key asked for before.
+    pub fn base(&mut self, key: BatchKey) -> u32 {
+        self.0
+            .get(&key)
+            .expect("the mirror holds every gathered batch")
+            .base
     }
 }
 

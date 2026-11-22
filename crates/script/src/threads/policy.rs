@@ -1,9 +1,9 @@
 //! How a game's original scheduler differs from the engine's defaults.
 //!
 //! The default policy is the engine's own behaviour. A game that needs the semantics of its
-//! original engine selects them with [`GameScripts::register_scheduler_with`].
+//! original engine selects them with [`GameScripts::register_scheduler`].
 //!
-//! [`GameScripts::register_scheduler_with`]: crate::GameScripts::register_scheduler_with
+//! [`GameScripts::register_scheduler`]: crate::GameScripts::register_scheduler
 
 use mlua::{Lua, Value};
 

@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use worldrunner_script::{GameScripts, MonotonicInput, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, MonotonicInput, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 fn scripted_input(
     samples: impl IntoIterator<Item = io::Result<Duration>>,
@@ -69,12 +71,18 @@ fn samples_once_for_registration_and_once_for_a_valid_zero_argument_call() {
         .unwrap();
     assert_eq!(reads.load(Ordering::SeqCst), 1);
     scripts.add_source("source", &["GetClock"]).unwrap();
-    scripts.run(
-        "source",
-        "monotonic.lua",
-        b"local count = select('#', GetClock())\nassert(count == 1)\nassert(math.type(GetClock()) == 'integer')\nassert(GetClock() == 9000)",
-    ).unwrap();
+    scripts
+        .run(
+            "source",
+            "monotonic.lua",
+            b"Checks = { select('#', GetClock()), math.type(GetClock()), GetClock() }",
+        )
+        .unwrap();
     assert_eq!(reads.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        scripts.eval_json("source", "return Checks").unwrap(),
+        serde_json::json!([1, "integer", 9000])
+    );
 }
 
 #[test]
@@ -265,14 +273,17 @@ fn scheduled(input: MonotonicInput) -> GameScripts {
         .register_monotonic_millis("GetClock", input)
         .unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: "Spawn".into(),
-            sleep: "Sleep".into(),
-            wakeup: "Wake".into(),
-            kill: "Kill".into(),
-            current: "Current".into(),
-            now: "Now".into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: "Spawn".into(),
+                sleep: "Sleep".into(),
+                wakeup: "Wake".into(),
+                kill: "Kill".into(),
+                current: "Current".into(),
+                now: "Now".into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts
         .add_source("source", &["GetClock", "Spawn", "Sleep", "Now"])

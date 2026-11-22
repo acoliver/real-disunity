@@ -478,14 +478,20 @@ impl<F: StageFactory> PostChain<F> {
         }
     }
 
+    /// Prepares every feature of the frame and records what they staged for the frame's
+    /// preparation, returning what they staged for its compute passes.
     fn prepare_features(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
-        (plan, raster): (&crate::FramePlan<'_>, &crate::contracts::StockRaster),
+        (plan, raster, declarations): (
+            &crate::FramePlan<'_>,
+            &crate::contracts::StockRaster,
+            &[crate::FeatureDeclaration],
+        ),
         completed: &[crate::PassEntry],
-    ) -> Result<(), crate::FrameError> {
+    ) -> Result<crate::frame::ComputeStaging, crate::FrameError> {
         let replacements = self
             .features
             .iter()
@@ -510,6 +516,7 @@ impl<F: StageFactory> PostChain<F> {
         }
         let mut context = crate::PrepareContext::new(device, encoder)?;
         context.open_preparation_of(plan, completed);
+        context.open_compute_passes(declarations);
         for feature in borrowed.iter_mut() {
             feature.prepared.prepare(&mut context)?;
         }
@@ -531,8 +538,9 @@ impl<F: StageFactory> PostChain<F> {
                 .expect("validated feature build")
                 .commit(&mut context);
         }
+        let compute = context.take_compute_passes();
         self.upload_slots[self.frame_slot] = context.finish_preparation()?;
-        Ok(())
+        Ok(compute)
     }
 
     /// Encode a complete borrowed subplan without invoking retained frame features, apart from
@@ -599,7 +607,13 @@ impl<F: StageFactory> PostChain<F> {
             .unwrap_or(&mut local_registry);
         let raster =
             crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
-        self.prepare_features(device, encoder, borrowed, (plan, &raster), &completed)?;
+        let compute = self.prepare_features(
+            device,
+            encoder,
+            borrowed,
+            (plan, &raster, declarations),
+            &completed,
+        )?;
         let timing = self.timing_state();
         let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {
@@ -608,8 +622,14 @@ impl<F: StageFactory> PostChain<F> {
                 continue;
             }
             groups.encode_before(index, &timing, encoder)?;
-            let context = crate::DrawContext::new(entry);
             let stamp = self.stamp(crate::PassId::Geometry(entry));
+            if declaration.compute.is_some() {
+                raster.encode_stock_compute(index, entry, encoder, stamp.as_ref(), |pass| {
+                    compute.record(entry, pass)
+                })?;
+                continue;
+            }
+            let context = crate::DrawContext::new(entry);
             raster.encode_stock_pass(index, entry, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature

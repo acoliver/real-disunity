@@ -1,19 +1,22 @@
 //! Threads and timers for original scripts, bound under the game's own names (#147).
 
-use worldrunner_script::{GameScripts, SchedulerNames, ScriptConfig};
+use worldrunner_script::{GameScripts, SchedulerNames, SchedulerPolicy, ScriptConfig};
 
 /// A game that names its scheduler as Haemimont's engines do and grants it to its scripts.
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: "CreateGameTimeThread".into(),
-            sleep: "Sleep".into(),
-            wakeup: "Wakeup".into(),
-            kill: "DeleteThread".into(),
-            current: "CurrentThread".into(),
-            now: "GameTime".into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: "CreateGameTimeThread".into(),
+                sleep: "Sleep".into(),
+                wakeup: "Wakeup".into(),
+                kill: "DeleteThread".into(),
+                current: "CurrentThread".into(),
+                now: "GameTime".into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     let all = [
         "CreateGameTimeThread",
@@ -141,14 +144,17 @@ fn each_resume_has_its_own_budget_and_bad_sleeps_are_refused() {
     };
     let mut scripts = GameScripts::new(config).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: "Go".into(),
-            sleep: "Sleep".into(),
-            wakeup: "Wakeup".into(),
-            kill: "Kill".into(),
-            current: "Current".into(),
-            now: "Now".into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: "Go".into(),
+                sleep: "Sleep".into(),
+                wakeup: "Wakeup".into(),
+                kill: "Kill".into(),
+                current: "Current".into(),
+                now: "Now".into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &["Go", "Sleep"]).unwrap();
     scripts

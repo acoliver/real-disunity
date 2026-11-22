@@ -1,6 +1,9 @@
 //! Scheduler threads saved where they stopped and continued on restore (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SavedWake, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SavedWake, SchedulerNames, SchedulerPolicy,
+    ScriptConfig, ThreadSchedule,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -35,14 +38,17 @@ end
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts.run("game", "game.lua", GAME.as_bytes()).unwrap();
@@ -76,10 +82,14 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
     );
     let snapshot = round_trip(
         &saved
-            .save(&["Units", "Sentry", "Done"], &["Patrol", "Guard"])
+            .save(
+                &["Units", "Sentry", "Done"],
+                &["Patrol", "Guard"],
+                &SaveOptions::default(),
+            )
             .unwrap(),
     );
-    assert_eq!(snapshot.clock, 70);
+    assert_eq!(snapshot.clocks, [("game".to_owned(), 70)]);
     let wakes: Vec<SavedWake> = snapshot.threads.iter().map(|t| t.wake).collect();
     assert_eq!(
         wakes,
@@ -117,7 +127,9 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
 fn snapshots_that_do_not_fit_the_state_are_refused() {
     let mut saved = game();
     saved.run("game", "a.lua", b"Spawn('a', 10)").unwrap();
-    let snapshot = saved.save(&["Units"], &["Patrol"]).unwrap();
+    let snapshot = saved
+        .save(&["Units"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
     let mut busy = game();
     busy.run("game", "b.lua", b"Spawn('b', 10)").unwrap();
     let error = busy
@@ -133,10 +145,56 @@ fn snapshots_that_do_not_fit_the_state_are_refused() {
 }
 
 #[test]
+fn a_snapshot_without_its_graph_or_with_unmatched_schedules_is_refused_by_name() {
+    let mut saved = game();
+    saved
+        .run("game", "a.lua", b"Spawn('a', 30) Spawn('b', 50)")
+        .unwrap();
+    let snapshot = saved
+        .save(&["Units"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
+    assert_eq!((snapshot.threads.len(), snapshot.schedules.len()), (2, 2));
+
+    // A snapshot from before the graph has no `graph` field and is not read at all.
+    let mut encoded = serde_json::to_value(&snapshot).unwrap();
+    encoded
+        .as_object_mut()
+        .unwrap()
+        .remove("graph")
+        .expect("a graph field");
+    let missing = serde_json::from_value::<LuaSnapshot>(encoded)
+        .unwrap_err()
+        .to_string();
+    assert!(missing.contains("missing field `graph`"), "{missing}");
+
+    // Each thread needs its schedule: neither a thread without one nor a schedule without a
+    // thread is dropped silently.
+    let mut short = snapshot.clone();
+    short.schedules.pop();
+    let mut long = snapshot.clone();
+    long.schedules.push(ThreadSchedule::default());
+    for (unmatched, expected) in [
+        (short, "the snapshot has 2 threads and 1 schedules"),
+        (long, "the snapshot has 2 threads and 3 schedules"),
+    ] {
+        let mut restored = game();
+        let error = restored
+            .restore(&unmatched, &["Patrol"])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(restored.thread_count(), 0, "nothing was scheduled");
+        assert_eq!(json(&mut restored, "return #Units"), serde_json::json!(0));
+    }
+}
+
+#[test]
 fn data_only_restores_leave_running_threads_alone() {
     let mut saved = game();
     saved.run("game", "data.lua", b"Score = { 3 }").unwrap();
-    let snapshot = saved.save(&["Score"], &["Patrol"]).unwrap();
+    let snapshot = saved
+        .save(&["Score"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
     assert!(snapshot.threads.is_empty());
     let mut running = game();
     running.run("game", "a.lua", b"Spawn('a', 10)").unwrap();

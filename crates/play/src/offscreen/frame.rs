@@ -25,8 +25,7 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, blit_layer,
-    camera_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, blit_layer, camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::environment::add_environment;
@@ -282,11 +281,6 @@ pub(super) fn render_dimension(texture: &WorldRenderTexture) -> RenderDimension 
         dimension::CUBE_ARRAY => RenderDimension::CubeArray(depth / 6),
         other => RenderDimension::Unknown(other),
     }
-}
-
-/// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
-fn texels(side: u32) -> f32 {
-    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
 /// Whether a camera's normalized rectangle is the whole target.
@@ -666,8 +660,7 @@ impl<'a> Mapper<'a> {
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
-        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
-        add_screen_size(&mut values, size);
+        let values = camera_layer(view, size);
         Camera {
             culling_mask: view.settings.culling_mask,
             clear_color,

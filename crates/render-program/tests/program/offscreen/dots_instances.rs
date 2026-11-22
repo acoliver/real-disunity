@@ -34,7 +34,6 @@ const METADATA: &str = "unity_ObjectToWorld";
 const MARKER: [u8; 4] = [0, 255, 255, 255];
 /// The bytes in front of the first matrix, which the metadata word skips.
 const HEADER: usize = 16;
-const MATRIX_BYTES: usize = 48;
 
 const PLAIN: &str = "
 struct VOut { @builtin(position) position: vec4<f32> }

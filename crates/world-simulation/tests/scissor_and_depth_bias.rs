@@ -36,8 +36,8 @@ fn scissor_and_bias_records_keep_their_place_in_the_frame() {
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]

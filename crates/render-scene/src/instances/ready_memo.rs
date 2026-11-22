@@ -32,14 +32,14 @@ pub(super) struct ReadyMemo {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Stamp {
+pub(super) struct Stamp {
     edits: u64,
     content: u64,
     history: u64,
 }
 
 impl Stamp {
-    fn of_totals(totals: &Totals) -> Self {
+    pub(super) fn of_totals(totals: &Totals) -> Self {
         Self {
             edits: totals.edits.get(),
             content: totals.content.get(),

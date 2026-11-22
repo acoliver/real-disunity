@@ -11,7 +11,6 @@
 use std::ops::Range;
 
 use super::capture_tests::{Rig, Target, render, scenes};
-use super::prepared::DrawOrder;
 use crate::dynamic::capture_tests::{CONFIGS, build, context};
 
 use scenes::Spec;
@@ -104,34 +103,14 @@ impl PassCommands for Tally {
     }
 }
 
-/// The commands the runtime path records for the same scene, after preparing it as a frame does.
-/// Preparing before the pass builds the pipelines, so recording builds nothing.
-fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
-    through_runtime_in(index, scene, cards, DrawOrder::default())
-}
-
-/// [`through_runtime`] with the pass recording its draws in `order`.
-fn through_runtime_in(
-    index: usize,
-    scene: &RenderScene,
-    cards: usize,
-    order: DrawOrder,
-) -> Counted {
-    through_runtime_runs(index, scene, cards, order).0
-}
-
-/// [`through_runtime_in`], with the runs of draws the recording holds.
-fn through_runtime_runs(
-    index: usize,
-    scene: &RenderScene,
-    cards: usize,
-    order: DrawOrder,
-) -> (Counted, Runs) {
+/// The commands the runtime path records for the same scene, after preparing it as a frame does,
+/// with the runs of draws the recording holds. Preparing before the pass builds the pipelines, so
+/// recording builds nothing.
+fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> (Counted, Runs) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[index]);
     let mut rig = Rig::new(&context, &built.pipelines, scene);
-    rig.gpu.set_draw_order(order);
     // The frame flushes the scene's instance updates in its own encoder and records its draws in
     // the same transaction, as the frame renderer does: a scene that tracks previous transforms
     // has updates pending to any other recording.
@@ -158,7 +137,7 @@ fn through_runtime_runs(
         "recording a prepared frame builds nothing"
     );
     println!(
-        "OBJECT-COST-RUNTIME config={} order={order:?} cards={} pipelines={} groups={} vertex_buffers={} index_buffers={} draws={} total={} stats={prepared:?}",
+        "OBJECT-COST-RUNTIME config={} cards={} pipelines={} groups={} vertex_buffers={} index_buffers={} draws={} total={} stats={prepared:?}",
         CONFIGS[index].name,
         cards,
         counted.pipelines,
@@ -169,7 +148,7 @@ fn through_runtime_runs(
         counted.total(),
     );
     println!(
-        "OBJECT-COST-RUNS config={} order={order:?} cards={cards} draws={} runs_by_buffers={} runs_by_state={}",
+        "OBJECT-COST-RUNS config={} cards={cards} draws={} runs_by_buffers={} runs_by_state={}",
         CONFIGS[index].name, counted.draws, runs.by_buffers, runs.by_state,
     );
     (counted, runs)
@@ -181,7 +160,7 @@ fn through_runtime_runs(
 #[test]
 fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
     let scene = scenes::scene(&scenes::base_specs());
-    let counted = through_runtime(2, &scene, 8);
+    let counted = through_runtime(2, &scene, 8).0;
     assert_eq!(
         counted,
         Counted {
@@ -199,8 +178,8 @@ fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
 #[test]
 fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
     let scene = scenes::scene(&scenes::base_specs());
-    let plain = through_runtime(2, &scene, 8);
-    let recorded = through_runtime(4, &scene, 8);
+    let plain = through_runtime(2, &scene, 8).0;
+    let recorded = through_runtime(4, &scene, 8).0;
     assert_eq!(
         recorded,
         Counted {
@@ -217,7 +196,7 @@ fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
 #[test]
 fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
     let scene = scenes::scene(&[Spec::default(); 6]);
-    let counted = through_runtime(2, &scene, 6);
+    let counted = through_runtime(2, &scene, 6).0;
     assert_eq!(
         counted,
         Counted {
@@ -236,7 +215,7 @@ fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
 #[test]
 fn the_runtime_path_draws_cards_that_share_a_material_with_one_instanced_draw() {
     let scene = scenes::shared(Spec::default(), 6);
-    let counted = through_runtime(2, &scene, 6);
+    let counted = through_runtime(2, &scene, 6).0;
     assert_eq!(
         counted,
         Counted {
@@ -413,25 +392,12 @@ fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_not
 }
 
 /// Twelve batches of one pipeline key that differ only in mesh (three) and material (four) are
-/// recorded by the walk mesh by mesh, which binds a material's group for each of them. Grouped,
-/// the pass binds each of the four materials once, and the three meshes share a chunk, so the
-/// vertex and index buffers bind once in either order.
+/// recorded grouped: the pass binds each of the four materials once, and the three meshes share a
+/// chunk, so the vertex and index buffers bind once.
 #[test]
-fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch() {
+fn grouped_draws_bind_each_material_once() {
     let scene = scenes::grid(3, 4);
-    let walk = through_runtime_in(2, &scene, 12, DrawOrder::Walk);
-    let grouped = through_runtime_in(2, &scene, 12, DrawOrder::Grouped);
-    assert_eq!(
-        walk,
-        Counted {
-            pipelines: 1,
-            groups: 1 + 12,
-            vertex_buffers: walk.vertex_buffers,
-            index_buffers: 1,
-            draws: 12,
-        },
-        "the walk binds a material's group for every batch: {walk:?}"
-    );
+    let (grouped, _) = through_runtime(2, &scene, 12);
     assert_eq!(
         grouped,
         Counted {
@@ -441,11 +407,7 @@ fn grouped_draws_bind_each_material_once_where_the_walk_binds_one_for_each_batch
             index_buffers: 1,
             draws: 12,
         },
-        "grouped, each material binds once and the meshes' chunk binds once: {grouped:?}"
-    );
-    println!(
-        "OBJECT-COST-ORDER walk={walk:?} grouped={grouped:?} (a command costs what wgpu validates: \
-         a material group registers every texture it holds)"
+        "each material binds once and the meshes' chunk binds once: {grouped:?}"
     );
 }
 
@@ -462,7 +424,7 @@ fn every_grouped_draw_of_the_test_scenes_is_a_run_of_its_own() {
         ("base", scenes::scene(&scenes::base_specs()), 8),
     ];
     for (name, scene, draws) in cases {
-        let (counted, runs) = through_runtime_runs(2, &scene, draws, DrawOrder::Grouped);
+        let (counted, runs) = through_runtime(2, &scene, draws);
         assert_eq!(counted.draws, u32::try_from(draws).unwrap(), "{name}");
         assert_eq!(
             (runs.by_buffers, runs.by_state),
@@ -475,11 +437,6 @@ fn every_grouped_draw_of_the_test_scenes_is_a_run_of_its_own() {
 /// Cards of one material are one batch and one draw, which is one run.
 #[test]
 fn one_instanced_draw_is_one_run() {
-    let (counted, runs) = through_runtime_runs(
-        2,
-        &scenes::shared(Spec::default(), 6),
-        6,
-        DrawOrder::Grouped,
-    );
+    let (counted, runs) = through_runtime(2, &scenes::shared(Spec::default(), 6), 6);
     assert_eq!((counted.draws, runs.by_buffers, runs.by_state), (1, 1, 1));
 }

@@ -7,10 +7,12 @@
 //! buffer when the walk names it, a pipeline when it differs from the one set, and the material's
 //! group when the material changes.
 //!
-//! The scene's colour and caster passes hold the walk's draws and record them grouped by
-//! pipeline and material (see [`DrawOrder`]): a batch is one mesh in one material, so the walk
-//! alternates materials as it moves from mesh to mesh, and each change binds a material group
-//! that wgpu validates texture by texture. Grouped, a pass binds each material once. Levels share
+//! A sink holds the walk's draws and records them grouped by pipeline and material: a batch is
+//! one mesh in one material, so the walk alternates materials as it moves from mesh to mesh, and
+//! each change binds a material group that wgpu validates texture by texture. Grouped, a pass
+//! binds each material once. The objects of a pass are opaque or masked, drawn with depth tests
+//! and without blending, so only the winner of an exact depth tie between two draws depends on
+//! the order. Levels share
 //! the chunks of buffers their upload packed them into (see [`super::mesh_arena`]), so the draws
 //! of a material in one chunk set the vertex and index buffers once and differ in `first_index`
 //! and `base_vertex`.
@@ -25,7 +27,7 @@ use worldrunner_render_program::runtime::{
 use super::lod_material::{BoundState, Draw, DrawSink};
 use super::{DrawnObjects, SceneGpu, SelectionPublication};
 use crate::object::layout::{GeometryLayout, vertex_layout};
-use crate::object::prepared::{DrawOrder, PreparedObjects};
+use crate::object::prepared::PreparedObjects;
 use crate::object::program::Context;
 use grouping::{BufferTable, GroupKey, grouped};
 
@@ -139,14 +141,13 @@ impl<P: PassCommands + ?Sized> PassCommands for Elided<'_, P> {
 /// Pairs are prepared before the pass opens by [`SceneGpu::prepare_objects`]; a pair a draw finds
 /// unprepared is made then.
 ///
-/// A sink records each draw as the walk names it, or, once told to with
-/// [`ordered`](Self::ordered), holds them until [`finish`](Self::finish) and records them
-/// grouped by pipeline, material and buffers.
+/// A sink holds the draws the walk names until [`finish`](Self::finish) and records them grouped
+/// by pipeline, material and buffers.
 pub(super) struct PreparedSink<'a, P: ?Sized> {
     recorder: Recorder<'a, P>,
     names: Names,
-    /// The draws a grouped pass holds until it finishes; `None` when the pass records as named.
-    held: Option<Vec<Held>>,
+    /// The draws the pass holds until it finishes.
+    held: Vec<Held>,
 }
 
 /// What the walk has named for the draws that follow, as positions in the tables the sink
@@ -167,7 +168,7 @@ struct Names {
     indices: Option<u32>,
 }
 
-/// A draw a grouped pass holds, with the buffers the walk named for it.
+/// A draw a pass holds, with the buffers the walk named for it.
 struct Held {
     draw: Draw,
     /// Positions in the sink's `Names`.
@@ -215,26 +216,15 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
                 mask: 0,
             },
             names: Names::default(),
-            held: None,
+            held: Vec::new(),
         }
     }
 
-    /// Records the draws in `order`. Call [`finish`](Self::finish) after the walk.
-    pub(super) fn ordered(mut self, order: DrawOrder) -> Self {
-        self.held = match order {
-            DrawOrder::Grouped => Some(Vec::new()),
-            #[cfg(test)]
-            DrawOrder::Walk => None,
-        };
-        self
-    }
-
-    /// Records the draws a grouped sink holds, those that share a pipeline, then a material,
-    /// then buffers together and those that tie in the order the walk named them.
+    /// Records the draws the sink holds, those that share a pipeline, then a material, then
+    /// buffers together and those that tie in the order the walk named them. Call it after the
+    /// walk.
     pub(super) fn finish(mut self) {
-        let Some(held) = self.held.take() else {
-            return;
-        };
+        let held = std::mem::take(&mut self.held);
         let names = &self.names;
         let (vertex_ranks, index_ranks, current_ranks) = (
             names.vertex_buffers.ranks(),
@@ -278,8 +268,8 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
 impl<P: ?Sized> Drop for PreparedSink<'_, P> {
     fn drop(&mut self) {
         debug_assert!(
-            self.held.as_ref().is_none_or(Vec::is_empty) || std::thread::panicking(),
-            "a grouped sink was dropped holding draws it never recorded"
+            self.held.is_empty() || std::thread::panicking(),
+            "a sink was dropped holding draws it never recorded"
         );
     }
 }
@@ -378,20 +368,12 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
         let instances = names.current_instances.expect("a draw names its instances");
         let vertices = names.vertices.expect("a draw names its vertices");
         let indices = names.indices.expect("a draw names its indices");
-        match &mut self.held {
-            Some(held) => held.push(Held {
-                draw,
-                vertices,
-                indices,
-                instances,
-            }),
-            None => self.recorder.record(
-                draw,
-                names.vertex_buffers.get(vertices),
-                names.index_buffers.get(indices),
-                &names.instances[instances as usize].0,
-            ),
-        }
+        self.held.push(Held {
+            draw,
+            vertices,
+            indices,
+            instances,
+        });
     }
 }
 
@@ -425,8 +407,7 @@ impl SceneGpu {
         context: &Context,
     ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
-        let mut sink =
-            PreparedSink::new(pass, &self.objects, context).ordered(self.objects.order());
+        let mut sink = PreparedSink::new(pass, &self.objects, context);
         let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
         sink.finish();
         self.end_objects(view, None, objects)
@@ -443,18 +424,11 @@ impl SceneGpu {
     ) -> SelectionPublication {
         let shadow = Some(cascade);
         let view = self.begin_objects(pass, frame_group, shadow);
-        let mut sink =
-            PreparedSink::new(pass, &self.objects, context).ordered(self.objects.order());
+        let mut sink = PreparedSink::new(pass, &self.objects, context);
         let objects =
             self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
         sink.finish();
         self.end_objects(view, shadow, objects).selection
-    }
-
-    /// Makes the objects' passes record in `order`.
-    #[cfg(test)]
-    pub(crate) fn set_draw_order(&self, order: crate::object::prepared::DrawOrder) {
-        self.objects.set_order(order);
     }
 
     /// The group the object draws bind at set 0, for tests that record the objects into pass
@@ -491,6 +465,7 @@ impl SceneGpu {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context).with_mask(mask);
         let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        sink.finish();
         self.end_objects(view, None, objects)
     }
 

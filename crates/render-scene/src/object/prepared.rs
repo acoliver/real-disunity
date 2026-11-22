@@ -14,7 +14,7 @@
 //! Nothing is built in a steady-state frame: pairs are made the first time a frame prepares for
 //! a context, or the first time a draw needs one, and kept as long as the context lives.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -85,21 +85,6 @@ pub(crate) fn imports(
     table
 }
 
-/// The order a pass records the draws of its selection in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum DrawOrder {
-    /// By pipeline, material, then vertex, index and instance buffers, so a pass sets each
-    /// material's group once per pipeline. The objects of a pass are opaque or masked, drawn
-    /// with depth tests and without blending, so only the winner of an exact depth tie between
-    /// two draws depends on the order.
-    #[default]
-    Grouped,
-    /// As the selection names them: by batch, then level, then material slot. Tests record this
-    /// way to compare it with the grouped order.
-    #[cfg(test)]
-    Walk,
-}
-
 /// The family, material and set-1 layout a set is made for. Programs whose set-1 slots are
 /// equal share one layout object, so one set serves all of them.
 type SetKey = (u64, usize, BindGroupLayout);
@@ -127,8 +112,6 @@ pub(crate) struct PreparedObjects {
     /// How many times `pipeline` was asked for a pair.
     #[cfg(test)]
     lookups: std::cell::Cell<usize>,
-    /// The order passes record in, which a test changes to compare orders.
-    order: Cell<DrawOrder>,
 }
 
 /// The pipeline index, material and vertex format of a pipeline a scene draws with.
@@ -155,7 +138,6 @@ impl PreparedObjects {
             sets: RefCell::default(),
             pipelines: RefCell::default(),
             prepared: RefCell::default(),
-            order: Cell::default(),
             #[cfg(test)]
             lookups: std::cell::Cell::default(),
         };
@@ -304,17 +286,6 @@ impl PreparedObjects {
             pairs: Rc::clone(pairs),
         });
         Ok(())
-    }
-
-    /// The order passes record their draws in.
-    pub(crate) fn order(&self) -> DrawOrder {
-        self.order.get()
-    }
-
-    /// Makes passes record in `order`.
-    #[cfg(test)]
-    pub(crate) fn set_order(&self, order: DrawOrder) {
-        self.order.set(order);
     }
 
     /// How many pipelines were asked for, whether found or made.

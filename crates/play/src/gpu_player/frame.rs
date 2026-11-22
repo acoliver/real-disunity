@@ -38,7 +38,7 @@ impl PlayerGpu {
     /// # Errors
     /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
     /// report, not an error here: the player goes on without it, and a headless run ends at it
-    /// through [`Self::take_refusal`].
+    /// through `take_refusal`.
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
         self.frame_with(host, Delivery::Submit).map(drop)
     }

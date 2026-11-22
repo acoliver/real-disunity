@@ -114,8 +114,7 @@ fn the_first_work_the_gpu_refused_whole_is_what_the_run_is_told_of_once() {
 }
 
 #[test]
-fn work_that_went_without_an_allocation_the_budget_refused_is_a_refusal_and_a_refused_upload_is_not()
- {
+fn a_render_texture_the_budget_refused_is_a_refusal_and_a_refused_upload_is_not() {
     let mut unsupported = Report::default();
     for cause in [
         "texture:Program/Layout/UnsupportedParameter",

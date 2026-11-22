@@ -345,7 +345,8 @@ fn recorded_array_work_validates_keeps_order_and_leaves_the_initial_globals_alon
     );
     assert_eq!(&snapshot.work[1..4], [first, second, third]);
     let initial = &snapshot.global.unwrap().properties;
-    assert_eq!(initial.vector_array("_Init"), Some(vectors(2)));
+    // The replay starts from the state before the direct write, which is the first record.
+    assert_eq!(initial.vector_array("_Init"), None);
     assert_eq!(initial.vector_array("_Ordered"), None);
 }
 

@@ -21,8 +21,10 @@ use super::ambient_gpu::{assert_texels, camera_render, flush_and_read};
 use super::cube_volume_gpu::{BASE, TOP, columns, cube};
 use super::flush::host;
 use super::gpu::{Quad, SIDE, shader};
-use super::lights_gpu::{filled, record};
-use super::support::{material, render_texture, snapshot, texture_slot, world};
+use super::lights_gpu::{Commands, filled, record};
+use super::support::{
+    material, render_texture, set_global_in_earlier_take, snapshot, texture_slot, world,
+};
 use crate::offscreen::assets::{AssetError, Assets};
 use crate::offscreen::{Report, SPEC_CUBE0};
 
@@ -79,8 +81,9 @@ fn reflection(mode: ReflectionMode, custom: u64, skybox: u64) -> Environment {
 
 /// A world that blits a six by four target with the pass that reads `unity_SpecCube0` along the
 /// direction of each column, and the target.
-fn cube_world() -> (World, RenderTextureId) {
+fn cube_world(before: Commands<'_>) -> (World, RenderTextureId) {
     let mut world = world();
+    before(&mut world);
     let pass = shader(&mut world, "speccube");
     let blit = material(&mut world, pass);
     let source = render_texture(&mut world, [6, SIDE]);
@@ -109,7 +112,7 @@ fn read(mut world: World, out: RenderTextureId) -> (Vec<f32>, Report) {
 }
 
 fn with_environment(environment: Environment) -> (Vec<f32>, Report) {
-    let (mut world, out) = cube_world();
+    let (mut world, out) = cube_world(&|_| {});
     world.set_environment(environment).unwrap();
     let (pixels, report) = read(world, out);
     assert!(report.failures.is_empty(), "{:?}", report.failures);
@@ -169,7 +172,7 @@ fn a_scene_without_a_reflection_cube_reads_the_grey_cube_and_is_counted() {
 
 #[test]
 fn a_cube_the_host_does_not_hold_reads_the_grey_cube_and_is_counted() {
-    let (mut world, out) = cube_world();
+    let (mut world, out) = cube_world(&|_| {});
     let unstored = reflection(ReflectionMode::Custom, OTHER + 1, 0);
     world.set_environment(unstored).unwrap();
     let (read, report) = read(world, out);
@@ -184,11 +187,11 @@ fn other_cube() -> PropertyValue {
 
 #[test]
 fn a_cube_the_world_sets_as_a_global_replaces_the_scenes() {
-    let (mut world, out) = cube_world();
+    // Written in an earlier take, the cube is in the state the frame starts from.
+    let (mut world, out) = cube_world(&|world| set_global_in_earlier_take(world, other_cube()));
     world
         .set_environment(reflection(ReflectionMode::Custom, CUBE, 0))
         .unwrap();
-    world.set_global_property(other_cube()).unwrap();
     let (pixels, report) = read(world, out);
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(pixels, columns(SIDE, &TOP));

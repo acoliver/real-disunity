@@ -3,10 +3,10 @@
 //! orders each write in front of the next offscreen record.
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_properties::*,
-    graphics_snapshot::*,
+    graphics_snapshot::*, with_native_world,
 };
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, OffscreenWork, PropertyValue, snapshot_wire,
+    GraphicsSnapshot, OffscreenWork, PropertyValue, ShaderProperties, snapshot_wire,
 };
 
 type Setter = unsafe extern "C" fn(u64, *const u8, u32, *const f32, u32) -> DisunityResult;
@@ -85,6 +85,15 @@ fn snapshot(world: u64) -> GraphicsSnapshot {
     snapshot_wire::decode(&bytes).unwrap()
 }
 
+/// The values of the world's global state. A snapshot replays from the state before its first
+/// write, so the writes of its own frame are ordered work and not part of that state.
+fn global_properties(world: u64) -> ShaderProperties {
+    with_native_world(world, |native| {
+        native.global_shader_state().properties.clone()
+    })
+    .unwrap()
+}
+
 fn vectors(floats: &[f32]) -> Vec<[f32; 4]> {
     floats
         .chunks_exact(4)
@@ -110,7 +119,7 @@ fn the_shader_setters_store_ordered_elements_in_the_global_state() {
     ] {
         assert_eq!(call(setter, world, "_Arr", count, values).code, 0);
     }
-    let state = snapshot(world).global.unwrap().properties;
+    let state = global_properties(world);
     assert_eq!(state.vector_array("_Arr"), Some(vectors(&vector_values)));
     assert_eq!(state.matrix_array("_Arr"), Some(matrices(&matrix_values)));
     let held = state.matrix_array("_Arr").unwrap();
@@ -126,10 +135,14 @@ fn array_writes_are_ordered_in_front_of_the_next_record_with_their_last_value() 
     assert_eq!(call(SETTERS[1].0, world, "_Arr", 1, &second).code, 0);
     assert_eq!(call(SETTERS[0].0, world, "_Arr", 5, &third).code, 0);
 
+    let held = global_properties(world);
+    assert_eq!(held.vector_array("_Arr"), Some(vectors(&third)));
+    assert_eq!(held.matrix_array("_Arr"), Some(matrices(&second)));
     let snapshot = snapshot(world);
-    let global = snapshot.global.unwrap().properties;
-    assert_eq!(global.vector_array("_Arr"), Some(vectors(&third)));
-    assert_eq!(global.matrix_array("_Arr"), Some(matrices(&second)));
+    // The replay starts from the state before the writes, which the ordered work carries.
+    let start = snapshot.global.unwrap().properties;
+    assert_eq!(start.vector_array("_Arr"), None);
+    assert_eq!(start.matrix_array("_Arr"), None);
     assert_eq!(snapshot.work.len(), 3, "two ordered values and the blit");
     let expected = [
         PropertyValue::VectorArray("_Arr".into(), vectors(&third)),
@@ -288,7 +301,7 @@ fn the_input_is_copied_before_the_call_returns() {
     drop((vector_values, matrix_values));
 
     let state = snapshot(world);
-    let global = state.global.unwrap().properties;
+    let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(expected_vectors));
     // Both arrays are ordered ahead of the blit that took the snapshot.
     let held = state
@@ -308,6 +321,6 @@ fn a_replacement_through_the_shader_setter_drops_the_old_tail() {
     assert_eq!(call(SETTERS[0].0, world, "_V", 6, &floats_of(6, 4)).code, 0);
     let short = floats_of(2, 4);
     assert_eq!(call(SETTERS[0].0, world, "_V", 2, &short).code, 0);
-    let global = snapshot(world).global.unwrap().properties;
+    let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(vectors(&short)));
 }

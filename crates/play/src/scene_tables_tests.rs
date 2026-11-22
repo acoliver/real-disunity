@@ -465,6 +465,21 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
 }
 
 #[test]
+fn the_slots_after_the_first_are_not_drawn_and_the_census_counts_them() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut view = object(1, 100, at(0., 0., 0.));
+    view.slots = vec![slot([1., 0., 0., 1.], 0), slot([0., 0., 1., 1.], 5)];
+    let first = update(&mut tables, &[view], &content(&[100]));
+    let id = adds(&first)[0];
+    assert_eq!(
+        tint_of(&first, id),
+        [1_000_000, 0, 0],
+        "slot 0 tints the object"
+    );
+    assert_eq!(tables.census().slots_not_drawn, 1);
+}
+
+#[test]
 fn an_object_without_material_slots_draws_white_and_untinted() {
     let mut tables = SceneTables::new().unwrap();
     let mut view = object(1, 100, at(0., 0., 0.));

@@ -1,8 +1,10 @@
 //! Counts what the retained viewer draws in place of what the game asked for.
 //!
 //! A mesh renderer whose first material slot has no texture the viewer can use draws with the
-//! 1x1 white texture, and a renderer whose mesh has not arrived is left out of the window. Both
-//! happen silently, so the tables count them each frame and the run report says how many.
+//! 1x1 white texture, a renderer whose mesh has not arrived is left out of the window, and a
+//! renderer's slots after the first are not drawn, because the viewer's object holds one material.
+//! All three happen silently, so the tables count them each frame and the run report says how
+//! many.
 
 use std::collections::BTreeMap;
 
@@ -67,6 +69,7 @@ pub struct FrameCensus {
     drawn: usize,
     white: BTreeMap<WhiteReason, usize>,
     left_out: BTreeMap<LeftOut, usize>,
+    slots_not_drawn: usize,
 }
 
 impl FrameCensus {
@@ -76,6 +79,11 @@ impl FrameCensus {
         if let Some(reason) = white {
             *self.white.entry(reason).or_default() += 1;
         }
+    }
+
+    /// Counts the material slots of a drawn renderer that the frame does not draw.
+    pub fn slots_not_drawn(&mut self, slots: usize) {
+        self.slots_not_drawn += slots;
     }
 
     /// Counts a renderer the frame leaves out.
@@ -96,6 +104,9 @@ pub struct SubstitutionCensus {
     pub most_in_one_frame: BTreeMap<WhiteReason, usize>,
     /// The renderers the last frame left out, by reason.
     pub left_out: BTreeMap<LeftOut, usize>,
+    /// The material slots after the first, over the renderers the last frame drew, which the
+    /// viewer does not draw.
+    pub slots_not_drawn: usize,
 }
 
 /// `counts` under the names `label` gives their keys, for the ranked lines.
@@ -119,6 +130,7 @@ impl SubstitutionCensus {
         self.drawn = frame.drawn;
         self.last_frame = frame.white;
         self.left_out = frame.left_out;
+        self.slots_not_drawn = frame.slots_not_drawn;
     }
 
     /// The report lines for the census, without the `[gpu] ` prefix. A reason with no renderers
@@ -149,6 +161,12 @@ impl SubstitutionCensus {
                 .iter()
                 .filter_map(|(title, counts)| top_counts_line(title, counts, REASONS)),
         );
+        if self.slots_not_drawn > 0 {
+            lines.push(format!(
+                "retained renderer material slots not drawn (last frame) {}",
+                self.slots_not_drawn
+            ));
+        }
         lines
     }
 }

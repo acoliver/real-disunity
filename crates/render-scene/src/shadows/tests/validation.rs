@@ -8,7 +8,8 @@ fn gpu_unsupported_effect_update_preserves_the_active_profile() {
     let source = with_effects(sun_z());
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let before = retained_image(&context, &mut renderer, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(worldrunner_render_plan::SceneSsao {
         receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
@@ -25,7 +26,10 @@ fn gpu_unsupported_effect_update_preserves_the_active_profile() {
         renderer.set_effects(&SceneEffects::new(parts).unwrap()),
         Err(ShadowError::Frame(FrameError::UnsupportedEffect("SSAO")))
     ));
-    assert_eq!(before, retained_image(&context, &mut renderer, &mut target));
+    assert_eq!(
+        before,
+        retained_image(&context, &mut renderer, &mut scheduler, &mut target)
+    );
 }
 
 fn translated_fit() -> DirectionalShadowSettings {
@@ -98,9 +102,10 @@ fn gpu_construction_rejects_invalid_active_light_fit() {
 fn retained_image(
     context: &GpuContext,
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     target: &mut OffscreenTarget,
 ) -> RgbaImage {
-    render_target(renderer, context, &view(), target).unwrap();
+    render_target(renderer, scheduler, context, &view(), target).unwrap();
     target.read_rgba8(context).unwrap()
 }
 
@@ -110,7 +115,8 @@ fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
     let context = context();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut renderer = ShadowedScene::new(&context, &with_effects(sun_x()), settings()).unwrap();
-    let before = retained_image(&context, &mut renderer, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
     assert!(matches!(
         renderer.set_settings(
             &context,
@@ -122,14 +128,20 @@ fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
         Err(ShadowError::InvalidSettings)
     ));
     assert_eq!(renderer.settings, settings());
-    assert_eq!(before, retained_image(&context, &mut renderer, &mut target));
+    assert_eq!(
+        before,
+        retained_image(&context, &mut renderer, &mut scheduler, &mut target)
+    );
 
     let mut renderer =
         ShadowedScene::new(&context, &with_effects(sun_z()), translated_fit()).unwrap();
-    let before = retained_image(&context, &mut renderer, &mut target);
+    let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
     assert!(matches!(
         renderer.set_effects(&sun_x()),
         Err(ShadowError::InvalidSettings)
     ));
-    assert_eq!(before, retained_image(&context, &mut renderer, &mut target));
+    assert_eq!(
+        before,
+        retained_image(&context, &mut renderer, &mut scheduler, &mut target)
+    );
 }

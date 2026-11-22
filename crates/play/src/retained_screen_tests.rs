@@ -2,9 +2,8 @@
 //! into covers the stock scene, with no copy through the CPU.
 //!
 //! The tests play the portable screen fixture, whose script clears the screen to yellow with a
-//! command buffer, so the window shows that frame with the offscreen work on a device, and the
-//! same run without GPU work. They need a GPU adapter (lavapipe in CI), and the colours use the
-//! channel values 0 and 1, which stay the same through every colour-space encoding. Which way up
+//! command buffer, so the window shows that frame. They need a GPU adapter (lavapipe in CI), and
+//! the colours use the channel values 0 and 1, which stay the same through every colour-space encoding. Which way up
 //! the screen shows and that the UI draws over it are the viewer's and compositor's tests.
 
 use super::ui_tests::{fixture_config, fixture_turn};
@@ -14,14 +13,15 @@ use std::{path::PathBuf, time::Instant};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_scene_viewer::SharedGpu;
 
+use crate::GpuLaunch;
+use crate::PreparedPlayer;
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
-use crate::{DepthRange, PreparedPlayer};
 
 const SIZE: u32 = 64;
 const YELLOW: [u8; 3] = [255, 255, 0];
 
-fn window(gpu_work: GpuWork, capture_frames: &[u64]) -> PlayerWindow {
+fn window(capture_frames: &[u64]) -> PlayerWindow {
     PlayerWindow {
         title: "windowless screen".into(),
         size: [SIZE, SIZE],
@@ -29,42 +29,30 @@ fn window(gpu_work: GpuWork, capture_frames: &[u64]) -> PlayerWindow {
         max_frames: None,
         capture_frames: capture_frames.iter().copied().collect(),
         keys: vec![],
-        gpu_work,
     }
 }
 
-/// Runs `frames` updates of `driver` in the windowless viewer, on `shared`'s device when the
-/// player works on one, and waits for its captures. Returns how many submissions each update's
-/// frame made through the authority of that device.
+/// Runs `frames` updates of `driver` in the windowless viewer, on `gpu`'s device, and waits for
+/// its captures. Returns how many submissions each update's frame made through `authority`, the
+/// authority of that device.
 fn run_frames(
     viewer: RetainedHost,
     driver: &mut PlayerRetainedDriver,
     frames: u64,
-    shared: Option<(SharedGpu, SubmissionAuthority)>,
+    (gpu, authority): (SharedGpu, SubmissionAuthority),
 ) -> Vec<u64> {
-    let (gpu, authority) = shared.unzip();
-    let mut run = match gpu {
-        Some(gpu) => viewer.windowless_on(driver, gpu),
-        None => viewer.windowless_on(driver, SharedGpu::headless_for_test()),
-    }
-    .unwrap();
+    let mut run = viewer.windowless(driver, Some(gpu)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     let mut submissions = Vec::new();
     for _ in 0..frames {
-        let before = authority
-            .as_ref()
-            .map(SubmissionAuthority::submitted_serial);
+        let before = authority.submitted_serial();
         while !run.frame().unwrap() {
             assert!(Instant::now() < deadline, "frame admission timed out");
             run.poll().unwrap();
             std::thread::yield_now();
         }
         run.poll().unwrap();
-        submissions.extend(
-            before
-                .zip(authority.as_ref())
-                .map(|(before, authority)| authority.submitted_serial() - before),
-        );
+        submissions.push(authority.submitted_serial() - before);
     }
     while run.poll().unwrap() {
         assert!(Instant::now() < deadline, "capture timed out");
@@ -82,46 +70,30 @@ fn capture_of(driver: &PlayerRetainedDriver, frame: u64) -> &Capture {
         .unwrap_or_else(|| panic!("no capture of frame {frame}"))
 }
 
-/// Plays the screen fixture in a window for four updates, capturing the first and last, with the GPU work
-/// the window asks for. Returns the driver after the run and the submissions each update made.
-fn play_screen_fixture(gpu_work: GpuWork) -> (PlayerRetainedDriver, Vec<u64>) {
+/// Plays the screen fixture in a window for four updates, capturing the first and last. Returns the
+/// driver after the run and the submissions each update made.
+fn play_screen_fixture() -> (PlayerRetainedDriver, Vec<u64>) {
     let data = tempfile::tempdir().unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let prepared = PreparedPlayer {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/screen.fixture"),
         data: data.path().to_owned(),
-        depth: DepthRange::default(),
-        globals: Vec::new(),
+        gpu: GpuLaunch::default(),
     };
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(
-        gpu_work,
-        &prepared.data,
-        prepared.depth,
-        &prepared.globals,
-        &mut source,
-    );
-    assert_eq!(
-        gpu.is_some(),
-        gpu_work == GpuWork::Auto,
-        "the test needs a GPU adapter"
-    );
-    let shared = gpu.is_some().then(|| (source.authority(), source.gpu));
-    let (viewer, mut driver) = start_window(&prepared, window(gpu_work, &[0, 3]), gpu).unwrap();
-    let submissions = run_frames(
-        viewer,
-        &mut driver,
-        4,
-        shared.map(|(authority, gpu)| (gpu, authority)),
-    );
+    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
+        .expect("the test needs a GPU adapter");
+    let authority = source.authority();
+    let (viewer, mut driver) = start_window(&prepared, window(&[0, 3]), gpu).unwrap();
+    let submissions = run_frames(viewer, &mut driver, 4, (source.gpu, authority));
     (driver, submissions)
 }
 
 #[test]
 fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
     let _turn = fixture_turn();
-    let (driver, submissions) = play_screen_fixture(GpuWork::Auto);
+    let (driver, submissions) = play_screen_fixture();
 
     for frame in [0, 3] {
         let capture = capture_of(&driver, frame);
@@ -131,7 +103,7 @@ fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
             }
         }
     }
-    let gpu = driver.gpu.as_ref().unwrap();
+    let gpu = &driver.gpu;
     let screen = gpu
         .game_screen()
         .expect("the screen is offered to the viewer");
@@ -160,20 +132,12 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/resize-flush.fixture"),
         data: data.path().to_owned(),
-        depth: DepthRange::default(),
-        globals: Vec::new(),
+        gpu: GpuLaunch::default(),
     };
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(
-        GpuWork::Auto,
-        &prepared.data,
-        prepared.depth,
-        &prepared.globals,
-        &mut source,
-    );
-    assert!(gpu.is_some(), "the test needs a GPU adapter");
-    let (mut viewer, mut driver) =
-        start_window(&prepared, window(GpuWork::Auto, &[]), gpu).unwrap();
+    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
+        .expect("the test needs a GPU adapter");
+    let (mut viewer, mut driver) = start_window(&prepared, window(&[]), gpu).unwrap();
 
     let resized = [SIZE * 2, SIZE];
     viewer.input(RetainedInput::Resized(resized));
@@ -190,8 +154,6 @@ fn first_update_after_resize_flushes_into_resized_screen() {
 
     let screen = driver
         .gpu
-        .as_ref()
-        .unwrap()
         .game_screen()
         .expect("the first update's readback flush must write the resized screen");
     assert_eq!(
@@ -203,13 +165,4 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         screen.submitted(),
         "the managed readback flushed the screen write"
     );
-}
-
-#[test]
-fn without_gpu_work_the_window_has_no_image_of_the_screen() {
-    let _turn = fixture_turn();
-    let (driver, _) = play_screen_fixture(GpuWork::Off);
-
-    assert!(driver.gpu.is_none());
-    assert_ne!(capture_of(&driver, 3).rgb(0, 0), YELLOW);
 }

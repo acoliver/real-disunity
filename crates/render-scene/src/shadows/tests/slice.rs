@@ -53,13 +53,13 @@ fn caster_instances(renderer: &ShadowedScene) -> usize {
 /// Renders `view` and returns the image and the caster instances drawn into the cascades.
 fn render(
     context: &GpuContext,
-    renderer: &mut ShadowedScene,
+    (renderer, scheduler): (&mut ShadowedScene, &mut crate::compositor::FrameRenderer),
     view: &SceneView,
     unculled: bool,
 ) -> (crate::offscreen::RgbaImage, usize) {
     crate::draw::UNCULLED_CASCADES.set(unculled);
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    render_target(renderer, context, view, &target).unwrap();
+    render_target(renderer, scheduler, context, view, &target).unwrap();
     crate::draw::UNCULLED_CASCADES.set(false);
     (
         target.read_rgba8(context).unwrap(),
@@ -73,11 +73,18 @@ fn gpu_slice_culling_keeps_cascade_images_and_drops_casters_outside_the_slice() 
     let context = context();
     let source = wide_scene();
     let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut culled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut unculled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for target in TARGETS {
         let view = turned_view(target);
-        let (image, kept) = render(&context, &mut culled, &view, false);
-        let (reference, all) = render(&context, &mut unculled, &view, true);
+        let (image, kept) = render(&context, (&mut culled, &mut culled_scheduler), &view, false);
+        let (reference, all) = render(
+            &context,
+            (&mut unculled, &mut unculled_scheduler),
+            &view,
+            true,
+        );
         assert!(
             image == reference,
             "slice culling changed the image at {target:?}"
@@ -105,12 +112,24 @@ fn gpu_retained_cascades_refresh_when_the_camera_turns_out_of_their_slice() {
         ..settings()
     };
     let mut retained = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut retained_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut unculled = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut kept = 0;
     for north in [0, 40, 400, 1_500, 4_000] {
         let view = moved_view([0, north - 8_000, 3_000], [0, north + 4_000, 0]);
-        let (image, _) = render(&context, &mut retained, &view, false);
-        let (reference, _) = render(&context, &mut unculled, &view, true);
+        let (image, _) = render(
+            &context,
+            (&mut retained, &mut retained_scheduler),
+            &view,
+            false,
+        );
+        let (reference, _) = render(
+            &context,
+            (&mut unculled, &mut unculled_scheduler),
+            &view,
+            true,
+        );
         assert!(
             image == reference,
             "a retained cascade missed casters at {north} mm"
@@ -182,17 +201,29 @@ fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
     let context = context();
     let source = terrain_source();
     let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut culled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut unculled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for target in TARGETS {
         let view = turned_view(target);
         // Streaming refines over several frames; compare once both renderers have settled.
         for _ in 0..3 {
-            render(&context, &mut culled, &view, false);
-            render(&context, &mut unculled, &view, true);
+            render(&context, (&mut culled, &mut culled_scheduler), &view, false);
+            render(
+                &context,
+                (&mut unculled, &mut unculled_scheduler),
+                &view,
+                true,
+            );
         }
-        let (image, _) = render(&context, &mut culled, &view, false);
+        let (image, _) = render(&context, (&mut culled, &mut culled_scheduler), &view, false);
         let kept = terrain_draws(&mut culled);
-        let (reference, _) = render(&context, &mut unculled, &view, true);
+        let (reference, _) = render(
+            &context,
+            (&mut unculled, &mut unculled_scheduler),
+            &view,
+            true,
+        );
         let all = terrain_draws(&mut unculled);
         assert!(
             image == reference,
@@ -207,12 +238,12 @@ fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
 
 fn terrain_calls_per_cascade(
     context: &GpuContext,
-    renderer: &mut ShadowedScene,
+    (renderer, scheduler): (&mut ShadowedScene, &mut crate::compositor::FrameRenderer),
     view: &SceneView,
     camera_casters: bool,
 ) -> (crate::offscreen::RgbaImage, Vec<u64>) {
     crate::draw::CAMERA_CASTERS.set(camera_casters);
-    let (image, _) = render(context, renderer, view, false);
+    let (image, _) = render(context, (&mut *renderer, scheduler), view, false);
     crate::draw::CAMERA_CASTERS.set(false);
     let calls = renderer
         .scene_mut()
@@ -236,14 +267,18 @@ fn gpu_far_cascades_cast_fewer_terrain_chunks_than_the_camera_draws() {
         ..settings()
     };
     let mut own = ShadowedScene::new(&context, &source, small).unwrap();
+    let mut own_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut camera = ShadowedScene::new(&context, &source, small).unwrap();
+    let mut camera_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let view = turned_view(TARGETS[0]);
     for _ in 0..4 {
-        terrain_calls_per_cascade(&context, &mut own, &view, false);
-        terrain_calls_per_cascade(&context, &mut camera, &view, true);
+        terrain_calls_per_cascade(&context, (&mut own, &mut own_scheduler), &view, false);
+        terrain_calls_per_cascade(&context, (&mut camera, &mut camera_scheduler), &view, true);
     }
-    let (image, own_calls) = terrain_calls_per_cascade(&context, &mut own, &view, false);
-    let (reference, camera_calls) = terrain_calls_per_cascade(&context, &mut camera, &view, true);
+    let (image, own_calls) =
+        terrain_calls_per_cascade(&context, (&mut own, &mut own_scheduler), &view, false);
+    let (reference, camera_calls) =
+        terrain_calls_per_cascade(&context, (&mut camera, &mut camera_scheduler), &view, true);
     assert!(
         own_calls[3] < camera_calls[3],
         "the far cascade casts the camera's chunks: {own_calls:?} against {camera_calls:?}"

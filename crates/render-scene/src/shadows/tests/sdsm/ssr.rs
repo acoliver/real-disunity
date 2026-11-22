@@ -118,7 +118,13 @@ fn render_frames(context: &GpuContext, source: &RenderScene) {
     .unwrap();
     for source_frame in 0..6 {
         let fit = renderer
-            .render_depth_fitted_with(context, &view, (&color, &depth), source_frame, &mut frame)
+            .render_depth_fitted_host(
+                context,
+                &view,
+                (&color, &depth),
+                (Some(source_frame), false, &[]),
+                &mut frame,
+            )
             .unwrap();
         context
             .device()

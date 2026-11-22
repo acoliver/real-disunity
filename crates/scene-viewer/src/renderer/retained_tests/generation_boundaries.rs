@@ -15,7 +15,7 @@ fn capture_hold_keeps_queued_fitting_disable_from_admitting_offscreen_work() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     host.request_capture(0).unwrap();
     host.apply(RetainedUpdate::Settings(Box::new(
         source().effects().unwrap().clone(),
@@ -55,7 +55,7 @@ fn offscreen_work_added_between_accumulated_samples_is_rejected_while_fitted() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let recipe = RetainedCaptureRecipe::new(
         1,
         2,

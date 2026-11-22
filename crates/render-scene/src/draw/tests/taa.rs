@@ -84,8 +84,7 @@ fn encode_scene_refuses_a_host_depth_that_is_not_the_frame_depth_before_changing
     let host = foreign_depth(&context);
     let depth = attachment("scene depth", &host);
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let result = crate::compositor::encode_scene(
-        &mut taa,
+    let result = taa.encoding().encode_scene(
         context.device(),
         &mut encoder,
         (&mut gpu, &pipelines),

@@ -602,7 +602,7 @@ impl Resident {
         let (color, depth) = targets
             .scene_attachments()
             .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        scheduler.render_depth_fitted_terms(context, view, (color, depth), frame, scene)?;
+        scheduler.render_depth_fitted(context, view, (color, depth), frame, scene)?;
         Ok(true)
     }
     fn render(

@@ -19,7 +19,7 @@ fn dependency_validation_uses_the_requested_generations_page_policy() {
 fn already_resident_generation_dependency_captures_its_first_frame() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = paged_host().windowless(&mut driver).unwrap();
+    let mut run = paged_host().windowless(&mut driver, None).unwrap();
     let warm = run.host_mut().request_capture_with_pages(0).unwrap();
     finish(&mut run, &events, warm);
     let next = run.session.frame;
@@ -114,7 +114,7 @@ fn camera_jump_page_capture_waits_and_matches_first_resident_and_warm_frames() {
             eye_millimeters: [100_000, 100_000, 2000],
             target_millimeters: [100_000, 102_000, 0],
         };
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         run.frame().unwrap();
         run.renderer.drain().unwrap();
         run.poll().unwrap();
@@ -153,7 +153,7 @@ fn waiting_page_dependency_preserves_bounds_and_shutdown_cancellation() {
         let events = driver.events.clone();
         let mut host = paged_host().with_capture_limit(1).unwrap();
         host.readiness.limit = 1;
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         jump(&mut run, true);
         let id = run.host_mut().request_capture_with_pages(1).unwrap();
         run.frame().unwrap();
@@ -212,7 +212,7 @@ fn recipes_share_page_dependency_admission_and_accumulation_waits_for_residency(
     for (factor, samples) in [(1, 1), (1, 2), (2, 2)] {
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = paged_host().windowless(&mut driver).unwrap();
+        let mut run = paged_host().windowless(&mut driver, None).unwrap();
         let recipe = crate::RetainedCaptureRecipe::new(
             factor,
             samples,
@@ -279,7 +279,7 @@ fn streamed_accumulation_combines_geometry_and_page_dependencies() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(source.with_terrain(Some(Arc::new(terrain))).unwrap())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let recipe = crate::RetainedCaptureRecipe::new(
         2,
@@ -313,7 +313,7 @@ fn streamed_accumulation_combines_geometry_and_page_dependencies() {
 fn observations_freeze_selected_page_readiness_at_capture_submission() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = paged_host().windowless(&mut driver).unwrap();
+    let mut run = paged_host().windowless(&mut driver, None).unwrap();
     let id = run.host_mut().request_capture(0).unwrap();
     run.frame().unwrap();
     let first = *run.host().statistics().unwrap();

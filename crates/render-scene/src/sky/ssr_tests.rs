@@ -80,8 +80,7 @@ fn render(reflections: bool, velocity: bool) -> Vec<u8> {
     context
         .submission()
         .prepare(device, |encoder, _| {
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 device,
                 encoder,
                 (&mut gpu, &selected),

@@ -86,15 +86,16 @@ impl Fixture {
             .submission()
             .begin(self.context.device())
             .unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            self.context.device(),
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            frame_from(pose()),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                self.context.device(),
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                frame_from(pose()),
+            )
+            .unwrap();
         if submit {
             encoder.finish().submit().unwrap();
         }

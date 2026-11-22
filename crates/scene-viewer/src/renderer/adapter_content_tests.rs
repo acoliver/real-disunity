@@ -18,7 +18,7 @@ fn supplier_ssr_parameters_publish_without_rebuilding_after_startup() {
         })
     })
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert!(renderer.render_retained(&mut host).unwrap());
     let effects = host.scene().effects().unwrap().clone();
     let next = effects
@@ -148,7 +148,7 @@ fn selected_invalid_shadows_fail_before_device_creation() {
     })
     .unwrap();
     assert!(matches!(
-        pollster::block_on(super::windowless::windowless_context_with(&mut host, None)),
+        pollster::block_on(super::windowless::windowless_context(&mut host, None)),
         Err(crate::ViewerError::Shadow(_))
     ));
 }
@@ -174,7 +174,7 @@ fn supplier_first_residency_uses_selected_content_frame_and_shadows() {
         })
     })
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert_eq!(
         *observed.lock().unwrap(),
         vec![renderer.context.adapter_identity()]
@@ -233,7 +233,7 @@ fn supplier_selected_scene_determines_required_features_before_preparation() {
         })
     })
     .unwrap();
-    let result = pollster::block_on(super::windowless::windowless_context_with(&mut host, None));
+    let result = pollster::block_on(super::windowless::windowless_context(&mut host, None));
     let (_, context) = result.unwrap();
     assert!(
         context

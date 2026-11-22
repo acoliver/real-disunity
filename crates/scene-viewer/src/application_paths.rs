@@ -16,13 +16,10 @@ pub enum ApplicationPathError {
 /// start with a letter or digit, contain no ".." and do not end in '.'.
 /// Lowercase-only names keep distinct identifiers separate on case-insensitive volumes.
 /// Invalid identifiers return [`ApplicationPathError::InvalidIdentifier`].
-pub fn application_root(identifier: &str) -> Result<PathBuf, ApplicationPathError> {
-    application_root_with(identifier, std::env::consts::OS, |name| {
-        std::env::var_os(name)
-    })
-}
-
-fn application_root_with(
+///
+/// `platform` is a `std::env::consts::OS` value and `environment` looks up variables, so the
+/// result for any platform can be computed on any host. Pass `std::env::var_os` for the real one.
+pub fn application_root(
     identifier: &str,
     platform: &str,
     environment: impl Fn(&str) -> Option<OsString>,
@@ -72,7 +69,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    application_root_with(identifier, "linux", |_| None),
+                    application_root(identifier, "linux", |_| None),
                     Err(ApplicationPathError::InvalidIdentifier)
                 ),
                 "accepted invalid identifier {identifier:?}"
@@ -93,7 +90,7 @@ mod tests {
             &longest,
         ] {
             assert_eq!(
-                application_root_with(identifier, "linux", |_| {
+                application_root(identifier, "linux", |_| {
                     Some(OsString::from("/synthetic-base"))
                 })
                 .unwrap(),
@@ -106,8 +103,8 @@ mod tests {
     fn distinct_applications_have_distinct_roots_on_every_platform() {
         for platform in ["macos", "linux", "windows"] {
             let env = |_: &str| Some(OsString::from("/synthetic-home"));
-            let first = application_root_with("org.acoliver.chess3d", platform, env).unwrap();
-            let second = application_root_with("org.acoliver.chess2d", platform, env).unwrap();
+            let first = application_root("org.acoliver.chess3d", platform, env).unwrap();
+            let second = application_root("org.acoliver.chess2d", platform, env).unwrap();
             assert_ne!(first, second);
             assert_ne!(
                 first.to_string_lossy().to_lowercase(),
@@ -124,15 +121,15 @@ mod tests {
             _ => None,
         };
         assert_eq!(
-            application_root_with("org.acoliver.chess3d", "macos", env).unwrap(),
+            application_root("org.acoliver.chess3d", "macos", env).unwrap(),
             PathBuf::from("/home/test/Library/Application Support/org.acoliver.chess3d")
         );
         assert_eq!(
-            application_root_with("org.acoliver.chess3d", "linux", env).unwrap(),
+            application_root("org.acoliver.chess3d", "linux", env).unwrap(),
             PathBuf::from("/home/test/.local/share/org.acoliver.chess3d")
         );
         assert_eq!(
-            application_root_with("org.acoliver.chess3d", "windows", env).unwrap(),
+            application_root("org.acoliver.chess3d", "windows", env).unwrap(),
             PathBuf::from("C:\\data").join("org.acoliver.chess3d")
         );
     }
@@ -150,7 +147,7 @@ mod tests {
                 _ => None,
             };
             assert_eq!(
-                application_root_with("a", "linux", env).unwrap(),
+                application_root("a", "linux", env).unwrap(),
                 PathBuf::from(expected)
             );
         }
@@ -161,13 +158,13 @@ mod tests {
         for (platform, variable) in [("macos", "HOME"), ("linux", "HOME"), ("windows", "APPDATA")] {
             for value in [None, Some(OsString::new())] {
                 assert!(matches!(
-                    application_root_with("a", platform, |_| value.clone()),
+                    application_root("a", platform, |_| value.clone()),
                     Err(ApplicationPathError::MissingEnvironment(name)) if name == variable
                 ));
             }
         }
         assert!(matches!(
-            application_root_with("a", "other", |_| None),
+            application_root("a", "other", |_| None),
             Err(ApplicationPathError::UnsupportedPlatform(platform)) if platform == "other"
         ));
     }

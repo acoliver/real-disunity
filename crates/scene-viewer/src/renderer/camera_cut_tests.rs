@@ -48,7 +48,7 @@ fn setup_with_scene(
         ..crate::tests::options()
     };
     let mut host = RetainedHost::new(scene, options).unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     renderer.set_clock(host.options().render_clock);
     (renderer, host)
 }

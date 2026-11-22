@@ -93,11 +93,11 @@ fn gpu_same_frame_fitted_render_preserves_stored_and_lit_geometry() {
     assert_eq!(frame.ssao.as_ref().unwrap().depth, *depth.texture());
     let source_frame = 7;
     let fit = renderer
-        .render_depth_fitted_with(
+        .render_depth_fitted_host(
             &context,
             &view(),
             (&color, &depth),
-            source_frame,
+            (Some(source_frame), false, &[]),
             &mut frame,
         )
         .unwrap()

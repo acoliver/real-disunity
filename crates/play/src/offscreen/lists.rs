@@ -220,7 +220,7 @@ impl<'a> Mapper<'a> {
         match &self.script.camera {
             Some(setup) if !fills_target(setup.viewport) => Err(Skip::PartialViewport),
             Some(setup) => {
-                let mut values = view_layer(&setup.view, &setup.projection, self.settings.depth);
+                let mut values = view_layer(&setup.view, &setup.projection);
                 if let Some(size) = self.target_size() {
                     add_screen_size(&mut values, size);
                 }

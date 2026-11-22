@@ -96,7 +96,7 @@ impl RetainedHost {
         Ok(host)
     }
 
-    pub fn ready_generation(&self) -> u64 {
+    pub(crate) fn ready_generation(&self) -> u64 {
         self.readiness.ready
     }
 
@@ -104,7 +104,7 @@ impl RetainedHost {
         self.readiness.accepted
     }
 
-    pub fn preparations_in_flight(&self) -> usize {
+    pub(crate) fn preparations_in_flight(&self) -> usize {
         self.readiness.queue.len()
             + usize::from(self.readiness.page_wait || self.readiness.geometry_wait)
     }

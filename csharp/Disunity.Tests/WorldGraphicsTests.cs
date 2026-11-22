@@ -32,9 +32,9 @@ internal static unsafe class WorldGraphicsTests
             RendererSlotsAndBlocksReachTheWorld();
             Console.WriteLine("PASS: a mesh renderer sends the world material of each slot and its property block");
             SlotBlocksReachTheWorldPerMaterialIndex();
+            Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             SlotBlocksReachTheWorldUpToTheLastSlot();
             Console.WriteLine("PASS: a property block reaches its own slot up to index 63, and index 64 stays in managed memory");
-            Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             CameraRenderRecordsOffscreenWork();
             Console.WriteLine("PASS: Camera.Render with a target texture records CameraRender, and without one records nothing");
             BlitAndCopyRecordInOrder();

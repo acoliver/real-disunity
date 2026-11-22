@@ -64,7 +64,7 @@ fn a_screen_the_handed_operations_wrote_replaces_the_stock_scene_and_the_ui_draw
     let (operations, texture, _runtime) = screen_operations(&device, &authority);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     let baseline = super::capture(&mut run, &events).1;
     assert!(!all(&baseline, YELLOW), "the stock scene is not yellow");
 
@@ -109,7 +109,7 @@ fn a_screen_whose_writer_was_replaced_before_any_frame_took_it_is_not_shown() {
     let (replacement, image, _second) = clearing_operations(&device, &authority);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     let baseline = super::capture(&mut run, &events).1;
 
     run.host_mut()
@@ -137,7 +137,7 @@ fn a_new_allocation_starts_without_contents_and_shows_the_stock_scene() {
     let (operations, texture, _runtime) = screen_operations(&device, &authority);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     let baseline = super::capture(&mut run, &events).1;
     run.host_mut()
         .show_game_screen(Some(GameScreen::new(texture, false).unwrap()));
@@ -162,7 +162,7 @@ fn a_screen_the_handed_operations_did_not_export_is_not_marked_written() {
     let unwritten = blank(&device, 8);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     let baseline = super::capture(&mut run, &events).1;
 
     run.host_mut()
@@ -186,7 +186,7 @@ fn work_exporting_a_withdrawn_screen_runs_in_a_stock_frame() {
     let (operations, texture, _runtime) = screen_operations(&device, &authority);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     let baseline = super::capture(&mut run, &events).1;
 
     run.host_mut()
@@ -230,7 +230,7 @@ fn contents_the_host_submitted_itself_are_shown_by_a_frame_with_no_writer() {
     fill_yellow(&device, &authority, &texture);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
 
     run.host_mut()
         .show_game_screen(Some(GameScreen::new(texture, true).unwrap()));
@@ -258,7 +258,7 @@ fn a_submitted_screen_replaces_the_depth_fitted_stock_scene() {
     host.show_game_screen(Some(GameScreen::new(texture, true).unwrap()));
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host.windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host.windowless(&mut driver, Some(gpu)).unwrap();
 
     let image = super::capture(&mut run, &events).1;
     run.shutdown().unwrap();
@@ -271,7 +271,7 @@ fn an_ordinary_frame_that_shows_the_screen_is_one_submission_and_no_readback() {
     let (gpu, device, authority) = shared();
     let (operations, texture, _runtime) = screen_operations(&device, &authority);
     let mut driver = Driver::default();
-    let mut run = host(scene()).windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host(scene()).windowless(&mut driver, Some(gpu)).unwrap();
     run.host_mut()
         .show_game_screen(Some(GameScreen::new(texture, false).unwrap()));
     run.host_mut().admit_offscreen(operations);

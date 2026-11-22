@@ -30,6 +30,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let before = uniforms(&context, &renderer);
     assert_eq!(renderer.gpu.current_frame(), None);
@@ -47,7 +48,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
             &view(),
             (&color, &target.depth_attachment()),
             &mut encoder,
-            None,
+            &mut scheduler,
         ),
         Err(ShadowError::Schedule(ScheduleError::AttachmentContract(entry)))
             if entry == PassEntry::new(PassSlot::Opaque)
@@ -115,20 +116,21 @@ fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
     );
     let color = AttachmentView::new(ResourceRef::new("scene color"), &wrong).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     assert!(
         renderer
-            .encode(
+            .encode_with(
                 &context,
                 &view(),
-                &color,
-                &target.depth_attachment(),
-                &mut encoder
+                (&color, &target.depth_attachment()),
+                &mut encoder,
+                &mut scheduler
             )
             .is_err()
     );
     encoder.finish().submit().unwrap();
     assert_eq!(renderer.map.depth.layers(), 1);
     assert_eq!(uniforms(&context, &renderer), before);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(renderer.map.depth.layers(), 4);
 }

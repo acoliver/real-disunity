@@ -7,7 +7,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use super::camera::{CAMERA, LEFT, TARGET, halves};
 use super::rig::Rig;
 
-const OPAQUE: &str = "cull None, depth test LessEqual write true, color mask RGBA, blend off";
+const OPAQUE: &str = "cull None, depth test GreaterEqual write true, color mask RGBA, blend off";
 
 #[test]
 fn a_camera_reports_its_targets_formats_and_the_state_of_the_draws_it_recorded() {

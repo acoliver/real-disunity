@@ -79,10 +79,8 @@ pub struct Report {
     /// The camera draws that read a constant for a vertex channel their mesh lacks, by
     /// `channel C for input I as FORMAT`. These draws are recorded; they are not failures.
     pub defaulted_channels: BTreeMap<String, usize>,
-    /// The camera draws that read the grey default for a texture property no layer set and the
-    /// shader does not declare, by the property. These draws are recorded; they are not failures.
-    pub undeclared_defaults: BTreeMap<String, usize>,
-    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    /// The texture properties that named no texture the frame can read and read no stand-in, by
+    /// `name: reason`. A property that reads a stand-in is counted in `stand_ins`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, by property and reason.
     pub stand_ins: StandInCounts,
@@ -197,9 +195,6 @@ impl Report {
         for entry in operations.missing_buffer_draws() {
             *self.missing_buffers.entry(entry.buffer).or_default() += entry.draws;
         }
-        for entry in operations.undeclared_default_draws() {
-            *self.undeclared_defaults.entry(entry.texture).or_default() += entry.draws;
-        }
         self.stand_ins.draws += operations.draws_with_stand_ins();
         for entry in operations.stand_in_draws() {
             let name = format!("{} {}", entry.texture, entry.reason);
@@ -253,14 +248,10 @@ impl Report {
         }
     }
 
-    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
-    pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
-        self.fail_with(kind, None, error);
-    }
-
-    /// As [`fail`](Self::fail), with the first example of the cause led by `note` when there is
-    /// one, such as the shader and pass of the record that failed.
-    pub fn fail_with(&mut self, kind: &str, note: Option<&str>, error: &(impl Debug + Display)) {
+    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it. The
+    /// first example of the cause is led by `note` when there is one, such as the shader and pass
+    /// of the record that failed.
+    pub fn fail(&mut self, kind: &str, note: Option<&str>, error: &(impl Debug + Display)) {
         let name = format!("{kind}:{}", variant_name(error));
         *self.failures.entry(name).or_default() += 1;
         let cause = format!("{kind}:{}", variant_chain(error));
@@ -341,9 +332,6 @@ impl Report {
         }
         for (name, count) in other.defaulted_channels {
             *self.defaulted_channels.entry(name).or_default() += count;
-        }
-        for (name, count) in other.undeclared_defaults {
-            *self.undeclared_defaults.entry(name).or_default() += count;
         }
         self.stand_ins.add(&other.stand_ins);
     }

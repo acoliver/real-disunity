@@ -130,7 +130,17 @@ fn assert_grey(found: &[f32]) {
 }
 
 fn counted_as_undeclared(report: &Report) -> BTreeMap<String, usize> {
-    report.undeclared_defaults.clone()
+    report
+        .stand_ins
+        .by_property
+        .iter()
+        .filter(|(name, _)| name.ends_with(" undeclared"))
+        .map(|(name, count)| (name.clone(), *count))
+        .collect()
+}
+
+fn undeclared_key(property: &str) -> String {
+    format!("{property} undeclared")
 }
 
 #[test]
@@ -163,9 +173,12 @@ fn a_scene_without_a_reflection_cube_reads_the_grey_cube_and_is_counted() {
         let (read, report) = with_environment(environment);
         assert_grey(&read);
         assert!(
-            report.undeclared_defaults.contains_key(SPEC_CUBE0),
+            report
+                .stand_ins
+                .by_property
+                .contains_key(&undeclared_key(SPEC_CUBE0)),
             "{:?}",
-            report.undeclared_defaults
+            report.stand_ins
         );
     }
 }
@@ -177,7 +190,10 @@ fn a_cube_the_host_does_not_hold_reads_the_grey_cube_and_is_counted() {
     world.set_environment(unstored).unwrap();
     let (read, report) = read(world, out);
     assert_grey(&read);
-    assert!(report.undeclared_defaults.contains_key(SPEC_CUBE0));
+    assert_eq!(
+        report.stand_ins.by_property,
+        BTreeMap::from([(format!("{SPEC_CUBE0} exists-not-loaded"), 1)])
+    );
     assert_eq!(report.failures.get("texture:NotStored"), Some(&1));
 }
 

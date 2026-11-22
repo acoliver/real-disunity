@@ -713,8 +713,8 @@ pub(crate) fn attachment(
 }
 
 pub use depth_prefix::StockDepthPrefix;
-pub(crate) use scene::{SceneFeature, declare_velocity};
-pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
+pub(crate) use scene::{ColorDepth, SceneFeature, declare_velocity};
+pub use scene::{StockSceneFeature, prepare_stock_scene};
 mod scene;
 
 #[cfg(test)]

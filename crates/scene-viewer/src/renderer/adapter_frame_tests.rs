@@ -28,7 +28,7 @@ fn adapter_frame_windowless_targets_use_selected_samples_and_scale_from_first_fr
     options.size = [64, 32];
     options.adapter_callback = Some(AdapterCallback::new(|_| Ok(Some(selected_frame()))));
     let mut host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let frame = renderer.presentation.scheduler.configuration().frame;
     assert_eq!(frame.samples, 4);
     assert_eq!(frame.size, [32, 16]);
@@ -54,7 +54,7 @@ fn adapter_frame_windowless_rejects_invalid_samples_before_allocation() {
     }));
     let mut host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
     assert!(matches!(
-        pollster::block_on(Renderer::windowless(&mut host)),
+        pollster::block_on(Renderer::windowless(&mut host, None)),
         Err(ViewerError::Configuration(ConfigurationError::Allocation(
             worldrunner_render_post::PostError::SampleCount(16)
         )))
@@ -73,7 +73,7 @@ fn adapter_frame_windowless_rejects_selected_budget_before_residency() {
     }));
     let mut host = RetainedHost::new(crate::tests::scene(false), options).unwrap();
     assert!(matches!(
-        pollster::block_on(Renderer::windowless(&mut host)),
+        pollster::block_on(Renderer::windowless(&mut host, None)),
         Err(ViewerError::Configuration(ConfigurationError::Budget {
             budget: 1,
             ..

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::unity::offscreen::UndeclaredDefaultDraws;
+use worldrunner_render_program::unity::offscreen::StandInDraws;
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, DrawRaster, Material, OffscreenFrame, ProceduralDraw, Record,
     UndeclaredTextures,
@@ -187,9 +187,10 @@ fn an_unset_undeclared_texture_reads_the_frames_default_in_a_procedural_draw() {
     let (mut rig, frame) = grey_rig(Some(GREY));
     let operations = rig.build(&frame).unwrap();
     assert_eq!(
-        operations.undeclared_default_draws(),
-        [UndeclaredDefaultDraws {
+        operations.stand_in_draws(),
+        [StandInDraws {
             texture: "_Source".to_owned(),
+            reason: "undeclared".to_owned(),
             draws: 1,
         }]
     );
@@ -210,7 +211,7 @@ fn an_unset_undeclared_texture_reads_the_frames_default_in_a_procedural_draw() {
 fn without_a_default_a_procedural_draw_reading_an_unset_texture_is_left_out_and_counted() {
     let (mut rig, frame) = grey_rig(None);
     let operations = rig.build(&frame).unwrap();
-    assert!(operations.undeclared_default_draws().is_empty());
+    assert!(operations.stand_in_draws().is_empty());
     assert!(!operations.missing_texture_draws().is_empty());
     let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
     assert!(image.chunks(4).all(|texel| texel == CLEAR));

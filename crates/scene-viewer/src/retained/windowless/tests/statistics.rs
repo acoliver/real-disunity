@@ -13,7 +13,7 @@ fn geometry_capture_observations_freeze_source_submission() {
         .unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(source).windowless(&mut driver).unwrap();
+    let mut run = host(source).windowless(&mut driver, None).unwrap();
     let id = run.host_mut().request_capture(0).unwrap();
     run.frame().unwrap();
     let first = *run.host().statistics().unwrap();
@@ -74,7 +74,7 @@ fn supplier_prestart_capture_freezes_selected_scene_statistics_and_shadows() {
         assert!(host.statistics().is_none());
         let id = host.request_capture(0).unwrap();
         assert!(host.statistics().is_none());
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         assert_eq!(run.host().options().shadows, shadows);
         assert!(run.host().statistics().is_none());
         assert!(run.frame().unwrap());
@@ -159,7 +159,7 @@ fn capture_statistics_match_source_frame_and_survive_later_edits() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let id = run.host_mut().request_capture(0).unwrap();
     assert!(run.frame().unwrap());
@@ -205,7 +205,7 @@ fn capture_statistics_match_source_frame_and_survive_later_edits() {
 fn statistics_follow_presented_frames_and_consume_uploads_once() {
     let mut driver = Driver::default();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     assert!(run.host().statistics().is_none());
     assert!(run.frame().unwrap());
@@ -272,7 +272,7 @@ fn presented_callback_reads_the_matching_frame_snapshot() {
     }
     let mut driver = Observer;
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     assert!(run.frame().unwrap());
     run.shutdown().unwrap();
@@ -282,7 +282,7 @@ fn presented_callback_reads_the_matching_frame_snapshot() {
 fn resource_replacement_reports_new_generation_uploads() {
     let scene = crate::renderer::retained_tests::source();
     let mut driver = Driver::default();
-    let mut run = host(scene.clone()).windowless(&mut driver).unwrap();
+    let mut run = host(scene.clone()).windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     run.host_mut()
         .apply(RetainedUpdate::Resources {
@@ -310,7 +310,7 @@ fn empty_scene_records_zero_optional_pass_draws() {
     let source = crate::renderer::retained_tests::source();
     let source = source.with_objects_and_effects(vec![], None).unwrap();
     let mut driver = Driver::default();
-    let mut run = host(source).windowless(&mut driver).unwrap();
+    let mut run = host(source).windowless(&mut driver, None).unwrap();
     run.frame().unwrap();
     let passes = run.host().statistics().unwrap().scene.passes;
     for objects in [passes.prepass_objects, passes.opaque_objects] {

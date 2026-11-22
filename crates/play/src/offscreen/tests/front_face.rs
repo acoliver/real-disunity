@@ -36,7 +36,6 @@ use super::super::assets::{AssetError, Assets};
 use super::super::camera::projection;
 use super::super::compute::ComputeAdapter;
 use super::super::defaults::{ShaderFill, declared};
-use super::super::depth_range::DepthRange;
 use super::super::flush::OffscreenHost;
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -217,7 +216,6 @@ fn host(directory: &std::path::Path) -> OffscreenHost {
     let gpu = gpu();
     let settings = Settings {
         light_modes: vec!["Alpha".to_owned()],
-        depth: DepthRange::Reversed,
         ..Settings::default()
     };
     OffscreenHost::new(

@@ -563,15 +563,6 @@ impl RetainedHost {
         )?))
     }
 
-    /// Runs once on the main thread through the same event loop and renderer as `run_with_updates`.
-    pub fn run(self, driver: &mut impl RetainedDriver) -> Result<(), ViewerError> {
-        self.run_with_activity(
-            driver,
-            crate::activity::ActivityGuard::begin,
-            crate::app::run_retained,
-        )
-    }
-
     /// Hands the player's offscreen work for the next frame the viewer renders. That frame admits
     /// it on its own recording and runs it before its first pass, in the same submission, so its
     /// render textures are written before the scene samples them. A later call replaces work no
@@ -595,14 +586,16 @@ impl RetainedHost {
         self.game_screen = screen;
     }
 
-    /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,
-    /// which another user such as a player's offscreen work may share. The window's surface is
-    /// checked against that device's adapter when it is made.
+    /// Runs once on the main thread through the same event loop and renderer as `run_with_updates`,
+    /// on the event loop `start` made and on the device it made, if it made one, which another user
+    /// such as a player's offscreen work may share. A start that made no device leaves the viewer
+    /// to make its own. The window's surface is checked against that device's adapter when it is
+    /// made.
     ///
     /// # Errors
-    /// As [`Self::run`], and [`ViewerError::SharedSurface`] when the adapter cannot present to the
-    /// window, or a missing-feature error when the scene needs a feature the device lacks.
-    pub fn run_on(
+    /// Fails with [`ViewerError::SharedSurface`] when the adapter cannot present to the window, or
+    /// with a missing-feature error when the scene needs a feature the device lacks.
+    pub fn run(
         self,
         start: crate::ViewerStart,
         driver: &mut impl RetainedDriver,
@@ -610,7 +603,7 @@ impl RetainedHost {
         self.run_with_activity(
             driver,
             crate::activity::ActivityGuard::begin,
-            |host, driver| crate::app::run_retained_on(host, driver, start),
+            |host, driver| crate::app::run_retained(host, driver, start),
         )
     }
 

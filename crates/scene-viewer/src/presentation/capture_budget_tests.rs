@@ -10,7 +10,7 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
         width: 96,
         height: 64,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [first, first],
@@ -107,7 +107,7 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
     let first = tiny_extents([16, 16]);
     let next = tiny_extents([24, 16]);
     assert_eq!(first.render, next.render);
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [first.render, first.surface],

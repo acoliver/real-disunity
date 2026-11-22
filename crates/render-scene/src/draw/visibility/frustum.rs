@@ -80,40 +80,4 @@ impl Frustum {
 }
 
 #[cfg(test)]
-impl Frustum {
-    fn planes(&self) -> impl Iterator<Item = glam::Vec4> + '_ {
-        self.normals
-            .iter()
-            .zip(&self.offsets)
-            .map(|(normal, &offset)| normal.extend(offset))
-    }
-
-    /// `intersects` before it shared one centre and half extent between planes.
-    pub fn intersects_reference(&self, bounds: Bounds) -> bool {
-        self.planes().all(|plane| bounds.support(plane) >= 0.0)
-    }
-
-    /// Whether `intersects` is true for every box inside `bounds`: `bounds` lies in front of
-    /// every plane by more than the rounding of any of those tests.
-    pub fn contains(&self, bounds: Bounds) -> bool {
-        let center = (bounds.min + bounds.max) * 0.5;
-        let half = (bounds.max - bounds.min) * 0.5;
-        let reach = center.abs() + half;
-        self.planes().all(|plane| {
-            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
-            let nearest = plane.truncate().dot(center) + plane.w - plane.truncate().abs().dot(half);
-            nearest > GROUP_MARGIN * magnitude
-        })
-    }
-
-    /// Whether `intersects` is false for every box inside `bounds`: some plane leaves
-    /// `bounds` behind it by more than the rounding of any of those tests.
-    pub fn excludes(&self, bounds: Bounds) -> bool {
-        let center = (bounds.min + bounds.max) * 0.5;
-        let reach = center.abs() + (bounds.max - bounds.min) * 0.5;
-        self.planes().any(|plane| {
-            let magnitude = plane.truncate().abs().dot(reach) + plane.w.abs();
-            bounds.support(plane) < -GROUP_MARGIN * magnitude
-        })
-    }
-}
+pub(super) mod reference;

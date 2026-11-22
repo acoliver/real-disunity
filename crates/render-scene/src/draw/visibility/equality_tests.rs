@@ -9,7 +9,9 @@ use worldrunner_render_plan::{
     SceneObject, SceneTransform,
 };
 
+use super::super::slice_hull::reference as hull_reference;
 use super::casters::caster_near;
+use super::frustum::reference as frustum_reference;
 use super::large_scene::{FrameViews, Rng, slice_hull, views, world};
 use super::placement::{self, BatchShape};
 use super::*;
@@ -70,11 +72,11 @@ fn scan(
                 } else {
                     !object.shadow_only()
                 }
-                && frustum.intersects_reference(bounds)
+                && frustum_reference::intersects(&frustum, bounds)
                 && view
                     .slice
                     .as_ref()
-                    .is_none_or(|slice| slice.overlaps_reference(bounds, matrix));
+                    .is_none_or(|slice| hull_reference::overlaps(slice, bounds, matrix));
             let position = object.transform().position_millimeters;
             let lod = reference_lod(
                 mesh,

@@ -79,12 +79,6 @@ impl Bounds {
     pub(super) fn center_half(self) -> (Vec3, Vec3) {
         ((self.min + self.max) * 0.5, (self.max - self.min) * 0.5)
     }
-
-    #[cfg(test)]
-    fn support(self, plane: glam::Vec4) -> f32 {
-        let (center, half) = self.center_half();
-        plane.truncate().dot(center) + plane.w + plane.truncate().abs().dot(half)
-    }
 }
 
 #[derive(Debug)]
@@ -430,7 +424,7 @@ impl Selection {
                 || self
                     .slice
                     .as_ref()
-                    .is_none_or(|slice| slice.overlaps_in(placement, light)))
+                    .is_none_or(|slice| slice.overlaps(placement, light)))
     }
 
     fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {

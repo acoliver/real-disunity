@@ -2,7 +2,8 @@
 //! box inside it.
 use glam::{Mat4, Vec3};
 
-use super::super::slice_hull::{LightMap, SliceHull};
+use super::super::slice_hull::{LightMap, SliceHull, reference as hull_reference};
+use super::frustum::reference as frustum_reference;
 use super::large_scene::Rng;
 use super::*;
 
@@ -100,8 +101,14 @@ fn group_rejection_and_acceptance_hold_for_every_box_inside_the_group() {
         let frustum = Frustum::new(matrix);
         for _ in 0..40 {
             let group = random_box(&mut rng, 900.0);
-            let (excluded, contained) = (frustum.excludes(group), frustum.contains(group));
-            let (missed, covered) = (hull.excludes(group, matrix), hull.covers(group, matrix));
+            let (excluded, contained) = (
+                frustum_reference::excludes(&frustum, group),
+                frustum_reference::contains(&frustum, group),
+            );
+            let (missed, covered) = (
+                hull_reference::excludes(&hull, group, matrix),
+                hull_reference::covers(&hull, group, matrix),
+            );
             let light = LightMap::new(matrix);
             assert_eq!(frustum.region(group), region(excluded, contained));
             assert_eq!(hull.region(group, &light), region(missed, covered));
@@ -113,9 +120,9 @@ fn group_rejection_and_acceptance_hold_for_every_box_inside_the_group() {
             }
             for inner in inner_boxes(&mut rng, group) {
                 let (inside, overlapping) =
-                    (frustum.intersects(inner), hull.overlaps_in(inner, &light));
-                assert_eq!(inside, frustum.intersects_reference(inner));
-                assert_eq!(overlapping, hull.overlaps_reference(inner, matrix));
+                    (frustum.intersects(inner), hull.overlaps(inner, &light));
+                assert_eq!(inside, frustum_reference::intersects(&frustum, inner));
+                assert_eq!(overlapping, hull_reference::overlaps(&hull, inner, matrix));
                 assert!(!(excluded && inside), "{group:?} {inner:?}");
                 assert!(!contained || inside, "{group:?} {inner:?}");
                 assert!(!(missed && overlapping), "{group:?} {inner:?}");
@@ -194,12 +201,15 @@ fn prepared_tests_equal_the_unprepared_for_odd_boxes_and_hulls() {
         for &bounds in &boxes {
             assert_eq!(
                 frustum.intersects(bounds),
-                frustum.intersects_reference(bounds),
+                frustum_reference::intersects(&frustum, bounds),
                 "{bounds:?}"
             );
             assert_eq!(
                 frustum.region(bounds),
-                region(frustum.excludes(bounds), frustum.contains(bounds)),
+                region(
+                    frustum_reference::excludes(&frustum, bounds),
+                    frustum_reference::contains(&frustum, bounds)
+                ),
                 "{bounds:?}"
             );
             assert_eq!(
@@ -212,13 +222,16 @@ fn prepared_tests_equal_the_unprepared_for_odd_boxes_and_hulls() {
             );
             for hull in &hulls {
                 assert_eq!(
-                    hull.overlaps_in(bounds, &light),
-                    hull.overlaps_reference(bounds, matrix),
+                    hull.overlaps(bounds, &light),
+                    hull_reference::overlaps(hull, bounds, matrix),
                     "{bounds:?} {hull:?}"
                 );
                 assert_eq!(
                     hull.region(bounds, &light),
-                    region(hull.excludes(bounds, matrix), hull.covers(bounds, matrix)),
+                    region(
+                        hull_reference::excludes(hull, bounds, matrix),
+                        hull_reference::covers(hull, bounds, matrix)
+                    ),
                     "{bounds:?} {hull:?}"
                 );
             }

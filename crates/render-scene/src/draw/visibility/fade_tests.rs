@@ -236,7 +236,9 @@ fn a_placement_is_not_faded_out_unless_a_band_of_a_material_it_draws_or_its_own_
         .unwrap();
         let instances = Instances::new(&source);
         let selection = MeshSelection::new(&mesh);
-        let reach = selection.fade_reach(&instances.fades, MaterialHandle::from_raw(0));
+        let reach = selection
+            .slot_fade_reach(&instances.fades)
+            .with(instances.fades[0]);
         let applies = reach.applies(object.fade().map(crate::geometry::fade_band_meters));
         assert_eq!(applies, expected, "{slots:?} {own_band}");
         reached[usize::from(applies)] = true;

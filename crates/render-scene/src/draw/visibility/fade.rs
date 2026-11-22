@@ -32,13 +32,6 @@ impl FadeReach {
 }
 
 impl MeshSelection {
-    /// What can fade out a placement drawn with `material`, from the materials it draws with.
-    #[cfg(test)]
-    pub(super) fn fade_reach(&self, fades: &[Fade], material: MaterialHandle) -> FadeReach {
-        self.slot_fade_reach(fades)
-            .with(fades[material.raw() as usize])
-    }
-
     /// What the material slots of the mesh's levels can fade out of a placement, whichever
     /// material the placement draws with.
     pub(super) fn slot_fade_reach(&self, fades: &[Fade]) -> FadeReach {

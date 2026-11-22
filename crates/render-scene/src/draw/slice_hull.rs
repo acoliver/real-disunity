@@ -111,14 +111,9 @@ impl SliceHull {
         })
     }
 
-    /// Whether the light-space footprint of world `bounds` overlaps this hull.
-    #[cfg(test)]
-    pub(super) fn overlaps(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        self.overlaps_in(bounds, &LightMap::new(matrix))
-    }
-
-    /// `overlaps` for a map whose matrix columns are already prepared.
-    pub(super) fn overlaps_in(&self, bounds: Bounds, light: &LightMap) -> bool {
+    /// Whether the light-space footprint of world `bounds` overlaps this hull, for a map whose
+    /// matrix columns are already prepared.
+    pub(super) fn overlaps(&self, bounds: Bounds, light: &LightMap) -> bool {
         let light = light.transformed(bounds);
         let (low, high) = (light.min.truncate(), light.max.truncate());
         let (hull_low, hull_high) = self.extent;
@@ -179,95 +174,6 @@ impl SliceHull {
         } else {
             Region::Straddles
         }
-    }
-
-    /// Whether `region` is `Outside`, as it was before it shared the footprint with `covers`.
-    #[cfg(test)]
-    pub(super) fn excludes(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        let light = bounds.transformed_enclosing(matrix);
-        let (low, high) = (light.min.truncate(), light.max.truncate());
-        let (hull_low, hull_high) = self.reference_extent();
-        if hull_high.x < low.x || hull_low.x > high.x || hull_high.y < low.y || hull_low.y > high.y
-        {
-            return true;
-        }
-        let corners = [
-            low,
-            Vec2::new(high.x, low.y),
-            high,
-            Vec2::new(low.x, high.y),
-        ];
-        let reach = low.abs().max(high.abs());
-        self.reference_edges().any(|(a, b)| {
-            let edge = b - a;
-            let magnitude =
-                edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
-            corners
-                .iter()
-                .all(|&corner| edge.perp_dot(corner - a) < -GROUP_MARGIN * magnitude)
-        })
-    }
-
-    /// Whether `region` is `Inside`, as it was before it shared the footprint with `excludes`.
-    #[cfg(test)]
-    pub(super) fn covers(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        if self.points.len() < 3 {
-            return false;
-        }
-        let light = bounds.transformed_enclosing(matrix);
-        let (low, high) = (light.min.truncate(), light.max.truncate());
-        let corners = [
-            low,
-            Vec2::new(high.x, low.y),
-            high,
-            Vec2::new(low.x, high.y),
-        ];
-        let reach = low.abs().max(high.abs());
-        self.reference_edges().all(|(a, b)| {
-            let edge = b - a;
-            let magnitude =
-                edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
-            corners
-                .iter()
-                .all(|&corner| edge.perp_dot(corner - a) > GROUP_MARGIN * magnitude)
-        })
-    }
-
-    #[cfg(test)]
-    fn reference_extent(&self) -> (Vec2, Vec2) {
-        self.points.iter().fold(
-            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
-            |(low, high), &point| (low.min(point), high.max(point)),
-        )
-    }
-
-    #[cfg(test)]
-    fn reference_edges(&self) -> impl Iterator<Item = (Vec2, Vec2)> + '_ {
-        let count = self.points.len();
-        (0..count).map(move |index| (self.points[index], self.points[(index + 1) % count]))
-    }
-
-    /// `overlaps` as it was before it shared prepared columns, extent and edges.
-    #[cfg(test)]
-    pub(super) fn overlaps_reference(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        let light = bounds.transformed(matrix);
-        let (low, high) = (light.min.truncate(), light.max.truncate());
-        let (hull_low, hull_high) = self.reference_extent();
-        if hull_high.x < low.x || hull_low.x > high.x || hull_high.y < low.y || hull_low.y > high.y
-        {
-            return false;
-        }
-        let corners = [
-            low,
-            Vec2::new(high.x, low.y),
-            high,
-            Vec2::new(low.x, high.y),
-        ];
-        !self.reference_edges().any(|(a, b)| {
-            corners
-                .iter()
-                .all(|&corner| (b - a).perp_dot(corner - a) < 0.0)
-        })
     }
 }
 
@@ -345,6 +251,9 @@ impl CascadeSlice {
 }
 
 #[cfg(test)]
+pub(super) mod reference;
+
+#[cfg(test)]
 thread_local! {
     /// Draws every caster in each cascade map, for comparison against slice culling. Refresh
     /// decisions still track the slices, so both paths retain and refresh the same maps.
@@ -408,7 +317,7 @@ impl SceneGpu {
             frustum.intersects(bounds)
                 && slice
                     .as_ref()
-                    .is_none_or(|(hull, _)| hull.overlaps_in(bounds, &light))
+                    .is_none_or(|(hull, _)| hull.overlaps(bounds, &light))
         })
     }
 
@@ -503,12 +412,13 @@ mod tests {
             Mat4::IDENTITY,
             0.0,
         );
-        assert!(diamond.overlaps(bounds([-0.1, -0.1], [0.1, 0.1]), Mat4::IDENTITY));
-        assert!(diamond.overlaps(bounds([0.4, 0.4], [0.9, 0.9]), Mat4::IDENTITY));
-        assert!(!diamond.overlaps(bounds([0.6, 0.6], [0.9, 0.9]), Mat4::IDENTITY));
-        assert!(!diamond.overlaps(bounds([1.1, -0.1], [1.5, 0.1]), Mat4::IDENTITY));
+        let overlaps = |bounds, matrix| diamond.overlaps(bounds, &LightMap::new(matrix));
+        assert!(overlaps(bounds([-0.1, -0.1], [0.1, 0.1]), Mat4::IDENTITY));
+        assert!(overlaps(bounds([0.4, 0.4], [0.9, 0.9]), Mat4::IDENTITY));
+        assert!(!overlaps(bounds([0.6, 0.6], [0.9, 0.9]), Mat4::IDENTITY));
+        assert!(!overlaps(bounds([1.1, -0.1], [1.5, 0.1]), Mat4::IDENTITY));
         let shifted = Mat4::from_translation(Vec3::new(-0.7, -0.7, 0.0));
-        assert!(diamond.overlaps(bounds([0.6, 0.6], [0.9, 0.9]), shifted));
+        assert!(overlaps(bounds([0.6, 0.6], [0.9, 0.9]), shifted));
     }
 
     #[test]

@@ -220,7 +220,7 @@ impl Selection {
     ) -> Selection {
         let mut chosen = Selection::default();
         chosen.stats.drawn_per_lod = vec![0; self.stats.drawn_per_lod.len()];
-        let mut admitted = Vec::new();
+        let mut admitted = Admitted::default();
         let mut stack = Vec::new();
         for batch in &placements.batches[batches] {
             if batch.small {
@@ -233,10 +233,9 @@ impl Selection {
                 }
                 continue;
             }
-            admitted.clear();
+            admitted.reset(batch.flags.len());
             self.admit(batch, view, &mut stack, &mut admitted);
-            admitted.sort_unstable();
-            for &slot in &admitted {
+            for slot in admitted.slots() {
                 chosen.push_level(placements, batch, slot);
             }
         }
@@ -291,7 +290,7 @@ impl Selection {
         batch: &IndexedBatch<'_>,
         view: ViewTests<'_>,
         stack: &mut Vec<(usize, Passed)>,
-        admitted: &mut Vec<u32>,
+        admitted: &mut Admitted,
     ) {
         let tree = batch.bounds.tree();
         // Each placement grows by at most the largest relief, so the grown group box holds
@@ -319,15 +318,47 @@ impl Selection {
                     stack.extend(children.map(|child| (child, passed)));
                 }
                 Node::Leaf { slots, .. } => {
-                    admitted.extend(
-                        slots
-                            .iter()
-                            .copied()
-                            .filter(|&slot| self.admits_slot(batch, slot, view, passed)),
-                    );
+                    for &slot in slots {
+                        if self.admits_slot(batch, slot, view, passed) {
+                            admitted.insert(slot);
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/// The slots a view admits from one batch, one bit each, which come out in ascending order
+/// without a sort however the walk of the tree met them.
+#[derive(Default)]
+struct Admitted {
+    words: Vec<u64>,
+}
+
+impl Admitted {
+    /// Empties the set and makes room for slots below `slots`.
+    fn reset(&mut self, slots: usize) {
+        self.words.clear();
+        self.words.resize(slots.div_ceil(64), 0);
+    }
+
+    fn insert(&mut self, slot: u32) {
+        self.words[slot as usize / 64] |= 1 << (slot % 64);
+    }
+
+    fn slots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.words.iter().enumerate().flat_map(|(index, &word)| {
+            let mut bits = word;
+            let first = u32::try_from(index * 64).expect("validated instance slot");
+            std::iter::from_fn(move || {
+                (bits != 0).then(|| {
+                    let slot = first + bits.trailing_zeros();
+                    bits &= bits - 1;
+                    slot
+                })
+            })
+        })
     }
 }
 

@@ -22,6 +22,7 @@ use crate::resources::BufferHandle;
 use crate::unity::targets::BufferTarget;
 
 use super::defaults::DefaultBuffers;
+use super::dots::DotsDraw;
 use super::error::OffscreenError;
 use super::plan::{DrawPlan, DrawSpec, ProgramEntry, Services};
 
@@ -95,7 +96,8 @@ fn source(
     from_batch
         .or_else(|| spec.layers.buffer(name).map(|buffer| (buffer, None)))
         .or_else(|| {
-            let placeholder = spec.dots?.placeholder(name, defaults)?;
+            spec.dots?;
+            let placeholder = DotsDraw::placeholder(name, defaults)?;
             Some((placeholder, None))
         })
 }
@@ -200,7 +202,7 @@ impl Services<'_> {
                 .limits()
                 .min_storage_buffer_offset_alignment,
         );
-        if alignment != 0 && range.start % alignment != 0 {
+        if alignment != 0 && !range.start.is_multiple_of(alignment) {
             return Err(refused(
                 &input.name,
                 at,

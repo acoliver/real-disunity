@@ -75,7 +75,7 @@ impl DotsDraw<'_> {
 
     /// The buffer the slot `name` reads when nothing gives it one: the indirect visibility the
     /// batch has none of reads zeros.
-    pub(super) fn placeholder(&self, name: &str, defaults: DefaultBuffers) -> Option<BufferHandle> {
+    pub(super) fn placeholder(name: &str, defaults: DefaultBuffers) -> Option<BufferHandle> {
         if name == INDIRECT_VISIBILITY {
             defaults.indirect_visibility()
         } else {

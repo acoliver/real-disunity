@@ -74,7 +74,7 @@ impl OffscreenAdapter {
                 return MeshUpload::NothingToDraw;
             }
             Err(error) => {
-                notes.fail("mesh", &error);
+                notes.fail("mesh", None, &error);
                 return MeshUpload::Malformed;
             }
         };
@@ -89,12 +89,12 @@ impl OffscreenAdapter {
             // The state found the mesh itself wrong; the engine's mesh is the same until its
             // generation rises.
             Err(error @ OffscreenError::BadMesh { .. }) => {
-                notes.fail("mesh", &error);
+                notes.fail("mesh", None, &error);
                 MeshUpload::Malformed
             }
             // The device or the budget refused it, which a later snapshot may find otherwise.
             Err(error) => {
-                notes.fail("mesh", &error);
+                notes.fail("mesh", None, &error);
                 MeshUpload::Refused
             }
         }

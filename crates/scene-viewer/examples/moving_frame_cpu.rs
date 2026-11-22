@@ -233,7 +233,7 @@ fn main() -> Result<(), Failure> {
     let mut walker = Walker {
         spent: Rc::clone(&spent),
     };
-    let mut host = RetainedHost::new(scene, config.options())?.windowless(&mut walker)?;
+    let mut host = RetainedHost::new(scene, config.options())?.windowless(&mut walker, None)?;
     let mut pacer = Pacer {
         last_submit: Instant::now(),
         wait: Duration::ZERO,

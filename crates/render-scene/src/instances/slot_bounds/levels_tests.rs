@@ -20,8 +20,31 @@ fn outcome(eye: i64, slot: usize) -> Level {
     }
 }
 
-fn ask(levels: &Levels, eye: i64, slot: usize, computed: &Cell<usize>) -> Level {
-    levels.get_or_compute(slot, || {
+/// A memo and the epochs that tell its eyes apart, driven as a frame's selection drives them.
+#[derive(Default)]
+struct Memo {
+    levels: Levels,
+    epochs: LevelEpochs,
+    epoch: u8,
+}
+
+impl Memo {
+    fn prepare(&mut self, key: LevelKey, slots: usize) {
+        let (epoch, wrapped) = self.epochs.advance(key);
+        if wrapped {
+            self.levels.clear();
+        }
+        self.levels.grow(slots);
+        self.epoch = epoch;
+    }
+
+    fn forget(&mut self, slot: usize) {
+        self.levels.forget(slot);
+    }
+}
+
+fn ask(memo: &Memo, eye: i64, slot: usize, computed: &Cell<usize>) -> Level {
+    memo.levels.get_or_compute(memo.epoch, slot, || {
         computed.set(computed.get() + 1);
         outcome(eye, slot)
     })
@@ -29,26 +52,26 @@ fn ask(levels: &Levels, eye: i64, slot: usize, computed: &Cell<usize>) -> Level 
 
 #[test]
 fn a_slot_is_computed_once_per_eye_and_again_for_a_new_eye() {
-    let mut levels = Levels::default();
+    let mut memo = Memo::default();
     let computed = Cell::new(0);
-    levels.prepare(eye(1), 8);
+    memo.prepare(eye(1), 8);
     for _ in 0..3 {
         for slot in 0..8 {
-            assert_eq!(ask(&levels, 1, slot, &computed), outcome(1, slot));
+            assert_eq!(ask(&memo, 1, slot, &computed), outcome(1, slot));
         }
     }
     assert_eq!(computed.get(), 8);
-    levels.prepare(eye(1), 8);
-    ask(&levels, 1, 3, &computed);
+    memo.prepare(eye(1), 8);
+    ask(&memo, 1, 3, &computed);
     assert_eq!(computed.get(), 8, "the same eye keeps its entries");
-    levels.prepare(eye(2), 8);
+    memo.prepare(eye(2), 8);
     for slot in 0..8 {
-        assert_eq!(ask(&levels, 2, slot, &computed), outcome(2, slot));
+        assert_eq!(ask(&memo, 2, slot, &computed), outcome(2, slot));
     }
     assert_eq!(computed.get(), 16);
-    levels.prepare(eye(1), 8);
+    memo.prepare(eye(1), 8);
     for slot in 0..8 {
-        assert_eq!(ask(&levels, 1, slot, &computed), outcome(1, slot));
+        assert_eq!(ask(&memo, 1, slot, &computed), outcome(1, slot));
     }
     assert_eq!(
         computed.get(),
@@ -59,17 +82,17 @@ fn a_slot_is_computed_once_per_eye_and_again_for_a_new_eye() {
 
 #[test]
 fn a_forgotten_slot_and_a_grown_memo_compute_only_what_is_new() {
-    let mut levels = Levels::default();
+    let mut memo = Memo::default();
     let computed = Cell::new(0);
-    levels.prepare(eye(5), 4);
+    memo.prepare(eye(5), 4);
     for slot in 0..4 {
-        ask(&levels, 5, slot, &computed);
+        ask(&memo, 5, slot, &computed);
     }
-    levels.forget(2);
-    levels.forget(40);
-    levels.prepare(eye(5), 6);
+    memo.forget(2);
+    memo.forget(40);
+    memo.prepare(eye(5), 6);
     for slot in 0..6 {
-        assert_eq!(ask(&levels, 5, slot, &computed), outcome(5, slot));
+        assert_eq!(ask(&memo, 5, slot, &computed), outcome(5, slot));
     }
     assert_eq!(
         computed.get(),
@@ -80,7 +103,7 @@ fn a_forgotten_slot_and_a_grown_memo_compute_only_what_is_new() {
 
 #[test]
 fn the_memo_agrees_with_computing_every_time_across_more_eyes_than_one_epoch_counts() {
-    let mut levels = Levels::default();
+    let mut memo = Memo::default();
     let computed = Cell::new(0);
     let mut state = 99_u64;
     let mut next = || {
@@ -91,17 +114,17 @@ fn the_memo_agrees_with_computing_every_time_across_more_eyes_than_one_epoch_cou
     };
     let slots = 30;
     for step in 0..700_i64 {
-        levels.prepare(eye(step), slots);
+        memo.prepare(eye(step), slots);
         let mut seen = [false; 30];
         let before = computed.get();
         for _ in 0..80 {
             let slot = next() % slots;
             if next() % 11 == 0 {
-                levels.forget(slot);
+                memo.forget(slot);
                 seen[slot] = false;
             }
             assert_eq!(
-                ask(&levels, step, slot, &computed),
+                ask(&memo, step, slot, &computed),
                 outcome(step, slot),
                 "eye {step}"
             );
@@ -115,15 +138,15 @@ fn the_memo_agrees_with_computing_every_time_across_more_eyes_than_one_epoch_cou
 
 #[test]
 fn an_entry_of_an_earlier_epoch_is_never_taken_for_the_current_one() {
-    let mut levels = Levels::default();
+    let mut memo = Memo::default();
     let computed = Cell::new(0);
-    levels.prepare(eye(0), 1);
-    ask(&levels, 0, 0, &computed);
+    memo.prepare(eye(0), 1);
+    ask(&memo, 0, 0, &computed);
     // Exactly one full cycle of epochs later the stored entry carries a recycled epoch.
     for step in 1..=255 {
-        levels.prepare(eye(step), 1);
+        memo.prepare(eye(step), 1);
     }
     let before = computed.get();
-    assert_eq!(ask(&levels, 255, 0, &computed), outcome(255, 0));
+    assert_eq!(ask(&memo, 255, 0, &computed), outcome(255, 0));
     assert_eq!(computed.get(), before + 1);
 }

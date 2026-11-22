@@ -1,5 +1,5 @@
 //! Overlay-only distance uniform. Ordinary groups bind an explicit zero record.
-use worldrunner_render_plan::ui::UiDistanceStyle;
+use worldrunner_world_simulation::ui::presentation::UiDistanceStyle;
 
 pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -35,7 +35,7 @@ pub(super) fn upload(
     queue: &wgpu::Queue,
     style: Option<UiDistanceStyle>,
 ) -> wgpu::BindGroup {
-    let uniform = crate::upload::upload_buffer(
+    let uniform = worldrunner_render_gpu::resource::upload_buffer(
         device,
         queue,
         "UI distance style",
@@ -65,14 +65,14 @@ pub(super) fn validate(quad: &super::DynamicQuad, index: usize) -> Result<(), su
         return Err(invalid());
     }
     let corners = quad.corners.ok_or_else(invalid)?;
-    worldrunner_render_plan::ui::validate_distance_mapping(corners, quad.uv_rect)
+    worldrunner_world_simulation::ui::presentation::validate_distance_mapping(corners, quad.uv_rect)
         .map_err(|_| invalid())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use worldrunner_render_plan::ui::UiDistanceMode;
+    use worldrunner_world_simulation::ui::presentation::UiDistanceMode;
     #[test]
     fn uniform_layout_and_ordinary_reset() {
         assert_eq!(pack(None), vec![0; 32]);

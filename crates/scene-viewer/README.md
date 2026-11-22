@@ -208,7 +208,7 @@ forward sample. Unlit surfaces publish albedo as ambient and zero other radiance
 
 ## Retained screen-space UI
 
-Convert an existing `render_plan::ui::UiRenderPlan` with
+Convert an existing `worldrunner_world_simulation::ui::contribution::UiRenderPlan` with
 `render_scene::simulation::UiOverlay::new`, then submit
 `RetainedUpdate::Ui(Arc::new(overlay))`. For textured graphics, use
 `UiOverlay::with_textures(plan, &textures)` with a map from the graphic's texture
@@ -773,7 +773,7 @@ domain transfer, reciprocal and quantization behavior.
 
 ## A device another user shares
 
-`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run_on(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own, as `run` does.
+`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own.
 
 `RetainedHost::admit_offscreen(operations)` hands the caller's format-neutral `render_program::offscreen::PendingOffscreen`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. An accumulated recipe's first admitted warmup or sample consumes the packet once; later samples do not replay it. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
 
@@ -817,4 +817,4 @@ fitting lets a compatible frame consume those operations without readmission.
 If preparing an update submits GPU work, the call returns pending without taking
 the operations; a later call checks compatibility before rendering.
 
-`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless_on(driver, gpu)` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.
+`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless(driver, Some(gpu))` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.

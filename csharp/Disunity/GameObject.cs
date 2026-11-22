@@ -99,6 +99,7 @@ public sealed class GameObject : Object, IDisposable
     {
         DisunityAdvance work;
         DisunityHost.ThrowIfError(NativeBindings.disunity_gameobject_set_active(DisunityHost.WorldHandle, NativeHandle, value ? 1u : 0u, &work));
+        RectDimensionMessages.MarkChanged();
         DisunityHost.Drain(work);
     }
 

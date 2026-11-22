@@ -61,6 +61,11 @@ impl Fade {
         }
     }
 
+    /// Whether the material has a fade band of its own, which a placement's band replaces.
+    pub fn has_band(self) -> bool {
+        self.band.is_some()
+    }
+
     /// The authored point this material measures its fade distance from, if any.
     pub fn reference(self) -> Option<SceneFadeReference> {
         self.reference

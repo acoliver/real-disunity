@@ -111,9 +111,10 @@ fn gpu_casters_only_terrain_leaves_the_render_camera_result_as_a_terrain_free_sc
 fn cascade_depths(source: &RenderScene, draws: TerrainDraws) -> Vec<Vec<f32>> {
     let context = context();
     let mut renderer = ShadowedScene::new(&context, source, settings()).unwrap();
-    renderer.scheduler.force_terrain_draws(draws);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    scheduler.force_terrain_draws(draws);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     super::refresh::depth_layers(&context, &renderer)
 }
 

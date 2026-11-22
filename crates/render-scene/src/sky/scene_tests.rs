@@ -220,15 +220,16 @@ pub(super) fn render_at(
         let depth =
             AttachmentView::new(ResourceRef::new("acceptance depth"), depth.texture()).unwrap();
         let mut renderer = crate::compositor::FrameRenderer::new(device);
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame,
+            )
+            .unwrap();
     })
 }
 pub(super) fn render_resident(
@@ -427,15 +428,16 @@ pub(super) fn draw(
     let depth = AttachmentView::new(ResourceRef::new("acceptance depth"), depth_view.texture());
     let mut renderer = crate::compositor::FrameRenderer::new(device);
     let frame = gpu.resident_frame();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        device,
-        encoder,
-        (gpu, pipelines),
-        (&color.unwrap(), &depth.unwrap()),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            device,
+            encoder,
+            (gpu, pipelines),
+            (&color.unwrap(), &depth.unwrap()),
+            frame,
+        )
+        .unwrap();
 }
 
 #[test]

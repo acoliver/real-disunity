@@ -2,19 +2,22 @@
 //! through the frame renderer's scene entry point.
 
 use glam::Vec3;
-use worldrunner_render_plan::simulation::{
-    SpriteTextures, WorldRenderPlan, append_ui, extract_world,
-};
-use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
+use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
+use worldrunner_world_simulation::presentation::extraction::{
+    WorldRenderPlan, append_ui, extract_world,
+};
 use worldrunner_world_simulation::presentation::{Camera, CoverageTexture, Sprite, SpriteRenderer};
 use worldrunner_world_simulation::ui::UiLayout;
+use worldrunner_world_simulation::ui::contribution::{
+    UiGlyphQuad, UiRenderPlan, UiTextContribution,
+};
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
 };
 
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use crate::simulation::WorldSceneContribution;
 
 const SPRITE: TextureFormat = SRGB;
@@ -71,7 +74,11 @@ pub(super) fn sprite_frame() -> WorldSceneContribution {
             },
         )]),
     };
-    WorldSceneContribution::new(extract_world(&world, &textures, [SIZE, SIZE]).unwrap()).unwrap()
+    WorldSceneContribution::new(
+        extract_world(&world, [SIZE, SIZE]).unwrap(),
+        &textures.textures,
+    )
+    .unwrap()
 }
 
 pub(super) fn glyph_frame() -> WorldSceneContribution {
@@ -120,7 +127,7 @@ pub(super) fn glyph_frame() -> WorldSceneContribution {
         }],
     };
     append_ui(&mut plan, ui).unwrap();
-    WorldSceneContribution::new(plan).unwrap()
+    WorldSceneContribution::new(plan, &std::collections::BTreeMap::new()).unwrap()
 }
 
 /// The frame renderer's output for `contribution`, as the native sprite tests capture it.
@@ -153,15 +160,16 @@ fn compositor(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::unlit(&contribution.view),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::unlit(&contribution.view),
+        )
+        .unwrap();
     renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(

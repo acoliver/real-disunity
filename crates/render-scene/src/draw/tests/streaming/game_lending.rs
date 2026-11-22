@@ -21,8 +21,7 @@ fn resident_frames_lend_their_streamed_terrain_to_game_features() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),

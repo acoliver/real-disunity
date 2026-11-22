@@ -270,15 +270,16 @@ impl OffscreenTarget {
                 let renderer = self
                     .scheduler
                     .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
-                crate::compositor::encode_scene(
-                    renderer,
-                    context.device(),
-                    encoder,
-                    (scene, pipelines),
-                    (&color, &depth),
-                    frame,
-                )
-                .map_err(worldrunner_render_post::PostError::from)?;
+                renderer
+                    .encoding()
+                    .encode_scene(
+                        context.device(),
+                        encoder,
+                        (scene, pipelines),
+                        (&color, &depth),
+                        frame,
+                    )
+                    .map_err(worldrunner_render_post::PostError::from)?;
                 self.encode_readback(encoder)?;
                 Ok::<_, OffscreenError>(())
             })

@@ -4,8 +4,13 @@ use super::{
     landmarks, stage, wait,
 };
 use gpu::{
-    device::GpuContext, draw::SceneGpu, dynamic::DynamicQuad, frame::FrameUniform,
-    offscreen::OffscreenTarget, renderer::ScenePipelines, wgpu,
+    device::{DeviceRequest, GpuContext},
+    draw::SceneGpu,
+    dynamic::DynamicQuad,
+    frame::FrameUniform,
+    offscreen::OffscreenTarget,
+    renderer::ScenePipelines,
+    wgpu,
 };
 use std::cell::Cell;
 use worldrunner::glam::Vec3;
@@ -13,7 +18,11 @@ use worldrunner::scene::{camera::ViewHandedness, gpu};
 
 #[test]
 fn two_resident_updates_and_caller_stage_obey_capture_policy() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .unwrap();
     let resolved = planar([65, 47], ViewHandedness::RightHanded);
     let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
     let pipelines =
@@ -120,7 +129,11 @@ fn canonical_generation_output_drives_visible_consumer_state() {
     let generated = generation::generated();
     let height = generated.document.terrain.heights_millimeters[17];
     let channel = u8::try_from(height.unsigned_abs() % 192 + 32).unwrap();
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .unwrap();
     let view = gpu::SceneView::from_resolved(
         planar([65, 47], ViewHandedness::RightHanded),
         [0, -10_000, 0],

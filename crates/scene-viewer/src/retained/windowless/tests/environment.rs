@@ -33,7 +33,7 @@ fn ssr_misses_use_uploaded_environment_radiance() {
     .unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events);
     run.host_mut()
         .apply(RetainedUpdate::Settings(Box::new(
@@ -164,7 +164,7 @@ fn retained_environment_updates_and_removal_preserve_resident_scene() {
     .unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events);
     assert_eq!(baseline, capture(&mut run, &events));
     let installed = initial.clone().with_environment(Some(environment));

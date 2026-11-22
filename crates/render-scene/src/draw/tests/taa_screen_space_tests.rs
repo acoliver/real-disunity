@@ -7,7 +7,7 @@
 //! contribution moves when TAA is switched on. Values are on the 0..=1 scale of the 8-bit
 //! sRGB bytes, which carries a quantisation floor of about 0.001.
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, TexelFormat,
 };
@@ -208,8 +208,7 @@ fn render(
                 .submission()
                 .prepare(device, |encoder, _| {
                     let scene = (&mut gpu, &pipelines);
-                    encode_scene(
-                        &mut renderer,
+                    renderer.encoding().encode_scene(
                         device,
                         encoder,
                         scene,

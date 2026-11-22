@@ -1,5 +1,5 @@
 //! Captures of the celestial mesh draw: a whole frame is encoded through
-//! `compositor::encode_scene` with the scene's celestial meshes recording live and not at all,
+//! `FrameEncoding::encode_scene` with the scene's celestial meshes recording live and not at all,
 //! and the resolved colour of the frame has to differ.
 //!
 //! The celestial pass draws into its own mesh target and the composite brings its colour into
@@ -313,15 +313,16 @@ pub(super) fn render(
         .submission()
         .prepare(device, |encoder, _| {
             let mut renderer = crate::compositor::FrameRenderer::new(device);
-            crate::compositor::encode_scene(
-                &mut renderer,
-                device,
-                encoder,
-                (gpu, pipelines),
-                (&color_view, &depth_view),
-                *frame,
-            )
-            .unwrap();
+            renderer
+                .encoding()
+                .encode_scene(
+                    device,
+                    encoder,
+                    (gpu, pipelines),
+                    (&color_view, &depth_view),
+                    *frame,
+                )
+                .unwrap();
             for (index, texture) in [&color, &depth].into_iter().enumerate() {
                 encoder.copy_texture_to_buffer(
                     wgpu::TexelCopyTextureInfo {

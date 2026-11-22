@@ -96,15 +96,16 @@ fn composed_capture(
     let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let frame = scene.resident_frame();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (scene, pipelines),
-        (&color, &depth),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (scene, pipelines),
+            (&color, &depth),
+            frame,
+        )
+        .unwrap();
     renderer
         .encode_output(&mut encoder, target.color_view())
         .unwrap();

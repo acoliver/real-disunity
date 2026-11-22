@@ -102,7 +102,8 @@ fn a_texture_the_material_lists_gives_its_scale_and_offset_as_scale_then_offset(
         slot([2.0, 3.0], [0.25, 0.5]),
     )]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &ShaderFill::default(), &mut textures);
     assert_eq!(
         layer.values.get("_Heightmap_ST"),
@@ -125,7 +126,7 @@ fn a_slot_with_no_texture_still_gives_its_scale_and_offset() {
     let layer = fallback_layer(
         &found,
         &ShaderFill::default(),
-        &mut Textures::new(&render, &stored),
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
     );
     assert_eq!(
         layer.values.get("_Alphamap_ST"),
@@ -146,7 +147,8 @@ fn a_texture_the_shader_declares_and_the_material_lists_no_slot_for_gets_scale_o
         slot([2.0, 2.0], [0.5, 0.5]),
     )]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &fill, &mut textures);
     assert_eq!(
         layer.values.get("_Main_ST"),
@@ -168,7 +170,8 @@ fn a_scale_and_offset_vector_the_material_sets_itself_is_left_to_it() {
         WorldValue::Vector("_Main_ST".into(), [9.0, 9.0, 9.0, 9.0]),
     ]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &ShaderFill::default(), &mut textures);
     assert!(layer.values.get("_Main_ST").is_none());
     assert!(textures.filled().is_empty());
@@ -194,7 +197,8 @@ fn the_shader_defaults_fill_what_the_material_leaves_unset_and_never_what_it_set
         WorldValue::Vector("_Both".into(), [2.0; 4]),
     ]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &fill, &mut textures);
     assert_eq!(
         layer.values.get("_Intensity"),

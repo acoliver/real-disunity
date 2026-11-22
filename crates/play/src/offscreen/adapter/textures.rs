@@ -103,7 +103,7 @@ impl OffscreenAdapter {
         let texture = match texture_of(id, stored, sampler.map(sampler_of_stored), blocks) {
             Ok(texture) => texture,
             Err(error) => {
-                notes.fail("texture", &error);
+                notes.fail("texture", None, &error);
                 notes.count(&format!(
                     "textureformat:{} {}x{}, {} bytes",
                     crate::textures::stored_format_name(stored),
@@ -132,7 +132,7 @@ impl OffscreenAdapter {
                 TextureUpload::Held
             }
             Err(error) => {
-                notes.fail("texture", &error);
+                notes.fail("texture", None, &error);
                 // Only a refusal for room is known to pass. Any other is read as before this
                 // distinction was made: once for each generation.
                 if is_over_budget(&error) {

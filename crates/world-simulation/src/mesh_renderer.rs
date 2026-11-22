@@ -1,8 +1,8 @@
 //! Renderer components of 3D objects: the settings of a mesh renderer or skinned mesh renderer,
 //! and the mesh a mesh filter names. Meshes are managed instance ids; materials, property blocks
 //! and bones stay in the managed component, which keeps a material count here and, per material
-//! slot, the colour and texture the host draws the slot with. The presentation lists them as
-//! mesh objects; nothing draws them yet.
+//! slot, the world material the slot draws with. The presentation lists them as mesh objects with
+//! the colour and texture each slot draws.
 use std::collections::BTreeMap;
 
 use crate::graphics::{MaterialId, ShaderProperties};
@@ -41,10 +41,9 @@ impl Default for RendererSwitches {
     }
 }
 
-/// What the host draws one material slot of a mesh renderer with: a colour multiplier as the material holds it
-/// and the renderer identity of a texture, 0 for none. The managed component sends it when the shared
-/// materials are set. Extraction draws a slot that has a live world material from that material's current
-/// values instead, and uses this record for a slot with none.
+/// What the host draws one material slot of a mesh renderer with: a colour multiplier and the
+/// renderer identity of a texture, 0 for none. Extraction reads it from the slot's live world
+/// material; a slot with none draws the default.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawnMaterial {
     pub color: [f32; 4],
@@ -82,16 +81,9 @@ pub struct MeshRenderer {
     pub sorting_order: i32,
     /// How many materials the managed component holds, 0 through [`MAX_RENDERER_MATERIALS`].
     pub material_count: u32,
-    /// What the host draws each material slot with when the slot has no live world material (see
-    /// `slot_materials`), at most `material_count` of them; a slot past the end draws as
-    /// [`DrawnMaterial::default`]. Only the managed component's material update sets them, and
-    /// lowering `material_count` drops the slots past it. A slot with a live material draws with
-    /// the material's current colour and main texture, which a later material change reaches and
-    /// this record does not.
-    pub drawn: Vec<DrawnMaterial>,
     /// The world material each slot draws with, at most `material_count` of them; a slot past the
-    /// end or set to `None` has none, and draws as `drawn` says. A material destroyed later
-    /// leaves its id here and extraction reports the slot as having none.
+    /// end or set to `None` has none, and draws as [`DrawnMaterial::default`]. A material
+    /// destroyed later leaves its id here and extraction reports the slot as having none.
     pub slot_materials: Vec<Option<MaterialId>>,
     /// Shader values that override the slots' materials for this renderer, as a property block
     /// does. They apply to every slot, below the value a slot's own block in `slot_blocks` holds
@@ -125,7 +117,6 @@ impl Default for MeshRenderer {
             sorting_layer: 0,
             sorting_order: 0,
             material_count: 0,
-            drawn: Vec::new(),
             slot_materials: Vec::new(),
             property_block: None,
             slot_blocks: BTreeMap::new(),
@@ -149,17 +140,11 @@ impl MeshRenderer {
             && matches!(self.light_probe_usage, 0 | 1 | 2 | 4)
             && self.reflection_probe_usage <= 3
             && self.material_count <= MAX_RENDERER_MATERIALS
-            && self.drawn.len() <= self.material_count as usize
             && self.slot_materials.len() <= self.material_count as usize
             && self
                 .slot_blocks
                 .keys()
-                .all(|slot| *slot < MAX_RENDERER_MATERIALS)
-            && self.drawn.iter().all(|slot| {
-                slot.color
-                    .iter()
-                    .all(|channel| channel.is_finite() && *channel >= 0.0)
-            });
+                .all(|slot| *slot < MAX_RENDERER_MATERIALS);
         if valid {
             Ok(())
         } else {

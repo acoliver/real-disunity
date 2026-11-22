@@ -17,15 +17,15 @@ use worldrunner_render_gpu::submission::{
     capture::{CaptureError, CaptureObserver, CaptureOutcome, CaptureWrites, WriteKey},
 };
 use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
+    PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
+};
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
     draw::{PassDrawStatistics, SceneGpu},
-    executor::{
-        AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
-        PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
-    },
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,

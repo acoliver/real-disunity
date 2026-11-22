@@ -64,7 +64,7 @@ fn prepared(scene: &RenderScene) -> worldrunner_render_scene::draw::PreparedScen
 fn source_preparation_admission_preserves_presentation() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
-    let mut presentation = Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         &context,
         COLOR,
         Viewport {
@@ -105,7 +105,7 @@ pub(crate) fn fixed(
         - cubes.validate(&limits).unwrap();
     peak.buffer("scene textures and meshes", stored, 1);
     let bytes = peak.validate(&context.device().limits()).unwrap();
-    Presentation::with_settings(
+    Presentation::new(
         context,
         COLOR,
         [size, size],

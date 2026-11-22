@@ -45,8 +45,6 @@ pub(crate) struct Environment<'s> {
     pub water_registered: bool,
     pub gbuffer: Option<&'s Gbuffer>,
     pub velocity: Option<wgpu::Texture>,
-    /// The temporal reactive mask the water pass is followed by, when the frame has one.
-    pub temporal_mask: Option<wgpu::Texture>,
     /// The screen-space settings the renderer was configured with.
     pub requested: (Option<SceneSsao>, Option<SceneSsr>),
     /// Whether depth-tested overlay geometry reads the post-water depth.

@@ -37,8 +37,8 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
-        WhiteRenderers.Reset();
         UnsentTextures.Reset();
+        RectDimensionMessages.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try
@@ -81,6 +81,7 @@ public static partial class DisunityHost
         ThrowIfError(NativeBindings.disunity_script_register(WorldHandle, behaviour.gameObject.NativeHandle, identity, &script));
         ReportScriptMessages(script, behaviour.GetType());
         Scripts.Add(identity, behaviour);
+        RectDimensionMessages.Register(behaviour);
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_object_wake(WorldHandle, behaviour.gameObject.NativeHandle, &work));
         Drain(work);

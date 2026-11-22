@@ -181,7 +181,7 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         width: 8,
         height: 8,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
@@ -233,13 +233,11 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         capture_pool: crate::CapturePoolPolicy::default(),
         recipes: false,
     };
-    assert!(
-        matches!(Presentation::with_settings(&context, COLOR, [size, size],
+    assert!(matches!(Presentation::new(&context, COLOR, [size, size],
         crate::tests::CLAMP, None, &policy),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget: 1 }))
-            if required > 1)
-    );
-    let mut presentation = Presentation::with_settings(
+            if required > 1));
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
@@ -273,8 +271,7 @@ fn fixed_budget(options: &crate::ViewerOptions) -> u64 {
 }
 
 /// Shadow depth fitting draws the depth and normal prepass, so an HDR frame that fits shadows
-/// owns and budgets that prepass even without SSAO or SSR. Legacy output has no screen-space
-/// metadata and leaves the configuration without fitting.
+/// owns and budgets that prepass even without SSAO or SSR.
 #[test]
 fn hdr_depth_fitting_reserves_the_prepass_it_draws() {
     use worldrunner_render_plan::{
@@ -309,7 +306,6 @@ fn hdr_depth_fitting_reserves_the_prepass_it_draws() {
     assert_eq!(with, fitted.depth_fitting().copied());
     // At least the prepass normals (Rgba16Float) and their float depth.
     assert!(with_bytes >= without_bytes + 65 * 49 * (8 + 4));
-    assert_eq!(fitting_inventory(crate::tests::CLAMP, &fitted).0, None);
 }
 
 fn fitting_inventory(

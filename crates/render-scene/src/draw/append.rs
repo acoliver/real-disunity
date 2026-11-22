@@ -15,15 +15,15 @@ use worldrunner_render_plan::{
     SceneTexture, SkeletonHandle, TextureHandle,
 };
 
-use super::resources::{
-    GroupInputs, material_imports, table_index, upload_meshes, upload_textures,
-};
+use super::resources::{GroupInputs, material_imports, table_index, upload_textures};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::instances::skin::{SkinNeed, skin_needs};
+use crate::object::prepared::LentMaterial;
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
-use crate::upload::{upload_buffer, upload_texture};
+use crate::upload::upload_texture;
+use worldrunner_render_gpu::resource::upload_buffer;
 
 /// The table sizes of the resident scene an append was prepared against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -549,7 +549,9 @@ impl SceneGpu {
             };
             new_material_uploads(device, queue, (&inputs, &mut records), &prepared.materials)
         };
-        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
+        let meshes = self
+            .arena
+            .upload(device, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
         self.resource_counters
             .append(&prepared.texture_bytes(), &prepared.mesh_bytes());
@@ -654,7 +656,6 @@ impl SceneGpu {
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
-        queue: &wgpu::Queue,
         replacement: PreparedMeshReplacement,
     ) -> Result<(), DrawError> {
         let index = replacement.index;
@@ -671,14 +672,15 @@ impl SceneGpu {
         }
         self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
-        let uploaded = upload_meshes(
-            device,
-            queue,
-            &self.instances.census,
-            std::slice::from_ref(&replacement.mesh),
-        )
-        .pop()
-        .expect("one mesh uploaded");
+        let uploaded = self
+            .arena
+            .upload(
+                device,
+                &self.instances.census,
+                std::slice::from_ref(&replacement.mesh),
+            )
+            .pop()
+            .expect("one mesh uploaded");
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.retained.lent_meshes.get_mut().take();
@@ -701,10 +703,7 @@ fn new_material_uploads(
         &mut crate::gbuffer::records::LightingRecordTable,
     ),
     materials: &[worldrunner_render_plan::SceneMaterial],
-) -> (
-    Vec<wgpu::Buffer>,
-    Vec<worldrunner_render_program::runtime::ImportTable>,
-) {
+) -> (Vec<wgpu::Buffer>, Vec<LentMaterial>) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
@@ -713,7 +712,10 @@ fn new_material_uploads(
         records.assign(&mut bytes);
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
-        tables.push(material_imports(inputs, material, &uniform, sampler));
+        tables.push(LentMaterial {
+            table: material_imports(inputs, material, &uniform, sampler),
+            uniform: bytes,
+        });
         uniforms.push(uniform);
     }
     (uniforms, tables)

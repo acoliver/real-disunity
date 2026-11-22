@@ -54,7 +54,7 @@ pub use retained::{
     WheelDelta, WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue,
     WorkQueueError, WorkSubmitError, WorkTicket,
 };
-pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
+pub use world_edits::{ObjectIdMap, edits_from_world_changes};
 
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;
@@ -93,7 +93,8 @@ pub struct ViewerOptions {
     pub orbit: OrbitLimits,
     /// Opt-in directional shadows with scene cascade policy and caller-owned coverage focus.
     pub shadows: Option<DirectionalShadowSettings>,
-    /// Legacy copy output or explicit HDR with fixed scene exposure and tone mapping.
+    /// HDR frame with fixed scene exposure and tone mapping; `ToneMap::Clamp` shows the scene
+    /// colour unchanged.
     pub frame_profile: FrameProfile,
     /// Maximum admitted submissions, in 1..=3. Select two for interactive presentation.
     pub frames_in_flight: usize,

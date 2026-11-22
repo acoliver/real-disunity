@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use worldrunner_disunity_runtime::{DisunityHost, GpuFlush, HostError, ManagedHostConfig};
 use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef};
+use worldrunner_world_simulation::ui::UiTexture;
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -173,6 +174,9 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_distance_field_atlas(&mut host, &root);
     assert_managed_overlay_order_and_clipping(&mut host, &root);
     assert_managed_triangle_round_trip(&mut host, &root);
+    assert_a_canvas_renderer_over_a_render_texture_reaches_the_ui_draw_as_a_target(
+        &mut host, &root,
+    );
     assert_gpu_flush(&mut host, &root);
     assert_graphics_snapshot(&mut host, &root);
     host.run_slice(&fixture).unwrap();
@@ -421,7 +425,10 @@ fn assert_player_mesh(host: &mut DisunityHost, identity: u64) {
 
 fn assert_player_mesh_channels(host: &DisunityHost, identity: u64) {
     use worldrunner_disunity_runtime::MeshRange;
-    let mesh = host.mesh_channels(identity).unwrap().expect("the channels");
+    let mesh = host
+        .mesh_channels_since(identity, 0)
+        .unwrap()
+        .expect("the channels");
     assert_eq!((mesh.generation, mesh.vertex_count), (1, 4));
     let shape: Vec<_> = mesh
         .channels
@@ -444,7 +451,7 @@ fn assert_player_mesh_channels(host: &DisunityHost, identity: u64) {
     );
     assert_eq!(host.mesh_channels_since(identity, 1).unwrap(), None);
     assert_eq!(host.mesh_channels_since(identity, 0).unwrap(), Some(mesh));
-    assert_eq!(host.mesh_channels(identity + 1000).unwrap(), None);
+    assert_eq!(host.mesh_channels_since(identity + 1000, 0).unwrap(), None);
 }
 
 fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {
@@ -491,7 +498,7 @@ fn flush_assets(
         .expect("the fixture's texture is readable in a flush");
     let sampler = flush.texture_sampler(identity)?.expect("its sampler");
     let mesh = (MESHES..MESHES + 64)
-        .find_map(|id| flush.mesh_channels(id).transpose())
+        .find_map(|id| flush.mesh_channels_since(id, 0).transpose())
         .transpose()?
         .expect("the fixture's mesh channels are readable in a flush");
     Ok((
@@ -626,6 +633,22 @@ fn assert_graphics_snapshot(host: &mut DisunityHost, root: &Path) {
     assert_eq!((size(camera_target), size(blit_target)), ((8, 8), (16, 4)));
     let blit_shader = snapshot.materials[material].shader;
     assert_eq!(snapshot.shaders[&blit_shader].name, "Fixture/Blit");
+    // The mesh object is active only around the camera render, so it is inactive when the snapshot
+    // is taken and only the render's own set holds its renderer.
+    let drawn = snapshot
+        .record_renderers(0)
+        .expect("the camera render has the renderers that were drawable when the script called it");
+    assert_eq!(
+        drawn.len(),
+        1,
+        "one object was active during the call: {drawn:?}"
+    );
+    assert_eq!(snapshot.renderers[drawn[0] as usize].layer, 3);
+    assert_eq!(
+        snapshot.record_renderers(1),
+        None,
+        "a blit draws no renderer"
+    );
     assert!(
         host.graphics_snapshot().unwrap().work.is_empty(),
         "the records were taken once"
@@ -732,9 +755,38 @@ fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Pat
     assert_eq!(ui.draws[3].clip_rect, [24, 24, 8, 8]);
     assert_eq!(ui.draws[0].clip_rect, [0, 0, 64, 64]);
     assert_eq!(ui.coverage.len(), 1);
-    assert!(ui.coverage.contains_key(&ui.draws[2].texture.unwrap()));
+    let Some(UiTexture::Coverage(key)) = ui.draws[2].texture else {
+        panic!("text draws name coverage");
+    };
+    assert!(ui.coverage.contains_key(&key));
     host.unload_slice().unwrap();
     assert!(matches!(host.ui_presentation(), Err(HostError::NoWorld)));
+}
+
+fn assert_a_canvas_renderer_over_a_render_texture_reaches_the_ui_draw_as_a_target(
+    host: &mut DisunityHost,
+    root: &Path,
+) {
+    host.run_slice(&root.join("csharp/PortableFixture/ui-target.fixture"))
+        .unwrap();
+    host.export_presentation([64, 64], 8).unwrap();
+    let ui = host.ui_presentation().unwrap();
+    assert_eq!(ui.draws.len(), 1, "the mesh exports one quad");
+    let Some(UiTexture::Target(target)) = ui.draws[0].texture else {
+        panic!(
+            "a render texture is drawn as a target, not {:?}",
+            ui.draws[0].texture
+        );
+    };
+    let held = host
+        .render_texture(target.to_bits())
+        .expect("the id names a render texture the world holds");
+    assert_eq!((held.width, held.height), (16, 8));
+    assert!(
+        host.render_texture(target.to_bits() + 1).is_err(),
+        "the world holds no other render texture"
+    );
+    host.unload_slice().unwrap();
 }
 
 fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
@@ -766,10 +818,10 @@ fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
     assert_eq!((draw.sorting_layer, draw.sorting_order), (0, -3));
     assert_eq!(draw.hierarchy_order, 1);
     assert_eq!(draw.clip_rect, [24, 28, 16, 16]);
-    let texture = host
-        .player_texture(draw.texture.unwrap(), 0)
-        .unwrap()
-        .unwrap();
+    let Some(UiTexture::Image(identity)) = draw.texture else {
+        panic!("a mesh over a texture draws an image");
+    };
+    let texture = host.player_texture(identity, 0).unwrap().unwrap();
     assert_eq!(texture.bytes, [255; 4]);
     assert!(ui.coverage.is_empty());
     host.unload_slice().unwrap();

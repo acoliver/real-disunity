@@ -8,6 +8,10 @@ use super::prefix::{OUTSIDE, at, perspective};
 use super::shadowed::{capture, capture_fit, effects_with, fitted, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -18,10 +22,6 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
         PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
     },
     shadows::ShadowedScene,
     wgpu,

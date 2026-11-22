@@ -118,6 +118,7 @@ fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> Offscr
                 pass: alpha(),
                 values,
                 front_face: wgpu::FrontFace::Cw,
+                renderers: super::camera::fixture_renderers(),
             },
         )]),
         records: vec![Record::CameraRender {
@@ -227,7 +228,7 @@ fn a_camera_reports_its_viewport_and_what_it_clears() {
     frame.cameras.get_mut(&CAMERA).unwrap().clear_color = None;
     let setup = rig.build(&frame).unwrap().camera_passes().remove(0).setup;
     assert_eq!(setup.color, "load");
-    assert_eq!(setup.depth, "clear 1.0");
+    assert_eq!(setup.depth, "clear 0.0");
 
     frame.cameras.get_mut(&CAMERA).unwrap().clear_depth = false;
     let setup = rig.build(&frame).unwrap().camera_passes().remove(0).setup;

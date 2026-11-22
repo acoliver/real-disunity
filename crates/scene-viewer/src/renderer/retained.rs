@@ -335,6 +335,7 @@ pub(super) fn apply_ui(
     resident: &mut Resident,
     presentation: &mut super::Presentation,
     overlay: &worldrunner_render_scene::simulation::UiOverlay,
+    targets: &[worldrunner_render_scene::simulation::UiTarget],
 ) -> Result<(), ViewerError> {
     let mut settings = presentation.scheduler.configuration().clone();
     if settings.ui_depth != overlay.needs_depth() {
@@ -344,6 +345,6 @@ pub(super) fn apply_ui(
     }
     resident
         .scene_mut()
-        .set_ui_overlay(context.device(), context.submission(), overlay)
+        .set_ui_overlay(context.device(), context.submission(), overlay, targets)
         .map_err(|error| ViewerError::Gpu(error.to_string()))
 }

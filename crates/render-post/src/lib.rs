@@ -109,8 +109,6 @@ mod mip_bias_tests;
 #[cfg(test)]
 mod post_extent_allocation_tests;
 mod post_filters;
-#[cfg(test)]
-mod quality_metrics;
 mod scene_color;
 mod smaa;
 mod smaa_gpu;

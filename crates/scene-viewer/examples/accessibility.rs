@@ -8,7 +8,7 @@ use std::sync::Arc;
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::{
     RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost, RetainedInput, RetainedTick,
-    RetainedUpdate,
+    RetainedUpdate, ViewerStart,
 };
 use worldrunner_world_simulation::{
     InputAction,
@@ -108,6 +108,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut host = RetainedHost::new(scene::scene()?, scene::options())?;
     let layout = menu.layout(host.size())?;
     host.set_accessibility(menu.router.semantic_update(&menu.world, &layout)?);
-    host.run(&mut menu)?;
+    host.run(ViewerStart::new()?, &mut menu)?;
     Ok(())
 }

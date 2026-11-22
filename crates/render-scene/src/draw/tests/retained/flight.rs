@@ -123,15 +123,16 @@ fn encode_frame(
     let mut expected_frame = frame;
     expected_frame.raster_viewport = size;
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&target.color_attachment(), &target.depth_attachment()),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame,
+        )
+        .unwrap();
     let batch = gpu.instances.batches.values().next().unwrap();
     let expected = batch.bytes.clone();
     let mut instances = BufferReadback::new(context.device(), expected.len() as u64, 4096).unwrap();

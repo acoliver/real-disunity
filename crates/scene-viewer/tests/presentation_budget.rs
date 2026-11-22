@@ -6,7 +6,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
     FrameProfile, OrbitLimits, PresentationBudget, PresentationCadence, RenderClock,
-    RetainedDriver, RetainedHost, RetainedTick, ViewerError, ViewerOptions,
+    RetainedDriver, RetainedHost, RetainedTick, ViewerError, ViewerOptions, ViewerStart,
 };
 
 struct Driver(bool);
@@ -45,7 +45,9 @@ fn main() {
     let mut options = options();
     options.presentation_budget =
         PresentationBudget(if reject { 256 } else { 300 } * 1024 * 1024).into();
-    let result = RetainedHost::new(scene, options).unwrap().run(&mut driver);
+    let result = RetainedHost::new(scene, options)
+        .unwrap()
+        .run(ViewerStart::new().unwrap(), &mut driver);
     if reject {
         assert!(!driver.0);
         assert!(matches!(result,

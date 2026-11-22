@@ -20,7 +20,8 @@ fn resident_statistics_clear_shadows_only_after_submission() {
     let source = super::terrain::terrain_scene(&base, false, false);
     let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut shadowed, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut shadowed, &mut scheduler, &context, &view(), &target).unwrap();
     let previous = shadowed.scene_mut().statistics();
     assert_eq!(
         previous.effects.shadows.installation,
@@ -47,15 +48,16 @@ fn resident_statistics_clear_shadows_only_after_submission() {
     for submit in [false, true] {
         let mut encoder = context.submission().begin(context.device()).unwrap();
         let frame = shadowed.scene_mut().resident_frame();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (shadowed.scene_mut(), &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (shadowed.scene_mut(), &pipelines),
+                (&target.color_attachment(), &target.depth_attachment()),
+                frame,
+            )
+            .unwrap();
         assert_eq!(shadowed.scene_mut().statistics(), previous);
         if submit {
             encoder.finish().submit().unwrap();
@@ -96,7 +98,8 @@ fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
     assert_eq!(renderer.map.depth.layers(), 4);
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let image = target.read_rgba8(&context).unwrap();
     for y in [0.0, 1.1, 1.7, 2.6] {
         assert_shadow(&image, &baseline, Vec3::new(-0.75, y, 0.0));
@@ -120,14 +123,14 @@ fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
         .scene_mut()
         .set_instance_visible(handle, false)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let hidden = target.read_rgba8(&context).unwrap();
     assert_lit(&hidden, &baseline, Vec3::new(-0.75, 0.0, 0.0));
     renderer
         .scene_mut()
         .set_instance_visible(handle, true)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(target.read_rgba8(&context).unwrap(), image);
 }
 
@@ -163,7 +166,8 @@ fn gpu_each_cascade_keeps_off_camera_casters_and_main_camera_lod() {
     .unwrap();
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let image = target.read_rgba8(&context).unwrap();
     assert_eq!(renderer.view_stats().culled, 1);
     for index in 0..4 {
@@ -173,7 +177,7 @@ fn gpu_each_cascade_keeps_off_camera_casters_and_main_camera_lod() {
         .scene_mut()
         .set_instance_visible(handle, false)
         .unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let plain = target.read_rgba8(&context).unwrap();
     assert!(
         i16::from(at_view(&plain, Vec3::ZERO, &view))
@@ -193,6 +197,7 @@ fn gpu_camera_splits_blend_and_reconfigure_without_reupload() {
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for camera_splits in [true, false] {
         for count in [2_u32, 3, 4, 2] {
             let count_usize = usize::try_from(count).unwrap();
@@ -210,7 +215,7 @@ fn gpu_camera_splits_blend_and_reconfigure_without_reupload() {
             .unwrap();
             let configured = source_with(&source, policy);
             renderer.set_effects(configured.effects().unwrap()).unwrap();
-            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
             assert_eq!(renderer.map.depth.layers(), count);
             assert!(renderer.scene_mut().instance(handle).is_ok());
             let image = target.read_rgba8(&context).unwrap();

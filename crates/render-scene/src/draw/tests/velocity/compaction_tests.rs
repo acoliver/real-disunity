@@ -79,15 +79,16 @@ impl Rig {
             .submission()
             .begin(self.context.device())
             .unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            self.context.device(),
-            &mut encoder,
-            (&mut self.gpu, pipelines),
-            (&self.color, &self.depth),
-            unlit(pose_at(x)),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                self.context.device(),
+                &mut encoder,
+                (&mut self.gpu, pipelines),
+                (&self.color, &self.depth),
+                unlit(pose_at(x)),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     }
 

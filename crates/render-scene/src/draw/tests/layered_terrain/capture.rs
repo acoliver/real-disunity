@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    compositor::{FrameRenderer, encode_scene},
-    offscreen::OffscreenTarget,
-};
+use crate::{compositor::FrameRenderer, offscreen::OffscreenTarget};
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
 use worldrunner_render_post::FrameError;
 
@@ -71,8 +68,7 @@ fn capture(
     let writes = CaptureWrites::new(keys.clone(), keys.clone(), keys).unwrap();
     let prefix = authority
         .begin_capture(device, writes, (), |encoder, _, ()| {
-            encode_scene(
-                renderer,
+            renderer.encoding().encode_scene(
                 device,
                 encoder,
                 (&mut *gpu, pipelines),
@@ -87,8 +83,7 @@ fn capture(
             device,
             |_, _| Ok::<_, FrameError>(()),
             |encoder, _, (), ()| {
-                encode_scene(
-                    renderer,
+                renderer.encoding().encode_scene(
                     device,
                     encoder,
                     (&mut *gpu, pipelines),

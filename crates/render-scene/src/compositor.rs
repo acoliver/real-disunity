@@ -3,6 +3,8 @@ mod capture;
 mod contours;
 pub mod opaque;
 #[cfg(test)]
+mod overlay_target_gpu_tests;
+#[cfg(test)]
 mod overlay_tests;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
@@ -498,7 +500,6 @@ impl FrameRenderer {
     }
     fn set_water_input(
         &mut self,
-        device: &wgpu::Device,
         frame: &crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
@@ -512,10 +513,10 @@ impl FrameRenderer {
             .stock_water()
             .map(|water| {
                 water.feature_with_depth(
-                    (device, encoder),
+                    encoder,
                     frame,
                     (self.elapsed_seconds, self.frame_slot),
-                    (shadow, self.targets().temporal_mask_texture()),
+                    shadow,
                     depth,
                 )
             })
@@ -568,8 +569,7 @@ impl FrameRenderer {
         } else {
             crate::renderer::depth::DepthMode::Independent
         };
-        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
-        self.clear_unwritten_water_mask(encoder);
+        self.set_water_input(&frame, shadow, encoder, depth_mode)?;
         let declarations: Vec<_> = features
             .iter()
             .map(|feature| feature.declaration.clone())
@@ -584,7 +584,6 @@ impl FrameRenderer {
             water_registered: self.water.is_some(),
             gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
-            temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: self.overlay.needs_depth(),
             shadow: shadow.is_some(),
@@ -709,8 +708,8 @@ pub(crate) fn attachment(
 }
 
 pub use depth_prefix::StockDepthPrefix;
-pub(crate) use scene::{SceneFeature, declare_velocity};
-pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
+pub(crate) use scene::{ColorDepth, SceneFeature, declare_velocity};
+pub use scene::{StockSceneFeature, prepare_stock_scene};
 mod scene;
 
 #[cfg(test)]

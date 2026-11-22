@@ -28,7 +28,7 @@ fn gpu_depth_gather_runs_in_mesh_and_terrain_forward_draws() {
 }
 
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use worldrunner_render_plan::{SceneSsao, TexelFormat};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -68,8 +68,7 @@ fn encode_profile(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let result = encode_scene(
-        &mut renderer,
+    let result = renderer.encoding().encode_scene(
         context.device(),
         &mut encoder,
         (gpu, pipelines),
@@ -238,15 +237,16 @@ pub(super) fn capture_metadata(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&color, &depth),
-        FrameUniform::new(&view, source.effects()).unwrap(),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&color, &depth),
+            FrameUniform::new(&view, source.effects()).unwrap(),
+        )
+        .unwrap();
     renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     assert_observations(&gpu, source);

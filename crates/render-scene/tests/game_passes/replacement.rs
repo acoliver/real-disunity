@@ -4,10 +4,8 @@
 use super::fixture::{Rig, SCENE_FORMAT, SIZE};
 use super::layers::{ARRAY, HISTORY};
 use super::persistence::{assert_filled, fill_all, rig};
-use worldrunner_render_scene::{
-    executor::{FrameConfig, FrameError},
-    wgpu,
-};
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::wgpu;
 
 const LARGE: [u32; 2] = [128, 96];
 

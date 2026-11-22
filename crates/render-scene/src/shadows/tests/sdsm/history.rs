@@ -35,7 +35,7 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                (Some(frame), capture),
+                (Some(frame), capture, &[]),
                 &mut scheduler,
             )
             .unwrap();
@@ -97,7 +97,7 @@ fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                (Some(frame), false),
+                (Some(frame), false, &[]),
                 &mut renderer,
             )
             .unwrap();

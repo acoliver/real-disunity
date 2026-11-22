@@ -32,9 +32,9 @@ internal static unsafe class WorldGraphicsTests
             RendererSlotsAndBlocksReachTheWorld();
             Console.WriteLine("PASS: a mesh renderer sends the world material of each slot and its property block");
             SlotBlocksReachTheWorldPerMaterialIndex();
+            Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             SlotBlocksReachTheWorldUpToTheLastSlot();
             Console.WriteLine("PASS: a property block reaches its own slot up to index 63, and index 64 stays in managed memory");
-            Console.WriteLine("PASS: a property block set for one material index reaches that slot's block in the world, and clearing it removes it");
             CameraRenderRecordsOffscreenWork();
             Console.WriteLine("PASS: Camera.Render with a target texture records CameraRender, and without one records nothing");
             BlitAndCopyRecordInOrder();
@@ -56,7 +56,7 @@ internal static unsafe class WorldGraphicsTests
 
     private static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 
-    private static DisunityPropertyRead Read(uint scope, ulong target, string name)
+    internal static DisunityPropertyRead Read(uint scope, ulong target, string name)
     {
         var bytes = Utf8(name);
         DisunityPropertyRead value;
@@ -65,7 +65,7 @@ internal static unsafe class WorldGraphicsTests
         return value;
     }
 
-    private static bool KeywordOn(uint scope, ulong target, string name)
+    internal static bool KeywordOn(uint scope, ulong target, string name)
     {
         var bytes = Utf8(name);
         uint on;
@@ -88,15 +88,16 @@ internal static unsafe class WorldGraphicsTests
         return desc;
     }
 
-    /// <summary>Drains the world's offscreen work.</summary>
+    /// <summary>Drains the world's offscreen work. A drain with a capacity of at least one also forgets the global writes the world
+    /// noted for ordering, so a drain before a step leaves earlier steps' globals out of the step's records.</summary>
     private static DisunityOffscreenWork[] Take()
     {
         uint count;
         DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, null, 0, &count));
-        var work = new DisunityOffscreenWork[count];
+        var work = new DisunityOffscreenWork[Math.Max(count, 1u)];
         fixed (DisunityOffscreenWork* pointer = work)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, count == 0 ? null : pointer, count, &count));
-        return work;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, pointer, (uint)work.Length, &count));
+        return work.Take((int)count).ToArray();
     }
 
     private static void MaterialSettersReachTheWorld()
@@ -377,7 +378,7 @@ internal static unsafe class WorldGraphicsTests
         var a = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
         var b = new RenderTexture(8, 8, 0);
         var c = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
-        var material = new Material(DisunityHost.DeclareShader("Test/World/Blit", 2000, Unnamed(3), 1, _ => { }));
+        var material = new Material(DisunityHost.DeclareShader("Test/World/Blit", new ShaderDeclaration(2000, Unnamed(3), 1), _ => { }));
         Graphics.Blit(source, a);
         Graphics.Blit(a, b, material, 2);
         RenderTexture.active = b;
@@ -413,7 +414,7 @@ internal static unsafe class WorldGraphicsTests
         var first = new RenderTexture(8, 8, 0);
         var second = new RenderTexture(8, 8, 0);
         var target = new RenderTexture(8, 8, 0);
-        var material = new Material(DisunityHost.DeclareShader("Test/World/Bake", 2000, Unnamed(1), 1, _ => { }));
+        var material = new Material(DisunityHost.DeclareShader("Test/World/Bake", new ShaderDeclaration(2000, Unnamed(1), 1), _ => { }));
         material.SetTexture("_PrimaryTex", first);
         Graphics.Blit(first, target, material, 0);
         material.SetTexture("_PrimaryTex", second);
@@ -444,9 +445,9 @@ internal static unsafe class WorldGraphicsTests
 
     private static void ShaderSourceComesFromThePlan()
     {
-        var shader = DisunityHost.DeclareShader("Test/World/Planned", 2000, Unnamed(1), 1, _ => { }, "sharedassets3.assets", -12);
+        var shader = DisunityHost.DeclareShader("Test/World/Planned", new ShaderDeclaration(2000, Unnamed(1), 1), _ => { }, "sharedassets3.assets", -12);
         Expect.That(shader.SourceFile == "sharedassets3.assets" && shader.SourcePathId == -12, "the shader keeps its source");
-        var again = DisunityHost.DeclareShader("Test/World/Planned", 2000, Unnamed(1), 1, _ => { }, "other.assets", 5);
+        var again = DisunityHost.DeclareShader("Test/World/Planned", new ShaderDeclaration(2000, Unnamed(1), 1), _ => { }, "other.assets", 5);
         Expect.That(again == shader && shader.SourceFile == "sharedassets3.assets", "the first source stays");
         Expect.That(shader.WorldLink.Id != 0, "the shader is registered in the world with its source");
         var plain = DisunityHost.RegisterShader("Test/World/Fallback");

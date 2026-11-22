@@ -77,13 +77,7 @@ fn water_capture(context: &GpuContext, response: Option<SceneWaterShadowResponse
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode_with(
-            context,
-            &view,
-            (&color, &depth),
-            &mut encoder,
-            Some(&mut frame),
-        )
+        .encode_with(context, &view, (&color, &depth), &mut encoder, &mut frame)
         .unwrap();
     encoder.finish().submit().unwrap();
     let snapshot = &frame.water.as_ref().unwrap().snapshots[0];

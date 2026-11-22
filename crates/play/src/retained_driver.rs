@@ -33,6 +33,7 @@ use worldrunner_scene_viewer::{
     RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
     ViewerStart, WindowMode, WindowSizeUnit,
 };
+use worldrunner_world_simulation::ui::presentation::UiPresentation;
 
 use crate::{
     PlayError, PreparedPlayer,
@@ -42,11 +43,11 @@ use crate::{
     gpu_player::PlayerGpu,
     keys::key_code,
     navigation::Navigation,
-    player::{GpuWork, window_gpu},
+    player::window_gpu,
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, graphic_textures},
-    scene_census::{SubstitutionCensus, WhiteReason},
+    scene_census::WhiteReason,
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
@@ -76,16 +77,17 @@ pub struct PlayerWindow {
     /// The updates whose presented frame is kept as a [`Capture`].
     pub capture_frames: BTreeSet<u64>,
     pub keys: Vec<ScheduledKey>,
-    /// Whether the window does the player's offscreen GPU work.
-    pub gpu_work: GpuWork,
 }
 
 /// Boots the player, shows its scene in a window until the window closes or `max_frames`
 /// frames are presented, and returns the captured frames. The window does the player's offscreen
-/// work as a headless run does ([`GpuWork`]): a script's synchronous GPU flush, such as a
+/// work as a headless run does: a script's synchronous GPU flush, such as a
 /// `Texture2D.ReadPixels` after a `Graphics.Blit`, is answered, and each update's offscreen work
-/// runs on the viewer's own device, in the viewer's frame. With [`GpuWork::Off`] the player makes
-/// no device.
+/// runs on the viewer's own device, in the viewer's frame.
+///
+/// # Errors
+/// Fails naming the reason when the viewer's device cannot be had, and when the scene cannot start
+/// or the window fails.
 pub fn play_player_window(
     prepared: &PreparedPlayer,
     window: PlayerWindow,
@@ -94,17 +96,15 @@ pub fn play_player_window(
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
     let options = viewer_options(&window);
     let gpu = window_gpu(
-        window.gpu_work,
         &prepared.data,
-        prepared.depth,
-        &prepared.globals,
+        &prepared.gpu,
         &mut ViewerDevice {
             start: &mut start,
             options: &options,
         },
-    );
+    )?;
     let (viewer, mut driver) = start_window(prepared, window, gpu)?;
-    let ran = viewer.run_on(start, &mut driver);
+    let ran = viewer.run(start, &mut driver);
     driver.report_gpu();
     ran.map_err(|error| PlayError::Invalid(error.to_string()))?;
     Ok(std::mem::take(&mut driver.captures))
@@ -137,16 +137,14 @@ impl DeviceSource for ViewerDevice<'_> {
 fn start_window(
     prepared: &PreparedPlayer,
     window: PlayerWindow,
-    gpu: Option<PlayerGpu>,
+    gpu: PlayerGpu,
 ) -> Result<(RetainedHost, PlayerRetainedDriver), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     // Installed before the scene loads: a script may read a render texture back while it does.
     // The screen is the window's size from the start, so a script that draws into it while the
     // scene loads draws into a screen of that size.
-    if let Some(gpu) = &gpu {
-        gpu.install(&mut host)?;
-        gpu.set_screen(Some(window.size));
-    }
+    gpu.install(&mut host)?;
+    gpu.set_screen(Some(window.size));
     host.run_slice(&prepared.request)?;
     let mut options = viewer_options(&window);
     // The first frame's lights decide whether the viewer starts with shadows, which it cannot
@@ -234,18 +232,11 @@ impl FrameContent for Content<'_> {
     }
 }
 
-/// Writes the lines of `census` to standard error as the GPU report writes them.
-fn print_census(census: &SubstitutionCensus) {
-    for line in census.lines() {
-        eprintln!("[gpu] {line}");
-    }
-}
-
 struct PlayerRetainedDriver {
     host: DisunityHost,
-    /// The device the window's offscreen work runs on, when it has one. Declared after `host`
-    /// so the host is dropped first.
-    gpu: Option<PlayerGpu>,
+    /// The device the window's offscreen work runs on. Declared after `host` so the host is
+    /// dropped first.
+    gpu: PlayerGpu,
     window: PlayerWindow,
     tables: SceneTables,
     meshes: PlayerMeshes,
@@ -273,7 +264,7 @@ impl PlayerRetainedDriver {
         host: DisunityHost,
         window: PlayerWindow,
         lighting: SceneLighting,
-        gpu: Option<PlayerGpu>,
+        gpu: PlayerGpu,
     ) -> Result<Self, PlayError> {
         // The opening view can be orbited until the game presents a camera, which then owns it.
         let mut navigation = Navigation::default();
@@ -304,15 +295,10 @@ impl PlayerRetainedDriver {
     }
 
     /// Prints the GPU report of the run, as a headless run does when it ends, with the census of
-    /// the renderers drawn white. Without a GPU the census prints alone.
+    /// the renderers drawn white.
     fn report_gpu(&self) {
-        let census = self.tables.census();
-        if let Some(gpu) = &self.gpu {
-            gpu.note_retained(census.clone());
-            gpu.report().print();
-        } else {
-            print_census(census);
-        }
+        self.gpu.note_retained(self.tables.census().clone());
+        self.gpu.report().print(None);
     }
 
     fn push_key(&mut self, code: u16, pressed: bool) -> Result<(), PlayError> {
@@ -347,7 +333,7 @@ impl PlayerRetainedDriver {
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
-        let ui = self.host.ui_presentation()?;
+        let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
         // After the meshes are refreshed, as in a headless run, and before the frame's textures
         // and UI go to the viewer, so texels a readback filled this frame show this frame.
@@ -364,6 +350,7 @@ impl PlayerRetainedDriver {
         let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
+        self.offer_ui_textures(viewer, &mut ui);
         if let Some(update) = self.ui.update(
             ui,
             self.size,
@@ -384,9 +371,7 @@ impl PlayerRetainedDriver {
 
     fn resize_screen(&mut self, size: [u32; 2]) {
         self.size = size.map(|side| side.max(1));
-        if let Some(gpu) = &self.gpu {
-            gpu.set_screen(Some(self.size));
-        }
+        self.gpu.set_screen(Some(self.size));
     }
 
     /// Hands the frame's offscreen work to the viewer, which runs it in its next frame, and
@@ -395,14 +380,21 @@ impl PlayerRetainedDriver {
     /// The offer is made every update so a texture a resize replaced or a screen taken away is
     /// withdrawn at once.
     fn show_screen(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
-        let Some(gpu) = &self.gpu else {
-            return Ok(());
-        };
-        if let Some(operations) = gpu.frame_for_viewer(&mut self.host)? {
+        if let Some(operations) = self.gpu.frame_for_viewer(&mut self.host)? {
             viewer.admit_offscreen(operations);
         }
-        viewer.show_game_screen(gpu.game_screen());
+        viewer.show_game_screen(self.gpu.game_screen());
         Ok(())
+    }
+
+    /// Offers the viewer the render textures the UI's draws read, as the player's device holds them
+    /// now, and takes out the draws whose texture cannot be shown.
+    fn offer_ui_textures(&mut self, viewer: &mut RetainedHost, ui: &mut UiPresentation) {
+        let offers = self.gpu.ui_offers(&self.host, ui);
+        let targets = self
+            .ui
+            .offer_targets(ui, offers, |message| eprintln!("{message}"));
+        viewer.show_ui_textures(targets);
     }
 
     /// Sends the viewer new scene effects when the frame's lighting changed.
@@ -422,7 +414,7 @@ impl PlayerRetainedDriver {
     fn refresh(
         &mut self,
         objects: &[worldrunner_disunity_runtime::MeshObjectView],
-        ui: &worldrunner_render_plan::ui::UiPresentation,
+        ui: &worldrunner_world_simulation::ui::presentation::UiPresentation,
     ) -> Result<(), PlayError> {
         let shown = objects
             .iter()

@@ -17,8 +17,8 @@ impl SceneGpu {
     /// Carries `programs` into the next frame this scene is encoded into, where they draw after
     /// the scene's own opaque geometry in the same pass.
     ///
-    /// Only [`crate::compositor::encode_scene`] draws them. The shadowed path
-    /// ([`crate::shadows::ShadowedScene::encode`]) refuses a scene that holds admitted draws by
+    /// Only [`crate::compositor::FrameEncoding::encode_scene`] draws them. The shadowed path
+    /// ([`crate::shadows::ShadowedScene::encode_with`]) refuses a scene that holds admitted draws by
     /// name instead of ignoring them.
     ///
     /// Only draws admitted through [`worldrunner_render_program::runtime::ProgramRuntime::admit_draws`]

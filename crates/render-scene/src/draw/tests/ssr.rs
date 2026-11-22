@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use worldrunner_render_plan::SceneSsr;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -80,15 +80,16 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&color, &depth),
-        FrameUniform::new(&view, source.effects()).unwrap(),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&color, &depth),
+            FrameUniform::new(&view, source.effects()).unwrap(),
+        )
+        .unwrap();
     renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(

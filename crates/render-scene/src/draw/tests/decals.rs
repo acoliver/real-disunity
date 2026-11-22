@@ -135,15 +135,16 @@ pub(super) fn capture_with_renderer(
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut frame = frame_from(pose());
     frame.unlit = unlit;
-    crate::compositor::encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            frame,
+        )
+        .unwrap();
     renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
@@ -419,7 +420,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    let mesh = gpu.meshes[0].lods[0].vertices.clone();
+    let mesh = gpu.meshes[0].lods[0].vertices.buffer().clone();
     let material = gpu.retained.material_uniforms[0].clone();
     let texture = (*gpu.retained.textures[0]).clone();
     let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
@@ -435,7 +436,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let removed = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
     assert_ne!(removed, edited);
     assert_eq!(removed, capture(&context, &source(false, true), 1));
-    assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
+    assert_eq!(mesh, *gpu.meshes[0].lods[0].vertices.buffer());
     assert_eq!(material, gpu.retained.material_uniforms[0]);
     assert_eq!(texture, *gpu.retained.textures[0]);
     assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);

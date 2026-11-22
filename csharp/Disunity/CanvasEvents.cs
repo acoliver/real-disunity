@@ -16,8 +16,10 @@ public sealed partial class Canvas
 
     internal static void RaiseWillRender()
     {
+        RectDimensionMessages.Flush();
         Raise(preWillRenderCanvases);
         Raise(willRenderCanvases);
+        RectDimensionMessages.Flush();
     }
 
     internal static void ClearHandlers() => (willRenderCanvases, preWillRenderCanvases) = (null, null);

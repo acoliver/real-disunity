@@ -28,7 +28,7 @@ use crate::{
     driver::Capture,
     gpu_device::DeviceSource,
     gpu_player::PlayerGpu,
-    player::{GpuWork, PreparedPlayer, window_gpu},
+    player::{PreparedPlayer, window_gpu},
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, graphic_textures},
     retained_driver::{PlayerWindow, viewer_options},
@@ -61,7 +61,6 @@ fn session_options(size: [u32; 2]) -> ViewerOptions {
         max_frames: None,
         capture_frames: BTreeSet::new(),
         keys: Vec::new(),
-        gpu_work: GpuWork::Auto,
     };
     ViewerOptions {
         render_clock: RenderClock::Fixed(Duration::ZERO),
@@ -90,20 +89,12 @@ impl ScreenDevice {
         }
     }
 
-    /// The offscreen work of the run on this device, or `None` for [`GpuWork::Off`] and when the
-    /// device cannot be had, which is reported on standard error.
-    pub(crate) fn player_gpu(
-        &mut self,
-        work: GpuWork,
-        prepared: &PreparedPlayer,
-    ) -> Option<PlayerGpu> {
-        window_gpu(
-            work,
-            &prepared.data,
-            prepared.depth,
-            &prepared.globals,
-            self,
-        )
+    /// The offscreen work of the run on this device.
+    ///
+    /// # Errors
+    /// Fails naming the reason when the device cannot be had.
+    pub(crate) fn player_gpu(&mut self, prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
+        window_gpu(&prepared.data, &prepared.gpu, self)
     }
 
     /// The windowless session that composes the run's frames on this device, delivering its
@@ -115,7 +106,7 @@ impl ScreenDevice {
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         let delivered = Rc::clone(&sink.delivered);
         let run = host
-            .windowless_on(sink, self.gpu)
+            .windowless(sink, Some(self.gpu))
             .map_err(|error| viewer_failed("the screen's viewer cannot start", &error))?;
         Ok(ScreenComposer {
             run,
@@ -211,7 +202,7 @@ impl ScreenComposer<'_> {
         gpu: &PlayerGpu,
         drawn: u64,
     ) -> Result<Capture, PlayError> {
-        self.send_ui(host)?;
+        self.send_ui(host, gpu)?;
         let screen = gpu.written_screen().ok_or_else(|| {
             PlayError::Invalid(format!(
                 "the screen drawn by frame {drawn} cannot be shown with the UI"
@@ -247,10 +238,15 @@ impl ScreenComposer<'_> {
 
     /// Sends the viewer the UI the world holds, as a window does: the draws the player can show,
     /// with the textures they name converted first.
-    fn send_ui(&mut self, host: &DisunityHost) -> Result<(), PlayError> {
-        let plan = host.ui_presentation()?;
+    fn send_ui(&mut self, host: &DisunityHost, gpu: &PlayerGpu) -> Result<(), PlayError> {
+        let mut plan = host.ui_presentation()?;
         self.textures
             .refresh(host, graphic_textures(&plan), &mut self.sprites)?;
+        let offers = gpu.ui_offers(host, &plan);
+        let targets = self
+            .ui
+            .offer_targets(&mut plan, offers, |message| eprintln!("{message}"));
+        self.run.host_mut().show_ui_textures(targets);
         let update = self
             .ui
             .update(plan, self.size, &self.sprites, &self.textures, |message| {

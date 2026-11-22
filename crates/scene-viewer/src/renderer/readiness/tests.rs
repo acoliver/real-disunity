@@ -21,10 +21,9 @@ fn baked_effect_edits_prepare_then_publish_through_the_shared_renderer() {
     )
     .unwrap();
     let mut resident = Resident::new(&context, &source, None, profile).unwrap();
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        size,
         size,
         profile,
         source.effects(),
@@ -79,10 +78,9 @@ fn ssr_parameter_settings_publish_without_a_rebuild() {
     };
     let mut host = RetainedHost::new(source.clone(), options).unwrap();
     let mut resident = Resident::new(&context, &source, None, profile).unwrap();
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        size,
         size,
         profile,
         source.effects(),
@@ -222,7 +220,8 @@ fn pending_preparation_keeps_rendering_then_publishes_whole_generations() {
     };
     let mut host = host(&source);
     let mut resident = Resident::new(&context, &source, None, crate::tests::CLAMP).unwrap();
-    let mut presentation = Presentation::new(&context, crate::presentation::COLOR, size);
+    let mut presentation =
+        crate::presentation::fixtures::presentation(&context, crate::presentation::COLOR, size);
     let mut streaming = Streaming::new(None, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(context.device(), size).unwrap();
     let before_view = host.view().unwrap().unwrap().view_matrix();
@@ -349,7 +348,7 @@ fn asynchronous_rebuilds_complete_in_reverse_but_publish_in_order() {
     let source = super::super::retained_tests::source();
     let mut host = host(&source);
     let mut resident = Resident::new(&context, &source, None, crate::tests::CLAMP).unwrap();
-    let mut presentation = Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         &context,
         crate::presentation::COLOR,
         Viewport {

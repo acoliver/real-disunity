@@ -1,4 +1,5 @@
 use super::*;
+use crate::device::{DeviceRequest, REQUIRED_FEATURES};
 use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
 
 pub(super) fn cutout_texture() -> SceneTexture {
@@ -540,7 +541,14 @@ fn terrain_contact_full_and_zero_endpoints_match_exact_material_bytes() {
 fn foliage_resources_retire_after_scene_drop() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::test_support::test_instance();
-    let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+    let context = pollster::block_on(GpuContext::from_instance(
+        &instance,
+        &DeviceRequest {
+            features: REQUIRED_FEATURES,
+            ..DeviceRequest::default()
+        },
+    ))
+    .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let before = instance.generate_report().unwrap();
     let authority =

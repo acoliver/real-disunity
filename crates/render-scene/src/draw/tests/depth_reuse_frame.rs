@@ -194,18 +194,13 @@ fn draw_frame_with_view(
         .prepare(device, |encoder, _| {
             if let Some(shadowed) = &mut shadowed {
                 shadowed
-                    .encode_with(context, &view, (&color, &depth), encoder, Some(renderer))
+                    .encode_with(context, &view, (&color, &depth), encoder, renderer)
                     .unwrap();
             } else {
-                encode_scene(
-                    renderer,
-                    device,
-                    encoder,
-                    (gpu, pipelines),
-                    (&color, &depth),
-                    frame,
-                )
-                .unwrap();
+                renderer
+                    .encoding()
+                    .encode_scene(device, encoder, (gpu, pipelines), (&color, &depth), frame)
+                    .unwrap();
             }
             renderer
                 .encode_output(
@@ -359,7 +354,13 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
     )
     .unwrap();
     let fit = shadowed
-        .render_depth_fitted_with(context, &view, (&color, &depth), 0, &mut scheduler)
+        .render_depth_fitted_host(
+            context,
+            &view,
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut scheduler,
+        )
         .unwrap()
         .unwrap();
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));

@@ -123,6 +123,12 @@ impl Tree {
     pub fn len(&self) -> usize {
         self.slots.len()
     }
+
+    /// Every live slot in leaf order. A tree of at most `LEAF_SLOTS` slots is one leaf, so
+    /// these are that leaf's slots, ascending.
+    pub fn slots(&self) -> &[u32] {
+        &self.slots
+    }
 }
 
 #[cfg(test)]

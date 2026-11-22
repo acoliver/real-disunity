@@ -36,7 +36,7 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
         height: 64,
     };
     let make = |budget: u64| {
-        Presentation::with_settings(
+        Presentation::new(
             context,
             COLOR,
             [size, size],

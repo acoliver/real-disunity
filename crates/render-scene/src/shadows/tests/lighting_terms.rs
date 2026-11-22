@@ -31,6 +31,7 @@ fn check_scene(context: &GpuContext, terrain: bool) {
         1,
     )
     .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let color =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     let depth =
@@ -40,10 +41,14 @@ fn check_scene(context: &GpuContext, terrain: bool) {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode(context, &view, &color_view, &depth_view, encoder)?;
-            for capture in &captures {
-                renderer.encode_term_capture(context.device(), encoder, capture)?;
-            }
+            renderer.encode_with(
+                context,
+                &view,
+                (&color_view, &depth_view),
+                encoder,
+                &mut scheduler,
+            )?;
+            renderer.encode_term_captures(context.device(), encoder, &captures, &scheduler)?;
             Ok::<_, ShadowError>(())
         })
         .unwrap();

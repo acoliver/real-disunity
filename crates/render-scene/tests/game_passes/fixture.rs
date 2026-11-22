@@ -9,12 +9,14 @@ use worldrunner_render_plan::{
     SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
     TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap,
+};
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -369,7 +371,7 @@ impl Rig {
 
     /// Draws one frame, submits it and returns the frame's output, in [`FORMAT`].
     pub fn render(&mut self) -> Result<Vec<[u8; 4]>, FrameError> {
-        let output = worldrunner_render_scene::executor::color_texture(
+        let output = worldrunner_render_post::color_texture(
             self.context.device(),
             "rig output",
             self.size,

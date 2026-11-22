@@ -241,9 +241,14 @@ impl Harness {
             height: 64,
         };
         let resident = Resident::new(&context, &source, None, profile).unwrap();
-        let presentation =
-            Presentation::with_profile(&context, format, size, size, profile, source.effects())
-                .unwrap();
+        let presentation = crate::presentation::fixtures::presentation_with_profile(
+            &context,
+            format,
+            size,
+            profile,
+            source.effects(),
+        )
+        .unwrap();
         let output = worldrunner_render_post::color_texture(
             context.device(),
             "capture test output",

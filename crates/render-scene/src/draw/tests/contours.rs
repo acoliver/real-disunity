@@ -1,6 +1,6 @@
 //! Visible-ID differentials through the stock sorted executor, with exact sample readback.
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
 use worldrunner_render_plan::{
     SceneContourStyle, SceneContours, SceneOpaquePath, TexelFormat, TextureFilter, TextureSampler,
 };
@@ -224,15 +224,16 @@ impl Rig {
             self.renderer.targets().depth().texture(),
         )
         .unwrap();
-        encode_scene(
-            &mut self.renderer,
-            device,
-            encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            self.frame,
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                self.frame,
+            )
+            .unwrap();
         let mask = self
             .renderer
             .encode_contour_capture(device, encoder)

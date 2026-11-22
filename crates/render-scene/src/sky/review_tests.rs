@@ -63,15 +63,16 @@ fn render(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
     )
     .unwrap();
     let mut encoder = context.submission().begin(device).unwrap();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        device,
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&color, &depth),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            device,
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&color, &depth),
+            frame,
+        )
+        .unwrap();
     renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(device, FrameConfig::new([32, 32], format, 1), 100_000)

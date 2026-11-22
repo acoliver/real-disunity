@@ -2,8 +2,8 @@ use super::offscreen::encode_player_work;
 use super::{FrameRenderer, attachment, attachment_resource};
 use std::borrow::Cow;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, PassDeclaration,
-    PassSlot, PreparedFeature,
+    AttachmentView, FeatureDeclaration, FrameError, FramePlan, PassDeclaration, PassSlot,
+    PreparedFeature,
 };
 
 pub(crate) struct SceneFeature<'a> {
@@ -387,7 +387,7 @@ fn declare_scene_passes(
 /// into `encoder` now, so the feature must be encoded in that encoder's frame or the frame dropped.
 ///
 /// # Errors
-/// As [`encode_scene`].
+/// As [`FrameEncoding::encode_scene`](super::FrameEncoding::encode_scene).
 pub fn prepare_stock_scene<'a>(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -399,30 +399,45 @@ pub fn prepare_stock_scene<'a>(
     attachments: (&AttachmentView, &AttachmentView),
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
+    let (gpu, pipelines) = scene;
+    let scene = SceneRefs { gpu, pipelines };
+    let (color, depth) = attachments;
+    let attachments = ColorDepth { color, depth };
     let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, &frame)?;
-    finish_stock_scene(renderer, (device, encoder), draw)
+    finish_stock_scene(renderer, device, encoder, draw)
+}
+
+/// The scene's GPU state, mutable, and the pipelines its draws select from.
+struct SceneRefs<'a, 'p> {
+    gpu: &'a mut crate::draw::SceneGpu,
+    pipelines: &'p crate::renderer::ScenePipelines,
+}
+
+/// The scene colour and depth attachments of one frame.
+#[derive(Clone, Copy)]
+pub(crate) struct ColorDepth<'a> {
+    pub(crate) color: &'a AttachmentView,
+    pub(crate) depth: &'a AttachmentView,
 }
 
 fn prepare_scene_draw<'a, 'b>(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    scene: (
-        &'a mut crate::draw::SceneGpu,
-        &crate::renderer::ScenePipelines,
-    ),
-    attachments: (&'b AttachmentView, &'b AttachmentView),
+    scene: SceneRefs<'a, '_>,
+    attachments: ColorDepth<'b>,
     frame: &crate::frame::FrameUniform,
 ) -> Result<SceneDraw<'a, 'b>, FrameError> {
-    let (gpu, pipelines) = scene;
-    renderer.validate_opaque_depth(attachments.1)?;
-    renderer.validate_taa_depth(attachments.1)?;
+    let SceneRefs { gpu, pipelines } = scene;
+    let ColorDepth { color, depth } = attachments;
+    renderer.validate_opaque_depth(depth)?;
+    renderer.validate_taa_depth(depth)?;
     validate_effects(renderer, gpu, pipelines)?;
     if let Some(screen) = &mut renderer.ssao {
         screen.receiver = None;
     }
     renderer.prepare_scene_inputs(device, gpu);
-    let depth_mode = renderer.forward_depth(gpu, attachments.1);
+    let depth_mode = renderer.forward_depth(gpu, depth);
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
     let writes_velocity = renderer.adopt_scene_velocity(device, gpu, pipelines);
@@ -431,7 +446,6 @@ fn prepare_scene_draw<'a, 'b>(
         encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(*frame)?;
-    let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     renderer.publish_game_terrain(gpu, &frame, color.size());
     gpu.prepare_sky(device, encoder, &frame)?;
@@ -454,10 +468,10 @@ fn prepare_scene_draw<'a, 'b>(
 
 fn finish_stock_scene<'a>(
     renderer: &mut FrameRenderer,
-    context: (&wgpu::Device, &wgpu::CommandEncoder),
+    device: &wgpu::Device,
+    encoder: &wgpu::CommandEncoder,
     mut draw: SceneDraw<'a, '_>,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
-    let (device, encoder) = context;
     let mut plan = declare_scene_passes(renderer, device, &draw)?;
     let contour = renderer.plan_contours(
         (device, encoder),
@@ -512,39 +526,4 @@ impl<'a> SceneDraw<'a, '_> {
             opaque_drawn: std::cell::Cell::new(false),
         }
     }
-}
-
-/// Encodes a resident unshadowed scene through the feature boundary.
-/// Checked attachments retain their selected mip, array layer and view format.
-/// The submission and abandonment rules of [`FrameRenderer`] apply.
-///
-/// This is [`prepare_stock_scene`] encoded alone: callers that add passes or features of their
-/// own prepare the stock scene themselves and forward its offscreen operations to
-/// [`FrameRenderer::encode_frame`].
-pub fn encode_scene(
-    renderer: &mut FrameRenderer,
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-    attachments: (&AttachmentView, &AttachmentView),
-    frame: crate::frame::FrameUniform,
-) -> Result<(), FrameError> {
-    let mut stock = prepare_stock_scene(renderer, device, encoder, scene, attachments, frame)?;
-    let plan = stock.plan();
-    let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
-    let (declaration, frame) = (stock.declaration(), stock.frame());
-    let offscreen = stock.take_offscreen_operations();
-    renderer.encode_frame(
-        device,
-        encoder,
-        (&passes, &views),
-        offscreen
-            .as_ref()
-            .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
-        &mut [BorrowedFeature {
-            declaration,
-            prepared: &mut stock,
-        }],
-        &(frame, None),
-    )
 }

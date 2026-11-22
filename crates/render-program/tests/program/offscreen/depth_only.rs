@@ -81,11 +81,11 @@ fn a_depth_only_render_texture_is_cleared_to_far_where_nothing_draws() {
     let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
     let texels = depths(&image);
     assert_eq!(texels[3].to_bits(), 0.5_f32.to_bits());
-    assert_eq!(texels[4].to_bits(), 1.0_f32.to_bits());
+    assert_eq!(texels[4].to_bits(), 0.0_f32.to_bits());
 }
 
 /// The depth of `target` read as a float texture by a blit pass into an 8x8 RGBA8 texture, with the
-/// blit's red tint at 1.5: depth 0.5 gives red 0.75 (191) and depth 1.0 saturates to 255.
+/// blit's red tint at 1.5: depth 0.5 gives red 0.75 (191) and the cleared depth 0.0 gives 0.
 fn sample_depth(frame: &mut OffscreenFrame, rig: &mut Rig, source: TextureId) -> Vec<u8> {
     blit_setup(rig, [4, 4]);
     frame.blit_mesh = Some(BLIT_QUAD);
@@ -115,7 +115,7 @@ fn assert_sampled_depth(image: &[u8]) {
             assert_eq!(pixel(image, 8, (x, y))[0], 191, "drawn ({x}, {y})");
             assert_eq!(
                 pixel(image, 8, (x + 4, y))[0],
-                255,
+                0,
                 "cleared ({}, {y})",
                 x + 4
             );

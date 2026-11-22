@@ -27,12 +27,12 @@ internal static class SpriteDataUtilityTests
     private static void WithBorder()
     {
         var texture = new Texture2D(8, 4, TextureFormat.RGBA32, false);
-        var sprite = Sprite.Create(texture, new Rect(2, 0, 4, 4), Vector2.zero, 100, 0, SpriteMeshType.Tight, new Vector4(1, 1, 1, 1));
+        var sprite = Sprite.Create(texture, new Rect(2, 0, 4, 4), Vector2.zero, 100, 0, SpriteMeshType.FullRect, new Vector4(1, 1, 1, 1));
         Expect.Equal(new Vector4(0.25f, 0, 0.75f, 1), DataUtility.GetOuterUV(sprite), "outer UV");
         Expect.Equal(new Vector4(0.375f, 0.25f, 0.625f, 0.75f), DataUtility.GetInnerUV(sprite), "inner UV");
         Expect.Equal(Vector4.zero, DataUtility.GetPadding(sprite), "padding");
         Expect.Equal(new Vector2(2, 2), DataUtility.GetMinSize(sprite), "min size");
-        var uneven = Sprite.Create(texture, new Rect(0, 0, 8, 4), Vector2.zero, 100, 0, SpriteMeshType.Tight, new Vector4(2, 1, 0, 3));
+        var uneven = Sprite.Create(texture, new Rect(0, 0, 8, 4), Vector2.zero, 100, 0, SpriteMeshType.FullRect, new Vector4(2, 1, 0, 3));
         Expect.Equal(new Vector4(0.25f, 0.25f, 1, 0.25f), DataUtility.GetInnerUV(uneven), "inner UV with different borders");
         Expect.Equal(new Vector2(2, 4), DataUtility.GetMinSize(uneven), "min size with different borders");
     }

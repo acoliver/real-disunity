@@ -300,7 +300,7 @@ fn submit(
         submit_binary(context, &renderer, view, frame, &mut encoder, shadow);
     } else {
         renderer
-            .encode_with(context, view, (&color, &depth), &mut encoder, Some(frame))
+            .encode_with(context, view, (&color, &depth), &mut encoder, frame)
             .unwrap();
     }
     frame.encode_resolve(&mut encoder);

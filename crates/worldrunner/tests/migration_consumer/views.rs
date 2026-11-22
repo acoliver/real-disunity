@@ -4,8 +4,12 @@ use super::{
     landmarks, wait,
 };
 use gpu::{
-    device::GpuContext, draw::SceneGpu, frame::FrameUniform, offscreen::OffscreenTarget,
-    renderer::ScenePipelines, wgpu,
+    device::{DeviceRequest, GpuContext},
+    draw::SceneGpu,
+    frame::FrameUniform,
+    offscreen::OffscreenTarget,
+    renderer::ScenePipelines,
+    wgpu,
 };
 use worldrunner::glam::DVec3;
 use worldrunner::scene::{
@@ -17,7 +21,11 @@ use worldrunner::scene::{
 
 #[test]
 fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .unwrap();
     let pipelines =
         ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();

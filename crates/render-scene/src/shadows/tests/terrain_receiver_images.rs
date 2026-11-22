@@ -39,13 +39,14 @@ fn compare(context: &GpuContext, source: &RenderScene, name: &str, cascades: usi
     assert_ne!(selected, hardware);
     let mut reference = comparison_pipelines(context, &renderer, &hardware);
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, context, &view(), &target).unwrap();
     let actual = target.read_rgba8(context).unwrap();
     std::mem::swap(&mut renderer.pipelines, &mut reference);
-    render_target(&mut renderer, context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, context, &view(), &target).unwrap();
     let main = target.read_rgba8(context).unwrap();
     renderer.pipelines = comparison_pipelines(context, &renderer, &seam_probe(selected));
-    render_target(&mut renderer, context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, context, &view(), &target).unwrap();
     let planes = target.read_rgba8(context).unwrap();
     let mut changed = 0;
     let mut at_seams = 0;

@@ -102,15 +102,16 @@ fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
     assert!(observed(&gpu).drawn_coarse > 0);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&target.color_attachment(), &target.depth_attachment()),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame,
+        )
+        .unwrap();
     assert_eq!(gpu.statistics().terrain_geometry, previous);
     drop(encoder);
     assert_eq!(gpu.statistics().terrain_geometry, previous);

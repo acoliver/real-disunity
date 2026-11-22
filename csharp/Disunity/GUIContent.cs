@@ -63,8 +63,9 @@ public class GUIContent
     public static GUIContent Temp(string? t, Texture? i) => Fill(t, i, null);
     public static GUIContent Temp(string? t, string? tip) => Fill(t, null, tip);
 
-    /// <summary>Does nothing: the scratch value holds no reference that outlives a call.</summary>
-    public static void ClearStaticCache() { }
+    /// <summary>Empties the scratch value <see cref="Temp(string)"/> returns, so it holds no text, image or tooltip and no
+    /// reference to the last texture a caller gave it.</summary>
+    public static void ClearStaticCache() => Fill(null, null, null);
 
     private static GUIContent Fill(string? t, Texture? i, string? tip)
     {

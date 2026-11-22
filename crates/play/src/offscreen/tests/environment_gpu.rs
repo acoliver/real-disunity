@@ -21,8 +21,10 @@ use super::ambient_gpu::{assert_texels, camera_render, flush_and_read};
 use super::cube_volume_gpu::{BASE, TOP, columns, cube};
 use super::flush::host;
 use super::gpu::{Quad, SIDE, shader};
-use super::lights_gpu::{filled, record};
-use super::support::{material, render_texture, snapshot, texture_slot, world};
+use super::lights_gpu::{Commands, filled, record};
+use super::support::{
+    material, render_texture, set_global_in_earlier_take, snapshot, texture_slot, world,
+};
 use crate::offscreen::assets::{AssetError, Assets};
 use crate::offscreen::{Report, SPEC_CUBE0};
 
@@ -79,8 +81,9 @@ fn reflection(mode: ReflectionMode, custom: u64, skybox: u64) -> Environment {
 
 /// A world that blits a six by four target with the pass that reads `unity_SpecCube0` along the
 /// direction of each column, and the target.
-fn cube_world() -> (World, RenderTextureId) {
+fn cube_world(before: Commands<'_>) -> (World, RenderTextureId) {
     let mut world = world();
+    before(&mut world);
     let pass = shader(&mut world, "speccube");
     let blit = material(&mut world, pass);
     let source = render_texture(&mut world, [6, SIDE]);
@@ -109,7 +112,7 @@ fn read(mut world: World, out: RenderTextureId) -> (Vec<f32>, Report) {
 }
 
 fn with_environment(environment: Environment) -> (Vec<f32>, Report) {
-    let (mut world, out) = cube_world();
+    let (mut world, out) = cube_world(&|_| {});
     world.set_environment(environment).unwrap();
     let (pixels, report) = read(world, out);
     assert!(report.failures.is_empty(), "{:?}", report.failures);
@@ -127,7 +130,17 @@ fn assert_grey(found: &[f32]) {
 }
 
 fn counted_as_undeclared(report: &Report) -> BTreeMap<String, usize> {
-    report.undeclared_defaults.clone()
+    report
+        .stand_ins
+        .by_property
+        .iter()
+        .filter(|(name, _)| name.ends_with(" undeclared"))
+        .map(|(name, count)| (name.clone(), *count))
+        .collect()
+}
+
+fn undeclared_key(property: &str) -> String {
+    format!("{property} undeclared")
 }
 
 #[test]
@@ -160,21 +173,27 @@ fn a_scene_without_a_reflection_cube_reads_the_grey_cube_and_is_counted() {
         let (read, report) = with_environment(environment);
         assert_grey(&read);
         assert!(
-            report.undeclared_defaults.contains_key(SPEC_CUBE0),
+            report
+                .stand_ins
+                .by_property
+                .contains_key(&undeclared_key(SPEC_CUBE0)),
             "{:?}",
-            report.undeclared_defaults
+            report.stand_ins
         );
     }
 }
 
 #[test]
 fn a_cube_the_host_does_not_hold_reads_the_grey_cube_and_is_counted() {
-    let (mut world, out) = cube_world();
+    let (mut world, out) = cube_world(&|_| {});
     let unstored = reflection(ReflectionMode::Custom, OTHER + 1, 0);
     world.set_environment(unstored).unwrap();
     let (read, report) = read(world, out);
     assert_grey(&read);
-    assert!(report.undeclared_defaults.contains_key(SPEC_CUBE0));
+    assert_eq!(
+        report.stand_ins.by_property,
+        BTreeMap::from([(format!("{SPEC_CUBE0} exists-not-loaded"), 1)])
+    );
     assert_eq!(report.failures.get("texture:NotStored"), Some(&1));
 }
 
@@ -184,11 +203,11 @@ fn other_cube() -> PropertyValue {
 
 #[test]
 fn a_cube_the_world_sets_as_a_global_replaces_the_scenes() {
-    let (mut world, out) = cube_world();
+    // Written in an earlier take, the cube is in the state the frame starts from.
+    let (mut world, out) = cube_world(&|world| set_global_in_earlier_take(world, other_cube()));
     world
         .set_environment(reflection(ReflectionMode::Custom, CUBE, 0))
         .unwrap();
-    world.set_global_property(other_cube()).unwrap();
     let (pixels, report) = read(world, out);
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(pixels, columns(SIDE, &TOP));
@@ -252,7 +271,7 @@ fn flat(colour: f32, intensity: f32) -> Environment {
 
 #[test]
 fn a_draw_reads_the_ambient_light_of_the_scene_instead_of_the_default() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(flat(0.5, 1.0)).unwrap();
     let (read, report) = flush_and_read(world, drawn);
     assert_texels(&read, &filled([0.5; 3]));
@@ -261,7 +280,7 @@ fn a_draw_reads_the_ambient_light_of_the_scene_instead_of_the_default() {
 
 #[test]
 fn the_ambient_intensity_scales_the_ambient_light() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(flat(0.25, 2.0)).unwrap();
     assert_texels(&flush_and_read(world, drawn).0, &filled([0.5; 3]));
 }
@@ -280,7 +299,7 @@ fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
         }),
         reflection: None,
     };
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(environment).unwrap();
     let (read, _) = flush_and_read(world, drawn);
     // Only the red probe is lit, so the constant term of `unity_SHAr` is read.
@@ -289,7 +308,7 @@ fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
 
 #[test]
 fn a_scene_that_set_no_ambient_keeps_the_default() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world
         .set_environment(reflection(ReflectionMode::Custom, 0, 0))
         .unwrap();

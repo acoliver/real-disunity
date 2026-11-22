@@ -143,6 +143,8 @@ pub(crate) struct Instances {
     tables: u64,
     /// The state in which every batch's cached bounds were last found current.
     bounds_current: std::cell::Cell<Option<LayoutStamp>>,
+    /// Tells the eyes of every batch's level memo apart.
+    level_epochs: std::cell::Cell<slot_bounds::LevelEpochs>,
     ready: ready_memo::ReadyMemo,
     /// The state in which a flush last found every batch settled.
     settled: settled_memo::SettledMemo,
@@ -203,6 +205,7 @@ impl Instances {
             skinned: 0,
             tables: 0,
             bounds_current: std::cell::Cell::new(None),
+            level_epochs: std::cell::Cell::default(),
             ready: ready_memo::ReadyMemo::default(),
             settled: settled_memo::SettledMemo::default(),
             flushed: flushed_memo::FlushedMemo::default(),
@@ -255,6 +258,21 @@ impl Instances {
     /// Records that every batch's cached bounds are current in the state `stamp` names.
     pub(crate) fn set_bounds_current_at(&self, stamp: LayoutStamp) {
         self.bounds_current.set(Some(stamp));
+    }
+
+    /// The epoch under which level memos hold the outcomes for the eye `key` names. An eye the
+    /// memos have not seen takes a new epoch, which reads every stored entry as empty.
+    pub(crate) fn level_epoch(&self, key: slot_bounds::LevelKey) -> u8 {
+        let mut epochs = self.level_epochs.get();
+        let (epoch, wrapped) = epochs.advance(key);
+        self.level_epochs.set(epochs);
+        if wrapped {
+            // Entries of every earlier epoch may still be stored, and this epoch is one of them.
+            for batch in self.batches.values() {
+                batch.bounds.borrow_mut().forget_levels();
+            }
+        }
+        epoch
     }
 
     /// Makes the next view check every batch's cached bounds, as every view once did.

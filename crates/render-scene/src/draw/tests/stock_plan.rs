@@ -9,7 +9,7 @@ mod water_draws;
 
 use super::*;
 use crate::compositor::plan_trace::{self, SubmittedPlan, assert_pinned};
-use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration, encode_scene};
+use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::SceneSsr;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
@@ -110,7 +110,7 @@ fn viewpoint(index: usize) -> CameraPose {
     }
 }
 
-/// A configured renderer with a scene resident, drawn through `encode_scene`.
+/// A configured renderer with a scene resident, drawn through `FrameEncoding::encode_scene`.
 struct Rig<'a> {
     context: &'a GpuContext,
     source: RenderScene,
@@ -216,15 +216,16 @@ impl<'a> Rig<'a> {
         )
         .unwrap();
         let mut encoder = self.context.submission().begin(device).unwrap();
-        encode_scene(
-            renderer,
-            device,
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            FrameUniform::new(&view, self.source.effects()).unwrap(),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                FrameUniform::new(&view, self.source.effects()).unwrap(),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     }
 

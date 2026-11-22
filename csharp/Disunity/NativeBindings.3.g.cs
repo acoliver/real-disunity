@@ -11,24 +11,6 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
-        ///  Points a material at another live shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
-        /// <summary>
-        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
-        /// <summary>
-        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
-        /// <summary>
         ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
         ///  caller checks the pass against the shader's pass count; the world holds none.
         /// </summary>
@@ -125,46 +107,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_clear_render_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_clear_render_target(ulong world, uint flags, float* value, float depth_value, uint stencil_value);
         /// <summary>
-        ///  Records a global shader value to set when the host reaches the record. `kind` is 0 for a
-        ///  float (`floats` holds 1), 1 for an integer (`int_value`), 2 for a vector (4 floats), 3 for a
-        ///  matrix (16 floats, column-major) and 4 for a texture (`slot`).
+        ///  Records a global texture to set when the host reaches the record. The slot names the texture,
+        ///  by the kinds `disunity_shader_texture_write` takes and also a temporary render texture, which
+        ///  has no world identity that outlives its frame and so cannot be written to the global state.
+        ///  Every other global value is a direct write of the global state (`disunity_shader_*`); the
+        ///  world orders that write in front of the next record.
         ///
         ///  # Safety
-        ///  `name` spans `length` readable bytes; `floats` is readable for the floats the kind needs;
-        ///  `slot` is readable for one record when the kind is 4.
+        ///  `name` spans `length` readable bytes; `slot` is readable for one record.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_set_global(ulong world, uint kind, byte* name, uint length, float* floats, int int_value, DisunityTextureSlot* slot);
-        /// <summary>
-        ///  Records a global vector array to set when the host reaches the record: `count` vectors of 4
-        ///  floats at `values`, in element order. The count is 1 to 1023 and every float must be finite.
-        ///  The floats are copied before the call returns. The record changes only the host's global
-        ///  state at that point in the work; the world's own global state stays as it is.
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_vector_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_set_global_vector_array(ulong world, byte* name, uint length, float* values, uint count);
-        /// <summary>
-        ///  Records a global matrix array to set when the host reaches the record: `count` matrices of
-        ///  16 floats at `values`, each column-major, in element order. The count is 1 to 1023 and every
-        ///  float must be finite. The floats are copied before the call returns.
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_matrix_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_set_global_matrix_array(ulong world, byte* name, uint length, float* values, uint count);
-        /// <summary>
-        ///  Records a global shader keyword to turn on (`enabled` 1) or off (0) when the host reaches
-        ///  the record.
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_keyword", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_set_global_keyword(ulong world, byte* name, uint length, uint enabled);
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_texture", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_texture(ulong world, byte* name, uint length, DisunityTextureSlot* slot);
         /// <summary>
         ///  Records that a temporary render texture of this description exists under `name_id` from
         ///  here on.
@@ -299,7 +252,8 @@ namespace Disunity.Native
         /// <summary>
         ///  Drains the frame's offscreen work into `records` (up to `capacity` of them, in call order)
         ///  and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
-        ///  the count; a capacity below the count is rejected and drains nothing.
+        ///  the count; a capacity below the count is rejected and drains nothing. The count includes the
+        ///  records for the globals written after the last record, which the take orders after it.
         ///
         ///  A draw record names its material by the material's id, or, when the script edited the material
         ///  after the draw, by the id of a copy of the state the draw saw (generation 0, which no material

@@ -41,13 +41,7 @@ pub(super) fn encode(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let result = resident.encode_with(
-        context,
-        &view(),
-        (&color, &depth),
-        &mut encoder,
-        Some(frame),
-    );
+    let result = resident.encode_with(context, &view(), (&color, &depth), &mut encoder, frame);
     encoder.finish().submit().unwrap();
     context
         .device()

@@ -136,7 +136,7 @@ fn setup(
         },
     )
     .unwrap();
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         context,
         crate::presentation::COLOR,
         [Viewport {

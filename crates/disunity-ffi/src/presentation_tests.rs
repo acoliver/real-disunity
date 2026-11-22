@@ -136,11 +136,10 @@ mod mesh_objects {
     use crate::mesh_renderer::{
         DisunityDrawnMaterial, DisunityMeshRenderer, disunity_mesh_filter_create,
         disunity_mesh_filter_drawn_write, disunity_mesh_renderer_create,
-        disunity_mesh_renderer_read, disunity_mesh_renderer_slots_read,
-        disunity_mesh_renderer_slots_write, disunity_mesh_renderer_write,
+        disunity_mesh_renderer_read, disunity_mesh_renderer_write,
     };
     use worldrunner_world_simulation::{
-        DrawnMaterial, LocalTransform, MeshFilter, MeshRenderer, presentation::Camera,
+        LocalTransform, MeshFilter, MeshRenderer, presentation::Camera,
     };
 
     const MESH: u64 = (1 << 41) + 2;
@@ -170,10 +169,6 @@ mod mesh_objects {
         };
         let renderer = MeshRenderer {
             material_count: 2,
-            drawn: vec![DrawnMaterial {
-                color: [0.1, 0.2, 0.3, 0.4],
-                texture: (1 << 40) + 9,
-            }],
             ..Default::default()
         };
         let session = store.session_mut(world).unwrap();
@@ -235,18 +230,16 @@ mod mesh_objects {
             (7, MESH, 2)
         );
         assert_eq!([matrix.m12, matrix.m13, matrix.m14], [1.0, -3.0, 2.0]);
-        assert_eq!(
-            slots[0],
-            DisunityDrawnMaterial {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
-                a: 0.4,
-                texture: (1 << 40) + 9
-            }
-        );
-        assert_eq!(slots[1].texture, 0);
-        assert_eq!((slots[1].r, slots[1].a), (1.0, 1.0));
+        for slot in slots {
+            let white = DisunityDrawnMaterial {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+                texture: 0,
+            };
+            assert_eq!(slot, white, "a slot with no world material draws white");
+        }
     }
 
     #[test]
@@ -266,9 +259,9 @@ mod mesh_objects {
         assert_ne!(mesh_object(world, 1, 0).0.code, 0);
     }
 
-    /// A world, built through the ABI, with one renderer of one slot whose slot record is white
-    /// and whose world material holds no value yet. Returns the world, the renderer and the material.
-    fn abi_world_with_material_slot() -> (u64, u64, u64) {
+    /// A world, built through the ABI, with one renderer of one slot whose world material holds no
+    /// value yet. Returns the world and the material.
+    fn abi_world_with_material_slot() -> (u64, u64) {
         let (mut world, mut object, mut filter, mut renderer) = (0, 0, 0, 0);
         let (mut shader, mut material) = (0, 0);
         unsafe {
@@ -295,17 +288,6 @@ mod mesh_objects {
                 disunity_mesh_renderer_write(world, renderer, &value).code,
                 0
             );
-            let white = DisunityDrawnMaterial {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-                texture: 0,
-            };
-            assert_eq!(
-                disunity_mesh_renderer_slots_write(world, renderer, &white, 1).code,
-                0
-            );
             let made = disunity_shader_create(world, b"Lit".as_ptr(), 3, &mut shader);
             assert_eq!(made.code, 0);
             assert_eq!(
@@ -316,7 +298,7 @@ mod mesh_objects {
             let linked = disunity_mesh_renderer_materials_write(world, renderer, slots.as_ptr(), 1);
             assert_eq!(linked.code, 0);
         }
-        (world, renderer, material)
+        (world, material)
     }
 
     fn set_material_vector(world: u64, material: u64, name: &str, value: [f32; 4]) {
@@ -341,8 +323,8 @@ mod mesh_objects {
     }
 
     #[test]
-    fn a_material_changed_after_the_slots_were_written_is_what_the_frame_draws() {
-        let (world, renderer, material) = abi_world_with_material_slot();
+    fn a_material_changed_after_the_slot_took_it_is_what_the_frame_draws() {
+        let (world, material) = abi_world_with_material_slot();
         set_material_vector(world, material, "_Color", [0.2, 0.4, 0.6, 0.8]);
         set_material_texture(world, material, (1 << 40) + 9);
         assert_eq!(prepare(world).mesh_objects, 1);
@@ -361,24 +343,6 @@ mod mesh_objects {
         prepare(world);
         let (_, _, _, slots) = mesh_object(world, 0, 1);
         assert_eq!((slots[0].r, slots[0].a), (0.9, 0.6));
-
-        let mut stored = [DisunityDrawnMaterial::default(); 1];
-        let mut count = 0;
-        let read = unsafe {
-            disunity_mesh_renderer_slots_read(world, renderer, stored.as_mut_ptr(), 1, &mut count)
-        };
-        assert_eq!((read.code, count), (0, 1));
-        let white = DisunityDrawnMaterial {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: 1.0,
-            texture: 0,
-        };
-        assert_eq!(
-            stored[0], white,
-            "the stored snapshot keeps what the managed side sent"
-        );
     }
 
     #[test]

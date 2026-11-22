@@ -18,12 +18,7 @@ pub fn encode(
         ResourceRef::new("consumer scene depth"),
         attachments.1.texture(),
     )?;
-    compositor::encode_scene(
-        &mut compositor::FrameRenderer::new(device),
-        device,
-        encoder,
-        scene,
-        (&color, &depth),
-        *frame,
-    )
+    compositor::FrameRenderer::new(device)
+        .encoding()
+        .encode_scene(device, encoder, scene, (&color, &depth), *frame)
 }

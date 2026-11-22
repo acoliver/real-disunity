@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use super::super::super::defaults::StandInLook;
 use worldrunner_render_program::unity::synthetic::shaders::{POSITION_AND_UV, no_cull, variant};
 use worldrunner_render_program::unity::synthetic::{
     FRAGMENT, PassSpec, SyntheticShader, binding, shader as synthetic_shader, slot,
@@ -199,7 +200,7 @@ fn a_render_texture_named_only_by_the_block_is_sampled_by_that_draw() {
         failures.len() == 1 && failures[0].0.ends_with(":MissingTexture") && failures[0].1 == 1,
         "only the blockless draw is left out, for its missing texture: {failures:?}"
     );
-    assert_eq!(run.outcome.report.undeclared_defaults, BTreeMap::new());
+    assert_eq!(run.outcome.report.stand_ins.by_property, BTreeMap::new());
 }
 
 /// With the grey default registered, the draw without the block reads it for `_MainTex`, which no
@@ -214,7 +215,8 @@ fn a_draw_without_the_block_reads_the_grey_default_and_not_the_blocks_render_tex
 
     let run = flush(&mut world, drawn, &stored([(MESH, left_half())]));
 
-    let [red, green, blue, alpha] = DefaultTexture::Grey.texture().bytes[..] else {
+    let [red, green, blue, alpha] = DefaultTexture::Grey.texture(StandInLook::Declared).bytes[..]
+    else {
         panic!("the grey default is one RGBA8 texel");
     };
     let grey = [red, green, blue, alpha];
@@ -227,7 +229,7 @@ fn a_draw_without_the_block_reads_the_grey_default_and_not_the_blocks_render_tex
         run.outcome.report.failures
     );
     assert_eq!(
-        run.outcome.report.undeclared_defaults,
-        BTreeMap::from([("_MainTex".to_owned(), 1)])
+        run.outcome.report.stand_ins.by_property,
+        BTreeMap::from([("_MainTex undeclared".to_owned(), 1)])
     );
 }

@@ -13,7 +13,7 @@ fn primed_page_scene() -> (RetainedHost, Renderer) {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert!(renderer.render_retained(&mut host).unwrap());
     renderer.drain().unwrap();
     (host, renderer)
@@ -86,7 +86,7 @@ fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let id = host
         .request_capture_recipe(0, recipe(1, 2, CaptureJitter::Halton23))
         .unwrap();
@@ -128,7 +128,7 @@ fn retained_hdr_reserves_recipe_storage_at_startup_and_preserves_it_across_resiz
         samples: 1,
         tone_map: crate::ToneMap::Reinhard,
     };
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let inventory = |renderer: &Renderer| {
         renderer
             .presentation
@@ -185,7 +185,7 @@ fn setup() -> (RetainedHost, Renderer) {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     renderer.set_clock(RenderClock::Fixed(Duration::ZERO));
     (host, renderer)
 }
@@ -395,7 +395,7 @@ fn hdr_upscaled_accumulation_uses_full_resolution_and_restores_plain_render_scal
             sharpness: None,
         },
     };
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     renderer.set_clock(RenderClock::Fixed(Duration::ZERO));
     let recipe = RetainedCaptureRecipe::new(
         2,
@@ -455,7 +455,7 @@ fn advancing_clock_matches_rendered_subframe_times_and_changes_wind() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     renderer.set_clock(RenderClock::Fixed(Duration::ZERO));
     let fixed = recipe(1, 4, CaptureJitter::None);
     let mut moving = fixed.clone();
@@ -514,7 +514,7 @@ fn accumulated_capture_freezes_left_handed_camera_across_queued_edit_and_resize(
     };
     let mut host =
         RetainedHost::new(crate::renderer::retained_tests::terrain_source(), options).unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let fixed = recipe(2, 2, CaptureJitter::None);
     let reference = completed(&mut host, &mut renderer, fixed.clone());
     host.request_capture_recipe(0, fixed).unwrap();
@@ -589,7 +589,7 @@ fn geometry_recipe_observations_match_first_source_sample() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let id = host
         .request_capture_recipe(0, recipe(1, 2, CaptureJitter::Halton23))
         .unwrap();

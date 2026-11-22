@@ -11,8 +11,8 @@ use worldrunner_world_simulation::presentation::Camera;
 
 use super::flush::host_with;
 use super::gpu::{Quad, SIDE, target};
-use super::lights_gpu::{filled, halves, quad, record, two_lists};
-use super::support::{camera, snapshot, world};
+use super::lights_gpu::{Commands, filled, halves, quad, record, two_lists};
+use super::support::{camera, set_global_in_earlier_take, snapshot, world};
 use crate::offscreen::{Report, SH_AR, Settings};
 
 pub(super) const ARGB32: u32 = 8;
@@ -55,8 +55,9 @@ pub(super) fn flush_and_read(mut world: World, drawn: RenderTextureId) -> (Vec<f
     (world.take_texture_pixels(request).unwrap(), outcome.report)
 }
 
-pub(super) fn camera_render() -> (World, RenderTextureId) {
+pub(super) fn camera_render(before: Commands<'_>) -> (World, RenderTextureId) {
     let mut world = world();
+    before(&mut world);
     let drawn = target(&mut world, ARGB32);
     quad(&mut world, "ambient", 0, [1.0, 1.0, 0.0, 0.0]);
     let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
@@ -70,12 +71,12 @@ pub(super) fn camera_render() -> (World, RenderTextureId) {
     (world, drawn)
 }
 
-fn list_draws(between: &dyn Fn(&mut World)) -> (World, RenderTextureId) {
+fn list_draws(before: Commands<'_>, between: Commands<'_>) -> (World, RenderTextureId) {
     let mut world = world();
     let drawn = target(&mut world, ARGB32);
     quad(&mut world, "ambient", 0, [0.5, 1.0, -0.5, 0.0]);
     quad(&mut world, "ambient", 1, [0.5, 1.0, 0.5, 0.0]);
-    two_lists(&mut world, drawn, (&|_| {}, between));
+    two_lists(&mut world, drawn, (before, between));
     (world, drawn)
 }
 
@@ -85,7 +86,7 @@ fn world_value(value: f32) -> PropertyValue {
 
 #[test]
 fn a_camera_render_reads_the_default_ambient_and_the_name_is_not_left_missing() {
-    let (world, drawn) = camera_render();
+    let (world, drawn) = camera_render(&|_| {});
     let (read, report) = flush_and_read(world, drawn);
     assert_texels(&read, &filled([DEFAULT; 3]));
     assert!(!report.unset_constants.contains(SH_AR));
@@ -93,7 +94,7 @@ fn a_camera_render_reads_the_default_ambient_and_the_name_is_not_left_missing() 
 
 #[test]
 fn a_list_draw_reads_the_default_ambient() {
-    let (world, drawn) = list_draws(&|_| {});
+    let (world, drawn) = list_draws(&|_| {}, &|_| {});
     let (read, report) = flush_and_read(world, drawn);
     assert_texels(&read, &filled([DEFAULT; 3]));
     assert!(!report.unset_constants.contains(SH_AR));
@@ -101,18 +102,23 @@ fn a_list_draw_reads_the_default_ambient() {
 
 #[test]
 fn the_worlds_own_value_wins_over_the_default_ambient() {
-    let (mut world, drawn) = camera_render();
-    world.set_global_property(world_value(WORLD)).unwrap();
+    // Written in an earlier take, the value is in the state the frame starts from.
+    let (world, drawn) = camera_render(&|world| {
+        set_global_in_earlier_take(world, world_value(WORLD));
+    });
     assert_texels(&flush_and_read(world, drawn).0, &filled([WORLD; 3]));
 
-    let (mut world, drawn) = list_draws(&|_| {});
-    world.set_global_property(world_value(WORLD)).unwrap();
+    // Written in the frame before the first list, it is ordered in front of that list.
+    let (world, drawn) = list_draws(
+        &|world| world.set_global_property(world_value(WORLD)).unwrap(),
+        &|_| {},
+    );
     assert_texels(&flush_and_read(world, drawn).0, &filled([WORLD; 3]));
 }
 
 #[test]
 fn a_value_recorded_between_two_list_draws_replaces_the_default_from_there() {
-    let (world, drawn) = list_draws(&|world| {
+    let (world, drawn) = list_draws(&|_| {}, &|world| {
         record(world, OffscreenWork::SetGlobal(world_value(RECORDED)));
     });
     let read = flush_and_read(world, drawn).0;

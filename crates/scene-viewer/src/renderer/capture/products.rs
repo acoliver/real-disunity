@@ -277,7 +277,7 @@ impl Products {
                     scheduler.encode_term_capture(device, encoder, term, (&plain.gpu, None));
                 }
                 super::super::Resident::Shadowed(scene) => {
-                    scene.encode_term_capture_with(device, encoder, term, scheduler)?;
+                    scene.encode_term_capture(device, encoder, term, scheduler)?;
                 }
             }
         }

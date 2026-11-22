@@ -1,10 +1,10 @@
 use super::fixture;
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
 use worldrunner_render_scene::{
-    compositor::{FeatureTarget, FrameRenderer, encode_scene},
+    compositor::{FeatureTarget, FrameRenderer},
     device::GpuContext,
     draw::{ObjectRecording, SceneGpu},
-    executor::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture},
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
@@ -84,8 +84,7 @@ impl Scene {
         )
         .unwrap();
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        encode_scene(
-            &mut self.frame,
+        self.frame.encoding().encode_scene(
             context.device(),
             &mut encoder,
             (&mut self.gpu, &self.pipelines),

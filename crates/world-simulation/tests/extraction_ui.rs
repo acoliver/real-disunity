@@ -1,10 +1,11 @@
 #![cfg(feature = "ui")]
 use glam::{UVec2, Vec3};
-use worldrunner_render_plan::SceneTexture;
-use worldrunner_render_plan::simulation::{SpriteTextures, append_ui, extract_world};
-use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
+use worldrunner_world_simulation::presentation::extraction::{append_ui, extract_world};
 use worldrunner_world_simulation::presentation::{Camera, CoverageTexture};
 use worldrunner_world_simulation::ui::UiLayout;
+use worldrunner_world_simulation::ui::contribution::{
+    UiGlyphQuad, UiRenderPlan, UiTextContribution,
+};
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
 };
@@ -58,12 +59,12 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
 #[test]
 fn glyph_coverage_tint_and_overlay_pixels_survive_shared_quad_conversion() {
     let (world, object) = fixture();
-    let mut plan = extract_world(&world, &SpriteTextures::default(), [80, 40]).unwrap();
+    let mut plan = extract_world(&world, [80, 40]).unwrap();
     append_ui(&mut plan, glyphs(object, [80, 40])).unwrap();
-    let SceneTexture::Texels { bytes, .. } = &plan.textures[&0] else {
-        panic!("texels expected")
-    };
-    assert_eq!(&**bytes, &[255, 255, 255, 0, 255, 255, 255, 128]);
+    assert_eq!(
+        &*plan.textures[&0].bytes,
+        &[255, 255, 255, 0, 255, 255, 255, 128]
+    );
     let camera = plan.camera.unwrap();
     let corner = camera
         .world_to_screen(Vec3::from_array(plan.quads[0].corners[2]))
@@ -77,7 +78,7 @@ fn glyph_coverage_tint_and_overlay_pixels_survive_shared_quad_conversion() {
 #[test]
 fn resize_rejects_stale_layout_without_mutating_the_previous_plan() {
     let (world, object) = fixture();
-    let mut plan = extract_world(&world, &SpriteTextures::default(), [160, 80]).unwrap();
+    let mut plan = extract_world(&world, [160, 80]).unwrap();
     let previous = plan.clone();
     assert!(append_ui(&mut plan, glyphs(object, [80, 40])).is_err());
     assert_eq!(plan, previous);

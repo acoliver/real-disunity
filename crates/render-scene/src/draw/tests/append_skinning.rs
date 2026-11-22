@@ -131,7 +131,7 @@ fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_
         )
         .unwrap();
         let refusal = gpu
-            .replace_mesh_prepared(context.device(), context.queue(), replacement)
+            .replace_mesh_prepared(context.device(), replacement)
             .expect_err("the resident tables cannot skin this mesh");
         assert!(
             matches!(refusal, DrawError::SkinReference { mesh: 0, .. }),
@@ -160,7 +160,7 @@ fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() 
         PreparedMeshReplacement::new(&source, MeshHandle::from_raw(0), &ribbon_on(1, 2)).unwrap()
     };
     let refusal = gpu
-        .replace_mesh_prepared(context.device(), context.queue(), replacement())
+        .replace_mesh_prepared(context.device(), replacement())
         .expect_err("the live placement's pose has two joints");
     assert!(
         matches!(refusal, DrawError::SkinReference { mesh: 0, .. }),
@@ -171,7 +171,7 @@ fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() 
     assert_eq!(gpu.instance_handles().count(), 1);
     // Without the placement nothing contradicts the replacement, and a three-joint pose takes it.
     gpu.remove_instance(handle).unwrap();
-    gpu.replace_mesh_prepared(context.device(), context.queue(), replacement())
+    gpu.replace_mesh_prepared(context.device(), replacement())
         .expect("no live placement holds the two-joint pose");
     gpu.add_instance(placed(0, 1), true)
         .expect("the three-joint pose drives the replacement");

@@ -192,24 +192,14 @@ impl ShadowedScene {
         format: wgpu::TextureFormat,
         samples: u32,
     ) -> Result<Self, ShadowError> {
-        Self::with_prepared_target(
+        Self::with_prepared_target_reusing(
             context,
             crate::draw::PreparedScene::new(scene)?,
             settings,
             format,
             samples,
+            None,
         )
-    }
-
-    /// Builds the existing shadow renderer from CPU-prepared upload data.
-    pub fn with_prepared_target(
-        context: &GpuContext,
-        prepared: crate::draw::PreparedScene,
-        settings: DirectionalShadowSettings,
-        format: wgpu::TextureFormat,
-        samples: u32,
-    ) -> Result<Self, ShadowError> {
-        Self::with_prepared_target_reusing(context, prepared, settings, format, samples, None)
     }
 
     /// Builds a retained generation sharing unchanged streamed chunk buffers.

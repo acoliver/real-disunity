@@ -229,7 +229,7 @@ fn a_texture_set_to_none_has_the_texel_size_of_the_stand_in_the_draw_reads() {
 }
 
 #[test]
-fn a_layer_that_sets_a_texture_to_none_wins_over_a_texture_a_lower_layer_names() {
+fn a_layer_that_sets_a_texture_to_none_leaves_the_texture_a_lower_layer_names_the_one_read() {
     let mut rig = Rig::new();
     let mut frame = unsampled(&mut rig);
     global_g(&mut frame);
@@ -240,7 +240,8 @@ fn a_layer_that_sets_a_texture_to_none_wins_over_a_texture_a_lower_layer_names()
         .properties
         .none_textures
         .insert("_G".to_owned());
-    assert_eq!(center(&mut rig, &frame), WHITE);
+    // The draw binds the global 4x2 texture, so the size is its (1/4, 1/2, 4, 2).
+    assert_eq!(center(&mut rig, &frame), [64, 128, 255, 255]);
 }
 
 #[test]

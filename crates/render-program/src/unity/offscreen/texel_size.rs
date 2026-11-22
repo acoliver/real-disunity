@@ -1,7 +1,8 @@
 //! The constants a draw gets from the textures it reads: the member `<texture>_TexelSize` of a
 //! constant buffer holds (1 / width, 1 / height, width, height) of the texture bound under
-//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`). A texture a layer
-//! sets to none is drawn as the frame's 2D stand-in, and the member has that texture's size.
+//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`). The texture is the one the
+//! draw binds for `<texture>`: the first layer's (`Layers::texture`), and for a name a layer sets
+//! to none the frame's 2D default, which the binder reads for a texture no layer holds.
 
 use crate::layers::Layers;
 use crate::properties::{PropertySet, PropertyValue};
@@ -12,9 +13,9 @@ use super::frame::UndeclaredTextures;
 use super::textures::TextureTable;
 
 /// The `<texture>_TexelSize` members `buffer` declares, with the size of the first level of the
-/// texture a layer binds under `<texture>`, or of the stand-in a layer that sets it to none is
-/// drawn with. A member whose texture no layer names is left out, and a draw lists this set below
-/// every layer, so a value a layer sets wins.
+/// texture the draw binds under `<texture>`: the one a layer holds, or the 2D default when a layer
+/// sets it to none. A member whose texture no layer names is left out, and a draw lists this set
+/// below every layer, so a value a layer sets wins.
 pub(super) fn texel_sizes(
     textures: &TextureTable,
     stand_in: UndeclaredTextures,

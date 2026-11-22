@@ -202,24 +202,22 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
                     .insert(name.clone(), TextureInput { texture, sampler });
             } else {
                 layer.textures.remove(name);
-                leave_unbound(layer, name, textures.why_missing(&slot.texture));
+                let why = textures.why_missing(&slot.texture);
+                if why.is_none() {
+                    layer.none_textures.insert(name.clone());
+                }
+                explain(layer, name, why);
             }
         }
     }
 }
 
-/// Records in `layer` that the property `name` has no texture: the reason when the reference
-/// named a texture the frame cannot read, and none when the reference is null.
-fn leave_unbound(layer: &mut PropertyLayer, name: &str, why: Option<StandInReason>) {
-    match why {
-        Some(reason) => {
-            layer
-                .stand_ins
-                .insert(name.to_owned(), reason.label().to_owned());
-        }
-        None => {
-            layer.none_textures.insert(name.to_owned());
-        }
+/// Says in `layer` why the property `name` has no texture, when the reference named one.
+fn explain(layer: &mut PropertyLayer, name: &str, why: Option<StandInReason>) {
+    if let Some(reason) = why {
+        layer
+            .stand_ins
+            .insert(name.to_owned(), reason.label().to_owned());
     }
 }
 
@@ -321,7 +319,7 @@ pub fn layer_with_defaults(
             stand_in(&mut layer, name, rule.texture, StandInReason::Undeclared);
         } else {
             textures.count_unresolved(name, Textures::why_unresolved(&slot.texture));
-            leave_unbound(&mut layer, name, textures.why_missing(&slot.texture));
+            explain(&mut layer, name, textures.why_missing(&slot.texture));
         }
     }
     for (name, texture) in defaults {

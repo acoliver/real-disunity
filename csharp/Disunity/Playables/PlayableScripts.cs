@@ -17,7 +17,7 @@ public abstract class PlayableAsset : ScriptableObject, IPlayableAsset
 }
 
 /// <summary>
-/// The behaviour of a script playable. Every hook does nothing until a derived class overrides it.
+/// The behaviour of a script playable. Every hook has an empty body for a derived class to override.
 /// </summary>
 public class PlayableBehaviour : IPlayableBehaviour, ICloneable
 {

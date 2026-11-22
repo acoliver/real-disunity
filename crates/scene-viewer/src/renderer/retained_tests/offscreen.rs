@@ -123,6 +123,28 @@ pub(crate) fn screen_operations(
     )
 }
 
+/// The operations of [`clearing_operations`] on a texture stored as sRGB, as a camera's target is,
+/// with the texture they write. They export nothing: the UI reads the texture. The last value
+/// keeps the runtime and its arena alive.
+pub(crate) fn target_operations(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+) -> (PendingOffscreen, wgpu::Texture, Box<dyn std::any::Any>) {
+    let (mut runtime, arena) = runtime_on(device, authority);
+    let mut state = OffscreenState::new(&runtime);
+    let mut frame = clear();
+    frame.render_textures[0].graphics_format = 4;
+    frame.render_textures[0].srgb = true;
+    let operations = state.build(&mut runtime, &arena, &frame).unwrap();
+    let handle = state.texture_handle(TARGET).unwrap();
+    let texture = runtime.gpu_texture(handle).unwrap();
+    (
+        operations.into_pending(),
+        texture,
+        Box::new((runtime, arena)),
+    )
+}
+
 /// Whether `bytes` is the 8 by 8 render texture [`clear`] makes, all yellow.
 pub(crate) fn is_cleared(bytes: &[u8]) -> bool {
     bytes.len() == 8 * 8 * 4 && bytes.chunks_exact(4).all(|texel| texel == YELLOW)

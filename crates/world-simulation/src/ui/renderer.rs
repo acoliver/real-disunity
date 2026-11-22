@@ -1,4 +1,5 @@
 //! The state of a canvas renderer: what a UI element submits to be drawn.
+use crate::ui::UiTexture;
 use crate::ui::geometry::UiGeometry;
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::{ComponentDesc, ComponentHandle, UiError, World, WorldError};
@@ -37,8 +38,9 @@ pub struct CanvasRenderer {
     pub alpha_texture: u64,
     /// The mesh's vertices and triangles, shared between clones; none when no mesh is set.
     pub geometry: Option<Arc<UiGeometry>>,
-    /// The renderer identity of the texture the quads are drawn with, 0 for plain colour.
-    pub graphic_texture: u64,
+    /// The texture the quads are drawn with, none for plain colour. A stored image or a render
+    /// texture; coverage identities belong to text only.
+    pub graphic_texture: Option<UiTexture>,
     /// Slots at or past `material_count` are always 0.
     pub materials: [u64; MAX_CANVAS_MATERIALS],
     /// Slots at or past `pop_material_count` are always 0.
@@ -59,7 +61,7 @@ impl Default for CanvasRenderer {
             texture: 0,
             alpha_texture: 0,
             geometry: None,
-            graphic_texture: 0,
+            graphic_texture: None,
             materials: [0; MAX_CANVAS_MATERIALS],
             pop_materials: [0; MAX_CANVAS_MATERIALS],
         }
@@ -94,6 +96,9 @@ impl CanvasRenderer {
     }
 
     pub(crate) fn validate(&self) -> Result<(), UiError> {
+        if matches!(self.graphic_texture, Some(UiTexture::Coverage(_))) {
+            return Err(UiError::InvalidCanvasRenderer);
+        }
         let normal = self.clone().normalized()?;
         if normal.materials == self.materials && normal.pop_materials == self.pop_materials {
             Ok(())

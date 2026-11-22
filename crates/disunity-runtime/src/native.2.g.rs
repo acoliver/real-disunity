@@ -363,4 +363,8 @@ pub struct DisunityUiDraw {
     pub effect_g: f32,
     pub effect_b: f32,
     pub effect_a: f32,
+    /// 0 when `DisunityQuad::texture` is a stored image identity (graphics) or a coverage index
+    /// (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
+    pub texture_kind: u32,
+    pub padding: u32,
 }

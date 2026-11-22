@@ -483,6 +483,8 @@ impl ResourcePlanner {
                 pass_count: decl.pass_count,
                 pass_names: decl.pass_names,
                 subshader_count: decl.subshader_count,
+                tags: decl.tags,
+                fallback: decl.fallback,
                 file: decl.file,
                 path_id: decl.path_id,
             },

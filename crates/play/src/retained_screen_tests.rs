@@ -73,11 +73,15 @@ fn capture_of(driver: &PlayerRetainedDriver, frame: u64) -> &Capture {
 /// Plays the screen fixture in a window for four updates, capturing the first and last. Returns the
 /// driver after the run and the submissions each update made.
 fn play_screen_fixture() -> (PlayerRetainedDriver, Vec<u64>) {
+    play_fixture("screen.fixture")
+}
+
+fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
     let data = tempfile::tempdir().unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let prepared = PreparedPlayer {
         config: fixture_config(),
-        request: root.join("csharp/PortableFixture/screen.fixture"),
+        request: root.join("csharp/PortableFixture").join(request),
         data: data.path().to_owned(),
         gpu: GpuLaunch::default(),
     };
@@ -163,4 +167,25 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         screen.submitted(),
         "the managed readback flushed the screen write"
     );
+}
+
+#[test]
+fn a_canvas_quad_over_a_render_texture_a_script_cleared_shows_it_in_the_window() {
+    let _turn = fixture_turn();
+    let (driver, _) = play_fixture("ui-target-draw.fixture");
+
+    let shown = capture_of(&driver, 3);
+    assert_eq!(
+        shown.rgb(32, 32),
+        YELLOW,
+        "the quad shows the cleared texture"
+    );
+    assert_eq!(shown.rgb(18, 46), YELLOW, "the quad's corner");
+    assert_ne!(
+        shown.rgb(4, 4),
+        YELLOW,
+        "outside the quad is the stock scene"
+    );
+    let report = driver.gpu.report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
 }

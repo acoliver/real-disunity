@@ -961,6 +961,7 @@ impl<'a> Mapper<'a> {
         }
         if let Some(global) = &self.snapshot.global {
             for (name, slot) in &global.properties.textures {
+                self.report.global_reads.set.insert(name.clone());
                 let kind = texture_kind(&slot.texture);
                 *self
                     .report

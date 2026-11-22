@@ -554,6 +554,28 @@ fn the_render_texture_named_longest_ago_is_given_back_first_when_the_frame_needs
 }
 
 #[test]
+fn a_texture_the_ui_reads_is_given_back_last() {
+    let held = held_after_two_frames();
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    // `b` was named longest ago, as in the test above, but the UI reads it before `c` needs room.
+    let frames = [
+        targets.naming(&[a, b]),
+        targets.naming(&[a]),
+        targets.naming(&[c]),
+    ];
+    room.frame(&frames[0]).0.unwrap();
+    room.frame(&frames[1]).0.unwrap();
+    room.adapter.note_ui_read(Targets::id(b));
+
+    let (built, reclaimed) = room.frame(&frames[2]);
+    built.unwrap();
+    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(room.held(), [Targets::id(b), Targets::id(c)]);
+}
+
+#[test]
 fn a_render_texture_the_snapshot_names_is_not_given_back_though_it_was_named_longest_ago() {
     let held = held_after_two_frames();
     let mut room = Room::new(held + 16384 - 256);

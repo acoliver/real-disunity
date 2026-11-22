@@ -5,8 +5,8 @@ use super::super::{
     presentation::{UiDistanceMode, UiDistanceStyle},
 };
 use super::{
-    UiDrawKind, UiDrawList, UiError, UiTextEffect, UiTextPlacement, check_color, check_transform,
-    multiply, rotate,
+    UiDrawKind, UiDrawList, UiError, UiTextEffect, UiTextPlacement, UiTexture, check_color,
+    check_transform, multiply, rotate,
 };
 use crate::presentation::CoverageTexture;
 use glam::Vec2;
@@ -162,7 +162,7 @@ impl UiDrawList<'_> {
                     mode,
                     effect_color: self.effective(color),
                 });
-                draw.validate_distance()?;
+                draw.validate()?;
             }
             draws.push(draw);
         }
@@ -195,7 +195,7 @@ impl UiDrawList<'_> {
             points,
             [low.x, low.y, high.x, high.y],
             color,
-            Some(identity),
+            Some(UiTexture::Coverage(identity)),
             UiDrawKind::Text,
         )
     }

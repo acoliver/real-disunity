@@ -52,6 +52,9 @@ use super::trace::WorkTrace;
 
 mod parts;
 mod screen_view;
+mod ui_read;
+
+pub use ui_read::UiRead;
 
 /// The most draws one build of a flush plans unless the host sets another.
 ///

@@ -269,7 +269,7 @@ impl World {
         }
         // The record follows the ordered globals, so the set is keyed by the record's own index.
         let record = self.graphics.offscreen.len() + ordered.len();
-        self.capture_render_set(&work, record)?;
+        self.capture_render_set(&work, record);
         self.note_handle(&work);
         self.graphics.direct_writes.clear();
         self.graphics.offscreen.extend(ordered);

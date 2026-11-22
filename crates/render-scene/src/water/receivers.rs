@@ -65,27 +65,3 @@ pub(crate) fn empty_environment(device: &wgpu::Device) -> [wgpu::TextureView; 2]
         })
     })
 }
-
-pub(super) fn environment_entries() -> [wgpu::BindGroupLayoutEntry; 4] {
-    let mut frame = super::texture_entry(3);
-    frame.ty = wgpu::BindingType::Buffer {
-        ty: wgpu::BufferBindingType::Uniform,
-        has_dynamic_offset: false,
-        min_binding_size: wgpu::BufferSize::new(crate::frame::FRAME_UNIFORM_BYTES as u64),
-    };
-    let mut cube = super::texture_entry(4);
-    cube.ty = wgpu::BindingType::Texture {
-        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-        view_dimension: wgpu::TextureViewDimension::Cube,
-        multisampled: false,
-    };
-    let mut lut = super::texture_entry(5);
-    lut.ty = wgpu::BindingType::Texture {
-        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-        view_dimension: wgpu::TextureViewDimension::D2,
-        multisampled: false,
-    };
-    let mut sampler = super::texture_entry(6);
-    sampler.ty = wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering);
-    [frame, cube, lut, sampler]
-}

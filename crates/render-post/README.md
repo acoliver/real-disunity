@@ -652,7 +652,7 @@ enabled are in [docs/rendering.md](../../docs/rendering.md#material-mip-bias).
 
 #### Qualification on the Radeon 780M
 
-The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks and the water producer off, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
+The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks off and no mask producer, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
 
 Device: AMD Radeon 780M, Mesa 26.0.8 RADV. Quality cells use a 4x4 supersampled reference, 64 warm-up frames and 4 measured frames per cell. Cost cells use the whole-frame GPU timestamp envelope (a timestamp pair around scene, post, copies and clears), 30 warm-up frames and 120 measured frames, one frame submitted and waited for at a time, so the numbers are per-frame latency on an idle queue. The full matrix took 1470 s. Lavapipe ran the same tests for correctness only; its times come from a CPU rasteriser and are not cost evidence.
 
@@ -725,7 +725,7 @@ every other mode no mask exists.
   clear is in the frame's own encoder, so a frame whose encoder is dropped never submits its producers' writes
   and the next frame clears again (`temporal_mask_clear_tests`, including a stale 1.0 that would otherwise be
   dilated and consumed).
-* Producer contract, for water today and for any future alpha or particle feature. Declare the mask as an
+* Producer contract, for any alpha, particle or water feature. Declare the mask as an
   indexed colour output with `AttachmentLoad::Load` and the view with `with_retained_contents()`, so the
   frame validator accepts the host clear as the producer. Write with `BlendOperation::Max` on both
   channels, so overlapping producers combine monotonically and no producer lowers another's value. Never
@@ -733,8 +733,8 @@ every other mode no mask exists.
   would erase an earlier producer and hide a stale mask from the cancelled-frame guarantee. Draw at one
   sample. Cap the value in the producer; the consumer applies no cap, so reactive 1 means the history weight
   is zero. A producer that is not a pass of its own must stay within the 32 byte colour attachment limit
-  (`ContractError::ColorAttachmentBytes`); see the water pass in the
-  [render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water).
+  (`ContractError::ColorAttachmentBytes`); the stock water pass already uses all 32 bytes, so a water
+  producer needs a pass of its own (see the [render-scene README](../render-scene/README.md#temporal-reactive-mask)).
 * Dilation. When a mask exists, `temporal mask dilate` (`taa_mask.wgsl`, `taa_mask_gpu.rs`) is scheduled
   after `temporal depth clip` and before `temporal create locks` or `temporal upscale`. It takes the 3x3
   maximum of each channel (clamped at the image border) into a per-slot `Rg8Unorm` "temporal prepared mask"
@@ -779,9 +779,9 @@ every other mode no mask exists.
   the three scales on lavapipe (the static region is bit-equal to the zero-mask run) and on the Radeon 780M
   (17 tests of `temporal_translucent` and `temporal_mask`). The composition tests were not run on the Radeon.
 
-The only producer in the tree is the water surface, which ships off: see the
-[render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water) for the measurement
-table that decided it and the follow-up issue.
+No pass in the tree produces the mask: the host clear is its only writer. A water producer was measured,
+made the TAA output worse and was deleted; see the
+[render-scene README](../render-scene/README.md#temporal-reactive-mask).
 
 ### Native-resolution RCAS
 

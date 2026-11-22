@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
+use worldrunner_world_simulation::ui::UiTexture;
 
 #[test]
 fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
@@ -62,7 +63,7 @@ fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
 fn image_identity_is_resolved_and_sampled_in_the_overlay_stage() {
     let (world, _) = graphic_world();
     let mut ui = extracted(&world);
-    ui.graphics[0].graphic.texture = Some(77);
+    ui.graphics[0].graphic.texture = Some(UiTexture::Image(77));
     assert!(UiOverlay::new(ui.clone()).is_err());
     let textures = BTreeMap::from([(
         77,

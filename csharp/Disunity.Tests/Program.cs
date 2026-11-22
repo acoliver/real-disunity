@@ -209,7 +209,7 @@ CheckImport("disunity_presentation_ui_draw", u64, u32, AbiType("DisunityUiDraw")
 CheckImport("disunity_presentation_ui_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
 CheckImport("disunity_texture_store", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
 CheckImport("disunity_canvas_renderer_geometry_write", u64, u64, AbiType("DisunityUiVertex").MakePointerType(), u32, u32.MakePointerType(), u32);
-CheckImport("disunity_canvas_renderer_texture_write", u64, u64, u64);
+CheckImport("disunity_canvas_renderer_texture_write", u64, u64, u64, u32);
 CheckImport("disunity_canvas_renderer_geometry_read", u64, u64, AbiType("DisunityUiGraphicInfo").MakePointerType(), AbiType("DisunityUiVertex").MakePointerType(), u32);
 CheckImport("disunity_texture_read", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
 var meshInfo = AbiType("DisunityMeshInfo").MakePointerType();

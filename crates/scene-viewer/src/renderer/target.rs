@@ -73,16 +73,18 @@ impl Execution {
                 .map_err(|e| ViewerError::Gpu(e.to_string())),
         }
     }
+    pub fn flight(&self) -> &FrameAdmission {
+        match self {
+            Self::Surface(surface) => surface.capture_flight(),
+            Self::Offscreen { flight, .. } => flight,
+        }
+    }
     pub fn acquire_capture(
         &self,
         context: &GpuContext,
         size: [u32; 2],
     ) -> Result<Option<ReadyFrame>, ViewerError> {
-        let flight = match self {
-            Self::Surface(surface) => surface.capture_flight(),
-            Self::Offscreen { flight, .. } => flight,
-        };
-        let admission = match flight.try_acquire() {
+        let admission = match self.flight().try_acquire() {
             Ok(admission) => admission,
             Err(AdmissionError::WouldBlock) => return Ok(None),
             Err(error) => return Err(ViewerError::Gpu(error.to_string())),
@@ -100,11 +102,7 @@ impl Execution {
         ready: ReadyFrame,
         prepared: PreparedFrame,
     ) -> Result<CompletionTicket, ViewerError> {
-        let flight = match self {
-            Self::Surface(surface) => surface.capture_flight(),
-            Self::Offscreen { flight, .. } => flight,
-        };
-        flight
+        self.flight()
             .submit_prepared(ready.admission, prepared)
             .map_err(|e| ViewerError::Gpu(e.to_string()))
     }

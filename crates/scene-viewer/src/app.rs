@@ -385,6 +385,7 @@ impl ApplicationHandler<UserEvent> for App<'_> {
             &mut self.deadline,
             active,
             pending,
+            renderer.frame_slot_free(),
         );
         if redraw {
             renderer

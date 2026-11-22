@@ -322,8 +322,6 @@ fn the_largest_blend_index_a_mesh_may_hold_is_kept_exactly() {
     // One float array per channel in plan order: the positions of the three vertices (9 floats),
     // their blend weights (12), then their blend indices, the first of which is the one set.
     let at = (3 * 3 + 4 * 3) * 4;
-    assert_eq!(
-        f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()),
-        65_535.0
-    );
+    let kept = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    assert_eq!(kept.to_bits(), 65_535.0_f32.to_bits());
 }

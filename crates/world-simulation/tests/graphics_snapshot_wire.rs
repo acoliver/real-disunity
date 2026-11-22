@@ -132,7 +132,7 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     skinned.skin.drawn_mesh = (1 << 41) + 4;
     skinned.skin.root = Some(SkinRoot {
         bone,
-        bind_pose: std::array::from_fn(|i| i as f32),
+        bind_pose: std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap())),
     });
     renderer_with(world, (0, true), 0, skinned);
     let mut unrooted = MeshRenderer::of_kind(RendererKind::Skinned);

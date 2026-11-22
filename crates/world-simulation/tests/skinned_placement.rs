@@ -70,7 +70,7 @@ fn bind_pose(world: &World, bone: ObjectHandle, body: ObjectHandle) -> [f32; 16]
 /// hip bone offset and turned the other way, with the body's skin rooted at the hip. The body
 /// has not been given a renderer yet.
 struct Rig {
-    rig: ObjectHandle,
+    animator: ObjectHandle,
     body: ObjectHandle,
     hip: ObjectHandle,
     pose: [f32; 16],
@@ -86,7 +86,7 @@ fn rig(world: &mut World) -> Rig {
     );
     let pose = bind_pose(world, hip, body);
     Rig {
-        rig,
+        animator: rig,
         body,
         hip,
         pose,
@@ -128,7 +128,7 @@ fn a_skinned_renderer_with_its_bones_at_rest_is_placed_at_its_own_matrix() {
         "{:?} against {own:?}",
         view.local_to_world
     );
-    let animator = world.world_matrix(rig.rig).unwrap().to_cols_array();
+    let animator = world.world_matrix(rig.animator).unwrap().to_cols_array();
     assert!(
         !same_matrix(view.local_to_world, animator),
         "the animator above the renderer does not place it"

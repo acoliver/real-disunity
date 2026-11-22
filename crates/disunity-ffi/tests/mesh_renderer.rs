@@ -1,6 +1,6 @@
 //! The mesh renderer, skinned mesh renderer and mesh filter records: creation, round trip,
 //! rejection and one component per object.
-use worldrunner_disunity_ffi::{abi::*, mesh_renderer::*, scheduling::*};
+use worldrunner_disunity_ffi::{abi::*, mesh_renderer::*};
 
 fn world_and_object() -> (u64, u64) {
     let (mut world, mut object) = (0, 0);

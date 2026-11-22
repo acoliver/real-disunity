@@ -32,7 +32,7 @@ fn renderer_of_kind(world: u64, kind: u32) -> u64 {
 
 /// The pose a root bone is given: 16 distinct finite values.
 fn pose() -> [f32; 16] {
-    std::array::from_fn(|i| i as f32 + 0.5)
+    std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap()) + 0.5)
 }
 
 fn write_skin(world: u64, renderer: u64, mesh: u64, bone: u64, pose: Option<&[f32; 16]>) -> i32 {

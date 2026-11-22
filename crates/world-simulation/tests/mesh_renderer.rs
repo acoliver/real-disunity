@@ -286,7 +286,7 @@ fn a_skinned_renderer_stores_its_drawn_mesh_and_root_bone_with_its_bind_pose() {
         drawn_mesh: 5,
         root: Some(SkinRoot {
             bone,
-            bind_pose: std::array::from_fn(|i| i as f32),
+            bind_pose: std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap())),
         }),
     };
     world

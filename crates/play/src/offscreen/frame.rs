@@ -214,6 +214,8 @@ pub enum Skip {
     NoSuchPass,
     /// A mesh draw of a mesh with nothing to draw, or of a sub-mesh with no indices.
     EmptyMesh,
+    /// A batch draw, which the host does not draw yet.
+    BatchNotDrawn,
 }
 
 /// Why a renderer was left out of the frame.

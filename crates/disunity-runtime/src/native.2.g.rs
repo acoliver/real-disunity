@@ -186,6 +186,21 @@ pub struct DisunityRenderTexture {
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityDrawBatch {
+    pub mesh: u64,
+    pub material: u64,
+    pub buffer: u64,
+    pub offset: u64,
+    pub size: u64,
+    pub submesh: u32,
+    pub pass: i32,
+    pub metadata_count: u32,
+    pub names_len: u32,
+    pub visible_count: u32,
+    pub padding: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTargetRef {
     pub kind: u32,
     pub name_id: i32,

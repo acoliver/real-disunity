@@ -308,6 +308,7 @@ CheckImport("disunity_offscreen_draw_mesh", u64, u64, f32.MakePointerType(), u64
 CheckImport("disunity_offscreen_draw_mesh_instanced", u64, u64, f32.MakePointerType(), u64, u32, typeof(int), u32);
 CheckImport("disunity_offscreen_draw_procedural", u64, f32.MakePointerType(), u64, typeof(int), u32, typeof(int), typeof(int));
 CheckImport("disunity_offscreen_generate_mips", u64, u64);
+CheckImport("disunity_offscreen_draw_mesh_batch", u64, AbiType("DisunityDrawBatch").MakePointerType(), bytes, u32.MakePointerType(), u32.MakePointerType());
 CheckImport("disunity_renderer_list_create_draw", u64, AbiType("DisunityDrawRendererList").MakePointerType(), bytes, u64.MakePointerType());
 CheckImport("disunity_renderer_list_create_shadow", u64, AbiType("DisunityShadowRendererList").MakePointerType(), f32.MakePointerType(), u64.MakePointerType());
 CheckImport("disunity_shadow_query", AbiType("DisunityShadowRequest").MakePointerType(), f32.MakePointerType(), AbiType("DisunityShadowCaster").MakePointerType(), AbiType("DisunityShadowResult").MakePointerType(), f32.MakePointerType());

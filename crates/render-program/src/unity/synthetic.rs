@@ -2,6 +2,7 @@
 //! Vulkan platform, built from WGSL. The stage modules are written the way a player stores them,
 //! one module per stage with one entry point.
 
+pub mod dots;
 pub mod placed;
 pub mod shaders;
 

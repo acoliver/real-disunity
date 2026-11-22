@@ -449,6 +449,28 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The fields of a batch draw. `metadata_count` names are at the call's `names` pointer
+    ///  (`names_len` bytes of UTF-8 names joined by zero bytes) with one word each at `words`;
+    ///  `visible_count` instance indexes are at `visible`. `padding` keeps the record 8-byte aligned
+    ///  and is ignored.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityDrawBatch
+    {
+        public ulong mesh;
+        public ulong material;
+        public ulong buffer;
+        public ulong offset;
+        public ulong size;
+        public uint submesh;
+        public int pass;
+        public uint metadata_count;
+        public uint names_len;
+        public uint visible_count;
+        public uint padding;
+    }
+
+    /// <summary>
     ///  A target. `kind` is 0 for a render texture (`render` is its id), 1 for a temporary render
     ///  texture (`name_id` is the property name id it was allocated under), 2 for the camera's
     ///  target and 3 for none. Fields a kind does not use must be 0.

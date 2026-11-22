@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use worldrunner_script::{
-    ClockNative, Fraction, GameScripts, NegativeSleep, NewThread, Order, ResumeValue,
+    ClockNative, Fraction, GameScripts, NegativeSleep, NewThread, Order, ResumeValue, SaveOptions,
     SchedulerNames, SchedulerPolicy, ScriptConfig, ScriptError, ThreadWait, WaitKind, ZeroSleep,
 };
 
@@ -27,7 +27,7 @@ fn names() -> SchedulerNames {
 /// A game with the scheduler under `policy`, granting `extra` natives besides the usual ones.
 fn game(policy: &SchedulerPolicy, extra: &[&str]) -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
-    scripts.register_scheduler_with(&names(), policy).unwrap();
+    scripts.register_scheduler(&names(), policy).unwrap();
     let grants: Vec<&str> = GRANTS.iter().chain(extra).copied().collect();
     scripts.add_source("game", &grants).unwrap();
     scripts
@@ -318,7 +318,7 @@ fn waits(unlinks: &Arc<AtomicUsize>) -> (GameScripts, SchedulerPolicy) {
     scripts
         .register_native("Unlinks", move |_, ()| Ok(seen.load(Ordering::SeqCst)))
         .unwrap();
-    scripts.register_scheduler_with(&names(), &policy).unwrap();
+    scripts.register_scheduler(&names(), &policy).unwrap();
     let grants: Vec<&str> = GRANTS
         .iter()
         .chain(&["WaitRaw", "WakeRaw", "Unlinks"])
@@ -387,7 +387,7 @@ fn a_save_refuses_threads_the_snapshot_cannot_describe_yet() {
     let (mut scripts, _) = waits(&unlinks);
     run(&mut scripts, "Spawn(function() WaitWakeup(50) end)");
     scripts.advance(1).unwrap();
-    let error = scripts.save(&[], &[]).unwrap_err();
+    let error = scripts.save(&[], &[], &SaveOptions::default()).unwrap_err();
     assert!(error.to_string().contains("waits"), "{error}");
 }
 

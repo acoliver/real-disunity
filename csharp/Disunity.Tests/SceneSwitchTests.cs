@@ -25,6 +25,28 @@ internal static class SceneSwitchTests
         private void OnDestroy() => Log.Add($"OnDestroy:{name}");
     }
 
+    /// <summary>A DontDestroyOnLoad object whose Update and cleanup messages all log.</summary>
+    private sealed class Ticker : MonoBehaviour
+    {
+        private void Awake() => DontDestroyOnLoad(gameObject);
+        private void Update() => Log.Add($"Update:{name}");
+        private void OnDisable() => Log.Add($"OnDisable:{name}");
+        private void OnDestroy() => Log.Add($"OnDestroy:{name}");
+    }
+
+    /// <summary>A DontDestroyOnLoad object whose Update reads the rectangle of a scene object, as a game's tooltip does,
+    /// and fails once that object is destroyed.</summary>
+    private sealed class Tooltip : MonoBehaviour
+    {
+        public static RectTransform? Panel;
+        private void Awake() => DontDestroyOnLoad(gameObject);
+        private void Update()
+        {
+            if (Panel == null) throw new NullReferenceException("the panel is destroyed");
+            _ = Panel.rect;
+        }
+    }
+
     private sealed class Unloadable : MonoBehaviour
     {
         public Unloadable() => throw new TypeLoadException("Could not load type 'Missing' from assembly 'Engine'.");
@@ -109,6 +131,10 @@ internal static class SceneSwitchTests
         AProjectRunHoldsOneScene();
         UnloadingTheWorldDestroysSceneObjectsBeforePersistentOnes();
         Console.WriteLine("PASS: unloading the world destroys the loaded scenes' objects before the DontDestroyOnLoad ones");
+        UnloadingTheWorldRunsNoUpdate();
+        Console.WriteLine("PASS: unloading the world runs the cleanup messages of every object and no Update");
+        UnloadingTheWorldSurvivesAPersistentScriptThatReadsADestroyedSceneObject();
+        Console.WriteLine("PASS: a persistent script that reads a destroyed scene object no longer makes the unload fail");
         Console.WriteLine("PASS: loading build scenes at run time by name, path and index, Single load, DontDestroyOnLoad, events and LoadSceneAsync");
         AnAdditiveLoadAddsAScene();
         SetActiveSceneMovesNewObjects();
@@ -141,6 +167,57 @@ internal static class SceneSwitchTests
         var destroyed = Log.Where(entry => entry.StartsWith("OnDestroy:")).ToArray();
         Expect.Equal("OnDestroy:OldA,OnDestroy:Keeper", string.Join(",", destroyed),
             "the scene object is destroyed before the DontDestroyOnLoad object");
+    }
+
+    private static void UnloadingTheWorldRunsNoUpdate()
+    {
+        Log.Clear();
+        DisunityHost.LoadWorld();
+        try
+        {
+            DisunityHost.SetBuildScenes(Build, Options);
+            using var scene = DisunityHost.LoadScene(Plan("level0", ("Ticker", "Ticker"), ("OldA", "Probe")), Options);
+            DisunityHost.Step(0.01f);
+            Expect.That(Log.Contains("Update:Ticker"), "the persistent script updates while the world runs");
+            Log.Clear();
+        }
+        finally
+        {
+            DisunityHost.UnloadWorld();
+            SceneManager.ClearHandlers();
+        }
+        Expect.That(Log.Contains("OnDisable:OldA") && Log.Contains("OnDestroy:OldA"), "the scene object is cleaned up: " + string.Join(",", Log));
+        Expect.That(Log.Contains("OnDisable:Ticker") && Log.Contains("OnDestroy:Ticker"), "the persistent object is cleaned up: " + string.Join(",", Log));
+        Expect.That(!Log.Any(entry => entry.StartsWith("Update:")), "no Update runs while unloading: " + string.Join(",", Log));
+    }
+
+    private static void UnloadingTheWorldSurvivesAPersistentScriptThatReadsADestroyedSceneObject()
+    {
+        Log.Clear();
+        DisunityHost.LoadWorld();
+        try
+        {
+            DisunityHost.SetBuildScenes(Build, Options);
+            using (DisunityHost.LoadScene(Plan("level0", ("Tip", "Tooltip"), ("OldA", "Probe")), Options))
+            {
+                var canvas = DisunityHost.CreateGameObject();
+                canvas.AddComponent<RectTransform>();
+                canvas.AddComponent<Canvas>();
+                var panel = DisunityHost.CreateGameObject().AddComponent<RectTransform>();
+                panel.SetParent(canvas.GetComponent<RectTransform>(), false);
+                Tooltip.Panel = panel;
+                DisunityHost.Step(0.01f);
+                Log.Clear();
+            }
+            DisunityHost.UnloadWorld();
+        }
+        finally
+        {
+            Tooltip.Panel = null;
+            DisunityHost.UnloadWorld();
+            SceneManager.ClearHandlers();
+        }
+        Expect.That(Log.Contains("OnDestroy:OldA"), "the scene object was cleaned up: " + string.Join(",", Log));
     }
 
     private static void TheBuildListNamesTheScenes() => InWorld(() =>

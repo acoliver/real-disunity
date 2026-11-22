@@ -24,9 +24,10 @@ use mlua::{ChunkMode, FromLuaMulti, Function, IntoLuaMulti, Lua, StdLib, Table, 
 
 use crate::config::ScriptConfig;
 use crate::coroutines::Budget;
+use crate::division::{DIVIDE_HOOK, DIVIDE_PERMANENT};
 use crate::error::ScriptError;
 use crate::host::DEFAULT_MEMORY_LIMIT;
-use crate::load::SharedLoader;
+use crate::load::{Loader, SharedLoader};
 use crate::patches::Overlay;
 use crate::sandbox::{lua_value_to_json, restrict_base};
 
@@ -68,13 +69,19 @@ impl GameScripts {
         );
         budget.hook_main(&lua);
         crate::coroutines::install(&lua, &budget)?;
-        let loader = SharedLoader::default();
+        let loader = Loader::shared();
         crate::load::install(&lua, &loader)?;
         let mut standard = Permanents::standard(&lua)?;
         // `ipairs` loops hold this function between iterations, and Lua gives it no name.
         let (iterator, _, _): (Value, Value, Value) = lua.load("return ipairs({})").eval()?;
         standard
             .insert("ipairs iterator", iterator)
+            .map_err(|error| refused(error.to_string()))?;
+        // Scripts see the division function as the global `__lr_div`; it holds no capability.
+        let divide = crate::division::create(&lua)?;
+        lua.globals().raw_set(DIVIDE_HOOK, divide.clone())?;
+        standard
+            .insert(DIVIDE_PERMANENT, Value::Function(divide))
             .map_err(|error| refused(error.to_string()))?;
         let debug = Debug::new(&debug_table)?;
         let sleep_token = lua.create_table()?;
@@ -178,12 +185,6 @@ impl GameScripts {
         chunk.exec().map_err(|error| self.error(file, error))
     }
 
-    /// Makes statement-level `assert(...)` and `dbg(...)` calls in chunks loaded from now on
-    /// disappear, for games whose saves were made by a build that left them out. Off by default.
-    pub fn strip_debug_calls(&mut self, strip: bool) {
-        self.loader.lock().expect("loader").set_strip(strip);
-    }
-
     /// Runs one of the game's original files as `source` after applying its patches, and
     /// returns the applied patch names.
     pub fn run_patched(
@@ -270,10 +271,6 @@ impl GameScripts {
 
     pub(crate) fn standard(&self) -> &Permanents {
         &self.standard
-    }
-
-    pub(crate) fn standard_mut(&mut self) -> &mut Permanents {
-        &mut self.standard
     }
 
     /// The Lua state the scripts run in, for a host that restores or adopts values into it.

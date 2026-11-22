@@ -108,7 +108,10 @@ After an intentional ABI change:
    which gives the target of a renderer's slot. Revision 21 adds texture slot kind 5 (a texture
    the data names that the engine did not send), which every texture slot, environment cube and
    offscreen source accepts with texture identity 0; the world reads it as no texture, and the
-   graphics snapshot wire version is 17 to carry it. Native and managed hosts reject
+   graphics snapshot wire version is 17 to carry it. Revision 22 adds
+   `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
+   `OnDestroy` messages and the asset cleanup that destruction queued. Native and managed
+   hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,
@@ -280,7 +283,10 @@ the suspended native callback. Completion and cancellation dispose iterators.
 MonoBehaviour.enabled delegates eligibility changes to native lifecycle scopes.
 Deactivation, destruction and callback-failure cancellation notifications transfer
 once. Unload releases the world even when an iterator disposer throws; disposal
-failures remain errors. Coroutine joins, end-of-frame and custom yields are not
+failures remain errors. `UnloadWorld` destroys the scenes' objects and then the
+DontDestroyOnLoad objects and assets, and runs each cleanup through
+`disunity_world_advance_teardown`, so no `Update` or other frame message runs while
+the world unloads. Coroutine joins, end-of-frame and custom yields are not
 supported.
 
 Loading a world installs Unity's main thread `SynchronizationContext`

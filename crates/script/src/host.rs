@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use mlua::{ChunkMode, Function, Lua, StdLib, UserData, UserDataMethods};
 
-use crate::api::ScriptApi;
 use crate::config::ScriptConfig;
 use crate::error::ScriptError;
 use crate::sandbox::{install_budget, lua_value_to_json, restrict_base, table_to_json};
@@ -50,12 +49,6 @@ pub struct Record {
     pub level: Option<String>,
     pub message: String,
     pub fields: serde_json::Value,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TraceEvent {
-    pub hook: String,
-    pub outcome: String,
 }
 
 /// Deterministic seeded stream exposed as `worldrunner.random.stream(name)`.
@@ -109,7 +102,6 @@ pub struct ScriptHost {
     config: ScriptConfig,
     instructions: Arc<AtomicU64>,
     records: Arc<Mutex<Vec<Record>>>,
-    trace: Vec<TraceEvent>,
     modules: Arc<RwLock<HashMap<String, Vec<u8>>>>,
 }
 
@@ -154,7 +146,6 @@ impl ScriptHost {
             config,
             instructions,
             records,
-            trace: Vec::new(),
             modules,
         })
     }
@@ -175,38 +166,6 @@ impl ScriptHost {
         Ok(())
     }
 
-    /// Installs a `worldrunner.*` module and verifies the module's own
-    /// declared version matches what the trait claims, refusing mismatches.
-    pub fn install_api(&mut self, api: Box<dyn ScriptApi>) -> Result<(), ScriptError> {
-        api.install(&self.lua)?;
-        let declared = api.api_version();
-        let declared_str = format!("{}.{}.{}", declared.0, declared.1, declared.2);
-        let module: mlua::Table = self
-            .lua
-            .globals()
-            .raw_get::<mlua::Table>("worldrunner")?
-            .raw_get(api.name())?;
-        let found: Option<String> = module
-            .raw_get::<Option<Function>>("api_version_fn")?
-            .and_then(|function| function.call::<String>(()).ok());
-        // The module must expose its version through api_version_fn if it
-        // installs one; modules without the probe accept the trait version.
-        let found = found.unwrap_or_else(|| declared_str.clone());
-        if found != declared_str {
-            return Err(ScriptError::ApiVersion {
-                module: api.name().into(),
-                expected: declared_str,
-                found,
-            });
-        }
-        Ok(())
-    }
-
-    /// Registers an in-memory module for `require`.
-    pub fn load_module(&mut self, name: &str, source: &str) -> Result<(), ScriptError> {
-        self.load_module_bytes(name, source.as_bytes())
-    }
-
     /// Registers one of a game's original script files for `require`, after applying its
     /// patches from `overlay`. Returns the applied patch names in order. A refused patch set
     /// loads nothing.
@@ -217,11 +176,13 @@ impl ScriptHost {
         overlay: &crate::patches::Overlay,
     ) -> Result<Vec<String>, ScriptError> {
         let patched = overlay.apply(name, original)?;
-        self.load_module_bytes(name, &patched.source)?;
+        self.load_module(name, &patched.source)?;
         Ok(patched.applied)
     }
 
-    fn load_module_bytes(&mut self, name: &str, source: &[u8]) -> Result<(), ScriptError> {
+    /// Registers an in-memory module for `require`.
+    pub fn load_module(&mut self, name: &str, source: impl AsRef<[u8]>) -> Result<(), ScriptError> {
+        let source = source.as_ref();
         // Compile now so a broken module fails at registration, not at first
         // require inside a frame.
         self.instructions.store(0, Ordering::Relaxed);
@@ -257,10 +218,6 @@ impl ScriptHost {
         self.instructions.store(0, Ordering::Relaxed);
         let function: Option<Function> = self.lua.globals().raw_get(hook)?;
         let Some(function) = function else {
-            self.trace.push(TraceEvent {
-                hook: hook.into(),
-                outcome: "no-hook".into(),
-            });
             return Ok(HookResult::NoHook);
         };
         let outcome = match hook {
@@ -268,13 +225,7 @@ impl ScriptHost {
             _ => function.call::<()>((ctx.dt, ctx.frame)),
         };
         match outcome {
-            Ok(()) => {
-                self.trace.push(TraceEvent {
-                    hook: hook.into(),
-                    outcome: "ran".into(),
-                });
-                Ok(HookResult::Ran)
-            }
+            Ok(()) => Ok(HookResult::Ran),
             Err(error) => {
                 let message = error.to_string();
                 if message.contains("instruction budget") {
@@ -291,32 +242,12 @@ impl ScriptHost {
 
     /// Installs `worldrunner.world` from this crate's built-in module.
     pub fn install_world_api(&mut self) -> Result<(), ScriptError> {
-        crate::modules::WorldApi.install(&self.lua)
-    }
-
-    /// Installs `worldrunner.assets` from this crate's built-in module.
-    pub fn install_assets_api(&mut self) -> Result<(), ScriptError> {
-        crate::modules::AssetsApi.install(&self.lua)
-    }
-
-    /// Installs the resolver `worldrunner.assets.resolve` consults.
-    pub fn set_asset_resolver(&mut self, resolver: Option<Arc<dyn crate::modules::AssetResolver>>) {
-        match resolver {
-            Some(resolver) => self.lua.set_app_data(resolver),
-            None => self
-                .lua
-                .remove_app_data::<Arc<dyn crate::modules::AssetResolver>>(),
-        };
+        crate::modules::install_world(&self.lua)
     }
 
     /// Structured records (logs + events) since the last take.
     pub fn take_records(&mut self) -> Vec<Record> {
         std::mem::take(&mut *self.records.lock().expect("record sink"))
-    }
-
-    /// Hook trace since the last take; the determinism test compares this.
-    pub fn take_trace(&mut self) -> Vec<TraceEvent> {
-        std::mem::take(&mut self.trace)
     }
 
     /// Executes a Lua chunk and returns whatever it returns, as JSON.

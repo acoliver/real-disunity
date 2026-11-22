@@ -6,6 +6,7 @@ use rspirv::spirv::{Capability, Decoration, Op, StorageClass};
 use super::scan::{Image, Scan};
 use super::{id, instruction, malformed};
 use crate::module::ModuleError;
+use crate::spirv_rewrite::Declarations;
 
 struct Element {
     ty: u32,
@@ -15,51 +16,13 @@ struct Element {
 }
 
 struct Rewrite {
-    next: u32,
-    declarations: Vec<Instruction>,
+    declarations: Declarations,
     annotations: Vec<Instruction>,
     elements: BTreeMap<u32, Element>,
     index_zero: u32,
 }
 
 impl Rewrite {
-    fn allocate(&mut self) -> Result<u32, ModuleError> {
-        let id = self.next;
-        self.next = id
-            .checked_add(1)
-            .ok_or_else(|| malformed("ID bound overflow"))?;
-        Ok(id)
-    }
-
-    fn declare(
-        &mut self,
-        op: Op,
-        ty: Option<u32>,
-        operands: Vec<Operand>,
-    ) -> Result<u32, ModuleError> {
-        let id = self.allocate()?;
-        self.declarations
-            .push(instruction(op, ty, Some(id), operands));
-        Ok(id)
-    }
-
-    fn type_id(
-        &mut self,
-        module: &Module,
-        op: Op,
-        operands: Vec<Operand>,
-    ) -> Result<u32, ModuleError> {
-        let existing = module
-            .types_global_values
-            .iter()
-            .chain(&self.declarations)
-            .find(|i| i.class.opcode == op && i.operands == operands);
-        match existing {
-            Some(i) => Ok(i.result_id.unwrap()),
-            None => self.declare(op, None, operands),
-        }
-    }
-
     fn element(
         &mut self,
         module: &Module,
@@ -69,7 +32,7 @@ impl Rewrite {
         let ty = if image.components == 1 {
             image.scalar
         } else {
-            self.type_id(
+            self.declarations.type_id(
                 module,
                 Op::TypeVector,
                 vec![
@@ -78,15 +41,17 @@ impl Rewrite {
                 ],
             )?
         };
-        let array = self.declare(Op::TypeRuntimeArray, None, vec![Operand::IdRef(ty)])?;
+        let array =
+            self.declarations
+                .declare(Op::TypeRuntimeArray, None, vec![Operand::IdRef(ty)])?;
         self.decorate_block(image_id, array, image.components);
-        self.declarations.push(instruction(
+        self.declarations.declare_as(instruction(
             Op::TypeStruct,
             None,
             Some(image_id),
             vec![Operand::IdRef(array)],
         ));
-        let pointer = self.type_id(
+        let pointer = self.declarations.type_id(
             module,
             Op::TypePointer,
             vec![
@@ -94,12 +59,12 @@ impl Rewrite {
                 Operand::IdRef(ty),
             ],
         )?;
-        let zero = self.declare(
+        let zero = self.declarations.declare(
             Op::Constant,
             Some(image.scalar),
             vec![Operand::LiteralBit32(0)],
         )?;
-        let one = self.declare(
+        let one = self.declarations.declare(
             Op::Constant,
             Some(image.scalar),
             vec![Operand::LiteralBit32(if image.float {
@@ -147,12 +112,12 @@ impl Rewrite {
     fn fetch(&mut self, i: &Instruction, scan: &Scan) -> Result<Vec<Instruction>, ModuleError> {
         let variable = scan.loads[&id(&i.operands[0]).unwrap()];
         let image = scan.variables[&variable];
-        let pointer_id = self.allocate()?;
+        let pointer_id = self.declarations.allocate()?;
         let components = scan.images[&image].components;
         let value_id = if components == 4 {
             i.result_id.unwrap()
         } else {
-            self.allocate()?
+            self.declarations.allocate()?
         };
         let element = &self.elements[&image];
         let mut result = vec![
@@ -182,7 +147,7 @@ impl Rewrite {
         if components == 2 {
             values.clear();
             for index in 0..2 {
-                let component = self.allocate()?;
+                let component = self.declarations.allocate()?;
                 result.push(instruction(
                     Op::CompositeExtract,
                     Some(scan.images[&image].scalar),
@@ -208,12 +173,7 @@ impl Rewrite {
 
 pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleError> {
     let mut rewrite = Rewrite {
-        next: module
-            .header
-            .as_ref()
-            .ok_or_else(|| malformed("header"))?
-            .bound,
-        declarations: vec![],
+        declarations: Declarations::new(module)?,
         annotations: vec![],
         elements: BTreeMap::new(),
         index_zero: 0,
@@ -223,13 +183,13 @@ pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleErro
             && i.operands == [Operand::LiteralBit32(32), Operand::LiteralBit32(0)]
     }) {
         Some(i) => i.result_id.unwrap(),
-        None => rewrite.declare(
+        None => rewrite.declarations.declare(
             Op::TypeInt,
             None,
             vec![Operand::LiteralBit32(32), Operand::LiteralBit32(0)],
         )?,
     };
-    rewrite.index_zero = rewrite.declare(
+    rewrite.index_zero = rewrite.declarations.declare(
         Op::Constant,
         Some(index_type),
         vec![Operand::LiteralBit32(0)],
@@ -260,7 +220,7 @@ pub(super) fn rewrite(module: &mut Module, scan: &Scan) -> Result<(), ModuleErro
             block.instructions = instructions;
         }
     }
-    module.header.as_mut().unwrap().bound = rewrite.next;
+    module.header.as_mut().unwrap().bound = rewrite.declarations.bound();
     module
         .capabilities
         .retain(|i| i.operands != [Operand::Capability(Capability::SampledBuffer)]);
@@ -288,7 +248,9 @@ fn replace_globals(
             i.operands[0] = Operand::StorageClass(StorageClass::StorageBuffer);
         }
     }
-    module.types_global_values.append(&mut rewrite.declarations);
+    module
+        .types_global_values
+        .append(&mut rewrite.declarations.take());
     module.types_global_values = order(std::mem::take(&mut module.types_global_values))?;
     module.annotations.append(&mut rewrite.annotations);
     for &variable in scan.variables.keys() {

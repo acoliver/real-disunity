@@ -2,7 +2,7 @@
 //! (#147).
 
 use lua_resume::capture::{Metatable, Value};
-use worldrunner_script::{GameScripts, LuaSnapshot, ScriptConfig, ScriptError};
+use worldrunner_script::{GameScripts, LuaSnapshot, SaveOptions, ScriptConfig, ScriptError};
 
 /// The game's code: a class with a method, version `bonus` of its damage rule.
 fn code(bonus: i64) -> String {
@@ -30,7 +30,7 @@ local a = Unit.New(10)
 State = {
     units = { a, a, Unit.New(4) },
     by_unit = { [a] = "leader" },
-    counts = { n = 3, f = 3.0, nan = 0/0, big = math.maxinteger },
+    counts = { n = 3, f = 3.0, nan = 0.0 / 0.0, big = math.maxinteger },
     bytes = "\0\255",
     map = GetMapName,
     hit = Unit.Hit,
@@ -47,7 +47,11 @@ fn round_trip(snapshot: &LuaSnapshot) -> LuaSnapshot {
 fn shared_tables_cycles_and_number_types_survive_a_round_trip() {
     let mut saved = game(0);
     saved.run("game", "state.lua", STATE.as_bytes()).unwrap();
-    let snapshot = round_trip(&saved.save(&["State", "Score"], &["Unit"]).unwrap());
+    let snapshot = round_trip(
+        &saved
+            .save(&["State", "Score"], &["Unit"], &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut restored = game(0);
     restored.restore(&snapshot, &["Unit"]).unwrap();
@@ -75,7 +79,9 @@ fn shared_tables_cycles_and_number_types_survive_a_round_trip() {
 fn permanents_rebind_to_the_current_code_by_name() {
     let mut saved = game(0);
     saved.run("game", "state.lua", STATE.as_bytes()).unwrap();
-    let snapshot = saved.save(&["State"], &["Unit"]).unwrap();
+    let snapshot = saved
+        .save(&["State"], &["Unit"], &SaveOptions::default())
+        .unwrap();
     let mut names: Vec<&str> = snapshot
         .graph
         .tables
@@ -132,8 +138,12 @@ fn snapshots_do_not_depend_on_insertion_order() {
         )
         .unwrap();
     assert_eq!(
-        first.save(&["T"], &["Unit"]).unwrap(),
-        second.save(&["T"], &["Unit"]).unwrap()
+        first
+            .save(&["T"], &["Unit"], &SaveOptions::default())
+            .unwrap(),
+        second
+            .save(&["T"], &["Unit"], &SaveOptions::default())
+            .unwrap()
     );
 }
 
@@ -151,14 +161,14 @@ fn values_that_cannot_be_saved_are_refused_with_their_location() {
             b"Native = { inner = { next = string.gmatch('a', 'a') } }",
         )
         .unwrap();
-    let native = refusal(scripts.save(&["Native"], &["Unit"]));
+    let native = refusal(scripts.save(&["Native"], &["Unit"], &SaveOptions::default()));
     assert!(
         native.contains(r#"root `Native` > ["inner"] > ["next"]: native function"#),
         "{native}"
     );
-    let root = refusal(scripts.save(&["Unit"], &["Unit"]));
+    let root = refusal(scripts.save(&["Unit"], &["Unit"], &SaveOptions::default()));
     assert!(root.contains("root Unit is a permanent"), "{root}");
-    let scalar = refusal(scripts.save(&["Native"], &["Score"]));
+    let scalar = refusal(scripts.save(&["Native"], &["Score"], &SaveOptions::default()));
     assert!(scalar.contains("permanent root Score is a nil"), "{scalar}");
 }
 
@@ -166,7 +176,9 @@ fn values_that_cannot_be_saved_are_refused_with_their_location() {
 fn snapshots_that_do_not_fit_the_state_are_refused() {
     let mut saved = game(0);
     saved.run("game", "state.lua", STATE.as_bytes()).unwrap();
-    let snapshot = saved.save(&["State"], &["Unit"]).unwrap();
+    let snapshot = saved
+        .save(&["State"], &["Unit"], &SaveOptions::default())
+        .unwrap();
 
     let mut renamed = GameScripts::new(ScriptConfig::default()).unwrap();
     renamed
@@ -202,7 +214,11 @@ fn a_coroutine_that_has_not_started_is_saved_and_starts_after_restore() {
     const IDLE: &[u8] = b"Idle = { n = 4, co = coroutine.create(function(a) local x = coroutine.yield(a + Idle.n) return x * 2 end) }";
     let mut saved = game(0);
     saved.run("game", "idle.lua", IDLE).unwrap();
-    let snapshot = round_trip(&saved.save(&["Idle"], &["Unit"]).unwrap());
+    let snapshot = round_trip(
+        &saved
+            .save(&["Idle"], &["Unit"], &SaveOptions::default())
+            .unwrap(),
+    );
 
     let mut restored = game(0);
     restored.run("game", "idle.lua", IDLE).unwrap();

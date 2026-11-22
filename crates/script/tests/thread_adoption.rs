@@ -122,7 +122,7 @@ fn game(handles: &Handles) -> GameScripts {
         current: "CurrentThread".into(),
         now: "now".into(),
     };
-    scripts.register_scheduler_with(&names, &policy()).unwrap();
+    scripts.register_scheduler(&names, &policy()).unwrap();
     scripts.register_adopt_native("ThreadsAdopt").unwrap();
     for (kind, native) in [
         ("sleep", "Sleep"),
@@ -172,7 +172,7 @@ fn save_flagged(scripts: &GameScripts) -> LuaSnapshot {
     let options = SaveOptions {
         persisted: Some(PERSIST),
     };
-    scripts.save_with(&[], &[], &options).unwrap()
+    scripts.save(&[], &[], &options).unwrap()
 }
 
 /// Replaces the engine's wait function frame on top of each thread with a pending call to the
@@ -406,13 +406,13 @@ fn a_save_keeps_only_the_persisted_threads_and_a_restore_notes_their_park_kinds(
     }
 
     assert!(
-        old.save(&[], &[]).is_err(),
+        old.save(&[], &[], &SaveOptions::default()).is_err(),
         "without a choice of threads, a save refuses waits"
     );
     let options = SaveOptions {
         persisted: Some(PERSIST),
     };
-    let kept = old.save_with(&[], &[], &options).unwrap();
+    let kept = old.save(&[], &[], &options).unwrap();
     assert_eq!(kept.threads.len(), 2);
 
     let mut fresh = game(&Handles::default());

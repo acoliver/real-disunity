@@ -241,6 +241,29 @@ fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_r
 }
 
 #[test]
+fn a_global_written_after_the_last_record_is_counted_and_taken_after_it() {
+    let world = new_world();
+    let id = shader(world);
+    let (global, length) = text("_Late");
+    let slot = DisunityTextureSlot {
+        kind: 1,
+        texture: 1 << 40,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        ..Default::default()
+    };
+    unsafe {
+        assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+        let late = disunity_shader_texture_write(world, 1, 0, global, length, &slot);
+        assert_eq!(late.code, 0);
+    }
+    let records = take(world);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].kind, 3);
+    assert_ne!(records[1].kind, 3);
+}
+
+#[test]
 fn a_dispatch_snapshot_is_unaffected_by_later_binding_edits() {
     let world = new_world();
     let id = shader(world);

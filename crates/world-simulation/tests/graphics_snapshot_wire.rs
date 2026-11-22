@@ -239,14 +239,25 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
 fn floats_keep_their_bits_including_negative_zero_and_nan_payloads() {
     let mut snapshot = full_snapshot();
     let global = snapshot.global.as_mut().unwrap();
-    global.properties.floats[0].1 = f32::from_bits(0x7FC0_1234);
-    global.properties.vectors[0].1 = [-0.0, f32::INFINITY, f32::NEG_INFINITY, f32::from_bits(1)];
+    // The state the frame replays from holds only what an earlier frame left, and the setters
+    // refuse the values this test needs, so it puts them in the copy itself.
+    global
+        .properties
+        .floats
+        .push(("_Bits".into(), f32::from_bits(0x7FC0_1234)));
+    global.properties.vectors.push((
+        "_Edge".into(),
+        [-0.0, f32::INFINITY, f32::NEG_INFINITY, f32::from_bits(1)],
+    ));
     let view = snapshot.cameras.values_mut().next().unwrap();
     view.settings.background = [f64::from_bits(0x7FF8_0000_0000_0042), -0.0, 1.0e-300, 0.0];
     let back = decode(&encode(&snapshot).unwrap()).unwrap();
     let global = back.global.as_ref().unwrap();
-    assert_eq!(global.properties.floats[0].1.to_bits(), 0x7FC0_1234);
-    let vector = global.properties.vectors[0].1;
+    assert_eq!(
+        global.properties.float("_Bits").unwrap().to_bits(),
+        0x7FC0_1234
+    );
+    let vector = global.properties.vector("_Edge").unwrap();
     assert_eq!(
         vector.map(f32::to_bits),
         [

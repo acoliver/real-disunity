@@ -252,7 +252,7 @@ fn flat(colour: f32, intensity: f32) -> Environment {
 
 #[test]
 fn a_draw_reads_the_ambient_light_of_the_scene_instead_of_the_default() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(flat(0.5, 1.0)).unwrap();
     let (read, report) = flush_and_read(world, drawn);
     assert_texels(&read, &filled([0.5; 3]));
@@ -261,7 +261,7 @@ fn a_draw_reads_the_ambient_light_of_the_scene_instead_of_the_default() {
 
 #[test]
 fn the_ambient_intensity_scales_the_ambient_light() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(flat(0.25, 2.0)).unwrap();
     assert_texels(&flush_and_read(world, drawn).0, &filled([0.5; 3]));
 }
@@ -280,7 +280,7 @@ fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
         }),
         reflection: None,
     };
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world.set_environment(environment).unwrap();
     let (read, _) = flush_and_read(world, drawn);
     // Only the red probe is lit, so the constant term of `unity_SHAr` is read.
@@ -289,7 +289,7 @@ fn the_ambient_probe_of_the_scene_reaches_the_constant_term_of_the_draw() {
 
 #[test]
 fn a_scene_that_set_no_ambient_keeps_the_default() {
-    let (mut world, drawn) = camera_render();
+    let (mut world, drawn) = camera_render(&|_| {});
     world
         .set_environment(reflection(ReflectionMode::Custom, 0, 0))
         .unwrap();

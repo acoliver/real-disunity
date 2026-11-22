@@ -19,7 +19,10 @@
 use std::collections::BTreeMap;
 
 use super::OffscreenWork;
-use crate::{ComponentDesc, ComponentHandle, MeshRenderer, ObjectHandle, RendererKind, World};
+use crate::{
+    ComponentDesc, ComponentHandle, LimitKind, MeshRenderer, ObjectHandle, RendererKind, World,
+    WorldError,
+};
 
 /// What a component contributes to a renderer being drawable. A component that contributes
 /// nothing is not any set's concern, whether it is absent or only present.
@@ -41,6 +44,14 @@ impl ComponentDesc {
             _ => None,
         }
     }
+}
+
+/// The 32 bit index of the `count`th record, set or renderer of a frame's snapshot.
+///
+/// # Errors
+/// Fails when `count` does not fit, instead of numbering another record with a taken index.
+pub(super) fn index_of(count: usize) -> Result<u32, WorldError> {
+    u32::try_from(count).map_err(|_| WorldError::CapacityExceeded(LimitKind::Graphics))
 }
 
 /// Whether `renderer` is a mesh renderer that is enabled and not forced off.
@@ -116,43 +127,50 @@ impl World {
         }
     }
 
-    /// Fixes the renderers the camera render or culling about to be recorded draws. A camera
-    /// render uses its camera's culling mask and a culling its own. A camera render whose camera is
-    /// not readable keeps no set, and the snapshot gives it no camera to draw with.
-    pub(super) fn capture_render_set(&mut self, work: &OffscreenWork) {
+    /// Fixes the renderers the camera render or culling about to be recorded at index `record` of
+    /// the frame's work draws. A camera render uses its camera's culling mask and a culling its
+    /// own. A camera render whose camera is not readable keeps no set, and the snapshot gives it no
+    /// camera to draw with.
+    ///
+    /// # Errors
+    /// Fails when the frame holds more records or sets than an index can number.
+    pub(super) fn capture_render_set(
+        &mut self,
+        work: &OffscreenWork,
+        record: usize,
+    ) -> Result<(), WorldError> {
         let mask = match work {
             OffscreenWork::CameraRender { camera, .. } => {
                 match self.component(*camera).map(|held| &held.desc) {
                     Ok(ComponentDesc::Camera(settings)) => settings.culling_mask,
-                    _ => return,
+                    _ => return Ok(()),
                 }
             }
             OffscreenWork::Cull { culling_mask, .. } => *culling_mask,
-            _ => return,
+            _ => return Ok(()),
         };
-        let Ok(record) = u32::try_from(self.graphics.offscreen.len()) else {
-            return;
-        };
-        let set = self.set_for(mask);
+        let record = index_of(record)?;
+        let set = self.set_for(mask)?;
         self.graphics.render_sets.records.insert(record, set);
+        Ok(())
     }
 
     /// The index of the set for `mask`: the one made since the drawable renderers last changed,
     /// or a new one.
-    fn set_for(&mut self, mask: u32) -> u32 {
+    fn set_for(&mut self, mask: u32) -> Result<u32, WorldError> {
         if self.graphics.render_sets.epoch != self.graphics.drawable_epoch {
             self.graphics.render_sets.epoch = self.graphics.drawable_epoch;
             self.graphics.render_sets.by_mask.clear();
         }
         if let Some(set) = self.graphics.render_sets.by_mask.get(&mask) {
-            return *set;
+            return Ok(*set);
         }
         let drawable = self.drawable_renderers(mask);
         let state = &mut self.graphics.render_sets;
-        let set = u32::try_from(state.sets.len()).unwrap_or(u32::MAX);
+        let set = index_of(state.sets.len())?;
         state.sets.push(drawable);
         state.by_mask.insert(mask, set);
-        set
+        Ok(set)
     }
 
     /// The mesh renderers that draw now on a layer `mask` admits.

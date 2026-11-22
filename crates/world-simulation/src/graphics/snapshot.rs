@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::render_sets::index_of;
 use super::{
     CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
     OffscreenWork, RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer,
@@ -338,7 +339,7 @@ fn set_indices(
             continue;
         };
         let layer = u32::from(world.object_layer(component.object)?);
-        let at = position(views.len())?;
+        let at = index_of(views.len())?;
         views.push(renderer_view(
             world,
             component.object,
@@ -349,10 +350,6 @@ fn set_indices(
         indices.push(at);
     }
     Ok(indices)
-}
-
-fn position(count: usize) -> Result<u32, WorldError> {
-    u32::try_from(count).map_err(|_| WorldError::CapacityExceeded(crate::LimitKind::Graphics))
 }
 
 /// What a camera needs of `renderer` on `object`, which draws `mesh` on `layer`.

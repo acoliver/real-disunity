@@ -778,12 +778,14 @@ fn assert_a_canvas_renderer_over_a_render_texture_reaches_the_ui_draw_as_a_targe
             ui.draws[0].texture
         );
     };
-    let snapshot = host.graphics_snapshot().unwrap();
-    let held = snapshot
-        .render_textures
-        .get(&target)
+    let held = host
+        .render_texture(target.to_bits())
         .expect("the id names a render texture the world holds");
     assert_eq!((held.width, held.height), (16, 8));
+    assert!(
+        host.render_texture(target.to_bits() + 1).is_err(),
+        "the world holds no other render texture"
+    );
     host.unload_slice().unwrap();
 }
 

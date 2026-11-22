@@ -46,6 +46,25 @@ impl DisunityHost {
         Ok(plan)
     }
 
+    /// A render texture's description, with the sampler the world holds for it. Fails with the
+    /// world's reason when the world holds no render texture with this id, as after the managed
+    /// side destroyed it.
+    ///
+    /// # Errors
+    /// No world is loaded, the engine image has no such call, or the world holds no such texture.
+    pub fn render_texture(&self, id: u64) -> Result<native::DisunityRenderTexture, HostError> {
+        type Read = unsafe extern "C" fn(
+            u64,
+            u64,
+            *mut native::DisunityRenderTexture,
+        ) -> native::DisunityResult;
+        let world = self.world.ok_or(HostError::NoWorld)?;
+        let read: Read = self.ui_symbol(b"disunity_render_texture_read\0")?;
+        let mut texture = native::DisunityRenderTexture::default();
+        self.check(unsafe { read(world, id, &mut texture) })?;
+        Ok(texture)
+    }
+
     fn ui_symbol<T: Copy>(&self, name: &'static [u8]) -> Result<T, HostError> {
         unsafe { self._library.get(name).map(|symbol| *symbol) }.map_err(|_| {
             HostError::MissingSymbol(String::from_utf8_lossy(name).trim_end_matches('\0').into())

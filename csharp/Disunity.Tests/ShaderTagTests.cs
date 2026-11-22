@@ -73,16 +73,19 @@ internal static class ShaderTagTests
 
     private static void TheEnginesOwnShadersDeclareNoTags()
     {
-        var engineDefined = new (string What, Material Material)[]
+        // The registered shaders of these names carry whatever an earlier plan declared, so the engine's declarations are applied to fresh shaders.
+        var engineDefined = new (string What, ShaderDeclaration Declaration)[]
         {
-            ("Sprites/Default", Material.SpriteUnlit), ("the lit sprite shader", Material.SpriteLit), ("UI/Default", Canvas.GetDefaultCanvasMaterial()),
+            ("Sprites/Default", BuiltInShaders.SpriteUnlit), ("the lit sprite shader", BuiltInShaders.SpriteLit), ("UI/Default", BuiltInShaders.CanvasDefault),
         };
-        foreach (var (what, material) in engineDefined)
+        foreach (var (what, declaration) in engineDefined)
         {
+            var material = new Material(new Shader($"Test/ShaderTags/Engine/{what}").Declare(declaration));
             Expect.Equal("d", material.GetTag("MohawkStaticBatching", false, "d"), $"{what} declares no tags");
             Expect.Equal("d", material.GetTag("MRTBlending", true, "d"), $"{what} has no fallback to search");
             Expect.Equal("", material.GetTag("RenderType", false), $"{what}: the two-argument form gives the empty default");
         }
+        Expect.Equal("d", Material.SpriteUnlit.GetTag("MohawkStaticBatching", false, "d"), "the engine's unlit sprite material reads a tag nobody declares as the default");
     }
 
     private static void WhatTheEngineCannotKnowThrowsByName()

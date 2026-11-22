@@ -7,8 +7,9 @@ namespace UnityEngine;
 /// <summary>
 /// A <see cref="Renderer"/> that draws a mesh deformed by bones. The native component holds the renderer settings;
 /// the mesh, the bones, the root bone, the quality, the blend shape weights and the bounds are stored on the managed
-/// component. The engine does not skin: <see cref="BakeMesh(Mesh)"/> copies the shared mesh unchanged, and
-/// the bones and weights have no effect on it. <see cref="localBounds"/> is the shared mesh's bounds until it is set.
+/// component. The engine's <see cref="Mesh"/> holds no bone weights, bind poses or blend shapes, so nothing deforms the
+/// shared mesh: <see cref="BakeMesh(Mesh)"/> copies it, and refuses a renderer that has bones or a nonzero blend shape weight.
+/// <see cref="localBounds"/> is the shared mesh's bounds until it is set.
 /// A clone keeps the mesh and settings, and its bones and root bone are the clones of the original's where those
 /// are in the cloned hierarchy and the original's otherwise.
 /// </summary>
@@ -61,17 +62,28 @@ public sealed class SkinnedMeshRenderer : Renderer
     private static int CheckIndex(int index) =>
         index >= 0 ? index : throw new ArgumentOutOfRangeException(nameof(index), index, "the blend shape index is not negative");
 
-    /// <summary>Replaces the data of <paramref name="mesh"/> with a copy of the shared mesh, unskinned; with no shared
-    /// mesh it empties <paramref name="mesh"/>.</summary>
-    public void BakeMesh(Mesh mesh)
+    /// <summary>Replaces the data of <paramref name="mesh"/> with a copy of the shared mesh, which is the baked mesh because
+    /// nothing deforms it; with no shared mesh it empties <paramref name="mesh"/>. A renderer with bones or a nonzero blend shape
+    /// weight throws <see cref="NotSupportedException"/> and leaves <paramref name="mesh"/> as it was: the shared mesh holds
+    /// no bone weights, bind poses or blend shapes to deform by. Old World's <c>MeshUIScaler</c> reads only the baked mesh's
+    /// bounds, which this gives for a renderer without bones.</summary>
+    public void BakeMesh(Mesh mesh) => BakeMesh(mesh, false);
+
+    /// <summary>As <see cref="BakeMesh(Mesh)"/> with <paramref name="useScale"/> false. True asks for the transform's scale to
+    /// be applied to the vertices, normals and tangents, which the engine does not do, so it throws
+    /// <see cref="NotSupportedException"/>.</summary>
+    public void BakeMesh(Mesh mesh, bool useScale)
     {
         ArgumentNullException.ThrowIfNull(mesh);
+        if (_bones.Length > 0)
+            throw new NotSupportedException("SkinnedMeshRenderer.BakeMesh is not supported yet for a renderer with bones: the engine's mesh holds no bone weights or bind poses to skin by");
+        if (_weights.Values.Any(weight => weight != 0f))
+            throw new NotSupportedException("SkinnedMeshRenderer.BakeMesh is not supported yet for a renderer with a nonzero blend shape weight: the engine's mesh holds no blend shapes");
+        if (useScale)
+            throw new NotSupportedException("SkinnedMeshRenderer.BakeMesh is not supported yet with useScale: the engine does not apply the transform's scale to the baked vertices");
         if (sharedMesh is { } source) mesh.CopyDataFrom(source);
         else mesh.CopyDataFrom(new Mesh());
     }
-
-    /// <summary>As <see cref="BakeMesh(Mesh)"/>; <paramref name="useScale"/> has no effect because nothing is skinned.</summary>
-    public void BakeMesh(Mesh mesh, bool useScale) => BakeMesh(mesh);
 
     internal override void CopyManagedState(NativeComponent source, Func<Object, Object> remap)
     {

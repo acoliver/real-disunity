@@ -69,9 +69,9 @@ fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>) {
     let mut lines = Vec::new();
     for _ in 0..3 {
         let viewport = [64, 64];
-        let update = player.update(plan.clone(), viewport, &textures, &images, |line| {
-            lines.push(line);
-        });
+        let mut plan = plan.clone();
+        player.offer_targets(&mut plan, |_| Vec::new(), |line| lines.push(line));
+        let update = player.update(plan, viewport, &textures, &images, |line| lines.push(line));
         update.unwrap();
     }
     (player, lines)

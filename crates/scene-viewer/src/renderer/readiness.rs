@@ -196,7 +196,7 @@ impl Streaming {
     ) -> Result<(), ViewerError> {
         super::retained::preflight_preparation(context, presentation, front)?;
         if let crate::RetainedUpdate::Ui(overlay) = &front.update {
-            super::retained::apply_ui(context, resident, presentation, overlay)?;
+            self.ui.stage(context, (resident, presentation), overlay)?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
         } else if let Some(edit) = front.edit.take() {
@@ -311,6 +311,7 @@ pub(super) struct Streaming {
     pub carried: CarriedUploads,
     pub temporal_history_reset: crate::TemporalHistoryReset,
     pub tiers: TextureTiers,
+    pub ui: super::ui_targets::UiStaging,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
@@ -341,6 +342,7 @@ impl Streaming {
             carried: CarriedUploads::default(),
             temporal_history_reset: crate::TemporalHistoryReset::None,
             tiers: TextureTiers::default(),
+            ui: super::ui_targets::UiStaging::default(),
             preparing: None,
         }
     }

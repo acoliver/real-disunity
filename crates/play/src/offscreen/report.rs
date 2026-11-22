@@ -10,7 +10,7 @@ use worldrunner_render_program::unity::offscreen::{
 
 use super::compute::DispatchTrace;
 use super::frame::{RendererSkip, Skip};
-use super::stand_ins::StandInCounts;
+use super::stand_ins::{GlobalReads, StandInCounts};
 use super::trace::Phases;
 
 /// The uploaded textures and meshes and the render textures given back to make room in the
@@ -97,6 +97,8 @@ pub struct Report {
     pub skipped_by_kind: BTreeMap<String, usize>,
     /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
     pub global_textures: BTreeMap<String, usize>,
+    /// The texture globals the frame set and the texture names its draws looked up in a slot.
+    pub global_reads: GlobalReads,
     /// What the runtime's storage held when the budget first refused an allocation of this work,
     /// as lines; empty when it refused none.
     pub holdings: Vec<String>,
@@ -195,6 +197,9 @@ impl Report {
         for entry in operations.missing_buffer_draws() {
             *self.missing_buffers.entry(entry.buffer).or_default() += entry.draws;
         }
+        self.global_reads
+            .read
+            .extend(operations.looked_up_textures().iter().cloned());
         self.stand_ins.draws += operations.draws_with_stand_ins();
         for entry in operations.stand_in_draws() {
             let name = format!("{} {}", entry.texture, entry.reason);
@@ -315,6 +320,7 @@ impl Report {
         for (name, count) in other.global_textures {
             *self.global_textures.entry(name).or_default() += count;
         }
+        self.global_reads.add(&other.global_reads);
         for entry in other.unmatched_passes {
             self.add_unmatched(entry);
         }

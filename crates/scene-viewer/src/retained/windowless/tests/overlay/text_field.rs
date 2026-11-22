@@ -156,7 +156,10 @@ fn text_field_and_annotations_share_overlay_contributions_without_a_gpu() {
         .filter(|d| d.kind == UiDrawKind::Text)
         .map(|d| d.texture.unwrap())
         .collect();
-    assert_eq!(text_ids, [0, 1].into());
+    assert_eq!(
+        text_ids,
+        [UiTexture::Coverage(0), UiTexture::Coverage(1)].into()
+    );
     assert!(
         UiOverlay::from_presentation(&presentation, &std::collections::BTreeMap::new()).is_ok()
     );

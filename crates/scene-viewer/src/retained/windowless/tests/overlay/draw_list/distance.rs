@@ -1,6 +1,7 @@
 //! Distance masks through the retained compositor. These tests require a GPU.
 use super::*;
 use worldrunner_world_simulation::presentation::CoverageTexture;
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
 
 fn panel() -> UiDraw {
@@ -15,7 +16,7 @@ fn glyph(mode: UiDistanceMode, radius: f32) -> UiDraw {
     let mut q = draw(false);
     q.kind = UiDrawKind::Text;
     q.corner_colors = None;
-    q.texture = Some(0);
+    q.texture = Some(UiTexture::Coverage(0));
     q.hierarchy_order = 1;
     q.distance_field = Some(UiDistanceStyle {
         spread_px: 25.5,

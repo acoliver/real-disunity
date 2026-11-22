@@ -3,22 +3,29 @@
 #[path = "player_ui_order_tests.rs"]
 mod tests;
 
-use crate::{PlayError, player_textures::PlayerTextures, player_ui_materials::GameMaterials};
+use crate::{
+    PlayError, gpu_player::UiOffer, player_textures::PlayerTextures,
+    player_ui_materials::GameMaterials,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 use worldrunner_render_plan::simulation::SpriteTextures;
-use worldrunner_render_scene::simulation::UiOverlay;
+use worldrunner_render_scene::simulation::{UiOverlay, UiTarget};
 use worldrunner_scene_viewer::RetainedUpdate;
-use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
+use worldrunner_world_simulation::graphics::RenderTextureId;
+use worldrunner_world_simulation::ui::{
+    UiTexture,
+    presentation::{UiDrawKind, UiPresentation},
+};
 
 /// The textures the UI's graphics draw, by identity.
 pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {
-    plan.draws
-        .iter()
-        .filter(|draw| draw.kind == UiDrawKind::Graphic)
-        .filter_map(|draw| draw.texture)
+    plan.draws.iter().filter_map(|draw| match draw.texture {
+        Some(UiTexture::Image(id)) if draw.kind == UiDrawKind::Graphic => Some(id),
+        _ => None,
+    })
 }
 
 #[derive(Default)]
@@ -26,7 +33,7 @@ pub(crate) struct PlayerUi {
     plan: Option<UiPresentation>,
     generations: BTreeMap<u64, u64>,
     viewport: [u32; 2],
-    reported: BTreeSet<u64>,
+    reported: BTreeSet<(UiTexture, &'static str)>,
     materials: GameMaterials,
     #[cfg(test)]
     pub(crate) updates: u64,
@@ -64,9 +71,55 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
-    /// The draws the last update left out because their material is a game's own, by shader.
+    /// The draws the last offer left out because their material is a game's own, by shader.
     pub(crate) fn game_material_draws(&self) -> &BTreeMap<String, usize> {
         self.materials.by_shader()
+    }
+
+    /// Leaves out the draws that use a game's shader, whatever they sample, and names each such
+    /// material once. Then asks `offers_for` for the render textures the remaining draws read, leaves
+    /// out the draws of the textures it cannot answer for and names each of those once, and
+    /// returns the textures the viewer binds. A texture no frame has written yet stays in: the
+    /// viewer draws it as transparent until one does.
+    pub(crate) fn offer_targets(
+        &mut self,
+        plan: &mut UiPresentation,
+        offers_for: impl FnOnce(&UiPresentation) -> Vec<(RenderTextureId, UiOffer)>,
+        mut report: impl FnMut(String),
+    ) -> Vec<UiTarget> {
+        self.materials.leave_out(plan, &mut report);
+        let offers = offers_for(plan);
+        let mut shown = Vec::new();
+        let mut gone = BTreeMap::new();
+        for (id, offer) in offers {
+            match offer {
+                UiOffer::Written(target) => shown.push(target),
+                UiOffer::Unwritten(target) => {
+                    if self.reported.insert((UiTexture::Target(id), "unwritten")) {
+                        report(format!(
+                            "UI render texture {id:?} shows nothing until a frame draws it"
+                        ));
+                    }
+                    shown.push(target);
+                }
+                UiOffer::Unavailable(reason) => {
+                    gone.insert(id, reason);
+                }
+            }
+        }
+        plan.draws.retain(|draw| {
+            let Some(UiTexture::Target(id)) = draw.texture else {
+                return true;
+            };
+            let Some(reason) = gone.get(&id) else {
+                return true;
+            };
+            if self.reported.insert((UiTexture::Target(id), reason)) {
+                report(format!("UI render texture {id:?} is left out: {reason}"));
+            }
+            false
+        });
+        shown
     }
 
     fn filter_unavailable(
@@ -76,22 +129,24 @@ impl PlayerUi {
         player: &PlayerTextures,
         mut report: impl FnMut(String),
     ) {
-        self.materials.leave_out(plan, &mut report);
         plan.draws.retain(|draw| {
             if draw.kind != UiDrawKind::Graphic {
                 return true;
             }
-            let Some(id) = draw
-                .texture
-                .filter(|id| !textures.textures.contains_key(id))
-            else {
-                return true;
+            let reason = match draw.texture {
+                Some(UiTexture::Image(id)) if !textures.textures.contains_key(&id) => {
+                    format!(
+                        "UI image {id} is left out: {}",
+                        player.unavailable_reason(id)
+                    )
+                }
+                _ => return true,
             };
-            if self.reported.insert(id) {
-                report(format!(
-                    "UI image {id} is left out: {}",
-                    player.unavailable_reason(id)
-                ));
+            if draw
+                .texture
+                .is_some_and(|texture| self.reported.insert((texture, "left out")))
+            {
+                report(reason);
             }
             false
         });

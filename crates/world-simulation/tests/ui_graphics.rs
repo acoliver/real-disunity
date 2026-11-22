@@ -5,13 +5,14 @@ use std::sync::Arc;
 
 use glam::UVec2;
 use worldrunner_world_simulation::graphics::{
-    MaterialEdit, MaterialId, PropertyValue, ShaderSource, WorldShader,
+    MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderSource, WorldRenderTexture,
+    WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 use worldrunner_world_simulation::ui::{
     Canvas, CanvasGroup, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry,
-    UiGraphic, UiLimits, UiMaterial, UiVertex, append_graphics, extract_graphics,
+    UiGraphic, UiLimits, UiMaterial, UiTexture, UiVertex, append_graphics, extract_graphics,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ObjectDesc, ObjectHandle, ParentSpace, UiError, World, WorldSettings,
@@ -53,7 +54,7 @@ fn unit_quad() -> Arc<UiGeometry> {
 fn renderer(geometry: impl Into<Option<Arc<UiGeometry>>>) -> CanvasRenderer {
     CanvasRenderer {
         geometry: geometry.into(),
-        graphic_texture: 1 << 40,
+        graphic_texture: Some(UiTexture::Image(1 << 40)),
         ..CanvasRenderer::default()
     }
 }
@@ -137,7 +138,7 @@ fn detached_graphics_keep_layout_draw_order_texture_identity_and_clipping() {
             (draw.sorting_layer, draw.sorting_order, draw.hierarchy_order),
             plan.layout.rect(object).unwrap().draw_order()
         );
-        assert_eq!(draw.texture, Some(1 << 40));
+        assert_eq!(draw.texture, Some(UiTexture::Image(1 << 40)));
     }
     assert_eq!(snapshot.draws[1].clip_rect, [392, 292, 16, 16]);
 }
@@ -155,7 +156,7 @@ fn a_quad_on_an_overlay_canvas_has_pixel_corners_texture_rectangle_and_colour() 
     let graphic = &found[0];
     assert!(graphic.overlay);
     assert_eq!(graphic.object, object);
-    assert_eq!(graphic.texture, Some(1 << 40));
+    assert_eq!(graphic.texture, Some(UiTexture::Image(1 << 40)));
     assert!(graphic.triangles.is_empty());
     assert_eq!(graphic.quads.len(), 1);
     let quad = graphic.quads[0];
@@ -334,7 +335,7 @@ fn appended_quads_keep_hierarchy_order_for_equal_sorting_keys() {
     let first = element(&mut world, canvas);
     let second = element(&mut world, canvas);
     let mut untextured = renderer(unit_quad());
-    untextured.graphic_texture = 0;
+    untextured.graphic_texture = None;
     draw(&mut world, second, renderer(unit_quad()));
     draw(&mut world, first, untextured);
     let mut plan = extract_world(&world, VIEWPORT).unwrap();
@@ -511,6 +512,31 @@ fn a_material_on_an_engine_supplied_shader_is_drawn_natively() {
     }
 }
 
+fn render_texture(world: &mut World) -> RenderTextureId {
+    world
+        .create_render_texture(WorldRenderTexture {
+            width: 64,
+            height: 32,
+            format: 8,
+            depth_bits: 0,
+            mip_count: 1,
+            srgb: false,
+            dimension: 2,
+            volume_depth: 1,
+            auto_generate_mips: false,
+            sampler: WorldSampler::default(),
+            generation: 0,
+        })
+        .unwrap()
+}
+
+fn over_target(target: RenderTextureId) -> CanvasRenderer {
+    CanvasRenderer {
+        graphic_texture: Some(UiTexture::Target(target)),
+        ..renderer(unit_quad())
+    }
+}
+
 #[test]
 fn a_destroyed_material_is_no_material() {
     let (mut world, _, material) = element_with_material();
@@ -549,4 +575,81 @@ fn a_2d_graphic_with_a_game_material_is_left_out() {
     let mut plan = extract_world(&world, VIEWPORT).unwrap();
     append_graphics(&mut plan, graphics(&world)).unwrap();
     assert_eq!(plan.quads.len(), 1, "only the engine's own look is drawn");
+}
+
+#[test]
+fn a_renderer_over_a_render_texture_draws_with_that_target() {
+    use worldrunner_world_simulation::ui::{
+        contribution::extract_ui, presentation::UiPresentation,
+    };
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let target = render_texture(&mut world);
+    let object = element(&mut world, canvas);
+    draw(&mut world, object, over_target(target));
+    assert_eq!(graphics(&world)[0].texture, Some(UiTexture::Target(target)));
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, VIEWPORT).unwrap();
+    let draws = UiPresentation::from_plan(&plan).draws;
+    assert_eq!(draws.len(), 1);
+    assert_eq!(draws[0].texture, Some(UiTexture::Target(target)));
+    assert_eq!(draws[0].validate(), Ok(()));
+}
+
+#[test]
+fn a_target_the_world_no_longer_holds_is_kept_with_its_id() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let target = render_texture(&mut world);
+    let object = element(&mut world, canvas);
+    draw(&mut world, object, over_target(target));
+    world.destroy_render_texture(target).unwrap();
+    let found = graphics(&world);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].texture, Some(UiTexture::Target(target)));
+}
+
+#[test]
+fn a_renderer_cannot_name_a_coverage_texture() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let object = element(&mut world, canvas);
+    let coverage = CanvasRenderer {
+        graphic_texture: Some(UiTexture::Coverage(0)),
+        ..renderer(unit_quad())
+    };
+    let added = world.add_component(object, ComponentDesc::CanvasRenderer(coverage));
+    assert!(added.is_err());
+}
+
+#[test]
+fn only_a_graphic_draw_may_name_a_target_and_only_text_a_coverage() {
+    use worldrunner_world_simulation::ui::presentation::UiDrawKind;
+    use worldrunner_world_simulation::ui::{
+        contribution::extract_ui, presentation::UiPresentation,
+    };
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let target = render_texture(&mut world);
+    let object = element(&mut world, canvas);
+    draw(&mut world, object, over_target(target));
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, VIEWPORT).unwrap();
+    let graphic = UiPresentation::from_plan(&plan).draws.remove(0);
+    let mut text = graphic.clone();
+    text.kind = UiDrawKind::Text;
+    assert!(text.validate().is_err());
+    let mut coverage = graphic;
+    coverage.texture = Some(UiTexture::Coverage(0));
+    assert!(coverage.validate().is_err());
+}
+
+#[test]
+fn a_target_graphic_adds_no_sprite_quad() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    world
+        .add_component(canvas, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+    let target = render_texture(&mut world);
+    let object = element(&mut world, canvas);
+    draw(&mut world, object, over_target(target));
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
+    append_graphics(&mut plan, graphics(&world)).unwrap();
+    assert!(plan.quads.is_empty());
 }

@@ -1,4 +1,5 @@
 //! Detached screen-space draws from the world's UI extraction, without live object handles.
+use super::UiTexture;
 use super::contribution::UiRenderPlan;
 pub use super::distance::{UiDistanceMode, UiDistanceStyle, validate_distance_mapping};
 pub use super::material::UiMaterial;
@@ -27,8 +28,8 @@ pub struct UiDraw {
     /// Optional linear straight-alpha multipliers in BL/BR/TR/TL order; None is white.
     /// Triangles use the first three colours. Every channel must be finite and in 0..=1.
     pub corner_colors: Option<[[f32; 4]; 4]>,
-    /// Graphic image identity, or an identity in `UiPresentation::coverage` for text.
-    pub texture: Option<u64>,
+    /// A graphic's image or render texture, or a key in `UiPresentation::coverage` for text.
+    pub texture: Option<UiTexture>,
     /// The game's own material of a graphic, or none for the engine's look and for all text.
     pub material: Option<UiMaterial>,
     pub sorting_layer: i32,
@@ -38,11 +39,25 @@ pub struct UiDraw {
 }
 
 impl UiDraw {
-    pub fn validate_distance(&self) -> Result<(), super::UiError> {
+    /// A text draw names coverage and a graphic draw an image or render texture. A distance field
+    /// needs a text draw over coverage without triangle UVs.
+    pub fn validate(&self) -> Result<(), super::UiError> {
+        let paired = matches!(
+            (self.kind, self.texture),
+            (_, None)
+                | (UiDrawKind::Text, Some(UiTexture::Coverage(_)))
+                | (
+                    UiDrawKind::Graphic,
+                    Some(UiTexture::Image(_) | UiTexture::Target(_))
+                )
+        );
+        if !paired {
+            return Err(super::UiError::InvalidTextEffect);
+        }
         if let Some(style) = self.distance_field {
             style.validate()?;
-            if self.kind != UiDrawKind::Text || self.texture.is_none() || self.triangle_uv.is_some()
-            {
+            let coverage = matches!(self.texture, Some(UiTexture::Coverage(_)));
+            if self.kind != UiDrawKind::Text || !coverage || self.triangle_uv.is_some() {
                 return Err(super::UiError::InvalidTextEffect);
             }
             validate_distance_mapping(self.corners, self.uv_rect)?;
@@ -92,7 +107,13 @@ impl UiPresentation {
             if draw.kind == UiDrawKind::Text {
                 draw.texture = draw
                     .texture
-                    .map(|id| id.checked_add(offset).ok_or(super::UiError::AtlasLimit))
+                    .map(|texture| match texture {
+                        UiTexture::Coverage(id) => id
+                            .checked_add(offset)
+                            .map(UiTexture::Coverage)
+                            .ok_or(super::UiError::AtlasLimit),
+                        other => Ok(other),
+                    })
                     .transpose()?;
             }
         }
@@ -183,7 +204,7 @@ impl UiPresentation {
                     corners: glyph.corners,
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
                     color: std::array::from_fn(|i| text.color[i] * glyph.color[i]),
-                    texture: text.texture.as_ref().map(|_| identity),
+                    texture: text.texture.as_ref().map(|_| UiTexture::Coverage(identity)),
                     material: None,
                     sorting_layer: text.sorting_layer,
                     sorting_order: text.sorting_order,

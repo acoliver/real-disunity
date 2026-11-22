@@ -33,6 +33,7 @@ use worldrunner_scene_viewer::{
     RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
     ViewerStart, WindowMode, WindowSizeUnit,
 };
+use worldrunner_world_simulation::ui::presentation::UiPresentation;
 
 use crate::{
     PlayError, PreparedPlayer,
@@ -332,7 +333,7 @@ impl PlayerRetainedDriver {
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
-        let ui = self.host.ui_presentation()?;
+        let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
         // After the meshes are refreshed, as in a headless run, and before the frame's textures
         // and UI go to the viewer, so texels a readback filled this frame show this frame.
@@ -349,6 +350,7 @@ impl PlayerRetainedDriver {
         let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
+        self.offer_ui_textures(viewer, &mut ui);
         if let Some(update) = self.ui.update(
             ui,
             self.size,
@@ -383,6 +385,18 @@ impl PlayerRetainedDriver {
         }
         viewer.show_game_screen(self.gpu.game_screen());
         Ok(())
+    }
+
+    /// Offers the viewer the render textures the UI's draws read, as the player's device holds them
+    /// now, and takes out the draws whose texture cannot be shown.
+    fn offer_ui_textures(&mut self, viewer: &mut RetainedHost, ui: &mut UiPresentation) {
+        let (gpu, host) = (&self.gpu, &self.host);
+        let targets = self.ui.offer_targets(
+            ui,
+            |plan| gpu.ui_offers(host, plan),
+            |message| eprintln!("{message}"),
+        );
+        viewer.show_ui_textures(targets);
     }
 
     /// Sends the viewer new scene effects when the frame's lighting changed.

@@ -6,9 +6,9 @@
 //! the property and the reason, so a run that draws with stand-ins does not look like a run that
 //! drew with the game's textures.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::counts_line::top_counts_line;
+use crate::counts_line::{names_line, top_counts_line};
 
 /// Why a draw reads a stand-in for a texture property.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,5 +95,39 @@ impl StandInCounts {
             top,
         ));
         lines
+    }
+}
+
+/// The texture globals a run set and the texture names its draws looked up in a slot.
+///
+/// Names are exact: a global set as `Foo` is read by a slot that asks for `Foo`, and a slot that
+/// asks for `_Foo` finds nothing. A global that is set and never looked up shows a game whose data
+/// and shaders name a texture differently.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GlobalReads {
+    /// The names of the texture globals the world held at a frame and the frame's commands set.
+    pub set: BTreeSet<String>,
+    /// The names the slots of the recorded draws looked up, whether or not a layer holds them.
+    pub read: BTreeSet<String>,
+}
+
+impl GlobalReads {
+    /// Adds `other`'s names to these.
+    pub fn add(&mut self, other: &Self) {
+        self.set.extend(other.set.iter().cloned());
+        self.read.extend(other.read.iter().cloned());
+    }
+
+    /// The names set and never looked up, in name order.
+    #[must_use]
+    pub fn unread(&self) -> BTreeSet<String> {
+        self.set.difference(&self.read).cloned().collect()
+    }
+
+    /// The line of the report, without the `[gpu] ` prefix: the first `top` unread names and the
+    /// count of the rest. There is no line when every name set was looked up.
+    #[must_use]
+    pub fn line(&self, top: usize) -> Option<String> {
+        names_line("globals set and never read by a draw", &self.unread(), top)
     }
 }

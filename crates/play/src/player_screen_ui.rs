@@ -202,7 +202,7 @@ impl ScreenComposer<'_> {
         gpu: &PlayerGpu,
         drawn: u64,
     ) -> Result<Capture, PlayError> {
-        self.send_ui(host)?;
+        self.send_ui(host, gpu)?;
         let screen = gpu.written_screen().ok_or_else(|| {
             PlayError::Invalid(format!(
                 "the screen drawn by frame {drawn} cannot be shown with the UI"
@@ -238,10 +238,16 @@ impl ScreenComposer<'_> {
 
     /// Sends the viewer the UI the world holds, as a window does: the draws the player can show,
     /// with the textures they name converted first.
-    fn send_ui(&mut self, host: &DisunityHost) -> Result<(), PlayError> {
-        let plan = host.ui_presentation()?;
+    fn send_ui(&mut self, host: &DisunityHost, gpu: &PlayerGpu) -> Result<(), PlayError> {
+        let mut plan = host.ui_presentation()?;
         self.textures
             .refresh(host, graphic_textures(&plan), &mut self.sprites)?;
+        let targets = self.ui.offer_targets(
+            &mut plan,
+            |plan| gpu.ui_offers(host, plan),
+            |message| eprintln!("{message}"),
+        );
+        self.run.host_mut().show_ui_textures(targets);
         let update = self
             .ui
             .update(plan, self.size, &self.sprites, &self.textures, |message| {

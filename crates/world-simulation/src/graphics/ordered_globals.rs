@@ -1,16 +1,22 @@
 //! Direct writes to the global shader state, ordered with the frame's offscreen work.
 //!
 //! A script that sets a global, renders, and sets the global again expects the render to see the
-//! first value. The world stores a direct write in its one global state at once, so reads and the
-//! snapshot's starting state see the last value. A host replays the frame's work in order from that
-//! starting state, so the render would also see the last value. The world therefore notes each
+//! first value. The world stores a direct write in its one global state at once, so reads see the
+//! last value. A host replays the frame's work in order, so a render that no record of the write
+//! precedes would also see the last value. The world therefore notes each
 //! name written directly and, when the next record is appended, puts one ordered
 //! [`OffscreenWork::SetGlobal`] or [`OffscreenWork::SetGlobalKeyword`] in front of it for each
 //! noted name, holding the value the state has at that point. Several writes to a name between two
 //! records give one record, with the last value.
+//!
+//! Writes after the last record are ordered when the work is taken (see
+//! [`World::take_offscreen`]), so every write of a take is a record. The state the replay starts
+//! from is then the state as it was before the take's first write, which the world copies when
+//! that write happens: a draw before a global's first write of the take reads the value the
+//! previous take left, as the script saw it.
 use std::collections::BTreeSet;
 
-use super::{OffscreenWork, PropertyValue, TextureSlot};
+use super::{GlobalShaderState, GraphicsState, OffscreenWork, PropertyValue, TextureSlot};
 use crate::World;
 
 /// The kind of a global value; a name set as two kinds is two values.
@@ -85,11 +91,39 @@ impl DirectWrites {
     }
 }
 
+impl GraphicsState {
+    /// Keeps the global state as the take's replay starts from it, unless an earlier write of the
+    /// take already did. Every change to the state calls this first.
+    pub(super) fn keep_global_start(&mut self) {
+        if self.global_start.is_none() {
+            self.global_start = Some(self.global.clone());
+        }
+    }
+
+    /// Removes every global property value from the state and from the take's starting copy:
+    /// the work list has no record that removes a value, so a cleared name is absent from the
+    /// first record of the take on.
+    pub(super) fn clear_global_values(&mut self) {
+        self.keep_global_start();
+        if let Some(start) = &mut self.global_start {
+            start.properties = super::ShaderProperties::default();
+        }
+        self.global.properties = super::ShaderProperties::default();
+        self.global.generation += 1;
+    }
+
+    /// The state the take's replay starts from: the copy kept before its first write, or
+    /// `None` when the take wrote nothing and the state itself is the start.
+    pub(super) fn take_global_start(&mut self) -> Option<GlobalShaderState> {
+        self.global_start.take()
+    }
+}
+
 impl World {
-    /// The records that put the direct writes since the previous record in front of the next one:
-    /// each name's current value, then each keyword's current state. A property
-    /// the state no longer holds (it was cleared) has no ordered form and is left out, as the
-    /// host reads its absence from the starting state.
+    /// The records that put the direct writes since the previous record in front of the next one,
+    /// or, when the work is taken, after the last one: each name's current value, then each
+    /// keyword's current state. A property the state no longer holds (it was cleared) has no
+    /// ordered form and is left out, as the host reads its absence from the starting state.
     pub(super) fn ordered_global_records(&self) -> Vec<OffscreenWork> {
         let writes = &self.graphics.direct_writes;
         if writes.is_empty() {

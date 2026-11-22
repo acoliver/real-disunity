@@ -216,8 +216,11 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The global state as it was before the first change since the work was last taken, which
+    /// the next take's replay starts from. `None` while nothing has changed.
+    global_start: Option<GlobalShaderState>,
     /// The global values and keywords written directly since the last record, which the next
-    /// record is preceded by as ordered records.
+    /// record, or the take, is preceded by as ordered records.
     direct_writes: ordered_globals::DirectWrites,
     /// The states of materials that the frame's draws named, apart from the materials' own.
     versions: material_versions::MaterialVersions,
@@ -245,6 +248,7 @@ impl GraphicsState {
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
         self.direct_writes.clear();
+        self.global_start = None;
         self.versions.clear();
         self.handles.clear();
         self.lists.clear();
@@ -261,6 +265,7 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            global_start: None,
             direct_writes: ordered_globals::DirectWrites::new(),
             versions: material_versions::MaterialVersions::new(),
             environment: Environment::new(),

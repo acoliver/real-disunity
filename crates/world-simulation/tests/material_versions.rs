@@ -395,7 +395,7 @@ fn take_offscreen_returns_the_copies_that_the_records_name() {
     world
         .record_offscreen(blit(second, target, material))
         .unwrap();
-    let (work, copies) = world.take_offscreen();
+    let (work, copies, _) = world.take_offscreen();
     assert_eq!(work.len(), 2);
     assert_eq!(
         named(&work[1]),

@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
-    CameraBuffers, ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue,
-    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldMaterial, WorldRenderTexture,
+    CameraBuffers, ComputeBindings, ComputeShaderId, GlobalShaderState, GraphicsError, MaterialId,
+    PropertyValue, RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldMaterial,
+    WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -290,17 +291,32 @@ impl World {
     /// generation 0 that no material of the world has. The map holds those copies, each under the
     /// id the records use; it is empty for a frame whose draws saw one state of each material.
     ///
-    /// A global written after the frame's last record has no record to precede. It is in the
-    /// state the snapshot starts from, so the frame's earlier records see it too; the next frame
-    /// starts from that state, and the write is not noted again.
-    pub fn take_offscreen(&mut self) -> (Vec<OffscreenWork>, BTreeMap<MaterialId, WorldMaterial>) {
+    /// The third value is the global state the records replay from: the state as it was before
+    /// the first change since the previous take, or `None` when nothing changed and the world's
+    /// state is the start. Globals written after the last record are ordered after it, one
+    /// record each, so a draw reads the value its global had when the script recorded it, whatever
+    /// the state holds by the time of the flush. Work with no record has nothing to order them
+    /// with: they are dropped, and the next take starts from the state that holds them. The
+    /// trailing records can pass [`MAX_OFFSCREEN_WORK`] by the number of names written since
+    /// the last record, which the world's global state bounds.
+    pub fn take_offscreen(
+        &mut self,
+    ) -> (
+        Vec<OffscreenWork>,
+        BTreeMap<MaterialId, WorldMaterial>,
+        Option<GlobalShaderState>,
+    ) {
+        let mut work = std::mem::take(&mut self.graphics.offscreen);
+        if !work.is_empty() {
+            work.extend(self.ordered_global_records());
+        }
         self.graphics.direct_writes.clear();
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
-        let mut work = std::mem::take(&mut self.graphics.offscreen);
+        let start = self.graphics.take_global_start();
         let copies = self.settle_material_versions(&mut work);
-        (work, copies)
+        (work, copies, start)
     }
 
     fn check_offscreen(&self, work: &OffscreenWork) -> Result<(), WorldError> {

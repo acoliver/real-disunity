@@ -93,7 +93,7 @@ fn scrolled_plan() -> UiRenderPlan {
 fn scrolled_selection_list_draws_exact_regions_and_preserves_pixels_outside_viewport() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, scrolled_plan());
     let image = capture(&mut run, &events).1;

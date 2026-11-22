@@ -21,7 +21,7 @@ fn unfitted_frame(
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode_with(context, &view(), (&color, &depth), encoder, Some(frame))
+            renderer.encode_with(context, &view(), (&color, &depth), encoder, frame)
         })
         .map_err(PrepareError::into_error)
         .unwrap();
@@ -47,7 +47,13 @@ fn fitted_plans(
     let (color, depth) = attachments(frame);
     plan_trace::take();
     renderer
-        .render_depth_fitted_with(context, &view(), (&color, &depth), 3, frame)
+        .render_depth_fitted_host(
+            context,
+            &view(),
+            (&color, &depth),
+            (Some(3), false, &[]),
+            frame,
+        )
         .unwrap();
     plan_trace::take()
 }

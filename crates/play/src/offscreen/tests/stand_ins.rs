@@ -134,6 +134,7 @@ fn a_draw_that_reads_a_declared_default_is_counted_under_its_property_and_reason
         unlisted.stand_ins.by_property,
         by_property(&[("_Albedo unset", 1)])
     );
+    assert_eq!(unlisted.unresolved_textures, BTreeMap::new());
     // A slot the game's own data leaves null reads the shader's declared default, as the original.
     let none = report_of(&Quad, "default_white", Some(TextureRef::None));
     assert_eq!(none.stand_ins.draws, 1);
@@ -141,6 +142,7 @@ fn a_draw_that_reads_a_declared_default_is_counted_under_its_property_and_reason
         none.stand_ins.by_property,
         by_property(&[("_Albedo declared-default", 1)])
     );
+    assert_eq!(none.unresolved_textures, BTreeMap::new());
 }
 
 #[test]
@@ -151,6 +153,7 @@ fn a_slot_that_names_a_texture_the_engine_did_not_send_is_counted_as_not_loaded(
         unsent.stand_ins.by_property,
         by_property(&[("_Albedo not-loaded", 1)])
     );
+    assert_eq!(unsent.unresolved_textures, BTreeMap::new());
 }
 
 /// A camera that draws nothing, its culling mask names no layer, and clears a new target, which
@@ -200,12 +203,12 @@ fn a_render_texture_an_earlier_frame_wrote_is_a_real_texture() {
 #[test]
 fn a_draw_that_reads_the_grey_for_an_undeclared_slot_is_counted_as_undeclared() {
     let report = report_of(&Quad, "camera", None);
-    assert_eq!(report.undeclared_defaults, by_property(&[("_Albedo", 1)]));
     assert_eq!(report.stand_ins.draws, 1);
     assert_eq!(
         report.stand_ins.by_property,
         by_property(&[("_Albedo undeclared", 1)])
     );
+    assert_eq!(report.unresolved_textures, BTreeMap::new());
 }
 
 #[test]

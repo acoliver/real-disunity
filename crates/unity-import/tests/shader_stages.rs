@@ -4,7 +4,8 @@
 #[path = "../../unity-serialized/tests/support/stage_modules.rs"]
 mod stage_modules;
 
-use worldrunner_unity_import::shader_prep::{check_with_naga, prepare, prepare_stages};
+use worldrunner_unity_import::shader_prep::check_with_naga;
+use worldrunner_unity_serialized::spirv_prep::{prepare, prepare_stages};
 
 #[test]
 fn naga_rejects_the_unprepared_stage_that_splits_a_sampler() {

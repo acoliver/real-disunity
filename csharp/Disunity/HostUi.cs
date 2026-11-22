@@ -13,6 +13,7 @@ public static partial class DisunityHost
         if (width == 0 || height == 0 || width > 16384 || height > 16384) throw new ArgumentOutOfRangeException(nameof(width));
         ViewportWidth = width;
         ViewportHeight = height;
+        RectDimensionMessages.MarkChanged();
     }
     /// <summary>
     /// Scales the canvas with the screen, as a <c>CanvasScaler</c> in ScaleWithScreenSize mode
@@ -30,6 +31,7 @@ public static partial class DisunityHost
             match_height = matchWidthOrHeight,
         };
         ThrowIfError(NativeBindings.disunity_canvas_scale_write(WorldHandle, canvas.Handle, &scale));
+        RectDimensionMessages.MarkChanged();
     }
     /// <summary>
     /// Renders the canvas in ScreenSpaceCamera mode through <paramref name="camera"/>, at

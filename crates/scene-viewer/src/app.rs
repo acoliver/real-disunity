@@ -6,7 +6,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::ActiveEventLoop,
     window::{Window, WindowId},
 };
 use worldrunner_render_plan::RenderScene;
@@ -95,35 +95,31 @@ pub(super) fn run(
     options: ViewerOptions,
     update: crate::SceneUpdate,
 ) -> Result<(), ViewerError> {
-    run_content(Box::new(static_scene::StaticScene::new(
-        scene, options, update,
-    )?))
+    run_content(
+        Box::new(static_scene::StaticScene::new(scene, options, update)?),
+        crate::ViewerStart::new(),
+    )
 }
 
 pub(super) fn run_live(
     driver: &mut dyn LiveDriver,
     options: LiveOptions,
 ) -> Result<(), ViewerError> {
-    run_content(Box::new(crate::live::Session::new(driver, options)))
-}
-pub(super) fn run_retained(
-    host: crate::RetainedHost,
-    driver: &mut dyn crate::RetainedDriver,
-) -> Result<(), ViewerError> {
-    run_content(Box::new(crate::retained::Session::new(host, driver)))
+    run_content(
+        Box::new(crate::live::Session::new(driver, options)),
+        crate::ViewerStart::new(),
+    )
 }
 
-/// As [`run_retained`], on the event loop `start` made and, if it made one, its device.
-pub(super) fn run_retained_on(
+/// Runs the retained session on the event loop `start` made and, if it made one, its device.
+pub(super) fn run_retained(
     host: crate::RetainedHost,
     driver: &mut dyn crate::RetainedDriver,
     start: crate::ViewerStart,
 ) -> Result<(), ViewerError> {
-    let (event_loop, shared) = start.into_parts();
-    run_on(
+    run_content(
         Box::new(crate::retained::Session::new(host, driver)),
-        Ok(event_loop),
-        shared,
+        Ok(start),
     )
 }
 
@@ -141,29 +137,22 @@ pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowA
     }
 }
 
-fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
-    run_on(
-        content,
-        EventLoop::<UserEvent>::with_user_event().build(),
-        None,
-    )
-}
-
-fn run_on(
+/// A start that failed to make its event loop still shuts the content down before the error returns.
+fn run_content(
     content: Box<dyn Content + '_>,
-    event_loop: Result<EventLoop<UserEvent>, winit::error::EventLoopError>,
-    shared: Option<crate::renderer::Shared>,
+    start: Result<crate::ViewerStart, ViewerError>,
 ) -> Result<(), ViewerError> {
     let mut app = App::new(content);
-    app.shared = shared;
-    let result = event_loop.and_then(|event_loop| {
+    let result = start.and_then(|start| {
+        let (event_loop, shared) = start.into_parts();
+        app.shared = shared;
         let proxy = event_loop.create_proxy();
         app.proxy = Some(proxy.clone());
         app.content.set_work_waker(Arc::new(move || {
             // A closed loop means the host is shutting down.
             let _ = proxy.send_event(UserEvent::WorkReady);
         }));
-        event_loop.run_app(&mut app)
+        event_loop.run_app(&mut app).map_err(ViewerError::from)
     });
     let shutdown = app.content.shutdown();
     let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
@@ -190,7 +179,7 @@ struct App<'a> {
     shared: Option<crate::renderer::Shared>,
     occluded: bool,
     suspended: bool,
-    next_frame: Instant,
+    deadline: cadence::Deadline,
 }
 
 impl<'a> App<'a> {
@@ -203,7 +192,7 @@ impl<'a> App<'a> {
             shared: None,
             occluded: false,
             suspended: false,
-            next_frame: Instant::now(),
+            deadline: cadence::Deadline::new(Instant::now()),
         }
     }
 
@@ -230,7 +219,7 @@ impl<'a> App<'a> {
         {
             event_loop.exit();
         }
-        self.next_frame = cadence::next_frame(Instant::now(), self.content.cadence());
+        self.deadline.finish(Instant::now());
         Ok(())
     }
 }
@@ -378,14 +367,14 @@ impl ApplicationHandler<UserEvent> for App<'_> {
             event_loop.exit();
             return;
         }
-        let now = Instant::now();
         let active = !self.occluded && !self.suspended && renderer.viewport.is_some();
         let (redraw, flow) = cadence::schedule(
             self.content.cadence(),
-            now,
-            self.next_frame,
+            Instant::now(),
+            &mut self.deadline,
             active,
             pending,
+            renderer.frame_slot_free(),
         );
         if redraw {
             renderer
@@ -393,7 +382,6 @@ impl ApplicationHandler<UserEvent> for App<'_> {
                 .as_ref()
                 .expect("windowed renderer")
                 .request_redraw();
-            self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
         event_loop.set_control_flow(cadence::with_wakeup(flow, self.content.next_wakeup()));
     }

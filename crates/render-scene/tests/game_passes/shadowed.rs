@@ -11,6 +11,10 @@ use worldrunner_render_plan::{
     RenderScene, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
     SceneDirection, SceneEffects, SceneEffectsParts, SceneShadowCascades, SceneSky, SceneSun,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -21,11 +25,6 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
     },
     shadows::{
         DirectionalShadowSettings, ShadowedScene,
@@ -491,7 +490,7 @@ pub(super) fn capture_fit(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) 
             &rig.context,
             &view(SIZE),
             (&color, &depth),
-            (Some(frame), true),
+            (Some(frame), true, &[]),
             scene,
         )
         .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));

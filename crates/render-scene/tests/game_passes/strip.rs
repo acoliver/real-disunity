@@ -5,6 +5,12 @@ use super::common::{self, Counts, graphics, texture_binding};
 use std::sync::{Arc, Mutex};
 use wgpu::TextureFormat;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::{
+    DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
+    PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
@@ -13,16 +19,10 @@ use worldrunner_render_program::runtime::{
     PreparedProgramDraw, ProgramRuntime, TargetSignature,
 };
 use worldrunner_render_program::state::RasterState;
-use worldrunner_render_scene::executor::AttachmentView;
-use worldrunner_render_scene::executor::BuildContext;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
-        PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
     },
     wgpu,
 };

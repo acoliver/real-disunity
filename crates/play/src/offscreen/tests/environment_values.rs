@@ -66,7 +66,8 @@ pub(super) fn layer_of(environment: &Environment) -> PropertyLayer {
 fn fill(layer: &mut PropertyLayer, environment: &Environment) {
     let render = BTreeMap::new();
     let stored = BTreeSet::from([1_u64 << 40]);
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     add_environment(layer, environment, &mut textures);
 }
 

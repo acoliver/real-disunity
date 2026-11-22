@@ -72,13 +72,15 @@ fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_nam
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 41]), &settings());
     assert_eq!(
         adapted.report.unresolved_textures,
-        BTreeMap::from([
-            ("_NotUploaded: asset not readable by the host".to_owned(), 1),
-            (
-                "_Nothing: no texture set and not declared, grey default read".to_owned(),
-                1
-            ),
-        ])
+        BTreeMap::from([("_NotUploaded: asset not readable by the host".to_owned(), 1)])
+    );
+    let stand_ins = &adapted.frame.materials[&ids::material(material)]
+        .properties
+        .stand_ins;
+    assert_eq!(
+        stand_ins.get("_Nothing").map(String::as_str),
+        Some("undeclared"),
+        "a property that reads a stand-in is counted by the stand-in census and not as unresolved"
     );
 }
 
@@ -123,13 +125,15 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     );
     assert_eq!(
         adapted.report.unresolved_textures,
-        BTreeMap::from([
-            ("_Declared: no texture set".to_owned(), 1),
-            (
-                "_UserLut: no texture set and not declared, grey default read".to_owned(),
-                1
-            ),
-        ])
+        BTreeMap::from([("_Declared: no texture set".to_owned(), 1)])
+    );
+    assert_eq!(
+        adapted.frame.materials[&ids::material(material)]
+            .properties
+            .stand_ins
+            .get("_UserLut")
+            .map(String::as_str),
+        Some("undeclared")
     );
     available.default_textures.clear();
     let adapted = adapt(&snapshot, &available, &settings());
@@ -224,6 +228,8 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
             texture_slot(TextureRef::Render(a)),
         ))
         .unwrap();
+    // An earlier take ends with the value in the state the frame starts from.
+    snapshot(&mut world);
     blit(&mut world, TextureRef::Render(a), b, None, 0);
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());

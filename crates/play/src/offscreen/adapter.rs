@@ -27,7 +27,6 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
-use super::depth_range::DepthRange;
 use super::frame::{
     Adapted, Available, BLIT_MESH, PASS_TAG, Report, Settings, ShaderInfo, adapt_probing,
     textures_of,
@@ -117,13 +116,6 @@ impl OffscreenAdapter {
         }
     }
 
-    /// How depth runs in the camera renders this adapter maps: the [`Settings::depth`] it was
-    /// made with.
-    #[must_use]
-    pub fn depth(&self) -> DepthRange {
-        self.settings.depth
-    }
-
     /// Chooses whether block-compressed textures go up as blocks (the default, on a device that
     /// samples them) or decoded to RGBA8.
     #[must_use]
@@ -160,64 +152,12 @@ impl OffscreenAdapter {
 
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
     /// uploaded is counted in the report's failures and left out of the frame.
-    pub fn adapt(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, &BTreeMap::new()),
-            Settling::Wait,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
-    /// to finish with the storage they give back, and with `buffers`, the compute buffers the host
-    /// uploaded for the materials that bind them.
-    pub(crate) fn adapt_settling(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        settling: Settling,
-        buffers: &BTreeMap<ComputeBufferId, BufferHandle>,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, buffers),
-            settling,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
-    /// uploaded for the materials that bind them, which the frame's materials name by handle.
-    pub fn adapt_probing(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (probe, buffers),
-            Settling::Wait,
-        )
-    }
-
-    fn adapt_with(
+    ///
+    /// With `probe`, the camera renders into the render textures a dispatch binds are examined.
+    /// `buffers` are the compute buffers the host uploaded for the materials that bind them,
+    /// which the frame's materials name by handle. `settling` is the way the uploads that need
+    /// room get the GPU to finish with the storage they give back.
+    pub(crate) fn adapt(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
@@ -339,7 +279,7 @@ impl OffscreenAdapter {
                     self.shaders.insert(*id, (source.clone(), info.clone()));
                     available.shaders.insert(*id, info);
                 }
-                Err(error) => notes.fail("shader", &error),
+                Err(error) => notes.fail("shader", None, &error),
             }
         }
     }
@@ -356,11 +296,11 @@ impl OffscreenAdapter {
                 continue;
             }
             let look = self.settings.stand_in_look;
-            match state.set_texture(runtime, &texture.texture_in(look)) {
+            match state.set_texture(runtime, &texture.texture(look)) {
                 Ok(()) => {
                     self.defaults.insert(texture);
                 }
-                Err(error) => notes.fail("defaulttexture", &error),
+                Err(error) => notes.fail("defaulttexture", None, &error),
             }
         }
     }
@@ -654,7 +594,7 @@ fn drop_record_refused_alone(
     };
     let kind = format!("record:{}", record_names::kind(record));
     let note = record_names::drawn_with(record, &adapted.frame, state);
-    adapted.report.fail_with(&kind, note.as_deref(), &error);
+    adapted.report.fail(&kind, note.as_deref(), &error);
     adapted.report.built = adapted.report.built.saturating_sub(1);
     adapted.frame.records.remove(index);
     true
@@ -692,7 +632,7 @@ fn drop_unusable_textures(
     for spec in &adapted.frame.render_textures {
         let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
         if let Err(error) = state.check(runtime, arena, &alone) {
-            adapted.report.fail("rendertexture", &error);
+            adapted.report.fail("rendertexture", None, &error);
             unusable.insert(spec.id);
         }
     }
@@ -750,7 +690,7 @@ fn drop_unusable_records(
             Err(error) => {
                 let kind = format!("record:{}", record_names::kind(&record));
                 let note = record_names::drawn_with(&record, &adapted.frame, state);
-                adapted.report.fail_with(&kind, note.as_deref(), &error);
+                adapted.report.fail(&kind, note.as_deref(), &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

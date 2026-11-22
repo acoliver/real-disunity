@@ -55,7 +55,6 @@ fn started_with_lighting(
         max_frames: None,
         capture_frames: BTreeSet::new(),
         keys: Vec::new(),
-        gpu_work: GpuWork::Off,
     });
     let (lighting, shadows) = SceneLighting::start(lights, options.camera).unwrap();
     options.shadows = shadows;
@@ -86,7 +85,7 @@ fn started_with_lighting(
 fn draws_casters(viewer: RetainedHost) -> bool {
     let mut driver = Still;
     let mut run = viewer
-        .windowless_on(&mut driver, SharedGpu::headless_for_test())
+        .windowless(&mut driver, Some(SharedGpu::headless_for_test()))
         .unwrap();
     assert!(run.frame().unwrap());
     let drew = run

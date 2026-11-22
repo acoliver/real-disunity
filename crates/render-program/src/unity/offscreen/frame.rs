@@ -3,7 +3,7 @@
 //! These are this crate's own types. A host adapter maps the world's export onto them; nothing
 //! here depends on the world.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -179,6 +179,17 @@ pub struct Camera {
     pub values: PropertyLayer,
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
+    /// The renderers the camera draws, as the frame fixed them at the camera's record: those of
+    /// the set whose layer the mask also admits.
+    pub renderers: Arc<BTreeSet<RendererId>>,
+}
+
+impl Camera {
+    /// Whether the camera draws the renderer `id` on `layer`.
+    #[must_use]
+    pub fn draws(&self, id: RendererId, layer: u32) -> bool {
+        layer < 32 && self.culling_mask & (1 << layer) != 0 && self.renderers.contains(&id)
+    }
 }
 
 /// One mip of a render texture that a pass draws into.
@@ -260,8 +271,7 @@ pub struct DrawRaster {
     pub viewport: Option<[f32; 4]>,
     /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
     /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
-    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
-    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// the viewer, so the reversed buffer takes the negated values. The constant is rounded to whole units of the buffer's
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],
@@ -371,6 +381,9 @@ pub struct OffscreenFrame {
     pub main_texture: String,
     /// The mesh a blit draws: triangles with no index buffer, in clip space.
     pub blit_mesh: Option<MeshId>,
+    /// The values the host gives every blit with a material, above the material and the
+    /// globals: what `Graphics.Blit` itself sets, such as the transform of its quad.
+    pub blit_values: PropertyLayer,
     pub globals: PropertyLayer,
     pub global_keywords: Vec<String>,
     pub render_textures: Vec<RenderTextureSpec>,
@@ -385,8 +398,7 @@ pub struct OffscreenFrame {
     /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
     /// the Old World player makes with such a slot is drawn and counted instead of left out. The
     /// host uploads each as it does any source texture. A draw that reads one is counted by
-    /// property in
-    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// property and reason in [`OffscreenOperations::stand_in_draws`](super::OffscreenOperations::stand_in_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
     /// before. Without a default for a dimension, which is the default, every slot of that
@@ -424,6 +436,7 @@ impl Default for OffscreenFrame {
         Self {
             main_texture: DEFAULT_MAIN_TEXTURE.to_owned(),
             blit_mesh: None,
+            blit_values: PropertyLayer::default(),
             globals: PropertyLayer::default(),
             global_keywords: Vec::new(),
             render_textures: Vec::new(),
@@ -450,10 +463,9 @@ impl OffscreenFrame {
         match record {
             Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
                 self.renderers
-                    .values()
-                    .filter(|renderer| {
-                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
-                    })
+                    .iter()
+                    .filter(|(id, renderer)| camera.draws(**id, renderer.layer))
+                    .map(|(_, renderer)| renderer)
                     .map(|renderer| renderer.materials.len())
                     .sum()
             }),

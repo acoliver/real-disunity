@@ -135,7 +135,7 @@ impl ScenePipelines {
     /// second `Rg16Float` colour target, for a frame renderer with TAA resident.
     ///
     /// The pass drawing with them must bind the frame renderer's velocity attachment, which
-    /// [`crate::compositor::encode_scene`] does; other passes cannot use these pipelines.
+    /// [`crate::compositor::FrameEncoding::encode_scene`] does; other passes cannot use these pipelines.
     pub fn with_taa_velocity(
         device: &Device,
         color_format: TextureFormat,
@@ -171,7 +171,7 @@ impl ScenePipelines {
     ///
     /// The SSAO metadata prepass keeps its own pipelines and writes no velocity. The pass drawing
     /// with these pipelines must bind the frame renderer's velocity attachment, which
-    /// [`crate::compositor::encode_scene`] does.
+    /// [`crate::compositor::FrameEncoding::encode_scene`] does.
     pub fn with_ssao_taa_velocity(
         device: &Device,
         format: TextureFormat,

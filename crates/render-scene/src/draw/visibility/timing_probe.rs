@@ -58,6 +58,7 @@ fn time_frame(
         instances,
         meshes,
         (views.eye_millimeters, views.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             times.prepare = start.elapsed();
             if parallel {
@@ -67,12 +68,13 @@ fn time_frame(
                         .iter_mut()
                         .map(|(matrix, selection)| (*matrix, selection))
                         .collect::<Vec<_>>(),
+                    4,
                 );
                 times.views[0] = start.elapsed();
             } else {
                 for (time, (matrix, selection)) in times.views.iter_mut().zip(&mut selections) {
                     let start = Instant::now();
-                    selection.select(placements, *matrix);
+                    placements.select_each(&mut [(*matrix, selection)], 1);
                     *time = start.elapsed();
                 }
             }

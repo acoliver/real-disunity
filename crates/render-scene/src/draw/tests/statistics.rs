@@ -18,15 +18,16 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     let frame = frame_from(pose());
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&target.color_attachment(), &target.depth_attachment()),
-        frame,
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame,
+        )
+        .unwrap();
     assert_eq!(
         gpu.statistics().passes.opaque_objects,
         ObjectDraws::default()
@@ -141,15 +142,16 @@ fn decal_statistics_apply_visibility_and_shader_capacity_at_submission() {
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let target = target(&context);
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (&mut gpu, &pipelines),
-        (&target.color_attachment(), &target.depth_attachment()),
-        frame_from(pose()),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (&mut gpu, &pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame_from(pose()),
+        )
+        .unwrap();
     assert_eq!(gpu.statistics().decals_visible, 0);
     assert_eq!(gpu.statistics().decals_total, 0);
     encoder.finish().submit().unwrap();

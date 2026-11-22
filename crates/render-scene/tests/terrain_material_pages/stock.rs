@@ -1,15 +1,15 @@
 use super::*;
-use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_resident},
-    executor::{PassEntry, PassId, PassSlot, TimingMode},
-};
+use worldrunner_render_post::{PassEntry, PassId, PassSlot, TimingMode};
+use worldrunner_render_scene::compositor::{FrameRenderer, encode_resident};
+use worldrunner_render_scene::device::DeviceRequest;
 
 #[test]
 fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request_with_features(
-        wgpu::Features::TIMESTAMP_QUERY,
-    ))
+    let context = pollster::block_on(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::TIMESTAMP_QUERY,
+        ..DeviceRequest::default()
+    }))
     .unwrap();
     let view = page_view();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);

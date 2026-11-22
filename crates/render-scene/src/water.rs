@@ -6,7 +6,6 @@ mod geometry;
 mod optics;
 pub(crate) mod planning;
 mod program;
-pub(crate) mod reactive;
 pub(crate) mod receivers;
 pub(crate) mod shadow_filter;
 #[cfg(test)]
@@ -41,9 +40,6 @@ use worldrunner_render_post::{
 pub(crate) struct WaterState {
     pub feature: Option<WaterFeature>,
     pub draws: crate::draw::WaterDraws,
-    /// Whether a frame that drew the stock water may have left water in the reactive mask, which
-    /// the next frame that draws none has to clear.
-    pub mask_written: bool,
 }
 
 pub(crate) struct WaterRegistration {
@@ -179,8 +175,6 @@ pub fn refraction_pixel(
     }
 }
 
-type RasterKey = ([u32; 5], DepthMode);
-
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
     pub draw_count: crate::draw::pass_statistics::PassCounter,
@@ -190,10 +184,8 @@ pub(crate) struct Water {
     /// The runtime and programs the bodies draw with, shared by every feature made from this
     /// water and by its resized replacements.
     programs: std::rc::Rc<std::cell::RefCell<program::Programs>>,
-    layout: wgpu::BindGroupLayout,
     samples: u32,
     depth: DepthMode,
-    reactive: reactive::Reactive,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
     pub environment_intensity_micro: u32,
@@ -240,7 +232,6 @@ impl Water {
                 "water geometry exceeds device buffer limit",
             ));
         }
-        let layout = input_layout(device);
         let bodies = geometry
             .into_iter()
             .zip(&settings)
@@ -274,19 +265,17 @@ impl Water {
             ))),
             samples: config.samples,
             depth: DepthMode::Independent,
-            reactive: reactive::Reactive::default(),
-            layout,
         })
     }
     #[cfg(test)]
     pub fn feature(
         &self,
-        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
+        encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,
         timing: (f32, usize),
-        inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
+        shadow: Option<&wgpu::BindGroup>,
     ) -> WaterFeature {
-        self.feature_with_depth(gpu, frame, timing, inputs, DepthMode::Independent)
+        self.feature_with_depth(encoder, frame, timing, shadow, DepthMode::Independent)
             .expect("the test frame belongs to water's authority")
     }
 
@@ -299,14 +288,13 @@ impl Water {
     /// installed with.
     pub fn feature_with_depth(
         &self,
-        (device, encoder): (&wgpu::Device, &wgpu::CommandEncoder),
+        encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,
         timing: (f32, usize),
-        inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
+        shadow: Option<&wgpu::BindGroup>,
         depth: DepthMode,
     ) -> Result<WaterFeature, worldrunner_render_program::error::ProgramError> {
         let (time, slot) = timing;
-        let (shadow, mask) = inputs;
         let snapshots = &self.snapshots[slot];
         let mut water = self.clone();
         water.depth = depth;
@@ -319,19 +307,6 @@ impl Water {
             terms::mask(&self.settings),
         ];
         let draws = water.body_draws((options, shadow.is_some()), slot, encoder)?;
-        let mask = water.mask_draw(device, mask, options);
-        // The reactive mask still binds the fixed groups.
-        let groups = if mask.is_some() {
-            self.bodies
-                .iter()
-                .enumerate()
-                .map(|(index, body)| {
-                    self.snapshot_group(device, snapshots, &body.uniforms[slot], index)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
         Ok(WaterFeature {
             water,
             snapshots: snapshots.clone(),
@@ -339,9 +314,7 @@ impl Water {
             time,
             slot,
             draws,
-            groups,
             shadow: shadow.cloned(),
-            mask,
         })
     }
 
@@ -397,81 +370,6 @@ impl Water {
                     .map(Some)
             })
             .collect()
-    }
-}
-impl Water {
-    fn snapshot_group(
-        &self,
-        device: &wgpu::Device,
-        snapshots: &Snapshots,
-        uniform: &wgpu::Buffer,
-        index: usize,
-    ) -> wgpu::BindGroup {
-        let color = snapshots
-            .color
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let depth = snapshots
-            .depth
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let uniform_entry = |binding, offset, size| wgpu::BindGroupEntry {
-            binding,
-            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                buffer: uniform,
-                offset,
-                size: wgpu::BufferSize::new(size),
-            }),
-        };
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("water snapshots"),
-            layout: &self.layout,
-            entries: &[
-                uniform_entry(0, 0, 560),
-                surface::binding(1, &color),
-                surface::binding(2, &depth),
-                uniform_entry(3, 768, crate::frame::FRAME_UNIFORM_BYTES as u64),
-                surface::binding(4, &self.environment[0]),
-                surface::binding(5, &self.environment[1]),
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                surface::binding(
-                    7,
-                    self.surface_inputs[index][0]
-                        .as_ref()
-                        .unwrap_or(&self.environment[1]),
-                ),
-                surface::binding(
-                    10,
-                    self.surface_inputs[index][2]
-                        .as_ref()
-                        .unwrap_or(&self.environment[1]),
-                ),
-                surface::binding(
-                    8,
-                    self.surface_inputs[index][1]
-                        .as_ref()
-                        .unwrap_or(&self.environment[1]),
-                ),
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: wgpu::BindingResource::Sampler(&self.surface_samplers[index]),
-                },
-            ],
-        })
-    }
-}
-
-fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
     }
 }
 pub(crate) fn water_source(shadows: bool) -> String {
@@ -531,17 +429,9 @@ pub(crate) struct WaterFeature {
     slot: usize,
     /// Each body's draw, prepared and retained by the frame; `None` for a body without vertices.
     draws: Vec<Option<worldrunner_render_program::runtime::PreparedProgramDraw>>,
-    /// The fixed groups of the reactive mask, built only when the mask draws.
-    groups: Vec<wgpu::BindGroup>,
     shadow: Option<wgpu::BindGroup>,
-    mask: Option<reactive::MaskDraw>,
 }
 impl WaterFeature {
-    /// Whether the frame draws the water's reactive mask pass.
-    pub(crate) fn writes_mask(&self) -> bool {
-        self.mask.is_some()
-    }
-
     pub fn schedule(
         &self,
         passes: &mut Vec<PassDeclaration>,
@@ -591,7 +481,6 @@ impl WaterFeature {
             .map(|attachment| attachment.format)
             .collect();
         passes.push(water);
-        let mask_pass = self.schedule_mask(passes, views)?;
         let mut feature = FeatureDeclaration::new(PassSlot::TransparentWater)
             .passes
             .remove(0);
@@ -612,7 +501,6 @@ impl WaterFeature {
             );
         }
         declaration.passes.push(feature);
-        declaration.passes.extend(mask_pass);
         declaration.effects.push("water");
         Ok(declaration)
     }
@@ -657,7 +545,6 @@ impl PreparedFeature for WaterFeature {
                 }
                 self.water.draw_count.record(count);
             }
-            PassSlot::TransparentWaterMask => self.draw_mask(pass),
             _ => unreachable!("declared water slot"),
         }
     }
@@ -669,36 +556,6 @@ fn number(value: i64) -> f32 {
         .parse::<f32>()
         .expect("integer is a finite float")
         / 1000.0
-}
-
-fn input_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("water inputs"),
-        entries: &input_entries(),
-    })
-}
-
-/// Set 0 of the fixed groups the reactive mask binds. `program::bindings` declares the same set
-/// for the body draw; `program_tests` holds the two together.
-fn input_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
-    [
-        wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-        texture_entry(1),
-        texture_entry(2),
-    ]
-    .into_iter()
-    .chain(receivers::environment_entries())
-    .chain(surface::entries())
-    .collect()
 }
 
 fn uniform_data(frame: &FrameUniform, time: f32, s: &SceneWaterBody) -> Vec<f32> {

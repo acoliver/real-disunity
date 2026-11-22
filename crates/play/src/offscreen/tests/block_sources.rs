@@ -11,7 +11,7 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, OffscreenWork, TargetRef, TextureRef,
 };
 
-use super::super::adapter::{OffscreenAdapter, build};
+use super::super::adapter::{OffscreenAdapter, Settling, build};
 use super::super::assets::{AssetError, Assets};
 use super::super::frame::Settings;
 use super::gpu::{Rig, SIDE, Synthetic, shader, vector};
@@ -121,8 +121,9 @@ fn blitted(rig: &mut Rig, stored: &PlayerTexture) -> Vec<u8> {
     let mut adapted = rig.adapter.adapt(
         &snapshot,
         &Stored(stored.clone()),
-        &mut rig.state,
-        &mut rig.runtime,
+        (&mut rig.state, &mut rig.runtime),
+        (false, &std::collections::BTreeMap::new()),
+        Settling::Wait,
     );
     assert!(
         adapted.report.failures.is_empty(),

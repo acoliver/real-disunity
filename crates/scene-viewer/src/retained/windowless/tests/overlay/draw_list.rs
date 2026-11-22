@@ -2,8 +2,8 @@ mod distance;
 mod panel;
 use super::*;
 use std::collections::BTreeMap;
-use worldrunner_render_plan::ui::{UiDraw, UiDrawKind, UiPresentation};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 const COLORS: [[f32; 4]; 4] = [
     [1., 0., 0., 1.],
@@ -56,7 +56,7 @@ fn submit(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>) {
 fn corner_tint_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     for depth in [false, true] {
         let quad = draw(depth);

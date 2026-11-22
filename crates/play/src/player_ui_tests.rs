@@ -1,9 +1,7 @@
 use super::*;
 use crate::player_ui::PlayerUi;
-use worldrunner_render_plan::{
-    SceneTexture, TexelFormat, TextureColorSpace,
-    ui::{UiDraw, UiDrawKind, UiPresentation},
-};
+use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 fn fixture() -> (UiPresentation, SpriteTextures) {
     let identity = FIRST_PLAYER_TEXTURE;

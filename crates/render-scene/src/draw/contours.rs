@@ -86,6 +86,7 @@ impl SceneGpu {
                     super::object_runtime::PreparedSink::new(pass, &self.objects, &draw.context);
                 // The camera's compacted instance indices do not address original skin streams.
                 self.record_lod_range(&mut sink, &selected, &mut drawn);
+                sink.finish();
             }
         }
     }

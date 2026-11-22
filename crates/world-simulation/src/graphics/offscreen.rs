@@ -1,9 +1,12 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
+use std::collections::BTreeMap;
+
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
-    CameraBuffers, ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue,
-    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
+    CameraBuffers, ComputeBindings, ComputeShaderId, GlobalShaderState, GraphicsError, MaterialId,
+    PropertyValue, RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldMaterial,
+    WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -253,13 +256,24 @@ impl World {
         self.push_offscreen(work)
     }
 
-    /// Checks a record and appends it to the frame's list.
-    pub(super) fn push_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
+    /// Checks a record and appends it to the frame's list, after a record for each global value
+    /// or keyword written directly since the previous record. This is the one place every record
+    /// is appended, so a host that replays the list in order sees a global at the value the
+    /// script had set when it recorded the work, whatever the state holds by the flush. A record
+    /// the frame has no room for, with its globals, is refused whole and leaves them noted.
+    pub(super) fn push_offscreen(&mut self, mut work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
-        if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
+        let ordered = self.ordered_global_records();
+        if self.graphics.offscreen.len() + ordered.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
         }
+        // The record follows the ordered globals, so the set is keyed by the record's own index.
+        let record = self.graphics.offscreen.len() + ordered.len();
+        self.capture_render_set(&work, record);
         self.note_handle(&work);
+        self.graphics.direct_writes.clear();
+        self.graphics.offscreen.extend(ordered);
+        self.note_material_draw(&mut work);
         self.graphics.offscreen.push(work);
         Ok(())
     }
@@ -269,13 +283,53 @@ impl World {
         &self.graphics.offscreen
     }
 
-    /// Drains the frame's offscreen work, in call order. A frame that starts with work nobody
-    /// took drops it, so a host that never draws offscreen does not accumulate records.
-    pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
+    /// How many records [`World::take_offscreen`] returns now: the work so far and, when there is
+    /// any, a record for each global written after its last record.
+    pub fn pending_offscreen_count(&self) -> usize {
+        match self.graphics.offscreen.len() {
+            0 => 0,
+            held => held + self.ordered_global_records().len(),
+        }
+    }
+
+    /// Drains the frame's offscreen work, in call order, with the materials its records name. A
+    /// frame that starts with work nobody took drops it, so a host that never draws offscreen does
+    /// not accumulate records.
+    ///
+    /// A blit, mesh draw or procedural draw reads the material as it stood when the script
+    /// recorded it, whatever the script changes on the material afterwards. It names the material
+    /// by its own id while the material still holds that state. When the script edits the material,
+    /// the draws before the edit name a copy of the state they saw instead, under an id of
+    /// generation 0 that no material of the world has. The map holds those copies, each under the
+    /// id the records use; it is empty for a frame whose draws saw one state of each material.
+    ///
+    /// The third value is the global state the records replay from: the state as it was before
+    /// the first change since the previous take, or `None` when nothing changed and the world's
+    /// state is the start. Globals written after the last record are ordered after it, one
+    /// record each, so a draw reads the value its global had when the script recorded it, whatever
+    /// the state holds by the time of the flush. Work with no record has nothing to order them
+    /// with: they are dropped, and the next take starts from the state that holds them. The
+    /// trailing records can pass [`MAX_OFFSCREEN_WORK`] by the number of names written since
+    /// the last record, which the world's global state bounds.
+    pub fn take_offscreen(
+        &mut self,
+    ) -> (
+        Vec<OffscreenWork>,
+        BTreeMap<MaterialId, WorldMaterial>,
+        Option<GlobalShaderState>,
+    ) {
+        let mut work = std::mem::take(&mut self.graphics.offscreen);
+        if !work.is_empty() {
+            work.extend(self.ordered_global_records());
+        }
+        self.graphics.direct_writes.clear();
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
-        std::mem::take(&mut self.graphics.offscreen)
+        self.graphics.render_sets.clear();
+        let start = self.graphics.take_global_start();
+        let copies = self.settle_material_versions(&mut work);
+        (work, copies, start)
     }
 
     fn check_offscreen(&self, work: &OffscreenWork) -> Result<(), WorldError> {

@@ -54,7 +54,7 @@ fn paragraph_plan(link: Option<UiLinkId>) -> UiRenderPlan {
             }),
         )
         .unwrap();
-    worldrunner_render_plan::ui::extract_ui(&world, &fonts, [64, 64]).unwrap()
+    worldrunner_world_simulation::ui::contribution::extract_ui(&world, &fonts, [64, 64]).unwrap()
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn paragraph_spans_draw_exact_regions_without_overlapping_lines() {
     assert_eq!(plan.texts[0].quads.len(), 8);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, plan);
     let image = capture(&mut run, &events).1;
@@ -100,7 +100,7 @@ fn link_underlines_use_existing_overlay_graphics() {
     assert_eq!(plan.graphics[0].graphic.quads.len(), 2);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, plan);
     let image = capture(&mut run, &events).1;

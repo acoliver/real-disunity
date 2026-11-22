@@ -2,12 +2,11 @@ namespace UnityEngine;
 
 /// <summary>
 /// The mesh renderers the window draws without a texture, grouped by the shader of their first material, with the texture
-/// properties that material does hold. The window draws slot 0 with the texture of its drawn record, which is the main texture
-/// when that is a <see cref="Texture2D"/> with pixels (see <see cref="Renderer.DrawableMainTexture"/>); a renderer whose material
-/// has no such texture draws white, and the report says which shaders those are and where their textures are instead.
-/// A renderer is evaluated when its drawn record is sent (<see cref="SentSurvey"/>, one entry per renderer however often its
-/// materials are set) and again over the live renderers (<see cref="Survey"/>), which reflects later material changes. The
-/// play bridge prints the second. The notes belong to the world loaded: a new world starts with none.
+/// properties that material does hold. The window draws slot 0 with the main texture of its world material when that is a
+/// <see cref="Texture2D"/> with pixels (see <see cref="Renderer.DrawableMainTexture"/>); a renderer whose material has no such
+/// texture draws white, and the report says which shaders those are and where their textures are instead. <see cref="Survey"/>
+/// reads the live renderers of the loaded world when it is called, so it reflects later material changes, and the play bridge
+/// prints it.
 /// </summary>
 internal static class WhiteRenderers
 {
@@ -55,33 +54,11 @@ internal static class WhiteRenderers
     /// holds as "property:kind", and its main texture's state.</summary>
     private sealed record Finding(string? Shader, IReadOnlyList<string> Properties, string MainTexture);
 
-    private static readonly Dictionary<int, Finding?> Sent = new();
-
-    /// <summary>Notes what the window draws <paramref name="renderer"/> with, given the material of its first slot.
-    /// A later send for the same renderer replaces the note.</summary>
-    internal static void NoteSent(MeshRenderer renderer, Material? first)
-    {
-        var finding = Observe(first);
-        lock (Sent) Sent[renderer.GetInstanceID()] = finding;
-    }
-
-    /// <summary>The renderers drawn without a texture as they were when last sent, including those since destroyed.</summary>
-    internal static Report SentSurvey()
-    {
-        lock (Sent) return Build(Sent.Values.ToArray());
-    }
-
     /// <summary>The live mesh renderers of the world, read now.</summary>
     internal static Report Survey() => Survey(ObjectRegistry.SceneObjects(typeof(MeshRenderer)).Cast<MeshRenderer>());
 
     internal static Report Survey(IEnumerable<MeshRenderer> renderers) =>
         Build(renderers.Select(renderer => Observe(renderer.ReadShared() is [var first, ..] ? first : null)).ToArray());
-
-    /// <summary>Forgets the notes, so the next world starts its own.</summary>
-    internal static void Reset()
-    {
-        lock (Sent) Sent.Clear();
-    }
 
     /// <summary>The finding for a slot drawn without a texture, or null when the slot is drawn with one.</summary>
     private static Finding? Observe(Material? first)

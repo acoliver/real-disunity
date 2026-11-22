@@ -8,7 +8,8 @@ public abstract class DownloadHandler : IDisposable
     public byte[]? data => null;
     public string? text => null;
 
-    /// <summary>Called when the body is complete. It does nothing; a game's handler may override it.</summary>
+    /// <summary>The hook a game's handler overrides to run when the body is complete. The engine receives no response, so
+    /// it is never called; the base body is empty.</summary>
     protected virtual void CompleteContent() { }
 
     public virtual void Dispose() { }

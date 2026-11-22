@@ -255,7 +255,7 @@ pub(super) fn budgeted_presentation(
         recipes: false,
     };
     let make = |budget| {
-        crate::presentation::Presentation::with_settings(
+        crate::presentation::Presentation::new(
             context,
             COLOR,
             [size, size],
@@ -341,7 +341,7 @@ fn an_append_inside_the_budget_is_admitted() {
 
 fn windowless_host() -> (RetainedHost, Renderer) {
     let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     (host, renderer)
 }
 
@@ -531,7 +531,7 @@ fn an_append_prepared_for_other_tables_is_refused_and_changes_nothing() {
         .host
         .apply(RetainedUpdate::AppendResources(append()))
         .unwrap();
-    let mut presentation = crate::presentation::Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         &fixture.context,
         COLOR,
         Viewport {

@@ -2,6 +2,9 @@
 //! producers store the ground and the caster, the lighting pass draws with the shadow
 //! receivers' sets and lights exactly the stored pixels, and the visible frame stays the forward
 //! frame. Without the prepass the lighting pass, which runs before Opaque, lights nothing.
+use super::render_path::{
+    EDGE_SHARE, MEAN, RELATIVE, front_settings, share_and_mean, stored_errors,
+};
 use super::*;
 use crate::compositor::{FeatureTarget, FrameRenderer};
 use crate::gbuffer::GbufferTarget;
@@ -151,13 +154,7 @@ fn capture_frame(
     .unwrap();
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    renderer.encode_with(
-        context,
-        view,
-        (&color, &depth),
-        &mut encoder,
-        Some(&mut *frame),
-    )?;
+    renderer.encode_with(context, view, (&color, &depth), &mut encoder, &mut *frame)?;
     frame
         .encode_output(&mut encoder, output.color_view())
         .unwrap();
@@ -363,7 +360,13 @@ fn depth_fitted_frame(
     )
     .unwrap();
     let fit = renderer
-        .render_depth_fitted_with(context, view, (&color, &depth), 0, &mut frame)
+        .render_depth_fitted_host(
+            context,
+            view,
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut frame,
+        )
         .map_err(|error| format!("{error:?}"))?
         .expect("the same-frame fit adopts");
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));
@@ -575,4 +578,50 @@ fn gpu_shadowed_synthetic_producer_without_prepass_stores_but_lights_nothing() {
     assert_eq!(drawn.colour, expected.colour);
     assert!(drawn.g3.unwrap().iter().any(|code| *code != 0));
     assert!(drawn.lit.unwrap().iter().all(|value| value.to_bits() == 0));
+}
+
+/// The front lighting solves the cascade's receiver plane from the stored geometric normal
+/// wherever the screen neighbour belongs to another facet. A ridge puts facet edges inside
+/// the shadow, so the frame lit from the G-buffer must keep Forward's per-triangle receiver
+/// plane there: no acne or leaks along the edges, and the ridge's shadow on the valley.
+#[test]
+fn gpu_deferred_shadowed_ridge_receivers_match_forward_across_facet_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let ridge = super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false);
+    let source = with_prepass(&ridge, true);
+    let capture =
+        |path| capture_with_settings(&context, &source, &view(), path, front_settings()).unwrap();
+    let forward = capture(SceneOpaquePath::Forward);
+    let rendered = capture(SceneOpaquePath::GBUFFER_RENDER);
+    let g3 = rendered.g3.as_ref().expect("stored targets");
+    let lit = halves(&rendered.colour);
+    let errors = stored_errors(&lit, &halves(&forward.colour), g3);
+    assert!(
+        errors.len() > g3.len() / 4,
+        "{} stored pixels",
+        errors.len()
+    );
+    let (over, share, mean) = share_and_mean(&errors);
+    eprintln!(
+        "ridge: {} stored; over {RELATIVE}: {over} ({share:.4}); mean {mean:.5}",
+        errors.len()
+    );
+    assert!(
+        share <= EDGE_SHARE,
+        "{share} of stored pixels over {RELATIVE}"
+    );
+    assert!(mean <= MEAN, "mean error {mean}");
+    let stored: Vec<f32> = lit
+        .chunks_exact(4)
+        .zip(g3)
+        .filter(|(_, code)| **code != 0)
+        .map(|(texel, _)| texel[0])
+        .collect();
+    let brightest = stored.iter().copied().fold(0.0_f32, f32::max);
+    let darkest = stored.iter().copied().fold(f32::INFINITY, f32::min);
+    assert!(
+        darkest < 0.9 * brightest,
+        "no shadow on the ridge scene ({darkest} {brightest})"
+    );
 }

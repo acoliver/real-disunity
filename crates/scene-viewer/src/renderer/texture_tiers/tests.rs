@@ -145,7 +145,7 @@ fn frame_statistics_follow_the_committed_texture_generation() {
     options.texture_tiers = tiers().policy;
     let host = crate::RetainedHost::new(prepared(&[0]).scene().clone(), options).unwrap();
     let mut driver = Driver;
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     run.frame().unwrap();
     let initial = run.host().statistics().unwrap().texture_tier.unwrap();
     assert_eq!(initial.authored_bytes, 21_844);

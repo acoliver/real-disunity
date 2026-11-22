@@ -5,12 +5,15 @@ use std::{
     path::PathBuf,
 };
 
-use worldrunner_unity_serialized::ClassId;
+use worldrunner_unity_serialized::{
+    ClassId,
+    spirv_prep::{PreparedModule, prepare},
+};
 
 use crate::{
     PlayerError,
     player_objects::{OpenFile, ShaderModule, shader_modules, shader_platforms},
-    shader_prep::{Backend, NagaModule, PrepareError, PreparedModule, check_with_naga, prepare},
+    shader_prep::{Backend, NagaModule, PrepareError, check_with_naga},
 };
 
 /// Unity's `ShaderCompilerPlatform` for Vulkan.

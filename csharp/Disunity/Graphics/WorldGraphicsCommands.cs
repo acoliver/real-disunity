@@ -1,5 +1,4 @@
 using System.Text;
-using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine.Rendering;
 
@@ -8,8 +7,6 @@ namespace UnityEngine;
 /// <summary>The calls that record command buffer work in the world's offscreen list, one per kind of record.</summary>
 internal static unsafe partial class WorldGraphics
 {
-    private const uint GlobalFloat = 0, GlobalInt = 1, GlobalVector = 2, GlobalMatrix = 3, GlobalTexture = 4;
-
     internal static void RecordSetRenderTarget(DisunityTargetRef[] colors, DisunityTargetRef? depth, uint mip, int face, int slice)
     {
         var world = World;
@@ -26,50 +23,14 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_clear_render_target(World, flags, value, depth, stencil));
     }
 
-    internal static void RecordGlobalFloat(string name, float value)
-    {
-        var floats = stackalloc float[] { Finite(value) };
-        RecordGlobal(GlobalFloat, name, floats, 0, null);
-    }
-
-    internal static void RecordGlobalInt(string name, int value) => RecordGlobal(GlobalInt, name, null, value, null);
-
-    internal static void RecordGlobalVector(string name, Vector4 value)
-    {
-        var floats = stackalloc float[] { Finite(value.x), Finite(value.y), Finite(value.z), Finite(value.w) };
-        RecordGlobal(GlobalVector, name, floats, 0, null);
-    }
-
-    /// <summary>Sends the matrix column by column, as the world holds it.</summary>
-    internal static void RecordGlobalMatrix(string name, Matrix4x4 m)
-    {
-        var floats = stackalloc float[]
-        {
-            Finite(m.m00), Finite(m.m10), Finite(m.m20), Finite(m.m30), Finite(m.m01), Finite(m.m11), Finite(m.m21), Finite(m.m31),
-            Finite(m.m02), Finite(m.m12), Finite(m.m22), Finite(m.m32), Finite(m.m03), Finite(m.m13), Finite(m.m23), Finite(m.m33),
-        };
-        RecordGlobal(GlobalMatrix, name, floats, 0, null);
-    }
-
+    /// <summary>Records a global set to a temporary render texture, the one global that has no managed holder and so no place in the
+    /// world's global state.</summary>
     internal static void RecordGlobalTexture(string name, (uint Kind, ulong Texture) texture)
     {
         var slot = new DisunityTextureSlot { kind = texture.Kind, texture = texture.Texture, scale_x = 1f, scale_y = 1f };
-        RecordGlobal(GlobalTexture, name, null, 0, &slot);
-    }
-
-    private static void RecordGlobal(uint kind, string name, float* floats, int intValue, DisunityTextureSlot* slot)
-    {
         var bytes = Encoding.UTF8.GetBytes(name);
         fixed (byte* pointer = bytes)
-            DisunityHost.ThrowIfError(
-                NativeBindings.disunity_offscreen_set_global(World, kind, pointer, (uint)bytes.Length, floats, intValue, slot), $"global '{name}'");
-    }
-
-    internal static void RecordGlobalKeyword(string name, bool enabled)
-    {
-        var bytes = Encoding.UTF8.GetBytes(name);
-        fixed (byte* pointer = bytes)
-            Check(NativeBindings.disunity_offscreen_set_global_keyword(World, pointer, (uint)bytes.Length, enabled ? 1u : 0u));
+            Check(NativeBindings.disunity_offscreen_set_global_texture(World, pointer, (uint)bytes.Length, &slot));
     }
 
     internal static void RecordAllocateTemporary(int nameId, DisunityRenderTexture desc) =>

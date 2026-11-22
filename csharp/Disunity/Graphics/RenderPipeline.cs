@@ -82,12 +82,14 @@ public abstract class RenderPipeline
     /// <summary>Lets the host call the list form.</summary>
     internal void InvokeRender(ScriptableRenderContext context, List<Camera> cameras) => Render(context, cameras);
 
-    /// <summary>Does nothing: the host raises <see cref="RenderPipelineManager.beginContextRendering"/> before it calls
-    /// Render, so a pipeline that calls this does not raise the event a second time. The engine's choice.</summary>
-    protected static void BeginContextRendering(ScriptableRenderContext context, List<Camera> cameras) { }
+    /// <summary>Raises <see cref="RenderPipelineManager.beginContextRendering"/>. The host raises no context event itself, so
+    /// the event fires once for each call a pipeline makes.</summary>
+    protected static void BeginContextRendering(ScriptableRenderContext context, List<Camera> cameras) =>
+        RenderPipelineManager.RaiseBeginContext(context, cameras);
 
-    /// <summary>Does nothing; see <see cref="BeginContextRendering"/>. The host raises the end event after Render returns.</summary>
-    protected static void EndContextRendering(ScriptableRenderContext context, List<Camera> cameras) { }
+    /// <summary>Raises <see cref="RenderPipelineManager.endContextRendering"/>, once for each call a pipeline makes.</summary>
+    protected static void EndContextRendering(ScriptableRenderContext context, List<Camera> cameras) =>
+        RenderPipelineManager.RaiseEndContext(context, cameras);
 
     /// <summary>Raises <see cref="RenderPipelineManager.beginCameraRendering"/>.</summary>
     protected static void BeginCameraRendering(ScriptableRenderContext context, Camera camera) =>
@@ -108,7 +110,7 @@ public abstract class RenderPipeline
     /// <summary>Releases the pipeline's resources. <see cref="Dispose()"/> calls it with true, once.</summary>
     protected virtual void Dispose(bool disposing) { }
 
-    /// <summary>Disposes the pipeline; a second call does nothing.</summary>
+    /// <summary>Disposes the pipeline once: a second call returns without calling <see cref="Dispose(bool)"/> again.</summary>
     public void Dispose()
     {
         if (disposed) return;

@@ -9,11 +9,9 @@ use super::post_water_game::{
 use super::shadowed::{capture, effects, shadowed};
 use super::snapshot_game::{read_texels, texel};
 use worldrunner_render_plan::{RenderScene, SceneWaterBody, SceneWaterSettings, SceneWaterSurface};
-use worldrunner_render_scene::{
-    compositor::{
-        FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics, WaterDraws,
-    },
-    executor::{FrameConfig, FrameError},
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::compositor::{
+    FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics, WaterDraws,
 };
 
 /// Pixels the writer's left half and the quad's footprint split four ways.

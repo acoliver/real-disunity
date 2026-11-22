@@ -6,14 +6,14 @@ use super::snapshot_water::water_scene;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{SceneEnvironmentConsumers, SceneSpecularConvention};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    PassDeclaration, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{
         EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, GameBuild,
         GameFeatureFactory, GamePasses, WaterDraws,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        PassDeclaration, PrepareContext, PreparedFeature,
     },
     sky::preparation::{EnvironmentPreparation, PreparedEnvironmentMaps, encode},
     wgpu,

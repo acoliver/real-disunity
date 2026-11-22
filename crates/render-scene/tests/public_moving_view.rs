@@ -10,7 +10,11 @@ use std::time::Duration;
 use validation::{duration_values, median_p95, valid_measurements};
 use worldrunner_render_gpu::device::headless_instance;
 use worldrunner_render_post::{TimingMode, TimingSupport};
-use worldrunner_render_scene::{SceneView, device::GpuContext, wgpu};
+use worldrunner_render_scene::{
+    SceneView,
+    device::{DeviceRequest, GpuContext},
+    wgpu,
+};
 
 fn timing_context() -> GpuContext {
     let instance = headless_instance();
@@ -21,10 +25,13 @@ fn timing_context() -> GpuContext {
         ..Default::default()
     }))
     .expect("public renderer probe requires a real GPU adapter");
-    pollster::block_on(GpuContext::from_adapter_with_timing(
+    pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .expect("public renderer probe device acquisition")
 }

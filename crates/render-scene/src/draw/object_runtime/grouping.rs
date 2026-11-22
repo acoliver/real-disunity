@@ -358,13 +358,13 @@ mod tests {
                 pipeline: below(&mut state, 2),
                 geometry: GeometryLayout::Static,
                 material: below(&mut state, 3),
-                vertices: [0, 1 << 16][index % 2],
+                vertices: [0, 1 << 12][index % 2],
                 base_vertex: [i32::MIN, -1, 0, 1, i32::MAX][index % 5],
-                indices: [0, 1 << 16][(index / 2) % 2],
+                indices: [0, 1 << 12][(index / 2) % 2],
                 instances: [0, 1][(index / 4) % 2],
-                first_index: [0, 1 << 16][(index / 8) % 2],
-                index_count: [0, 1 << 16][(index / 8) % 2],
-                first_instance: [0, 1 << 16][(index / 16) % 2],
+                first_index: [0, 1 << 12][(index / 8) % 2],
+                index_count: [0, 1 << 12][(index / 8) % 2],
+                first_instance: [0, 1 << 12][(index / 16) % 2],
             })
             .collect();
         assert!(Packing::fitting(&keys).is_some());

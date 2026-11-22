@@ -182,6 +182,7 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let mut shadow_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for shadows in [false, true] {
         for (mip, layer) in [(0, 1), (1, 0), (1, 1)] {
             let color = texture(&context, OffscreenTarget::COLOR_FORMAT);
@@ -193,10 +194,14 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
             assert_eq!(color_view.size(), [514 >> mip, 482 >> mip]);
             assert_eq!(color_view.format(), OffscreenTarget::COLOR_FORMAT);
             if shadows {
-                // The submitting convenience API must preserve the same selection.
-                shadowed
-                    .render(&context, &view(), &color_view, &depth_view)
-                    .unwrap();
+                render_views(
+                    &mut shadowed,
+                    &mut shadow_scheduler,
+                    &context,
+                    &view(),
+                    (&color_view, &depth_view),
+                )
+                .unwrap();
             } else {
                 let mut encoder = context.submission().begin(context.device()).unwrap();
                 scheduler

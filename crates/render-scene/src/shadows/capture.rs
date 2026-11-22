@@ -11,26 +11,8 @@ pub(crate) fn capture_sources(shadowed: bool) -> (&'static str, &'static str) {
     }
 }
 impl ShadowedScene {
-    /// Reuses the selected frame's directional map and opaque receiver state.
-    pub fn encode_term_capture(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        capture: &crate::compositor::terms::TermCapture,
-    ) -> Result<(), ShadowError> {
-        self.map.retain(encoder)?;
-        capture.encode_with_frame(
-            device,
-            encoder,
-            &self.gpu,
-            (
-                Some((&self.shadow_layout, &self.map.group)),
-                Some(&self.scheduler),
-            ),
-        );
-        Ok(())
-    }
-    /// Replays against a host's selected frame products instead of the internal scheduler.
+    /// Replays against a host's selected frame products: the directional map, the opaque
+    /// receiver state and the host's AO and environment bindings.
     pub fn encode_term_capture_with(
         &self,
         device: &wgpu::Device,
@@ -53,9 +35,19 @@ impl ShadowedScene {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         captures: &[crate::compositor::terms::TermCapture],
+        scheduler: &crate::compositor::FrameRenderer,
     ) -> Result<(), ShadowError> {
         for capture in captures {
-            self.encode_term_capture(device, encoder, capture)?;
+            self.map.retain(encoder)?;
+            capture.encode_with_frame(
+                device,
+                encoder,
+                &self.gpu,
+                (
+                    Some((&self.shadow_layout, &self.map.group)),
+                    Some(scheduler),
+                ),
+            );
         }
         Ok(())
     }

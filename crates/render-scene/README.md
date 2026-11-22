@@ -140,9 +140,9 @@ legacy profile rejects post requests before upload. Textured-sky rendering, vign
 nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
 requests still fail.
 
-`ShadowedScene::encode_term_capture` and `encode_term_capture_with` replay initialized
-scene/frame state with its matching selected slot. Both return `Result<(), ShadowError>`
-and require the encoder of the active prepared transaction. Transaction or map-lease
+`ShadowedScene::encode_term_capture_with` replays initialized scene/frame state against the
+host's `ConfiguredFrameRenderer` with its matching selected slot. It returns
+`Result<(), ShadowError>` and requires the encoder of the active prepared transaction. Transaction or map-lease
 errors propagate as `ShadowError::Submission` before replay. A capture-only transaction
 retains the shadow-map generation independently of the ordinary frame that initialized it.
 
@@ -943,7 +943,9 @@ For retained instance draws, pair the reset with `SceneGpu::reset_velocity_histo
 previous transforms then initialize from current placements for the next completed colour
 frame. Cancelled preparations and upload-only submissions leave the reset pending.
 `ShadowedScene::reset_camera_history()`
-also discards depth-fitting evidence, contraction filters and retained cascade maps.
+also discards depth-fitting evidence, contraction filters and retained cascade maps. A
+`ShadowedScene` owns no frame renderer; the host resets the one it passes to `encode_with`
+and `render_depth_fitted_host`.
 Exposure adaptation has its separate `reset_exposure()` operation.
 
 Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also

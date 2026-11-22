@@ -8,7 +8,8 @@ fn resident_edits_reach_both_shadow_and_color_passes() {
     let baseline = capture_scene(&context, &source, &view()).unwrap();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let initial = target.read_rgba8(&context).unwrap();
     assert_shadow(&initial, &baseline, Vec3::new(-0.75, 0.0, 0.0));
     let handles: Vec<_> = renderer.scene_mut().instance_handles().collect();
@@ -27,7 +28,7 @@ fn resident_edits_reach_both_shadow_and_color_passes() {
         .scene_mut()
         .set_instance_transform(occluder, moved)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let relocated = target.read_rgba8(&context).unwrap();
     assert_lit(&relocated, &baseline, Vec3::new(-0.75, 0.0, 0.0));
     renderer
@@ -38,13 +39,13 @@ fn resident_edits_reach_both_shadow_and_color_passes() {
         .scene_mut()
         .set_instance_visible(occluder, false)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(target.read_rgba8(&context).unwrap(), relocated);
     renderer
         .scene_mut()
         .set_instance_visible(occluder, true)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(target.read_rgba8(&context).unwrap(), initial);
     assert!(
         renderer

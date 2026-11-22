@@ -426,17 +426,24 @@ fn run(draws: TerrainDraws) -> Outcome {
             }),
         )
         .unwrap();
-    renderer.scheduler.force_terrain_draws(draws);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    scheduler.force_terrain_draws(draws);
     let seen = Seen::default();
     GamePasses::new()
         .with(Arc::new(Receiver { seen: seen.clone() }))
-        .install(&mut renderer.scheduler, &context, None)
+        .install(&mut scheduler, &context, None)
         .unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     for frame in 0..FRAMES {
         let attachments = (&target.color_attachment(), &target.depth_attachment());
         renderer
-            .render_depth_fitted(&context, &view(), attachments, frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                attachments,
+                (Some(frame), false, &[]),
+                &mut scheduler,
+            )
             .expect("the frame renders without refusal")
             .expect("the capture fitted");
         context

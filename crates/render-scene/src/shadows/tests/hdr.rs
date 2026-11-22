@@ -43,13 +43,7 @@ fn hdr_capture(
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode_with(
-            context,
-            &view,
-            (&color, &depth),
-            &mut encoder,
-            Some(&mut frame),
-        )
+        .encode_with(context, &view, (&color, &depth), &mut encoder, &mut frame)
         .unwrap();
     frame
         .encode_output(&mut encoder, output.color_view())

@@ -166,13 +166,7 @@ fn gpu_unfitted_frame_runs_one_list_in_slot_order() {
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                resident.encode_with(
-                    &context,
-                    &view(),
-                    (&color, &depth),
-                    encoder,
-                    Some(&mut frame),
-                )
+                resident.encode_with(&context, &view(), (&color, &depth), encoder, &mut frame)
             })
             .map_err(PrepareError::into_error)
             .unwrap();
@@ -245,13 +239,7 @@ fn gpu_observed_unfitted_frame_runs_the_gbuffer_immediately_before_opaque() {
             let prepared = context
                 .submission()
                 .prepare(context.device(), |encoder, _| {
-                    resident.encode_with(
-                        &context,
-                        &view(),
-                        (&color, &depth),
-                        encoder,
-                        Some(&mut frame),
-                    )
+                    resident.encode_with(&context, &view(), (&color, &depth), encoder, &mut frame)
                 })
                 .map_err(PrepareError::into_error)
                 .unwrap();

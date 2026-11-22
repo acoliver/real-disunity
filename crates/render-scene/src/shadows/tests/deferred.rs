@@ -151,13 +151,7 @@ fn capture_frame(
     .unwrap();
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    renderer.encode_with(
-        context,
-        view,
-        (&color, &depth),
-        &mut encoder,
-        Some(&mut *frame),
-    )?;
+    renderer.encode_with(context, view, (&color, &depth), &mut encoder, &mut *frame)?;
     frame
         .encode_output(&mut encoder, output.color_view())
         .unwrap();

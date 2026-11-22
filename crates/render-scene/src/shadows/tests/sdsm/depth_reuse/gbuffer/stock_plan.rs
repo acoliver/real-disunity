@@ -21,7 +21,7 @@ fn unfitted_frame(
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode_with(context, &view(), (&color, &depth), encoder, Some(frame))
+            renderer.encode_with(context, &view(), (&color, &depth), encoder, frame)
         })
         .map_err(PrepareError::into_error)
         .unwrap();

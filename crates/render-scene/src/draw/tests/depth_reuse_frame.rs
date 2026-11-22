@@ -194,7 +194,7 @@ fn draw_frame_with_view(
         .prepare(device, |encoder, _| {
             if let Some(shadowed) = &mut shadowed {
                 shadowed
-                    .encode_with(context, &view, (&color, &depth), encoder, Some(renderer))
+                    .encode_with(context, &view, (&color, &depth), encoder, renderer)
                     .unwrap();
             } else {
                 renderer

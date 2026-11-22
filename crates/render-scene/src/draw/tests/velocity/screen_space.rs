@@ -122,7 +122,7 @@ fn shadowed_velocity_with(
                 &view_from(pose),
                 (&color, &depth),
                 &mut encoder,
-                Some(&mut renderer),
+                &mut renderer,
             )
             .unwrap();
         encoder.finish().submit().unwrap();

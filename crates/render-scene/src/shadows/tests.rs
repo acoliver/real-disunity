@@ -320,7 +320,8 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let first = target.read_rgba8(&context).unwrap();
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();
     renderer
@@ -332,7 +333,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let second = target.read_rgba8(&context).unwrap();
     let reversed = scene(&[[0, 0, 1_000]], -600_000, None);
     let baseline = capture_scene(&context, &reversed, &view()).unwrap();
@@ -353,7 +354,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
             },
         )
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let outside = target.read_rgba8(&context).unwrap();
     assert_lit(
         &outside,
@@ -433,7 +434,8 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
         ))
     ));
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(
         target.read_rgba8(&context).unwrap() == capture_scene(&context, &source, &view()).unwrap(),
         "invalid updates must leave usable old resources and effects"
@@ -541,16 +543,64 @@ const AMBIENT_RADIANCE: f64 = 0.1;
 
 fn render_target(
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     context: &GpuContext,
     view: &SceneView,
     target: &OffscreenTarget,
 ) -> Result<(), ShadowError> {
-    renderer.render(
+    render_views(
+        renderer,
+        scheduler,
         context,
         view,
-        &target.color_attachment(),
-        &target.depth_attachment(),
+        (&target.color_attachment(), &target.depth_attachment()),
     )
+}
+
+/// Encodes one frame cascaded by completed depth evidence through the host's renderer.
+fn encode_depth_fitted(
+    renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
+    (context, view): (&GpuContext, &SceneView),
+    attachments: (&AttachmentView, &AttachmentView),
+    encoder: &mut wgpu::CommandEncoder,
+    fitting: (
+        crate::shadows::sdsm::AdoptedFit,
+        worldrunner_render_shadow::RangeFit,
+    ),
+) -> Result<(), ShadowError> {
+    let input = frame::FitInput {
+        scheduler,
+        fitting: Some((fitting.0.depth, fitting.1)),
+    };
+    let attachments = crate::compositor::ColorDepth {
+        color: attachments.0,
+        depth: attachments.1,
+    };
+    renderer.encode_fitted(context, view, attachments, encoder, input)
+}
+
+/// Submits one frame through the host's renderer; a depth-fitted scene fits the next frame.
+fn render_views(
+    renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
+    context: &GpuContext,
+    view: &SceneView,
+    attachments: (&AttachmentView, &AttachmentView),
+) -> Result<(), ShadowError> {
+    if let Some(fitting) = &renderer.depth_fitting {
+        let frame = (Some(fitting.next_frame), false, &[][..]);
+        renderer.render_depth_fitted_host(context, view, attachments, frame, scheduler)?;
+        return Ok(());
+    }
+    let prepared = context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            renderer.encode_with(context, view, attachments, encoder, scheduler)
+        })
+        .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
+    prepared.submit()?;
+    Ok(())
 }
 
 mod refresh;

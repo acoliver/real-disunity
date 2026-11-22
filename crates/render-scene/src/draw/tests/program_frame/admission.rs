@@ -262,18 +262,19 @@ fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
         refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
     };
     let mut shadowed = ShadowedScene::new(&fixture.context, &engine_scene(), settings).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(fixture.context.device());
     let target = OffscreenTarget::new(fixture.context.device(), view().viewport()).unwrap();
     let authority = fixture.context.submission().clone();
     let mut recording = authority.begin(fixture.context.device()).unwrap();
     let signature = fixture.signature();
     let admitted = fixture.admit(&recording, signature).unwrap();
     shadowed.scene_mut().admit_programs(admitted);
-    let encoded = shadowed.encode(
+    let encoded = shadowed.encode_with(
         &fixture.context,
         &view(),
-        &target.color_attachment(),
-        &target.depth_attachment(),
+        (&target.color_attachment(), &target.depth_attachment()),
         &mut recording,
+        &mut scheduler,
     );
     assert!(
         matches!(

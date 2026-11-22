@@ -22,10 +22,11 @@ struct ShadowFrameResources<'a> {
     offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
 }
 
-/// The renderer a frame schedules through, or the one the scene retains when none is given,
-/// and the depth range and fit to cascade by, when the frame is depth-fitted.
+/// The renderer a frame schedules through, and the depth range and fit to cascade by, when
+/// the frame is depth-fitted. Empty depth evidence clears all maps and disables receiver
+/// sampling; the ordinary frame retains its original schedule.
 pub(super) struct FitInput<'a> {
-    pub(super) scheduler: Option<&'a mut crate::compositor::FrameRenderer>,
+    pub(super) scheduler: &'a mut crate::compositor::FrameRenderer,
     pub(super) fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
 }
 
@@ -80,15 +81,14 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         input: FitInput<'_>,
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
+        let FitInput { scheduler, fitting } = input;
         let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
-        let scheduler = input.scheduler.as_deref().unwrap_or(&self.scheduler);
         scheduler.validate_opaque_depth(attachments.depth)?;
         scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let FitInput { scheduler, fitting } = input;
-        let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         let mut resources = ShadowFrameResources {
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,

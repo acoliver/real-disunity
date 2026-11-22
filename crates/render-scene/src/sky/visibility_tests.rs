@@ -153,6 +153,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
         1,
     )
     .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let image = capture(&context, |encoder, color, depth| {
         let color =
             AttachmentView::new(ResourceRef::new("shadow acceptance color"), color.texture())
@@ -160,7 +161,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
         let depth =
             AttachmentView::new(ResourceRef::new("shadow acceptance depth"), depth.texture())
                 .unwrap();
-        gpu.encode(&context, &view(), &color, &depth, encoder)
+        gpu.encode_with(&context, &view(), (&color, &depth), encoder, &mut scheduler)
             .unwrap();
     });
     assert_eq!(

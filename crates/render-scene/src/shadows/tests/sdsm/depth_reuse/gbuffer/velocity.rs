@@ -127,13 +127,7 @@ fn residual_after(
         } else {
             let mut encoder = context.submission().begin(context.device()).unwrap();
             renderer
-                .encode_with(
-                    context,
-                    &view,
-                    (&color, &depth),
-                    &mut encoder,
-                    Some(&mut frame),
-                )
+                .encode_with(context, &view, (&color, &depth), &mut encoder, &mut frame)
                 .unwrap();
             encoder.finish().submit().unwrap();
         }

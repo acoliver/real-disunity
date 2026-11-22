@@ -267,6 +267,6 @@ impl FrameEncoding<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scene: &mut crate::shadows::ShadowedScene,
     ) -> Result<(), crate::shadows::ShadowError> {
-        scene.encode_with(context, view, attachments, encoder, Some(self.0))
+        scene.encode_with(context, view, attachments, encoder, self.0)
     }
 }

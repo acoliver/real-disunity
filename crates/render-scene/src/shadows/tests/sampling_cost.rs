@@ -28,8 +28,8 @@ fn ordinary_material_gpu_sampling_cost() {
 
 fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
     let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
-    let support = renderer
-        .scheduler
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let support = scheduler
         .configure_timing(context.device(), context.queue(), TimingMode::Optional)
         .unwrap();
     if support != TimingSupport::Supported {
@@ -40,7 +40,14 @@ fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
     let target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut opaque_ns = Vec::new();
     for frame in 0..40 {
-        let timing = timing_probe::timed_frame(&mut renderer, context, &view, &target, frame);
+        let timing = timing_probe::timed_frame(
+            &mut renderer,
+            &mut scheduler,
+            context,
+            &view,
+            &target,
+            frame,
+        );
         if frame >= 8 {
             opaque_ns.extend(timing.passes.iter().filter_map(|pass| {
                 (pass.pass_id == PassId::Geometry(PassEntry::new(PassSlot::Opaque)))

@@ -137,6 +137,8 @@ pub struct GameRendering {
 /// Presentation policy, independent of GPU submission admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PresentationCadence {
+    /// Start a frame once per interval, counted from frame start to frame start. A frame that
+    /// takes longer than the interval is followed at once by the next.
     Fixed(std::time::Duration),
     /// Redraw whenever the event loop runs, including input wakeups.
     Uncapped,

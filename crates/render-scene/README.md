@@ -183,9 +183,11 @@ adapter offers them, and leaves them off elsewhere:
 It asks for the adapter's limits, capped at what the engine binds, for the array
 layers of a texture, the colour bytes per sample (64), the sampled textures per
 shader stage (32) and the storage images per shader stage (16: a single-pass
-downsampler binds its source and six levels, past wgpu's default of four). A program
-that binds more storage images than the device allows is refused by name when it is
-prepared (render-program's `StorageImageLimit { stage, count, limit }`).
+downsampler binds its source and six levels, past wgpu's default of four). The
+storage-image count comes from render-gpu's `storage_images_per_stage`, which the
+player's headless device asks too. A program that binds more storage images than the
+device allows is refused by name when it is prepared (render-program's
+`StorageImageLimit { stage, count, limit }`).
 
 `GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
 request, each limit at the more demanding of the two values, and every other

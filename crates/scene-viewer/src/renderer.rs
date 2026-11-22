@@ -223,6 +223,12 @@ impl Renderer {
         self.check_errors()
     }
 
+    /// Whether a frame would be admitted now. Completed submissions retire only when the device
+    /// is polled, so call this after [`Self::poll`].
+    pub(crate) fn frame_slot_free(&self) -> bool {
+        self.execution.flight().has_free_slot()
+    }
+
     /// Admission and completion progress never wait for GPU work on the event thread.
     pub fn render(
         &mut self,

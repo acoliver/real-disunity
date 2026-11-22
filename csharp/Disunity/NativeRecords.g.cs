@@ -112,8 +112,8 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  What a renderer holds to draw: the renderer identity of its texture (0 for none) and the
-    ///  sizes of its mesh.
+    ///  What a renderer holds to draw: its texture (0 for none) with the kind that says what the
+    ///  identity names, and the sizes of its mesh.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityUiGraphicInfo
@@ -121,6 +121,11 @@ namespace Disunity.Native
         public ulong texture;
         public uint vertex_count;
         public uint index_count;
+        /// <summary>
+        ///  0 a stored image identity, 1 a render texture; see `disunity_canvas_renderer_texture_write`.
+        /// </summary>
+        public uint texture_kind;
+        public uint padding;
     }
 
     /// <summary>

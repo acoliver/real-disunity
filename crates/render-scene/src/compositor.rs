@@ -4,6 +4,8 @@ mod capture;
 mod contours;
 pub mod opaque;
 #[cfg(test)]
+mod overlay_target_gpu_tests;
+#[cfg(test)]
 mod overlay_tests;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};

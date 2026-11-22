@@ -62,6 +62,12 @@ namespace Disunity.Native
         public float effect_g;
         public float effect_b;
         public float effect_a;
+        /// <summary>
+        ///  0 when `DisunityQuad::texture` is a stored image identity (graphics) or a coverage index
+        ///  (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
+        /// </summary>
+        public uint texture_kind;
+        public uint padding;
     }
 
 }

@@ -19,7 +19,9 @@ cargo run -p worldrunner-play -- breakout --frames 300 --fixed-dt 20 --key 30:a:
 - `--key FRAME:KEY:down|up`: Press or release a key before frame FRAME.
   Keys are lowercase names: letters, digits, `f1` to `f12`, `space`, `enter`, `escape`, `backspace`, `tab`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `shift`, `control` and `alt` (the left keys), `capslock`, `numlock`, `scrolllock`, `pause` and the punctuation keys.
   They reach the game as the standard `KeyCode` values.
-- `--capture FRAME:FILE`: Write frame FRAME as it was presented to an RGB PNG.
+- `--capture FRAME:FILE`: Write the frame presented after game frame FRAME to an RGB PNG.
+  The game waits for the capture, so the image is that game frame's, with that frame's UI.
+  A FRAME that is not among the `--frames` run is refused before the game starts.
 - `--seed N`: Seed the game's `Random` before the scene loads, so runs with `--fixed-dt` and the same keys repeat exactly.
   Without it, as in Unity, each run differs.
 - `--font FILE`: The TrueType file to use for Unity's built-in Arial.
@@ -56,14 +58,15 @@ Builds go to `target/play/player`, and game assemblies that give native code del
 A player that imports a native library it does not ship for this platform, such as Old World's Wwise `AkSoundEngine`, loads its own `Plugins` file when there is one and otherwise the engine's substitute from the engine library's directory (the silent Wwise library, which `--player` builds there).
 See "Player native plugins" in `docs/unity-projects.md`.
 
-`--report-each-frame` prints the GPU report after every frame of a headless run, not only at the end (the counts are the run's so far, except the stand-in census, which is the frame's own).
-`--screen FRAME:FILE.png` (repeatable, like `--capture`) writes the composed frame from a headless run, the frame a window's `--capture` shows at that size: after the GPU work of frame FRAME (counting from 0), the newest image of the screen with the game's UI over it goes to FILE as an RGB PNG, at `--size` (the window's default, 1920x1080, when it is not given).
-The screen is what a command buffer's `CameraTarget` draws into when no camera texture names it, so the option needs a game whose scripts draw into the screen; it takes no `--key` or `--capture`, which make a window, and a FRAME that is not among the `--frames` run is refused before the scene starts.
-A FRAME whose work drew nothing into the screen gets the image of the last frame that did, and an error when none has.
-The UI is the screen-space overlay the world holds at FRAME, laid out for the screen's size, drawn by the viewer's own overlay renderer (see "Headless screen frames" below); a world with no overlay canvas gives the screen as it is.
+`--report-each-frame` prints the GPU report after every game frame of a run, in a window or not, not only at the end (the counts are the run's so far, except the stand-in census, which is the frame's own).
+`--screen FRAME:FILE.png` (repeatable, like `--capture`, and several files may name one frame) plays the run in a windowless host with no display and writes the image after game frame FRAME (counting from 0) to FILE as an RGB PNG: the newest image of the screen with the game's UI over it, at `--size` (the window's default, 1920x1080, when it is not given).
+It takes `--frames` (one by default) and `--fixed-dt` (60 Hz by default) like a window run, and no `--key` or `--capture`, which make a window.
+The screen is what a command buffer's `CameraTarget` draws into when no camera texture names it, so the option needs a game whose scripts draw into the screen.
+A FRAME that is not among the `--frames` run is refused before the scene starts.
+A FRAME whose work drew nothing into the screen gets the image of the last frame that did, and an error (`no screen image after frame N`) when none has.
+The UI is the screen-space overlay the world holds at FRAME, laid out for the screen's size (see "Windowless runs" below); a world with no overlay canvas gives the screen as it is.
 The player reads the same size as its `Screen`.
-Without `--screen` a headless run sets no screen and behaves as it always did.
-Before this option composed the UI, `--screen` wrote the screen alone, so a still from an earlier run shows the game without its HUD; there is no option for the bare screen.
+A run without `--screen`, `--size`, `--capture` or `--key` has no viewer and no screen: it advances the game and does its offscreen work on the player's own device.
 
 ### Depth range
 
@@ -112,21 +115,23 @@ A run that is not a `--player` run (an original game) has no offscreen work, so 
 The path is `PlayerLaunch::globals` to `PreparedPlayer::globals` to `PlayerGpu::headless` (`PlayerGpu::shared` for a window, through `window_gpu`) to `Settings::supplied` to `Mapper::new`.
 `tests/supplied_gpu.rs` draws a synthetic shader that writes a constant-buffer member named `unity_LightData` as colour on lavapipe: it reads 0 with no option, the supplied value with the option, and the recorded value when the script records the same name.
 
-## Headless screen frames
+## Windowless runs
 
-`play --player DATA --screen FRAME:FILE.png` writes the frame a window shows, not the screen texture alone.
-The game's overlay UI is drawn by `render-scene`'s `UiOverlay` in the viewer's retained session, the only UI renderer, so the headless run uses that session instead of drawing the UI itself (`player_screen_ui.rs`, next to `player_ui.rs`, which turns the world's `UiPresentation` into the `UiOverlay` for both the window and this run):
+`play --player DATA --screen FRAME:FILE.png` runs the window's driver without a window.
+`play_player_windowless` makes the viewer's `SharedGpu` (`SharedGpu::headless`, so there is no event loop and no display), builds `PlayerGpu` on its device with `window_gpu` and `SharedDevice`, and plays the scene in `RetainedHost::windowless` with the same `PlayerRetainedDriver` and `WindowScript` that `play_player_window` runs, so there is one path from the world to a captured frame.
+The loop calls `WindowlessRetained::frame` and `poll` until the script closes the session, and fails when no frame is submitted for five minutes or a capture does not arrive in that time.
+The viewer renders at a fixed time (`RenderClock::Fixed`), so a frame does not depend on the wall clock.
 
-* The run makes its device through `SharedGpu` (`ScreenDevice`), the way a window makes it through `ViewerStart`, and builds `PlayerGpu` on it with `window_gpu` (`PlayerGpu::shared`).
-  The player's frames keep the headless submit-and-wait path, so the screen image, the report and the errors are the headless run's own.
-* `ScreenDevice::compose` starts a windowless `RetainedHost` session on that device with an empty scene, sized to the screen.
-* At a listed frame the composer sends `PlayerUi::update` the frame's `UiPresentation`, with the textures its graphics name converted by `PlayerTextures::refresh`, as `PlayerRetainedDriver::step` does.
-  It offers the screen texture to the viewer with `PlayerGpu::written_screen`, the screen as submitted work wrote it, takes one capture of the session and writes it as an RGB PNG.
-  The viewer samples the screen in its opaque pass and draws the UI over it in the same submission as a window frame, and nothing is copied through the CPU between them.
-* A run with a screen exports the presentation at the screen's size (a run without one keeps 960x540), because the UI snapshot is laid out for the size of the last export.
+Frame N is the image after game frame N.
+The script counts game frames, not the viewer's updates.
+After it asks for the capture of frame N it holds the game, the lights, the UI and the camera as they are until the capture arrives, so the image is N's even when the viewer takes several frames to be ready for it, and `--frames` counts game frames.
+The UI is the frame's `UiPresentation` converted by `PlayerUi`, as in a window, with the render textures it reads offered from the player's device (`PlayerGpu::ui_offers`).
+The viewer samples the screen in its opaque pass and draws the UI over it in the same submission, and nothing is copied through the CPU between them.
+A windowless run that asks for a frame no work had drawn the screen by fails with `no screen image after frame N`: the viewer would show its stock scene in the screen's place, which is not a frame of the game.
+A window shows the stock scene until the game draws.
 
-The composition runs at the frames named, not at every frame, so a screen run costs one viewer frame for each file written.
-A frame whose work drew nothing into the screen is an error, as before: the viewer would show its stock scene in the screen's place, which is not a frame of the game.
+The run prints `[player] ran N frames` and `[player] frame time: first X, mean Y, slowest Z, N frames` as a headless run does.
+The time of a game frame runs from its update to its presented frame, or to its capture when it asked for one, and the viewer overlaps the GPU's work with the next update, so it is not the time of a submit-and-wait run.
 
 ## Offscreen work from a player
 
@@ -382,12 +387,9 @@ It persists from frame to frame like a render texture of the world, so a draw wi
 A target that names the camera target with no screen set is left out as `UnboundTarget`, as it was before.
 A `CameraRender` record always names a render texture, so it never draws into the screen; a camera with no texture draws through its command buffers.
 
-`OffscreenHost::screen_written` says whether work (a frame or a flush) has drawn into the screen's colour since the last read, and `OffscreenHost::read_screen` copies it back with the copy and read a `ReadPixels` uses, in a submission of its own that it waits for.
-The result is a `ScreenImage { width, height, rgba, frame }`: 8-bit RGBA as the sRGB texture stores it, rows top first (the GPU copy is bottom first, so its rows are turned over).
-A refusal (no screen, no room in the budget for the staging, a copy that cannot be read, a format that is not four 8-bit channels) is counted by its reason.
-Unlike a `ReadPixels`, a read of the screen gives no meshes or textures back to make room for its staging.
-`PlayerGpu::set_screen` sets the size, and `PlayerGpu::frame` reads the screen back when it was written, keeps the newest image for `PlayerGpu::screen`, and counts the readbacks and their refusals in `GpuWorkReport::screen_reads` and `screen_reads_refused` (one `[gpu] screen images read back ...` line in the report).
-`ScreenImage::write_png` writes an image as an RGB PNG.
+`OffscreenHost::screen_written` says whether work (a frame or a flush) has drawn into the screen's colour since the last `take_screen_written`.
+`PlayerGpu::set_screen` sets the size, and `PlayerGpu::frame_for_viewer` and `PlayerGpu::frame` number the screen with the frame whose work or flush drew into it (`PlayerGpu::drawn_screen`).
+`OffscreenHost::read_screen` copies the screen back with the copy and read a `ReadPixels` uses, in a submission of its own that it waits for, as a `ScreenImage { width, height, rgba, frame }` with rows top first; only tests use it, to read what a draw left in the screen.
 
 The window sets the screen size before the scene loads and applies a resize before advancing the managed update, so a synchronous flush in that update writes the current screen allocation.
 The player offers the screen texture to the viewer as `GAME_SCREEN` in the same submission as the admitted operations that write it.
@@ -395,7 +397,7 @@ The viewer samples that bottom-first sRGB texture in its opaque pass, then draws
 A later frame can display a screen written by an earlier submitted viewer frame or by a synchronous player flush; replacing a pending writer discards its write.
 Until submitted work writes the current allocation, the stock scene stays visible.
 Ordinary window frames require no screen readback or sprite upload.
-A requested window capture reads the composed output, including the UI.
+A requested window capture reads the composed output, including the UI, and holds the game until it arrives.
 
 ### Wiring a frame
 
@@ -408,17 +410,17 @@ The flush handler reads meshes, textures and samplers through `GpuFlush` (`mesh_
 `tests` in `gpu_flush_tests.rs` runs a managed fixture whose flush reads a stored texture, its sampler and a stored mesh with no frame before it.
 
 `play_player_window` (the windowed built player, used when `play --player` gets `--size`, `--capture` or `--key`) runs the same offscreen work and answers the same synchronous flushes as the headless run.
-It makes the viewer's `ViewerStart` first and builds its `PlayerGpu` on the one device the viewer makes (`PlayerGpu::shared`; a machine whose device cannot be made fails the run naming the reason), installs it before the scene loads, calls `PlayerGpu::frame_for_viewer` once per update after the frame's meshes are refreshed and before the frame's UI and textures go to the viewer, and prints the `[gpu]` report when the window closes.
+It makes the viewer's `ViewerStart` first and builds its `PlayerGpu` on the one device the viewer makes through `ViewerStart::gpu` (`PlayerGpu::shared`; a machine whose device cannot be made fails the run naming the reason), installs it before the scene loads, calls `PlayerGpu::frame_for_viewer` once per update after the frame's meshes are refreshed and before the frame's UI and textures go to the viewer, and prints the `[gpu]` report when the window closes.
 `frame_for_viewer` builds the frame's operations and returns them without submitting or waiting; the driver hands them to `RetainedHost::admit_offscreen`, and the viewer runs them and samples any exported `GAME_SCREEN` in its opaque pass in the same submission, through the same authority.
 Storage the GPU has finished with is freed by the non-blocking `OffscreenHost::collect_completed`, and a frame that must give meshes, textures or render textures back for room collects only what the GPU has finished (`Settling::Poll`): the bytes of the viewer's work still in flight stay counted, and an allocation they leave without room is refused as over budget until a later frame collects them.
-The synchronous paths (`PlayerGpu::frame`, a flush and a screen read) wait (`Settling::Wait`).
+The synchronous paths (`PlayerGpu::frame`, which only a run with no viewer uses, and a flush) wait (`Settling::Wait`).
 The window samples a frame's screen in that same submission.
 A script's synchronous flush still runs and waits in its own submission, between the viewer's frames.
 A script's `Texture2D.ReadPixels` after a `Graphics.Blit` therefore fills its texture, and `Apply` stores the new texels under a higher generation, which `PlayerTextures::refresh` and the UI's image generations pick up in the same frame.
 What the player asks of an adapter (storage images, buffer size from the storage budget, block compression, filterable 32-bit floats) is one function in `gpu_device.rs`, used by the headless player, the compute census and the window.
 Each startup snapshots the requested storage budget and host `MemAvailable` once, so repeated device requests in that startup use identical inputs while retaining the adaptive budget policy.
-The original games' driver (`play_game_window`) draws 2D worlds through `RetainedUpdate::World`, has no player GPU and runs no offscreen work. Both drivers share the window script (`window_script.rs`): scheduled keys, the step of each update, requested captures and the update after which the window closes.
-Headless runs without `--screen` keep the player's own device and its submit-and-wait path (`gpu_player/frame.rs`); a `--screen` run keeps that path for its frames and makes its device through the viewer instead (see "Headless screen frames").
+The original games' driver (`play_game_window`) draws 2D worlds through `RetainedUpdate::World`, has no player GPU and runs no offscreen work. Both drivers share the window script (`window_script.rs`): scheduled keys and the step of each game frame, requested captures with the hold that keeps a capture to its frame, and the frame after which the window closes.
+A run with no viewer (no `--size`, `--capture`, `--key` or `--screen`) keeps the player's own device and its submit-and-wait path (`gpu_player/frame.rs`) to measure the game and its GPU work; every run that shows a frame goes through the retained host (see "Windowless runs").
 
 `play_player_window` draws built-player mesh objects and screen-space overlay UI
 through the retained scene renderer.
@@ -516,11 +518,12 @@ text, clipping and unchanged-frame UI update counts without opening a window.
 `retained_gpu_tests.rs` plays the portable readback fixture the same way with the offscreen work on a device: a script blits a colour with no material, reads it back into a `Texture2D` and shows it in a UI image, and the captured frames show the first colour and, after a later `Update`, the second.
 
 `retained_screen_tests.rs` runs a script that clears `CameraTarget` to yellow.
-It checks every pixel of the first and fourth window captures, the player's screen readback count.
+It checks every pixel of the first and fourth window captures and that the update with the script's clears numbered the screen.
 A separate managed readback fixture checks that the first update after a resize flushes into the new screen allocation before any viewer submission.
 `offscreen/tests/reclaim/pending_completion.rs` holds completion bookkeeping after GPU execution and checks that an evicted texture remains charged until completion is recorded, then releases exactly its bytes and admits the next upload.
 Viewer and compositor tests cover row order, UI ordering, dropped writers and resize.
-`player_screen_tests.rs` runs the same fixture headless with `run_player_screens` and decodes the PNGs it writes; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of the written frame, the rectangle in the upper left and yellow elsewhere.
+`screen_run_tests.rs` runs the fixtures through `play_player_windowless`: the same fixture checks every pixel of frames 0 and 2; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of frame 1, the rectangle in the upper left and yellow elsewhere; a third (`screen-count.fixture`) clears the screen to a different colour and moves the rectangle in every update, so the captures of frames 1 to 3 show which game frame drew them; a frame with no drawn screen and a frame past the run are refused.
+`window_script_tests.rs` checks without a game or a viewer which updates advance the game, hold it or end the run.
 `offscreen/tests/draw_mesh/screen.rs` draws a mesh over the top half of the screen on a real adapter and reads the top rows back first, then draws again with no clear (what the first left stays), and resizes the screen.
 `offscreen/tests/screen.rs` pins the mapping without a device: the camera target binds the screen's colour and depth when a screen is set, the textures are described as held targets of its size, and without a screen the same records are still left out as `UnboundTarget`.
 

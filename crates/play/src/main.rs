@@ -1,15 +1,16 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
-//! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
+//! its 3D objects when `--size`, `--capture` or `--key` is given, in a windowless host that writes
+//! the frames `--screen` names, and with no viewer otherwise.
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, key_code, play_game_window, play_player_window, prepare, prepare_player,
-    run_player_screens,
+    Capture, Game, PlayerLaunch, PlayerWindow, ScheduledKey, StandInLook, SuppliedGlobal, key_code,
+    play_game_window, play_player_window, play_player_windowless, prepare, prepare_player,
+    run_player,
 };
 
 /// The window a player opens in when `--size` is not given.
@@ -33,7 +34,7 @@ struct Arguments {
     fixed_dt: Option<Duration>,
     keys: Vec<ScheduledKey>,
     captures: Vec<(u64, PathBuf)>,
-    /// The frames of a headless player run whose composed frame is written, and the files.
+    /// The frames of a windowless player run whose image is written, and the files.
     screens: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
@@ -169,12 +170,13 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 }
 
 /// Starts a player's scene, `level0` unless `--scene` names another. With `--size`,
-/// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
-/// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
-/// Each `--arg` is one argument of the player's command line, after its executable path.
-/// With `--screen` the run is headless, at `--size` (else the window's default), and writes
-/// after each frame named the composed frame: the screen the player's offscreen work drew into
-/// with the game's UI over it, as a window's capture shows it.
+/// `--capture` or `--key` it plays in a window like an original game; with `--screen` it plays
+/// the same driver in a windowless host, at `--size` (else the window's default) with no display,
+/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default), and writes the
+/// frame each `--screen` names: the image after that game frame, the screen the player's
+/// offscreen work drew into with the game's UI over it. Otherwise it runs with no viewer for
+/// `--frames` frames of the same step. Each `--arg` is one argument of the player's command line,
+/// after its executable path.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());
@@ -185,8 +187,8 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         && (arguments.size.is_some()
             || !arguments.keys.is_empty()
             || !arguments.captures.is_empty());
-    // The window opens at `--size`, else at `WINDOW_SIZE`; a headless run
-    // that writes the screen has the same size, which the player reads as its own screen.
+    // The window opens at `--size`, else at `WINDOW_SIZE`; a windowless run that writes the
+    // screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
@@ -198,32 +200,33 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         report_each_frame: arguments.report_each_frame,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
-    if windowed {
-        let window = PlayerWindow {
-            title: format!("Disunity: {}", data.display()),
-            size,
-            fixed_dt: arguments.fixed_dt,
-            max_frames: arguments.frames,
-            capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
-            keys: arguments.keys.clone(),
-        };
-        let captured = play_player_window(&prepared, &window).map_err(|error| error.to_string())?;
-        return write_captures(&captured, &arguments.captures);
-    }
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    let output = screens.then(|| ScreenOutput {
+    let window = |frames: Option<u64>, requested: &[(u64, PathBuf)], fixed_dt| PlayerWindow {
+        title: format!("Disunity: {}", data.display()),
         size,
-        files: arguments.screens.clone(),
-    });
-    run_player_screens(
-        &prepared,
-        arguments.frames.unwrap_or(1),
-        dt,
-        output.as_ref(),
-    )
-    .map_err(|error| error.to_string())
+        fixed_dt,
+        max_frames: frames,
+        capture_frames: requested.iter().map(|(frame, _)| *frame).collect(),
+        keys: arguments.keys.clone(),
+    };
+    if screens {
+        let window = window(
+            Some(arguments.frames.unwrap_or(1)),
+            &arguments.screens,
+            Some(dt),
+        );
+        let captured =
+            play_player_windowless(&prepared, &window).map_err(|error| error.to_string())?;
+        return write_captures(&captured, &arguments.screens);
+    }
+    if windowed {
+        let window = window(arguments.frames, &arguments.captures, arguments.fixed_dt);
+        let captured = play_player_window(&prepared, &window).map_err(|error| error.to_string())?;
+        return write_captures(&captured, &arguments.captures);
+    }
+    run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
 }
 
 /// Plays `prepared` in a window of `--size` (else `size`) and writes the requested captures.
@@ -245,25 +248,25 @@ fn play_game(
     write_captures(&captured, &arguments.captures)
 }
 
-/// Writes each captured frame to the file requested for it, and fails when a requested frame
+/// Writes each captured frame to every file requested for it, and fails when a requested frame
 /// was never presented.
 fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<(), String> {
-    for capture in captured {
-        let (_, file) = requested
-            .iter()
-            .find(|(frame, _)| *frame == capture.frame)
-            .expect("requested capture");
+    let mut missing = 0;
+    for (frame, file) in requested {
+        let Some(capture) = captured.iter().find(|capture| capture.frame == *frame) else {
+            missing += 1;
+            continue;
+        };
         capture.write_png(file).map_err(|error| error.to_string())?;
-        println!("frame {} captured to {}", capture.frame, file.display());
+        println!("frame {frame} captured to {}", file.display());
     }
-    let missing = requested.len() - captured.len();
     if missing > 0 {
         return Err(format!("{missing} requested frames were not presented"));
     }
     Ok(())
 }
 
-/// A screen image comes from a headless player run.
+/// A screen image comes from a windowless player run.
 fn check_screens(arguments: &Arguments) -> Result<(), String> {
     if arguments.screens.is_empty() {
         return Ok(());
@@ -273,7 +276,7 @@ fn check_screens(arguments: &Arguments) -> Result<(), String> {
     }
     if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
         return Err(
-            "--screen writes from a headless run, which takes no --key or --capture".into(),
+            "--screen writes from a windowless run, which takes no --key or --capture".into(),
         );
     }
     Ok(())
@@ -632,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn a_screen_belongs_to_a_headless_player_run() {
+    fn a_screen_belongs_to_a_windowless_player_run() {
         let screen = ["--player", "Game_Data", "--screen", "0:a.png"];
         assert!(checked(&screen).is_ok());
         assert!(checked(&[&screen[..], &["--size", "64x32", "--frames", "2"]].concat()).is_ok());
@@ -647,6 +650,48 @@ mod tests {
             );
         }
         assert!(checked(&["--player", "Game_Data", "--capture", "0:w.png"]).is_ok());
+    }
+
+    fn capture(frame: u64) -> worldrunner_play::Capture {
+        worldrunner_play::Capture {
+            frame,
+            width: 2,
+            height: 1,
+            pixels: vec![255, 0, 0, 255, 0, 0, 255, 255],
+        }
+    }
+
+    #[test]
+    fn a_captured_frame_is_written_to_every_file_asked_for_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let (first, second, other) = (
+            directory.path().join("a.png"),
+            directory.path().join("b.png"),
+            directory.path().join("c.png"),
+        );
+        let requested = [(3, first.clone()), (3, second.clone()), (5, other.clone())];
+
+        super::write_captures(&[capture(3), capture(5)], &requested).expect("written");
+
+        for file in [&first, &second, &other] {
+            assert!(file.exists(), "{}", file.display());
+        }
+    }
+
+    #[test]
+    fn a_requested_frame_that_was_not_captured_is_an_error_after_the_others_are_written() {
+        let directory = tempfile::tempdir().unwrap();
+        let (written, missing) = (
+            directory.path().join("a.png"),
+            directory.path().join("b.png"),
+        );
+        let requested = [(3, written.clone()), (4, missing.clone())];
+
+        let error = super::write_captures(&[capture(3)], &requested).unwrap_err();
+
+        assert_eq!(error, "1 requested frames were not presented");
+        assert!(written.exists());
+        assert!(!missing.exists());
     }
 
     #[test]

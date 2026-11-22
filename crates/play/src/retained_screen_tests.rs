@@ -15,10 +15,12 @@ use worldrunner_scene_viewer::{RetainedInput, SharedGpu};
 
 use crate::GpuLaunch;
 use crate::PreparedPlayer;
-use crate::gpu_device::headless::HeadlessViewer;
+use crate::gpu_device::{SharedDevice, headless};
 use crate::player::window_gpu;
 
 const SIZE: u32 = 64;
+/// The game frames a window of the screen fixture plays, the last of which is captured.
+const FRAMES: u64 = 4;
 const YELLOW: [u8; 3] = [255, 255, 0];
 
 fn window(capture_frames: &[u64]) -> PlayerWindow {
@@ -26,37 +28,35 @@ fn window(capture_frames: &[u64]) -> PlayerWindow {
         title: "windowless screen".into(),
         size: [SIZE, SIZE],
         fixed_dt: Some(Duration::from_millis(16)),
-        max_frames: None,
+        max_frames: Some(FRAMES),
         capture_frames: capture_frames.iter().copied().collect(),
         keys: vec![],
     }
 }
 
-/// Runs `frames` updates of `driver` in the windowless viewer, on `gpu`'s device, and waits for
-/// its captures. Returns how many submissions each update's frame made through `authority`, the
+/// Runs `driver` in the windowless viewer, on `gpu`'s device, until its script closes the
+/// session. Returns how many submissions each submitted frame made through `authority`, the
 /// authority of that device.
 fn run_frames(
     viewer: RetainedHost,
     driver: &mut PlayerRetainedDriver,
-    frames: u64,
     (gpu, authority): (SharedGpu, SubmissionAuthority),
 ) -> Vec<u64> {
     let mut run = viewer.windowless(driver, Some(gpu)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     let mut submissions = Vec::new();
-    for _ in 0..frames {
+    while !run.is_closed() {
         let before = authority.submitted_serial();
-        while !run.frame().unwrap() {
+        while !run.is_closed() && !run.frame().unwrap() {
             assert!(Instant::now() < deadline, "frame admission timed out");
             run.poll().unwrap();
             std::thread::yield_now();
         }
-        run.poll().unwrap();
+        if !run.is_closed() {
+            run.poll().unwrap();
+        }
         submissions.push(authority.submitted_serial() - before);
-    }
-    while run.poll().unwrap() {
-        assert!(Instant::now() < deadline, "capture timed out");
-        std::thread::yield_now();
+        assert!(Instant::now() < deadline, "the run timed out");
     }
     run.shutdown().unwrap();
     submissions
@@ -84,12 +84,19 @@ fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
         data: data.path().to_owned(),
         gpu: GpuLaunch::default(),
     };
-    let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
-        .expect("the test needs a GPU adapter");
-    let authority = source.authority();
-    let (viewer, mut driver) = start_window(&prepared, &window(&[0, 3]), gpu).unwrap();
-    let submissions = run_frames(viewer, &mut driver, 4, (source.gpu, authority));
+    let (mut shared, options) = headless::shared([SIZE, SIZE]);
+    let gpu = window_gpu(
+        &prepared.data,
+        &prepared.gpu,
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )
+    .expect("the test needs a GPU adapter");
+    let authority = headless::authority(&mut shared, &options);
+    let (viewer, mut driver) = start_window(&prepared, &window(&[0, 3]), options, gpu).unwrap();
+    let submissions = run_frames(viewer, &mut driver, (shared, authority));
     (driver, submissions)
 }
 
@@ -116,10 +123,12 @@ fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
         (SIZE, SIZE),
         "the window's size"
     );
-    assert!(gpu.screen().is_none(), "no image of the screen was made");
+    assert_eq!(
+        gpu.drawn_screen(),
+        Some(0),
+        "the update that carries the script's clears drew into the screen"
+    );
     let report = gpu.report();
-    assert_eq!(report.screen_reads, 0, "a window frame reads nothing back");
-    assert!(report.screen_reads_refused.is_empty());
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     assert_eq!(
         submissions[0], submissions[2],
@@ -138,10 +147,17 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         data: data.path().to_owned(),
         gpu: GpuLaunch::default(),
     };
-    let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
-        .expect("the test needs a GPU adapter");
-    let (mut viewer, mut driver) = start_window(&prepared, &window(&[]), gpu).unwrap();
+    let (mut shared, options) = headless::shared([SIZE, SIZE]);
+    let gpu = window_gpu(
+        &prepared.data,
+        &prepared.gpu,
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )
+    .expect("the test needs a GPU adapter");
+    let (mut viewer, mut driver) = start_window(&prepared, &window(&[]), options, gpu).unwrap();
 
     let resized = [SIZE * 2, SIZE];
     viewer.input(RetainedInput::Resized(resized));

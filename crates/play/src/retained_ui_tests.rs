@@ -1,6 +1,6 @@
 use super::*;
 use crate::GpuLaunch;
-use crate::gpu_device::headless::HeadlessViewer;
+use crate::gpu_device::{SharedDevice, headless};
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
 
@@ -68,14 +68,21 @@ fn fixture_host() -> DisunityHost {
 fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_updates() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
-    let mut source = HeadlessViewer::new([64, 64]);
-    let gpu = crate::player::window_gpu(data.path(), &GpuLaunch::default(), &mut source)
-        .expect("the test needs a GPU adapter");
+    let (mut shared, options) = headless::shared([64, 64]);
+    let gpu = crate::player::window_gpu(
+        data.path(),
+        &GpuLaunch::default(),
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )
+    .expect("the test needs a GPU adapter");
     let window = PlayerWindow {
         title: "windowless player UI".into(),
         size: [64, 64],
         fixed_dt: Some(Duration::from_millis(16)),
-        max_frames: None,
+        max_frames: Some(2),
         capture_frames: BTreeSet::from([0, 1]),
         keys: vec![],
     };
@@ -86,21 +93,22 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
             .unwrap()
             .0,
         gpu,
+        false,
     )
     .unwrap();
     let scene = SceneTables::initial_scene(None).unwrap();
-    let host = RetainedHost::new(scene, viewer_options(&window)).unwrap();
-    let mut run = host.windowless(&mut driver, Some(source.gpu)).unwrap();
+    let host = RetainedHost::new(scene, options).unwrap();
+    let mut run = host.windowless(&mut driver, Some(shared)).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     run.frame().unwrap();
     let generation = run.host().accepted_generation();
-    for _ in 0..7 {
+    while !run.is_closed() {
+        assert!(Instant::now() < deadline, "the run timed out");
         run.frame().unwrap();
-        run.poll().unwrap();
+        if !run.is_closed() {
+            run.poll().unwrap();
+        }
         assert_eq!(run.host().accepted_generation(), generation);
-    }
-    while run.poll().unwrap() {
-        assert!(Instant::now() < deadline, "capture timed out");
         std::thread::yield_now();
     }
     run.shutdown().unwrap();

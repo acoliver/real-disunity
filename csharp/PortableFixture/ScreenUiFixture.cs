@@ -13,6 +13,12 @@ internal static class ScreenUiFixture
     internal static void Create()
     {
         ScreenFixture.Create();
+        AddOverlay();
+    }
+
+    /// <summary>The camera and the canvas with its green rectangle, which is returned so a script can move it.</summary>
+    internal static RectTransform AddOverlay()
+    {
         DisunityHost.CreateGameObject().AddComponent<Camera>().transform.position = new Vector3(0, 0, -10);
         var canvas = DisunityHost.CreateGameObject();
         var root = canvas.AddComponent<RectTransform>();
@@ -32,5 +38,6 @@ internal static class ScreenUiFixture
         var renderer = rect.gameObject.AddComponent<CanvasRenderer>();
         renderer.SetMesh(mesh);
         renderer.SetTexture(texture);
+        return rect;
     }
 }

@@ -1,38 +1,33 @@
 //! The screen: the colour texture a command buffer's `CameraTarget` draws into when no camera
-//! texture names it, and the image the host reads back from it.
+//! texture names it.
 //!
 //! The host keeps the screen's texture, a colour with a depth buffer, like a render texture of the
 //! world: it persists from frame to frame until the screen's size changes, so a draw with no clear
-//! keeps the colour and the depth an earlier frame left. Once a record has drawn into the colour, [`OffscreenHost::read_screen`] copies it
-//! back with the copy and read that answers a script's `ReadPixels` (see the `pixels` module).
+//! keeps the colour and the depth an earlier frame left. A run writes its screens from the texture
+//! itself (the viewer composes it with the UI on the GPU), so the host only notes
+//! that work drew into the colour ([`writes_screen`]).
 //!
-//! # Orientation
-//!
-//! The rows of the colour texture on the GPU are bottom first, as the `pixels` module documents.
-//! A [`ScreenImage`] holds its rows top first, the order an image is stored and shown in, so the
-//! rows of the copy are turned over.
-//!
-//! # What is refused
-//!
-//! A read is refused, and counted by its reason in the player's report, when no screen is set or
-//! the colour has no storage yet, the budget has no room for the copy, the copy cannot be read or
-//! the texture is not four 8-bit channels.
-//!
-//! [`OffscreenHost::read_screen`]: super::flush::OffscreenHost::read_screen
+//! Tests read what draws left in the screen back as a `ScreenImage`, with the copy and read that
+//! answers a script's `ReadPixels` (see the `pixels` module). The rows of the colour texture on the
+//! GPU are bottom first, as the `pixels` module documents; a `ScreenImage` holds its rows top
+//! first, the order an image is stored and shown in, so the rows of the copy are turned over. The
+//! read is refused, with its reason, when no screen is set or the colour has no storage yet, the
+//! budget has no room for the copy, the copy cannot be read or the texture is not four 8-bit
+//! channels.
 
-use std::path::Path;
-
+#[cfg(test)]
 use worldrunner_render_program::runtime::TargetImage;
 use worldrunner_render_program::unity::offscreen::frame::{Attachments, Record};
 
 use super::ids;
-use crate::{PlayError, driver::write_rgb_png};
 
 /// The screen's colour is not four 8-bit channels, the only form of a [`ScreenImage`].
+#[cfg(test)]
 pub const REFUSED_SCREEN_FORMAT: &str = "the screen is not four 8-bit channels";
 
 /// What the screen held after a frame's work: 8-bit RGBA texels as the sRGB colour texture stores
 /// them, rows top first.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScreenImage {
     pub width: u32,
@@ -43,6 +38,7 @@ pub struct ScreenImage {
     pub frame: u64,
 }
 
+#[cfg(test)]
 impl ScreenImage {
     /// The image of a copy of the screen's colour, whose rows are bottom first.
     ///
@@ -77,15 +73,6 @@ impl ScreenImage {
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let at = (y as usize * self.width as usize + x as usize) * 4;
         std::array::from_fn(|channel| self.rgba[at + channel])
-    }
-
-    /// Writes the image as an RGB PNG, as a captured window frame is written: the screen is
-    /// shown opaque, so the alpha a camera's clear left is not part of the picture.
-    ///
-    /// # Errors
-    /// Fails when the file cannot be written.
-    pub fn write_png(&self, path: &Path) -> Result<(), PlayError> {
-        write_rgb_png(path, [self.width, self.height], &self.rgba)
     }
 }
 
@@ -170,29 +157,6 @@ mod tests {
         assert_eq!(
             ScreenImage::from_gpu_rows(&short, 0),
             Err(REFUSED_SCREEN_FORMAT)
-        );
-    }
-
-    #[test]
-    fn a_png_holds_the_images_texels_with_the_top_row_first() {
-        let image =
-            ScreenImage::from_gpu_rows(&copy(3, wgpu::TextureFormat::Rgba8UnormSrgb), 0).unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("screen.png");
-
-        image.write_png(&path).unwrap();
-
-        let mut reader =
-            png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&path).unwrap()))
-                .read_info()
-                .unwrap();
-        let mut found = vec![0; reader.output_buffer_size().unwrap()];
-        let info = reader.next_frame(&mut found).unwrap();
-        assert_eq!((info.width, info.height), (2, 3));
-        assert_eq!(info.color_type, png::ColorType::Rgb);
-        assert_eq!(
-            found[..info.buffer_size()],
-            [4, 4, 4, 5, 5, 5, 2, 2, 2, 3, 3, 3, 0, 0, 0, 1, 1, 1]
         );
     }
 }

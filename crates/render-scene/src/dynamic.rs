@@ -27,7 +27,8 @@ mod gpu;
 mod sampling;
 mod unlit;
 pub(crate) mod validation;
-pub(crate) use gpu::{DynamicBindings, DynamicGpu, QuadTarget, SceneStaging};
+pub(crate) use gpu::{DynamicBindings, DynamicGpu, ExternalTexture, QuadTarget, SceneStaging};
+pub(crate) use sampling::create_sampler;
 pub(crate) use unlit::UnlitRuntime;
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.

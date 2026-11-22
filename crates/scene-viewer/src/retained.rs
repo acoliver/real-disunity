@@ -289,6 +289,8 @@ pub struct RetainedHost {
     pub(crate) offscreen: Option<PendingOffscreen>,
     /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
     pub(crate) game_screen: Option<crate::GameScreen>,
+    /// The render textures of the player the UI draws read, which the overlay binds.
+    pub(crate) ui_targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -631,6 +633,19 @@ impl RetainedHost {
     /// [`crate::ViewerError::UnsupportedScene`] while the screen can replace that scene.
     pub fn show_game_screen(&mut self, screen: Option<crate::GameScreen>) {
         self.game_screen = screen;
+    }
+
+    /// Offers the device textures of the render textures the UI draws read, replacing the earlier
+    /// offer. The overlay binds them for the frames the viewer renders next: a texture of an id
+    /// the overlay reads is sampled after the frame's own offscreen operations, in the same
+    /// submission, so what those wrote is what the UI shows. An id with no offered texture, or
+    /// whose texture has no storage yet, draws as transparent black, and a texture no longer
+    /// offered is let go of when the next frame stages the overlay again.
+    pub fn show_ui_textures(
+        &mut self,
+        targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
+    ) {
+        self.ui_targets = targets;
     }
 
     /// Runs once on the main thread, on the event loop `start` made and on the device it made, if

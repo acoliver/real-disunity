@@ -22,6 +22,7 @@ mod shared;
 pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
+mod ui_targets;
 mod windowless;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_program::offscreen::PendingOffscreen;
@@ -288,6 +289,13 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // The offer comes first: capture preparation refuses what a screen frame cannot supply,
         // and it does so before the frame takes the host's queued operations.
+        if let Some(host) = host.as_deref() {
+            self.streaming.ui.offer(
+                &self.context,
+                (&mut self.resident, &mut self.presentation),
+                &host.ui_targets,
+            )?;
+        }
         self.game_screen
             .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
         let capture::HostCapture {

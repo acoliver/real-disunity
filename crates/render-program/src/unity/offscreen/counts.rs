@@ -14,6 +14,9 @@ pub(super) struct DrawCounts {
     /// Draws left out because no layer names a structured buffer the pass reads, by the buffer
     /// property.
     pub(super) missing_buffers: std::collections::BTreeMap<String, usize>,
+    /// The texture property names the slots of the planned draws looked up in the layers, found or
+    /// not.
+    pub(super) texture_lookups: std::collections::BTreeSet<String>,
     /// Draws that read a stand-in texture, in all and by (texture property, reason).
     pub(super) stand_in_draws: usize,
     pub(super) stand_ins: std::collections::BTreeMap<(String, String), usize>,
@@ -58,6 +61,13 @@ impl DrawCounts {
             program_time,
             ..before
         };
+    }
+
+    /// Notes that a draw's slot looked up the texture property `name`.
+    pub(super) fn note_texture_lookup(&mut self, name: &str) {
+        if !self.texture_lookups.contains(name) {
+            self.texture_lookups.insert(name.to_owned());
+        }
     }
 
     /// Counts one draw that read a stand-in texture for each of `stand_ins`, as one draw with

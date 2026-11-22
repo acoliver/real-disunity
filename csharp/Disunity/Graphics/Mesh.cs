@@ -54,7 +54,9 @@ public partial class Mesh : Object
         Changed();
     }
 
-    /// <summary>The engine's choice: the data stays as it is, because reordering has no effect without a GPU upload.</summary>
+    /// <summary>Optimizing for vertex cache order reorders vertices and indices without changing the triangles. The mesh keeps
+    /// its vertex and index order as they are, so it describes the same triangles in the order they were set; the same holds
+    /// for <see cref="OptimizeIndexBuffers"/> and <see cref="OptimizeReorderVertexBuffer"/>.</summary>
     public void Optimize()
     {
     }

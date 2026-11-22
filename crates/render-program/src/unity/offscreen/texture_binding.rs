@@ -141,6 +141,7 @@ impl Services<'_> {
                 what: "a texture no parameter names",
             })?;
         let name = target.name.resolve(&[])?;
+        self.counts.note_texture_lookup(name);
         let ChosenTexture { input, stand_in } = self.texture_input(spec, name, slot)?;
         if let Some(reason) = stand_in {
             plan.stand_ins.push((name.to_owned(), reason));

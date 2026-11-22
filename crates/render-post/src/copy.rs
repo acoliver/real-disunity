@@ -2,8 +2,8 @@ mod checked;
 use std::sync::{Arc, OnceLock};
 
 use crate::{
-    ExactSrgb8, FrameTargets, FullscreenDescriptor, PostError, Resources, Stage, StageFactory,
-    StageSet, StageTarget, fullscreen_pipeline,
+    FrameTargets, FullscreenDescriptor, PostError, Resources, Stage, StageFactory, StageSet,
+    StageTarget, fullscreen_pipeline,
 };
 
 /// No exposure, tone curve, bloom or filtering. The attachment format performs transfer encoding.
@@ -12,7 +12,6 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct CopyOutput {
     format: wgpu::TextureFormat,
-    exact: bool,
     bottom_first: bool,
     resources: Result<Arc<OnceLock<CopyResources>>, PostError>,
 }
@@ -21,7 +20,6 @@ impl CopyOutput {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         Self {
             format,
-            exact: false,
             bottom_first: false,
             resources: validate_output(device, format).map(|()| Arc::new(OnceLock::new())),
         }
@@ -34,17 +32,6 @@ impl CopyOutput {
         }
     }
 
-    /// Deterministic sRGB8 output from linear single-sample f32 composition.
-    /// Supply an `ExactSrgb8::write_view` or an `Rgba8Unorm` output view.
-    pub fn exact_srgb8(device: &wgpu::Device) -> Self {
-        Self {
-            format: ExactSrgb8::WRITE_FORMAT,
-            exact: true,
-            bottom_first: false,
-            resources: ExactSrgb8::frame_config(device, [1, 1]).map(|_| Arc::new(OnceLock::new())),
-        }
-    }
-
     /// Validate source and destination before allocating targets or pipeline storage.
     pub fn validate_config(
         &self,
@@ -52,9 +39,6 @@ impl CopyOutput {
         config: crate::FrameConfig,
     ) -> Result<(), PostError> {
         self.resources.as_ref().map_err(Clone::clone)?;
-        if self.exact && (config.format != ExactSrgb8::WORKING_FORMAT || config.samples != 1) {
-            return Err(PostError::ExactCompositionFormat);
-        }
         if !is_float(config.format, device.features()) {
             return Err(PostError::CopySourceFormat(config.format));
         }
@@ -109,8 +93,8 @@ impl CopyOutput {
         source: &wgpu::TextureView,
     ) -> Result<CopySource, PostError> {
         let resources = self.resources.as_ref().map_err(Clone::clone)?;
-        let resources = resources
-            .get_or_init(|| CopyResources::new(device, self.format, self.exact, self.bottom_first));
+        let resources =
+            resources.get_or_init(|| CopyResources::new(device, self.format, self.bottom_first));
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("post copy source"),
             layout: &resources.layout,
@@ -133,12 +117,7 @@ struct CopyResources {
 }
 
 impl CopyResources {
-    fn new(
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        exact: bool,
-        bottom_first: bool,
-    ) -> Self {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, bottom_first: bool) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post copy source"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -154,11 +133,7 @@ impl CopyResources {
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("post copy output"),
-            source: wgpu::ShaderSource::Wgsl(if exact {
-                concat!(include_str!("copy.wgsl"), include_str!("exact.wgsl")).into()
-            } else {
-                include_str!("copy.wgsl").into()
-            }),
+            source: wgpu::ShaderSource::Wgsl(include_str!("copy.wgsl").into()),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("post copy output"),
@@ -172,7 +147,7 @@ impl CopyResources {
                 layout: &pipeline_layout,
                 module: &module,
                 vertex_entry: "vertex",
-                fragment_entry: if exact { "fragment_exact" } else { "fragment" },
+                fragment_entry: "fragment",
                 format,
                 constants: if bottom_first {
                     &[("bottom_first", 1.0)]

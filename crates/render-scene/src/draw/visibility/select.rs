@@ -4,7 +4,8 @@
 //! placement in them as before, and emits the admitted slots in ascending order, so ranges,
 //! levels and statistics equal those of a scan over every slot. A placement's level and fade
 //! outcome depend on the eye and not on the view, so every view of a frame shares them
-//! through each batch's level memo.
+//! through each batch's level memo, which keeps a level while the eye stays near where it
+//! was computed.
 use std::cell::RefCell;
 use std::ops::Range;
 
@@ -19,7 +20,7 @@ use super::{
 };
 use crate::draw::slice_hull::LightMap;
 use crate::instances::fade::Fade;
-use crate::instances::slot_bounds::{Level, LevelKey, Node, SlotBounds};
+use crate::instances::slot_bounds::{Computed, Level, LevelKey, Node, SlotBounds};
 use crate::instances::{BatchKey, Instances, LayoutStamp};
 
 /// What every view of one frame selects from. It holds only shared references to plain data
@@ -33,8 +34,9 @@ pub(in crate::draw) struct Placements<'a> {
     relief: bool,
     eye_millimeters: [i64; 3],
     fade_eye: Vec3,
-    /// The epoch under which the batches' level memos hold the outcomes for this eye.
-    epoch: u8,
+    /// How far the eye has travelled, which tells whether an entry of a batch's level memo
+    /// still holds for this eye.
+    travelled: u64,
     /// Live placements in every batch, which every view considers.
     live: usize,
 }
@@ -165,7 +167,7 @@ pub(in crate::draw) fn with_placements<R>(
         fade_cull_disabled,
     };
     placement::refresh_all(instances, meshes);
-    let epoch = instances.level_epoch(key);
+    let travelled = instances.eye_travel(key);
     let borrowed: Vec<_> = instances
         .batches
         .values()
@@ -201,7 +203,7 @@ pub(in crate::draw) fn with_placements<R>(
             .any(|extent| extent[1] != 0.0),
         eye_millimeters,
         fade_eye,
-        epoch,
+        travelled,
         live: rows.live,
     };
     select(&placements)
@@ -401,29 +403,41 @@ impl Placements<'_> {
 
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
-        batch.bounds.levels().get_or_compute(self.epoch, slot, || {
-            let (object, _) = batch.placements[slot].as_ref().expect("live instance");
-            let inputs = batch.bounds.inputs(slot);
-            let distance = distance_squared(
-                object.transform().position_millimeters,
-                self.eye_millimeters,
-            );
-            let lod = MeshSelection::level(distance, inputs.ceilings);
-            if !self.fade_cull_disabled
-                && batch.fade_reach.applies(inputs.fade.band)
-                && self.meshes[batch.key.1].fade_empty(
-                    self.fades,
-                    object.material(),
-                    &inputs,
-                    lod,
-                    self.fade_eye,
-                )
-            {
-                Level::Faded
-            } else {
-                Level::Drawn(lod)
-            }
-        })
+        batch
+            .bounds
+            .levels()
+            .get_or_compute(self.travelled, slot, || {
+                let (object, _) = batch.placements[slot].as_ref().expect("live instance");
+                let inputs = batch.bounds.inputs(slot);
+                let distance = distance_squared(
+                    object.transform().position_millimeters,
+                    self.eye_millimeters,
+                );
+                let lod = MeshSelection::level(distance, inputs.ceilings);
+                if batch.fade_reach.applies(inputs.fade.band) {
+                    // A fade can change with any step of the eye, so it holds for this eye alone.
+                    let faded = !self.fade_cull_disabled
+                        && self.meshes[batch.key.1].fade_empty(
+                            self.fades,
+                            object.material(),
+                            &inputs,
+                            lod,
+                            self.fade_eye,
+                        );
+                    return Computed {
+                        level: if faded {
+                            Level::Faded
+                        } else {
+                            Level::Drawn(lod)
+                        },
+                        margin: 0,
+                    };
+                }
+                Computed {
+                    level: Level::Drawn(lod),
+                    margin: MeshSelection::level_margin(distance, inputs.ceilings, lod),
+                }
+            })
     }
 }
 

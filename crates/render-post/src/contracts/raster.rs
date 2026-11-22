@@ -254,18 +254,24 @@ impl StockRaster {
     /// The checked view of every color attachment, pass by pass.
     #[cfg(test)]
     pub(crate) fn color_views(&self) -> Vec<&CheckedView> {
-        self.passes
-            .iter()
+        self.raster_passes()
             .flat_map(|pass| pass.colors.iter().flatten().map(|color| &color.view))
             .collect()
     }
     /// The checked view of every sampled read, pass by pass.
     #[cfg(test)]
     pub(crate) fn sampled_views(&self) -> Vec<&CheckedView> {
-        self.passes
-            .iter()
+        self.raster_passes()
             .flat_map(|pass| pass.uses.iter().map(|usage| &usage.view))
             .collect()
+    }
+    /// The raster passes of the schedule, which are the ones that attach colors and sample.
+    #[cfg(test)]
+    fn raster_passes(&self) -> impl Iterator<Item = &RasterPass> {
+        self.passes.iter().filter_map(|pass| match pass {
+            StockPass::Raster(pass) => Some(&**pass),
+            StockPass::Compute(_) => None,
+        })
     }
     #[cfg(test)]
     pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {

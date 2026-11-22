@@ -10,7 +10,6 @@ use worldrunner_render_scene::{
     compositor::{FrameRenderer, encode_scene},
     device::GpuContext,
     draw::{ObjectDraws, PassDrawStatistics, SceneGpu},
-    executor,
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
@@ -154,7 +153,7 @@ fn resident(
         gpu: SceneGpu::upload(context.device(), context.submission(), source, pipelines).unwrap(),
         renderer,
         effects,
-        output: executor::color_texture(
+        output: worldrunner_render_post::color_texture(
             context.device(),
             "public moving-view output",
             fixture::SIZE,

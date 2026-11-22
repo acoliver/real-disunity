@@ -18,6 +18,7 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::placed::placed_blit;
 use worldrunner_render_program::unity::synthetic::shaders::{
     BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
@@ -64,6 +65,10 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A blit pass that places its quad by `unity_ObjectToWorld` and `unity_MatrixVP`.
+            "placed_blit" => placed_blit("_MainTex"),
+            // The same pass sampling a texture the material sets, as a blit's own pass does.
+            "placed_primary" => placed_blit("_PrimaryTex"),
             // A 2D slot that is not the blit source, so a property can set it.
             "flatslot" => blit_passes("_FlatTex"),
             "gradient" => gradient_passes(),
@@ -72,6 +77,7 @@ impl ShaderSupply for Synthetic {
             "cubeslot" => cube_blit("_BlitCubeTexture"),
             // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
             "volumeslot" => volume_blit("_3DNoiseTexture"),
+            "global_sampler" => super::ordered_globals_gpu::sampling_passes(),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "caster" => super::shadow_gpu::caster_passes(),
             "receiver" => super::shadow_gpu::receiver_passes(),
@@ -581,8 +587,8 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
     let mut rig = Rig::new();
     let mut world = world();
     let target = render_texture(&mut world, [SIDE, SIDE]);
-    camera_render(&mut world, target);
-    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it.
+    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it. The renderer
+    // exists when the camera render is recorded, which is what a render draws.
     let blit = shader(&mut world, "blit");
     let material = world.create_material(blit).unwrap();
     let ignored = MeshRenderer {
@@ -591,6 +597,7 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
         ..MeshRenderer::default()
     };
     renderer_with(&mut world, (0, true), MESH, ignored);
+    camera_render(&mut world, target);
     let (adapted, operations, reads) = rig.frame(&mut world, &[target]);
     assert_eq!(adapted.report.failures["draw:NoPassForCamera"], 1);
     assert_eq!(adapted.report.built, 1, "the camera render itself");

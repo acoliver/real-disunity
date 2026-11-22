@@ -12,8 +12,9 @@ use worldrunner_unity_import::{
     },
     player_plan::plan_player_scene,
     player_resources::plan_player_resources,
-    script_layouts::{ScriptLayouts, parse_script_layouts},
+    script_layouts::parse_script_layouts,
 };
+use worldrunner_unity_serialized::script_data::ScriptLayouts;
 
 use crate::PlayError;
 use crate::offscreen::{DepthRange, SuppliedGlobal};

@@ -585,7 +585,7 @@ fn visible_draws(
 ) -> Result<Vec<(MaterialId, crate::ids::RendererId, usize)>, OffscreenError> {
     let mut draws = Vec::new();
     for (renderer_id, renderer) in &frame.renderers {
-        if renderer.layer >= 32 || camera.culling_mask & (1 << renderer.layer) == 0 {
+        if !camera.draws(*renderer_id, renderer.layer) {
             continue;
         }
         let mesh = svc.meshes.get(renderer.mesh)?;
@@ -833,8 +833,8 @@ fn blit_step(
     }))
 }
 
-/// The layer a blit adds above the material: the source under the main texture name, and its
-/// texel size under `<name>_TexelSize` for a shader that declares it.
+/// The layer a blit adds above the material: the frame's blit values, the source under the main
+/// texture name, and its texel size under `<name>_TexelSize` for a shader that declares it.
 fn source_layer(
     svc: &Services<'_>,
     frame: &OffscreenFrame,
@@ -842,7 +842,7 @@ fn source_layer(
 ) -> Result<PropertyLayer, OffscreenError> {
     let info = svc.textures.get(source)?;
     let [width, height] = info.size.map(texels);
-    let mut layer = PropertyLayer::default();
+    let mut layer = frame.blit_values.clone();
     layer.textures.insert(
         frame.main_texture.clone(),
         TextureInput {

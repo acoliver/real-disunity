@@ -47,7 +47,7 @@ pub(super) fn publish(
             gpu.replace_texture_prepared(device, authority, pipelines, &replacement)?;
         }
         (PreparedEdit::Mesh(replacement), _) => {
-            gpu.replace_mesh_prepared(device, authority.queue(), replacement)?;
+            gpu.replace_mesh_prepared(device, replacement)?;
         }
         (PreparedEdit::Append(_), _) => {
             return Err(ViewerError::Driver(

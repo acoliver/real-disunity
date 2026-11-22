@@ -39,6 +39,10 @@ internal static unsafe class CommandBufferMeshArrayTests
     private static readonly float[] StaticMatrices = [700, 710, 720, 730, 701, 711, 721, 731, 702, 712, 722, 732, 703, 713, 723, 733];
     private static readonly float[] LateVectors = [21, 22, 23, 24];
 
+    // The arrays the buffer sets last under its two names. They are global state once the buffer has run, as static arrays are.
+    private static readonly float[] LastVectors = [0.5f, -1, 2, -3, 7, 0, 0, 1];
+    private static readonly float[] LastMatrices = [500, 510, 520, 530, 501, 511, 521, 531, 502, 512, 522, 532, 503, 513, 523, 533];
+
     // Tangents, three vertices of four floats each, w of 1 or -1.
     private static readonly float[] TangentsA0 = [1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, -1];
     private static readonly float[] TangentsA1 = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, -1];
@@ -226,13 +230,13 @@ internal static unsafe class CommandBufferMeshArrayTests
         return stream.ToArray();
     }
 
-    /// <summary>The native snapshot of the frame after recording a keyword so the frame has work. It drains the frame's work.</summary>
+    /// <summary>The native snapshot of the frame after recording a command so the frame has work. It drains the frame's work.
+    /// The world orders a direct global write ahead of the next record, so the drain before the command drops the ordered copies
+    /// of the arrays and the snapshot shows the global state alone.</summary>
     private static byte[] Snapshot()
     {
-        var buffer = new CommandBuffer();
-        buffer.EnableShaderKeyword("_MA_TRIGGER");
-        Graphics.ExecuteCommandBuffer(buffer);
-        buffer.Release();
+        CommandWireReader.Take();
+        CommandWireReader.AppendMarker();
         var world = DisunityHost.WorldHandle;
         uint length;
         DisunityHost.ThrowIfError(NativeBindings.disunity_graphics_snapshot(world, null, 0, &length));
@@ -250,17 +254,16 @@ internal static unsafe class CommandBufferMeshArrayTests
         return count;
     }
 
-    /// <summary>The world's initial global state holds each static array once. Before any ordered work has run in the world
-    /// it holds none of the buffer's arrays either; once it has run, nothing is asserted about those names.</summary>
-    private static void ExpectInitialGlobals(string when, bool late, bool orderedWorkHasRun = false)
+    /// <summary>The world's initial global state holds each static array once, and the arrays the buffer set last under its two
+    /// names: the buffer's arrays are global state as soon as it has run, in the managed store and in the world.</summary>
+    private static void ExpectInitialGlobals(string when, bool late)
     {
         var snapshot = Snapshot();
         Expect.That(Count(snapshot, Entry("_MaStaticVec", StaticVectors, 4)) == 1, $"{when}: the static vectors are in the global state once");
         Expect.That(Count(snapshot, Entry("_MaStaticMat", StaticMatrices, 16)) == 1, $"{when}: the static matrices are in the global state once");
         Expect.That(Count(snapshot, Entry("_MaLateVec", LateVectors, 4)) == (late ? 1 : 0), $"{when}: the vectors set while no world was loaded are {(late ? "" : "not ")}in the global state");
-        if (orderedWorkHasRun) return;
-        Expect.That(Count(snapshot, Encoding.UTF8.GetBytes("_MaVec")) == 0 && Count(snapshot, Encoding.UTF8.GetBytes("_MaMat")) == 0,
-            $"{when}: no array of the buffer is in the world before it runs");
+        Expect.That(Count(snapshot, Entry("_MaVec", LastVectors, 4)) == 1 && Count(snapshot, Entry("_MaMat", LastMatrices, 16)) == 1,
+            $"{when}: the arrays the buffer set last are in the global state once");
     }
 
     private static ulong MaterialOf(string drawRecord)
@@ -328,7 +331,7 @@ internal static unsafe class CommandBufferMeshArrayTests
         ExpectBoth(scene, "in the new world after Submit", 2, a2, b2);
         DisunityHost.StoreChangedMeshes();
         ExpectBoth(scene, "in the new world after the flush that follows Submit", 2, a2, b2);
-        ExpectInitialGlobals("after the draws in the new world", late: true, orderedWorkHasRun: true);
-        Console.WriteLine("PASS: after the world is unloaded and loaded the static arrays are in the new world's global state, the surviving buffer's arrays and draws are sent again, and the same meshes and materials are stored in it once");
+        ExpectInitialGlobals("after the draws in the new world", late: true);
+        Console.WriteLine("PASS: after the world is unloaded and loaded the static arrays and the arrays the buffer set are in the new world's global state, the surviving buffer's arrays and draws are sent again, and the same meshes and materials are stored in it once");
     }
 }

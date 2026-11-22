@@ -53,12 +53,13 @@ pub use game::{
     FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
     FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
     FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
-    GameBufferDeclaration, GameBufferUsage, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
-    GamePasses, GameReadback, GameResourceError, GameResources, GameSampler, GameTargets,
-    GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape, LevelAccess, OcclusionDepth,
-    PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade, SnapshotImage, SnapshotReads,
-    SnapshotStatistics, TargetDeclaration, TargetExtent, TargetLifetime, TerrainMaterialArrayError,
-    TerrainMaterialChannel, join_pass, prepass_writes_frame_depth,
+    GameBufferDeclaration, GameBufferUsage, GameBuild, GameComputeSpec, GameFeatureFactory,
+    GameLevel, GamePassSpec, GamePasses, GameReadback, GameResourceError, GameResources,
+    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
+    LevelAccess, OcclusionDepth, PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade,
+    SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration, TargetExtent,
+    TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
+    prepass_writes_frame_depth,
 };
 use output::FrameOutput;
 pub use output::FrameProfile;
@@ -493,7 +494,6 @@ impl FrameRenderer {
     }
     fn set_water_input(
         &mut self,
-        device: &wgpu::Device,
         frame: &crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
@@ -507,10 +507,10 @@ impl FrameRenderer {
             .stock_water()
             .map(|water| {
                 water.feature_with_depth(
-                    (device, encoder),
+                    encoder,
                     frame,
                     (self.elapsed_seconds, self.frame_slot),
-                    (shadow, self.targets().temporal_mask_texture()),
+                    shadow,
                     depth,
                 )
             })
@@ -574,8 +574,7 @@ impl FrameRenderer {
         } else {
             crate::renderer::depth::DepthMode::Independent
         };
-        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
-        self.clear_unwritten_water_mask(encoder);
+        self.set_water_input(&frame, shadow, encoder, depth_mode)?;
         let declarations: Vec<_> = features
             .iter()
             .map(|feature| feature.declaration.clone())
@@ -590,7 +589,6 @@ impl FrameRenderer {
             water_registered: self.water.is_some(),
             gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
-            temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: self.overlay.needs_depth(),
             shadow: shadow.is_some(),

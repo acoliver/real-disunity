@@ -1,7 +1,6 @@
 use glam::Vec3;
 use worldrunner_render_plan::{
-    SceneTexture, TexelFormat, TextureColorSpace,
-    simulation::{SpriteTextures, extract_world},
+    SceneTexture, TexelFormat, TextureColorSpace, simulation::SpriteTextures,
 };
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
@@ -14,7 +13,11 @@ use worldrunner_render_scene::{
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
-    presentation::{Camera, CoverageTexture, Sprite, SpriteRenderer},
+    presentation::{
+        Camera, CoverageTexture, Sprite, SpriteRenderer,
+        extraction::{WorldRenderPlan, append_ui, extract_world},
+    },
+    ui::contribution::{UiGlyphQuad, UiRenderPlan, UiTextContribution},
 };
 
 fn contribution(size: [u32; 2]) -> WorldSceneContribution {
@@ -69,7 +72,7 @@ fn contribution(size: [u32; 2]) -> WorldSceneContribution {
             },
         )]),
     };
-    WorldSceneContribution::new(extract_world(&world, &textures, size).unwrap()).unwrap()
+    WorldSceneContribution::new(extract_world(&world, size).unwrap(), &textures.textures).unwrap()
 }
 struct Capture {
     image: Vec<u8>,
@@ -200,10 +203,6 @@ fn native_sprites_share_srgb_alpha_msaa_resize_and_unload() {
 }
 
 fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
-    use worldrunner_render_plan::{
-        simulation::{WorldRenderPlan, append_ui},
-        ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution},
-    };
     use worldrunner_world_simulation::ui::UiLayout;
     let frame = contribution(size);
     let mut plan = WorldRenderPlan {
@@ -250,7 +249,7 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
         }],
     };
     append_ui(&mut plan, ui).unwrap();
-    WorldSceneContribution::new(plan).unwrap()
+    WorldSceneContribution::new(plan, &std::collections::BTreeMap::new()).unwrap()
 }
 #[test]
 fn glyph_coverage_and_tint_alpha_reach_the_shared_srgb_target() {
@@ -376,7 +375,8 @@ fn global_light_frame(lit: bool, layer: i32, active_light: Option<bool>) -> Worl
             },
         )]),
     };
-    WorldSceneContribution::new(extract_world(&world, &textures, [16, 16]).unwrap()).unwrap()
+    WorldSceneContribution::new(extract_world(&world, [16, 16]).unwrap(), &textures.textures)
+        .unwrap()
 }
 fn global_light_world(lit: bool, layer: i32) -> World {
     use worldrunner_world_simulation::presentation::SpriteLighting;
@@ -443,7 +443,8 @@ fn sampling_frame(
         textures: std::collections::BTreeMap::from([(1, texture)]),
     };
     let mut frame =
-        WorldSceneContribution::new(extract_world(&world, &textures, [16, 16]).unwrap()).unwrap();
+        WorldSceneContribution::new(extract_world(&world, [16, 16]).unwrap(), &textures.textures)
+            .unwrap();
     // Constant UVs and full pixel coverage make results independent of MSAA sample locations.
     frame.quads[0].uv_rect = [u, 0.5, u, 0.5];
     frame.quads[0].corners = Some([[-3., 0., -3.], [3., 0., -3.], [3., 0., 3.], [-3., 0., 3.]]);

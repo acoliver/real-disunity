@@ -33,17 +33,22 @@ impl GeometryLayout {
         matches!(self, Self::Skinned)
     }
 
+    /// Bytes of one vertex of this format, which is the stride of the geometry stream.
+    pub(crate) const fn vertex_stride(self) -> u64 {
+        match self {
+            Self::Static => VERTEX_STRIDE,
+            Self::Skinned => SKINNED_VERTEX_BYTES as u64,
+        }
+    }
+
     /// The geometry stream, slot 0.
     fn vertex_buffer(self) -> VertexBufferSpec {
-        let (stride, attributes) = match self {
-            Self::Static => (VERTEX_STRIDE, vertex_attributes().to_vec()),
-            Self::Skinned => (
-                SKINNED_VERTEX_BYTES as u64,
-                skinned_vertex_attributes().to_vec(),
-            ),
+        let attributes = match self {
+            Self::Static => vertex_attributes().to_vec(),
+            Self::Skinned => skinned_vertex_attributes().to_vec(),
         };
         VertexBufferSpec {
-            stride,
+            stride: self.vertex_stride(),
             step: wgpu::VertexStepMode::Vertex,
             attributes,
         }

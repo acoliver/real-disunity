@@ -147,7 +147,7 @@ internal static class RendererListTests
         Expect.Equal(3, buffer.commandCount, "the draw is one command");
         context.ExecuteCommandBuffer(buffer);
         context.Submit();
-        var taken = CommandWireReader.Take();
+        var taken = CommandWireReader.TakeOrdered();
         Expect.Equal(5, taken.Length, "the culling result, the list and the three commands");
         Same(["Keyword BEFORE=True", $"DrawList list={list.Id}", "Keyword BEFORE=False"], taken[2..], "the draw sits between the keywords");
     }

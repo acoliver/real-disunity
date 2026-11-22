@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use super::raster::StockPass;
 use super::{
     AccessMode, AllocationKey, CheckedView, CompiledRaster, ContractError, RasterPass,
     ResourceLifetime, ResourceRegistry, ResourceUse, UseKind,
@@ -77,7 +78,46 @@ impl ResourceRegistry {
         for binding in &pass.bindings {
             binding.validate(self, pass)?;
         }
-        let accesses = pass.accesses();
+        self.validate_accesses(device, &pass.accesses(), versions)
+    }
+
+    /// As [`Self::validate_raster_after`], for a stock schedule, whose compute passes have no
+    /// attachments: what each samples and writes is checked as a raster pass's uses are.
+    pub(super) fn validate_stock_after(
+        &self,
+        device: &wgpu::Device,
+        leading: &[ResourceUse],
+        passes: &[StockPass],
+    ) -> Result<(), ContractError> {
+        let mut versions = Versions::default();
+        for usage in leading {
+            self.check_view(&usage.view)?;
+            validate_usage(self, usage)?;
+            validate_versions(self, usage, &mut versions)?;
+        }
+        for pass in passes {
+            let validated = match pass {
+                StockPass::Raster(raster) => self.validate_pass(device, raster, &mut versions),
+                StockPass::Compute(compute) => {
+                    self.validate_accesses(device, &compute.uses, &mut versions)
+                }
+            };
+            validated.map_err(|source| ContractError::Pass {
+                pass: pass.id(),
+                source: Box::new(source),
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Checks what one pass samples and writes: each use against its view, and against the
+    /// earlier uses of the pass that overlap it, then the versions it reads and makes.
+    fn validate_accesses(
+        &self,
+        device: &wgpu::Device,
+        accesses: &[ResourceUse],
+        versions: &mut Versions,
+    ) -> Result<(), ContractError> {
         for (index, usage) in accesses.iter().enumerate() {
             self.check_view(&usage.view)?;
             validate_usage(self, usage)?;
@@ -89,7 +129,7 @@ impl ResourceRegistry {
                 }
             }
         }
-        for usage in &accesses {
+        for usage in accesses {
             validate_versions(self, usage, versions)?;
         }
         Ok(())

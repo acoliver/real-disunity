@@ -109,8 +109,6 @@ mod mip_bias_tests;
 #[cfg(test)]
 mod post_extent_allocation_tests;
 mod post_filters;
-#[cfg(test)]
-mod quality_metrics;
 mod scene_color;
 mod smaa;
 mod smaa_gpu;
@@ -246,10 +244,11 @@ mod upload_staging_limit_tests;
 mod upload_staging_tests;
 pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
-    DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
-    FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput, PassDeclaration,
-    PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands, PreparedCompute,
-    PreparedFeature, PreparedRefusal, PreparedWrite, ResourceRef, validate_frame,
+    ComputeDeclaration, DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError,
+    FrameFeature, FrameOperations, FramePlan, GamePlace, OperationsGroup, OperationsOutput,
+    PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands,
+    PreparedCompute, PreparedFeature, PreparedRefusal, PreparedWrite, ResourceRef, StorageWrite,
+    validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;

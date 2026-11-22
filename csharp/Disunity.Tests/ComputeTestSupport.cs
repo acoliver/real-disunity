@@ -87,15 +87,16 @@ internal static unsafe class ComputeTestSupport
                 DisunityHost.ThrowIfError(NativeBindings.disunity_compute_kernel_size_write(world, record.shader, record.kernel, 8, 4, 2));
     }
 
-    /// <summary>Takes the pending work through the ABI, as a host does.</summary>
+    /// <summary>Takes the pending work through the ABI, as a host does. A drain with a capacity of at least one also forgets the
+    /// global writes the world noted for ordering.</summary>
     internal static DisunityOffscreenWork[] TakeWork(ulong world)
     {
         uint count;
         DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, null, 0, &count));
-        var records = new DisunityOffscreenWork[count];
+        var records = new DisunityOffscreenWork[Math.Max(count, 1u)];
         fixed (DisunityOffscreenWork* pointer = records)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, count == 0 ? null : pointer, count, &count));
-        return records;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, pointer, (uint)records.Length, &count));
+        return records.Take((int)count).ToArray();
     }
 
     internal readonly record struct Entry(string Name, uint Kind, uint TextureKind, ulong Resource, int Int, float[] Floats);

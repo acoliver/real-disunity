@@ -26,12 +26,6 @@ pub(super) fn owned<'a>(environment: &'a Environment<'_>) -> Owned<'a> {
             .as_ref()
             .map(|texture| ("velocity", texture)),
     );
-    owned.extend(
-        environment
-            .temporal_mask
-            .as_ref()
-            .map(|texture| ("temporal mask", texture)),
-    );
     if let Some(screen) = environment.ssao {
         owned.extend(
             screen

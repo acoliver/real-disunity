@@ -247,7 +247,7 @@ fn texture(dimension: TextureViewDimension, filterable: bool) -> ResourceKind {
     }
 }
 
-/// Set 0 as `input_layout` declares it.
+/// Set 0 of the body program.
 pub(super) fn bindings() -> Vec<ResourceBinding> {
     use TextureViewDimension::{Cube, D2};
     let (fragment, both) = (ShaderStages::FRAGMENT, ShaderStages::VERTEX_FRAGMENT);
@@ -385,7 +385,7 @@ pub(super) fn vertex_inputs(
         .collect()
 }
 
-/// What `snapshot_group` binds, as imports.
+/// What the body program binds in set 0, as imports.
 fn imports(inputs: &BodyInputs<'_>) -> Vec<Import> {
     let named = |name: &str| EngineSemantic::named(name);
     let view =

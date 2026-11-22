@@ -191,7 +191,7 @@ fn a_destroyed_texture_does_not_outlive_its_frame_or_its_taken_work() {
         world.record_offscreen(setup(camera, gone)).unwrap();
         world.destroy_render_texture(gone).unwrap();
         if take_work {
-            assert_eq!(world.take_offscreen().len(), 1);
+            assert_eq!(world.take_offscreen().0.len(), 1);
         } else {
             world
                 .advance(TimeSpan::from_nanos(16_000_000).unwrap())
@@ -217,7 +217,7 @@ fn new_work_cannot_name_a_destroyed_texture() {
 }
 
 #[test]
-fn a_camera_that_sets_up_is_in_the_snapshot_with_the_renderers_it_may_draw() {
+fn a_camera_that_sets_up_is_in_the_snapshot_and_a_set_up_alone_draws_no_renderer() {
     let mut world = world();
     let camera = masked_camera(&mut world, 1 << 5);
     let target = render_texture(&mut world, [8, 8]);
@@ -225,11 +225,23 @@ fn a_camera_that_sets_up_is_in_the_snapshot_with_the_renderers_it_may_draw() {
     world.record_offscreen(setup(camera, target)).unwrap();
     let taken = snapshot(&mut world);
     assert!(taken.cameras.contains_key(&camera));
-    assert_eq!(
-        taken.renderers.len(),
-        1,
-        "the camera's layer admits the renderer"
+    assert!(
+        taken.renderers.is_empty(),
+        "only a camera render or a cull makes a set of renderers"
     );
+}
+
+#[test]
+fn a_cull_after_a_set_up_lists_the_renderers_the_cameras_layer_admits() {
+    let mut world = world();
+    let camera = masked_camera(&mut world, 1 << 5);
+    let target = render_texture(&mut world, [8, 8]);
+    renderer(&mut world, 5, MESH);
+    world.record_offscreen(setup(camera, target)).unwrap();
+    world.record_offscreen(cull(camera, 1 << 5)).unwrap();
+    let taken = snapshot(&mut world);
+    assert_eq!(taken.renderers.len(), 1);
+    assert_eq!(taken.record_renderers(1), Some(&[0_u32][..]));
 }
 
 #[test]

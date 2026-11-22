@@ -21,9 +21,9 @@ public struct FrameTiming
 }
 
 /// <summary>
-/// Frame timing capture. The engine measures no frame, so <see cref="IsFeatureEnabled"/> is false, capturing does nothing,
-/// <see cref="GetLatestTimings"/> returns 0 frames and leaves the array alone, and the timer frequencies and the display
-/// rate are 0 (the engine's choice).
+/// Frame timing capture. The engine measures no frame, so <see cref="IsFeatureEnabled"/> is false, there are no timings for
+/// <see cref="CaptureFrameTimings"/> to capture, <see cref="GetLatestTimings"/> returns 0 frames and leaves the array as it was,
+/// and the timer frequencies and the display rate are 0 because no timer or display rate is measured.
 /// </summary>
 public static class FrameTimingManager
 {

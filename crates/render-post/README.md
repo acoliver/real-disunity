@@ -904,9 +904,8 @@ blocks with edge clamping, so the last odd row and column remain represented.
 Each extent is `ceil(previous / 2)` on each axis. By default, a requested level
 after 1x1 is rejected by the factory before target allocation. Set
 `bloom.policies.terminal = BloomTerminal::Repeat` to retain the requested level
-count on small extents. Small images can use `gaussian_extents` for default
-validation or `gaussian_extents_with_terminal(size, count, terminal)` to inspect
-the selected policy's extents.
+count on small extents. `gaussian_extents(size, count, terminal)` returns the
+extents the selected policy admits.
 
 After all downsample passes, levels execute from coarsest to finest. A horizontal
 Gaussian blur writes a scratch target. The vertical blur writes back into that

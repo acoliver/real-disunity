@@ -56,7 +56,7 @@ impl HdrPostSettings {
         if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
             (self.bloom, self.bloom_kernel)
         {
-            crate::gaussian_extents_with_terminal(
+            crate::gaussian_extents(
                 self.post_extent(config),
                 bloom.levels,
                 bloom.policies.terminal,

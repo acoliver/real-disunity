@@ -10,7 +10,7 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, MaterialId, OffscreenWork, TargetRef, TextureRef,
 };
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,
+    Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiTexture, UiVertex,
     contribution::extract_ui,
     presentation::{UiDraw, UiDrawKind, UiLayers, UiMaterial, UiPresentation},
 };
@@ -38,7 +38,7 @@ fn material(world: &World, id: MaterialId) -> UiMaterial {
 }
 
 /// A white graphic draw of the rectangle `x, y, width, height` of the viewport, lower left origin.
-fn quad(material: Option<UiMaterial>, texture: Option<u64>, rect: [f32; 4]) -> UiDraw {
+fn quad(material: Option<UiMaterial>, texture: Option<UiTexture>, rect: [f32; 4]) -> UiDraw {
     let [x, y, width, height] = rect;
     UiDraw {
         kind: UiDrawKind::Graphic,
@@ -233,8 +233,16 @@ fn a_draws_image_is_the_main_texture_of_its_span() {
     let used = material(&world, red);
     let identity = (1 << 40) + 3;
     let (plan, layers) = plan(vec![
-        quad(Some(used), Some(identity), [0., 0., 2., 2.]),
-        quad(Some(used), Some(identity + 1), [2., 0., 2., 2.]),
+        quad(
+            Some(used),
+            Some(UiTexture::Image(identity)),
+            [0., 0., 2., 2.],
+        ),
+        quad(
+            Some(used),
+            Some(UiTexture::Image(identity + 1)),
+            [2., 0., 2., 2.],
+        ),
         quad(Some(used), None, [4., 0., 2., 2.]),
     ]);
     let frame = UiFrame::new(&plan, &layers).unwrap();

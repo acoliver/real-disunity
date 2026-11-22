@@ -33,6 +33,7 @@ use worldrunner_scene_viewer::{
     RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
     ViewerStart, WindowMode, WindowSizeUnit,
 };
+use worldrunner_world_simulation::ui::presentation::UiPresentation;
 
 use crate::{
     PlayError, PreparedPlayer,
@@ -332,17 +333,17 @@ impl PlayerRetainedDriver {
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
-        let ui = self.host.ui_presentation()?;
+        let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
-        let ui_update = self.ui.update(
-            ui,
+        self.ui.prepare(
+            &mut ui,
             self.size,
             &self.sprites,
             &self.player_textures,
             |message| {
                 eprintln!("{message}");
             },
-        )?;
+        );
         // After the meshes are refreshed, as in a headless run, and before the frame's textures
         // and UI go to the viewer, so texels a readback filled this frame show this frame.
         self.show_screen(viewer)?;
@@ -358,7 +359,16 @@ impl PlayerRetainedDriver {
         let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
-        if let Some(update) = ui_update {
+        self.offer_ui_textures(viewer, &mut ui);
+        if let Some(update) = self.ui.update(
+            ui,
+            self.size,
+            &self.sprites,
+            &self.player_textures,
+            |message| {
+                eprintln!("{message}");
+            },
+        )? {
             viewer
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
@@ -386,6 +396,16 @@ impl PlayerRetainedDriver {
         viewer
             .show_ui_layers(self.gpu.ui_layers())
             .map_err(|error| PlayError::Invalid(error.to_string()))
+    }
+
+    /// Offers the viewer the render textures the UI's draws read, as the player's device holds them
+    /// now, and takes out the draws whose texture cannot be shown.
+    fn offer_ui_textures(&mut self, viewer: &mut RetainedHost, ui: &mut UiPresentation) {
+        let offers = self.gpu.ui_offers(&self.host, ui);
+        let targets = self
+            .ui
+            .offer_targets(ui, offers, |message| eprintln!("{message}"));
+        viewer.show_ui_textures(targets);
     }
 
     /// Sends the viewer new scene effects when the frame's lighting changed.

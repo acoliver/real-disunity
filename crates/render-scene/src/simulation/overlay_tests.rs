@@ -1,6 +1,7 @@
 use super::UiOverlay;
 use std::collections::BTreeMap;
 use worldrunner_world_simulation::graphics::MaterialId;
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{
     UiDraw, UiDrawKind, UiMaterial, UiPresentation,
 };
@@ -23,7 +24,7 @@ fn draw(material: Option<UiMaterial>, rect: [f32; 4], order: (i32, usize)) -> Ui
         color: [1.; 4],
         distance_field: None,
         corner_colors: None,
-        texture: material.map(|_| 9),
+        texture: material.map(|_| UiTexture::Image(9)),
         material,
         sorting_layer: 3,
         sorting_order: order.0,

@@ -2,7 +2,9 @@
 use crate::dynamic::{DynamicError, DynamicQuad};
 use std::collections::BTreeMap;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::graphics::RenderTextureId;
 use worldrunner_world_simulation::ui::{
+    UiTexture,
     contribution::UiRenderPlan,
     presentation::{UiDraw, UiDrawKind, UiLayers, UiPresentation, UiRun},
 };
@@ -12,6 +14,9 @@ use worldrunner_world_simulation::ui::{
 pub struct UiOverlay {
     pub(crate) textures: Vec<SceneTexture>,
     pub(crate) quads: Vec<DynamicQuad>,
+    /// The render textures the draws read, one slot for each. A quad of a target draw names its
+    /// slot after the overlay's own textures: `textures.len() + slot`.
+    pub(crate) targets: Vec<RenderTextureId>,
     /// The entry of `textures` that stands for the layer atlas a host offers, when the overlay
     /// has runs to show. The stand-in is transparent until the viewer binds the atlas to it.
     pub(crate) layer: Option<usize>,
@@ -29,6 +34,12 @@ impl UiOverlay {
     /// Whether the overlay shows runs of the layer atlas, which the host offers separately.
     pub fn shows_layers(&self) -> bool {
         self.layer.is_some()
+    }
+
+    /// The render textures the draws read. A host offers the device texture of each through
+    /// [`UiTarget`](super::UiTarget); one it does not offer draws as transparent black.
+    pub fn targets(&self) -> &[RenderTextureId] {
+        &self.targets
     }
 
     /// Builds text and untextured graphics; unresolved image identities are rejected.
@@ -73,99 +84,145 @@ impl UiOverlay {
         if vertices > worldrunner_world_simulation::ui::annotations::MAX_ANNOTATION_VERTICES {
             return Err(DynamicError::DeviceLimit("UI frame vertex budget (65536)"));
         }
-        let mut builder = Builder {
-            plan,
-            sources: textures,
-            indices: BTreeMap::new(),
-            result: Self {
-                textures: vec![],
-                quads: vec![],
-                layer: None,
-            },
+        let mut result = Self {
+            textures: vec![],
+            quads: vec![],
+            targets: vec![],
+            layer: None,
         };
+        let mut indices = BTreeMap::new();
+        let mut slotted = Vec::new();
         let mut runs = layers.runs.iter().peekable();
         for (position, draw) in plan.draws.iter().enumerate() {
             if draw.material.is_none() {
-                builder.draw(draw)?;
+                result.add_draw(draw, (plan, textures), (&mut indices, &mut slotted))?;
             } else if let Some(run) = runs.next_if(|run| run.draws.start == position) {
-                builder.run(run, draw, layers.atlas_size);
+                result.add_run(run, draw, layers.atlas_size);
             }
         }
-        let result = builder.result;
+        let first_slot = result.textures.len();
+        for (index, slot) in slotted {
+            result.quads[index].texture = Some(first_slot + slot);
+        }
         for (index, quad) in result.quads.iter().enumerate() {
-            crate::dynamic::validation::validate_quad(quad, index, result.textures.len())?;
+            crate::dynamic::validation::validate_quad(
+                quad,
+                index,
+                result.textures.len() + result.targets.len(),
+            )?;
         }
         Ok(result)
     }
-}
 
-/// An overlay under construction: the texture table entries made so far, by the draw texture
-/// they came from.
-struct Builder<'a> {
-    plan: &'a UiPresentation,
-    sources: &'a BTreeMap<u64, SceneTexture>,
-    indices: BTreeMap<(UiDrawKind, u64), usize>,
-    result: UiOverlay,
-}
-
-impl Builder<'_> {
-    /// Adds the quad that shows `run`, making the atlas's stand-in texture the first time.
-    fn run(&mut self, run: &UiRun, first: &UiDraw, atlas: [u32; 2]) {
-        let result = &mut self.result;
-        let slot = *result.layer.get_or_insert_with(|| {
-            result.textures.push(layer_stand_in());
-            result.textures.len() - 1
-        });
-        result.quads.push(layer_quad(run, first, atlas, slot));
-    }
-
-    fn draw(&mut self, draw: &UiDraw) -> Result<(), DynamicError> {
-        let index = self.result.quads.len();
-        let invalid = |field| DynamicError::InvalidQuad { index, field };
-        draw.validate_distance()
-            .map_err(|_| invalid("distance_field"))?;
-        if let Some(style) = draw.distance_field {
-            let atlas = self
-                .plan
-                .coverage
-                .get(&draw.texture.expect("validated distance texture"))
-                .ok_or(invalid("distance atlas"))?;
-            style
-                .validate_extent(
-                    draw.corners,
-                    draw.uv_rect,
-                    glam::UVec2::new(atlas.width, atlas.height),
-                )
-                .map_err(|_| invalid("distance field spread"))?;
-        }
-        let texture = self.texture(draw)?;
-        self.result.quads.push(dynamic_quad(draw, texture));
+    /// Adds the quad of a draw of the engine's own look. A target draw is slotted after the
+    /// overlay's own textures once all of them are known.
+    fn add_draw(
+        &mut self,
+        draw: &UiDraw,
+        (plan, textures): (&UiPresentation, &BTreeMap<u64, SceneTexture>),
+        (indices, slotted): (
+            &mut BTreeMap<(UiDrawKind, UiTexture), usize>,
+            &mut Vec<(usize, usize)>,
+        ),
+    ) -> Result<(), DynamicError> {
+        let index = self.quads.len();
+        check_distance(draw, plan, index)?;
+        let quad = if let Some(UiTexture::Target(id)) = draw.texture {
+            slotted.push((index, self.slot(id)));
+            flipped(dynamic_quad(draw, None))
+        } else {
+            let texture = self.texture_index(draw, (plan, textures), indices)?;
+            dynamic_quad(draw, texture)
+        };
+        self.quads.push(quad);
         Ok(())
     }
 
-    /// The texture table entry of the draw's texture, adding it the first time a draw names it.
-    fn texture(&mut self, draw: &UiDraw) -> Result<Option<usize>, DynamicError> {
-        let index = self.result.quads.len();
-        let Some(identity) = draw.texture else {
-            return if draw.kind == UiDrawKind::Text {
-                Err(DynamicError::InvalidQuad {
-                    index,
-                    field: "glyph coverage texture",
-                })
-            } else {
-                Ok(None)
-            };
-        };
-        let key = (draw.kind, identity);
-        if let Some(&held) = self.indices.get(&key) {
-            return Ok(Some(held));
-        }
-        let source = draw_texture(draw, self.plan, self.sources, index)?;
-        let held = self.result.textures.len();
-        self.result.textures.push(source);
-        self.indices.insert(key, held);
-        Ok(Some(held))
+    /// Adds the quad that shows `run`, making the atlas's stand-in texture the first time.
+    fn add_run(&mut self, run: &UiRun, first: &UiDraw, atlas: [u32; 2]) {
+        let slot = *self.layer.get_or_insert_with(|| {
+            self.textures.push(layer_stand_in());
+            self.textures.len() - 1
+        });
+        self.quads.push(layer_quad(run, first, atlas, slot));
     }
+
+    /// The slot of the render texture `id`, made when no earlier draw read it.
+    fn slot(&mut self, id: RenderTextureId) -> usize {
+        self.targets
+            .iter()
+            .position(|held| *held == id)
+            .unwrap_or_else(|| {
+                self.targets.push(id);
+                self.targets.len() - 1
+            })
+    }
+
+    /// The index in the overlay's own textures of what `draw` samples, adding the texture when no
+    /// earlier draw sampled it.
+    fn texture_index(
+        &mut self,
+        draw: &UiDraw,
+        (plan, textures): (&UiPresentation, &BTreeMap<u64, SceneTexture>),
+        indices: &mut BTreeMap<(UiDrawKind, UiTexture), usize>,
+    ) -> Result<Option<usize>, DynamicError> {
+        let Some(texture) = draw.texture else {
+            if draw.kind == UiDrawKind::Text {
+                return Err(DynamicError::InvalidQuad {
+                    index: self.quads.len(),
+                    field: "glyph coverage texture",
+                });
+            }
+            return Ok(None);
+        };
+        let key = (draw.kind, texture);
+        if let Some(&index) = indices.get(&key) {
+            return Ok(Some(index));
+        }
+        let source = draw_texture(draw, plan, textures, self.quads.len())?;
+        let index = self.textures.len();
+        self.textures.push(source);
+        indices.insert(key, index);
+        Ok(Some(index))
+    }
+}
+
+/// A render texture is bottom row first and the draw's texture rectangle is top row first, so
+/// the draw samples it with `v` turned over.
+fn flipped(mut quad: DynamicQuad) -> DynamicQuad {
+    let [u0, v0, u1, v1] = quad.uv_rect;
+    quad.uv_rect = [u0, 1. - v0, u1, 1. - v1];
+    quad.triangle_uv = quad
+        .triangle_uv
+        .map(|corners| corners.map(|[u, v]| [u, 1. - v]));
+    quad
+}
+
+fn check_distance(draw: &UiDraw, plan: &UiPresentation, index: usize) -> Result<(), DynamicError> {
+    draw.validate().map_err(|_| DynamicError::InvalidQuad {
+        index,
+        field: "distance_field",
+    })?;
+    let Some(style) = draw.distance_field else {
+        return Ok(());
+    };
+    let Some(UiTexture::Coverage(key)) = draw.texture else {
+        unreachable!("a validated distance draw names coverage");
+    };
+    let atlas = plan.coverage.get(&key).ok_or(DynamicError::InvalidQuad {
+        index,
+        field: "distance atlas",
+    })?;
+    style
+        .validate_extent(
+            draw.corners,
+            draw.uv_rect,
+            glam::UVec2::new(atlas.width, atlas.height),
+        )
+        .map_err(|_| DynamicError::InvalidQuad {
+            index,
+            field: "distance field spread",
+        })
 }
 
 /// The quad that shows `run` of the atlas where the run's first draw sorts. The atlas rows are
@@ -239,17 +296,19 @@ fn draw_texture(
     index: usize,
 ) -> Result<SceneTexture, DynamicError> {
     let invalid = |field| DynamicError::InvalidQuad { index, field };
-    let identity = draw.texture.expect("textured draw");
-    if draw.kind == UiDrawKind::Graphic {
-        return textures
+    let texture = match draw.texture.expect("textured draw") {
+        UiTexture::Image(identity) => {
+            return textures
+                .get(&identity)
+                .cloned()
+                .ok_or_else(|| invalid("unresolved UI texture identity"));
+        }
+        UiTexture::Target(_) => return Err(invalid("render texture target")),
+        UiTexture::Coverage(identity) => plan
+            .coverage
             .get(&identity)
-            .cloned()
-            .ok_or_else(|| invalid("unresolved UI texture identity"));
-    }
-    let texture = plan
-        .coverage
-        .get(&identity)
-        .ok_or_else(|| invalid("glyph coverage texture"))?;
+            .ok_or_else(|| invalid("glyph coverage texture"))?,
+    };
     if texture.width == 0
         || texture.height == 0
         || u64::from(texture.width) * u64::from(texture.height) != texture.bytes.len() as u64
@@ -282,6 +341,9 @@ fn coverage_texture(width: u32, height: u32, bytes: &[u8]) -> SceneTexture {
     })
 }
 
+#[cfg(test)]
+#[path = "overlay_target_tests.rs"]
+mod target_tests;
 #[cfg(test)]
 #[path = "overlay_tests.rs"]
 mod tests;

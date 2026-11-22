@@ -1,4 +1,6 @@
 use super::*;
+use worldrunner_render_plan::{TextureFilter, TextureSampler, TextureWrap};
+use worldrunner_render_scene::simulation::UiTarget;
 use worldrunner_world_simulation::graphics::MaterialId;
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiMaterial};
 
@@ -69,9 +71,12 @@ fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>, Vec<Reta
     let (mut lines, mut updates) = (Vec::new(), Vec::new());
     for _ in 0..3 {
         let viewport = [64, 64];
-        let update = player.update(plan.clone(), viewport, &textures, &images, |line| {
+        let mut plan = plan.clone();
+        player.prepare(&mut plan, viewport, &textures, &images, |line| {
             lines.push(line);
         });
+        player.offer_targets(&mut plan, Vec::new(), |line| lines.push(line));
+        let update = player.update(plan, viewport, &textures, &images, |line| lines.push(line));
         updates.extend(update.unwrap());
     }
     (player, lines, updates)
@@ -81,7 +86,7 @@ fn material_draw(material: UiMaterial, rect: [f32; 4]) -> UiDraw {
     let [x, y, width, height] = rect;
     UiDraw {
         material: Some(material),
-        texture: Some(1 << 40),
+        texture: Some(UiTexture::Image(1 << 40)),
         corners: [
             [x, y, 0.],
             [x + width, y, 0.],
@@ -162,4 +167,35 @@ fn a_default_draw_is_unchanged() {
     assert!(player.frame().is_none());
     assert!(lines.is_empty());
     assert!(player.game_material_draws().is_empty());
+}
+
+#[test]
+fn a_render_texture_draw_with_a_game_material_is_left_out_before_its_offer() {
+    let material = game_material();
+    let target = RenderTextureId::from_bits((1 << 32) | 4);
+    let shaped = UiDraw {
+        material: Some(material),
+        texture: Some(UiTexture::Target(target)),
+        ..draw(7, 2, [0, 0, 64, 64])
+    };
+    let mut plan = UiPresentation {
+        draws: vec![draw(-3, 1, [0, 0, 64, 64]), shaped],
+        shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
+        ..Default::default()
+    };
+    let sampler = TextureSampler {
+        filter: TextureFilter::Point,
+        wrap_u: TextureWrap::Clamp,
+        wrap_v: TextureWrap::Clamp,
+    };
+    let offers = vec![(
+        target,
+        UiOffer::Written(UiTarget::new(target, None, sampler).unwrap()),
+    )];
+    let mut lines = Vec::new();
+    let shown = PlayerUi::default().offer_targets(&mut plan, offers, |line| lines.push(line));
+    assert_eq!(plan.draws.len(), 1);
+    assert!(shown.is_empty(), "a left-out draw binds no texture");
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains("Game/Silhouette") && lines[0].contains("is left out"));
 }

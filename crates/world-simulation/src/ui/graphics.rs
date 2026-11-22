@@ -7,7 +7,7 @@ use crate::presentation::extraction::{
 };
 use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
-use crate::ui::{CanvasRenderer, RectLayout, UiLayout, UiMaterial};
+use crate::ui::{CanvasRenderer, RectLayout, UiLayout, UiMaterial, UiTexture};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::BTreeMap;
 
@@ -28,8 +28,9 @@ pub struct UiGraphic {
     pub overlay: bool,
     pub sorting_layer: i32,
     pub sorting_order: i32,
-    /// The renderer identity of the texture the quads sample, or none for plain colour.
-    pub texture: Option<u64>,
+    /// The texture the quads sample, or none for plain colour. A `Target` is kept when the world
+    /// no longer holds it; the player decides what a missing render texture draws.
+    pub texture: Option<UiTexture>,
     /// The game's own material of the renderer, or none when the engine draws the graphic with its
     /// own look: no material, a destroyed one, or one whose shader has no source or is the
     /// engine's UI shader.
@@ -119,7 +120,7 @@ fn graphic(
         overlay,
         sorting_layer: rect.sorting_layer,
         sorting_order: rect.sorting_order,
-        texture: (renderer.graphic_texture != 0).then_some(renderer.graphic_texture),
+        texture: renderer.graphic_texture,
         material,
         quads,
         triangles: found
@@ -185,6 +186,13 @@ pub fn append_graphics(
 ) -> Result<(), worldrunner_camera::ViewError> {
     // A game's material has no path that draws it yet, and the plain quad would show it as white.
     for mut graphic in graphics.into_iter().filter(|g| g.material.is_none()) {
+        let texture = match graphic.texture {
+            None => None,
+            Some(UiTexture::Image(id)) => Some(id),
+            // Sprite quads sample stored images; a render texture reaches the screen through the
+            // overlay draw list only.
+            Some(UiTexture::Coverage(_) | UiTexture::Target(_)) => continue,
+        };
         for triangle in &graphic.triangles {
             let [a, b, c] = *triangle;
             graphic.quads.push(UiGraphicQuad {
@@ -200,7 +208,7 @@ pub fn append_graphics(
                 corners: ui_corners(plan.camera.as_ref(), quad.corners, graphic.overlay)?,
                 uv_rect: quad.uv_rect,
                 color: quad.color,
-                texture: graphic.texture,
+                texture,
                 sorting_layer: graphic.sorting_layer,
                 sorting_order: graphic.sorting_order,
             });

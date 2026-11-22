@@ -1,6 +1,7 @@
 #![cfg(feature = "ui")]
 //! The runs of UI draws that a game's shader draws, and where each run sits in the layer atlas.
 use worldrunner_world_simulation::graphics::MaterialId;
+use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{
     UiDraw, UiDrawKind, UiLayers, UiMaterial, UiPresentation,
 };
@@ -31,7 +32,7 @@ fn draw(material: Option<UiMaterial>, rect: [f32; 4]) -> UiDraw {
         color: [1.; 4],
         distance_field: None,
         corner_colors: None,
-        texture: Some(1),
+        texture: Some(UiTexture::Image(1)),
         material,
         sorting_layer: 0,
         sorting_order: 0,
@@ -71,7 +72,7 @@ fn consecutive_material_draws_form_one_run() {
 fn a_draw_of_another_image_starts_a_new_span() {
     let a = material(1);
     let mut other = draw(Some(a), [40., 10., 20., 20.]);
-    other.texture = Some(2);
+    other.texture = Some(UiTexture::Image(2));
     let layers = layers(vec![draw(Some(a), [10., 10., 20., 20.]), other]);
     assert_eq!(layers.runs.len(), 1);
     let spans: Vec<_> = layers.runs[0]

@@ -201,7 +201,7 @@ internal static class CanvasRendererTests
     private static void WorldMaterialOfSlotZero()
     {
         var renderer = NewGraphic();
-        var game = new Material(DisunityHost.DeclareShader("Test/CanvasRenderer/Game", 3000, ["Pass"], 1, _ => { }, "shaders.bundle", 12));
+        var game = new Material(DisunityHost.DeclareShader("Test/CanvasRenderer/Game", new ShaderDeclaration(3000, ["Pass"], 1), _ => { }, "shaders.bundle", 12));
         var engine = new Material(Material.SpriteUnlit);
         Ensure(UiDraws().Single().material == 0, "a graphic without a material names none");
         renderer.SetMaterial(game, 0);

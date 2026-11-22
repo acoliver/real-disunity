@@ -1,6 +1,7 @@
 //! Runs of UI draws that a game's shader draws, and their places in the layer atlas.
 use super::material::UiMaterial;
 use super::presentation::{UiDraw, UiPresentation};
+use super::texture::UiTexture;
 use glam::{UVec2, Vec2};
 use std::ops::Range;
 
@@ -9,7 +10,7 @@ use std::ops::Range;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UiSpan {
     pub material: UiMaterial,
-    pub texture: Option<u64>,
+    pub texture: Option<UiTexture>,
     /// Indices into `UiPresentation::draws`.
     pub draws: Range<usize>,
 }

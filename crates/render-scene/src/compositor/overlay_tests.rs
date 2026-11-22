@@ -59,8 +59,10 @@ fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
                     corners: Some([[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]]),
                     ..DynamicQuad::default()
                 }],
+                targets: vec![],
                 layer: None,
             }),
+            &[],
         )
         .unwrap();
     let mut renderer = FrameRenderer::new(device);

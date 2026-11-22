@@ -64,6 +64,7 @@ impl RetainedHost {
             offscreen: None,
             game_screen: None,
             ui_layers: None,
+            ui_targets: Vec::new(),
             readiness: initial_readiness(scene.as_ref(), &options),
             initial_scene: scene.clone(),
             scene,

@@ -652,3 +652,41 @@ fn a_flush_the_player_submitted_marks_the_offered_screen_as_written() {
     );
     assert!(!resized.submitted(), "the flush wrote the old allocation");
 }
+
+fn reads(set: &[&str], read: &[&str]) -> Report {
+    Report {
+        global_reads: GlobalReads {
+            set: names(set),
+            read: names(read),
+        },
+        ..Report::default()
+    }
+}
+
+#[test]
+fn the_run_report_lists_a_global_set_in_one_piece_of_work_and_read_in_another_as_read() {
+    let mut report = GpuWorkReport::default();
+    report.add(&reads(&["Minimap", "_Grab", "Other"], &[]), "frame");
+    report.add(&reads(&[], &["_Grab", "Minimap"]), "flush");
+    assert_eq!(
+        report.global_reads.line(TOP_UNREAD_GLOBALS).as_deref(),
+        Some("globals set and never read by a draw: Other")
+    );
+}
+
+#[test]
+fn the_unread_globals_line_names_the_first_thirty_and_counts_the_rest() {
+    let all: Vec<String> = (0..32).map(|n| format!("G{n:02}")).collect();
+    let set: Vec<&str> = all.iter().map(String::as_str).collect();
+    let mut report = GpuWorkReport::default();
+    report.add(&reads(&set, &[]), "frame");
+    let line = report.global_reads.line(TOP_UNREAD_GLOBALS).unwrap();
+    assert!(line.ends_with("G29, and 2 more"), "{line}");
+    assert!(!line.contains("G30"), "{line}");
+    assert_eq!(
+        GpuWorkReport::default()
+            .global_reads
+            .line(TOP_UNREAD_GLOBALS),
+        None
+    );
+}

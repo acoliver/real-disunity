@@ -354,6 +354,20 @@ A slot that is null in the game's data is kind 0, `TextureRef::None`.
 The world reads the two alike everywhere except in this report, so `declared-default` says the game left the slot null and `not-loaded` says a texture the game names did not arrive.
 The managed engine's own count of what it could not send, with the reason for each property, is printed as `UnsentTextureSummary`.
 
+### Seeing the globals no draw read
+
+The report also lists the texture globals that were set and that no draw's slot asked for, next to the stand-in lines:
+
+```
+[gpu] globals set and never read by a draw: <name>, <name>, ... and N more
+```
+
+A name is set when the world's globals hold a texture under it at a frame (the names of the `globals at a flush` listing) or when a command of the frame sets one with `SetGlobal`.
+A name is read when a planned draw's texture slot looked it up in the layers, whether or not a layer held a texture under it, so a slot that falls back to the grey `undeclared` stand-in counts as a read of its own name.
+The names are exact and the engine translates none: a game that sets `Foo` while its shader reads `_Foo` shows `Foo` in this line and `_Foo undeclared` in the stand-ins line.
+The line names the first 30 names in name order and counts the rest, and covers the whole run, so `PLAY_REPORT_EACH_FRAME` prints the run's names so far.
+`GlobalReads` in `offscreen/stand_ins.rs` holds the two sets; the lookups come from `OffscreenOperations::looked_up_textures`, which render-program fills when it binds a draw's texture slots.
+
 `--stand-ins magenta` makes every stand-in texture the host supplies read as magenta, RGBA (255, 0, 255, 255), in its own dimension (2D, cube, array and 3D), so a capture shows which draws read stand-ins.
 `--stand-ins declared`, the default, leaves the declared colours.
 The look is `PlayerLaunch::stand_ins`, which the run's `GpuLaunch` carries into `Settings::with_stand_in_look`.
@@ -443,6 +457,10 @@ While frames with objects present
 no camera, or one the viewer cannot draw (an orthographic one, for example), the window keeps
 its view and tries again on the next such frame, and the driver names each reason once on
 stderr.
+
+### Render textures in the UI
+
+A `CanvasRenderer` over a `RenderTexture` (Old World's minimap) reaches the window and a screen capture as a `UiTexture::Target` draw. Each update, `PlayerGpu::ui_offers` asks the offscreen host for the device texture of every render texture the UI's draws read (`OffscreenHost::render_texture_for_ui`: the texture, if a frame made one, and whether a frame the state built wrote it) and for the sampler the world holds, then `PlayerUi::offer_targets` turns each answer into a `UiTarget` for `RetainedHost::show_ui_textures` or leaves the draw out. A texture no frame has written draws transparent and is named once ("shows nothing until a frame draws it"); a destroyed texture or one the overlay cannot sample is left out and named once with the reason (`destroyed`, `not-2d`, `multisampled`, `not-sampled`, `depth-or-stencil`, `not-filterable`). A run with no GPU work leaves these draws out with `no-gpu`. The viewer runs the update's offscreen operations first and samples the texture in the same submission, so the minimap shows what the camera drew that frame. The read counts as naming the texture for storage reclaiming, so a shown texture is the last one given back. Tests: `offscreen/tests/ui_read.rs`, `offscreen/tests/reclaim.rs`, `gpu_player/ui_offer_tests.rs`, `player_ui_tests.rs` and, in a window on a real adapter, `retained_screen_tests.rs` (the fixture `ui-target-draw.fixture`).
 
 ### Lighting the retained scene
 

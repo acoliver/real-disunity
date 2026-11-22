@@ -15,6 +15,7 @@ mod terrain;
 mod timers;
 mod timing;
 mod ui_layers;
+mod ui_target;
 mod watchdog;
 mod work;
 use watchdog::CaptureWatchdog;

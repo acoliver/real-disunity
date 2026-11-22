@@ -30,13 +30,13 @@ public sealed partial class CanvasRenderer
     public void SetMaterial(Material? material, int index) => SetSlot(0, material, index);
 
     /// <summary>Sets material 0 and the main texture and makes the material count 1, dropping any other material.
-    /// With no texture the quads are drawn with the material's main texture when that is a <see cref="Texture2D"/>.</summary>
+    /// With no texture the quads are drawn with the material's main texture when that is a <see cref="Texture2D"/> or a <see cref="RenderTexture"/>.</summary>
     public void SetMaterial(Material? material, Texture? texture)
     {
         materialCount = 1;
         SetSlot(0, material, 0);
         SetTexture(texture);
-        if (texture is null && material is not null && material.mainTexture is Texture2D) SendTexture(material.mainTexture);
+        if (texture is null && material is not null && material.mainTexture is Texture2D or RenderTexture) SendTexture(material.mainTexture);
     }
 
     /// <summary>Material 0, or null when the count is 0 or the slot is empty.</summary>

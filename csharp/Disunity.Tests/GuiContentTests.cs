@@ -25,7 +25,11 @@ internal static class GuiContentTests
         var first = GUIContent.Temp("one", "tip");
         var second = GUIContent.Temp("two");
         Expect.That(ReferenceEquals(first, second) && second.text == "two" && second.tooltip == "", "Temp reuses one value and resets the other parts");
+        var held = new Texture2D(2, 2);
+        var withImage = GUIContent.Temp("kept", held);
         GUIContent.ClearStaticCache();
-        Console.WriteLine("PASS: GUIContent holds text, image and tooltip, treats null text as empty and shares one scratch value");
+        Expect.That(withImage.text == "" && withImage.image == null && withImage.tooltip == "", "ClearStaticCache empties the scratch value, so it holds no text, image or tooltip");
+        Expect.That(ReferenceEquals(withImage, GUIContent.Temp("after")) && withImage.text == "after", "the scratch value is still the one Temp returns");
+        Console.WriteLine("PASS: GUIContent holds text, image and tooltip, treats null text as empty, shares one scratch value and empties it with ClearStaticCache");
     }
 }

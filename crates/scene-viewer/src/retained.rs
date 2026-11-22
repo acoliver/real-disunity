@@ -283,6 +283,8 @@ pub struct RetainedHost {
     pub(crate) game_screen: Option<crate::GameScreen>,
     /// The texture the player's runs of UI draws were drawn into, which the overlay shows.
     pub(crate) ui_layers: Option<wgpu::Texture>,
+    /// The render textures of the player the UI draws read, which the overlay binds.
+    pub(crate) ui_targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -608,6 +610,19 @@ impl RetainedHost {
         }
         self.ui_layers = layers;
         Ok(())
+    }
+
+    /// Offers the device textures of the render textures the UI draws read, replacing the earlier
+    /// offer. The overlay binds them for the frames the viewer renders next: a texture of an id
+    /// the overlay reads is sampled after the frame's own offscreen operations, in the same
+    /// submission, so what those wrote is what the UI shows. An id with no offered texture, or
+    /// whose texture has no storage yet, draws as transparent black, and a texture no longer
+    /// offered is let go of when the next frame stages the overlay again.
+    pub fn show_ui_textures(
+        &mut self,
+        targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
+    ) {
+        self.ui_targets = targets;
     }
 
     /// Runs once on the main thread through the same event loop and renderer as `run_with_updates`,

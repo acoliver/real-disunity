@@ -20,7 +20,10 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, OffscreenWork, RenderTextureId, ShaderProperties, TargetRef, TextureRef,
     TextureSlot, WorldRenderTexture, WorldSampler, dimension,
 };
-use worldrunner_world_simulation::ui::presentation::{UiDraw, UiLayers, UiPresentation, UiRun};
+use worldrunner_world_simulation::ui::{
+    UiTexture,
+    presentation::{UiDraw, UiLayers, UiPresentation, UiRun},
+};
 
 use super::assets::{AssetError, Assets};
 use crate::player_textures::FIRST_PLAYER_TEXTURE;
@@ -149,8 +152,11 @@ fn run_work(plan: &UiPresentation, run: &UiRun, mesh: u64) -> Vec<OffscreenWork>
 }
 
 /// The block that gives a draw its image, when it has one the player stored.
-fn main_texture(texture: Option<u64>) -> Option<ShaderProperties> {
-    let identity = texture.filter(|identity| *identity >= FIRST_PLAYER_TEXTURE)?;
+fn main_texture(texture: Option<UiTexture>) -> Option<ShaderProperties> {
+    let Some(UiTexture::Image(identity)) = texture else {
+        return None;
+    };
+    let identity = Some(identity).filter(|identity| *identity >= FIRST_PLAYER_TEXTURE)?;
     Some(ShaderProperties {
         textures: vec![(
             MAIN_TEXTURE.to_owned(),

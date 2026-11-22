@@ -1,9 +1,11 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
+use std::collections::BTreeMap;
+
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
     CameraBuffers, ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue,
-    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
+    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldMaterial, WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -254,13 +256,14 @@ impl World {
     }
 
     /// Checks a record and appends it to the frame's list.
-    pub(super) fn push_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
+    pub(super) fn push_offscreen(&mut self, mut work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
         if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
         }
         self.note_handle(&work);
         self.capture_render_set(&work);
+        self.note_material_draw(&mut work);
         self.graphics.offscreen.push(work);
         Ok(())
     }
@@ -270,14 +273,24 @@ impl World {
         &self.graphics.offscreen
     }
 
-    /// Drains the frame's offscreen work, in call order. A frame that starts with work nobody
-    /// took drops it, so a host that never draws offscreen does not accumulate records.
-    pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
+    /// Drains the frame's offscreen work, in call order, with the materials its records name. A
+    /// frame that starts with work nobody took drops it, so a host that never draws offscreen does
+    /// not accumulate records.
+    ///
+    /// A blit, mesh draw or procedural draw reads the material as it stood when the script
+    /// recorded it, whatever the script changes on the material afterwards. It names the material
+    /// by its own id while the material still holds that state. When the script edits the material,
+    /// the draws before the edit name a copy of the state they saw instead, under an id of
+    /// generation 0 that no material of the world has. The map holds those copies, each under the
+    /// id the records use; it is empty for a frame whose draws saw one state of each material.
+    pub fn take_offscreen(&mut self) -> (Vec<OffscreenWork>, BTreeMap<MaterialId, WorldMaterial>) {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
         self.graphics.retired_textures.clear();
         self.graphics.render_sets.clear();
-        std::mem::take(&mut self.graphics.offscreen)
+        let mut work = std::mem::take(&mut self.graphics.offscreen);
+        let copies = self.settle_material_versions(&mut work);
+        (work, copies)
     }
 
     fn check_offscreen(&self, work: &OffscreenWork) -> Result<(), WorldError> {

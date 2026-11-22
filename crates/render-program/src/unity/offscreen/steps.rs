@@ -833,8 +833,8 @@ fn blit_step(
     }))
 }
 
-/// The layer a blit adds above the material: the source under the main texture name, and its
-/// texel size under `<name>_TexelSize` for a shader that declares it.
+/// The layer a blit adds above the material: the frame's blit values, the source under the main
+/// texture name, and its texel size under `<name>_TexelSize` for a shader that declares it.
 fn source_layer(
     svc: &Services<'_>,
     frame: &OffscreenFrame,
@@ -842,7 +842,7 @@ fn source_layer(
 ) -> Result<PropertyLayer, OffscreenError> {
     let info = svc.textures.get(source)?;
     let [width, height] = info.size.map(texels);
-    let mut layer = PropertyLayer::default();
+    let mut layer = frame.blit_values.clone();
     layer.textures.insert(
         frame.main_texture.clone(),
         TextureInput {

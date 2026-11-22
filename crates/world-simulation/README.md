@@ -177,28 +177,24 @@ intended target buses. Convert the game's priority ordering explicitly to higher
 numeric engine tiers. The caller owns authored strength-unit conversion and the
 choice of activity or peak detection; interpolation mode is a separate choice.
 
+## Graphics: a draw's material
+
+A script sets values on a material, draws with it, sets others and draws again, but the world holds one state per material and a host replays the frame from a snapshot taken at the flush. A blit, a mesh draw or a procedural draw (`Blit` with a material, `DrawMesh`, `DrawProcedural`) therefore reads the material as it stood when the script recorded it. The record names the material by its own id while the material still holds that state. The first `edit_material` (or `set_material_buffer`) after such draws copies the state they saw and renames them to the copy, under a `MaterialId` of generation 0, which no slot of the world has and which is never reused in the world's life. Several edits between two draws make one copy, and a frame whose draws saw one state of each material makes none and names its materials as before. Every change a material takes is covered: values of every kind, textures, keywords, passes, the render queue, the shader and bound buffers.
+
+`GraphicsSnapshot::take` puts each copy in `materials` under its own id, with its shader and buffers, next to the live materials, so a host maps a copy like any other material and the wire encoding carries it unchanged. `World::take_offscreen` returns the copies with the work, each under the id the records name. A buffer binding in a copy names the compute buffer, and the buffer's contents are the ones the snapshot copies, as before. The records of a camera render and a renderer list read the renderers' materials as the snapshot holds them, not as of the record. A material destroyed after a draw leaves the draw naming the destroyed id, which a host skips as stale, whether or not the script edited the material first.
+
 ## Camera renders and the renderers they draw
 
-`Camera.Render` into a render texture draws at once, so a script may switch an object on for the
-call and off after it, as a bake of tile data into a render texture does. The world therefore
-fixes the renderers of a camera render when it records the render. A render pipeline renders a
-camera by culling inside `Camera.Render`, so a `Cull` record is fixed the same way, with its own
-culling mask. `World::record_offscreen` of a `CameraRender` or a `Cull` captures the mesh renderers that are enabled, not
-forced off, have a drawn mesh and sit on an object active in the hierarchy, on a layer the camera's
-culling mask admits. Records of one mask share a set while nothing changes: a counter that
-`set_active`, a parent or layer change, a renderer or mesh filter edit, an added or removed
-component, a published construction and the destruction of an object advance gives each set its
-validity, so a frame with hundreds of camera renders scans the renderers once for each change, not
-once for each render.
+`Camera.Render` into a render texture draws at once, so a script may switch an object on for the call and off after it, as a bake of tile data into a render texture does.
+The world therefore fixes the renderers of a camera render when it records the render.
+A render pipeline renders a camera by culling inside `Camera.Render`, so a `Cull` record is fixed the same way, with its own culling mask.
+`World::record_offscreen` of a `CameraRender` or a `Cull` captures the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an object active in the hierarchy, on a layer the camera's culling mask admits.
+Records of one mask share a set while nothing changes: a counter that `set_active`, a parent or layer change, a renderer or mesh filter edit, an added or removed component, a published construction and the destruction of an object advance gives each set its validity, so a frame with hundreds of camera renders scans the renderers once for each change, not once for each render.
 
-`GraphicsSnapshot::take` lists the renderers the sets name, each once, and gives each camera render
-and each cull its set as indices into `renderers` (`renderer_sets`, `record_sets`,
-`record_renderers`). A renderer in a set whose object or components are gone by then is left out.
-A renderer that is drawable when the snapshot is taken but was not when a record was made is in no
-set, so no record draws it. The world makes a set for every cull and for every camera render whose
-camera it can read; a record with none draws nothing.
+`GraphicsSnapshot::take` lists the renderers the sets name, each once, and gives each camera render and each cull its set as indices into `renderers` (`renderer_sets`, `record_sets`, `record_renderers`).
+A renderer in a set whose object or components are gone by then is left out.
+A renderer that is drawable when the snapshot is taken but was not when a record was made is in no set, so no record draws it.
+The world makes a set for every cull and for every camera render whose camera it can read; a record with none draws nothing.
 
-The limits: a renderer's pose, materials and property block are read when the snapshot is taken,
-not when the record is made, and the camera's mask and settings are read then too, except that the
-mask at the call decides the set's layers. A script that edits a renderer's material between two
-camera renders of one frame sees the later value in both.
+The limits: a renderer's pose, materials and property block are read when the snapshot is taken, not when the record is made, and the camera's mask and settings are read then too, except that the mask at the call decides the set's layers.
+A script that edits a renderer's material between two camera renders of one frame sees the later value in both.

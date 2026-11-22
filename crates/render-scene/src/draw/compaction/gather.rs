@@ -110,6 +110,9 @@ impl Pipelines {
 pub(in crate::draw) struct Shared {
     pub(super) mirror: mirror::Mirror,
     pipelines: OnceCell<Pipelines>,
+    /// How many batches `gather_sources` checked one by one.
+    #[cfg(test)]
+    pub(super) source_checks: std::cell::Cell<usize>,
 }
 
 /// The buffers one gather binds, in binding order.
@@ -128,18 +131,28 @@ pub(super) struct Bindings<'a> {
 pub(super) struct Scratch {
     runs: Option<Tracked<Buffer>>,
     group: Option<(Vec<Buffer>, wgpu::BindGroup)>,
+    /// The bytes of the run list, written again by each gather.
+    bytes: Vec<u8>,
 }
 
-/// The run list as the shader reads it: the run count, then each run.
-pub(super) fn run_bytes(runs: &[Run]) -> Vec<u8> {
+/// Replaces `bytes` with the run list as the shader reads it: the run count, then each run.
+pub(super) fn write_run_bytes(runs: &[Run], bytes: &mut Vec<u8>) {
     let count = u32::try_from(runs.len()).expect("gather runs fit u32");
-    let mut bytes = Vec::with_capacity(HEADER_BYTES + RUN_BYTES * runs.len());
+    bytes.clear();
+    bytes.reserve(HEADER_BYTES + RUN_BYTES * runs.len());
     bytes.extend_from_slice(&count.to_le_bytes());
     for run in runs {
         for word in [run.source, run.destination, run.count] {
             bytes.extend_from_slice(&word.to_le_bytes());
         }
     }
+}
+
+/// The run list of [`write_run_bytes`] in a new buffer.
+#[cfg(test)]
+pub(super) fn run_bytes(runs: &[Run]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    write_run_bytes(runs, &mut bytes);
     bytes
 }
 
@@ -175,10 +188,13 @@ impl Shared {
         let device = context.device().clone();
         let pipelines = self.pipelines.get_or_init(|| Pipelines::new(&device));
         let pipeline = &pipelines.entries[entry(bindings)];
-        let bytes = run_bytes(runs);
         let mut scratch = scratch.borrow_mut();
+        let mut bytes = std::mem::take(&mut scratch.bytes);
+        write_run_bytes(runs, &mut bytes);
         let list = scratch.runs_holding(&device, census, bytes.len() as u64);
+        // The upload copies the bytes, so the buffer holds the next list once this returns.
         context.upload_buffer(&list, 0, &bytes);
+        scratch.bytes = bytes;
         let group = scratch.group(&device, &pipeline.layout, &list, bindings);
         let limit = device.limits().max_compute_workgroups_per_dimension;
         let count = u32::try_from(runs.len()).expect("gather runs fit u32");
@@ -196,6 +212,12 @@ impl Scratch {
     #[cfg(test)]
     pub fn bytes(&self) -> u64 {
         self.runs.as_deref().map_or(0, Buffer::size)
+    }
+
+    /// Where the run list bytes live and how much they can hold.
+    #[cfg(test)]
+    pub fn bytes_buffer(&self) -> (usize, usize) {
+        (self.bytes.as_ptr() as usize, self.bytes.capacity())
     }
 
     fn runs_holding(&mut self, device: &wgpu::Device, census: &MemoryCensus, bytes: u64) -> Buffer {

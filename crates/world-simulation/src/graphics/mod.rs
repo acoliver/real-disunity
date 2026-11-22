@@ -18,6 +18,7 @@ mod compute;
 mod context;
 pub mod environment;
 mod material;
+mod material_versions;
 mod offscreen;
 mod properties;
 mod readback;
@@ -215,6 +216,8 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The states of materials that the frame's draws named, apart from the materials' own.
+    versions: material_versions::MaterialVersions,
     /// The scene's ambient light and default reflection.
     environment: Environment,
     offscreen: Vec<OffscreenWork>,
@@ -243,6 +246,7 @@ impl GraphicsState {
     /// Drops the offscreen work of the previous frame that nobody took.
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
+        self.versions.clear();
         self.handles.clear();
         self.lists.clear();
         self.readbacks.clear();
@@ -259,6 +263,7 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            versions: material_versions::MaterialVersions::new(),
             environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),

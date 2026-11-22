@@ -125,7 +125,7 @@ impl GraphicsSnapshot {
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
         let captured = world.take_render_sets();
-        let work = world.take_offscreen();
+        let (work, copies) = world.take_offscreen();
         // The list is whole for every snapshot: a host drops the render textures a snapshot
         // omits, so a frame with no work must not look like a world with none.
         let render_textures = world
@@ -151,15 +151,16 @@ impl GraphicsSnapshot {
         snapshot.renderers = drawn.views;
         snapshot.renderer_sets = drawn.sets;
         snapshot.record_sets = captured.records;
-        snapshot.copy_materials(world);
+        snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
         Ok(snapshot)
     }
 
-    /// The materials the blits, mesh draws and renderers name, and their shaders. A destroyed material
-    /// or shader is left out.
-    fn copy_materials(&mut self, world: &World) {
+    /// The materials the blits, mesh draws and renderers name, and their shaders. A material that
+    /// changed after a draw recorded it is the draw's copy of it (`copies`, which the draw names by
+    /// the copy's id). A destroyed material or shader is left out.
+    fn copy_materials(&mut self, world: &World, mut copies: BTreeMap<MaterialId, WorldMaterial>) {
         let named: BTreeSet<MaterialId> = self
             .work
             .iter()
@@ -176,13 +177,16 @@ impl GraphicsSnapshot {
             )
             .collect();
         for id in named {
-            let Ok(material) = world.material(id) else {
+            let Some(material) = copies
+                .remove(&id)
+                .or_else(|| world.material(id).ok().cloned())
+            else {
                 continue;
             };
             if let Ok(shader) = world.shader(material.shader) {
                 self.shaders.insert(material.shader, shader.clone());
             }
-            self.materials.insert(id, material.clone());
+            self.materials.insert(id, material);
         }
     }
 

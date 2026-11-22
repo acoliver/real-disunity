@@ -84,4 +84,19 @@ pub enum FrameError {
         label: &'static str,
         refusal: PreparedRefusal,
     },
+    /// Prepared commands were staged for an entry that is not a compute pass the frame records:
+    /// a render pass, or a compute pass a completed geometry prefix already encoded.
+    #[error(
+        "prepared commands {label} were staged for {entry}, which is not a compute pass the frame records"
+    )]
+    NotComputePass {
+        label: &'static str,
+        entry: PassEntry,
+    },
+    /// Prepared commands staged for a compute pass have no compute form to record in it.
+    #[error("prepared commands {label} have no compute form for the compute pass {entry}")]
+    NotComputeWork {
+        label: &'static str,
+        entry: PassEntry,
+    },
 }

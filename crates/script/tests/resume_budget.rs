@@ -4,7 +4,8 @@
 use std::time::{Duration, Instant};
 
 use worldrunner_script::{
-    GameScripts, OnOverrun, ResumeBudget, SavedWake, SchedulerNames, ScriptConfig, ScriptError,
+    GameScripts, OnOverrun, ResumeBudget, SaveOptions, SavedWake, SchedulerNames, SchedulerPolicy,
+    ScriptConfig, ScriptError,
 };
 
 const NAMES: [&str; 7] = [
@@ -40,7 +41,9 @@ fn game(config: ScriptConfig) -> GameScripts {
             Err(mlua::Error::runtime("native failure"))
         })
         .unwrap();
-    scripts.register_scheduler(&names()).unwrap();
+    scripts
+        .register_scheduler(&names(), &SchedulerPolicy::default())
+        .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts
 }
@@ -244,7 +247,9 @@ fn threads_resumed_under_the_budget_still_save_and_restore() {
         .run("game", "start.lua", b"Unit = { thread = Go(Walk, 'u') }")
         .unwrap();
     assert_eq!(messages(&saved, 70), Vec::<String>::new());
-    let snapshot = saved.save(&["Unit", "Ticks"], &["Walk"]).unwrap();
+    let snapshot = saved
+        .save(&["Unit", "Ticks"], &["Walk"], &SaveOptions::default())
+        .unwrap();
     assert_eq!(snapshot.threads.len(), 1);
     assert_eq!(snapshot.threads[0].wake, SavedWake::At(90));
 

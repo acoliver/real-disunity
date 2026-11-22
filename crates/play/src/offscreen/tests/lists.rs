@@ -30,6 +30,7 @@ const DEFAULT_UNLIT: &str = "SRPDefaultUnlit";
 pub(super) const MESH: u64 = 100;
 
 mod shadow;
+mod shadows_only;
 
 /// A renderer of mesh `MESH + number` at `position` on `layer`, one slot for each material, that
 /// casts shadows.

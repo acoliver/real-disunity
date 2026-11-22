@@ -9,6 +9,8 @@ mod before_post;
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/compute.rs"]
+mod compute;
 #[path = "game_passes/environment.rs"]
 mod environment;
 #[path = "game_passes/fixture.rs"]

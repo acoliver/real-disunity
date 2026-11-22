@@ -12,9 +12,10 @@
 //! static flag or light data, so a list's rendering layer mask, objects filter, light index and
 //! per-object data are read and not applied. Planes and a split's sphere are tested against the
 //! box of the renderer's mesh, moved by its matrix; a mesh with no box is tested as the point its
-//! matrix places it at. A shadow list leaves out a renderer that casts no shadow, and tests the
-//! sphere only when the split has no planes: the planes of a directional split bound the casters,
-//! which reach toward the light past the sphere that wraps the receivers.
+//! matrix places it at. A shadow list leaves out a renderer that casts no shadow, and a drawing
+//! list leaves out one that only casts shadows (`ShadowsOnly`), which a shadow list keeps. A
+//! shadow list tests the sphere only when the split has no planes: the planes of a directional
+//! split bound the casters, which reach toward the light past the sphere that wraps the receivers.
 //! A shadow list takes its casters from every renderer the culling record's layer mask keeps,
 //! those outside the camera's planes included, since a caster out of the camera's view shadows
 //! what the camera sees.
@@ -33,7 +34,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
 use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
-use worldrunner_world_simulation::shadows::CASTS_NO_SHADOW;
+use worldrunner_world_simulation::shadows::{CASTS_NO_SHADOW, SHADOWS_ONLY};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
 use super::builtins::{add_screen_size, view_layer};
@@ -57,6 +58,7 @@ const OUTSIDE_SPHERE: &str = "outside the split's sphere";
 const OUTSIDE_PLANES: &str = "outside the split's planes";
 const NO_CASTER_PASS: &str = "no shadow caster pass";
 const NO_SHADOW_CAST: &str = "casts no shadow";
+const SHADOWS_ONLY_LEFT_OUT: &str = "casts shadows only";
 
 /// The winding that counts as a front face for a list or a mesh draw. The image is the other way
 /// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
@@ -286,6 +288,10 @@ impl<'a> Mapper<'a> {
             let view = &self.snapshot.renderers[index];
             if view.layer >= 32 || (layer_mask >> view.layer) & 1 == 0 {
                 self.left_out(LAYER_MASK, 1);
+                continue;
+            }
+            if view.shadow_casting_mode == SHADOWS_ONLY {
+                self.left_out(SHADOWS_ONLY_LEFT_OUT, 1);
                 continue;
             }
             if !self.usable_renderer(index) {

@@ -902,6 +902,35 @@ fn a_renderer_with_no_material_at_all_is_skipped() {
 }
 
 #[test]
+fn a_renderer_whose_only_material_has_no_shader_is_skipped_for_the_shader_not_for_no_material() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    let shader = shader(&mut world, "Draw");
+    let broken = material(&mut world, shader);
+    renderer(&mut world, 0, MESH, vec![Some(broken)]);
+    renderer(&mut world, 0, MESH + 1, vec![None]);
+    draw(&mut world, camera, target);
+    let snapshot = snapshot(&mut world);
+    let mut offered = available(&snapshot, 1, &[]);
+    offered.shaders.clear();
+    let adapted = adapt(&snapshot, &offered, &settings());
+    assert!(adapted.frame.renderers.is_empty());
+    assert_eq!(
+        adapted
+            .report
+            .renderers_skipped
+            .iter()
+            .map(|(k, n)| (*k, *n))
+            .collect::<Vec<_>>(),
+        [
+            (RendererSkip::NoMaterial, 1),
+            (RendererSkip::ShaderUnavailable, 1)
+        ]
+    );
+}
+
+#[test]
 fn a_dispatch_is_not_a_record_but_keeps_its_place_among_them_and_brings_its_textures() {
     let mut world = world();
     let (target, read, other) = (

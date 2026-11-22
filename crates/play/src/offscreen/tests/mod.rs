@@ -5,6 +5,8 @@ mod array_blocks;
 mod array_gpu;
 mod assets;
 mod bake_parts;
+mod blit_material_gpu;
+mod blit_matrices_gpu;
 mod block_sources;
 mod bounds;
 mod builtins;

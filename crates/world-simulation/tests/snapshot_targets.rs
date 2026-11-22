@@ -191,7 +191,7 @@ fn a_destroyed_texture_does_not_outlive_its_frame_or_its_taken_work() {
         world.record_offscreen(setup(camera, gone)).unwrap();
         world.destroy_render_texture(gone).unwrap();
         if take_work {
-            assert_eq!(world.take_offscreen().len(), 1);
+            assert_eq!(world.take_offscreen().0.len(), 1);
         } else {
             world
                 .advance(TimeSpan::from_nanos(16_000_000).unwrap())

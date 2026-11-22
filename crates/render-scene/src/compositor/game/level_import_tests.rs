@@ -10,6 +10,7 @@ use crate::compositor::game::{
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_post::contracts::TextureRange;
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::runtime::{Import, ImportedResource};
 
@@ -232,4 +233,32 @@ fn a_target_declared_with_a_usage_its_format_cannot_have_is_refused_by_name() {
     declare("probe.float", wgpu::TextureFormat::R32Float)
         .validate((&limits, wgpu::Features::empty()), [8, 4])
         .expect("R32Float is a storage image");
+}
+
+#[test]
+fn a_level_is_lent_with_the_range_of_that_level_alone() {
+    let (device, authority) = device();
+    let resources = store(&device, &authority);
+    let pages = declare(&resources, "pages", wgpu::TextureViewDimension::D2Array);
+    let declared = resources
+        .import_texture_level(semantic(), pages, level(1, 3), LevelAccess::Sampled)
+        .unwrap();
+    let target = targets(&device)
+        .import_level(
+            "probe.storage",
+            semantic(),
+            level(2, 0),
+            LevelAccess::Storage,
+        )
+        .unwrap();
+    for (import, (layer, mip)) in [(declared, (1, 3)), (target, (2, 0))] {
+        let ImportedResource::Texture(lent) = &import.resource else {
+            panic!("a texture is lent, got {:?}", import.resource)
+        };
+        assert_eq!(
+            lent.range,
+            TextureRange::single(mip, layer, wgpu::TextureAspect::All),
+            "a kernel that writes the level writes only it"
+        );
+    }
 }

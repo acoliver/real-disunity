@@ -37,7 +37,7 @@ use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 use worldrunner_world_simulation::shadows::{CASTS_NO_SHADOW, SHADOWS_ONLY};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
-use super::builtins::{add_screen_size, view_layer};
+use super::builtins::view_layer;
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
@@ -220,10 +220,12 @@ impl<'a> Mapper<'a> {
         match &self.script.camera {
             Some(setup) if !fills_target(setup.viewport) => Err(Skip::PartialViewport),
             Some(setup) => {
-                let mut values = view_layer(&setup.view, &setup.projection);
-                if let Some(size) = self.target_size() {
-                    add_screen_size(&mut values, size);
-                }
+                let values = view_layer(
+                    &setup.view,
+                    &setup.projection,
+                    self.target_size(),
+                    setup.half_height,
+                );
                 Ok((values, setup.view.inverse().w_axis.truncate()))
             }
             None => Ok((PropertyLayer::default(), Vec3::ZERO)),

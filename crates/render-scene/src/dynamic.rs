@@ -57,7 +57,7 @@ pub struct DynamicQuad {
     /// None is white. Triangles use the first three colours; all channels are 0..=1.
     pub corner_colors: Option<[[f32; 4]; 4]>,
     /// Retained-overlay signed-distance sampling and effect parameters.
-    pub distance_field: Option<worldrunner_render_plan::ui::UiDistanceStyle>,
+    pub distance_field: Option<worldrunner_world_simulation::ui::presentation::UiDistanceStyle>,
     /// Index into the dynamic texture table; None uses opaque white.
     pub texture: Option<usize>,
     /// Ascending painter layer.

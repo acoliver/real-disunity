@@ -75,9 +75,7 @@ end
 
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
-    scripts
-        .register_scheduler_with(&names(), &policy())
-        .unwrap();
+    scripts.register_scheduler(&names(), &policy()).unwrap();
     scripts.add_source("game", &GRANTS).unwrap();
     scripts.run("game", "prelude.lua", PRELUDE).unwrap();
     scripts
@@ -291,7 +289,7 @@ fn the_generic_wake_still_wakes_any_wait() {
         wake: Some("WakeRaw".into()),
         ..policy()
     };
-    scripts.register_scheduler_with(&names(), &policy).unwrap();
+    scripts.register_scheduler(&names(), &policy).unwrap();
     let grants: Vec<&str> = GRANTS.iter().copied().chain(["WakeRaw"]).collect();
     scripts.add_source("game", &grants).unwrap();
     scripts.run("game", "prelude.lua", PRELUDE).unwrap();
@@ -311,8 +309,6 @@ fn a_wake_native_naming_an_unknown_wait_is_refused() {
         }],
         ..SchedulerPolicy::default()
     };
-    let error = scripts
-        .register_scheduler_with(&names(), &policy)
-        .unwrap_err();
+    let error = scripts.register_scheduler(&names(), &policy).unwrap_err();
     assert!(error.to_string().contains("NoSuchWait"), "{error}");
 }

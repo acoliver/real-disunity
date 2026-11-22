@@ -75,6 +75,7 @@ mod procedural_draw;
 mod properties;
 mod raster;
 mod record_names;
+mod record_sets;
 mod records;
 mod report;
 mod screen;

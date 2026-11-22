@@ -60,8 +60,8 @@ fn procedural_draws_keep_call_order_with_other_work_including_empty_draws() {
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]

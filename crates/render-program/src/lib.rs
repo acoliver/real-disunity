@@ -46,6 +46,7 @@ mod schema;
 mod set;
 mod set_layout;
 mod spirv;
+mod spirv_rewrite;
 pub mod state;
 mod stats;
 pub mod targets;

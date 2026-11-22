@@ -3,7 +3,7 @@
 use worldrunner::simulation::{World, WorldSettings, presentation::CoverageTexture};
 use worldrunner::ui::{
     FontBook, UiLimits,
-    plan::ui::{UiRenderPlan, extract_ui},
+    contribution::{UiRenderPlan, extract_ui},
 };
 
 #[test]

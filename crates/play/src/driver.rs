@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
-use worldrunner_render_plan::simulation::{SpriteTextures, from_presentation};
+use worldrunner_render_plan::simulation::SpriteTextures;
 
 use crate::{
     player_meshes::PlayerMeshes, player_textures::PlayerTextures, unresolved::UnresolvedTextures,
@@ -130,25 +130,27 @@ impl PlayDriver {
     }
 
     fn frame(&mut self, viewport: Viewport) -> Result<LiveFrame, PlayError> {
-        let presentation = self
+        let mut plan = self
             .host
             .export_presentation([viewport.width, viewport.height], FIRST_COVERAGE_TEXTURE)?;
         self.player_textures.refresh(
             &self.host,
-            presentation.quads.iter().filter_map(|quad| quad.texture),
+            plan.quads.iter().filter_map(|quad| quad.texture),
             &mut self.textures,
         )?;
         let mesh_objects = self.host.mesh_objects()?;
         self.player_meshes.refresh(&self.host, &mesh_objects)?;
-        let mut plan = from_presentation(presentation, &self.textures);
         // A texture with no texels to draw (an unsupported player format, say) leaves its sprites
         // out of the frame, each texture named once on stderr.
-        for id in self.unresolved.drop_unresolved(&mut plan) {
+        for id in self
+            .unresolved
+            .drop_unresolved(&mut plan, &self.textures.textures)
+        {
             eprintln!(
                 "a sprite shows texture {id}, which has no texels to draw; its sprites are left out"
             );
         }
-        let contribution = WorldSceneContribution::new(plan)
+        let contribution = WorldSceneContribution::new(plan, &self.textures.textures)
             .map_err(|error| PlayError::Invalid(format!("the scene cannot be drawn: {error}")))?;
         Ok(LiveFrame::from_world(contribution))
     }

@@ -136,9 +136,6 @@ pub use scene::{
     SceneWaterWind, SceneWaterZeroFrequency,
 };
 
-#[cfg(feature = "ui")]
-pub mod ui;
-
 #[cfg(feature = "simulation")]
 pub mod simulation;
 

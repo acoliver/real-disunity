@@ -72,6 +72,15 @@ pub(super) fn assert_gather_matches_copies(context: &GpuContext, gpu: &SceneGpu,
         gather.copies.len() > gather.keys.len(),
         "no group gathered several ranges"
     );
+    assert_gather_equals_plain_copies(context, &gather, previous);
+}
+
+/// Compares the committed view buffers of `gather` with one buffer copy per selected range.
+pub(super) fn assert_gather_equals_plain_copies(
+    context: &GpuContext,
+    gather: &crate::draw::compaction::CommittedGather,
+    previous: bool,
+) {
     let device = context.device();
     let create = |label| {
         device.create_buffer(&wgpu::BufferDescriptor {

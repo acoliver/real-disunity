@@ -103,6 +103,12 @@ A feature records nothing through the frame's encoder: in `prepare` it stages co
 
 The views such commands write are declared by the plan with `AttachmentView::with_prepared_contents`, and named in `PreparedAccess::writes`. Validation counts a prepared view as produced before the first pass, so passes may read it, and a pass that clears it or an operations group that writes it is `FrameError::AttachmentHazard`. The stock compile versions each prepared write as a copy write before the first pass, so the texture needs `COPY_DST`, and a capture that submits the frame checks it owns each written allocation before any feature commits. The flag declares no earlier contents: the texture is imported at the same initial version as without it. Staging must agree with the plan and with the commands: `PreparedCommands::writes` reports the subresources the commands write (a block transfer its destination layer, a dispatch its storage images), and when the views of the frame among them are not the ones `PreparedAccess::writes` names, staging is `PreparedWriteMismatch { label, declared, written }`; a write of a texture no view of the frame shows is the provider's own and is not compared, and a write of a layer of a frame texture the frame has no view of is named like that texture's views. An undeclared view is `AttachmentView`, a view the plan did not mark is `UnplannedWrite`, a view staged twice is `RepeatedPreparedWrite`, a planned write no feature staged refuses the frame with `UnstagedWrite`, a read (`PreparedAccess::reads`) must be of a retained view, and staging outside `prepare`, in `commit` or `finish_draws`, is `PreparedOutsidePreparation`. Nothing is staged on a refusal. Scratch images and staging buffers the provider owns are not views of the frame and are not declared. Tests: `prepare_context_tests`, `contracts_prepared_writes`, and `tests/game_passes` in `render-scene`.
 
+### Compute passes
+
+Work a feature prepares in `prepare` and stages with `record_prepared` runs before the frame's first pass. Compute work that reads what a pass of the frame writes, and that a later pass reads, runs in a compute pass of the pass list instead. `PassDeclaration::compute_pass(slot, occurrence, writes)` declares one: an entry with no attachments whose `compute` lists the `StorageWrite`s (resource, format, extent) it makes through storage images. It is an entry like any other, so it shares its role's occurrences with the render passes of the role (`DuplicatePass` for a collision), and it is validated in its place in the list: the reads its features declare in `FeaturePass::reads` need an earlier producer (`MissingProducer`, `LoadAfterDiscard`), a read of one of its own writes is `AttachmentHazard`, a write named twice or of a stock product written once per frame (the snapshots, the post-water depth) is `AttachmentHazard`, an attachment of the pass, an empty write or a feature that declares attachment formats in it is `AttachmentContract`, a write an operations group makes is `OffscreenWrite`, and each write needs a single-sampled view of a `STORAGE_BINDING` texture with its format and extent (`AttachmentView`). After the pass its writes are producers, as an attachment that stores is, and the stock compile versions them as storage writes, so the capture the frame belongs to owns them before the pass is encoded.
+
+A feature stages the work in `prepare` with `PrepareContext::record_in_compute_pass(entry, label, access, commands)`, for commands with a compute form (such as render-program's `PreparedDispatch`); `access` names what they read and write among the frame's views. A write must be one the pass declares (`UnplannedWrite`), named once in `access` (`RepeatedPreparedWrite`); several commands of the pass may write one subresource. A read must be one the pass's features declared, or a subresource commands staged earlier in the same pass write, since each dispatch of a compute pass reads what the ones before it wrote (`MissingProducer` otherwise, `AttachmentHazard` for a read the same commands write), and the views the commands report writing must be the ones `access` names (`PreparedWriteMismatch`). An entry that is a render pass, or a compute pass a completed geometry prefix encoded, is `NotComputePass { label, entry }`, an entry the plan lacks `MissingPass`, commands without a compute form `NotComputeWork { label, entry }`, and a declared write no commands staged is `UnstagedWrite` when preparation closes. The executor opens one compute pass at the entry's place, labelled and timed as `PassId::Geometry(entry)`, after the operations groups positioned before it, and records the staged commands in staging order with `PreparedCompute::record_in_pass`, as the preparation's run of compute work is recorded. Tests: `src/frame/compute_tests.rs` (validation on a no-op device, and a chain on it that records a render pass, the staged compute work and a render pass in that order, with every staging refusal).
+
 ## Typed operations
 
 `contracts::TypedOperation` lists work for the executor: raster passes with checked draw packets (`TypedWork::Draws`), fullscreen draws, compute, resolves and copies. `ResourceRegistry::compile_operations` checks the whole list before anything is encoded: every operation declares its texture and buffer uses, each write takes the next version of the subresource it writes, and each read names the version it reads. A read without a producer, a read of a stale version, overlapping incompatible access, a missing usage flag and a stale or leased-out allocation are `ContractError`s. `CompiledOperations::encode_checked` encodes the list in order and `PassId::Operation` names each operation in the frame's timing.
@@ -646,7 +652,7 @@ enabled are in [docs/rendering.md](../../docs/rendering.md#material-mip-bias).
 
 #### Qualification on the Radeon 780M
 
-The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks and the water producer off, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
+The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks off and no mask producer, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
 
 Device: AMD Radeon 780M, Mesa 26.0.8 RADV. Quality cells use a 4x4 supersampled reference, 64 warm-up frames and 4 measured frames per cell. Cost cells use the whole-frame GPU timestamp envelope (a timestamp pair around scene, post, copies and clears), 30 warm-up frames and 120 measured frames, one frame submitted and waited for at a time, so the numbers are per-frame latency on an idle queue. The full matrix took 1470 s. Lavapipe ran the same tests for correctness only; its times come from a CPU rasteriser and are not cost evidence.
 
@@ -719,7 +725,7 @@ every other mode no mask exists.
   clear is in the frame's own encoder, so a frame whose encoder is dropped never submits its producers' writes
   and the next frame clears again (`temporal_mask_clear_tests`, including a stale 1.0 that would otherwise be
   dilated and consumed).
-* Producer contract, for water today and for any future alpha or particle feature. Declare the mask as an
+* Producer contract, for any alpha, particle or water feature. Declare the mask as an
   indexed colour output with `AttachmentLoad::Load` and the view with `with_retained_contents()`, so the
   frame validator accepts the host clear as the producer. Write with `BlendOperation::Max` on both
   channels, so overlapping producers combine monotonically and no producer lowers another's value. Never
@@ -727,8 +733,8 @@ every other mode no mask exists.
   would erase an earlier producer and hide a stale mask from the cancelled-frame guarantee. Draw at one
   sample. Cap the value in the producer; the consumer applies no cap, so reactive 1 means the history weight
   is zero. A producer that is not a pass of its own must stay within the 32 byte colour attachment limit
-  (`ContractError::ColorAttachmentBytes`); see the water pass in the
-  [render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water).
+  (`ContractError::ColorAttachmentBytes`); the stock water pass already uses all 32 bytes, so a water
+  producer needs a pass of its own (see the [render-scene README](../render-scene/README.md#temporal-reactive-mask)).
 * Dilation. When a mask exists, `temporal mask dilate` (`taa_mask.wgsl`, `taa_mask_gpu.rs`) is scheduled
   after `temporal depth clip` and before `temporal create locks` or `temporal upscale`. It takes the 3x3
   maximum of each channel (clamped at the image border) into a per-slot `Rg8Unorm` "temporal prepared mask"
@@ -773,9 +779,9 @@ every other mode no mask exists.
   the three scales on lavapipe (the static region is bit-equal to the zero-mask run) and on the Radeon 780M
   (17 tests of `temporal_translucent` and `temporal_mask`). The composition tests were not run on the Radeon.
 
-The only producer in the tree is the water surface, which ships off: see the
-[render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water) for the measurement
-table that decided it and the follow-up issue.
+No pass in the tree produces the mask: the host clear is its only writer. A water producer was measured,
+made the TAA output worse and was deleted; see the
+[render-scene README](../render-scene/README.md#temporal-reactive-mask).
 
 ### Native-resolution RCAS
 

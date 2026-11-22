@@ -122,7 +122,8 @@ impl FrameSceneMeshes {
             .collect())
     }
 
-    /// The vertex buffer of a level as a draw reads it, in the stock vertex layout.
+    /// The vertex buffer a level's vertices are in, in the stock vertex layout. Other levels share
+    /// it; [`Self::indices`] gives the base vertex that reaches this level's vertices.
     ///
     /// # Errors
     /// [`FrameSceneMeshError::Unknown`], [`FrameSceneMeshError::UnknownLevel`] and
@@ -148,7 +149,8 @@ impl FrameSceneMeshes {
         })
     }
 
-    /// The indices `range` of a level, as `u32`. The whole level is `0..index_count`.
+    /// The indices `range` of a level, as `u32`, offset into the shared index buffer the level is
+    /// in and with the base vertex of its vertices. The whole level is `0..index_count`.
     ///
     /// # Errors
     /// [`FrameSceneMeshError::Unknown`], [`FrameSceneMeshError::UnknownLevel`] and
@@ -171,9 +173,9 @@ impl FrameSceneMeshes {
         Ok(ImportedIndices {
             buffer: lent.indices.clone(),
             format: wgpu::IndexFormat::Uint32,
-            first: range.start,
+            first: lent.first_index + range.start,
             count: range.end - range.start,
-            base_vertex: 0,
+            base_vertex: lent.base_vertex,
         })
     }
 

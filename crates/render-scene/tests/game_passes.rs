@@ -9,6 +9,8 @@ mod before_post;
 mod common;
 #[path = "game_passes/composition.rs"]
 mod composition;
+#[path = "game_passes/compute.rs"]
+mod compute;
 #[path = "game_passes/environment.rs"]
 mod environment;
 #[path = "game_passes/fixture.rs"]
@@ -17,6 +19,8 @@ mod fixture;
 mod layers;
 #[path = "game_passes/lent.rs"]
 mod lent;
+#[path = "game_passes/lent_chunk.rs"]
+mod lent_chunk;
 #[path = "game_passes/lent_engine.rs"]
 mod lent_engine;
 #[path = "game_passes/lent_prefix.rs"]

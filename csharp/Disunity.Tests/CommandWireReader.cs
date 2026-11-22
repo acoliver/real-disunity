@@ -8,16 +8,42 @@ using Disunity.Native;
 /// world's record encoding.</summary>
 internal static unsafe class CommandWireReader
 {
-    /// <summary>Drains the world's offscreen work as one line per record, in call order.</summary>
+    /// <summary>Drains the world's offscreen work as one line per record, in call order. A drain with a capacity of at least one
+    /// also forgets the global writes the world noted for ordering, so a drain before a step leaves the globals that
+    /// earlier steps set (and the world's load sent) out of the step's records.</summary>
     internal static string[] Take()
     {
         var world = DisunityHost.WorldHandle;
         uint count;
         DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, null, 0, &count));
-        var work = new DisunityOffscreenWork[count];
+        var work = new DisunityOffscreenWork[Math.Max(count, 1u)];
         fixed (DisunityOffscreenWork* pointer = work)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, count == 0 ? null : pointer, count, &count));
-        return work.Select(record => record.kind >= 4 ? Describe(Detail(world, record.bindings)) : Flat(record)).ToArray();
+            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, pointer, (uint)work.Length, &count));
+        return work.Take((int)count).Select(record => record.kind >= 4 ? Describe(Detail(world, record.bindings)) : Flat(record)).ToArray();
+    }
+
+    /// <summary>The name id of the record <see cref="TakeOrdered"/> appends to the work.</summary>
+    private static readonly int MarkerId = UnityEngine.Shader.PropertyToID("_CommandWireReaderMarker");
+
+    /// <summary>Drains the work after appending a record of its own. A direct global write is ordered in front of the next record
+    /// and has none to precede when the work ends, so a test that reads the ordered writes of a command buffer asks for them
+    /// with a record after it. The marker is not part of the result.</summary>
+    internal static string[] TakeOrdered()
+    {
+        AppendMarker();
+        var lines = Take();
+        var last = $"Release {MarkerId}";
+        if (lines.Length == 0 || lines[^1] != last) throw new InvalidOperationException($"the marker record is missing from the work: {string.Join(" | ", lines)}");
+        return lines[..^1];
+    }
+
+    /// <summary>Appends one record to the work, so the frame has work and a snapshot of it carries the global state.</summary>
+    internal static void AppendMarker()
+    {
+        var marker = new UnityEngine.Rendering.CommandBuffer();
+        marker.ReleaseTemporaryRT(MarkerId);
+        UnityEngine.Graphics.ExecuteCommandBuffer(marker);
+        marker.Release();
     }
 
     private static string Flat(DisunityOffscreenWork r) => r.kind switch

@@ -209,6 +209,35 @@ impl ResourceRegistry {
         dimension: wgpu::TextureViewDimension,
         format: wgpu::TextureFormat,
     ) -> Result<CheckedView, ContractError> {
+        self.view_format_reusing(key, range, version, (dimension, format), None)
+    }
+    /// [`Self::view`] of a single mip and layer in the allocation's format, checked in full, that
+    /// takes `held` as its native view when `held` selects exactly that range and a created view
+    /// would match it. The caller promises that `held` selects the range it names.
+    pub(super) fn view_holding(
+        &self,
+        key: AllocationKey,
+        range: TextureRange,
+        version: u32,
+        held: &wgpu::TextureView,
+    ) -> Result<CheckedView, ContractError> {
+        let format = self.allocation(key)?.texture.format();
+        self.view_format_reusing(
+            key,
+            range,
+            version,
+            (wgpu::TextureViewDimension::D2, format),
+            Some(held),
+        )
+    }
+    fn view_format_reusing(
+        &self,
+        key: AllocationKey,
+        range: TextureRange,
+        version: u32,
+        (dimension, format): (wgpu::TextureViewDimension, wgpu::TextureFormat),
+        held: Option<&wgpu::TextureView>,
+    ) -> Result<CheckedView, ContractError> {
         let entry = self.allocation(key)?;
         validate_range(entry, &range)?;
         let layers = range.layers.end - range.layers.start;
@@ -241,16 +270,29 @@ impl ResourceRegistry {
             });
         }
         let usage = super::declared_texture::view_usage(&entry.texture, format);
-        let view = entry.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: (format != entry.texture.format()).then_some(format),
-            usage: Some(usage),
-            dimension: Some(dimension),
-            aspect: range.aspect,
-            base_mip_level: range.mips.start,
-            mip_level_count: Some(range.mips.end - range.mips.start),
-            base_array_layer: range.layers.start,
-            array_layer_count: Some(range.layers.end - range.layers.start),
-            ..Default::default()
+        // A held view of one mip and layer, with the texture's own format and every usage of it,
+        // is the view that would be created here.
+        let identical = |held: &&wgpu::TextureView| {
+            held.texture() == &entry.texture
+                && dimension == wgpu::TextureViewDimension::D2
+                && format == entry.texture.format()
+                && usage == entry.texture.usage()
+                && range.aspect == wgpu::TextureAspect::All
+                && range.mips.len() == 1
+                && range.layers.len() == 1
+        };
+        let view = held.filter(identical).cloned().unwrap_or_else(|| {
+            entry.texture.create_view(&wgpu::TextureViewDescriptor {
+                format: (format != entry.texture.format()).then_some(format),
+                usage: Some(usage),
+                dimension: Some(dimension),
+                aspect: range.aspect,
+                base_mip_level: range.mips.start,
+                mip_level_count: Some(range.mips.end - range.mips.start),
+                base_array_layer: range.layers.start,
+                array_layer_count: Some(range.layers.end - range.layers.start),
+                ..Default::default()
+            })
         });
         Ok(CheckedView {
             allocation: key,

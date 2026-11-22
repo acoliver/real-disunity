@@ -30,7 +30,7 @@ fn gather_ssao(context: &GpuContext) -> BindGroup {
         .into_iter()
         .flat_map(f32::to_le_bytes)
         .collect();
-    let uniform = crate::upload::upload_buffer(
+    let uniform = worldrunner_render_gpu::resource::upload_buffer(
         device,
         context.queue(),
         "capture gather view",

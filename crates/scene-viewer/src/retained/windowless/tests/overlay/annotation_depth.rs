@@ -229,7 +229,7 @@ fn depth_tested_annotation_tracks_presented_camera_and_resized_depth() {
                 })
                 .unwrap();
             let empty = UiOverlay::from_presentation(
-                &worldrunner_render_plan::ui::UiPresentation::default(),
+                &worldrunner_world_simulation::ui::presentation::UiPresentation::default(),
                 &std::collections::BTreeMap::new(),
             )
             .unwrap();

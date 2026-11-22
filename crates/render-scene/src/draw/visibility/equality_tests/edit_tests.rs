@@ -146,7 +146,7 @@ fn assert_matches_fresh(warm: &Instances, fresh: &RenderScene, frame: &FrameView
         .map(MeshSelection::new)
         .collect();
     let summaries = |instances: &Instances| -> Vec<Summary> {
-        select_frame(instances, &meshes, frame, None)
+        select_frame(&RefCell::default(), instances, &meshes, frame, None)
             .iter()
             .map(|(_, _, selection)| summary(selection))
             .collect()
@@ -159,7 +159,7 @@ fn assert_matches_fresh(warm: &Instances, fresh: &RenderScene, frame: &FrameView
         frame.eye_millimeters
     );
     let fades = reference_fades(fresh);
-    assert_frame_matches_scan((warm, &fades), &meshes, frame, None);
+    assert_frame_matches_scan(&RefCell::default(), (warm, &fades), &meshes, frame, None);
     selected
 }
 

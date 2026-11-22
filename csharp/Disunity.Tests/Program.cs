@@ -78,6 +78,7 @@ CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType
 CheckImport("disunity_construction_activate", u64, u64, advance.MakePointerType());
 CheckImport("disunity_construction_abort", u64, u64);
 CheckImport("disunity_world_advance", u64, u64, u64, advance.MakePointerType());
+CheckImport("disunity_world_advance_teardown", u64, advance.MakePointerType());
 CheckImport("disunity_world_resume", u64, u64, u32, bytes, u32, advance.MakePointerType());
 CheckImport("disunity_world_clock", u64, clock.MakePointerType());
 CheckImport("disunity_cleanup_flush", u64, advance.MakePointerType());
@@ -292,10 +293,7 @@ CheckImport("disunity_offscreen_take", u64, offscreenWork, u32, u32.MakePointerT
 var targetRef = AbiType("DisunityTargetRef").MakePointerType();
 CheckImport("disunity_offscreen_set_render_target", u64, targetRef, u32, targetRef, u32, typeof(int), typeof(int));
 CheckImport("disunity_offscreen_clear_render_target", u64, u32, f32.MakePointerType(), f32, u32);
-CheckImport("disunity_offscreen_set_global", u64, u32, bytes, u32, f32.MakePointerType(), typeof(int), textureSlot);
-CheckImport("disunity_offscreen_set_global_keyword", u64, bytes, u32, u32);
-CheckImport("disunity_offscreen_set_global_vector_array", u64, bytes, u32, f32.MakePointerType(), u32);
-CheckImport("disunity_offscreen_set_global_matrix_array", u64, bytes, u32, f32.MakePointerType(), u32);
+CheckImport("disunity_offscreen_set_global_texture", u64, bytes, u32, textureSlot);
 CheckImport("disunity_shader_global_vector_array_write", u64, bytes, u32, f32.MakePointerType(), u32);
 CheckImport("disunity_shader_global_matrix_array_write", u64, bytes, u32, f32.MakePointerType(), u32);
 CheckImport("disunity_offscreen_allocate_temporary", u64, typeof(int), renderTextureRecord);
@@ -509,6 +507,8 @@ PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
+CommandBufferPersistentGlobalTests.Run();
+CommandBufferGlobalReviewTests.Run();
 CommandBufferMeshRefreshTests.Run();
 CommandBufferMeshLifecycleTests.Run();
 CommandBufferMeshFailureTests.Run();

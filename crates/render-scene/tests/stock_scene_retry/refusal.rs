@@ -1,11 +1,9 @@
 use std::{cell::Cell, rc::Rc};
-use worldrunner_render_scene::{
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
-    wgpu,
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
 };
+use worldrunner_render_scene::wgpu;
 
 #[derive(Clone, Default)]
 pub(super) struct Refusal {

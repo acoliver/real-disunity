@@ -322,7 +322,8 @@ fn recorded_array_work_validates_keeps_order_and_leaves_the_initial_globals_alon
         vec![[f32::NAN; 16]],
     )));
     assert_eq!(graphics_error(refused), GraphicsError::NotFinite);
-    assert_eq!(world.offscreen_work().len(), 3);
+    // The direct write of `_Init` is ordered ahead of the first record.
+    assert_eq!(world.offscreen_work().len(), 4);
 
     assert_eq!(world.global_shader_state().generation, generation);
     let global = &world.global_shader_state().properties;
@@ -338,9 +339,14 @@ fn recorded_array_work_validates_keeps_order_and_leaves_the_initial_globals_alon
         })
         .unwrap();
     let snapshot = GraphicsSnapshot::take(&mut world).unwrap();
-    assert_eq!(&snapshot.work[..3], [first, second, third]);
+    assert_eq!(
+        snapshot.work[0],
+        OffscreenWork::SetGlobal(vector_array("_Init", 2))
+    );
+    assert_eq!(&snapshot.work[1..4], [first, second, third]);
     let initial = &snapshot.global.unwrap().properties;
-    assert_eq!(initial.vector_array("_Init"), Some(vectors(2)));
+    // The replay starts from the state before the direct write, which is the first record.
+    assert_eq!(initial.vector_array("_Init"), None);
     assert_eq!(initial.vector_array("_Ordered"), None);
 }
 

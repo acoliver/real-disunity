@@ -1,5 +1,5 @@
 use super::*;
-use worldrunner_render_plan::ui::UiDraw;
+use worldrunner_world_simulation::ui::presentation::UiDraw;
 
 fn draw(order: i32, hierarchy: usize, clip_rect: [u32; 4]) -> UiDraw {
     UiDraw {

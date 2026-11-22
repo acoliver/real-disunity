@@ -1,10 +1,10 @@
 use super::fixture;
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
 use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer, encode_scene},
     device::GpuContext,
     draw::{ObjectRecording, SceneGpu},
-    executor::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture},
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,

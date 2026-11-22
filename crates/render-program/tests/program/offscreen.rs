@@ -2,11 +2,13 @@
 //! layers and building the operations of a frame.
 
 mod blit;
+mod blit_values;
 mod block_sources;
 mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;
+mod camera_sets;
 mod common_parameters;
 mod comparison;
 mod constants;

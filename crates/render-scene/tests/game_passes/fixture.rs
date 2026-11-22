@@ -364,7 +364,7 @@ impl Rig {
             (&color, &depth),
             self.frame,
         )?;
-        self.renderer.targets().encode_resolve(encoder);
+        self.renderer.encode_resolve(encoder);
         Ok(())
     }
 

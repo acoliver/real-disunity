@@ -303,7 +303,7 @@ fn submit(
             .encode_with(context, view, (&color, &depth), &mut encoder, Some(frame))
             .unwrap();
     }
-    frame.targets().encode_resolve(&mut encoder);
+    frame.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 

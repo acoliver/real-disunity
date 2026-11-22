@@ -22,7 +22,14 @@ fn render(
         .unwrap()
         .with_effects(device, *settings)
         .unwrap();
-    let chain = PostChain::new(device, config, Resources::default(), factory).unwrap();
+    let chain = PostChain::new(
+        device,
+        config,
+        Resources::default(),
+        factory,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     let target = output(device, config.size);
     crate::submit_frame(device, queue, |encoder| {
         // Paint the post-resolve input directly, independent of implementation-defined MSAA

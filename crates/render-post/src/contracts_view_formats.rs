@@ -13,7 +13,8 @@ fn imported_view_declarations_preserve_identity_and_do_not_survive_replacement()
             texture.texture(),
             ResourceLifetime::FrameLocal,
             Semantic::SrgbColor,
-            None
+            None,
+            &[]
         ),
         Err(ContractError::Identity(key))
     );
@@ -62,6 +63,7 @@ fn native_views_keep_wgpu_aspect_specific_defaults() {
             ResourceLifetime::ImportedReadOnly,
             Semantic::DeviceDepth,
             Some(0),
+            &[],
         )
         .unwrap();
     for aspect in [
@@ -298,6 +300,7 @@ fn undeclared_format_is_a_typed_error_but_native_format_is_allowed() {
             ResourceLifetime::FrameLocal,
             Semantic::SrgbColor,
             None,
+            &[],
         )
         .unwrap();
     assert_eq!(selected(&registry, key, 0, LINEAR).format(), LINEAR);

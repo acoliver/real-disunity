@@ -29,6 +29,7 @@ pub(super) fn chain(
             .unwrap()
             .with_effects(device, *settings)
             .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap()
 }

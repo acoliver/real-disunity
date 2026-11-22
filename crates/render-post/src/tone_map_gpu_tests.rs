@@ -97,6 +97,7 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
             ToneMap::Reinhard,
         )
         .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let output = color_texture(
@@ -123,7 +124,7 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
         &pipeline,
         &[&group],
     );
-    chain.targets().encode_resolve(&mut encoder);
+    chain.encode_resolve(&mut encoder);
     if samples == 4 {
         restore_nan(device, queue, &mut encoder, chain.targets().resolved());
     }
@@ -278,6 +279,7 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
             Resources::default(),
             ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 0.5, ToneMap::Reinhard)
                 .unwrap(),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         let output = color_texture(
@@ -303,7 +305,7 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
             &pipeline,
             &[],
         );
-        chain.targets().encode_resolve(&mut encoder);
+        chain.encode_resolve(&mut encoder);
         chain.encode(
             &mut encoder,
             &output.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -325,6 +327,7 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
         config,
         Resources::default(),
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let old = chain.targets().texture().clone();

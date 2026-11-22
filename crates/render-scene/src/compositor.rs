@@ -206,6 +206,7 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Copy(CopyOutput::new(device, output_format)),
+                worldrunner_render_post::SceneDepth::Independent,
             )?,
         })
     }
@@ -471,7 +472,7 @@ impl FrameRenderer {
             })
             .map_err(FrameError::from)?;
         }
-        self.chain.encode_resolve(encoder);
+        self.encode_resolve(encoder);
         self.chain.encode(encoder, output);
         self.overlay.encode(encoder, output);
         self.chain
@@ -484,6 +485,12 @@ impl FrameRenderer {
         })
         .map_err(FrameError::from)?;
         Ok(())
+    }
+    /// Resolves retained scene samples into the resolved scene target, timed with the frame's
+    /// passes. [`Self::encode_output`] does this first; a host that reads the resolved scene
+    /// without an output encodes it alone.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.chain.encode_resolve(encoder);
     }
     pub fn register(
         &mut self,

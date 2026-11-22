@@ -101,6 +101,7 @@ impl Fixture {
                 builds: Arc::default(),
                 marker_green,
             },
+            worldrunner_render_post::SceneDepth::Independent,
         )
         .unwrap();
         let pipelines = ScenePipelines::new(context.device(), FORMAT);

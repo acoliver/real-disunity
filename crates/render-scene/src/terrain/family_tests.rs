@@ -138,7 +138,7 @@ fn render(
                 frame,
             )
             .unwrap();
-        renderer.targets().encode_resolve(&mut encoder);
+        renderer.encode_resolve(&mut encoder);
         encoder.finish().submit().unwrap();
     }
     Readback::new(

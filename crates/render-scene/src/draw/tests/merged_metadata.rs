@@ -141,7 +141,7 @@ fn draw_with(
         FrameUniform::new(&view(pose), scene.effects()).unwrap(),
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 

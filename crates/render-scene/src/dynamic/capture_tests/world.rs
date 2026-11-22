@@ -162,7 +162,7 @@ fn compositor(
         FrameUniform::unlit(&contribution.view),
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),

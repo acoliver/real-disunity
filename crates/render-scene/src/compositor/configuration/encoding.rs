@@ -169,6 +169,9 @@ impl ConfiguredFrameRenderer {
     ) -> Result<(), PostError> {
         self.state.current().encode_output(encoder, output)
     }
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.state.current().encode_resolve(encoder);
+    }
     pub fn begin_timing(
         &self,
         frame_id: u64,

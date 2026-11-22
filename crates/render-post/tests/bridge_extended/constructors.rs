@@ -61,6 +61,7 @@ fn checked_copy_rejects_array_cube_integer_and_invalid_samples_without_gpu_error
                 ResourceLifetime::ImportedReadOnly,
                 Semantic::LinearColor,
                 Some(0),
+                &[],
             )
             .unwrap();
         let source = registry

@@ -149,7 +149,7 @@ pub(super) fn render(
             (&color, &depth),
             drawn.frame,
         )?;
-        drawn.renderer.targets().encode_resolve(&mut encoder);
+        drawn.renderer.encode_resolve(&mut encoder);
         encoder.finish().submit().unwrap();
     }
     Ok(read(context, drawn.renderer.targets().texture(), HDR))

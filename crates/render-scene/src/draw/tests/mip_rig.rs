@@ -81,7 +81,7 @@ pub(super) fn center(
             *frame,
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     let image = Readback::new(
         context.device(),

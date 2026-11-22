@@ -90,7 +90,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
         FrameUniform::new(&view, source.effects()).unwrap(),
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),

@@ -72,7 +72,7 @@ fn render(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
         frame,
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(device, FrameConfig::new([32, 32], format, 1), 100_000)
         .unwrap()

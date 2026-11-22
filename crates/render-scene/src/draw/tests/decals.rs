@@ -144,7 +144,7 @@ pub(super) fn capture_with_renderer(
         frame,
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),

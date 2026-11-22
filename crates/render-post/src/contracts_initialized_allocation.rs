@@ -54,6 +54,7 @@ fn captured(registry: &mut ResourceRegistry, texture: &wgpu::Texture, initial: O
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             initial,
+            &[],
         )
         .unwrap();
 }

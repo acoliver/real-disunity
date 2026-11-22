@@ -472,7 +472,7 @@ pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> V
         .submission()
         .begin(rig.context.device())
         .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
+    rig.renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     rig.read(rig.renderer.targets().texture())
 }

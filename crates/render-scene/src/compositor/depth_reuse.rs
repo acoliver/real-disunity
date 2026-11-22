@@ -173,6 +173,7 @@ impl FrameRenderer {
             config,
             worldrunner_render_post::Resources::default(),
             self.chain.factory().clone(),
+            worldrunner_render_post::SceneDepth::Independent,
         )
         .unwrap();
         self.ssao = self

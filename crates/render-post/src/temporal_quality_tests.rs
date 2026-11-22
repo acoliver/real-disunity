@@ -108,7 +108,14 @@ impl Rig {
             lock_bank: Arc::default(),
         };
         let frames = crate::history_parity::SubmittedFrames::default();
-        let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
+        let chain = PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            factory,
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         let history: [wgpu::Texture; 2] = slot_history
             .lock()
             .unwrap()

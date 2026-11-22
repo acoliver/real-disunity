@@ -21,7 +21,12 @@ fn invalid_frame_targets_fail_without_gpu_validation_errors() {
         ),
     ] {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let result = FrameTargets::new(&device, FrameConfig::new([8, 8], format, samples));
+        let result = FrameTargets::new(
+            &device,
+            FrameConfig::new([8, 8], format, samples),
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        );
         let validation = pollster::block_on(scope.pop());
         assert_eq!(result.err(), Some(expected));
         assert!(
@@ -54,6 +59,7 @@ fn copy_texture_load_preserves_float32_without_requiring_filterability() {
                 config,
                 Resources::default(),
                 CopyOutput::new(&device, format),
+                crate::SceneDepth::Independent,
             )
             .unwrap();
             let output = color_texture(&device, "float32 copy", config.size, format);
@@ -101,6 +107,7 @@ fn hdr_four_sample_resolve_and_copy_preserve_values_outside_unorm_range() {
         FrameConfig::new([17, 9], format, 4),
         Resources::default(),
         factory.clone(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     for size in [[17, 9], [5, 3]] {
@@ -141,7 +148,13 @@ fn copy_rejects_integer_sources_without_gpu_validation_errors() {
         wgpu::TextureFormat::Rgba8Sint,
     ] {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let targets = FrameTargets::new(&device, FrameConfig::new([8, 8], format, 1)).unwrap();
+        let targets = FrameTargets::new(
+            &device,
+            FrameConfig::new([8, 8], format, 1),
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         assert!(targets.resolve().is_none());
         let result = CopyOutput::new(&device, wgpu::TextureFormat::Rgba8Unorm).build(
             &device,
@@ -175,6 +188,7 @@ fn copy_rejects_non_float_or_non_renderable_outputs_without_gpu_validation_error
             FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
             Resources::default(),
             CopyOutput::new(&device, format),
+            crate::SceneDepth::Independent,
         );
         let validation = pollster::block_on(scope.pop());
         assert_eq!(result.err(), Some(PostError::CopyOutputFormat(format)));
@@ -198,6 +212,7 @@ fn copy_preserves_pattern_orientation_alpha_and_every_srgb_code() {
             config,
             Resources::default(),
             CopyOutput::new(&device, format),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         let pipeline = pattern_pipeline(&device, format);

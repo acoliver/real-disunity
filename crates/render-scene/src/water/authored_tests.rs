@@ -215,7 +215,7 @@ fn encode(
             FrameUniform::new(&fixture_view(), None).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 fn map(bytes: Vec<u8>) -> SceneTexture {

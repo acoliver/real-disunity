@@ -120,7 +120,7 @@ fn scene_chain(
     factory: FrameOutput,
 ) -> Result<PostChain<FrameOutput>, PostError> {
     let device = context.device();
-    PostChain::with_scene_depth(
+    PostChain::new(
         device,
         settings.frame,
         Resources::default(),

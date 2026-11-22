@@ -197,7 +197,7 @@ fn encode_fixture(
             (*frame, None),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
 
     encoder
 }
@@ -433,7 +433,7 @@ fn draw_water_with(
         });
         record(&feature, &mut pass);
     }
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     wait(context.device());
 }

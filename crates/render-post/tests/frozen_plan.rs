@@ -48,6 +48,7 @@ impl Rig {
             FrameConfig::new(SIZE, FORMAT, 1),
             Resources::default(),
             CopyOutput::new(&gpu.device, FORMAT),
+            SceneDepth::Independent,
         )
         .unwrap();
         Self {

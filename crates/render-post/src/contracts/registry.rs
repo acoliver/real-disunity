@@ -30,16 +30,9 @@ pub struct ResourceRegistry {
     retired: Vec<(AllocationKey, wgpu::Texture)>,
 }
 impl ResourceRegistry {
+    /// Registers a caller-owned texture. `view_formats` are the reinterpreting view formats it
+    /// was created with, empty for none.
     pub fn import(
-        &mut self,
-        texture: &wgpu::Texture,
-        lifetime: ResourceLifetime,
-        semantic: Semantic,
-        initial: Option<u32>,
-    ) -> Result<AllocationKey, ContractError> {
-        self.import_with_view_formats(texture, lifetime, semantic, initial, &[])
-    }
-    pub(super) fn import_with_view_formats(
         &mut self,
         texture: &wgpu::Texture,
         lifetime: ResourceLifetime,
@@ -98,7 +91,13 @@ impl ResourceRegistry {
         {
             return Err(ContractError::Identity(entry.key));
         }
-        let key = self.import(texture, ResourceLifetime::FrameLocal, semantic, initial)?;
+        let key = self.import(
+            texture,
+            ResourceLifetime::FrameLocal,
+            semantic,
+            initial,
+            &[],
+        )?;
         self.allocations
             .iter_mut()
             .find(|entry| entry.key == key)

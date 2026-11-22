@@ -147,7 +147,7 @@ fn construct_renderer(
             .metadata
             .map(|prepass| prepass.metadata(device, request.context.queue(), request.size))
             .transpose()?,
-        chain: worldrunner_render_post::PostChain::with_scene_depth(
+        chain: worldrunner_render_post::PostChain::new(
             device,
             setup.config,
             worldrunner_render_post::Resources::default(),

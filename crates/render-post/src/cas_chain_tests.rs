@@ -97,6 +97,7 @@ fn cas_runs_before_the_upscale_stage() {
             .unwrap()
             .with_effects(&rig.device, settings)
             .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let names: Vec<_> = upscaled.configured[0]

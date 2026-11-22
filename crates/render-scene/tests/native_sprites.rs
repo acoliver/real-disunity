@@ -132,7 +132,7 @@ fn capture_with_stages(
         FrameUniform::unlit(&contribution.view),
     )
     .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     renderer.finish_timing(&mut encoder).unwrap();
     encoder.finish().submit().unwrap();
     let image = read_image(context, &renderer, size);

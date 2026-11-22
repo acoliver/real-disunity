@@ -147,6 +147,7 @@ fn compute_to_fullscreen_requires_declared_producer_and_preserves_bytes() {
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     let output_key = registry
@@ -155,6 +156,7 @@ fn compute_to_fullscreen_requires_declared_producer_and_preserves_bytes() {
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     let range = TextureRange::single(0, 0, wgpu::TextureAspect::All);

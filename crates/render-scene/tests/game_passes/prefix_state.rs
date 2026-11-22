@@ -418,7 +418,7 @@ fn colour(rig: &mut Rig) -> Vec<[u8; 4]> {
         .submission()
         .begin(rig.context.device())
         .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
+    rig.renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     rig.read(rig.renderer.targets().texture())
 }

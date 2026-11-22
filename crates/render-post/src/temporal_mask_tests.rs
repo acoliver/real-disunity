@@ -44,13 +44,20 @@ fn only_the_temporal_upscale_asks_for_masks() {
 #[test]
 fn targets_carry_a_mask_only_when_asked_and_it_matches_the_internal_extent() {
     let (device, _) = crate::gpu_tests::gpu();
-    let plain = FrameTargets::new(&device, config()).unwrap();
+    let plain = FrameTargets::new(
+        &device,
+        config(),
+        crate::TargetOptions::default(),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     assert!(plain.temporal_mask().is_none() && plain.temporal_mask_texture().is_none());
     let options = TargetOptions {
         velocity: false,
         temporal_mask: true,
     };
-    let masked = FrameTargets::with_options(&device, config(), options).unwrap();
+    let masked =
+        FrameTargets::new(&device, config(), options, crate::SceneDepth::Independent).unwrap();
     let texture = masked.temporal_mask_texture().unwrap();
     assert!(masked.temporal_mask().is_some());
     assert_eq!(texture.format(), TEMPORAL_MASK_FORMAT);
@@ -118,7 +125,8 @@ fn a_frame_without_a_mask_has_no_mask_texture() {
         velocity: true,
         temporal_mask: false,
     };
-    let absent = FrameTargets::with_options(&device, config(), velocity).unwrap();
+    let absent =
+        FrameTargets::new(&device, config(), velocity, crate::SceneDepth::Independent).unwrap();
     assert!(absent.temporal_mask().is_none());
 }
 

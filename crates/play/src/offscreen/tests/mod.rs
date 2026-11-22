@@ -75,5 +75,6 @@ mod ui_read;
 mod undeclared_cube;
 mod undeclared_volume;
 mod unread_globals;
+mod view_params;
 mod viewport;
 mod volumes;

@@ -401,6 +401,8 @@ UiTests.Run();
 PoolTests.Run();
 RectTransformMemberTests.Run();
 RectDimensionMessageTests.Run();
+RectDimensionCloneTests.Run();
+RectDimensionDeliveryTests.Run();
 DestroyedRectTests.Run();
 CanvasMemberTests.Run();
 SortingLayerTests.Run();

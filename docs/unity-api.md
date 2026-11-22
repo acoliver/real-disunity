@@ -750,7 +750,8 @@ A texture a dispatch took from the global shader state is already resolved in it
 Which renderers a camera render draws is fixed at the call, but their poses, materials and property blocks are read when the snapshot is taken, so an edit to a renderer's material between a camera render and the end of the frame also changes that render.
 A culling (`Cull`, which a render pipeline makes inside `Camera.Render`) has a set in the same way, with its own culling mask, so the renderer list a pipeline draws from its result holds the renderers that were drawable when it culled.
 A renderer that is drawable only after a record was made is in no set of it, and a record with no set draws nothing.
-The encoding is version 18.
+A skinned mesh renderer is in no set because skinned meshes are not drawn yet. The snapshot's `skinned_not_drawn` counts the enabled skinned renderers on active objects that the frame's camera renders and culls admit by layer, each once for the frame, and the player reports them as `SkinnedNotDrawn` among its skipped renderers.
+The encoding is version 19.
 
 - A host whose world is in its own process calls `GraphicsSnapshot::take(&mut World)`.
 - A host that loads the engine image calls `DisunityHost::graphics_snapshot()`, and a GPU flush handler calls `GpuFlush::snapshot()`.

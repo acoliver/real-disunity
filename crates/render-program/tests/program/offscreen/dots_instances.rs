@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_render_program::unity::runtime::BufferHandle;
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::dots::{
-    HEADER, KEYWORD, MARKER, METADATA, dots_passes, matrix, word,
+    HEADER, MARKER, METADATA, dots_passes, matrix, word,
 };
 
 use super::buffers::{alpha, bare, frame, render};

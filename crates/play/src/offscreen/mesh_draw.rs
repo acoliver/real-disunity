@@ -67,7 +67,7 @@ impl Mapper<'_> {
             block,
             instances,
         };
-        self.mesh_draw((mesh, submesh), (material, pass), counted)
+        self.mesh_draw((mesh, submesh), (material, pass), &counted)
     }
 
     /// The record of mesh `mesh`, its sub-mesh `submesh` drawn as `material` for each instance
@@ -80,14 +80,14 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         batch: &DrawBatch,
     ) -> Result<Vec<Record>, Skip> {
-        self.mesh_draw((mesh, submesh), (material, pass), Instanced::Batch(batch))
+        self.mesh_draw((mesh, submesh), (material, pass), &Instanced::Batch(batch))
     }
 
     fn mesh_draw(
         &mut self,
         (mesh, submesh): (u64, u32),
         (material, pass): (WorldMaterialId, i32),
-        instanced: Instanced<'_>,
+        instanced: &Instanced<'_>,
     ) -> Result<Vec<Record>, Skip> {
         let (target, raster) = self.draw_target()?;
         self.check_sub_mesh(mesh, submesh)?;
@@ -134,7 +134,7 @@ impl Mapper<'_> {
     }
 
     /// The renderer values and instances of a draw, or `None` for a draw of no instance.
-    fn prepare(&mut self, instanced: Instanced<'_>) -> Result<Option<Prepared>, Skip> {
+    fn prepare(&mut self, instanced: &Instanced<'_>) -> Result<Option<Prepared>, Skip> {
         match instanced {
             Instanced::Count { instances: 0, .. } => Ok(None),
             Instanced::Count {
@@ -146,7 +146,7 @@ impl Mapper<'_> {
                     layer(block, &mut self.textures)
                 }),
                 per_draw: self.layerless_draw(matrix),
-                instances: Instances::Count(instances),
+                instances: Instances::Count(*instances),
             })),
             Instanced::Batch(batch) => {
                 let buffer = *self

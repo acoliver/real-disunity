@@ -2,7 +2,9 @@
 //! (#147): the loops after the restored one keep their own limits, steps and the locals declared
 //! between them.
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -67,14 +69,17 @@ end
 fn game(code: &str) -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts
@@ -96,7 +101,11 @@ fn through_json(snapshot: &LuaSnapshot) -> LuaSnapshot {
 /// Saves `scripts` and restores the snapshot into a new `GameScripts` that has loaded `code`
 /// but has not called `Start`.
 fn moved_to_fresh(scripts: &GameScripts, code: &str) -> GameScripts {
-    let snapshot = through_json(&scripts.save(&["Log"], &[]).unwrap());
+    let snapshot = through_json(
+        &scripts
+            .save(&["Log"], &[], &SaveOptions::default())
+            .unwrap(),
+    );
     let mut fresh = game(code);
     fresh.restore(&snapshot, &[]).unwrap();
     fresh

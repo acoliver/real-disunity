@@ -5,6 +5,8 @@ use crate::{
 };
 use std::collections::VecDeque;
 
+mod teardown;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScriptFailure {
     pub message: String,

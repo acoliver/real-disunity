@@ -147,8 +147,8 @@ pub enum ProgramError {
         access: wgpu::StorageTextureAccess,
     },
     #[error(
-        "set {set} binding {binding} and set {other_set} binding {other_binding} bind one texture \
-         and at least one of them writes it, which one pass cannot do"
+        "set {set} binding {binding} and set {other_set} binding {other_binding} bind overlapping \
+         subresources of one texture and at least one of them writes it, which one pass cannot do"
     )]
     AliasedTexture {
         set: u32,

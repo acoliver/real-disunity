@@ -215,6 +215,10 @@ pub(super) struct DrawCounts {
     /// by (source channel, shader input).
     pub(super) missing_channel: usize,
     pub(super) missing_channels: std::collections::BTreeMap<(i8, i8), usize>,
+    /// Draws left out because the pass samples a texture it draws into, in all and by that
+    /// texture.
+    pub(super) feedback_loop: usize,
+    pub(super) feedback_loops: std::collections::BTreeMap<TextureId, usize>,
     /// Draws that read a constant for a channel their mesh lacks, by channel, input and format.
     pub(super) defaulted: Vec<super::DefaultedChannelDraws>,
     /// Texture reads that bound fewer levels than the texture has.

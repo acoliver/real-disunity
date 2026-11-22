@@ -4,7 +4,9 @@ use worldrunner_unity_serialized::{
         BufferMember, ConstantBuffer, DescriptorSlot, ResourceBinding, ResourceKind, StructLayout,
         VariantParameters, platform_parameters, read_bind_channels, read_parameters,
     },
-    shader_program::{PlayerSubProgram, Program},
+    shader_program::{
+        ConstantBuffer as CommonBuffer, PlayerSubProgram, Program, ProgramParameters, ValueParam,
+    },
     shader_records::{RECORD_VERSION, SPIRV_PROGRAM},
 };
 
@@ -373,4 +375,128 @@ fn a_variant_naming_a_missing_entry_fails() {
         ),
         "a variant names a parameter entry that does not exist"
     );
+}
+
+fn common_value(name_index: i32, offset: i32, dimension: i8) -> ValueParam {
+    ValueParam {
+        name_index,
+        index: offset,
+        array_size: 0,
+        kind: 0,
+        dimension,
+    }
+}
+
+/// The pass's names and the common parameters of a program: `Block` with a vector `tint` at 32
+/// and a matrix `to_world` at 0, which the variant's own `Block` does not list.
+fn common_block() -> (Vec<(String, i32)>, ProgramParameters) {
+    let names = vec![
+        ("Block".to_owned(), 3),
+        ("tint".to_owned(), 4),
+        ("to_world".to_owned(), 5),
+        ("Elsewhere".to_owned(), 6),
+    ];
+    let common = ProgramParameters {
+        constant_buffers: vec![
+            CommonBuffer {
+                name_index: 3,
+                matrices: vec![common_value(5, 0, 4)],
+                vectors: vec![common_value(4, 32, 4)],
+                structs: Vec::new(),
+                size: 96,
+                partial: true,
+            },
+            CommonBuffer {
+                name_index: 6,
+                matrices: Vec::new(),
+                vectors: vec![common_value(4, 0, 4)],
+                structs: Vec::new(),
+                size: 16,
+                partial: false,
+            },
+        ],
+        ..ProgramParameters::default()
+    };
+    (names, common)
+}
+
+fn block_of(parameters: &VariantParameters) -> &ConstantBuffer {
+    parameters
+        .constant_buffers
+        .iter()
+        .find(|buffer| buffer.name == "Block")
+        .unwrap()
+}
+
+#[test]
+fn common_members_join_the_variants_buffer_of_the_same_name() {
+    let (names, common) = common_block();
+    let merged = parameters().with_common(&common, &names);
+    let block = block_of(&merged);
+    let found = |name: &str| block.members.iter().find(|member| member.name == name);
+    let to_world = found("to_world").expect("the common matrix is in the buffer");
+    assert_eq!(
+        (
+            to_world.rows,
+            to_world.columns,
+            to_world.is_matrix,
+            to_world.offset
+        ),
+        (4, 4, true, 0)
+    );
+    let tint = found("tint").expect("the common vector is in the buffer");
+    assert_eq!(
+        (
+            tint.rows,
+            tint.columns,
+            tint.is_matrix,
+            tint.offset,
+            tint.kind
+        ),
+        (1, 4, false, 32, 0)
+    );
+    // The variant's own members and structs stay.
+    assert!(found("mat").is_some() && found("vec").is_some());
+    assert_eq!(block.structs, block_of(&parameters()).structs);
+}
+
+#[test]
+fn a_member_the_variant_lists_keeps_the_variants_layout() {
+    let (names, mut common) = common_block();
+    // The common parameters name `mat` too, at another offset and as a vector.
+    let mut names = names;
+    names.push(("mat".to_owned(), 7));
+    common.constant_buffers[0]
+        .vectors
+        .push(common_value(7, 80, 4));
+    let merged = parameters().with_common(&common, &names);
+    let mats: Vec<_> = block_of(&merged)
+        .members
+        .iter()
+        .filter(|member| member.name == "mat")
+        .collect();
+    assert_eq!(mats.len(), 1);
+    assert!(
+        mats[0].is_matrix && mats[0].offset == 0,
+        "the variant's own `mat`"
+    );
+}
+
+#[test]
+fn a_common_buffer_the_variant_does_not_bind_adds_nothing() {
+    let (names, common) = common_block();
+    let merged = parameters().with_common(&common, &names);
+    assert_eq!(
+        merged.constant_buffers.len(),
+        parameters().constant_buffers.len()
+    );
+    assert!(
+        merged
+            .constant_buffers
+            .iter()
+            .all(|buffer| buffer.name != "Elsewhere")
+    );
+    // A name the table does not list is skipped rather than guessed.
+    let merged = parameters().with_common(&common, &[]);
+    assert_eq!(merged, parameters());
 }

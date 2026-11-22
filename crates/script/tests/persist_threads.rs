@@ -1,6 +1,8 @@
 //! Scheduler threads saved where they stopped and continued on restore (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SavedWake, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SavedWake, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -35,14 +37,17 @@ end
 fn game() -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts.run("game", "game.lua", GAME.as_bytes()).unwrap();
@@ -76,10 +81,14 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
     );
     let snapshot = round_trip(
         &saved
-            .save(&["Units", "Sentry", "Done"], &["Patrol", "Guard"])
+            .save(
+                &["Units", "Sentry", "Done"],
+                &["Patrol", "Guard"],
+                &SaveOptions::default(),
+            )
             .unwrap(),
     );
-    assert_eq!(snapshot.clock, 70);
+    assert_eq!(snapshot.clocks, [("game".to_owned(), 70)]);
     let wakes: Vec<SavedWake> = snapshot.threads.iter().map(|t| t.wake).collect();
     assert_eq!(
         wakes,
@@ -117,7 +126,9 @@ fn threads_continue_where_they_stopped_at_their_wake_time() {
 fn snapshots_that_do_not_fit_the_state_are_refused() {
     let mut saved = game();
     saved.run("game", "a.lua", b"Spawn('a', 10)").unwrap();
-    let snapshot = saved.save(&["Units"], &["Patrol"]).unwrap();
+    let snapshot = saved
+        .save(&["Units"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
     let mut busy = game();
     busy.run("game", "b.lua", b"Spawn('b', 10)").unwrap();
     let error = busy
@@ -136,7 +147,9 @@ fn snapshots_that_do_not_fit_the_state_are_refused() {
 fn data_only_restores_leave_running_threads_alone() {
     let mut saved = game();
     saved.run("game", "data.lua", b"Score = { 3 }").unwrap();
-    let snapshot = saved.save(&["Score"], &["Patrol"]).unwrap();
+    let snapshot = saved
+        .save(&["Score"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
     assert!(snapshot.threads.is_empty());
     let mut running = game();
     running.run("game", "a.lua", b"Spawn('a', 10)").unwrap();

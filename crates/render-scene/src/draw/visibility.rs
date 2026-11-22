@@ -6,7 +6,9 @@ use worldrunner_render_plan::{BillboardPolicy, SceneMesh, SceneTransform};
 use super::slice_hull::LightMap;
 use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
-pub(super) use casters::{caster_matrix, caster_placement};
+#[cfg(test)]
+pub(super) use casters::caster_matrix;
+pub(super) use casters::{CasterScan, FitScratch, caster_placement};
 pub(super) use frustum::{Frustum, Region};
 pub(super) use select::{PlacementRows, with_placements};
 
@@ -492,6 +494,9 @@ mod scale_tests;
 
 #[cfg(test)]
 mod caster_tests;
+
+#[cfg(test)]
+mod caster_scan_tests;
 
 #[cfg(test)]
 mod cache_tests;

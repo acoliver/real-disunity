@@ -55,6 +55,7 @@ type CasterKey = (u64, [u32; 16]);
 #[derive(Debug, Default)]
 pub(super) struct CasterFits {
     fits: RefCell<VecDeque<(CasterKey, glam::Mat4)>>,
+    scratch: RefCell<super::visibility::FitScratch>,
     #[cfg(test)]
     pub computed: std::cell::Cell<usize>,
 }
@@ -199,32 +200,41 @@ impl SceneGpu {
         }
     }
 
-    /// Extends the receiver's depth range over the casters, reusing the fit for an unchanged
-    /// receiver while no placement changed.
-    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
-        let key = (
-            self.instances.edits(),
-            receiver.to_cols_array().map(f32::to_bits),
-        );
+    /// Replaces each receiver with its fit over the casters, as the cascades of a frame ask for
+    /// them. Fits made for an unchanged receiver while no placement changed are reused, and the
+    /// rest share one borrow of every batch's casters.
+    pub(crate) fn caster_matrices(&self, receivers: &mut [glam::Mat4]) {
+        let edits = self.instances.edits();
+        let terrain = self.terrain.as_ref().map(|terrain| terrain.bounds);
         let mut fits = self.caster_fits.fits.borrow_mut();
-        if let Some((_, fit)) = fits.iter().find(|(cached, _)| *cached == key) {
-            return *fit;
+        let mut scratch = self.caster_fits.scratch.borrow_mut();
+        let mut scan =
+            super::visibility::CasterScan::new(&self.instances, &self.mesh_selection, &mut scratch);
+        for receiver in receivers {
+            let key = (edits, receiver.to_cols_array().map(f32::to_bits));
+            if let Some((_, fit)) = fits.iter().find(|(cached, _)| *cached == key) {
+                *receiver = *fit;
+                continue;
+            }
+            #[cfg(test)]
+            self.caster_fits
+                .computed
+                .set(self.caster_fits.computed.get() + 1);
+            let fit = scan.matrix(terrain, *receiver);
+            if fits.len() == self.views.len() - 1 {
+                fits.pop_front();
+            }
+            fits.push_back((key, fit));
+            *receiver = fit;
         }
-        #[cfg(test)]
-        self.caster_fits
-            .computed
-            .set(self.caster_fits.computed.get() + 1);
-        let fit = super::visibility::caster_matrix(
-            &self.instances,
-            &self.mesh_selection,
-            self.terrain.as_ref().map(|terrain| terrain.bounds),
-            receiver,
-        );
-        if fits.len() == self.views.len() - 1 {
-            fits.pop_front();
-        }
-        fits.push_back((key, fit));
-        fit
+    }
+
+    /// `caster_matrices` for one receiver.
+    #[cfg(test)]
+    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
+        let mut fit = [receiver];
+        self.caster_matrices(&mut fit);
+        fit[0]
     }
 }
 

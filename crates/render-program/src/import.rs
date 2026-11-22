@@ -16,6 +16,8 @@
 
 use std::ops::Range;
 
+use worldrunner_render_post::contracts::TextureRange;
+
 use crate::batch::{GeometryDraw, VertexLayoutId};
 use crate::binding::EngineSemantic;
 use crate::error::ProgramError;
@@ -32,13 +34,16 @@ use crate::set::{PreparedSet, held_by};
 use crate::state::RenderState;
 
 /// A texture and the view of it a binding reads. The texture tells the runtime the format and
-/// sample count to check the binding against, and `dimension` is how `view` was made, which a
-/// view cannot be asked.
+/// sample count to check the binding against, and `dimension` and `range` are how `view` was
+/// made, which a view cannot be asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub dimension: wgpu::TextureViewDimension,
+    /// The mips, layers and aspect `view` covers. Two bindings of one texture in a dispatch or
+    /// draw conflict only where their ranges overlap, and a storage image writes only its range.
+    pub range: TextureRange,
 }
 
 impl ImportedTexture {
@@ -47,10 +52,27 @@ impl ImportedTexture {
     pub fn whole(texture: wgpu::Texture, view: wgpu::TextureView) -> Self {
         let dimension = default_dimension(&texture);
         Self {
+            range: whole_range(&texture),
             texture,
             view,
             dimension,
         }
+    }
+}
+
+/// Every mip, layer and aspect of `texture`: the range of a view made without a range, and the
+/// range assumed for a view whose owner does not state one. A 3D texture has one layer.
+#[must_use]
+pub fn whole_range(texture: &wgpu::Texture) -> TextureRange {
+    let layers = if texture.dimension() == wgpu::TextureDimension::D2 {
+        texture.depth_or_array_layers()
+    } else {
+        1
+    };
+    TextureRange {
+        mips: 0..texture.mip_level_count(),
+        layers: 0..layers,
+        aspect: wgpu::TextureAspect::All,
     }
 }
 
@@ -156,7 +178,8 @@ impl Import {
 
     /// A view of `texture` made with `dimension`, such as one layer of an array as `D2`, a cube
     /// or a 3D texture. A `dimension` that is not how `view` was made is wgpu's to refuse when
-    /// the group is created, which surfaces as `ProgramError::Gpu`.
+    /// the group is created, which surfaces as `ProgramError::Gpu`. The view is taken to cover
+    /// the whole texture; [`texture_range`](Self::texture_range) states a narrower one.
     #[must_use]
     pub fn texture_view(
         semantic: EngineSemantic,
@@ -164,12 +187,30 @@ impl Import {
         view: wgpu::TextureView,
         dimension: wgpu::TextureViewDimension,
     ) -> Self {
+        let range = whole_range(&texture);
+        Self::texture_range(semantic, texture, view, dimension, range)
+    }
+
+    /// A view of `texture` made with `dimension` over the subresources `range`, such as one mip
+    /// of one layer. The runtime binds other views of the same texture beside it in one dispatch
+    /// or draw when their ranges do not overlap, and counts a storage image's writes as its range
+    /// alone. A `range` that is not how `view` was made makes those checks wrong, as a wrong
+    /// `dimension` does.
+    #[must_use]
+    pub fn texture_range(
+        semantic: EngineSemantic,
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+        dimension: wgpu::TextureViewDimension,
+        range: TextureRange,
+    ) -> Self {
         Self {
             semantic,
             resource: ImportedResource::Texture(ImportedTexture {
                 texture,
                 view,
                 dimension,
+                range,
             }),
         }
     }

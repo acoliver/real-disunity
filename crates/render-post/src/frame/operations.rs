@@ -153,7 +153,8 @@ impl GroupOutputs {
     }
 
     /// Refuses an attachment of `pass` that is an output, unless it is a depth attachment that
-    /// loads without writing: the one way a pass attaches a texture it only reads.
+    /// loads without writing: the one way a pass attaches a texture it only reads. A compute
+    /// pass may not write an output either.
     pub(crate) fn refuse_writes(&self, pass: &PassDeclaration) -> Result<(), FrameError> {
         let attachments = pass
             .color
@@ -172,6 +173,16 @@ impl GroupOutputs {
                     resource: attachment.resource,
                 });
             }
+        }
+        if let Some(write) = pass
+            .storage_writes()
+            .iter()
+            .find(|write| self.writes(write.resource))
+        {
+            return Err(FrameError::OffscreenWrite {
+                pass: pass.entry(),
+                resource: write.resource,
+            });
         }
         Ok(())
     }

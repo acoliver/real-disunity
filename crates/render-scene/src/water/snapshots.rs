@@ -9,6 +9,11 @@ pub(crate) const COLOR: &str = "opaque snapshot color";
 pub(crate) const LINEAR_DEPTH: &str = "opaque snapshot depth";
 /// The name of the device depth snapshot in the frame's plan.
 pub(crate) const DEVICE_DEPTH: &str = "opaque snapshot device depth";
+/// The name of the post-water depth in the frame's plan: the frame's depth after the stock water,
+/// as positive view-space metres.
+pub(crate) const POST_WATER_DEPTH: &str = "post-water depth";
+/// The name of the post-water device depth in the frame's plan.
+pub(crate) const POST_WATER_DEVICE_DEPTH: &str = "post-water device depth";
 
 pub(crate) struct SnapshotFeature {
     pub snapshots: Snapshots,
@@ -17,6 +22,8 @@ pub(crate) struct SnapshotFeature {
     pub depth_source: Option<wgpu::BindGroup>,
     /// Whether the depth snapshot pass also writes the device depth copy.
     pub device_depth: bool,
+    /// Whether the post-water depth pass also writes the post-water device depth copy.
+    pub final_device_depth: bool,
 }
 impl PreparedFeature for SnapshotFeature {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
@@ -35,13 +42,7 @@ impl PreparedFeature for SnapshotFeature {
         context.upload_buffer(&self.snapshots.uniform, 0, &bytes);
     }
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
-        pass.set_pipeline(match (context.slot, &self.snapshots.device_depth) {
-            (PassSlot::AfterOpaqueSnapshot, _) => &self.snapshots.color_pipeline,
-            (PassSlot::AfterOpaqueDepth, Some(device_depth)) if self.device_depth => {
-                &device_depth.pipeline
-            }
-            _ => &self.snapshots.depth_pipeline,
-        });
+        pass.set_pipeline(self.pipeline(context.slot));
         let source = if context.slot == PassSlot::AfterOpaqueSnapshot {
             &self.color_source
         } else {
@@ -57,6 +58,25 @@ use worldrunner_render_post::{
     ResourceRef,
 };
 
+impl SnapshotFeature {
+    /// The pipeline that writes the pass of `slot`: the one with the device depth as its second
+    /// target when the frame asked for that companion and the bank holds it.
+    fn pipeline(&self, slot: PassSlot) -> &wgpu::RenderPipeline {
+        let snapshots = &self.snapshots;
+        let companion = match slot {
+            PassSlot::AfterOpaqueSnapshot => return &snapshots.color_pipeline,
+            PassSlot::AfterOpaqueDepth => self.device_depth.then_some(&snapshots.device_depth),
+            PassSlot::AfterWaterDepth => self
+                .final_device_depth
+                .then_some(&snapshots.final_device_depth),
+            _ => None,
+        };
+        companion
+            .and_then(Option::as_ref)
+            .map_or(&snapshots.depth_pipeline, |depth| &depth.pipeline)
+    }
+}
+
 /// Each admitted slot owns its snapshots. Encoder-ordered writes precede all readers.
 #[derive(Clone, Debug)]
 pub(crate) struct Snapshots {
@@ -66,6 +86,8 @@ pub(crate) struct Snapshots {
     /// The depth buffer's own values, `R32Float`. Present only when a game reads them, so a frame
     /// without such a game allocates none.
     pub device_depth: Option<DeviceDepth>,
+    /// The post-water depth's own values, `R32Float`. Present only when a game reads them.
+    pub final_device_depth: Option<DeviceDepth>,
     pub uniform: wgpu::Buffer,
     pub size: [u32; 2],
     pub samples: u32,
@@ -80,27 +102,55 @@ pub(crate) struct DeviceDepth {
 }
 
 impl Snapshots {
-    /// These snapshots with the device depth copy, which allocates it once. The linear depth pass
-    /// then writes both, the nearest sample of each pixel in the engine's depth convention: depth
-    /// is not reversed, so the nearest is the smallest.
+    /// These snapshots with the device depth copies asked for, `opaque` for the opaque depth and
+    /// `post_water` for the post-water depth. Each is allocated once, and a copy the snapshots
+    /// already hold or one not asked for is left as it is. A depth pass then writes its copy beside
+    /// its linear depth: the nearest sample of each pixel in the engine's depth convention, where
+    /// depth is not reversed, so the nearest is the smallest. Both passes write their copy with
+    /// the one pipeline, so the first copy of either kind builds it.
     #[must_use]
-    pub fn with_device_depth(&self, device: &wgpu::Device) -> Self {
-        if self.device_depth.is_some() {
+    pub fn with_device_depths(
+        &self,
+        device: &wgpu::Device,
+        opaque: bool,
+        post_water: bool,
+    ) -> Self {
+        let missing = |asked: bool, held: &Option<DeviceDepth>| asked && held.is_none();
+        if !missing(opaque, &self.device_depth) && !missing(post_water, &self.final_device_depth) {
             return self.clone();
         }
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("opaque snapshot"),
-            source: wgpu::ShaderSource::Wgsl(snapshot_source(self.samples).into()),
-        });
+        let pipeline = self
+            .device_depth
+            .iter()
+            .chain(&self.final_device_depth)
+            .next()
+            .map_or_else(
+                || {
+                    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("opaque snapshot"),
+                        source: wgpu::ShaderSource::Wgsl(snapshot_source(self.samples).into()),
+                    });
+                    device_depth_pipeline(device, &module, &self.depth_pipeline)
+                },
+                |held| held.pipeline.clone(),
+            );
+        let copy = |asked: bool, held: &Option<DeviceDepth>| {
+            if missing(asked, held) {
+                Some(DeviceDepth {
+                    texture: crate::ssao::passes::texture(
+                        device,
+                        self.size,
+                        wgpu::TextureFormat::R32Float,
+                    ),
+                    pipeline: pipeline.clone(),
+                })
+            } else {
+                held.clone()
+            }
+        };
         Self {
-            device_depth: Some(DeviceDepth {
-                texture: crate::ssao::passes::texture(
-                    device,
-                    self.size,
-                    wgpu::TextureFormat::R32Float,
-                ),
-                pipeline: device_depth_pipeline(device, &module, &self.depth_pipeline),
-            }),
+            device_depth: copy(opaque, &self.device_depth),
+            final_device_depth: copy(post_water, &self.final_device_depth),
             ..self.clone()
         }
     }
@@ -125,6 +175,7 @@ impl Snapshots {
                 wgpu::TextureFormat::R32Float,
             ),
             device_depth: None,
+            final_device_depth: None,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("water frame"),
                 size: 304,
@@ -188,40 +239,39 @@ impl Snapshots {
             passes: Vec::new(),
             effects: Vec::new(),
         };
-        for (slot, texture, name, requested, source) in [
+        // Each snapshot pass: where it runs, what it writes and from what, and the device depth
+        // copy it also writes when the frame asked for one.
+        let passes_to_plan = [
             (
-                PassSlot::AfterOpaqueSnapshot,
-                &self.color,
-                "opaque snapshot color",
-                request.color,
-                color,
+                (PassSlot::AfterOpaqueSnapshot, request.color),
+                (&self.color, "opaque snapshot color", color),
+                None,
             ),
             (
-                PassSlot::AfterOpaqueDepth,
-                &self.depth,
-                "opaque snapshot depth",
-                request.depth,
-                depth,
+                (PassSlot::AfterOpaqueDepth, request.depth),
+                (&self.depth, LINEAR_DEPTH, depth),
+                request
+                    .device
+                    .opaque
+                    .then_some((DEVICE_DEPTH, &self.device_depth)),
             ),
             (
-                PassSlot::AfterWaterDepth,
-                &self.final_depth,
-                "post-water depth",
-                request.final_depth,
-                depth,
+                (PassSlot::AfterWaterDepth, request.final_depth),
+                (&self.final_depth, POST_WATER_DEPTH, depth),
+                request
+                    .device
+                    .post_water
+                    .then_some((POST_WATER_DEVICE_DEPTH, &self.final_device_depth)),
             ),
-        ] {
+        ];
+        for ((slot, requested), (texture, name, source), companion) in passes_to_plan {
             if !requested {
                 continue;
             }
             let resource = ResourceRef::new(name);
             let view = match name {
-                "opaque snapshot depth" => {
-                    FrameProduct::opaque_depth(self.samples).attachment(texture)?
-                }
-                "post-water depth" => {
-                    FrameProduct::final_depth(self.samples).attachment(texture)?
-                }
+                LINEAR_DEPTH => FrameProduct::opaque_depth(self.samples).attachment(texture)?,
+                POST_WATER_DEPTH => FrameProduct::final_depth(self.samples).attachment(texture)?,
                 _ => AttachmentView::new(resource, texture)?,
             };
             let mut pass = PassDeclaration::new(slot);
@@ -232,8 +282,8 @@ impl Snapshots {
             feature
                 .reads
                 .push(source.expect("requested snapshot source").resource());
-            if slot == PassSlot::AfterOpaqueDepth && request.device_depth {
-                self.write_device_depth(&mut pass, &mut feature, views)?;
+            if let Some((name, held)) = companion {
+                Self::write_device_depth(&mut pass, &mut feature, views, (name, held))?;
             }
             passes.push(pass);
             declaration.passes.push(feature);
@@ -241,20 +291,19 @@ impl Snapshots {
         Ok(declaration)
     }
 
-    /// Adds the device depth copy to the depth snapshot pass as its second colour attachment.
+    /// Adds a device depth copy to a depth snapshot pass as its second colour attachment, named
+    /// `name` in the frame's plan.
     fn write_device_depth(
-        &self,
         pass: &mut PassDeclaration,
         feature: &mut worldrunner_render_post::FeaturePass,
         views: &mut Vec<AttachmentView>,
+        copy: (&'static str, &Option<DeviceDepth>),
     ) -> Result<(), FrameError> {
-        let device_depth = self
-            .device_depth
-            .as_ref()
-            .ok_or(FrameError::UnsupportedEffect(
-                "the device depth snapshot is not allocated",
-            ))?;
-        let resource = ResourceRef::new(DEVICE_DEPTH);
+        let (name, held) = copy;
+        let device_depth = held.as_ref().ok_or(FrameError::UnsupportedEffect(
+            "the device depth snapshot is not allocated",
+        ))?;
+        let resource = ResourceRef::new(name);
         let view = AttachmentView::new(resource, &device_depth.texture)?;
         pass.additional_colors
             .push(crate::compositor::attachment(resource, &view, false));

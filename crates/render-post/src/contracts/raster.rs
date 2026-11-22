@@ -184,9 +184,45 @@ pub struct CompiledRaster {
     pub(super) passes: Vec<RasterPass>,
     pub(super) labels: Vec<String>,
 }
+/// One entry of a stock schedule: a raster pass, or a compute pass with no attachments.
+pub(crate) enum StockPass {
+    Raster(Box<RasterPass>),
+    Compute(StockCompute),
+}
+
+/// A compute pass of a stock schedule: what it samples and the storage writes it makes.
+pub(crate) struct StockCompute {
+    pub(super) id: RasterId,
+    pub(super) uses: Vec<ResourceUse>,
+}
+impl StockCompute {
+    /// Retains the leases of what the pass uses and offers each write to the capture the frame
+    /// belongs to, as a raster pass's are.
+    fn validate_writes(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ContractError> {
+        for usage in &self.uses {
+            usage.view.retain_lease(encoder)?;
+        }
+        super::capture::validate_writes(
+            encoder,
+            self.uses
+                .iter()
+                .filter(|usage| usage.access != AccessMode::Read)
+                .map(|usage| super::capture::write_key(usage.view.allocation())),
+        )
+    }
+}
+impl StockPass {
+    pub(super) const fn id(&self) -> RasterId {
+        match self {
+            Self::Raster(pass) => pass.id,
+            Self::Compute(pass) => pass.id,
+        }
+    }
+}
+
 /// Stock schedules select a geometry identity at encode time, without owned labels.
 pub(crate) struct StockRaster {
-    pub(super) passes: Vec<RasterPass>,
+    pub(super) passes: Vec<StockPass>,
     /// The copy writes the frame's preparation makes before the first pass.
     pub(super) prepared: Vec<ResourceUse>,
 }
@@ -217,17 +253,19 @@ impl StockRaster {
     }
     #[cfg(test)]
     pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
-        self.passes.iter().map(|pass| pass.id)
+        self.passes.iter().map(StockPass::id)
     }
     /// Each pass's depth (before, attached) versions, for read-only version tests.
     #[cfg(test)]
     pub(crate) fn depth_versions(&self) -> Vec<Option<(Option<u32>, u32)>> {
         self.passes
             .iter()
-            .map(|pass| {
-                pass.depth
+            .map(|pass| match pass {
+                StockPass::Raster(pass) => pass
+                    .depth
                     .as_ref()
-                    .map(|depth| (depth.before, depth.view.version()))
+                    .map(|depth| (depth.before, depth.view.version())),
+                StockPass::Compute(_) => None,
             })
             .collect()
     }
@@ -240,10 +278,39 @@ impl StockRaster {
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
-        self.passes[index].validate_writes(encoder)?;
+        let StockPass::Raster(pass) = &self.passes[index] else {
+            unreachable!("{entry} is a compute pass, which the executor records as one");
+        };
+        pass.validate_writes(encoder)?;
         let label = crate::PassId::Geometry(entry).encoder_label();
-        self.passes[index].encode_named(encoder, stamp, label.as_ref(), draw);
+        pass.encode_named(encoder, stamp, label.as_ref(), draw);
         Ok(())
+    }
+
+    /// Opens compute pass `index` of the schedule, labelled and timed as a geometry pass of
+    /// `entry`, after offering its writes to the frame's capture, and lets `record` record into
+    /// it.
+    ///
+    /// # Errors
+    /// The capture's refusal of a write it does not own, and `record`'s error.
+    pub(crate) fn encode_stock_compute(
+        &self,
+        index: usize,
+        entry: crate::PassEntry,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+        record: impl FnOnce(&mut wgpu::ComputePass<'_>) -> Result<(), crate::FrameError>,
+    ) -> Result<(), crate::FrameError> {
+        let StockPass::Compute(compute) = &self.passes[index] else {
+            unreachable!("{entry} is a render pass, which the executor encodes as one");
+        };
+        compute.validate_writes(encoder)?;
+        let label = crate::PassId::Geometry(entry).encoder_label();
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(label.as_ref()),
+            timestamp_writes: stamp.map(crate::timing::Stamp::compute),
+        });
+        record(&mut pass)
     }
 }
 impl CompiledRaster {

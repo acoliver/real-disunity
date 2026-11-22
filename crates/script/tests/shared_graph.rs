@@ -1,7 +1,9 @@
 //! Scheduler threads and saved data share one graph, and threads made from anonymous functions
 //! resume (#147).
 
-use worldrunner_script::{GameScripts, LuaSnapshot, SchedulerNames, ScriptConfig};
+use worldrunner_script::{
+    GameScripts, LuaSnapshot, SaveOptions, SchedulerNames, SchedulerPolicy, ScriptConfig,
+};
 
 const NAMES: [&str; 6] = [
     "CreateGameTimeThread",
@@ -21,14 +23,17 @@ Shared = { count = 0 }
 fn game(code: &str) -> GameScripts {
     let mut scripts = GameScripts::new(ScriptConfig::default()).unwrap();
     scripts
-        .register_scheduler(&SchedulerNames {
-            spawn: NAMES[0].into(),
-            sleep: NAMES[1].into(),
-            wakeup: NAMES[2].into(),
-            kill: NAMES[3].into(),
-            current: NAMES[4].into(),
-            now: NAMES[5].into(),
-        })
+        .register_scheduler(
+            &SchedulerNames {
+                spawn: NAMES[0].into(),
+                sleep: NAMES[1].into(),
+                wakeup: NAMES[2].into(),
+                kill: NAMES[3].into(),
+                current: NAMES[4].into(),
+                now: NAMES[5].into(),
+            },
+            &SchedulerPolicy::default(),
+        )
         .unwrap();
     scripts.add_source("game", &NAMES).unwrap();
     scripts
@@ -61,7 +66,11 @@ fn interrupted(code: &str, total: u64) -> serde_json::Value {
     let mut scripts = game(code);
     scripts.run("game", "go.lua", b"Start()").unwrap();
     for _ in 0..total {
-        let snapshot = through_json(&scripts.save(&["Log", "Shared"], &[]).unwrap());
+        let snapshot = through_json(
+            &scripts
+                .save(&["Log", "Shared"], &[], &SaveOptions::default())
+                .unwrap(),
+        );
         scripts = game(code);
         scripts.restore(&snapshot, &[]).unwrap();
         assert_eq!(scripts.advance(1).unwrap(), []);
@@ -120,7 +129,11 @@ fn threads_that_have_not_started_save_their_closure_and_arguments() {
     "#;
     let mut saved = game(code);
     saved.run("game", "go.lua", b"Start()").unwrap();
-    let snapshot = through_json(&saved.save(&["Log", "Shared", "Handle"], &[]).unwrap());
+    let snapshot = through_json(
+        &saved
+            .save(&["Log", "Shared", "Handle"], &[], &SaveOptions::default())
+            .unwrap(),
+    );
     assert_eq!(snapshot.threads.len(), 1);
 
     let mut restored = game(code);

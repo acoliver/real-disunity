@@ -23,12 +23,6 @@ pub enum ScriptError {
     BudgetExceeded { chunk: String, budget: u32 },
     /// The Lua state reached its memory limit.
     Memory { message: String },
-    /// A module reported an API version the host refuses to install.
-    ApiVersion {
-        module: String,
-        expected: String,
-        found: String,
-    },
     /// Script code reached for something the sandbox contract withholds.
     Sandbox { message: String },
     /// A `UserData` handle was used after the world it named is gone.
@@ -58,14 +52,6 @@ impl fmt::Display for ScriptError {
                 write!(f, "{chunk}: instruction budget of {budget} exceeded")
             }
             Self::Memory { message } => write!(f, "memory limit reached: {message}"),
-            Self::ApiVersion {
-                module,
-                expected,
-                found,
-            } => write!(
-                f,
-                "module {module} reports api version {found}, host requires {expected}"
-            ),
             Self::Sandbox { message } => write!(f, "sandbox violation: {message}"),
             Self::HandleInvalid { handle } => {
                 write!(f, "handle {handle} is invalid (world unloaded)")

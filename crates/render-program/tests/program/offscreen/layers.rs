@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use worldrunner_render_program::ids::{MaterialId, RendererId};
+use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 
@@ -81,11 +81,8 @@ fn the_camera_values_sit_below_the_renderers_per_draw_values() {
     // The camera supplies `_Place` and the renderer does not: the camera's value is used. When
     // the renderer names it too, the renderer's wins.
     frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw = PropertyLayer::default();
-    frame
-        .cameras
-        .get_mut(&worldrunner_render_program::ids::CameraId(1))
-        .unwrap()
-        .values = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    frame.cameras.get_mut(&CameraId(1)).unwrap().values =
+        layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
     assert_eq!(tint(&mut rig, &frame), RED);
     frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw =
         layer(&[("_Place", [0.0, 0.0, 0.0, 0.0])]);
@@ -110,18 +107,11 @@ fn a_slot_block_sits_below_the_per_draw_and_camera_values() {
 
     let renderer = frame.renderers.get_mut(&RendererId(1)).unwrap();
     renderer.per_draw = PropertyLayer::default();
-    frame
-        .cameras
-        .get_mut(&worldrunner_render_program::ids::CameraId(1))
-        .unwrap()
-        .values = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    frame.cameras.get_mut(&CameraId(1)).unwrap().values =
+        layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
     assert_eq!(tint(&mut rig, &frame), RED, "the camera's values");
 
-    frame
-        .cameras
-        .get_mut(&worldrunner_render_program::ids::CameraId(1))
-        .unwrap()
-        .values = PropertyLayer::default();
+    frame.cameras.get_mut(&CameraId(1)).unwrap().values = PropertyLayer::default();
     assert_eq!(
         tint(&mut rig, &frame),
         [255, 255, 0, 255],

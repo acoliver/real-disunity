@@ -78,6 +78,9 @@ fn a_render_texture_only_a_slot_block_holds_is_named_and_stays() {
     assert_eq!(reclaimed.targets, 0);
     let (room, built, reclaimed, [_, b, c]) = three_frames(roomy.runtime.live_bytes() - 256);
     built.unwrap();
-    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(
+        reclaimed.targets, 1,
+        "a budget 256 bytes short is one 8 x 8 render texture short"
+    );
     assert_eq!(room.held(), [b, c]);
 }

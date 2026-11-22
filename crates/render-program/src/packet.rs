@@ -520,8 +520,10 @@ impl ProgramRuntime {
                 what: "stencil without a stencil attachment",
             });
         }
-        self.counters.pipeline_key_computed();
-        let key = request.key();
+        let key = request.program.pipeline_keys.get_or_compute(request, || {
+            self.counters.pipeline_key_computed();
+            request.key()
+        });
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }

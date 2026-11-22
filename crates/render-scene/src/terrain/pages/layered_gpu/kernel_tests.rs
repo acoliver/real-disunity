@@ -31,12 +31,13 @@ fn baking_pages_compiles_the_kernel_modules_once() {
     )
     .unwrap();
     let before = super::super::kernel_modules_compiled();
+    let writer = PageWriter::new_layered(&device, settings);
     let start = std::time::Instant::now();
     for _ in 0..PAGES {
         let mut frame = authority.begin(&device).unwrap();
         let pending = cache.reserve(&frame, PageKey::ROOT).unwrap();
         source
-            .encode_page(&device, &mut frame, &cache, pending)
+            .encode_page(&device, &mut frame, &writer, &cache, pending)
             .unwrap();
         frame.finish().cancel();
     }

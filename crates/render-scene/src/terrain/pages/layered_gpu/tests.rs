@@ -202,7 +202,13 @@ fn layered_pages_publish_three_products_and_evict_atomically() {
     let mut frame = authority.begin(device).unwrap();
     let pending = cache.reserve(&frame, PageKey::ROOT).unwrap();
     source
-        .encode_page(device, &mut frame, &cache, pending)
+        .encode_page(
+            device,
+            &mut frame,
+            &PageWriter::new_layered(device, cache.settings()),
+            &cache,
+            pending,
+        )
         .unwrap();
     assert!(cache.lookup(PageKey::ROOT, 0).is_none());
     let serial = frame.finish().submit().unwrap();
@@ -258,14 +264,26 @@ fn layered_admission_includes_height_inputs_and_upload_staging() {
     let mut frame = authority.begin(device).unwrap();
     let pending = cache.reserve(&frame, PageKey::ROOT).unwrap();
     source
-        .encode_page(device, &mut frame, &cache, pending)
+        .encode_page(
+            device,
+            &mut frame,
+            &PageWriter::new_layered(device, cache.settings()),
+            &cache,
+            pending,
+        )
         .unwrap();
     frame.finish().cancel();
     assert!(cache.lookup(PageKey::ROOT, 0).is_none());
     let mut frame = authority.begin(device).unwrap();
     let pending = cache.reserve(&frame, PageKey::ROOT).unwrap();
     source
-        .encode_page(device, &mut frame, &cache, pending)
+        .encode_page(
+            device,
+            &mut frame,
+            &PageWriter::new_layered(device, cache.settings()),
+            &cache,
+            pending,
+        )
         .unwrap();
     let serial = frame.finish().submit().unwrap();
     device

@@ -31,7 +31,13 @@ fn live_layered_and_cached_anisotropic_footprints_agree() {
         let mut frame = authority.begin(context.device()).unwrap();
         let pending = cache.reserve(&frame, PageKey::ROOT).unwrap();
         source
-            .encode_page(context.device(), &mut frame, &cache, pending)
+            .encode_page(
+                context.device(),
+                &mut frame,
+                &PageWriter::new_layered(context.device(), cache.settings()),
+                &cache,
+                pending,
+            )
             .unwrap();
         let submission = frame.finish().submit().unwrap();
         context

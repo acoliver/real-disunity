@@ -14,10 +14,12 @@ use std::sync::Arc;
 
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    DrawList, Instances, ListDraw, Record, Renderer,
+    DotsBatch, DrawList, Instances, ListDraw, Record, Renderer,
 };
 use worldrunner_render_program::unity::shader::PassSelector;
-use worldrunner_world_simulation::graphics::{MaterialId as WorldMaterialId, ShaderProperties};
+use worldrunner_world_simulation::graphics::{
+    DrawBatch, MaterialId as WorldMaterialId, ShaderProperties,
+};
 
 use super::frame::{Mapper, Skip};
 use super::ids;
@@ -27,6 +29,25 @@ use super::properties::layer;
 /// The layer of a mesh draw's renderer. No layer has this number, so no camera of the frame
 /// culls the renderer in.
 const NO_CAMERA_LAYER: u32 = 32;
+
+/// What a mesh draw makes instances of.
+enum Instanced<'a> {
+    /// The sub-mesh repeated `instances` times with `matrix` and the record's own `block`.
+    Count {
+        matrix: &'a [f32; 16],
+        block: Option<&'a ShaderProperties>,
+        instances: u32,
+    },
+    /// The instances a shader reads from a window of a compute buffer.
+    Batch(&'a DrawBatch),
+}
+
+/// The renderer a mesh draw makes, and the instances each of its passes draws.
+struct Prepared {
+    block: PropertyLayer,
+    per_draw: PropertyLayer,
+    instances: Instances,
+}
 
 impl Mapper<'_> {
     /// The record of mesh `mesh`, its sub-mesh `submesh` drawn with `matrix`, `material` and the
@@ -41,6 +62,33 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         (block, instances): (Option<&ShaderProperties>, u32),
     ) -> Result<Vec<Record>, Skip> {
+        let counted = Instanced::Count {
+            matrix,
+            block,
+            instances,
+        };
+        self.mesh_draw((mesh, submesh), (material, pass), counted)
+    }
+
+    /// The record of mesh `mesh`, its sub-mesh `submesh` drawn as `material` for each instance
+    /// `batch` lists, which the shader reads from the batch's window of its buffer. A buffer the
+    /// host does not hold leaves the draw out; a batch that lists no instance draws nothing and
+    /// makes no record.
+    pub(super) fn draw_mesh_batch(
+        &mut self,
+        (mesh, submesh): (u64, u32),
+        (material, pass): (WorldMaterialId, i32),
+        batch: &DrawBatch,
+    ) -> Result<Vec<Record>, Skip> {
+        self.mesh_draw((mesh, submesh), (material, pass), Instanced::Batch(batch))
+    }
+
+    fn mesh_draw(
+        &mut self,
+        (mesh, submesh): (u64, u32),
+        (material, pass): (WorldMaterialId, i32),
+        instanced: Instanced<'_>,
+    ) -> Result<Vec<Record>, Skip> {
         let (target, raster) = self.draw_target()?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
@@ -50,9 +98,9 @@ impl Mapper<'_> {
             _ => return Err(Skip::NoSuchPass),
         };
         let (values, _) = self.current_view()?;
-        if instances == 0 {
+        let Some(prepared) = self.prepare(instanced)? else {
             return Ok(Vec::new());
-        }
+        };
         let renderer = ids::mesh_draw_renderer(self.script.mesh_draws);
         self.script.mesh_draws += 1;
         self.frame.renderers.insert(
@@ -61,11 +109,9 @@ impl Mapper<'_> {
                 mesh: ids::mesh(mesh),
                 materials: Vec::new(),
                 layer: NO_CAMERA_LAYER,
-                block: block.map_or_else(PropertyLayer::default, |block| {
-                    layer(block, &mut self.textures)
-                }),
+                block: prepared.block,
                 slot_blocks: BTreeMap::new(),
-                per_draw: self.layerless_draw(matrix),
+                per_draw: prepared.per_draw,
             },
         );
         let slot = usize::try_from(submesh).unwrap_or(usize::MAX);
@@ -80,11 +126,50 @@ impl Mapper<'_> {
                     slot,
                     material: Some(named),
                     pass: PassSelector::Index(pass),
-                    instances: Instances::Count(instances),
+                    instances: prepared.instances.clone(),
                     per_draw: PropertyLayer::default(),
                 })
                 .collect(),
         }))])
+    }
+
+    /// The renderer values and instances of a draw, or `None` for a draw of no instance.
+    fn prepare(&mut self, instanced: Instanced<'_>) -> Result<Option<Prepared>, Skip> {
+        match instanced {
+            Instanced::Count { instances: 0, .. } => Ok(None),
+            Instanced::Count {
+                matrix,
+                block,
+                instances,
+            } => Ok(Some(Prepared {
+                block: block.map_or_else(PropertyLayer::default, |block| {
+                    layer(block, &mut self.textures)
+                }),
+                per_draw: self.layerless_draw(matrix),
+                instances: Instances::Count(instances),
+            })),
+            Instanced::Batch(batch) => {
+                let buffer = *self
+                    .available
+                    .buffers
+                    .get(&batch.buffer)
+                    .ok_or(Skip::BufferUnavailable)?;
+                let end = batch
+                    .offset
+                    .checked_add(batch.size)
+                    .ok_or(Skip::BufferUnavailable)?;
+                Ok((!batch.visible.is_empty()).then(|| Prepared {
+                    block: PropertyLayer::default(),
+                    per_draw: PropertyLayer::default(),
+                    instances: Instances::Dots(DotsBatch {
+                        buffer,
+                        window: batch.offset..end,
+                        metadata: batch.metadata.clone(),
+                        visible: batch.visible.clone(),
+                    }),
+                }))
+            }
+        }
     }
 
     /// Whether sub-mesh `submesh` of mesh `mesh` has triangles to draw: the host holds the mesh,

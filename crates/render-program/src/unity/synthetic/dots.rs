@@ -67,7 +67,7 @@ fn column(base: u32, k: u32) -> vec3<f32> {{
         + column(base, 2u) * position.z + column(base, 3u);
     var out: VOut;
     out.position = vec4<f32>(moved, 1.0);
-    out.color = vec4<f32>(f32(element) / 8.0, 0.3, 0.6, 1.0 + {skipped});
+    out.color = vec4<f32>(f32(element) / 8.0, 0.4, 0.6, 1.0 + {skipped});
     return out;
 }}
 @fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {{ return in.color; }}"

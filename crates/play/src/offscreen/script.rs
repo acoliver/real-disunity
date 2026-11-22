@@ -287,7 +287,13 @@ impl Mapper<'_> {
                 (*material, *pass),
                 (block.as_deref(), *instances),
             ),
-            OffscreenWork::DrawMeshBatch { .. } => Err(Skip::BatchNotDrawn),
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                submesh,
+                pass,
+                batch,
+            } => self.draw_mesh_batch((*mesh, *submesh), (*material, *pass), batch),
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,

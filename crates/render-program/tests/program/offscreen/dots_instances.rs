@@ -85,7 +85,7 @@ pub(super) fn dots_frame(
 
 /// The color the DOTS variant gives element `e`.
 pub(super) fn element_color(element: u8) -> [u8; 4] {
-    [element * 32, 77, 153, 255]
+    [element * 32, 102, 153, 255]
 }
 
 /// Checks the two texel columns of every cell against `expected`, the clear colour where `None`.

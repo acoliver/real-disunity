@@ -119,3 +119,33 @@ fn a_default_draw_is_unchanged() {
     assert!(lines.is_empty());
     assert!(player.game_material_draws().is_empty());
 }
+
+#[test]
+fn a_render_texture_draw_with_a_game_material_is_left_out_before_its_offer() {
+    let material = game_material();
+    let target = RenderTextureId::from_bits((1 << 32) | 4);
+    let shaped = UiDraw {
+        material: Some(material),
+        texture: Some(UiTexture::Target(target)),
+        ..draw(7, 2, [0, 0, 64, 64])
+    };
+    let mut plan = UiPresentation {
+        draws: vec![draw(-3, 1, [0, 0, 64, 64]), shaped],
+        shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
+        ..Default::default()
+    };
+    let (mut asked_about, mut lines) = (Vec::new(), Vec::new());
+    let shown = PlayerUi::default().offer_targets(
+        &mut plan,
+        |remaining| {
+            asked_about.extend(remaining.draws.iter().filter_map(|draw| draw.texture));
+            Vec::new()
+        },
+        |line| lines.push(line),
+    );
+    assert_eq!(plan.draws.len(), 1);
+    assert!(asked_about.is_empty(), "a left-out draw offers no texture");
+    assert!(shown.is_empty());
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains("Game/Silhouette") && lines[0].contains("is left out"));
+}

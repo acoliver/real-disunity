@@ -1,12 +1,12 @@
 //! The constants a draw gets from the textures it reads: the member `<texture>_TexelSize` of a
 //! constant buffer holds (1 / width, 1 / height, width, height) of the texture bound under
-//! `<texture>`, the way a blit's source has it (see `steps::source_layer`).
+//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`).
 
 use crate::layers::Layers;
 use crate::properties::{PropertySet, PropertyValue};
 use crate::unity::buffers::BufferLayout;
 
-use super::steps::texels;
+use super::blit_steps::texels;
 use super::textures::TextureTable;
 
 /// The `<texture>_TexelSize` members `buffer` declares, with the size of the first level of the

@@ -16,10 +16,11 @@ use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, RenderState};
 
+use super::blit_steps::BlitStep;
 use super::error::OffscreenError;
 use super::plan::DrawPlan;
 use super::resample::ResampleStep;
-use super::steps::{BlitStep, BufferReads, CameraDraw, Step, push_buffer_use};
+use super::steps::{BufferReads, CameraDraw, Step, push_buffer_use};
 use super::tracker::Tracker;
 
 /// The state turning steps into operations needs, borrowed from the offscreen state.

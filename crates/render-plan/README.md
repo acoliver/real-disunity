@@ -1,8 +1,10 @@
 # Render planning
 
 `worldrunner-render-plan` is the CPU-only scene and document boundary for Real
-Disunity. It also extracts native `world-simulation` sprites, tiles, cameras and
-UI into scene contributions (the `simulation` and `ui` features).
+Disunity. With the `simulation` feature it also extracts native `world-simulation`
+mesh instances into retained scene objects and holds the scene textures that
+sprites draw with. Sprite, tile, camera and UI extraction lives in
+`world-simulation`; `worldrunner-render-scene` draws its plan.
 
 - `RenderScene` owns validated geometry, materials, textures, optional terrain,
   and an optional environmental profile. No profile means unlit albedo plus

@@ -1,6 +1,6 @@
 //! Deterministic reference integrals for split-sum GGX image-based lighting.
 use glam::{Vec2, Vec3};
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::TAU;
 
 #[expect(
     clippy::cast_precision_loss,
@@ -95,10 +95,3 @@ pub fn cube_direction(face: u32, uv: [f32; 2]) -> Vec3 {
     }
     .normalize()
 }
-
-/// GGX solid-angle PDF, useful for choosing source mip levels during convolution.
-pub fn sample_pdf(no_h: f32, vo_h: f32, roughness: f32) -> f32 {
-    crate::distribution_ggx(no_h, roughness, 1e-7) * no_h / (4.0 * vo_h).max(1e-7)
-}
-
-pub const HEMISPHERE_SOLID_ANGLE: f32 = 2.0 * PI;

@@ -4947,7 +4947,6 @@ dependencies = [
 name = "worldrunner-material"
 version = "0.1.0"
 dependencies = [
- "blake3",
  "postcard",
  "serde",
  "thiserror 2.0.21",
@@ -4976,7 +4975,6 @@ dependencies = [
 name = "worldrunner-package"
 version = "0.1.0"
 dependencies = [
- "blake3",
  "postcard",
  "serde",
  "thiserror 2.0.21",
@@ -5118,7 +5116,6 @@ dependencies = [
  "blake3",
  "postcard",
  "thiserror 2.0.21",
- "worldrunner-asset-id",
  "worldrunner-core-types",
  "worldrunner-world-generation",
  "worldrunner-world-schema",

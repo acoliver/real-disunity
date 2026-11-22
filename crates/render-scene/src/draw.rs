@@ -16,9 +16,9 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, material_sampler, placeholder_with_view, upload_buffer, upload_palette_array,
-    upload_texture, upload_type_grid,
+    FRAME_GROUP, placeholder_with_view, upload_palette_array, upload_texture, upload_type_grid,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 
 mod append;
 pub use append::{
@@ -408,7 +408,9 @@ impl SceneGpu {
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
-        let sampler = material_sampler(device);
+        let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
+            worldrunner_render_plan::TextureAnisotropy::default(),
+        ));
         let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
             device,
             queue,

@@ -9,7 +9,7 @@
 
 use super::{
     FRAME_GROUP, MATERIAL_GROUP, frame_bind_group_layout, material_bind_group_layout,
-    material_sampler, placeholder_texture, upload_buffer, upload_texture,
+    placeholder_texture, upload_texture,
 };
 use crate::device::GpuContext;
 use crate::frame::FRAME_UNIFORM_BYTES;
@@ -19,6 +19,7 @@ use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BindingResource, BufferUsages, Device, ErrorFilter,
     TextureView, TextureViewDescriptor,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_plan::{SceneTexture, TextureColorSpace, TextureEncoding};
 
 const SUPPORTED_FORMATS: [(u32, u32, TextureColorSpace); 6] = [
@@ -133,7 +134,9 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
     let device = context.device();
     let queue = context.queue();
     let layout = material_bind_group_layout(device);
-    let sampler = material_sampler(device);
+    let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
+        worldrunner_render_plan::TextureAnisotropy::default(),
+    ));
     let uniform = material_uniform(&context);
     let albedo_source = encoded(72, 8, 16, 16, 5);
     let normal_source = encoded(83, 16, 16, 16, 5);
@@ -194,7 +197,9 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
     let device = context.device();
     let queue = context.queue();
     let layout = material_bind_group_layout(device);
-    let sampler = material_sampler(device);
+    let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
+        worldrunner_render_plan::TextureAnisotropy::default(),
+    ));
     let uniform = material_uniform(&context);
     let albedo_source = encoded(72, 8, 16, 16, 5);
     let albedo = prepare_texture(&albedo_source).expect("albedo parses");

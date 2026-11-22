@@ -3,16 +3,16 @@
 use super::fixture::{FORMAT, SIZE};
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
+    FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{
         ConfiguredFrameRenderer, GameBuild, GameFeatureFactory, GamePasses, RendererConfiguration,
         TargetDeclaration, TargetExtent,
     },
     device::GpuContext,
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-        FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
-    },
     wgpu,
 };
 

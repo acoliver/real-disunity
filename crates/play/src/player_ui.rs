@@ -8,12 +8,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use worldrunner_render_plan::{
-    simulation::SpriteTextures,
-    ui::{UiDrawKind, UiPresentation},
-};
+use worldrunner_render_plan::simulation::SpriteTextures;
 use worldrunner_render_scene::simulation::UiOverlay;
 use worldrunner_scene_viewer::RetainedUpdate;
+use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
 
 /// The textures the UI's graphics draw, by identity.
 pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u64> + '_ {

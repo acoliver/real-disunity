@@ -196,7 +196,7 @@ impl LayeredGpuSource {
         let buffers = [&self.parameters, &self.grid, &self.images]
             .into_iter()
             .map(|bytes| {
-                crate::upload::upload_buffer(
+                worldrunner_render_gpu::resource::upload_buffer(
                     device,
                     queue,
                     "resident layered metadata",

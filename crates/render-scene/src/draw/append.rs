@@ -22,7 +22,8 @@ use crate::instances::skin::{SkinNeed, skin_needs};
 use crate::object::prepared::LentMaterial;
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
-use crate::upload::{upload_buffer, upload_texture};
+use crate::upload::upload_texture;
+use worldrunner_render_gpu::resource::upload_buffer;
 
 /// The table sizes of the resident scene an append was prepared against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

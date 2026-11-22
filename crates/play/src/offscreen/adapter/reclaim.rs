@@ -125,6 +125,14 @@ impl OffscreenAdapter {
             .retain(|_, held| held.usable || held.last_named == self.epoch);
     }
 
+    /// Notes that the UI read the render texture `id` since the last snapshot, as a frame naming it
+    /// would: of the textures nothing names, the one read last is given back last.
+    pub(crate) fn note_ui_read(&mut self, id: TextureId) {
+        if let Some(named) = self.targets.get_mut(&id) {
+            *named = self.epoch;
+        }
+    }
+
     /// Notes that the snapshot names the render textures given, and forgets the ones that no
     /// longer exist.
     pub(super) fn stamp_targets(

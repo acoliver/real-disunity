@@ -1,4 +1,5 @@
 use super::*;
+use worldrunner_world_simulation::{graphics::RenderTextureId, ui::UiTexture};
 
 #[test]
 fn triangle_copy_out_preserves_uvs_and_three_corner_topology() {
@@ -188,4 +189,54 @@ fn distance_metadata_decodes_all_modes_and_rejects_invalid_records() {
     meta.kind = 1;
     meta.distance_radius = -1.;
     assert!(decode(meta, quad).is_err());
+}
+
+fn textured(
+    texture_kind: u32,
+    kind: u32,
+    texture: u64,
+) -> (native::DisunityUiDraw, native::DisunityQuad) {
+    let meta = native::DisunityUiDraw {
+        kind,
+        texture_kind,
+        ..Default::default()
+    };
+    let quad = native::DisunityQuad {
+        overlay: 1,
+        textured: 1,
+        texture,
+        ..Default::default()
+    };
+    (meta, quad)
+}
+
+#[test]
+fn a_render_texture_draw_decodes_with_its_target_id() {
+    let target = RenderTextureId::from_bits((2 << 32) | 9);
+    let (meta, quad) = textured(1, 0, target.to_bits());
+    let draw = decode(meta, quad).unwrap();
+    assert_eq!(draw.texture, Some(UiTexture::Target(target)));
+}
+
+#[test]
+fn image_and_coverage_draws_decode_by_their_draw_kind() {
+    let (meta, quad) = textured(0, 0, 1 << 40);
+    assert_eq!(
+        decode(meta, quad).unwrap().texture,
+        Some(UiTexture::Image(1 << 40))
+    );
+    let (meta, quad) = textured(0, 1, 3);
+    assert_eq!(
+        decode(meta, quad).unwrap().texture,
+        Some(UiTexture::Coverage(3))
+    );
+}
+
+#[test]
+fn a_render_texture_on_text_or_an_unknown_texture_kind_is_rejected() {
+    let (meta, quad) = textured(1, 1, 5);
+    assert!(decode(meta, quad).is_err());
+    let (meta, quad) = textured(2, 0, 5);
+    assert!(matches!(decode(meta, quad),
+        Err(HostError::Managed(message)) if message.contains("texture kind 2")));
 }

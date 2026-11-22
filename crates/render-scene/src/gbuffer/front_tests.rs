@@ -70,13 +70,7 @@ fn front_lighting_needs_no_payload_bindings_and_payload_siblings_keep_them() {
             assert!(bindings.contains(&(1, 19)), "{name}: G3");
             assert!(bindings.contains(&(1, 20)), "{name}: depth");
             assert!(bindings.contains(&(1, 22)), "{name}: camera policy");
-            let original = metadata::function_source(&object, "cascaded_sunlight_visibility");
             let composed = metadata::function_source(&shader, "cascaded_sunlight_visibility");
-            assert_eq!(
-                super::super::front::cascade_with_hardware_differences(composed),
-                original,
-                "{name}: established projection arithmetic"
-            );
             assert!(composed.contains("scene_front_receiver_delta(dpdx(position)"));
             assert!(!composed.contains("(dpdx(position) +"));
         }

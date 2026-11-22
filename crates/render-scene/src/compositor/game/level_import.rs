@@ -1,6 +1,7 @@
 //! One level of one layer of a declared texture or target, imported by handle as a 2D view of
-//! exactly that level, so a game binds a layer of an array (sampled, or as a storage image a
-//! kernel writes) without making a view of its own.
+//! exactly that level (or, for a binding declared as an array, a one-layer 2D array view of it),
+//! so a game binds a layer of an array (sampled, or as a storage image a kernel writes) without
+//! making a view of its own.
 use super::GameTargets;
 use super::resources::{GameLevel, GameResourceError};
 use worldrunner_render_post::contracts::TextureRange;
@@ -41,25 +42,64 @@ impl GameTargets {
         level: GameLevel,
         access: LevelAccess,
     ) -> Result<Import, GameResourceError> {
+        self.viewed_level(
+            name,
+            semantic,
+            level,
+            (access, wgpu::TextureViewDimension::D2),
+        )
+    }
+
+    /// The same level as [`Self::import_level`], viewed as a 2D array of that one layer, for a
+    /// binding declared as an array of 2D images (`texture_storage_2d_array`, HLSL
+    /// `RWTexture2DArray`) that the kernel indexes at layer 0, such as one image of a downsample
+    /// kernel that binds every level of a chain as its own array. The import states the same
+    /// one-level range.
+    ///
+    /// # Errors
+    /// As [`Self::import_level`].
+    pub fn import_level_array(
+        &self,
+        name: &'static str,
+        semantic: EngineSemantic,
+        level: GameLevel,
+        access: LevelAccess,
+    ) -> Result<Import, GameResourceError> {
+        self.viewed_level(
+            name,
+            semantic,
+            level,
+            (access, wgpu::TextureViewDimension::D2Array),
+        )
+    }
+
+    fn viewed_level(
+        &self,
+        name: &'static str,
+        semantic: EngineSemantic,
+        level: GameLevel,
+        viewed: (LevelAccess, wgpu::TextureViewDimension),
+    ) -> Result<Import, GameResourceError> {
         let texture = self
             .texture(name)
             .map_err(|error| GameResourceError::Import {
                 label: name.to_owned(),
                 reason: error.to_string(),
             })?;
-        import_level(name, &texture, semantic, level, access)
+        import_level(name, &texture, semantic, level, viewed)
     }
 }
 
-/// `level` of `texture`, named `label` in refusals, as a 2D view of that one mip of that one
-/// layer, for the binding sourced from `semantic`. The import states the level as its range, so
-/// a dispatch may bind other levels of the texture beside it and writes only that level.
+/// `level` of `texture`, named `label` in refusals, as a view of `dimension` (`D2`, or a
+/// one-layer `D2Array`) of that one mip of that one layer, for the binding sourced from
+/// `semantic`. The import states the level as its range, so a dispatch may bind other levels of
+/// the texture beside it and writes only that level.
 pub(super) fn import_level(
     label: &str,
     texture: &wgpu::Texture,
     semantic: EngineSemantic,
     level: GameLevel,
-    access: LevelAccess,
+    (access, dimension): (LevelAccess, wgpu::TextureViewDimension),
 ) -> Result<Import, GameResourceError> {
     let refuse = |reason: String| {
         Err(GameResourceError::Import {
@@ -95,7 +135,7 @@ pub(super) fn import_level(
     }
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some(label),
-        dimension: Some(wgpu::TextureViewDimension::D2),
+        dimension: Some(dimension),
         base_mip_level: level.mip,
         mip_level_count: Some(1),
         base_array_layer: level.layer,
@@ -106,7 +146,7 @@ pub(super) fn import_level(
         semantic,
         texture.clone(),
         view,
-        wgpu::TextureViewDimension::D2,
+        dimension,
         TextureRange::single(level.mip, level.layer, wgpu::TextureAspect::All),
     ))
 }

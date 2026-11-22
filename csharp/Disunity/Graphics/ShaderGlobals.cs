@@ -45,8 +45,8 @@ public sealed partial class Shader
     public static void SetGlobalColor(int nameID, Color value) => Globals.Vectors[nameID] = value;
     public static void SetGlobalMatrix(string name, Matrix4x4 value) => SetGlobalMatrix(PropertyToID(name), value);
     public static void SetGlobalMatrix(int nameID, Matrix4x4 value) => Globals.Matrices[nameID] = value;
-    public static void SetGlobalTexture(string name, Texture value) => SetGlobalTexture(PropertyToID(name), value);
-    public static void SetGlobalTexture(int nameID, Texture value) => Globals.Textures[nameID] = new(value, RenderTextureSubElement.Default);
+    public static void SetGlobalTexture(string name, Texture? value) => SetGlobalTexture(PropertyToID(name), value);
+    public static void SetGlobalTexture(int nameID, Texture? value) => Globals.Textures[nameID] = new(value, RenderTextureSubElement.Default);
     public static void SetGlobalTexture(string name, RenderTexture value, RenderTextureSubElement element) => SetGlobalTexture(PropertyToID(name), value, element);
     public static void SetGlobalTexture(int nameID, RenderTexture value, RenderTextureSubElement element) => Globals.Textures[nameID] = new(value, element);
     public static void SetGlobalBuffer(string name, ComputeBuffer value) => SetGlobalBuffer(PropertyToID(name), value);
@@ -78,7 +78,7 @@ public sealed partial class Shader
     private static string ArrayName(int nameID, string member)
     {
         var name = PropertyName(nameID) ?? throw new ArgumentException($"{member}: no shader property has the id {nameID}", nameof(nameID));
-        WorldGraphics.CheckArrayName(name, member);
+        WorldGraphics.CheckName(name, member);
         return name;
     }
 

@@ -581,6 +581,8 @@ fn globals_and_global_keywords_are_in_the_frame() {
         ))
         .unwrap();
     world.set_global_keyword("FOG_ON", true).unwrap();
+    // An earlier take ends with the values in the state the frame starts from.
+    snapshot(&mut world);
     blit(&mut world, TextureRef::Render(a), b, None, 0);
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());

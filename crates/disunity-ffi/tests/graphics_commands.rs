@@ -105,12 +105,11 @@ fn rejected(code: i32) {
     assert_ne!(code, 0);
 }
 
-/// Records one of every command and returns the color value and matrix it used.
-fn record_every_command(world: u64, id: u64) -> ([f32; 4], [f32; 16]) {
+/// Records one of every command and returns the color value it used.
+fn record_every_command(world: u64, id: u64) -> [f32; 4] {
     let colors = [target(0, 0, id), target(1, -77, 0), target(2, 0, 0)];
     let depth = target(1, 9, 0);
     let value = [0.25, 0.5, 0.75, 1.0];
-    let matrix: [f32; 16] = std::array::from_fn(|i| i as f32);
     let slot = DisunityTextureSlot {
         kind: 2,
         texture: id,
@@ -120,43 +119,30 @@ fn record_every_command(world: u64, id: u64) -> ([f32; 4], [f32; 16]) {
         offset_y: 0.25,
     };
     let desc = description();
-    let no_slot = std::ptr::null();
-    let none = std::ptr::null();
-    let (fname, flen) = text("_Float");
-    let (iname, ilen) = text("_Int");
-    let (vname, vlen) = text("_Vec");
-    let (mname, mlen) = text("_Mat");
     let (tname, tlen) = text("_Tex");
-    let (kname, klen) = text("_KEY");
     unsafe {
         let results = [
             disunity_offscreen_allocate_temporary(world, -77, &desc),
             disunity_offscreen_set_render_target(world, colors.as_ptr(), 3, &depth, 2, 4, 1),
             disunity_offscreen_clear_render_target(world, 1 | 4, value.as_ptr(), 0.5, 9),
-            disunity_offscreen_set_global(world, 0, fname, flen, [1.5].as_ptr(), 0, no_slot),
-            disunity_offscreen_set_global(world, 1, iname, ilen, none, -4, no_slot),
-            disunity_offscreen_set_global(world, 2, vname, vlen, value.as_ptr(), 0, no_slot),
-            disunity_offscreen_set_global(world, 3, mname, mlen, matrix.as_ptr(), 0, no_slot),
-            disunity_offscreen_set_global(world, 4, tname, tlen, none, 0, &slot),
-            disunity_offscreen_set_global_keyword(world, kname, klen, 1),
-            disunity_offscreen_set_global_keyword(world, kname, klen, 0),
+            disunity_offscreen_set_global_texture(world, tname, tlen, &slot),
             disunity_offscreen_release_temporary(world, -77),
         ];
         for result in results {
             assert_eq!(result.code, 0);
         }
     }
-    (value, matrix)
+    value
 }
 
 #[test]
 fn every_command_call_is_recorded_in_order_and_taken_with_its_detail() {
     let world = new_world();
     let id = render_texture(world);
-    let (value, matrix) = record_every_command(world, id);
+    let value = record_every_command(world, id);
     let taken = take(world);
     let kinds: Vec<u32> = taken.iter().map(|(record, _)| record.kind).collect();
-    assert_eq!(kinds, [8, 4, 5, 6, 6, 6, 6, 6, 7, 7, 9]);
+    assert_eq!(kinds, [8, 4, 5, 6, 9]);
     let details: Vec<OffscreenWork> = taken.into_iter().map(|(_, d)| d.unwrap()).collect();
     let render = RenderTextureId::from_bits(id);
     assert!(matches!(
@@ -188,49 +174,21 @@ fn every_command_call_is_recorded_in_order_and_taken_with_its_detail() {
             stencil_value: 9,
         }
     );
-    assert_global_details(&details[3..8], render, value, matrix);
-    assert_eq!(
-        details[8],
-        OffscreenWork::SetGlobalKeyword {
-            name: "_KEY".into(),
-            enabled: true
-        }
-    );
-    assert_eq!(
-        details[9],
-        OffscreenWork::SetGlobalKeyword {
-            name: "_KEY".into(),
-            enabled: false
-        }
-    );
-    assert_eq!(
-        details[10],
-        OffscreenWork::ReleaseTemporary { name_id: -77 }
-    );
+    assert_global_details(&details[3], render);
+    assert_eq!(details[4], OffscreenWork::ReleaseTemporary { name_id: -77 });
     assert!(take(world).is_empty());
 }
 
-fn assert_global_details(
-    details: &[OffscreenWork],
-    render: RenderTextureId,
-    value: [f32; 4],
-    matrix: [f32; 16],
-) {
+fn assert_global_details(detail: &OffscreenWork, render: RenderTextureId) {
     let slot = TextureSlot {
         texture: TextureRef::Render(render),
         scale: [2.0, 3.0],
         offset: [0.5, 0.25],
     };
-    let expected = [
-        PropertyValue::Float("_Float".into(), 1.5),
-        PropertyValue::Int("_Int".into(), -4),
-        PropertyValue::Vector("_Vec".into(), value),
-        PropertyValue::Matrix("_Mat".into(), matrix),
-        PropertyValue::Texture("_Tex".into(), slot),
-    ];
-    for (detail, value) in details.iter().zip(expected) {
-        assert_eq!(*detail, OffscreenWork::SetGlobal(value));
-    }
+    assert_eq!(
+        *detail,
+        OffscreenWork::SetGlobal(PropertyValue::Texture("_Tex".into(), slot))
+    );
 }
 
 /// Binds `colors` and an optional `depth` at cube face `face`.
@@ -316,11 +274,9 @@ fn a_clear_call_with_a_bad_argument_records_nothing() {
 }
 
 #[test]
-fn a_global_call_with_a_bad_argument_records_nothing() {
+fn a_global_texture_call_with_a_bad_argument_records_nothing() {
     let world = new_world();
     let (name, length) = text("_G");
-    let floats = [1.0_f32; 16];
-    let nan = [f32::NAN];
     let dead_slot = DisunityTextureSlot {
         kind: 2,
         texture: 77,
@@ -328,34 +284,26 @@ fn a_global_call_with_a_bad_argument_records_nothing() {
         scale_y: 1.0,
         ..Default::default()
     };
-    let none: *const f32 = std::ptr::null();
     let no_slot: *const DisunityTextureSlot = std::ptr::null();
     unsafe {
-        rejected(disunity_offscreen_set_global(world, 0, name, length, none, 0, no_slot).code);
-        rejected(
-            disunity_offscreen_set_global(world, 0, name, length, nan.as_ptr(), 0, no_slot).code,
-        );
-        rejected(disunity_offscreen_set_global(world, 2, name, length, none, 0, no_slot).code);
-        rejected(disunity_offscreen_set_global(world, 3, name, length, none, 0, no_slot).code);
-        rejected(
-            disunity_offscreen_set_global(world, 4, name, length, floats.as_ptr(), 0, no_slot).code,
-        );
-        rejected(disunity_offscreen_set_global(world, 4, name, length, none, 0, &dead_slot).code);
-        rejected(
-            disunity_offscreen_set_global(world, 5, name, length, floats.as_ptr(), 0, no_slot).code,
-        );
-        rejected(disunity_offscreen_set_global(world, 1, none.cast(), 0, none, 0, no_slot).code);
-        rejected(
-            disunity_offscreen_set_global(world, 1, std::ptr::null(), 2, none, 0, no_slot).code,
-        );
+        rejected(disunity_offscreen_set_global_texture(world, name, length, no_slot).code);
+        rejected(disunity_offscreen_set_global_texture(world, name, length, &dead_slot).code);
+        let live = DisunityTextureSlot {
+            kind: 0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            ..Default::default()
+        };
+        rejected(disunity_offscreen_set_global_texture(world, std::ptr::null(), 0, &live).code);
+        rejected(disunity_offscreen_set_global_texture(world, std::ptr::null(), 2, &live).code);
+        rejected(disunity_offscreen_set_global_texture(world, name, 0, &live).code);
     }
     assert!(take(world).is_empty());
 }
 
 #[test]
-fn keyword_and_temporary_calls_with_bad_arguments_record_nothing() {
+fn temporary_calls_with_bad_arguments_record_nothing() {
     let world = new_world();
-    let (name, length) = text("_K");
     let wide = DisunityRenderTexture {
         width: 0,
         ..description()
@@ -365,9 +313,6 @@ fn keyword_and_temporary_calls_with_bad_arguments_record_nothing() {
         ..description()
     };
     unsafe {
-        rejected(disunity_offscreen_set_global_keyword(world, name, length, 2).code);
-        rejected(disunity_offscreen_set_global_keyword(world, name, 0, 1).code);
-        rejected(disunity_offscreen_set_global_keyword(world, std::ptr::null(), 1, 1).code);
         rejected(disunity_offscreen_allocate_temporary(world, 1, std::ptr::null()).code);
         rejected(disunity_offscreen_allocate_temporary(world, 1, &wide).code);
         rejected(disunity_offscreen_allocate_temporary(world, 1, &srgb).code);

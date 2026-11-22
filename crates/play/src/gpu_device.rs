@@ -8,7 +8,9 @@
 use std::path::Path;
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
+use worldrunner_render_gpu::device::{
+    DeviceRequirements, request_device, storage_images_per_stage,
+};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
 
@@ -84,29 +86,26 @@ fn storage_choice(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> Choi
 
 /// The device the player asks for, headless or in a window: the default limits and block
 /// compression where offered, with buffers as large as the storage budget allows (the adapter's
-/// own limit when that is less, since the budget does not need one buffer to hold it). It prefers
-/// eight storage images in a stage where the adapter has them, because two of the Old World's
-/// compute variants bind five and the default limit is four; an adapter that does not has the
-/// default limit and leaves those two variants out by name.
+/// own limit when that is less, since the budget does not need one buffer to hold it). It asks
+/// for the storage images in a stage that the scene's device asks for, [`storage_images_per_stage`],
+/// so a window's device and a headless one agree; two of the Old World's compute variants bind
+/// five, one more than the default limit of four, and an adapter offering only four leaves those
+/// two variants out by name.
 pub(crate) fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
     let default = wgpu::Limits::default();
-    let required = wgpu::Limits {
-        max_buffer_size: budget
-            .max(default.max_buffer_size)
-            .min(available.max_buffer_size),
-        ..default
-    };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
         // them out by name. Unity filters its 32-bit float render textures; without
         // FLOAT32_FILTERABLE they are read at the nearest texel instead.
         optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
             | wgpu::Features::FLOAT32_FILTERABLE,
-        optional_limits: Some(wgpu::Limits {
-            max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
-            ..required.clone()
-        }),
-        required_limits: required,
+        required_limits: wgpu::Limits {
+            max_buffer_size: budget
+                .max(default.max_buffer_size)
+                .min(available.max_buffer_size),
+            max_storage_textures_per_shader_stage: storage_images_per_stage(available),
+            ..default
+        },
         ..DeviceRequirements::default()
     }
 }
@@ -123,9 +122,6 @@ pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
 pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
     worldrunner_render_gpu::test_support::test_instance()
 }
-
-/// The storage images a stage may bind that the device is asked for.
-const PREFERRED_STORAGE_IMAGES: u32 = 8;
 
 /// Builds every compute kernel variant of the player in `data` as a compute program on the
 /// device the headless player asks for, and counts what the device cannot hold by cause.

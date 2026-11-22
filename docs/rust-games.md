@@ -107,7 +107,7 @@ Physics works in the XY plane by default, with gravity of -9.81 m/s² on Y. `Wor
 
 ## Draw a 2D world in a window
 
-The renderer never reads world state directly. Each frame, `extract_world` turns the world's sprites, tiles and active camera into a render plan, the renderer prepares it, and the viewer presents it. Texture pixels come from the game in a `SpriteTextures` table keyed by the texture number that each `Sprite` refers to.
+The renderer never reads world state directly. Each frame, `extract_world` turns the world's sprites, tiles and active camera into a render plan, the renderer prepares it, and the viewer presents it. Texture pixels come from the game in a `SpriteTextures` table keyed by the texture number that each `Sprite` refers to; the game passes that table to `WorldSceneContribution::new` beside the plan.
 
 The viewer drives the game through the `LiveDriver` trait. This is a complete windowed program that draws one orange square:
 
@@ -117,12 +117,12 @@ use std::collections::BTreeMap;
 use worldrunner::glam::Vec3;
 use worldrunner::scene::{
     gpu::simulation::WorldSceneContribution,
-    plan::{SceneTexture, TexelFormat, TextureColorSpace, simulation::{SpriteTextures, extract_world}},
+    plan::{SceneTexture, TexelFormat, TextureColorSpace, simulation::SpriteTextures},
     viewer::{LiveDriver, LiveFrame, LiveOptions, LiveTick, run_live},
 };
 use worldrunner::simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, TimeSpan, World, WorldSettings,
-    presentation::{Camera, Sprite, SpriteRenderer},
+    presentation::{Camera, Sprite, SpriteRenderer, extraction::extract_world},
 };
 
 struct Game {
@@ -178,8 +178,9 @@ impl LiveDriver for Game {
         let dt = TimeSpan::from_nanos(nanos).map_err(|e| e.to_string())?;
         self.world.advance(dt).map_err(|e| e.to_string())?;
         let viewport = [tick.viewport.width, tick.viewport.height];
-        let plan = extract_world(&self.world, &self.textures, viewport).map_err(|e| e.to_string())?;
-        let contribution = WorldSceneContribution::new(plan).map_err(|e| e.to_string())?;
+        let plan = extract_world(&self.world, viewport).map_err(|e| e.to_string())?;
+        let contribution = WorldSceneContribution::new(plan, &self.textures.textures)
+            .map_err(|e| e.to_string())?;
         Ok(LiveFrame::from_world(contribution))
     }
 }
@@ -191,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Keyboard, focus and resize events arrive in `LiveTick::input`. Convert the keys you care about into `InputEvent`s and push them before calling `advance`. Set `LiveFrame::exit` to close the window. For UI text, enable the `ui` feature, register a TrueType font in a `FontBook`, add `Canvas`, `RectTransform` and `Text` components, and append `extract_ui` output to the plan with `append_ui`.
+Keyboard, focus and resize events arrive in `LiveTick::input`. Convert the keys you care about into `InputEvent`s and push them before calling `advance`. Set `LiveFrame::exit` to close the window. For UI text, enable the `ui` feature, register a TrueType font in a `FontBook`, add `Canvas`, `RectTransform` and `Text` components, and append `extract_ui` output to the plan with `presentation::extraction::append_ui`.
 
 For a caller-owned immediate overlay without Canvas objects, see
 [Drawing an immediate overlay](immediate-ui.md). It builds a detached presentation

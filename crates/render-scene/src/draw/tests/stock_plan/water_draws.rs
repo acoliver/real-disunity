@@ -1,5 +1,5 @@
 //! The water-draw switch through a configured renderer: with the stock draws suppressed a frame
-//! plans no water pass, no reactive mask pass and no water inputs for the reflections, so it is
+//! plans no water pass and no water inputs for the reflections, so it is
 //! the frame of the same scene without water. The default and the explicit `Stock` choice are
 //! the frame of a renderer built without the setting, and switching between frames leaves
 //! nothing of the other choice behind.

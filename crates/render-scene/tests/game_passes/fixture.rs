@@ -9,12 +9,14 @@ use worldrunner_render_plan::{
     SceneWaterSettings, SceneWaterSurface, TerrainLodPolicy, TerrainStreamingPolicy, TexelFormat,
     TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap,
+};
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
     device::GpuContext,
     draw::SceneGpu,
-    executor::{AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap},
     frame::FrameUniform,
     renderer::ScenePipelines,
     view::OrthographicLens,
@@ -302,7 +304,7 @@ impl Rig {
             wgpu::Features::empty(),
             |settings| {
                 settings.frame = FrameConfig::new(size, hdr, 1);
-                settings.hdr = Some((1.0, worldrunner_render_scene::executor::ToneMap::Reinhard));
+                settings.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
                 settings.ssao = Some(ssao);
                 configure(settings);
             },

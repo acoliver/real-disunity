@@ -28,7 +28,7 @@ pub(super) fn height_buffer(
     bytes: &[u8],
 ) -> Result<Buffer, DrawError> {
     validate_size(bytes.len() as u64, &device.limits())?;
-    Ok(crate::upload::upload_buffer(
+    Ok(worldrunner_render_gpu::resource::upload_buffer(
         device,
         queue,
         "contact heights",

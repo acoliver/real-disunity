@@ -158,6 +158,14 @@ pub fn snapshot(world: &mut World) -> GraphicsSnapshot {
     GraphicsSnapshot::take(world).unwrap()
 }
 
+/// Writes a global as a script of an earlier frame did: the world holds the value and no record
+/// orders it, so the take that follows starts from a state that has it. Call it before the frame's
+/// first record; it ends the take the write belongs to.
+pub fn set_global_in_earlier_take(world: &mut World, value: PropertyValue) {
+    world.set_global_property(value).unwrap();
+    snapshot(world);
+}
+
 /// Every shader of the snapshot with `passes` passes in the queue 2000, every mesh of its
 /// renderers and the stored textures in `textures`.
 pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -> Available {

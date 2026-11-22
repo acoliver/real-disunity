@@ -24,11 +24,10 @@ public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 /// </summary>
 public partial class Material : Object
 {
-    // Both sprite shaders queue as Transparent (3000). Sprites/Default is one subshader of one pass; the URP
-    // lit sprite shader's pass count is not known here.
-    private static readonly Shader SpriteUnlitShader = DisunityHost.RegisterShader("Sprites/Default").Declare(3000, 1, 1);
+    private static readonly Shader SpriteUnlitShader =
+        DisunityHost.DeclareShader("Sprites/Default", BuiltInShaders.SpriteUnlit, _ => { });
     private static readonly Shader SpriteLitShader =
-        DisunityHost.RegisterShader("Universal Render Pipeline/2D/Sprite-Lit-Default").Declare(3000, null, null);
+        DisunityHost.DeclareShader("Universal Render Pipeline/2D/Sprite-Lit-Default", BuiltInShaders.SpriteLit, _ => { });
     private static readonly int ColorId = Shader.PropertyToID("_Color");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
 

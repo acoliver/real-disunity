@@ -25,9 +25,6 @@ public sealed partial class Shader
         _fallback = declaration.Fallback ?? _fallback;
     }
 
-    /// <summary>Records that the shader declares no tags and has no fallback shader.</summary>
-    private void DeclareNoTags() => (_tags, _fallback) = (TagTable([]), "");
-
     /// <summary>Whether the declaration's tags and fallback can stand beside the known ones: each that both know is the same.</summary>
     internal bool TagsAgree(ShaderDeclaration declaration)
     {

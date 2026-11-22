@@ -27,7 +27,9 @@ public static partial class DisunityHost
     /// sub-shader's tags and the fallback shader's name. A name that is registered already keeps
     /// its shader and its first declaration, which another reference to the same shader meets. A later declaration that
     /// disagrees with the first, in the queue, a count, a pass name, the tags or the fallback, is reported to <paramref name="difference"/> and not
-    /// applied; one that adds a count, the names, the tags or the fallback the first left unknown completes it. The serialized file and object the
+    /// applied; one that adds a count, the names, the tags or the fallback the first left unknown completes it. A shader the engine defines
+    /// itself (the sprite and UI shaders, see <see cref="BuiltInShaders"/>) is the exception: a plan's declaration of its name replaces the
+    /// engine's without a difference, and the engine's declaration made after the plan's changes nothing. The serialized file and object the
     /// shader's programs are in, when the plan names them, go to the world with the shader; the first source stays.
     /// </summary>
     internal static Shader DeclareShader(string name, ShaderDeclaration declaration, Action<string> difference,
@@ -38,8 +40,8 @@ public static partial class DisunityHost
             var shader = RegisterShader(name);
             if (file is not null && shader.SourceFile is null) shader.SetSource(file, pathId);
             if (shader.Agrees(declaration)) return shader.Declare(declaration);
-            difference($"shader {name}: declared again as queue {declaration.RenderQueue}, {declaration.PassNames.Count} passes "
-                + $"({string.Join(", ", declaration.PassNames)}), {declaration.SubshaderCount} sub-shaders, tags ({Shader.FormatTags(declaration.Tags)}) "
+            difference($"shader {name}: declared again as queue {declaration.RenderQueue}, {declaration.PassCount?.ToString() ?? "unknown"} passes "
+                + $"({string.Join(", ", declaration.PassNames ?? [])}), {declaration.SubshaderCount?.ToString() ?? "unknown"} sub-shaders, tags ({Shader.FormatTags(declaration.Tags)}) "
                 + $"and fallback '{declaration.Fallback ?? "unknown"}', which differs from its first declaration (tags {shader.DescribeTags()}); the first stays");
             return shader;
         }

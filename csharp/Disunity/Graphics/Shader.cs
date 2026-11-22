@@ -24,6 +24,7 @@ public sealed partial class Shader : Object
 
     private int? _renderQueue, _passCount, _subshaderCount, _maximumLod;
     private string[]? _passNames;
+    private bool _engineDefined;
     private WorldGraphics.Link _world;
     private string? _sourceFile;
     private long _sourcePathId;
@@ -54,32 +55,38 @@ public sealed partial class Shader : Object
     internal string? SourceFile => _sourceFile;
     internal long SourcePathId => _sourcePathId;
 
-    /// <summary>Records what the engine knows about a shader it defines itself, which has no declarations to read: the sprite and
-    /// UI shaders. The engine declares no tags for them and no fallback shader, so <see cref="Material.GetTag(string, bool, string)"/> gives the caller's
-    /// default.</summary>
-    internal Shader Declare(int renderQueue, int? passCount, int? subshaderCount)
-    {
-        (_renderQueue, _passCount, _subshaderCount) = (renderQueue, passCount, subshaderCount);
-        DeclareNoTags();
-        return this;
-    }
-
-    /// <summary>Records what a player's plan declares: the queue, the names of the first sub-shader's passes in order (whose
-    /// count is the pass count), the number of sub-shaders, and the tags and fallback when it carries them.</summary>
+    /// <summary>Records a declaration. A plan's declaration replaces the engine's, with everything the engine declared dropped, and
+    /// the engine's declaration leaves a plan's alone; otherwise it records the queue and what the declaration knows of the counts,
+    /// the pass names, the tags and the fallback, keeping what an earlier declaration knew where this one leaves it out.</summary>
     internal Shader Declare(ShaderDeclaration declaration)
     {
-        (_renderQueue, _passCount, _subshaderCount) = (declaration.RenderQueue, declaration.PassNames.Count, declaration.SubshaderCount);
-        _passNames = declaration.PassNames.ToArray();
+        var engine = declaration.Origin == DeclarationOrigin.Engine;
+        if (engine && _renderQueue is not null && !_engineDefined) return this;
+        if (!engine && _engineDefined) ForgetDeclaration();
+        _engineDefined = engine;
+        _renderQueue = declaration.RenderQueue;
+        _passCount = declaration.PassCount ?? _passCount;
+        _subshaderCount = declaration.SubshaderCount ?? _subshaderCount;
+        _passNames = declaration.PassNames?.ToArray() ?? _passNames;
         DeclareTags(declaration);
         return this;
     }
 
-    /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, or the queue
+    private void ForgetDeclaration()
+    {
+        (_renderQueue, _passCount, _subshaderCount, _passNames) = (null, null, null, null);
+        (_tags, _fallback) = (null, null);
+    }
+
+    /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, when the engine
+    /// defined what is declared (a plan replaces it) or the declaration is the engine's (it gives way), or else when the queue
     /// matches and each count, list of names, tag set and fallback that is known matches.</summary>
     internal bool Agrees(ShaderDeclaration declaration) =>
-        _renderQueue is null || (_renderQueue == declaration.RenderQueue && (_passCount ?? declaration.PassNames.Count) == declaration.PassNames.Count
-            && (_subshaderCount ?? declaration.SubshaderCount) == declaration.SubshaderCount
-            && (_passNames is null || _passNames.SequenceEqual(declaration.PassNames)) && TagsAgree(declaration));
+        _renderQueue is null || _engineDefined || declaration.Origin == DeclarationOrigin.Engine
+        || (_renderQueue == declaration.RenderQueue && Same(_passCount, declaration.PassCount) && Same(_subshaderCount, declaration.SubshaderCount)
+            && (_passNames is null || declaration.PassNames is null || _passNames.SequenceEqual(declaration.PassNames)) && TagsAgree(declaration));
+
+    private static bool Same(int? known, int? other) => known is null || other is null || known == other;
 
     /// <summary>The names of the first sub-shader's passes in order. A shader whose names are not declared throws
     /// <see cref="NotSupportedException"/> naming <paramref name="member"/>.</summary>

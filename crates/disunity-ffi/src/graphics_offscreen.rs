@@ -238,7 +238,7 @@ pub unsafe extern "C" fn disunity_offscreen_take(
         if capacity < pending {
             return Err("offscreen work capacity is too small".into());
         }
-        let (drained, _copies) = s.native.take_offscreen();
+        let (drained, _copies, _start) = s.native.take_offscreen();
         s.dispatch_bindings.clear();
         s.work_details.clear();
         for (index, work) in drained.iter().enumerate() {

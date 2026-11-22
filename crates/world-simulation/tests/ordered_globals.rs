@@ -3,8 +3,8 @@
 //! a record and changes after it has to reach the host as an ordered record, not only as the last
 //! value the state holds.
 use worldrunner_world_simulation::graphics::{
-    MAX_OFFSCREEN_WORK, OffscreenWork, PropertyValue, RenderTextureId, TargetRef, TextureRef,
-    TextureSlot, WorldRenderTexture, WorldSampler,
+    GraphicsSnapshot, MAX_OFFSCREEN_WORK, OffscreenWork, PropertyValue, RenderTextureId, TargetRef,
+    TextureRef, TextureSlot, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::{TimeSpan, World, WorldError, WorldSettings};
 
@@ -197,14 +197,95 @@ fn a_name_set_as_two_kinds_is_ordered_as_two_values() {
 }
 
 #[test]
-fn a_write_after_the_last_record_is_not_ordered_and_does_not_carry_into_the_next_frame() {
+fn a_write_after_the_last_record_is_ordered_after_it_and_not_carried_into_the_next_take() {
     let mut world = world();
     let target = render_texture(&mut world);
     world.record_offscreen(blit(target)).unwrap();
     world.set_global_keyword("_LATE", true).unwrap();
-    assert_eq!(world.take_offscreen().0, vec![blit(target)]);
+    world
+        .set_global_property(PropertyValue::Float("_Late".into(), 4.0))
+        .unwrap();
+    assert_eq!(
+        world.take_offscreen().0,
+        vec![
+            blit(target),
+            set_global(PropertyValue::Float("_Late".into(), 4.0)),
+            keyword("_LATE", true),
+        ]
+    );
     world.record_offscreen(blit(target)).unwrap();
     assert_eq!(world.take_offscreen().0, vec![blit(target)]);
+}
+
+#[test]
+fn a_take_replays_from_the_state_the_previous_take_ended_with() {
+    let mut world = world();
+    let target = render_texture(&mut world);
+    world
+        .set_global_property(PropertyValue::Float("_Gain".into(), 1.0))
+        .unwrap();
+    world.record_offscreen(blit(target)).unwrap();
+    let first = GraphicsSnapshot::take(&mut world).unwrap();
+    assert_eq!(first.global.unwrap().properties.float("_Gain"), Some(1.0));
+    world.record_offscreen(blit(target)).unwrap();
+    world
+        .set_global_property(PropertyValue::Float("_Gain".into(), 2.0))
+        .unwrap();
+    world.set_global_keyword("_LATE", true).unwrap();
+    let second = GraphicsSnapshot::take(&mut world).unwrap();
+    let start = second.global.unwrap();
+    assert_eq!(start.properties.float("_Gain"), Some(1.0));
+    assert!(start.keywords.is_empty());
+    assert_eq!(second.work.len(), 3);
+    assert_eq!(
+        world.global_shader_state().properties.float("_Gain"),
+        Some(2.0)
+    );
+}
+
+#[test]
+fn a_take_with_no_records_ends_with_the_state_its_writes_made() {
+    let mut world = world();
+    let target = render_texture(&mut world);
+    world
+        .set_global_property(PropertyValue::Float("_Gain".into(), 1.0))
+        .unwrap();
+    let empty = GraphicsSnapshot::take(&mut world).unwrap();
+    assert!(empty.work.is_empty() && empty.global.is_none());
+    world.record_offscreen(blit(target)).unwrap();
+    let next = GraphicsSnapshot::take(&mut world).unwrap();
+    assert_eq!(next.work, vec![blit(target)]);
+    assert_eq!(next.global.unwrap().properties.float("_Gain"), Some(1.0));
+}
+
+#[test]
+fn a_take_whose_state_did_not_change_starts_from_the_state() {
+    let mut world = world();
+    let target = render_texture(&mut world);
+    world
+        .set_global_property(PropertyValue::Float("_Gain".into(), 3.0))
+        .unwrap();
+    GraphicsSnapshot::take(&mut world).unwrap();
+    world.record_offscreen(blit(target)).unwrap();
+    let snapshot = GraphicsSnapshot::take(&mut world).unwrap();
+    assert_eq!(
+        snapshot.global.unwrap().properties.float("_Gain"),
+        Some(3.0)
+    );
+}
+
+#[test]
+fn a_clear_in_a_take_leaves_the_name_out_of_the_state_the_take_starts_from() {
+    let mut world = world();
+    let target = render_texture(&mut world);
+    world
+        .set_global_property(PropertyValue::Float("_Gain".into(), 3.0))
+        .unwrap();
+    GraphicsSnapshot::take(&mut world).unwrap();
+    world.clear_global_properties();
+    world.record_offscreen(blit(target)).unwrap();
+    let snapshot = GraphicsSnapshot::take(&mut world).unwrap();
+    assert_eq!(snapshot.global.unwrap().properties.float("_Gain"), None);
 }
 
 #[test]

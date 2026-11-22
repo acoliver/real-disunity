@@ -1,5 +1,4 @@
 //! Depth fitting without SSAO or SSR still draws the prepass; Opaque must reuse its depth.
-mod gbuffer;
 
 use super::*;
 use crate::compositor::FrameRenderer;

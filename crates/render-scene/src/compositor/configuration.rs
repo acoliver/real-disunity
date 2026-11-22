@@ -36,9 +36,6 @@ pub struct RendererConfiguration {
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
     /// Reserve the existing frame-depth snapshots for depth-tested UI.
     pub ui_depth: bool,
-    /// The opaque rendering contract. `GBUFFER_OBSERVATION` adds the four G-buffer targets
-    /// and requires a single-sample frame.
-    pub opaque_path: worldrunner_render_plan::SceneOpaquePath,
     /// Reserve slot-local visible-object ID targets. Storage is allocated only for live IDs.
     pub contour_ids: bool,
     pub frame_slots: usize,
@@ -78,7 +75,6 @@ impl RendererConfiguration {
             receiver_gradients: super::ReceiverGradientReservation::Opposing,
             water: Vec::new(),
             ui_depth: false,
-            opaque_path: worldrunner_render_plan::SceneOpaquePath::Forward,
             contour_ids: false,
             frame_slots: 3,
             timing: TimingMode::Disabled,
@@ -108,14 +104,6 @@ impl RendererConfiguration {
             );
         }
         snapshots::allocations(self, &mut set);
-        if let Ok(Some(usage)) = super::opaque::admit_path(self.opaque_path, self.frame.samples) {
-            crate::gbuffer::allocations(
-                self.frame,
-                self.ssr.is_some_and(|ssr| ssr.enabled),
-                usage,
-                &mut set,
-            );
-        }
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
@@ -181,7 +169,6 @@ impl RendererConfiguration {
         if !(1..=3).contains(&self.frame_slots) {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
-        self.validate_opaque(&context.device().limits())?;
         self.game_passes.validate(
             self.frame.size,
             (&context.device().limits(), context.device().features()),
@@ -232,9 +219,7 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             1,
         );
         if settings.frame.samples == 1 {
-            if settings.opaque_path != worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER
-                && let Some(receiver) = settings.receiver_gradients.layout()
-            {
+            if let Some(receiver) = settings.receiver_gradients.layout() {
                 set.extend(receiver.allocations(settings.frame.size));
             }
             // Combined scene depth costs two float planes; relief also retains its own prepass.

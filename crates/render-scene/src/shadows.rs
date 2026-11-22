@@ -472,10 +472,6 @@ impl ShadowedScene {
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
-            if let Some((gbuffer, _)) = &screen.gbuffer {
-                gpu.prepare_terrain(gbuffer, frame)?;
-                gpu.prepare_objects(gbuffer, frame)?;
-            }
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;

@@ -6,7 +6,6 @@ mod census_capture_errors;
 mod census_tests;
 mod compaction;
 mod culling;
-mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -604,7 +603,7 @@ fn render_views(
 }
 
 mod refresh;
-mod render_path;
+mod shadowed_capture;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

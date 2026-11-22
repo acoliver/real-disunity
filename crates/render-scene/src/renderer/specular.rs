@@ -68,8 +68,6 @@ pub(super) struct Specialization {
     family: crate::terrain::program::Family,
     /// Receiver siblings, keyed by layout and by whether relief cards reject hidden fragments.
     receivers: Rc<RefCell<BTreeMap<(ReceiverLayout, bool), ScenePipelines>>>,
-    /// The deferred lighting program over this sibling's source, built on first use.
-    lighting: Rc<RefCell<Option<Rc<crate::gbuffer::lighting::LightingProgram>>>>,
 }
 impl Specialization {
     pub fn new(
@@ -91,7 +89,6 @@ impl Specialization {
             gather: Rc::default(),
             family: family.clone(),
             receivers: Rc::default(),
-            lighting: Rc::default(),
         }
     }
 }
@@ -102,42 +99,6 @@ impl Specialization {
 }
 
 impl ScenePipelines {
-    /// The deferred lighting program over these pipelines' object source, override constants
-    /// and sets 0, 2 and 3, so that it lights a stored surface exactly as these pipelines'
-    /// forward draws light it.
-    pub(crate) fn deferred_lighting(&self) -> Rc<crate::gbuffer::lighting::LightingProgram> {
-        let spec = &self.specialization;
-        spec.lighting
-            .borrow_mut()
-            .get_or_insert_with(|| {
-                let mut constants = constants(spec.options.0).to_vec();
-                raster_constants(&mut constants, spec.options.1);
-                Rc::new(crate::gbuffer::lighting::LightingProgram::new(
-                    &spec.device,
-                    &crate::gbuffer::lighting::ProgramParts {
-                        source: &spec.source,
-                        constants: &constants,
-                        format: self.color_format,
-                        frame: &self.frame_layout,
-                        shadow: spec.shadow.object.as_ref(),
-                        screen: spec.screen.as_ref(),
-                    },
-                ))
-            })
-            .clone()
-    }
-
-    /// Direct canonical outputs are present only in the early depth-writing material source.
-    pub(crate) fn early_outputs(&self) -> Option<crate::gbuffer_writes::EarlyOutputs> {
-        crate::gbuffer_writes::EarlyOutputs::from_source(&self.specialization.source)
-    }
-
-    /// The object source these pipelines' forward draws compose.
-    #[cfg(test)]
-    pub(crate) fn object_source(&self) -> &str {
-        &self.specialization.source
-    }
-
     /// The receiver sibling for `receiver`. With `card_reject` its relief cards discard whole
     /// quads behind the Opaque depth, which set 2 then binds at (2,5).
     pub(crate) fn for_receiver_gradients(

@@ -5,8 +5,8 @@
 /// The terrain is resident in every variant: it is uploaded, streamed, updated and prepared
 /// exactly as without this setting, and other engine code that reads it keeps working. The
 /// variants other than `Stock` stop the stock draws of it in the passes that look at the
-/// camera: the opaque colour pass, the G-buffer and depth prepasses, the metadata prefixes and
-/// the capture terms. They differ in the shadow casters. A game that draws the terrain with its
+/// camera: the opaque colour pass, the depth prepass, the metadata prefixes and the capture
+/// terms. They differ in the shadow casters. A game that draws the terrain with its
 /// own passes selects one of them.
 ///
 /// The retained shadow cascades hold the terrain casters that the variant selects. Switching
@@ -26,8 +26,8 @@ pub enum TerrainDraws {
 }
 
 impl TerrainDraws {
-    /// Whether the camera passes draw the terrain: the opaque colour pass, the G-buffer and
-    /// depth prepasses, the metadata prefixes and the capture terms.
+    /// Whether the camera passes draw the terrain: the opaque colour pass, the depth prepass,
+    /// the metadata prefixes and the capture terms.
     #[must_use]
     pub const fn draws_terrain_in_camera_passes(self) -> bool {
         matches!(self, Self::Stock)

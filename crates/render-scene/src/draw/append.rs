@@ -528,7 +528,6 @@ impl SceneGpu {
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
-        let mut records = self.lighting_records.table().clone();
         let (uniforms, tables) = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
@@ -547,7 +546,7 @@ impl SceneGpu {
                 heights: &self.retained.contact_heights,
                 view: &lookup,
             };
-            new_material_uploads(device, queue, (&inputs, &mut records), &prepared.materials)
+            new_material_uploads(device, queue, &inputs, &prepared.materials)
         };
         let meshes = self
             .arena
@@ -561,7 +560,6 @@ impl SceneGpu {
         self.retained.textures.extend(textures);
         self.retained.lent_textures.get_mut().take();
         self.retained.material_uniforms.extend(uniforms);
-        self.lighting_records.replace(records);
         self.objects.extend(tables);
         self.objects.warm(pipelines.object_context());
         self.meshes.extend(meshes);
@@ -698,18 +696,14 @@ impl SceneGpu {
 fn new_material_uploads(
     device: &Device,
     queue: &wgpu::Queue,
-    (inputs, records): (
-        &GroupInputs<'_>,
-        &mut crate::gbuffer::records::LightingRecordTable,
-    ),
+    inputs: &GroupInputs<'_>,
     materials: &[worldrunner_render_plan::SceneMaterial],
 ) -> (Vec<wgpu::Buffer>, Vec<LentMaterial>) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
     for material in materials {
-        let mut bytes = crate::pipeline::MaterialUniform::from_material(material).to_bytes();
-        records.assign(&mut bytes);
+        let bytes = crate::pipeline::MaterialUniform::from_material(material).to_bytes();
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
         tables.push(LentMaterial {

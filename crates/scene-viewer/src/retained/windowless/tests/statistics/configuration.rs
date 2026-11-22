@@ -1,6 +1,5 @@
 use super::*;
 mod texture_tiers;
-use worldrunner_render_plan::SceneOpaquePath;
 
 struct QueuedCapture {
     id: u64,
@@ -9,21 +8,16 @@ struct QueuedCapture {
 }
 
 #[test]
-fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
+fn retained_configuration_replacement_preserves_captured_generations() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = gbuffer_host().windowless(&mut driver, None).unwrap();
+    let mut run = prepass_host().windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut previous_frame = None;
-    // Reinhard maps unit radiance to 2/3 and 3/4, away from native sRGB rounding boundaries.
-    for (generation, path, exposure, center) in [
-        (0, SceneOpaquePath::GBUFFER_RENDER, 2_000_000, 213),
-        (1, SceneOpaquePath::GBUFFER_OBSERVATION, 3_000_000, 225),
-        (2, SceneOpaquePath::GBUFFER_RENDER, 2_000_000, 213),
-    ] {
+    for (generation, samples, exposure, center) in GENERATIONS {
         let prior = run.host().statistics().copied();
         if generation != 0 {
-            let effects = gbuffer_effects(run.host().scene().effects().unwrap(), path, exposure);
+            let effects = prepass_effects(run.host().scene().effects().unwrap(), samples, exposure);
             run.host_mut()
                 .apply(RetainedUpdate::Settings(Box::new(effects)))
                 .unwrap();
@@ -36,8 +30,7 @@ fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
             capture.statistics.scene.textures.uploaded_bytes,
             if generation == 0 { 4 } else { 0 }
         );
-        assert_eq!(run.host().scene().effects().unwrap().opaque_path(), path);
-        assert_gbuffer_generation(&capture.statistics, generation, path);
+        assert_generation(&capture.statistics, generation);
         if let Some(previous) = previous_frame {
             assert!(capture.statistics.frame > previous);
         } else {
@@ -53,7 +46,7 @@ fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
     assert!(run.frame().unwrap());
     let steady = *run.host().statistics().unwrap();
     assert!(steady.frame > previous_frame.unwrap());
-    assert_gbuffer_generation(&steady, 2, SceneOpaquePath::GBUFFER_RENDER);
+    assert_generation(&steady, 2);
     assert_eq!(steady.scene.textures.resident_bytes, 4);
     assert_eq!(steady.scene.textures.uploaded_bytes, 0);
     run.renderer.drain().unwrap();
@@ -64,13 +57,20 @@ fn retained_gbuffer_configuration_replacement_preserves_captured_generations() {
     run.shutdown().unwrap();
 }
 
-fn gbuffer_host() -> RetainedHost {
+/// Each captured generation: its index, the depth-only SSAO sample count, the exposure and the
+/// centre pixel. The sample count changes the stock plan without changing a pixel (the SSAO has
+/// zero strength), so the middle generation is planned anew and the last one finds the first
+/// generation's plan. Reinhard maps unit radiance to 2/3 and 3/4, away from native sRGB rounding
+/// boundaries.
+const GENERATIONS: [(u64, u32, u32, u8); 3] = [
+    (0, 1, 2_000_000, 213),
+    (1, 2, 3_000_000, 225),
+    (2, 1, 2_000_000, 213),
+];
+
+fn prepass_host() -> RetainedHost {
     let base = crate::renderer::retained_tests::source();
-    let effects = gbuffer_effects(
-        base.effects().unwrap(),
-        SceneOpaquePath::GBUFFER_RENDER,
-        2_000_000,
-    );
+    let effects = prepass_effects(base.effects().unwrap(), 1, 2_000_000);
     let scene = base
         .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
         .unwrap();
@@ -85,7 +85,7 @@ fn gbuffer_host() -> RetainedHost {
     retained
 }
 
-fn gbuffer_effects(base: &SceneEffects, path: SceneOpaquePath, exposure: u32) -> SceneEffects {
+fn prepass_effects(base: &SceneEffects, samples: u32, exposure: u32) -> SceneEffects {
     let mut grading = *base.grading();
     grading.exposure_micro = exposure;
     SceneEffects::new(SceneEffectsParts {
@@ -95,18 +95,16 @@ fn gbuffer_effects(base: &SceneEffects, path: SceneOpaquePath, exposure: u32) ->
         ambient: *base.ambient(),
         shadows: base.shadows().clone(),
         // Zero strength reserves depth without changing the ambient-radiance oracle.
-        ssao: Some(prepass_settings()),
+        ssao: Some(prepass_settings(samples)),
         camera: *base.camera(),
         grading,
         post: vec![],
         anti_alias: *base.anti_alias(),
     })
     .unwrap()
-    .with_opaque_path(path)
-    .unwrap()
 }
 
-fn prepass_settings() -> worldrunner_render_plan::SceneSsao {
+fn prepass_settings(sample_count: u32) -> worldrunner_render_plan::SceneSsao {
     use worldrunner_render_plan::{
         SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
     };
@@ -115,7 +113,7 @@ fn prepass_settings() -> worldrunner_render_plan::SceneSsao {
         depth_footprint: SceneSsaoDepthFootprint::default(),
         kernel: SceneSsaoKernel::Hemisphere,
         filter: SceneSsaoFilter::DepthAwareBox,
-        sample_count: 1,
+        sample_count,
         bias_millimeters: 0,
         radius_millimeters: 1,
         intensity_micro: 0,
@@ -138,7 +136,7 @@ fn submit_capture(run: &mut WindowlessRetained<'_>, center: u8) -> QueuedCapture
         .host_mut()
         .request_capture_recipe(generation, recipe)
         .unwrap();
-    let mut watchdog = CaptureWatchdog::new(run, format!("G-buffer generation {generation}"));
+    let mut watchdog = CaptureWatchdog::new(run, format!("generation {generation}"));
     loop {
         let submitted = run.frame().unwrap();
         let statistics = run
@@ -158,21 +156,10 @@ fn submit_capture(run: &mut WindowlessRetained<'_>, center: u8) -> QueuedCapture
     }
 }
 
-fn assert_gbuffer_generation(
-    statistics: &crate::RetainedFrameStatistics,
-    generation: u64,
-    path: SceneOpaquePath,
-) {
+fn assert_generation(statistics: &crate::RetainedFrameStatistics, generation: u64) {
     assert_eq!(statistics.generation, generation);
-    let forward_draws = u64::from(path == SceneOpaquePath::GBUFFER_OBSERVATION);
-    assert_eq!(
-        statistics.scene.passes.opaque_objects.meshes.calls,
-        forward_draws
-    );
-    assert_eq!(
-        statistics.scene.passes.opaque_objects.meshes.instances,
-        forward_draws
-    );
+    assert_eq!(statistics.scene.passes.opaque_objects.meshes.calls, 1);
+    assert_eq!(statistics.scene.passes.opaque_objects.meshes.instances, 1);
     assert_eq!(statistics.scene.passes.prepass_objects.meshes.calls, 1);
     assert_eq!(statistics.scene.passes.prepass_objects.meshes.instances, 1);
     let meshes = statistics.scene.mesh_buffers;

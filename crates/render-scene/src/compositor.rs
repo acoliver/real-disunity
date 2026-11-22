@@ -1,7 +1,6 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod capture;
 mod contours;
-pub mod opaque;
 #[cfg(test)]
 mod overlay_target_gpu_tests;
 #[cfg(test)]
@@ -10,7 +9,6 @@ pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
-mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
@@ -103,9 +101,6 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
-    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
-    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
-    producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
     /// The stock plans of this renderer and the ones it replaces on reconfiguration.
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
     /// What the game inventory installed on this generation.
@@ -175,8 +170,6 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
-            gbuffer: None,
-            producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
@@ -438,14 +431,6 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
-            self.install_gbuffer_producer(device);
-        }
-        if let Some(gbuffer) = self
-            .gbuffer
-            .as_mut()
-            .filter(|gbuffer| gbuffer.size() != size)
-        {
-            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)
@@ -582,7 +567,6 @@ impl FrameRenderer {
             ssr: self.ssr.as_ref(),
             water: self.water_draws.drawn(self.water.as_ref()),
             water_registered: self.water.is_some(),
-            gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: self.overlay.needs_depth(),
@@ -652,11 +636,6 @@ impl FrameRenderer {
         if self.ssao.is_some() || self.stock_water().is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
-            ));
-        }
-        if self.gbuffer.is_some() {
-            return Err(FrameError::UnsupportedEffect(
-                "the opaque G-buffer requires stock geometry composition",
             ));
         }
         self.publish_game_inputs();

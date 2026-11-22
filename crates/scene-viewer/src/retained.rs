@@ -347,7 +347,7 @@ impl RetainedHost {
             });
         }
         if let RetainedUpdate::Settings(effects) = &update {
-            Self::validate_streamed_effects(effects, &self.options)?;
+            Self::validate_streamed_effects(effects)?;
         }
         if resource_edits::is_resource_edit(&update) {
             return self.apply_resource_edit(update);

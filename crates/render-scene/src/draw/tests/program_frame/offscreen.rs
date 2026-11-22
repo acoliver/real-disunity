@@ -14,7 +14,6 @@ use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::settings;
 mod cancellation;
 mod composition;
-mod gbuffer;
 use composition::check_timing;
 
 use super::DEPTH_FORMAT;

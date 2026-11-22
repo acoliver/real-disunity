@@ -110,7 +110,7 @@ fn adapter_frame_derived_pool_uses_resolved_sample_count() {
         &identity(),
         host.initial_scene.as_ref().unwrap(),
         &mut host.options,
-        Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
+        Some((&mut host.capture_pool, &mut host.captures)),
     )
     .unwrap();
     let expected = host
@@ -134,7 +134,7 @@ fn adapter_frame_none_preserves_existing_pool() {
         &identity(),
         host.initial_scene.as_ref().unwrap(),
         &mut host.options,
-        Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
+        Some((&mut host.capture_pool, &mut host.captures)),
     )
     .unwrap();
     assert_eq!(host.capture_pool_bytes(), before);
@@ -202,7 +202,7 @@ fn resolve_host(host: &mut crate::RetainedHost) -> Result<(), ViewerError> {
         &identity(),
         host.initial_scene.as_ref().unwrap(),
         &mut host.options,
-        Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
+        Some((&mut host.capture_pool, &mut host.captures)),
     )
 }
 

@@ -114,7 +114,7 @@ impl RetainedHost {
                 context.adapter,
                 scene,
                 &mut self.options,
-                Some((&mut self.capture_pool, &mut self.captures, &self.readiness)),
+                Some((&mut self.capture_pool, &mut self.captures)),
             );
         }
         let supplier = self

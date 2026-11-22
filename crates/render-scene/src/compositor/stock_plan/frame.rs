@@ -6,7 +6,6 @@ use crate::compositor::{
     FrameOutput, forward_order, game::reconcile_loads, overlay::OverlayStage, snapshots,
 };
 use crate::frame::FrameUniform;
-use crate::gbuffer::Gbuffer;
 use crate::scene_metadata::SceneMetadata;
 use crate::ssao::passes::ScreenFeature;
 use crate::ssr::{ReflectionFeature, Ssr};
@@ -43,7 +42,6 @@ pub(crate) struct Environment<'s> {
     pub water: Option<&'s Water>,
     /// Whether the chain carries the water registration, which plans whether or not it draws.
     pub water_registered: bool,
-    pub gbuffer: Option<&'s Gbuffer>,
     pub velocity: Option<wgpu::Texture>,
     /// The screen-space settings the renderer was configured with.
     pub requested: (Option<SceneSsao>, Option<SceneSsr>),
@@ -317,16 +315,6 @@ fn derive<'s>(
         &retained,
         (&mut passes, &mut views),
     )?;
-    if let Some(gbuffer) = environment.gbuffer {
-        let declared = authored
-            .features
-            .iter()
-            .chain(&screen_declaration)
-            .chain(&reflection_declaration)
-            .chain(&snapshot_declaration)
-            .chain(&retained);
-        gbuffer.schedule(&mut passes, &mut views, declared)?;
-    }
     let mut features = authored.features.to_vec();
     // An Opaque entry may repeat with its own colour layout, so each feature pass takes the
     // formats of the planned pass for its own entry. A pass with no planned entry is left

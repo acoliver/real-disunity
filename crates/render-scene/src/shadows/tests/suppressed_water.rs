@@ -1,28 +1,22 @@
-//! The water-draw switch through the three opaque routes of the shadowed frame. Water over the
-//! deferred terrain receives the cascades, so a shadowed frame reads the shadow depth for it.
-//! Suppressed water is drawn by no pass and reads nothing, so the frame is the one of the same
-//! scene without water: the same colour, the same depth and the same stored and lit pixels,
-//! while the stock draws of the same water change the colour. The choice is made frame by
-//! frame on one renderer and one shadow scene, whose retained cascades the water never touches.
-use super::deferred::{Captured, captured, frame};
-use super::render_path::source;
+//! The water-draw switch through the shadowed frame. Water over the terrain receives the
+//! cascades, so a shadowed frame reads the shadow depth for it. Suppressed water is drawn by no
+//! pass and reads nothing, so the frame is the one of the same scene without water: the same
+//! colour and the same depth, while the stock draws of the same water change the colour. The
+//! choice is made frame by frame on one renderer and one shadow scene, whose retained cascades
+//! the water never touches.
+use super::shadowed_capture::{Captured, captured, frame, source};
 use super::*;
 use crate::compositor::WaterDraws;
 
-/// Encodes one frame of `source` through `path` for each choice in turn on one renderer and one
-/// shadow scene, and returns what the last frame left.
-fn run(
-    context: &GpuContext,
-    source: &RenderScene,
-    path: SceneOpaquePath,
-    draws: &[WaterDraws],
-) -> Captured {
+/// Encodes one frame of `source` for each choice in turn on one renderer and one shadow scene,
+/// and returns what the last frame left.
+fn run(context: &GpuContext, source: &RenderScene, draws: &[WaterDraws]) -> Captured {
     let view = view();
-    let mut renderer = frame(context, source, &view, path);
+    let mut renderer = frame(context, source, &view);
     let mut shadowed = ShadowedScene::with_target(
         context,
         source,
-        super::render_path::front_settings(),
+        settings(),
         wgpu::TextureFormat::Rgba16Float,
         1,
     )
@@ -60,47 +54,32 @@ fn run(
     captured(context, &renderer)
 }
 
-const ROUTES: [(&str, SceneOpaquePath); 3] = [
-    ("forward", SceneOpaquePath::Forward),
-    ("observation", SceneOpaquePath::GBUFFER_OBSERVATION),
-    ("render", SceneOpaquePath::GBUFFER_RENDER),
-];
-
 #[test]
-fn gpu_suppressed_water_leaves_each_shadowed_route_as_a_scene_without_water() {
+fn gpu_suppressed_water_leaves_the_shadowed_frame_as_a_scene_without_water() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let wet = source(true, true);
-    let dry = source(false, true);
-    for (name, path) in ROUTES {
-        let control = run(&context, &dry, path, &[WaterDraws::Stock]);
-        let drawn = run(&context, &wet, path, &[WaterDraws::Stock]);
-        let suppressed = run(&context, &wet, path, &[WaterDraws::Suppressed]);
-        assert!(drawn.colour != control.colour, "{name}: water is visible");
-        assert!(suppressed.colour == control.colour, "{name}: the frame");
-        assert!(suppressed.depth == control.depth, "{name}: depth");
-        assert!(suppressed.g3 == control.g3, "{name}: stored pixels");
-        assert!(suppressed.lit == control.lit, "{name}: lit pixels");
-    }
+    let wet = source(true);
+    let dry = source(false);
+    let control = run(&context, &dry, &[WaterDraws::Stock]);
+    let drawn = run(&context, &wet, &[WaterDraws::Stock]);
+    let suppressed = run(&context, &wet, &[WaterDraws::Suppressed]);
+    assert!(drawn.colour != control.colour, "water is visible");
+    assert!(suppressed.colour == control.colour, "the frame");
+    assert!(suppressed.depth == control.depth, "depth");
 }
 
 #[test]
-fn gpu_stock_water_on_a_shadowed_route_is_unchanged_by_the_setting_between_frames() {
+fn gpu_stock_water_on_the_shadowed_frame_is_unchanged_by_the_setting_between_frames() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let wet = source(true, true);
+    let wet = source(true);
     let [stock, suppressed] = [WaterDraws::Stock, WaterDraws::Suppressed];
-    for (name, path) in ROUTES {
-        let fresh = run(&context, &wet, path, &[stock]);
-        let switched = run(
-            &context,
-            &wet,
-            path,
-            &[stock, suppressed, stock, suppressed, stock],
-        );
-        assert!(switched.colour == fresh.colour, "{name}: the frame");
-        assert!(switched.depth == fresh.depth, "{name}: depth");
-        assert!(switched.g3 == fresh.g3, "{name}: stored pixels");
-        assert!(switched.lit == fresh.lit, "{name}: lit pixels");
-    }
+    let fresh = run(&context, &wet, &[stock]);
+    let switched = run(
+        &context,
+        &wet,
+        &[stock, suppressed, stock, suppressed, stock],
+    );
+    assert!(switched.colour == fresh.colour, "the frame");
+    assert!(switched.depth == fresh.depth, "depth");
 }

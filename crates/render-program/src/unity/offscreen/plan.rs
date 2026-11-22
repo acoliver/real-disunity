@@ -32,6 +32,7 @@ use super::constants_plan::ConstantsPlan;
 use super::counts::DrawCounts;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::depth_range;
+use super::dots::DotsDraw;
 use super::error::OffscreenError;
 use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
@@ -171,6 +172,8 @@ pub(super) struct DrawSpec<'a> {
     pub(super) keywords: Vec<&'a str>,
     pub(super) selector: PassSelector,
     pub(super) layers: Layers<'a>,
+    /// The instances of a raw buffer the draw makes, when it makes them.
+    pub(super) dots: Option<DotsDraw<'a>>,
 }
 
 /// The parts of the state a draw is planned from, borrowed from it together.
@@ -378,8 +381,16 @@ impl Services<'_> {
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
         let texel_sizes = texel_size::texel_sizes(self.textures, &spec.layers, &target.buffer);
+        let dots = spec
+            .dots
+            .map(|dots| dots.values(&target.buffer))
+            .transpose()?;
         let mut values = spec.layers.values();
         values.push(&texel_sizes);
+        // The batch's own values come first: they are what the draw's variant is for.
+        if let Some(set) = &dots {
+            values.insert(0, set);
+        }
         let packed = pack_layout(&target.buffer, &[], &values, min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
             facts.note_constants(&target.buffer, &packed, slot.visibility, &values);

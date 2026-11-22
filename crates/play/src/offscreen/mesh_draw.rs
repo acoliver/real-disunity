@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record, Renderer};
+use worldrunner_render_program::unity::offscreen::frame::{
+    DrawList, Instances, ListDraw, Record, Renderer,
+};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{MaterialId as WorldMaterialId, ShaderProperties};
 
@@ -78,7 +80,7 @@ impl Mapper<'_> {
                     slot,
                     material: Some(named),
                     pass: PassSelector::Index(pass),
-                    instances,
+                    instances: Instances::Count(instances),
                     per_draw: PropertyLayer::default(),
                 })
                 .collect(),

@@ -267,7 +267,14 @@ fn parameters_record(parameters: &VariantParameters) -> Vec<u8> {
         w.string(&buffer.name);
         w.i32(buffer.size);
         members(&mut w, &buffer.members);
-        w.count(0);
+        w.count(buffer.structs.len());
+        for layout in &buffer.structs {
+            w.string(&layout.name);
+            w.i32(layout.index);
+            w.i32(layout.array_size);
+            w.i32(layout.size);
+            members(&mut w, &layout.members);
+        }
     }
     w.count(parameters.bindings.len());
     for binding in &parameters.bindings {

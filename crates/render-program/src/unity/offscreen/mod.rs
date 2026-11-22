@@ -15,6 +15,7 @@ mod constants_plan;
 mod counts;
 mod defaults;
 mod depth_range;
+mod dots;
 mod error;
 mod exports;
 mod finish;

@@ -31,7 +31,7 @@ use std::sync::Arc;
 use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
+use worldrunner_render_program::unity::offscreen::frame::{DrawList, Instances, ListDraw, Record};
 use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 use worldrunner_world_simulation::shadows::{CASTS_NO_SHADOW, SHADOWS_ONLY};
@@ -438,7 +438,7 @@ impl<'a> Mapper<'a> {
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
-                    instances: 1,
+                    instances: Instances::Count(1),
                     per_draw: item_values(main, layer),
                 }
             })

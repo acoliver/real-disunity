@@ -60,6 +60,7 @@ pub(super) fn blit_step(
         keywords: keywords(material, globals),
         selector: PassSelector::Index(pass),
         layers: Layers::new(&layers),
+        dots: None,
     };
     let plan = svc.plan_program(&spec)?;
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;

@@ -8,7 +8,8 @@ use worldrunner_render_program::ids::{MaterialId, RendererId, ShaderId, TextureI
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, DrawRaster, ListDraw, OffscreenFrame, Record,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, Instances, ListDraw, OffscreenFrame,
+    Record,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
@@ -55,7 +56,7 @@ fn item(renderer: u64) -> ListDraw {
         slot: 0,
         material: None,
         pass: alpha(),
-        instances: 1,
+        instances: Instances::Count(1),
         per_draw: PropertyLayer::default(),
     }
 }

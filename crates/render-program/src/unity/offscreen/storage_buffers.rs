@@ -116,8 +116,9 @@ pub(super) fn require_buffers(
             ));
         }
         let buffer = spec
-            .layers
-            .buffer(name)
+            .dots
+            .and_then(|dots| dots.buffer(name))
+            .or_else(|| spec.layers.buffer(name))
             .ok_or_else(|| OffscreenError::MissingBuffer {
                 name: name.to_owned(),
             })?;

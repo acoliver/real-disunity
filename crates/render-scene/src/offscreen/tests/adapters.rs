@@ -7,17 +7,21 @@ fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),
     );
     let expected = direct_capture(&context, &gpu, &pipelines, view.viewport());
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), expected);
+    assert_eq!(
+        target.render(&context, &mut gpu, &pipelines).unwrap(),
+        expected
+    );
     assert_eq!(capture_scene(&context, &scene, &view).unwrap(), expected);
     assert_eq!(
-        composed_capture(&context, &gpu, &pipelines, view.viewport()),
+        composed_capture(&context, &mut gpu, &pipelines, view.viewport()),
         expected
     );
 }
@@ -63,7 +67,7 @@ fn direct_capture(
 }
 fn composed_capture(
     context: &GpuContext,
-    scene: &SceneGpu,
+    scene: &mut SceneGpu,
     pipelines: &ScenePipelines,
     viewport: Viewport,
 ) -> RgbaImage {
@@ -90,12 +94,14 @@ fn composed_capture(
     .unwrap();
     let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_resident(
+    let frame = scene.resident_frame();
+    crate::compositor::encode_scene(
         &mut renderer,
         context.device(),
         &mut encoder,
         (scene, pipelines),
         (&color, &depth),
+        frame,
     )
     .unwrap();
     renderer

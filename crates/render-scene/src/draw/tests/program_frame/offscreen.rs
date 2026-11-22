@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
-use super::{COLOR_FORMAT, settings};
+use super::settings;
 mod cancellation;
 mod composition;
 mod gbuffer;
@@ -412,55 +412,6 @@ fn a_camera_a_blit_a_copy_and_a_scene_draw_run_in_the_frames_one_submission() {
     assert_eq!(image.pixel(30, 20), RED, "the stock scene drew");
     assert_eq!(image.pixel(3, 3), [0, 0, 0, 255]);
     check_timing(&fixture, &ids, &[PassEntry::new(PassSlot::Opaque)]);
-}
-
-#[test]
-fn the_resident_path_refuses_a_scene_that_holds_offscreen_operations_by_name() {
-    let mut fixture = timed();
-    let mut player = player(&mut fixture);
-    let authority = fixture.context.submission().clone();
-    let device = fixture.context.device().clone();
-    let (operations, _) = build(&mut player);
-    let mut recording = authority.begin(&device).unwrap();
-    fixture
-        .gpu
-        .admit_offscreen(operations.admit(&recording).unwrap());
-    fixture
-        .gpu
-        .set_frame(fixture.context.queue(), super::rig::frame());
-    let mut renderer = crate::compositor::FrameRenderer::with_output(
-        &device,
-        worldrunner_render_post::FrameConfig::new([super::TARGET; 2], COLOR_FORMAT, 1),
-        COLOR_FORMAT,
-    )
-    .unwrap();
-    let color = worldrunner_render_post::AttachmentView::new(
-        worldrunner_render_post::ResourceRef::new("scene color"),
-        renderer.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = worldrunner_render_post::AttachmentView::new(
-        worldrunner_render_post::ResourceRef::new("scene depth"),
-        renderer.targets().depth().texture(),
-    )
-    .unwrap();
-    let encoded = crate::compositor::encode_resident(
-        &mut renderer,
-        &device,
-        &mut recording,
-        (&fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
-    );
-    assert!(
-        matches!(
-            encoded,
-            Err(worldrunner_render_post::FrameError::UnsupportedEffect(
-                "offscreen operations on the resident path"
-            ))
-        ),
-        "got {encoded:?}"
-    );
-    recording.finish().cancel();
 }
 
 #[test]

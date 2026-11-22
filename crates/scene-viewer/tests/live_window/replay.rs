@@ -36,7 +36,7 @@ pub(super) fn verify(desktop: &Driver) {
         if target.viewport() != tick.viewport {
             target = OffscreenTarget::new(context.device(), tick.viewport).unwrap();
         }
-        let actual = target.render(&context, &scene, &pipelines).unwrap();
+        let actual = target.render(&context, &mut scene, &pipelines).unwrap();
         assert_eq!(
             &actual, expected,
             "desktop and headless driver replay frame {}",

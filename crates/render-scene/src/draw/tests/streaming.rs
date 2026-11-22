@@ -37,7 +37,7 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
     let device = context.device();
     let source = streamed_scene();
     let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     gpu.set_frame(context.queue(), frame);
     let abandoned = context
@@ -57,12 +57,12 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
         },
     )
     .unwrap();
-    let streamed = target.render(&context, &gpu, &pipelines).unwrap();
+    let streamed = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(resident_count(&gpu), 4);
-    let base =
+    let mut base =
         SceneGpu::upload(device, context.submission(), &terrain_scene(1), &pipelines).unwrap();
     base.set_frame(context.queue(), frame);
-    let default = target.render(&context, &base, &pipelines).unwrap();
+    let default = target.render(&context, &mut base, &pipelines).unwrap();
     assert_eq!(streamed, default);
     device
         .poll(wgpu::PollType::Wait {
@@ -204,7 +204,7 @@ fn retired_and_pending_allocations_hold_the_budget_until_completion() {
 }
 
 #[test]
-fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
+fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = streamed_scene();
@@ -234,13 +234,6 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
                 (&mut gpu, &pipelines),
                 (&target.color_attachment(), &target.depth_attachment()),
                 frame,
-            )?;
-            crate::compositor::encode_resident(
-                &mut renderer,
-                context.device(),
-                encoder,
-                (&gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
             )?;
             assert_eq!(streaming(&gpu).prepared_buffers(), buffers);
             assert_eq!(streaming(&gpu).allocation_counts(), (1, 4, 0));

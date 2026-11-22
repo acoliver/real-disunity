@@ -71,7 +71,7 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
             .unwrap()
             .unwrap();
         let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         assert!(gpu.terrain_pages_ready());
         assert_eq!(gpu.terrain_residency_ready(&request), Ok(true));
         assert_uniform_page_colour(
@@ -86,7 +86,10 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
             Err(worldrunner_render_scene::terrain::pages::scene::TerrainResidencyError::Stale)
         );
         assert!(!gpu.terrain_pages_ready());
-        assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), image);
+        assert_eq!(
+            target.render(&context, &mut gpu, &pipelines).unwrap(),
+            image
+        );
     }
 }
 

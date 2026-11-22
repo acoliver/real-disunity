@@ -195,7 +195,7 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
     gpu.set_frame(context.queue(), frame_from(pose()));
     let handles: Vec<_> = gpu.instance_handles().collect();
     let mut target = retained_target(&context);
-    let initial = target.render(&context, &gpu, &pipelines).unwrap();
+    let initial = target.render(&context, &mut gpu, &pipelines).unwrap();
     // The first flush after an edit stages it; every flush after that finds nothing to do.
     gpu.set_instance_transform(handles[0], moved(100_000))
         .unwrap();
@@ -204,7 +204,10 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
             .unwrap()
             .is_empty()
     );
-    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+    assert_eq!(
+        target.render(&context, &mut gpu, &pipelines).unwrap(),
+        initial
+    );
     let (generation, edits) = (gpu.instances.content_generation(), gpu.instances.edits());
     for _ in 0..3 {
         assert!(
@@ -212,7 +215,10 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+        assert_eq!(
+            target.render(&context, &mut gpu, &pipelines).unwrap(),
+            initial
+        );
     }
     assert_eq!(
         (gpu.instances.content_generation(), gpu.instances.edits()),
@@ -232,7 +238,7 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     gpu.set_frame(context.queue(), frame_from(pose()));
     let handles: Vec<_> = gpu.instance_handles().collect();
     let mut target = retained_target(&context);
-    let initial = target.render(&context, &gpu, &pipelines).unwrap();
+    let initial = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert!(lit_pixels(&initial.pixels) > 0);
     gpu.set_instance_transform(handles[0], moved(100_000))
         .unwrap();
@@ -246,7 +252,10 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
             .collect::<Vec<_>>(),
         vec![0..1]
     );
-    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+    assert_eq!(
+        target.render(&context, &mut gpu, &pipelines).unwrap(),
+        initial
+    );
     gpu.set_instance_visible(handles[1], false).unwrap();
     assert!(
         gpu.flush_instances(context.device(), context.submission())
@@ -254,13 +263,21 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
             .is_empty()
     );
     assert_eq!(
-        lit_pixels(&target.render(&context, &gpu, &pipelines).unwrap().pixels),
+        lit_pixels(
+            &target
+                .render(&context, &mut gpu, &pipelines)
+                .unwrap()
+                .pixels
+        ),
         0
     );
     gpu.set_instance_transform(handles[0], identity()).unwrap();
     gpu.flush_instances(context.device(), context.submission())
         .unwrap();
-    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), initial);
+    assert_eq!(
+        target.render(&context, &mut gpu, &pipelines).unwrap(),
+        initial
+    );
     assert_gpu_growth(
         &context,
         &mut gpu,
@@ -276,7 +293,12 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
             .is_empty()
     );
     assert_eq!(
-        lit_pixels(&target.render(&context, &gpu, &pipelines).unwrap().pixels),
+        lit_pixels(
+            &target
+                .render(&context, &mut gpu, &pipelines)
+                .unwrap()
+                .pixels
+        ),
         0
     );
 }

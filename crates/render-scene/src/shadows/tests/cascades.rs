@@ -45,12 +45,14 @@ fn resident_statistics_clear_shadows_only_after_submission() {
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     for submit in [false, true] {
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_resident(
+        let frame = shadowed.scene_mut().resident_frame();
+        crate::compositor::encode_scene(
             &mut renderer,
             context.device(),
             &mut encoder,
             (shadowed.scene_mut(), &pipelines),
             (&target.color_attachment(), &target.depth_attachment()),
+            frame,
         )
         .unwrap();
         assert_eq!(shadowed.scene_mut().statistics(), previous);

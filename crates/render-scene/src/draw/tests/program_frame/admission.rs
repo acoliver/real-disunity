@@ -10,9 +10,7 @@ use crate::shadows::{DirectionalShadowSettings, ShadowError, ShadowedScene};
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
 use worldrunner_render_gpu::submission::LeaseError;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
-use worldrunner_render_post::{
-    AttachmentView, FrameConfig, FrameError, HdrPostSettings, PostResolve, ResourceRef, ToneMap,
-};
+use worldrunner_render_post::{FrameConfig, FrameError, HdrPostSettings, PostResolve, ToneMap};
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::unity::runtime::{Geometry, ProgramRuntime, TargetSignature};
 
@@ -195,55 +193,6 @@ fn draws_with_a_range_past_their_buffers_are_refused_at_admission_and_the_frame_
     let image = fixture.read(&readback);
     assert_eq!(image.pixel(30, 20), RED_PIXEL, "the stock scene drew");
     assert_eq!(image.pixel(54, 32), BLACK_PIXEL, "no program drew");
-}
-
-#[test]
-fn programs_admitted_to_a_scene_encoded_on_the_resident_path_are_refused_by_name() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let mut fixture = stock();
-    let authority = fixture.context.submission().clone();
-    let device = fixture.context.device().clone();
-    let mut recording = authority.begin(&device).unwrap();
-    let signature = fixture.signature();
-    let admitted = fixture.admit(&recording, signature).unwrap();
-    fixture.gpu.admit_programs(admitted);
-    // The resident path draws with a frame the caller has already set.
-    fixture
-        .gpu
-        .set_frame(fixture.context.queue(), super::rig::frame());
-    let mut renderer = crate::compositor::FrameRenderer::with_output(
-        &device,
-        FrameConfig::new([TARGET; 2], COLOR_FORMAT, 1),
-        COLOR_FORMAT,
-    )
-    .unwrap();
-    let color = AttachmentView::new(
-        ResourceRef::new("scene color"),
-        renderer.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = AttachmentView::new(
-        ResourceRef::new("scene depth"),
-        renderer.targets().depth().texture(),
-    )
-    .unwrap();
-    let encoded = crate::compositor::encode_resident(
-        &mut renderer,
-        &device,
-        &mut recording,
-        (&fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
-    );
-    assert!(
-        matches!(
-            encoded,
-            Err(FrameError::UnsupportedEffect(
-                "player programs on the resident path"
-            ))
-        ),
-        "got {encoded:?}"
-    );
-    recording.finish().cancel();
 }
 
 #[test]

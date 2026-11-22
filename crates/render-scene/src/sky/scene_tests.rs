@@ -233,7 +233,7 @@ pub(super) fn render_at(
 }
 pub(super) fn render_resident(
     context: &GpuContext,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     pipelines: &ScenePipelines,
     frame: &FrameUniform,
 ) -> Capture {
@@ -417,7 +417,7 @@ pub(super) fn read(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
 pub(super) fn draw(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     pipelines: &ScenePipelines,
     color_view: &wgpu::TextureView,
     depth_view: &wgpu::TextureView,
@@ -426,12 +426,14 @@ pub(super) fn draw(
     let color = AttachmentView::new(ResourceRef::new("acceptance color"), color_view.texture());
     let depth = AttachmentView::new(ResourceRef::new("acceptance depth"), depth_view.texture());
     let mut renderer = crate::compositor::FrameRenderer::new(device);
-    crate::compositor::encode_resident(
+    let frame = gpu.resident_frame();
+    crate::compositor::encode_scene(
         &mut renderer,
         device,
         encoder,
         (gpu, pipelines),
         (&color.unwrap(), &depth.unwrap()),
+        frame,
     )
     .unwrap();
 }

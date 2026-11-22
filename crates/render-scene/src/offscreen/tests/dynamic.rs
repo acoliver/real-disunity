@@ -29,7 +29,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &[quad])
         .unwrap();
     assert_eq!(
-        center(target.render(&context, &gpu, &pipelines).unwrap()),
+        center(target.render(&context, &mut gpu, &pipelines).unwrap()),
         [255, 0, 0, 255],
         "opaque scene occludes deeper dynamic geometry"
     );
@@ -44,7 +44,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     )
     .unwrap();
     assert_eq!(
-        center(target.render(&context, &gpu, &pipelines).unwrap()),
+        center(target.render(&context, &mut gpu, &pipelines).unwrap()),
         [0, 255, 0, 255],
         "nearer dynamic geometry uses the same depth and perspective view"
     );

@@ -102,10 +102,10 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
     .unwrap();
     let mut reference = None;
     for source in [&default, &explicit] {
-        let gpu =
+        let mut gpu =
             SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
         gpu.set_frame(context.queue(), selection_frame(5_000));
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         assert!(image.pixels.chunks_exact(4).any(|p| p == [255, 0, 0, 255]));
         if let Some(reference) = &reference {
             assert_eq!(&image, reference);
@@ -119,7 +119,7 @@ fn selected_level_changes_material_topology_and_pipeline() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
         &scene(true),
@@ -135,9 +135,9 @@ fn selected_level_changes_material_topology_and_pipeline() {
     )
     .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));
-    let near = target.render(&context, &gpu, &pipelines).unwrap();
+    let near = target.render(&context, &mut gpu, &pipelines).unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_001));
-    let far = target.render(&context, &gpu, &pipelines).unwrap();
+    let far = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     assert!(far.pixels.chunks_exact(4).any(|p| p == [0, 255, 0, 255]));
     assert!(!far.pixels.chunks_exact(4).any(|p| p[0] != 0));
@@ -275,7 +275,7 @@ fn transition_complement_keeps_the_preceding_levels_material() {
     )
     .unwrap();
     for (coverage, expected) in [(0, [255, 0, 0, 255]), (1_000_000, [0, 255, 0, 255])] {
-        let gpu = SceneGpu::upload(
+        let mut gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
             &transition_scene(coverage),
@@ -285,7 +285,7 @@ fn transition_complement_keeps_the_preceding_levels_material() {
         let mut frame = frame_from(pose());
         frame.unlit = true;
         gpu.set_frame(context.queue(), frame);
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         let coloured: Vec<_> = image
             .pixels
             .chunks_exact(4)

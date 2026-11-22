@@ -90,7 +90,7 @@ fn required_gpu_landmarks_match_camera_queries_and_resize() {
         let view = view(viewport);
         gpu.set_frame(context.queue(), FrameUniform::unlit(&view));
         let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         assert_landmarks(&image, &view);
         retain_evidence(&image);
     }
@@ -156,7 +156,7 @@ fn required_gpu_shared_resolver_matches_pixels_for_lenses_and_handedness() {
                 let view = shared_view(viewport, lens, handedness);
                 gpu.set_frame(context.queue(), FrameUniform::unlit(&view));
                 let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
-                let image = target.render(&context, &gpu, &pipelines).unwrap();
+                let image = target.render(&context, &mut gpu, &pipelines).unwrap();
                 assert_landmarks(&image, &view);
             }
         }

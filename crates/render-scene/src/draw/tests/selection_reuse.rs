@@ -4,8 +4,8 @@ use crate::draw::PreparedTextureReplacement;
 use crate::offscreen::OffscreenTarget;
 
 fn rebuilds_after(
-    gpu: &SceneGpu,
-    render: &mut dyn FnMut(&SceneGpu) -> crate::offscreen::RgbaImage,
+    gpu: &mut SceneGpu,
+    render: &mut dyn FnMut(&mut SceneGpu) -> crate::offscreen::RgbaImage,
 ) -> (crate::offscreen::RgbaImage, usize) {
     let rebuilds = |gpu: &SceneGpu| {
         gpu.views
@@ -38,21 +38,21 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
         },
     )
     .unwrap();
-    let mut render = |gpu: &SceneGpu| target.render(&context, gpu, &pipelines).unwrap();
+    let mut render = |gpu: &mut SceneGpu| target.render(&context, gpu, &pipelines).unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));
-    let (near, _) = rebuilds_after(&gpu, &mut render);
-    assert_eq!(rebuilds_after(&gpu, &mut render), (near.clone(), 0));
+    let (near, _) = rebuilds_after(&mut gpu, &mut render);
+    assert_eq!(rebuilds_after(&mut gpu, &mut render), (near.clone(), 0));
     gpu.set_frame(context.queue(), selection_frame(50_000));
-    let (_, moved) = rebuilds_after(&gpu, &mut render);
+    let (_, moved) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!(moved, 1);
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     gpu.set_frame(context.queue(), selection_frame(5_000));
     let handle = gpu.instance_handles().next().unwrap();
     gpu.set_instance_visible(handle, false).unwrap();
-    let (_, hidden) = rebuilds_after(&gpu, &mut render);
+    let (_, hidden) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!((hidden, gpu.view_stats().culled), (1, 1));
     gpu.set_instance_visible(handle, true).unwrap();
-    assert_eq!(rebuilds_after(&gpu, &mut render), (near, 1));
+    assert_eq!(rebuilds_after(&mut gpu, &mut render), (near, 1));
     let away = SceneTransform {
         position_millimeters: [0, 0, 1_000_000],
         ..*gpu.instance(handle).unwrap().0.transform()
@@ -60,7 +60,7 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     gpu.set_instance_transform(handle, away).unwrap();
     gpu.flush_instances(context.device(), context.submission())
         .unwrap();
-    let (_, moved_away) = rebuilds_after(&gpu, &mut render);
+    let (_, moved_away) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!((moved_away, gpu.view_stats().culled), (1, 1));
 }
 

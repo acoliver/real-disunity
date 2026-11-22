@@ -252,15 +252,16 @@ impl OffscreenTarget {
         self.layout.viewport
     }
 
-    /// Clears to opaque black, draws a resident scene, and reads its pixels.
-    /// The caller must set the scene's frame and use pipelines with [`Self::COLOR_FORMAT`].
+    /// Clears to opaque black, draws a resident scene through the stock frame with the frame
+    /// the caller set on it, and reads its pixels. Use pipelines with [`Self::COLOR_FORMAT`].
     pub fn render(
         &mut self,
         context: &GpuContext,
-        scene: &SceneGpu,
+        scene: &mut SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
         self.wait_for_terrain_pages(context, scene)?;
+        let frame = scene.resident_frame();
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
@@ -269,12 +270,13 @@ impl OffscreenTarget {
                 let renderer = self
                     .scheduler
                     .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
-                crate::compositor::encode_resident(
+                crate::compositor::encode_scene(
                     renderer,
                     context.device(),
                     encoder,
                     (scene, pipelines),
                     (&color, &depth),
+                    frame,
                 )
                 .map_err(worldrunner_render_post::PostError::from)?;
                 self.encode_readback(encoder)?;
@@ -289,7 +291,7 @@ impl OffscreenTarget {
     pub fn render_with_clear_color(
         &mut self,
         context: &GpuContext,
-        scene: &SceneGpu,
+        scene: &mut SceneGpu,
         pipelines: &ScenePipelines,
         color: wgpu::Color,
     ) -> Result<RgbaImage, OffscreenError> {
@@ -395,9 +397,9 @@ pub fn capture_scene(
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+    let mut gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
     gpu.set_frame(context.queue(), frame);
-    target.render(context, &gpu, &pipelines)
+    target.render(context, &mut gpu, &pipelines)
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
-mod adapters;
 mod capture;
 mod contours;
 pub mod opaque;
@@ -41,7 +40,6 @@ mod validation;
 mod water_draws;
 pub use crate::draw::{TerrainDraws, WaterDraws};
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 #[cfg(test)]
 pub(crate) use game::terrain_probe;

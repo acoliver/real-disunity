@@ -1,6 +1,6 @@
 use super::*;
 use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_resident},
+    compositor::{FrameRenderer, encode_scene},
     executor::{PassEntry, PassId, PassSlot, TimingMode},
 };
 
@@ -13,17 +13,15 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     .unwrap();
     let view = page_view();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
         &fixture::scene(false),
         &pipelines,
     )
     .unwrap();
-    gpu.set_frame(
-        context.queue(),
-        worldrunner_render_scene::frame::FrameUniform::unlit(&view),
-    );
+    let uniform = worldrunner_render_scene::frame::FrameUniform::unlit(&view);
+    gpu.set_frame(context.queue(), uniform);
     let mut renderer = FrameRenderer::new(context.device());
     renderer
         .configure_timing(context.device(), context.queue(), TimingMode::Required)
@@ -32,12 +30,13 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     for frame in 0..2 {
         let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer.begin_timing(frame).unwrap();
-        encode_resident(
+        encode_scene(
             &mut renderer,
             context.device(),
             &mut encoder,
-            (&gpu, &pipelines),
+            (&mut gpu, &pipelines),
             (&target.color_attachment(), &target.depth_attachment()),
+            uniform,
         )
         .unwrap();
         renderer.finish_timing(&mut encoder).unwrap();

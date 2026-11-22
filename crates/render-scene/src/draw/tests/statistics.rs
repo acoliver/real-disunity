@@ -37,7 +37,7 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
         ObjectDraws::default()
     );
     gpu.set_frame(context.queue(), frame);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     let stats = gpu.statistics();
     // The resident path gathers no view instances, so each selected range is one draw.
     assert_eq!(
@@ -69,7 +69,7 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     assert_eq!(gpu.take_statistics().textures.uploaded_bytes, 0);
     gpu.set_instance_visible(handles[1], true).unwrap();
     gpu.set_frame(context.queue(), frame);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(
         gpu.statistics().passes.opaque_objects.meshes,
         DrawCount {
@@ -113,11 +113,11 @@ fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
         ),
     ];
     for (source, frame, meshes, impostors) in cases {
-        let gpu =
+        let mut gpu =
             SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
         gpu.set_frame(context.queue(), frame);
         let mut target = target(&context);
-        target.render(&context, &gpu, &pipelines).unwrap();
+        target.render(&context, &mut gpu, &pipelines).unwrap();
         let drawn = gpu.statistics().passes.opaque_objects;
         assert_eq!(drawn.meshes, meshes);
         assert_eq!(drawn.impostors, impostors);

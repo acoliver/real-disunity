@@ -136,8 +136,8 @@ impl Fixture {
             worldrunner::scene::camera::ViewHandedness::RightHanded,
         );
         let view = SceneView::from_resolved(resolved, [0, -10_000, 0]);
-        self.scene
-            .set_frame(context.queue(), FrameUniform::unlit(&view));
+        let frame = FrameUniform::unlit(&view);
+        self.scene.set_frame(context.queue(), frame);
         let depth = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
         let output =
             post::color_texture(context.device(), "consumer-owned post output", size, FORMAT);
@@ -153,8 +153,9 @@ impl Fixture {
                 resident::encode(
                     context.device(),
                     encoder,
-                    (&self.scene, &self.pipelines),
+                    (&mut self.scene, &self.pipelines),
                     (self.chain.targets().scene(), depth.depth_view()),
+                    &frame,
                 )
                 .unwrap();
                 self.chain.encode(

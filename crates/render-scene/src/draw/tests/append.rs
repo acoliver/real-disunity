@@ -102,13 +102,13 @@ fn a_still_view_selects_again_after_its_mesh_is_replaced() {
     frame.camera_position = glam::Vec3::new(0.0, 0.0, 5.001);
     frame.camera_position_millimeters = [0, 0, 5_001];
     gpu.set_frame(context.queue(), frame);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     let replacement =
         PreparedMeshReplacement::new(&source, MeshHandle::from_raw(0), &two_lod_quad(10_000))
             .unwrap();
     gpu.replace_mesh_prepared(context.device(), context.queue(), replacement)
         .unwrap();
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![1, 0]);
 }

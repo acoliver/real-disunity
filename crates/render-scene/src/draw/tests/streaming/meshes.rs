@@ -56,7 +56,7 @@ impl Rig {
     }
     fn render(&mut self) -> crate::offscreen::RgbaImage {
         self.target
-            .render(&self.context, &self.gpu, &self.pipelines)
+            .render(&self.context, &mut self.gpu, &self.pipelines)
             .unwrap()
     }
 }

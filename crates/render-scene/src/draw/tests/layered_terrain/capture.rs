@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    compositor::{FrameRenderer, encode_resident},
+    compositor::{FrameRenderer, encode_scene},
     offscreen::OffscreenTarget,
 };
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
@@ -40,7 +40,7 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
         capture(
             &context,
             &authority,
-            (&gpu, &pipelines),
+            (&mut gpu, &pipelines),
             &mut renderer,
             &target,
         );
@@ -51,15 +51,16 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
 fn capture(
     context: &GpuContext,
     authority: &SubmissionAuthority,
-    scene: (&SceneGpu, &ScenePipelines),
+    (gpu, pipelines): (&mut SceneGpu, &ScenePipelines),
     renderer: &mut FrameRenderer,
     target: &OffscreenTarget,
 ) {
+    let frame = gpu.resident_frame();
     let device = context.device();
     let color = target.color_attachment();
     let depth = target.depth_attachment();
-    let mut keys = scene.0.capture_write_keys(device).unwrap();
-    let stable = scene.0.capture_write_keys(device).unwrap();
+    let mut keys = gpu.capture_write_keys(device).unwrap();
+    let stable = gpu.capture_write_keys(device).unwrap();
     assert_eq!(keys, stable);
     keys.extend(
         renderer
@@ -70,7 +71,14 @@ fn capture(
     let writes = CaptureWrites::new(keys.clone(), keys.clone(), keys).unwrap();
     let prefix = authority
         .begin_capture(device, writes, (), |encoder, _, ()| {
-            encode_resident(renderer, device, encoder, scene, (&color, &depth))
+            encode_scene(
+                renderer,
+                device,
+                encoder,
+                (&mut *gpu, pipelines),
+                (&color, &depth),
+                frame,
+            )
         })
         .unwrap();
     let continuation = prefix.submit().unwrap();
@@ -79,7 +87,14 @@ fn capture(
             device,
             |_, _| Ok::<_, FrameError>(()),
             |encoder, _, (), ()| {
-                encode_resident(renderer, device, encoder, scene, (&color, &depth))
+                encode_scene(
+                    renderer,
+                    device,
+                    encoder,
+                    (&mut *gpu, pipelines),
+                    (&color, &depth),
+                    frame,
+                )
             },
         )
         .unwrap();

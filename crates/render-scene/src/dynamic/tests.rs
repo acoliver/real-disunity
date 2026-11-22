@@ -60,7 +60,7 @@ impl Fixture {
 
     fn image(&mut self) -> RgbaImage {
         self.target
-            .render(&self.context, &self.gpu, &self.pipelines)
+            .render(&self.context, &mut self.gpu, &self.pipelines)
             .unwrap()
     }
 }
@@ -207,7 +207,7 @@ fn gpu_camera_background_uses_existing_target_clear_color() {
         .target
         .render_with_clear_color(
             &f.context,
-            &f.gpu,
+            &mut f.gpu,
             &f.pipelines,
             wgpu::Color {
                 r: 0.25,

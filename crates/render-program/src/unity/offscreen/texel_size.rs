@@ -1,6 +1,6 @@
 //! The constants a draw gets from the textures it reads: the member `<texture>_TexelSize` of a
 //! constant buffer holds (1 / width, 1 / height, width, height) of the texture bound under
-//! `<texture>`, the way a blit's source has it (see `steps::source_layer`).
+//! `<texture>`. A blit's source is one of the textures a layer binds, so it has its texel size from this fill like any other.
 
 use crate::layers::Layers;
 use crate::properties::{PropertySet, PropertyValue};

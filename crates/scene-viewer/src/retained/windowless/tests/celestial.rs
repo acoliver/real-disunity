@@ -50,7 +50,9 @@ fn celestial_ssr_same_frame_capture_returns_receipt_with_and_without_taa() {
     for taa in [false, true] {
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = configured_host(taa, true).windowless(&mut driver).unwrap();
+        let mut run = configured_host(taa, true)
+            .windowless(&mut driver, None)
+            .unwrap();
         let (_, image) = capture(&mut run, &events);
         assert_eq!(
             image.viewport,
@@ -144,7 +146,7 @@ fn celestial_free_same_frame_capture_is_byte_identical() {
         },
     )
     .unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let first = capture(&mut run, &events);
     // Empty geometry leaves constant radiance 2; Reinhard maps it to 2/3.
     // Compute sRGB bytes independently, away from a quantization boundary.
@@ -192,7 +194,7 @@ fn observations_count_only_encoded_water_sky_and_shadow_passes() {
     host.initial_scene = Some(source.clone());
     host.scene = Some(source);
     let mut driver = Driver::default();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     run.frame().unwrap();
     let passes = run.host().statistics().unwrap().scene.passes;
     assert_eq!(passes.terrain.calls, 0);

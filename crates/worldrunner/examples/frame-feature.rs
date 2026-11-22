@@ -118,8 +118,11 @@ fn pipeline(device: &wgpu::Device, entry: &str, reader: bool) -> wgpu::RenderPip
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let context = pollster::block_on(gpu::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
+    let context = pollster::block_on(gpu::device::GpuContext::request(
+        &gpu::device::DeviceRequest {
+            features: wgpu::Features::empty(),
+            ..Default::default()
+        },
     ))?;
     let device = context.device();
     let mut renderer = gpu::compositor::FrameRenderer::hdr(

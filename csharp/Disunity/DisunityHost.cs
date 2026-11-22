@@ -37,7 +37,6 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
-        WhiteRenderers.Reset();
         UnsentTextures.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;

@@ -91,5 +91,5 @@ pub(super) fn configured_presentation(
     effects: Option<&worldrunner_render_plan::SceneEffects>,
     policy: &crate::presentation::PresentationPolicy,
 ) -> Result<Presentation, ViewerError> {
-    Presentation::with_settings(context, format, sizes, profile, effects, policy)
+    Presentation::new(context, format, sizes, profile, effects, policy)
 }

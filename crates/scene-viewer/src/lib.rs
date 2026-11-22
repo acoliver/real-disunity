@@ -54,7 +54,7 @@ pub use retained::{
     WheelDelta, WindowControlError, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue,
     WorkQueueError, WorkSubmitError, WorkTicket,
 };
-pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
+pub use world_edits::{ObjectIdMap, edits_from_world_changes};
 
 pub use camera::{OrbitCamera, OrbitLimits};
 pub use wgpu::PresentMode;

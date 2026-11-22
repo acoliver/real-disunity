@@ -236,10 +236,7 @@ impl OffscreenHost {
         adapter: OffscreenAdapter,
         compute: ComputeAdapter,
     ) -> Self {
-        // The adapter's depth range is the one the clip space of its cameras is built with; the
-        // state clears, tests and compares depth the same way.
-        let mut state = OffscreenState::new(&runtime);
-        state.set_reversed_depth(adapter.depth().reversed());
+        let state = OffscreenState::new(&runtime);
         Self {
             runtime,
             arena,
@@ -346,12 +343,6 @@ impl OffscreenHost {
         Ok(screen)
     }
 
-    /// Whether the state this host draws with has depth reversed.
-    #[must_use]
-    pub fn reversed_depth(&self) -> bool {
-        self.state.reversed_depth()
-    }
-
     /// The traces of the frames and flushes since the last call, in order, whether they were
     /// refused or not.
     pub fn take_traces(&mut self) -> Vec<WorkTrace> {
@@ -407,26 +398,13 @@ impl OffscreenHost {
     }
 
     /// Adapts and builds the records of `snapshot` for the scene's next frame. A frame with no
-    /// records gives `None`.
+    /// records gives `None`. `settling` is the way giving storage back for the frame's room gets
+    /// the GPU to finish with it. A frame the viewer submits later uses [`Settling::Poll`], which
+    /// collects what the GPU has finished and never waits for the viewer's submission.
     ///
     /// # Errors
     /// Fails with the error of the records that are left when they still do not build together.
-    pub fn frame(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-    ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
-        self.frame_with(snapshot, assets, Settling::Wait)
-    }
-
-    /// As [`frame`](Self::frame); with `settling`, the way giving storage back for the frame's
-    /// room gets the GPU to finish with it. A frame the viewer submits later uses
-    /// [`Settling::Poll`], which collects what the GPU has finished and never waits for the
-    /// viewer's submission.
-    ///
-    /// # Errors
-    /// As [`frame`](Self::frame).
-    pub(crate) fn frame_with(
+    pub(crate) fn frame(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
@@ -439,13 +417,12 @@ impl OffscreenHost {
         let uploaded = self
             .frame_buffers
             .upload_material_buffers(&mut self.runtime, snapshot);
-        let mut adapted = self.adapter.adapt_settling(
+        let mut adapted = self.adapter.adapt(
             snapshot,
             assets,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
+            (false, &uploaded.handles),
             settling,
-            &uploaded.handles,
         );
         adapted
             .report
@@ -456,12 +433,9 @@ impl OffscreenHost {
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
-        let reclaimed = self.adapter.make_room_settling(
-            &mut self.state,
-            &mut self.runtime,
-            &adapted.frame,
-            settling,
-        );
+        let reclaimed =
+            self.adapter
+                .make_room(&mut self.state, &mut self.runtime, &adapted.frame, settling);
         adapted.report.reclaimed.add(reclaimed);
         let built = build(
             &mut self.state,
@@ -495,19 +469,22 @@ impl OffscreenHost {
         // of them finds it held.
         let mut buffers = GpuBuffers::default();
         let uploaded = buffers.upload_material_buffers(&mut self.runtime, snapshot);
-        let mut adapted = self.adapter.adapt_probing(
+        let mut adapted = self.adapter.adapt(
             snapshot,
             assets,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
             (true, &uploaded.handles),
+            Settling::Wait,
         );
         adapted
             .report
             .count_many("materialbuffer:BufferUpload", uploaded.refused);
-        let reclaimed = self
-            .adapter
-            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let reclaimed = self.adapter.make_room(
+            &mut self.state,
+            &mut self.runtime,
+            &adapted.frame,
+            Settling::Wait,
+        );
         adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
@@ -795,7 +772,7 @@ impl OffscreenHost {
         };
         // A read waits for its own submission, which follows every other, so it can wait now.
         self.adapter
-            .make_room_for(&mut self.state, &mut self.runtime, bytes)
+            .make_room_for(&mut self.state, &mut self.runtime, bytes, Settling::Wait)
     }
 
     /// Records the operations, then the dispatch, then the copy a pixel read wants into one frame

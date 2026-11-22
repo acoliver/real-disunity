@@ -28,10 +28,13 @@
 //! * Matrices are column-major, as the world stores them.
 //! * The view, the projection and the camera position follow the engine layer's camera
 //!   ([`camera`]), mapped to the clip space render-program's conventions tests measured.
-//! * Depth runs as the run's [`DepthRange`] says, reversed (near 1, far 0) for a built player
-//!   unless the run chooses forward. The one value reaches the render-program state, the clip
-//!   space of every camera and the managed side's request; see [`DepthRange`] for the setting,
-//!   its default and the run that is the evidence.
+//! * Depth is reversed: near is 1 and far is 0. The render-program state clears depth to the far
+//!   value and reverses depth tests and the shadow comparison, every camera's clip space maps near
+//!   to w ([`clip_from_gl`]), and `prepare_player` tells the managed side's `PlayerDevice` that
+//!   the buffer is reversed. An Old World `RomeTurn42` run, frame 16 (board 133, posts 3214, 3220
+//!   and 3238), measured the difference: with forward depth every camera texture held one value
+//!   across the screen (normals exactly (0, 0, -1, 0), depth 0.0076), and with reversed depth the
+//!   normals varied across the screen and real geometry won the depth test.
 //! * The built-in values and the evidence for each name are in [`builtins`].
 //! * Texture rows are bottom first, as the engine stores them, which is the orientation of a
 //!   render texture's rows.
@@ -56,7 +59,6 @@ mod camera;
 mod census;
 mod compute;
 mod defaults;
-mod depth_range;
 mod environment;
 mod flush;
 mod frame;
@@ -109,8 +111,7 @@ pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
-pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
-pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
+pub use defaults::{DefaultTexture, StandInLook};
 pub use environment::{SPEC_CUBE0, add_environment};
 pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{

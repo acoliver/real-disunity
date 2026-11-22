@@ -218,8 +218,7 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
@@ -227,8 +226,7 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
                 frame,
             )?;
             let buffers = streaming(&gpu).prepared_buffers();
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
@@ -247,8 +245,7 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
             let mut changed = frame;
             changed.view_projection *= glam::Mat4::from_scale(glam::Vec3::splat(2.0));
             assert_eq!(
-                crate::compositor::encode_scene(
-                    &mut renderer,
+                renderer.encoding().encode_scene(
                     context.device(),
                     encoder,
                     (&mut gpu, &pipelines),

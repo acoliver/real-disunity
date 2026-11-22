@@ -85,6 +85,7 @@ fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
         ),
         ("ridge", super::terrain::terrain_scene(&base, true, false)),
     ];
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for (name, source) in cases {
         for extents in [vec![4_000], vec![2_000, 4_000, 8_000]] {
             let source = super::cascades::source_with(
@@ -103,10 +104,10 @@ fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
                 None,
             );
             let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
             let actual = target.read_rgba8(&context).unwrap();
             std::mem::swap(&mut renderer.pipelines, &mut pipelines);
-            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
             let main = target.read_rgba8(&context).unwrap();
             let changed = actual
                 .pixels
@@ -254,6 +255,7 @@ fn gpu_single_map_receiver_matches_scalar_reference_except_at_shadow_edges() {
     let mut reference = scalar_pipelines(&context, &renderer);
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut edge_pixels = 0;
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for offset in 0..32 {
         let camera = SceneView::new(
             crate::CameraPose {
@@ -264,10 +266,10 @@ fn gpu_single_map_receiver_matches_scalar_reference_except_at_shadow_edges() {
             view().viewport(),
         )
         .unwrap();
-        render_target(&mut renderer, &context, &camera, &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &camera, &target).unwrap();
         let actual = target.read_rgba8(&context).unwrap();
         std::mem::swap(&mut renderer.pipelines, &mut reference);
-        render_target(&mut renderer, &context, &camera, &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &camera, &target).unwrap();
         let expected = target.read_rgba8(&context).unwrap();
         std::mem::swap(&mut renderer.pipelines, &mut reference);
         let lit = capture_scene(&context, &source, &camera).unwrap();

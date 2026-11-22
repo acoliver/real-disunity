@@ -4,7 +4,6 @@
 //! material that sets no texture for the property reads that default, in the property's
 //! dimension. In the Old World player (Unity 6000.3.15f1) the declared names are `white` (221
 //! properties), `black` (23), `bump` (18), `grey` (12), `linearGrey` (1) and the empty name (43).
-//! This repository recognised `white`, `black` and `gray` before this branch.
 //!
 //! The recognised names are `white`, `black`, `gray`, `grey`, `linearGrey` and `bump`. They are
 //! matched exactly as written, the names as the shaders declare them, so `White` is not a
@@ -16,8 +15,8 @@
 //!   The alpha of `black` is an assumption: nothing in the player's data or our runs shows it.
 //! * `gray`, `grey` and `linearGrey` are one texel, RGBA (0.5, 0.5, 0.5, 1), as bytes
 //!   (128, 128, 128, 255). The host uploads every default as 8-bit linear (`GraphicsFormat` 8), so
-//!   a sampled grey is 0.5 for each name, as `gray` gave before. Whether `linearGrey` should
-//!   sample differently is not measured.
+//!   a sampled grey is 0.5 for each name. Whether `linearGrey` should sample differently is not
+//!   measured.
 //! * `bump` is RGBA (0.5, 0.5, 1, 0.5), as bytes (128, 128, 255, 128). Its RGB is the flat
 //!   tangent-space normal under the `2 * rgb - 1` decode, which gives (0, 0, 1). Its alpha is not
 //!   established: how the game's shaders read the alpha of an unset normal map is not known here
@@ -30,15 +29,10 @@
 //! cube-array source, so such a declared default stays missing. The four colours and four shapes
 //! make one table of 16 textures, and each is nameable by a shader.
 //!
-//! The evidence for the table is an observed run. On Old World's `RomeTurn42` save,
-//! `draw:MissingTexture` fell from 44,489 to 10 with this branch (board 133, post 3128). The
-//! remaining 10 are an undeclared 3D texture, which the grey 3D default below covers.
-//!
 //! Two rows serve slots beyond the declared ones. A shader program can reflect a cube slot that
 //! nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside the 2D
-//! source of the URP blit program (Old World, 180 draws a run, each left out as a missing
-//! texture until this default existed), and a 3D slot likewise, such as `_3DNoiseTexture`. Each
-//! reads a default of its own dimension. The player's data does not give
+//! source of the URP blit program (Old World, 180 draws a run), and a 3D slot likewise, such as
+//! `_3DNoiseTexture`. Each reads a default of its own dimension. The player's data does not give
 //! their colour, so each is assumed to be the 2D grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of
 //! all six faces, or in the one texel. They are the (grey, cube) and (grey, 3D) rows, the same
 //! textures a declared `grey` cube or volume reads.
@@ -71,12 +65,8 @@ const FLOAT_PROPERTY: i32 = 2;
 const RANGE_PROPERTY: i32 = 3;
 const INT_PROPERTY: i32 = 5;
 
-/// The environment variable that makes every stand-in texture the host supplies read as magenta
-/// (255, 0, 255, 255) in its dimension, so a capture shows where stand-ins are drawn. `1` or `true`
-/// turns it on; unset, `0`, `false` or anything else leaves the declared colours.
-pub const STAND_INS_MAGENTA_ENV: &str = "PLAY_STAND_INS_MAGENTA";
-
-/// How the stand-in textures of the host look.
+/// How the stand-in textures of the host look. Magenta (255, 0, 255, 255) in each dimension shows
+/// in a capture where stand-ins are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StandInLook {
     /// Each default has the colour its name stands for.
@@ -87,13 +77,13 @@ pub enum StandInLook {
 }
 
 impl StandInLook {
-    /// The look the contents of [`STAND_INS_MAGENTA_ENV`] name, or the declared one when the
-    /// variable is not set.
+    /// The look the name `declared` or `magenta` stands for.
     #[must_use]
-    pub fn from_setting(setting: Option<&str>) -> Self {
-        match setting.map(str::trim) {
-            Some("1" | "true") => Self::Magenta,
-            _ => Self::Declared,
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "declared" => Some(Self::Declared),
+            "magenta" => Some(Self::Magenta),
+            _ => None,
         }
     }
 
@@ -286,16 +276,10 @@ impl DefaultTexture {
         self.parts().1.dimension()
     }
 
-    /// The texture to register under [`ids::default_texture`].
-    #[must_use]
-    pub fn texture(self) -> SourceTexture {
-        self.texture_in(StandInLook::Declared)
-    }
-
     /// The texture to register under [`ids::default_texture`] when the host's stand-ins look as
     /// `look` says.
     #[must_use]
-    pub fn texture_in(self, look: StandInLook) -> SourceTexture {
+    pub fn texture(self, look: StandInLook) -> SourceTexture {
         let (colour, shape) = self.parts();
         let (dimension, texels) = shape.source();
         SourceTexture {

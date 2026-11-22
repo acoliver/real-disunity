@@ -30,7 +30,7 @@ fn terrain_install_replace_remove_publish_capture_pixels_in_windowless_host() {
     let empty = source.with_terrain(None).unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(empty).windowless(&mut driver).unwrap();
+    let mut run = host(empty).windowless(&mut driver, None).unwrap();
     let absent = capture(&mut run, &events).1;
     run.host_mut()
         .apply(RetainedUpdate::Terrain(Some(terrain.clone())))
@@ -59,7 +59,7 @@ fn terrain_publication_and_capture_wait_for_preparation_without_blocking_frames(
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(source.with_terrain(None).unwrap())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let (send, receive) = std::sync::mpsc::sync_channel(1);
     run.host_mut().readiness.preparation_hook = Some(Box::new(move || receive.recv().unwrap()));
@@ -106,7 +106,9 @@ fn streamed_source() -> RenderScene {
 fn geometry_capture_and_generation_wait_for_submitted_residency() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host(streamed_source()).windowless(&mut driver).unwrap();
+    let mut run = host(streamed_source())
+        .windowless(&mut driver, None)
+        .unwrap();
     let options = crate::tests::options();
     run.host_mut()
         .apply_with_geometry(RetainedUpdate::Camera {
@@ -141,7 +143,7 @@ fn streamed_terrain_install_replace_remove_publish_atomic_pixels() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(source.with_terrain(None).unwrap())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let absent = capture(&mut run, &events).1;
     run.host_mut()

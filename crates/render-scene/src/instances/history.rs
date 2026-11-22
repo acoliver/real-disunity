@@ -290,20 +290,6 @@ impl Candidate {
             .map(|index| &self.records[index])
     }
 
-    #[cfg(test)]
-    pub fn slots(&self) -> impl Iterator<Item = usize> + '_ {
-        self.records.iter().map(|record| record.slot)
-    }
-
-    #[cfg(test)]
-    pub fn moving_slots(&self) -> Vec<usize> {
-        self.records
-            .iter()
-            .filter(|record| record.previous != record.current)
-            .map(|record| record.slot)
-            .collect()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }

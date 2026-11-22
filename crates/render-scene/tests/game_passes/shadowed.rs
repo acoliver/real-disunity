@@ -490,7 +490,7 @@ pub(super) fn capture_fit(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) 
             &rig.context,
             &view(SIZE),
             (&color, &depth),
-            (Some(frame), true),
+            (Some(frame), true, &[]),
             scene,
         )
         .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));

@@ -20,7 +20,8 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
     let source = with_objects(&base, objects.clone());
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let shadowed = render(&context, &mut renderer, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let shadowed = render(&context, &mut renderer, &mut scheduler, &mut target);
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let sequence = renderer.scene_mut().caster_sequence();
     objects[1] = objects[1].with_casts_shadow(false);
@@ -29,7 +30,7 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
         .set_instance_object(caster, objects[1])
         .unwrap();
     assert!(renderer.scene_mut().caster_sequence() > sequence);
-    let no_cast = render(&context, &mut renderer, &mut target);
+    let no_cast = render(&context, &mut renderer, &mut scheduler, &mut target);
     assert_ne!(shadowed, no_cast);
     assert_eq!(
         renderer
@@ -47,7 +48,10 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
         .scene_mut()
         .set_instance_object(caster, objects[1])
         .unwrap();
-    assert_eq!(render(&context, &mut renderer, &mut target), shadowed);
+    assert_eq!(
+        render(&context, &mut renderer, &mut scheduler, &mut target),
+        shadowed
+    );
 }
 
 #[test]
@@ -60,13 +64,14 @@ fn gpu_shadow_only_caster_shadows_receivers_without_being_drawn() {
     let source = with_objects(&base, objects.clone());
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let shadowed = render(&context, &mut renderer, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let shadowed = render(&context, &mut renderer, &mut scheduler, &mut target);
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     renderer
         .scene_mut()
         .set_instance_object(caster, objects[1].with_shadow_only(true))
         .unwrap();
-    let shadow_only = render(&context, &mut renderer, &mut target);
+    let shadow_only = render(&context, &mut renderer, &mut scheduler, &mut target);
     // The caster quad has the floor's albedo and normal, so its pixels cannot tell drawn from
     // undrawn; the camera's selection count does.
     let drawn = |lods: Vec<usize>| lods.iter().sum::<usize>();
@@ -84,7 +89,7 @@ fn gpu_shadow_only_caster_shadows_receivers_without_being_drawn() {
         .scene_mut()
         .set_instance_visible(caster, false)
         .unwrap();
-    let absent = render(&context, &mut renderer, &mut target);
+    let absent = render(&context, &mut renderer, &mut scheduler, &mut target);
     // Without the caster drawn, its shadow is the only difference from a frame without it:
     // no channel is brighter, and some are darker.
     let darker = shadow_only
@@ -103,23 +108,27 @@ fn gpu_shadow_only_caster_shadows_receivers_without_being_drawn() {
         .scene_mut()
         .set_instance_object(caster, objects[1])
         .unwrap();
-    assert_eq!(render(&context, &mut renderer, &mut target), shadowed);
+    assert_eq!(
+        render(&context, &mut renderer, &mut scheduler, &mut target),
+        shadowed
+    );
 }
 
 fn render(
     context: &GpuContext,
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     target: &mut OffscreenTarget,
 ) -> RgbaImage {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode(
+            renderer.encode_with(
                 context,
                 &view(),
-                &target.color_attachment(),
-                &target.depth_attachment(),
+                (&target.color_attachment(), &target.depth_attachment()),
                 encoder,
+                scheduler,
             )?;
             target.encode_readback(encoder)?;
             Ok::<_, ShadowError>(())
@@ -250,10 +259,14 @@ fn gpu_retained_sampling_update_rekeys_caster_slope() {
         .set_effects(&SceneEffects::new(parts).unwrap())
         .unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let updated = render(&context, &mut renderer, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let updated = render(&context, &mut renderer, &mut scheduler, &mut target);
     assert_ne!(updated, original);
     assert_eq!(renderer.caster_slope_bits, 0.003_f32.to_bits());
     renderer.set_effects(source.effects().unwrap()).unwrap();
-    assert_eq!(render(&context, &mut renderer, &mut target), original);
+    assert_eq!(
+        render(&context, &mut renderer, &mut scheduler, &mut target),
+        original
+    );
     assert_eq!(renderer.caster_slope_bits, 0.0_f32.to_bits());
 }

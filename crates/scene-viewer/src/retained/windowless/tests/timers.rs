@@ -5,7 +5,7 @@ fn timers_advance_deterministically_before_frames_and_during_zero_size_polls() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let start = run.host().timer_now();
     let handle = run

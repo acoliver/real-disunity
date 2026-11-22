@@ -115,7 +115,7 @@ fn screen_preparation_fixture() -> (RetainedHost, Renderer) {
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let terrain = terrain(2);
     let next = source.with_terrain(Some(terrain.clone())).unwrap();
     host.apply(crate::RetainedUpdate::Terrain(Some(terrain)))

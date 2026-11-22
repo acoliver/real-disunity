@@ -435,6 +435,10 @@ no camera, or one the viewer cannot draw (an orthographic one, for example), the
 its view and tries again on the next such frame, and the driver names each reason once on
 stderr.
 
+### Render textures in the UI
+
+A `CanvasRenderer` over a `RenderTexture` (Old World's minimap) reaches the window and a screen capture as a `UiTexture::Target` draw. Each update, `PlayerGpu::ui_offers` asks the offscreen host for the device texture of every render texture the UI's draws read (`OffscreenHost::render_texture_for_ui`: the texture, if a frame made one, and whether a frame the state built wrote it) and for the sampler the world holds, then `PlayerUi::offer_targets` turns each answer into a `UiTarget` for `RetainedHost::show_ui_textures` or leaves the draw out. A texture no frame has written draws transparent and is named once ("shows nothing until a frame draws it"); a destroyed texture or one the overlay cannot sample is left out and named once with the reason (`destroyed`, `not-2d`, `multisampled`, `not-sampled`, `depth-or-stencil`, `not-filterable`). A run with no GPU work leaves these draws out with `no-gpu`. The viewer runs the update's offscreen operations first and samples the texture in the same submission, so the minimap shows what the camera drew that frame. The read counts as naming the texture for storage reclaiming, so a shown texture is the last one given back. Tests: `offscreen/tests/ui_read.rs`, `offscreen/tests/reclaim.rs`, `gpu_player/ui_offer_tests.rs`, `player_ui_tests.rs` and, in a window on a real adapter, `retained_screen_tests.rs` (the fixture `ui-target-draw.fixture`).
+
 ### Lighting the retained scene
 
 The retained scene is lit by the World's main light, chosen in `scene_light.rs`.

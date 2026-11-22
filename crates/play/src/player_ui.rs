@@ -3,14 +3,15 @@
 #[path = "player_ui_order_tests.rs"]
 mod tests;
 
-use crate::{PlayError, player_textures::PlayerTextures};
+use crate::{PlayError, gpu_player::UiOffer, player_textures::PlayerTextures};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 use worldrunner_render_plan::simulation::SpriteTextures;
-use worldrunner_render_scene::simulation::UiOverlay;
+use worldrunner_render_scene::simulation::{UiOverlay, UiTarget};
 use worldrunner_scene_viewer::RetainedUpdate;
+use worldrunner_world_simulation::graphics::RenderTextureId;
 use worldrunner_world_simulation::ui::{
     UiTexture,
     presentation::{UiDrawKind, UiPresentation},
@@ -29,7 +30,7 @@ pub(crate) struct PlayerUi {
     plan: Option<UiPresentation>,
     generations: BTreeMap<u64, u64>,
     viewport: [u32; 2],
-    reported: BTreeSet<UiTexture>,
+    reported: BTreeSet<(UiTexture, &'static str)>,
     #[cfg(test)]
     pub(crate) updates: u64,
 }
@@ -66,6 +67,48 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
+    /// Keeps the draws of the render textures `offers` answer for, leaves out the others and names
+    /// each of those once, and returns the textures the viewer binds. A texture no frame has
+    /// written yet stays in: the viewer draws it as transparent until one does.
+    pub(crate) fn offer_targets(
+        &mut self,
+        plan: &mut UiPresentation,
+        offers: Vec<(RenderTextureId, UiOffer)>,
+        mut report: impl FnMut(String),
+    ) -> Vec<UiTarget> {
+        let mut shown = Vec::new();
+        let mut gone = BTreeMap::new();
+        for (id, offer) in offers {
+            match offer {
+                UiOffer::Written(target) => shown.push(target),
+                UiOffer::Unwritten(target) => {
+                    if self.reported.insert((UiTexture::Target(id), "unwritten")) {
+                        report(format!(
+                            "UI render texture {id:?} shows nothing until a frame draws it"
+                        ));
+                    }
+                    shown.push(target);
+                }
+                UiOffer::Unavailable(reason) => {
+                    gone.insert(id, reason);
+                }
+            }
+        }
+        plan.draws.retain(|draw| {
+            let Some(UiTexture::Target(id)) = draw.texture else {
+                return true;
+            };
+            let Some(reason) = gone.get(&id) else {
+                return true;
+            };
+            if self.reported.insert((UiTexture::Target(id), reason)) {
+                report(format!("UI render texture {id:?} is left out: {reason}"));
+            }
+            false
+        });
+        shown
+    }
+
     fn filter_unavailable(
         &mut self,
         plan: &mut UiPresentation,
@@ -84,14 +127,11 @@ impl PlayerUi {
                         player.unavailable_reason(id)
                     )
                 }
-                Some(UiTexture::Target(id)) => {
-                    format!("UI render texture {id:?} is left out: the player does not draw it yet")
-                }
                 _ => return true,
             };
             if draw
                 .texture
-                .is_some_and(|texture| self.reported.insert(texture))
+                .is_some_and(|texture| self.reported.insert((texture, "left out")))
             {
                 report(reason);
             }

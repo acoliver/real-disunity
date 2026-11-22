@@ -1,6 +1,7 @@
 use super::*;
 use crate::player_ui::PlayerUi;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_scene_viewer::RetainedUpdate;
 use worldrunner_world_simulation::ui::UiTexture;
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
@@ -187,4 +188,110 @@ fn generic_overlay_still_rejects_unresolved_graphics() {
         worldrunner_render_scene::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new())
             .unwrap_err();
     assert!(error.to_string().contains("unresolved UI texture identity"));
+}
+
+mod targets {
+    use super::*;
+    use crate::gpu_player::UiOffer;
+    use worldrunner_render_plan::{TextureFilter, TextureSampler, TextureWrap};
+    use worldrunner_render_scene::simulation::UiTarget;
+    use worldrunner_world_simulation::graphics::RenderTextureId;
+
+    fn id(bits: u64) -> RenderTextureId {
+        RenderTextureId::from_bits(bits)
+    }
+
+    fn target(bits: u64) -> UiTarget {
+        let sampler = TextureSampler {
+            filter: TextureFilter::Point,
+            wrap_u: TextureWrap::Clamp,
+            wrap_v: TextureWrap::Clamp,
+        };
+        UiTarget::new(id(bits), None, sampler).unwrap()
+    }
+
+    fn over(bits: u64) -> UiDraw {
+        let (plan, _) = fixture();
+        UiDraw {
+            texture: Some(UiTexture::Target(id(bits))),
+            ..plan.draws[0].clone()
+        }
+    }
+
+    fn plan_of(bits: &[u64]) -> UiPresentation {
+        UiPresentation {
+            draws: bits.iter().map(|bits| over(*bits)).collect(),
+            ..UiPresentation::default()
+        }
+    }
+
+    #[test]
+    fn a_draw_whose_texture_the_host_answers_for_stays_and_its_texture_is_offered() {
+        let mut ui = PlayerUi::default();
+        let mut plan = plan_of(&[1, 2]);
+        let mut reports = Vec::new();
+        let offers = vec![
+            (id(1), UiOffer::Written(target(1))),
+            (id(2), UiOffer::Unwritten(target(2))),
+        ];
+        let offered = ui.offer_targets(&mut plan, offers, |line| reports.push(line));
+        assert_eq!(
+            offered.iter().map(UiTarget::id).collect::<Vec<_>>(),
+            [id(1), id(2)]
+        );
+        assert_eq!(plan.draws.len(), 2);
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("shows nothing until a frame draws it"));
+    }
+
+    #[test]
+    fn a_draw_over_an_unavailable_texture_is_left_out_and_named_once() {
+        let mut ui = PlayerUi::default();
+        let mut reports = Vec::new();
+        for _ in 0..3 {
+            let mut plan = plan_of(&[1, 2]);
+            let offers = vec![
+                (id(1), UiOffer::Unavailable("destroyed")),
+                (id(2), UiOffer::Unavailable("multisampled")),
+            ];
+            let offered = ui.offer_targets(&mut plan, offers, |line| reports.push(line));
+            assert!(offered.is_empty());
+            assert!(plan.draws.is_empty());
+        }
+        assert_eq!(reports.len(), 2, "{reports:?}");
+        assert!(reports[0].contains("left out: destroyed"));
+        assert!(reports[1].contains("left out: multisampled"));
+    }
+
+    #[test]
+    fn an_image_draw_is_not_touched_by_the_offer() {
+        let (plan, _) = fixture();
+        let mut kept = plan.clone();
+        let mut ui = PlayerUi::default();
+        let offered = ui.offer_targets(&mut kept, Vec::new(), |_| {});
+        assert!(offered.is_empty());
+        assert_eq!(kept, plan);
+    }
+
+    #[test]
+    fn the_overlay_the_player_builds_names_the_targets_the_offer_answers() {
+        let mut ui = PlayerUi::default();
+        let mut plan = plan_of(&[1]);
+        let offers = vec![(id(1), UiOffer::Written(target(1)))];
+        ui.offer_targets(&mut plan, offers, |_| {});
+        let textures = SpriteTextures::default();
+        let update = ui
+            .update(
+                plan,
+                [64, 64],
+                &textures,
+                &PlayerTextures::default(),
+                |_| {},
+            )
+            .unwrap();
+        let Some(RetainedUpdate::Ui(overlay)) = update else {
+            panic!("a draw over an offered target changes the overlay");
+        };
+        assert_eq!(overlay.targets(), [id(1)]);
+    }
 }

@@ -65,8 +65,10 @@ public sealed class SkinnedMeshRenderer : Renderer
     /// <summary>Replaces the data of <paramref name="mesh"/> with a copy of the shared mesh, which is the baked mesh because
     /// nothing deforms it; with no shared mesh it empties <paramref name="mesh"/>. A renderer with bones or a nonzero blend shape
     /// weight throws <see cref="NotSupportedException"/> and leaves <paramref name="mesh"/> as it was: the shared mesh holds
-    /// no bone weights, bind poses or blend shapes to deform by. Old World's <c>MeshUIScaler</c> reads only the baked mesh's
-    /// bounds, which this gives for a renderer without bones.</summary>
+    /// no bone weights, bind poses or blend shapes to deform by. A copy of the shared mesh is not the baked mesh of a renderer with
+    /// bones, because the bones pose it and its bounds change with the pose. Old World's <c>MeshUIScaler</c> reads only the baked
+    /// mesh's bounds; a scene plan carries no bones for its renderer yet, so it copies the mesh today and meets the throw only
+    /// when the importer plans the bones.</summary>
     public void BakeMesh(Mesh mesh) => BakeMesh(mesh, false);
 
     /// <summary>As <see cref="BakeMesh(Mesh)"/> with <paramref name="useScale"/> false. True asks for the transform's scale to

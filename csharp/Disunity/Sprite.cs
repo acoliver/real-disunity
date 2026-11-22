@@ -59,14 +59,18 @@ public sealed class Sprite : Object
     /// <summary>Whether the sprite's pixels were packed into an atlas texture.</summary>
     public bool packed => Details?.Packed ?? false;
 
-    /// <summary>The overloads without a mesh type make the sprite as its full rectangle, which is how the engine draws every
-    /// sprite; the engine has no tight outline mesh to choose.</summary>
+    /// <summary>The overloads without a mesh type pass <see cref="SpriteMeshType.FullRect"/>, an extrude of 0 and no physics shape: the
+    /// sprite is its full rectangle, which is how the engine draws every sprite. The engine builds no tight outline mesh, so a
+    /// caller that leaves the mesh type out gets the rectangle and one that asks for <see cref="SpriteMeshType.Tight"/> by name
+    /// gets <see cref="NotSupportedException"/> from the overload that takes the mesh type.</summary>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot) =>
         Create(texture, rect, pivot, DefaultPixelsPerUnit);
 
+    /// <inheritdoc cref="Create(Texture2D, Rect, Vector2)"/>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit) =>
         Create(texture, rect, pivot, pixelsPerUnit, 0);
 
+    /// <inheritdoc cref="Create(Texture2D, Rect, Vector2)"/>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude) =>
         Create(texture, rect, pivot, pixelsPerUnit, extrude, SpriteMeshType.FullRect);
 

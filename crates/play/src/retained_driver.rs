@@ -96,7 +96,7 @@ pub fn play_player_window(
     let options = viewer_options(&window);
     let gpu = window_gpu(
         &prepared.data,
-        &prepared.globals,
+        &prepared.gpu,
         &mut ViewerDevice {
             start: &mut start,
             options: &options,

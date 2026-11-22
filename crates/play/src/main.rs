@@ -1,12 +1,13 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
 //! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput,
+    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
     SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player_screens,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
@@ -20,8 +21,8 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]...
-            [--global NAME=v0,v1,v2,v3]...
+            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta] [--gpu-storage-mb N]
+            [--report-each-frame] [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -42,6 +43,12 @@ struct Arguments {
     scene: Option<String>,
     /// The globals `--global` supplies for the run, in the order given.
     globals: Vec<SuppliedGlobal>,
+    /// How the stand-in textures look: `--stand-ins`.
+    stand_ins: StandInLook,
+    /// The storage budget in MiB that `--gpu-storage-mb` asks for.
+    gpu_storage_mb: Option<NonZeroU64>,
+    /// Whether `--report-each-frame` was given.
+    report_each_frame: bool,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -114,6 +121,11 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
+        "--stand-ins" => {
+            arguments.stand_ins = StandInLook::from_name(value)
+                .ok_or_else(|| format!("--stand-ins `{value}` is declared or magenta"))?;
+        }
+        "--gpu-storage-mb" => arguments.gpu_storage_mb = Some(storage_mb(value)?),
         "--global" => {
             let global = SuppliedGlobal::parse(value)
                 .map_err(|reason| format!("--global `{value}`: {reason}"))?;
@@ -135,10 +147,20 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// `--gpu-storage-mb`: a positive number of MiB whose byte count fits in 64 bits.
+fn storage_mb(text: &str) -> Result<NonZeroU64, String> {
+    text.parse::<NonZeroU64>()
+        .ok()
+        .filter(|mebibytes| mebibytes.get().checked_mul(1 << 20).is_some())
+        .ok_or_else(|| format!("--gpu-storage-mb `{text}` is not a positive number of MiB"))
+}
+
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut arguments = Arguments::default();
     while let Some(arg) = args.next() {
-        if arg.starts_with("--") {
+        if arg == "--report-each-frame" {
+            arguments.report_each_frame = true;
+        } else if arg.starts_with("--") {
             let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
             option(&mut arguments, &arg, &value)?;
         } else if arguments.game.is_none() {
@@ -175,6 +197,9 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         screen: (windowed || screens).then_some(size),
         plugins: &arguments.plugins,
         globals: &arguments.globals,
+        stand_ins: arguments.stand_ins,
+        gpu_storage_mb: arguments.gpu_storage_mb,
+        report_each_frame: arguments.report_each_frame,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -403,6 +428,61 @@ mod tests {
             ["-userdata", "/saves", "-headless", "--flag"]
         );
         assert_eq!(arguments.frames, Some(3));
+    }
+
+    #[test]
+    fn stand_ins_look_declared_unless_the_run_says_magenta() {
+        use worldrunner_play::StandInLook;
+        let look = |extra: &[&str]| {
+            let mut args = vec!["--player", "Game_Data"];
+            args.extend_from_slice(extra);
+            parsed(&args).expect("parses").stand_ins
+        };
+        assert_eq!(look(&[]), StandInLook::Declared);
+        assert_eq!(look(&["--stand-ins", "declared"]), StandInLook::Declared);
+        assert_eq!(look(&["--stand-ins", "magenta"]), StandInLook::Magenta);
+        assert!(parsed(&["--player", "Game_Data", "--stand-ins", "pink"]).is_err());
+    }
+
+    #[test]
+    fn the_gpu_storage_budget_is_a_positive_number_of_mebibytes() {
+        let budget = |value: &str| {
+            parsed(&["--player", "Game_Data", "--gpu-storage-mb", value]).map(|a| a.gpu_storage_mb)
+        };
+        assert_eq!(budget("1536").unwrap().map(|mib| mib.get()), Some(1536));
+        for bad in [
+            "0",
+            "-4",
+            "1.5",
+            "lots",
+            "",
+            "99999999999999999999",
+            "18446744073709551615",
+        ] {
+            let error = budget(bad).unwrap_err();
+            assert!(error.starts_with("--gpu-storage-mb"), "{bad:?}: {error}");
+        }
+        let none = parsed(&["--player", "Game_Data"]).expect("parses");
+        assert_eq!(none.gpu_storage_mb, None);
+    }
+
+    #[test]
+    fn the_report_after_each_frame_is_a_switch_that_takes_no_value() {
+        let on = parsed(&[
+            "--player",
+            "Game_Data",
+            "--report-each-frame",
+            "--frames",
+            "2",
+        ])
+        .expect("parses");
+        assert!(on.report_each_frame);
+        assert_eq!(on.frames, Some(2));
+        assert!(
+            !parsed(&["--player", "Game_Data"])
+                .expect("parses")
+                .report_each_frame
+        );
     }
 
     #[test]

@@ -46,9 +46,9 @@ mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
 pub use gpu_device::compute_census;
-pub use gpu_player::{GpuWorkReport, PlayerGpu};
+pub use gpu_player::{GpuLaunch, GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
-pub use offscreen::SuppliedGlobal;
+pub use offscreen::{StandInLook, SuppliedGlobal};
 pub use player::{
     PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player, run_player_screens,
 };

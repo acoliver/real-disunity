@@ -65,12 +65,8 @@ const FLOAT_PROPERTY: i32 = 2;
 const RANGE_PROPERTY: i32 = 3;
 const INT_PROPERTY: i32 = 5;
 
-/// The environment variable that makes every stand-in texture the host supplies read as magenta
-/// (255, 0, 255, 255) in its dimension, so a capture shows where stand-ins are drawn. `1` or `true`
-/// turns it on; unset, `0`, `false` or anything else leaves the declared colours.
-pub const STAND_INS_MAGENTA_ENV: &str = "PLAY_STAND_INS_MAGENTA";
-
-/// How the stand-in textures of the host look.
+/// How the stand-in textures of the host look. Magenta (255, 0, 255, 255) in each dimension shows
+/// in a capture where stand-ins are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StandInLook {
     /// Each default has the colour its name stands for.
@@ -81,13 +77,13 @@ pub enum StandInLook {
 }
 
 impl StandInLook {
-    /// The look the contents of [`STAND_INS_MAGENTA_ENV`] name, or the declared one when the
-    /// variable is not set.
+    /// The look the name `declared` or `magenta` stands for.
     #[must_use]
-    pub fn from_setting(setting: Option<&str>) -> Self {
-        match setting.map(str::trim) {
-            Some("1" | "true") => Self::Magenta,
-            _ => Self::Declared,
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "declared" => Some(Self::Declared),
+            "magenta" => Some(Self::Magenta),
+            _ => None,
         }
     }
 

@@ -4,7 +4,7 @@
 //! `Limits` only bounds one buffer, which says nothing about the total. So the budget is chosen
 //! here, in this order:
 //!
-//! 1. `PLAY_GPU_STORAGE_MB`, a whole number of MiB, when it is set.
+//! 1. The `--gpu-storage-mb` option of `play`, a whole number of MiB, when it is given.
 //! 2. For a software adapter (`DeviceType::Cpu`, such as lavapipe), whose textures live in the
 //!    host's memory, a quarter of the memory the host reports available, no less than the default
 //!    and no more than [`CPU_CEILING`].
@@ -13,10 +13,12 @@
 //! The budget is not a buffer limit. The runtime reserves its arena in buffers the device can
 //! hold, so a budget may exceed `max_buffer_size`.
 
+use std::num::NonZeroU64;
+
 use wgpu::DeviceType;
 
-/// The environment variable that sets the budget, in MiB.
-pub const STORAGE_BUDGET_ENV: &str = "PLAY_GPU_STORAGE_MB";
+/// Where a requested budget comes from, as the GPU report names it.
+const REQUESTED: &str = "--gpu-storage-mb";
 
 /// The budget of an adapter with no better source.
 pub const DEFAULT_BYTES: u64 = 512 << 20;
@@ -32,19 +34,18 @@ pub struct Choice {
 }
 
 /// Chooses the budget for an adapter of `device_type` when the host has `host_available` bytes of
-/// memory free and the environment variable holds `env`.
+/// memory free and the run asks for `requested` MiB.
 #[must_use]
-pub fn choose(env: Option<&str>, device_type: DeviceType, host_available: Option<u64>) -> Choice {
-    let mut source = "the default";
-    if let Some(value) = env {
-        let mebibytes = value.parse::<u64>().ok().filter(|mebibytes| *mebibytes > 0);
-        if let Some(bytes) = mebibytes.and_then(|mebibytes| mebibytes.checked_mul(1 << 20)) {
-            return Choice {
-                bytes,
-                source: STORAGE_BUDGET_ENV,
-            };
-        }
-        source = "the default; PLAY_GPU_STORAGE_MB is ignored, not a positive number of MiB";
+pub fn choose(
+    requested: Option<NonZeroU64>,
+    device_type: DeviceType,
+    host_available: Option<u64>,
+) -> Choice {
+    if let Some(mebibytes) = requested {
+        return Choice {
+            bytes: mebibytes.get().saturating_mul(1 << 20),
+            source: REQUESTED,
+        };
     }
     if let (DeviceType::Cpu, Some(available)) = (device_type, host_available) {
         return Choice {
@@ -54,7 +55,7 @@ pub fn choose(env: Option<&str>, device_type: DeviceType, host_available: Option
     }
     Choice {
         bytes: DEFAULT_BYTES,
-        source,
+        source: "the default",
     }
 }
 
@@ -86,32 +87,19 @@ mod tests {
     const MIB: u64 = 1 << 20;
     const GIB: u64 = 1 << 30;
 
-    fn bytes(env: Option<&str>, device: DeviceType, host: Option<u64>) -> u64 {
-        choose(env, device, host).bytes
+    fn bytes(requested: Option<u64>, device: DeviceType, host: Option<u64>) -> u64 {
+        choose(requested.and_then(NonZeroU64::new), device, host).bytes
     }
 
     #[test]
-    fn the_environment_names_the_budget_in_mebibytes_whatever_the_adapter() {
+    fn the_request_names_the_budget_in_mebibytes_whatever_the_adapter() {
         for device in [DeviceType::Cpu, DeviceType::DiscreteGpu] {
-            assert_eq!(bytes(Some("1536"), device, Some(64 * GIB)), 1536 * MIB);
+            assert_eq!(bytes(Some(1536), device, Some(64 * GIB)), 1536 * MIB);
         }
         assert_eq!(
-            choose(Some("96"), DeviceType::Cpu, None).source,
-            STORAGE_BUDGET_ENV
+            choose(NonZeroU64::new(96), DeviceType::Cpu, None).source,
+            REQUESTED
         );
-    }
-
-    #[test]
-    fn an_environment_value_that_is_not_a_positive_whole_number_is_ignored_and_said_so() {
-        for bad in ["", "0", "-4", "1.5", "lots", "99999999999999999999"] {
-            let choice = choose(Some(bad), DeviceType::DiscreteGpu, Some(64 * GIB));
-            assert_eq!(choice.bytes, DEFAULT_BYTES, "{bad:?}");
-            assert!(
-                choice.source.contains("ignored"),
-                "{bad:?}: {}",
-                choice.source
-            );
-        }
     }
 
     #[test]

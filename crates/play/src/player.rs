@@ -1,4 +1,5 @@
 //! Runs a built Unity player's scene headless in the managed host.
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -16,11 +17,15 @@ use worldrunner_unity_import::{
 };
 
 use crate::PlayError;
-use crate::offscreen::SuppliedGlobal;
+use crate::offscreen::{StandInLook, SuppliedGlobal};
 use crate::plan_differences::shader_difference_lines;
 use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
-use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
+use crate::{
+    driver::FIRST_COVERAGE_TEXTURE,
+    gpu_player::{GpuLaunch, PlayerGpu},
+    player_meshes::PlayerMeshes,
+};
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
@@ -28,22 +33,29 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
     /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
     pub data: PathBuf,
-    /// The globals the run supplies by name, which its GPU work starts every frame from.
-    pub globals: Vec<SuppliedGlobal>,
+    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, the storage
+    /// budget and whether it reports after every frame.
+    pub gpu: GpuLaunch,
 }
 
 /// How a player is started besides its files: the command line after its executable path,
 /// the size of the window the frame is drawn into, which is the size the player's `Screen`
 /// reports (a headless run gives none), and extra native plugin directories the player
 /// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
-/// values `--global` supplies; they reach the GPU work only, not the request. The default has no
-/// arguments, no window, no extra plugins and no globals.
+/// values `--global` supplies; they reach the GPU work only, not the request, and so do
+/// `stand_ins` (how the stand-in textures look), `gpu_storage_mb` (the storage budget in MiB, in
+/// place of the adapter's) and `report_each_frame`. The default has no arguments, no window, no
+/// extra plugins and no globals, and the declared stand-ins, the adapter's budget and a report at
+/// the end only.
 #[derive(Clone, Copy, Default)]
 pub struct PlayerLaunch<'a> {
     pub arguments: &'a [String],
     pub screen: Option<[u32; 2]>,
     pub plugins: &'a [PathBuf],
     pub globals: &'a [SuppliedGlobal],
+    pub stand_ins: StandInLook,
+    pub gpu_storage_mb: Option<NonZeroU64>,
+    pub report_each_frame: bool,
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -97,7 +109,12 @@ pub fn prepare_player(
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
-        globals: launch.globals.to_vec(),
+        gpu: GpuLaunch {
+            globals: launch.globals.to_vec(),
+            stand_ins: launch.stand_ins,
+            storage_mb: launch.gpu_storage_mb,
+            report_each_frame: launch.report_each_frame,
+        },
     })
 }
 
@@ -248,7 +265,7 @@ fn request_body(
         arguments,
         screen,
         plugins,
-        globals: _,
+        ..
     } = launch;
     let mut body = serde_json::json!({
         "player": data,
@@ -298,21 +315,21 @@ fn path_component(name: &str) -> String {
 /// # Errors
 /// Fails naming the reason when the machine has no adapter or the device cannot be had.
 pub(crate) fn player_gpu(prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
-    PlayerGpu::headless(&prepared.data, &prepared.globals).map_err(gpu_unavailable)
+    PlayerGpu::headless(&prepared.data, &prepared.gpu).map_err(gpu_unavailable)
 }
 
 /// The device and offscreen host a window does its GPU work on, on the device `source` makes for
-/// the viewer. Shaders are loaded from the player's `data` directory, and the work starts every
-/// frame from the `globals` it supplies, as a headless run does ([`player_gpu`]).
+/// the viewer. Shaders are loaded from the player's `data` directory, and the work is set up from
+/// `launch` as a headless run's is ([`player_gpu`]).
 ///
 /// # Errors
 /// Fails naming the reason when `source` has no adapter or cannot make the device.
 pub(crate) fn window_gpu(
     data: &Path,
-    globals: &[SuppliedGlobal],
+    launch: &GpuLaunch,
     source: &mut dyn crate::gpu_device::DeviceSource,
 ) -> Result<PlayerGpu, PlayError> {
-    PlayerGpu::shared(source, data, globals).map_err(gpu_unavailable)
+    PlayerGpu::shared(source, data, launch).map_err(gpu_unavailable)
 }
 
 fn gpu_unavailable(reason: String) -> PlayError {
@@ -328,11 +345,6 @@ pub struct ScreenOutput {
     /// A frame, counting from zero, and the PNG its composed frame is written to.
     pub files: Vec<(u64, PathBuf)>,
 }
-
-/// The environment variable that makes a headless run print the GPU report after every frame, not
-/// only at the end. The counts are the run's so far, except the stand-in census, which is the
-/// frame's own.
-const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
 /// player's offscreen work on a device. The error names the step that failed: the missing GPU,
@@ -392,8 +404,9 @@ pub fn run_player_screens(
             .and_then(|()| gpu.frame(&mut host))
             .and_then(|()| write_screens(&gpu, composer.as_mut(), &host, frame, screen));
         times.push(started.elapsed());
-        // A run that dies in a later frame still leaves the counts of the frames before it.
-        if std::env::var_os(REPORT_EACH_FRAME).is_some() {
+        // A run that dies in a later frame still leaves the counts of the frames before it. The
+        // counts are the run's so far, except the stand-in census, which is the frame's own.
+        if prepared.gpu.report_each_frame {
             eprintln!("[gpu] report after frame {frame}");
             gpu.report().print_frame(&stand_ins_before);
         }

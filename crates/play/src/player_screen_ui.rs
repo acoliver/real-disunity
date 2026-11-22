@@ -94,7 +94,7 @@ impl ScreenDevice {
     /// # Errors
     /// Fails naming the reason when the device cannot be had.
     pub(crate) fn player_gpu(&mut self, prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
-        window_gpu(&prepared.data, &prepared.globals, self)
+        window_gpu(&prepared.data, &prepared.gpu, self)
     }
 
     /// The windowless session that composes the run's frames on this device, delivering its

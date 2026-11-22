@@ -12,9 +12,10 @@ use super::ui_tests::{fixture_config, fixture_turn};
 use super::*;
 use std::{path::PathBuf, time::Instant};
 
+use crate::GpuLaunch;
+use crate::PreparedPlayer;
 use crate::gpu_device::headless::HeadlessViewer;
 use crate::player::window_gpu;
-use crate::PreparedPlayer;
 
 const SIZE: u32 = 64;
 /// The update that reads the second colour is the fourth `Update` of the script: one in the
@@ -52,11 +53,11 @@ fn play() -> Played {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/readback.fixture"),
         data: data.path().to_owned(),
-        globals: Vec::new(),
+        gpu: GpuLaunch::default(),
     };
     let window = readback_window();
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(&prepared.data, &prepared.globals, &mut source)
+    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
         .expect("the test needs a GPU adapter");
     let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
     let mut run = viewer.windowless_on(&mut driver, source.gpu).unwrap();

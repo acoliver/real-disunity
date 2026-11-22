@@ -110,7 +110,7 @@ pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
-pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
+pub use defaults::{DefaultTexture, StandInLook};
 pub use environment::{SPEC_CUBE0, add_environment};
 pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{

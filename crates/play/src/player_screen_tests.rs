@@ -17,7 +17,7 @@ fn fixture_named(request: &str) -> PreparedPlayer {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture").join(request),
         data: tempfile::tempdir().unwrap().keep(),
-        globals: Vec::new(),
+        gpu: GpuLaunch::default(),
     }
 }
 
@@ -50,13 +50,7 @@ fn a_run_writes_the_newest_screen_image_to_the_file_of_each_frame_asked_for() {
     let directory = tempfile::tempdir().unwrap();
     let screen = output(directory.path(), &[0, 2]);
 
-    run_player_screens(
-        &prepared,
-        4,
-        Duration::from_millis(16),
-        Some(&screen),
-    )
-    .unwrap();
+    run_player_screens(&prepared, 4, Duration::from_millis(16), Some(&screen)).unwrap();
 
     // The fixture clears in the work of frame 0 only, so frame 2's image is still that one.
     for (_, file) in &screen.files {
@@ -97,13 +91,7 @@ fn a_headless_screen_image_has_the_overlay_canvas_over_the_game_screen() {
         files: vec![(1, file.clone())],
     };
 
-    run_player_screens(
-        &prepared,
-        2,
-        Duration::from_millis(16),
-        Some(&screen),
-    )
-    .unwrap();
+    run_player_screens(&prepared, 2, Duration::from_millis(16), Some(&screen)).unwrap();
 
     // The canvas centre is the centre of the 64 by 32 screen, (32, 16). The fixture's rectangle
     // is 16 pixels square with its lower left corner 24 pixels left of the centre, on the
@@ -132,13 +120,8 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let past = output(directory.path(), &[1, 4]);
 
-    let error = run_player_screens(
-        &prepared,
-        4,
-        Duration::from_millis(16),
-        Some(&past),
-    )
-    .unwrap_err();
+    let error =
+        run_player_screens(&prepared, 4, Duration::from_millis(16), Some(&past)).unwrap_err();
 
     assert!(
         error
@@ -160,7 +143,8 @@ fn a_run_without_a_screen_writes_nothing_and_a_frame_past_the_run_is_refused() {
 #[test]
 fn a_frame_asked_for_before_any_work_drew_into_the_screen_is_an_error_naming_the_frame() {
     let data = tempfile::tempdir().unwrap();
-    let gpu = PlayerGpu::headless(data.path(), &[]).expect("the test needs a GPU adapter");
+    let gpu = PlayerGpu::headless(data.path(), &GpuLaunch::default())
+        .expect("the test needs a GPU adapter");
     let screen = output(Path::new("."), &[3]);
     assert!(
         screens_due(&gpu, 2, Some(&screen)).is_ok(),

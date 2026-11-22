@@ -20,6 +20,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -38,9 +39,9 @@ use crate::counts_line::{top_counts_line, unset_constants_line};
 use crate::global_listing::GlobalListing;
 use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, STAND_INS_MAGENTA_ENV, ScreenImage, Settings, StandInCounts,
-    StandInLook, SuppliedGlobal, WorkTrace, supplied_line,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, Phases, PlayerKernels,
+    Reclaimed, Report, ScreenImage, Settings, StandInCounts, StandInLook, SuppliedGlobal,
+    WorkTrace, supplied_line,
 };
 use crate::scene_census::SubstitutionCensus;
 
@@ -59,18 +60,28 @@ const TOP_UNSET: usize = 8;
 /// The most property and reason pairs the stand-ins line names.
 const TOP_STAND_INS: usize = 8;
 
-/// The settings of a player run's offscreen work: `supplied` as the fallback globals every frame
-/// starts from, with stand-in textures drawn as `look`.
-fn run_settings(supplied: &[SuppliedGlobal], look: StandInLook) -> Settings {
-    Settings {
-        supplied: supplied.to_vec(),
-        ..Settings::cameras().with_stand_in_look(look)
-    }
+/// What a run asks of its offscreen work besides the player's files.
+#[derive(Clone, Debug, Default)]
+pub struct GpuLaunch {
+    /// The globals the run supplies by name, which its GPU work starts every frame from.
+    pub globals: Vec<SuppliedGlobal>,
+    /// How the stand-in textures the host supplies look.
+    pub stand_ins: StandInLook,
+    /// The storage budget in MiB, in place of the one chosen for the adapter.
+    pub storage_mb: Option<NonZeroU64>,
+    /// Whether a headless run prints the GPU report after every frame, not only at the end.
+    pub report_each_frame: bool,
 }
 
-/// The stand-in look the environment asks for.
-fn stand_in_look_from_env() -> StandInLook {
-    StandInLook::from_setting(std::env::var(STAND_INS_MAGENTA_ENV).ok().as_deref())
+impl GpuLaunch {
+    /// The settings of the run's offscreen work: `globals` as the fallback globals every frame
+    /// starts from, with stand-in textures drawn as `stand_ins` says.
+    fn settings(&self) -> Settings {
+        Settings {
+            supplied: self.globals.clone(),
+            ..Settings::cameras().with_stand_in_look(self.stand_ins)
+        }
+    }
 }
 
 /// What the offscreen work of a run did.
@@ -505,15 +516,15 @@ impl PlayerGpu {
     }
 
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`, and the globals in `supplied` as fallbacks under the world's own (see
-    /// `SuppliedGlobal`).
+    /// `data`, and the run's globals as fallbacks under the world's own (see `SuppliedGlobal`),
+    /// stand-in look and storage budget as `launch` says.
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
-    /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(data: &Path, supplied: &[SuppliedGlobal]) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture();
-        let settings = run_settings(supplied, stand_in_look_from_env());
+    /// program runtime cannot reserve its arena.
+    pub fn headless(data: &Path, launch: &GpuLaunch) -> Result<Self, String> {
+        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let settings = launch.settings();
         let instance = headless_gpu_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -545,7 +556,7 @@ impl PlayerGpu {
     /// The host on the one device `source` makes for a window: the adapter's requirements and
     /// budget come from the same function the headless player uses, and the device meets the
     /// viewer's own needs as well. The window's frames and this player's work then share the
-    /// device and its submission order. `supplied` means what it does for
+    /// device and its submission order. `launch` means what it does for
     /// [`PlayerGpu::headless`].
     ///
     /// # Errors
@@ -554,10 +565,10 @@ impl PlayerGpu {
     pub(crate) fn shared(
         source: &mut dyn DeviceSource,
         data: &Path,
-        supplied: &[SuppliedGlobal],
+        launch: &GpuLaunch,
     ) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture();
-        let settings = run_settings(supplied, stand_in_look_from_env());
+        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let settings = launch.settings();
         let adapter = source.adapter()?;
         Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
     }

@@ -1,7 +1,8 @@
 use super::*;
+use crate::GpuLaunch;
+use crate::gpu_device::headless::HeadlessViewer;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
-use crate::gpu_device::headless::HeadlessViewer;
 
 /// The turn of one test that boots the managed host. A process holds one host at a time, so a
 /// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
@@ -68,7 +69,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
     let mut source = HeadlessViewer::new([64, 64]);
-    let gpu = crate::player::window_gpu(data.path(), &[], &mut source)
+    let gpu = crate::player::window_gpu(data.path(), &GpuLaunch::default(), &mut source)
         .expect("the test needs a GPU adapter");
     let mut driver = PlayerRetainedDriver::new(
         fixture_host(),
@@ -88,9 +89,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     .unwrap();
     let scene = SceneTables::initial_scene(None).unwrap();
     let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
-    let mut run = host
-        .windowless_on(&mut driver, source.gpu)
-        .unwrap();
+    let mut run = host.windowless_on(&mut driver, source.gpu).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     run.frame().unwrap();
     let generation = run.host().accepted_generation();

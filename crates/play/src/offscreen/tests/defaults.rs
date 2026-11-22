@@ -305,11 +305,16 @@ fn the_declared_look_is_the_texture_the_table_names() {
 }
 
 #[test]
-fn the_setting_turns_the_magenta_look_on_by_one_or_true_and_nothing_else_does() {
-    for on in ["1", "true", " 1\n"] {
-        assert_eq!(StandInLook::from_setting(Some(on)), StandInLook::Magenta);
-    }
-    for off in [None, Some("0"), Some("false"), Some(""), Some("yes")] {
-        assert_eq!(StandInLook::from_setting(off), StandInLook::Declared);
+fn the_look_is_named_declared_or_magenta_and_nothing_else_names_one() {
+    assert_eq!(
+        StandInLook::from_name("magenta"),
+        Some(StandInLook::Magenta)
+    );
+    assert_eq!(
+        StandInLook::from_name("declared"),
+        Some(StandInLook::Declared)
+    );
+    for other in ["", "1", "true", "Magenta", "yes"] {
+        assert_eq!(StandInLook::from_name(other), None, "{other:?}");
     }
 }

@@ -228,6 +228,8 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
             texture_slot(TextureRef::Render(a)),
         ))
         .unwrap();
+    // An earlier take ends with the value in the state the frame starts from.
+    snapshot(&mut world);
     blit(&mut world, TextureRef::Render(a), b, None, 0);
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());

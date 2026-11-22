@@ -24,7 +24,8 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, blit_layer,
+    camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
 use super::environment::add_environment;
@@ -218,8 +219,24 @@ pub enum Skip {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RendererSkip {
     MeshUnavailable,
+    /// No slot names a material.
     NoMaterial,
+    /// The slots name materials, but the first of them left out names a shader the host has no
+    /// program for (a null or sourceless shader reference, or a shader that failed to load).
+    ShaderUnavailable,
+    /// The slots name materials, but the first of them left out is not in the snapshot.
+    StaleMaterial,
     EmptySlot,
+}
+
+impl RendererSkip {
+    /// The renderer skip for a slot whose material `material()` left out for `skip`.
+    fn of_material(skip: Skip) -> Self {
+        match skip {
+            Skip::StaleMaterial => Self::StaleMaterial,
+            _ => Self::ShaderUnavailable,
+        }
+    }
 }
 
 /// What kind of texture a reference names, for reports.
@@ -654,6 +671,7 @@ impl<'a> Mapper<'a> {
         };
         let (id, passes) = self.material_and_passes(material)?;
         self.frame.blit_mesh = Some(BLIT_MESH);
+        self.frame.blit_values = blit_layer();
         let passes = match usize::try_from(pass) {
             Ok(pass) => pass..pass + 1,
             Err(_) => 0..passes,
@@ -797,15 +815,20 @@ impl<'a> Mapper<'a> {
         // drawn one are simply not listed.
         let mut slots = Vec::new();
         let mut gap = false;
+        let mut cause = None;
         for slot in &view.materials {
-            match slot.and_then(|id| self.material(id, view.render_queue).ok()) {
-                Some(_) if gap => return Err(RendererSkip::EmptySlot),
-                Some(named) => slots.push(named),
+            match slot.map(|id| self.material(id, view.render_queue)) {
+                Some(Ok(_)) if gap => return Err(RendererSkip::EmptySlot),
+                Some(Ok(named)) => slots.push(named),
+                Some(Err(skip)) => {
+                    cause.get_or_insert(RendererSkip::of_material(skip));
+                    gap = true;
+                }
                 None => gap = true,
             }
         }
         if slots.is_empty() {
-            return Err(RendererSkip::NoMaterial);
+            return Err(cause.unwrap_or(RendererSkip::NoMaterial));
         }
         let block = view
             .property_block

@@ -39,8 +39,8 @@ fn view_changes_are_recorded_in_call_order_and_taken_with_the_frame() {
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]

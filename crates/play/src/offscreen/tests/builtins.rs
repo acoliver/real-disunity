@@ -243,6 +243,8 @@ fn a_global_the_world_holds_keeps_its_value_and_the_other_ambient_names_get_defa
     world
         .set_global_property(WorldValue::Vector(SH_AR.into(), [1.0, 2.0, 3.0, 4.0]))
         .unwrap();
+    // An earlier take ends with the value in the state the frame starts from.
+    snapshot(&mut world);
     let adapted = unlit_camera_frame(&mut world);
     let globals = &adapted.frame.globals;
     assert_close(&vector(globals, SH_AR), &[1.0, 2.0, 3.0, 4.0]);

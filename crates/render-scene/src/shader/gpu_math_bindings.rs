@@ -64,7 +64,11 @@ pub(super) fn ground_binding(
     context.queue().write_buffer(&buffer, 0, &bytes);
     let texture = crate::upload::placeholder_texture(context.device(), context.queue());
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let sampler = crate::upload::material_sampler(context.device());
+    let sampler = context
+        .device()
+        .create_sampler(&crate::upload::material_sampler_descriptor(
+            worldrunner_render_plan::TextureAnisotropy::default(),
+        ));
     context
         .device()
         .create_bind_group(&wgpu::BindGroupDescriptor {

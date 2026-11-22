@@ -1,13 +1,14 @@
 //! External feature registration, snapshot sampling and caller-owned submission.
-use gpu::{
-    executor::{
+use gpu::wgpu;
+use worldrunner::scene::{
+    gpu,
+    plan::SceneCamera,
+    post::{
         AttachmentDeclaration, AttachmentLoad, AttachmentView, BuildContext, DrawContext,
         FeatureDeclaration, FeaturePass, FrameConfig, FrameError, FrameFeature, PassDeclaration,
         PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
     },
-    wgpu,
 };
-use worldrunner::scene::{gpu, plan::SceneCamera};
 
 struct PaintAndRead;
 impl FrameFeature for PaintAndRead {

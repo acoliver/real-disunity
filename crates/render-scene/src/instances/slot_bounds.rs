@@ -100,6 +100,7 @@ impl SlotBounds {
             }
             slots.push(position);
         }
+        self.levels.grow(self.valid.len());
         if self.stale {
             self.tree = Tree::build(
                 slots
@@ -142,13 +143,12 @@ impl SlotBounds {
         &self.tree
     }
 
-    /// Sizes the level memo for the refreshed slots and empties it when `key` differs from
-    /// the eye it was filled for.
-    pub fn prepare_levels(&mut self, key: LevelKey) {
-        self.levels.prepare(key, self.valid.len());
+    /// Empties the level memo of every eye, as when the epochs that tell eyes apart wrap.
+    pub fn forget_levels(&mut self) {
+        self.levels.clear();
     }
 
-    /// The level memo; current after `prepare_levels`.
+    /// The level memo, sized for the refreshed slots by `refresh`.
     pub fn levels(&self) -> &Levels {
         &self.levels
     }
@@ -168,17 +168,40 @@ pub(crate) struct LevelKey {
     pub fade_cull_disabled: bool,
 }
 
+/// Tells eyes apart for every batch's level memo: each new eye takes the next epoch, so an
+/// entry stored for an earlier eye reads as empty without anything being written to it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct LevelEpochs {
+    key: Option<LevelKey>,
+    /// The epoch of `key`, from 1; no entry holds epoch 0.
+    epoch: u8,
+}
+
+impl LevelEpochs {
+    /// The epoch of `key`, and whether the epochs wrapped to reach it, in which case entries of
+    /// every earlier epoch may still be stored and the caller must empty every memo.
+    pub fn advance(&mut self, key: LevelKey) -> (u8, bool) {
+        if self.key == Some(key) {
+            return (self.epoch, false);
+        }
+        self.key = Some(key);
+        let (epoch, wrapped) = match self.epoch.checked_add(1) {
+            Some(epoch) => (epoch, false),
+            None => (1, true),
+        };
+        self.epoch = epoch;
+        (epoch, wrapped)
+    }
+}
+
 /// What each slot draws at for one eye, filled during selection by whichever view needs it
 /// first. A slot's entry depends only on its placement, its batch's mesh and materials and
 /// the eye, so concurrent views may fill it in any order.
 ///
-/// Each entry holds the epoch of the eye it was filled for above its outcome, so a new eye
-/// empties every entry by counting up an epoch rather than by writing every slot.
+/// Each entry holds the epoch of the eye it was filled for above its outcome (see
+/// [`LevelEpochs`]), so a new eye empties every entry without a write to any of them.
 #[derive(Debug, Default)]
 pub(crate) struct Levels {
-    key: Option<LevelKey>,
-    /// The epoch of `key`, from 1; no entry holds epoch 0.
-    epoch: u8,
     values: Vec<AtomicU16>,
 }
 
@@ -195,19 +218,16 @@ const FADED: u8 = 1;
 const DRAWN: u8 = 2;
 
 impl Levels {
-    fn prepare(&mut self, key: LevelKey, slots: usize) {
-        if self.key != Some(key) {
-            self.key = Some(key);
-            self.epoch = self.epoch.checked_add(1).unwrap_or_else(|| {
-                // Entries of every earlier epoch may still be stored: empty them once.
-                for value in &mut self.values {
-                    *value.get_mut() = 0;
-                }
-                1
-            });
-        }
+    /// Makes room for `slots` slots.
+    fn grow(&mut self, slots: usize) {
         if self.values.len() < slots {
             self.values.resize_with(slots, || AtomicU16::new(0));
+        }
+    }
+
+    fn clear(&mut self) {
+        for value in &mut self.values {
+            *value.get_mut() = 0;
         }
     }
 
@@ -217,11 +237,17 @@ impl Levels {
         }
     }
 
-    /// The outcome of `position`, computed by `compute` unless an earlier view stored it.
-    pub fn get_or_compute(&self, position: usize, compute: impl FnOnce() -> Level) -> Level {
+    /// The outcome of `position` for the eye of `epoch`, computed by `compute` unless an
+    /// earlier view stored it.
+    pub fn get_or_compute(
+        &self,
+        epoch: u8,
+        position: usize,
+        compute: impl FnOnce() -> Level,
+    ) -> Level {
         let value = &self.values[position];
-        let [epoch, outcome] = value.load(Ordering::Relaxed).to_be_bytes();
-        if epoch != self.epoch {
+        let [stored_epoch, outcome] = value.load(Ordering::Relaxed).to_be_bytes();
+        if stored_epoch != epoch {
             let level = compute();
             let outcome = match level {
                 Level::Faded => FADED,
@@ -229,7 +255,7 @@ impl Levels {
                     u8::try_from(lod + usize::from(DRAWN)).expect("levels of detail fit the memo")
                 }
             };
-            value.store(u16::from_be_bytes([self.epoch, outcome]), Ordering::Relaxed);
+            value.store(u16::from_be_bytes([epoch, outcome]), Ordering::Relaxed);
             return level;
         }
         match outcome {

@@ -16,9 +16,9 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, material_sampler, placeholder_with_view, upload_buffer, upload_palette_array,
-    upload_texture, upload_type_grid,
+    FRAME_GROUP, placeholder_with_view, upload_palette_array, upload_texture, upload_type_grid,
 };
+use worldrunner_render_gpu::resource::upload_buffer;
 
 mod append;
 pub use append::{
@@ -38,6 +38,8 @@ mod descriptors;
 mod dynamic;
 mod lent_meshes;
 mod lod_material;
+mod mesh_arena;
+use mesh_arena::{GpuMesh, MeshArena};
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
@@ -228,24 +230,12 @@ pub enum DrawError {
     },
 }
 
-/// One mesh level held as the buffer pair a draw needs.
+/// One terrain level held as the buffer pair a draw needs.
 #[derive(Clone, Debug)]
 struct GpuLod {
-    /// The vertex format of `vertices` and `transition`.
-    layout: crate::object::layout::GeometryLayout,
-    transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
     index_count: u32,
-}
-
-/// One mesh chain, uploaded level by level.
-#[derive(Debug)]
-struct GpuMesh {
-    lods: Vec<GpuLod>,
-    /// Keeps the chain's buffers counted under `ResourceClass::Mesh` while the mesh is resident.
-    /// The levels hold plain buffer handles, because draws and streaming clone them.
-    _census: Vec<worldrunner_render_gpu::census::CensusEntry>,
 }
 
 /// The terrain surface, as the one draw it has become.
@@ -318,6 +308,8 @@ pub struct SceneGpu {
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
+    /// Packs the levels of every mesh the scene uploads or replaces.
+    arena: MeshArena,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
@@ -333,6 +325,9 @@ pub struct SceneGpu {
     caster_fits: selection_reuse::CasterFits,
     /// The pairs the batches draw, until a placement or table changes.
     drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
+    /// What every view's selection reads of each batch that holds while no placement or table
+    /// changes.
+    placement_rows: RefCell<visibility::PlacementRows>,
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
@@ -413,7 +408,9 @@ impl SceneGpu {
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
-        let sampler = material_sampler(device);
+        let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
+            worldrunner_render_plan::TextureAnisotropy::default(),
+        ));
         let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
             device,
             queue,
@@ -424,7 +421,9 @@ impl SceneGpu {
                 heights: &contact_heights,
             },
         );
-        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
+        let arena =
+            MeshArena::new(mesh_arena::MAX_CHUNK_BYTES.min(device.limits().max_buffer_size));
+        let meshes = arena.upload(device, authority.census(), &prepared.meshes);
         let palette = (!prepared.palette.is_empty()).then(|| {
             upload_buffer(
                 device,
@@ -469,6 +468,7 @@ impl SceneGpu {
             frame_slots,
             lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
+            arena,
             meshes,
             mesh_selection: prepared.selection,
             instances: Instances::new(scene)
@@ -480,6 +480,7 @@ impl SceneGpu {
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
             drawn_pair_memo: RefCell::default(),
+            placement_rows: RefCell::default(),
             gather: compaction::Shared::default(),
             terrain,
             terrain_draws: Cell::new(TerrainDraws::Stock),
@@ -739,7 +740,7 @@ impl SceneGpu {
     }
 }
 
-use resources::{upload_meshes, upload_textures};
+use resources::upload_textures;
 mod environment;
 mod prepared;
 mod resources;

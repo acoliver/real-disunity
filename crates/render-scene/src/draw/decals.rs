@@ -216,7 +216,11 @@ impl Decals {
                     previous: &self.previous[self.slot],
                 },
                 &views,
-                &crate::upload::material_sampler(&self.device),
+                &self
+                    .device
+                    .create_sampler(&crate::upload::material_sampler_descriptor(
+                        worldrunner_render_plan::TextureAnisotropy::default(),
+                    )),
             );
             palette.materials.clone_from(&materials);
         }
@@ -421,7 +425,9 @@ fn empty_group_with(
         layout,
         buffers,
         &[view.clone(), view.clone(), view],
-        &crate::upload::material_sampler(device),
+        &device.create_sampler(&crate::upload::material_sampler_descriptor(
+            worldrunner_render_plan::TextureAnisotropy::default(),
+        )),
     )
 }
 fn group_with(

@@ -2,8 +2,8 @@ mod distance;
 mod panel;
 use super::*;
 use std::collections::BTreeMap;
-use worldrunner_render_plan::ui::{UiDraw, UiDrawKind, UiPresentation};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 const COLORS: [[f32; 4]; 4] = [
     [1., 0., 0., 1.],

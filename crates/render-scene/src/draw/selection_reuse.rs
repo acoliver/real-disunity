@@ -182,6 +182,7 @@ impl SceneGpu {
             &self.instances,
             &self.mesh_selection,
             (frame.camera_position_millimeters, frame.camera_position),
+            &self.placement_rows,
             |placements| {
                 placements.select_each(
                     &mut jobs

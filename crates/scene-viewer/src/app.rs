@@ -179,7 +179,7 @@ struct App<'a> {
     shared: Option<crate::renderer::Shared>,
     occluded: bool,
     suspended: bool,
-    next_frame: Instant,
+    deadline: cadence::Deadline,
 }
 
 impl<'a> App<'a> {
@@ -192,7 +192,7 @@ impl<'a> App<'a> {
             shared: None,
             occluded: false,
             suspended: false,
-            next_frame: Instant::now(),
+            deadline: cadence::Deadline::new(Instant::now()),
         }
     }
 
@@ -219,7 +219,7 @@ impl<'a> App<'a> {
         {
             event_loop.exit();
         }
-        self.next_frame = cadence::next_frame(Instant::now(), self.content.cadence());
+        self.deadline.finish(Instant::now());
         Ok(())
     }
 }
@@ -367,14 +367,14 @@ impl ApplicationHandler<UserEvent> for App<'_> {
             event_loop.exit();
             return;
         }
-        let now = Instant::now();
         let active = !self.occluded && !self.suspended && renderer.viewport.is_some();
         let (redraw, flow) = cadence::schedule(
             self.content.cadence(),
-            now,
-            self.next_frame,
+            Instant::now(),
+            &mut self.deadline,
             active,
             pending,
+            renderer.frame_slot_free(),
         );
         if redraw {
             renderer
@@ -382,7 +382,6 @@ impl ApplicationHandler<UserEvent> for App<'_> {
                 .as_ref()
                 .expect("windowed renderer")
                 .request_redraw();
-            self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
         event_loop.set_control_flow(cadence::with_wakeup(flow, self.content.next_wakeup()));
     }

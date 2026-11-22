@@ -68,10 +68,7 @@ pub use worldrunner_world_simulation as simulation;
 
 /// CPU-only native UI components, fonts and pathless render planning.
 #[cfg(feature = "ui")]
-pub mod ui {
-    pub use worldrunner_render_plan as plan;
-    pub use worldrunner_world_simulation::ui::*;
-}
+pub use worldrunner_world_simulation::ui;
 
 /// Pathless scene planning and GPU capture, without asset lookup or an application host.
 ///

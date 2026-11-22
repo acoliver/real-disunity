@@ -1,7 +1,7 @@
 //! Distance masks through the retained compositor. These tests require a GPU.
 use super::*;
-use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
 use worldrunner_world_simulation::presentation::CoverageTexture;
+use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
 
 fn panel() -> UiDraw {
     let mut p = draw(false);

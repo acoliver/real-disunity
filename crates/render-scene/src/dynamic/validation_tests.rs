@@ -47,7 +47,7 @@ fn corner_colors_reject_every_invalid_channel_and_accept_endpoints() {
 #[test]
 fn presentation_conversion_preserves_and_validates_corner_metadata() {
     use std::collections::BTreeMap;
-    use worldrunner_render_plan::ui::{UiDraw, UiDrawKind, UiPresentation};
+    use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
     let colors = [[0.25; 4], [0.5; 4], [0.75; 4], [1.; 4]];
     let mut plan = UiPresentation {
         draws: vec![UiDraw {
@@ -87,7 +87,7 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
 
 #[test]
 fn distance_metadata_requires_overlay_textures_and_affine_quads() {
-    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
     let mut quad = DynamicQuad {
         overlay: true,
         texture: Some(0),

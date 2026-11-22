@@ -28,7 +28,7 @@ pub(crate) fn upload(
     bytes: &[u8],
 ) -> Result<wgpu::Buffer, crate::draw::DrawError> {
     validate_size(bytes.len() as u64, &device.limits())?;
-    Ok(crate::upload::upload_buffer(
+    Ok(worldrunner_render_gpu::resource::upload_buffer(
         device,
         queue,
         "terrain triangle source",

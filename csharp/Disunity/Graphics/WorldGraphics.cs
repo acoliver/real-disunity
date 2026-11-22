@@ -38,6 +38,20 @@ internal static unsafe partial class WorldGraphics
     /// <summary>The world holds finite values only, so a NaN or an infinity, which a game may set, is sent as 0.</summary>
     private static float Finite(float value) => float.IsFinite(value) ? value : 0f;
 
+    /// <summary>The most bytes a property or keyword name holds in the world.</summary>
+    private const int MaxNameBytes = 256;
+
+    /// <summary>Throws <see cref="ArgumentException"/> for a property or keyword name the world would refuse, before it is stored or
+    /// recorded. A name stored and then refused would stay in the managed store, and every later world load would send it again and
+    /// fail.</summary>
+    internal static void CheckName(string name, string member)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var bytes = Encoding.UTF8.GetByteCount(name);
+        if (bytes is 0 or > MaxNameBytes)
+            throw new ArgumentException($"{member}: a name has 1 to {MaxNameBytes} UTF-8 bytes, not {bytes}", nameof(name));
+    }
+
     /// <summary>The target of the global scope, which has no id of its own.</summary>
     internal static Link GlobalTarget => new(DisunityHost.WorldHandle, 1);
 

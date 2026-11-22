@@ -111,6 +111,11 @@ After an intentional ABI change:
    graphics snapshot wire version is 17 to carry it. Revision 22 adds
    `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
    `OnDestroy` messages and the asset cleanup that destruction queued. Revision 23 removes
+   `disunity_offscreen_set_global`, `disunity_offscreen_set_global_keyword`,
+   `disunity_offscreen_set_global_vector_array` and `disunity_offscreen_set_global_matrix_array`
+   and adds `disunity_offscreen_set_global_texture`: a command buffer's global value, array or
+   keyword is a direct write of the world's global state (`disunity_shader_*`), and only a global
+   texture set to a temporary render texture is recorded. Revision 24 removes
    `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
    object slot draws from the slot's world material alone. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.

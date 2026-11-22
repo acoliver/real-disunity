@@ -33,17 +33,17 @@ fn capture(
 /// values count as equal: the G-buffer quantisation the lighting step measured (shading normal
 /// within 0.25 degrees facing the camera, base colour within 0.0045, scalars within half a code)
 /// moves a lit value by up to 5%.
-const RELATIVE: f32 = 0.05;
+pub(super) const RELATIVE: f32 = 0.05;
 const ABSOLUTE: f32 = 2e-3;
 /// Share of stored pixels that may exceed [`RELATIVE`]: shadow receiver-plane derivatives come
 /// from neighbouring screen pixels in the lighting pass and from the triangle in forward, so
 /// they differ along depth and normal edges, where the lit value can move by more.
-const EDGE_SHARE: f64 = 0.01;
+pub(super) const EDGE_SHARE: f64 = 0.01;
 /// Mean relative error over the stored pixels.
-const MEAN: f64 = 0.01;
+pub(super) const MEAN: f64 = 0.01;
 
 /// The share of `errors` over [`RELATIVE`], and their mean.
-fn share_and_mean(errors: &[f32]) -> (usize, f64, f64) {
+pub(super) fn share_and_mean(errors: &[f32]) -> (usize, f64, f64) {
     let count = f64::from(u32::try_from(errors.len()).unwrap());
     let over = errors.iter().filter(|error| **error > RELATIVE).count();
     let share = f64::from(u32::try_from(over).unwrap()) / count;
@@ -160,7 +160,7 @@ fn halves(bytes: &[u8]) -> Vec<f32> {
 }
 
 /// The relative error of each stored pixel's worst channel against Forward.
-fn stored_errors(rendered: &[f32], forward: &[f32], g3: &[u16]) -> Vec<f32> {
+pub(super) fn stored_errors(rendered: &[f32], forward: &[f32], g3: &[u16]) -> Vec<f32> {
     rendered
         .chunks_exact(4)
         .zip(forward.chunks_exact(4))

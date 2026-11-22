@@ -70,8 +70,10 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
 }
 
 use super::*;
-use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
 use worldrunner_render_scene::simulation::UiOverlay;
+use worldrunner_world_simulation::ui::contribution::{
+    UiGlyphQuad, UiRenderPlan, UiTextContribution,
+};
 use worldrunner_world_simulation::{ObjectDesc, World, WorldSettings};
 
 pub(super) fn plan(color: [f32; 4]) -> UiRenderPlan {

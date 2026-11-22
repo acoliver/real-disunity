@@ -54,7 +54,7 @@ fn paragraph_plan(link: Option<UiLinkId>) -> UiRenderPlan {
             }),
         )
         .unwrap();
-    worldrunner_render_plan::ui::extract_ui(&world, &fonts, [64, 64]).unwrap()
+    worldrunner_world_simulation::ui::contribution::extract_ui(&world, &fonts, [64, 64]).unwrap()
 }
 
 #[test]

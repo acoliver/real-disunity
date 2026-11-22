@@ -85,6 +85,7 @@ fn select_frame(
         instances,
         meshes,
         (views.eye_millimeters, views.fade_eye),
+        &std::cell::RefCell::default(),
         |placements| {
             placements.select_each(
                 &mut selections

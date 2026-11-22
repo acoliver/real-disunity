@@ -9,6 +9,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     BlockSource, GraphicsProgram, ImportedDraw, ImportedGeometry, PreparedProgramDraw, TargetImage,
@@ -19,11 +23,6 @@ use worldrunner_render_scene::{
         ColorOutput, GameBlockDestination, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
         GamePasses, GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, GameTextureLevel, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
     },
     wgpu,
 };

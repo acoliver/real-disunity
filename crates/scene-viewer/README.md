@@ -208,7 +208,7 @@ forward sample. Unlit surfaces publish albedo as ambient and zero other radiance
 
 ## Retained screen-space UI
 
-Convert an existing `render_plan::ui::UiRenderPlan` with
+Convert an existing `worldrunner_world_simulation::ui::contribution::UiRenderPlan` with
 `render_scene::simulation::UiOverlay::new`, then submit
 `RetainedUpdate::Ui(Arc::new(overlay))`. For textured graphics, use
 `UiOverlay::with_textures(plan, &textures)` with a map from the graphic's texture

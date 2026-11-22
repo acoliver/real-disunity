@@ -139,6 +139,19 @@ fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
     assert!(limits.max_storage_textures_per_shader_stage >= 5);
 }
 
+#[test]
+fn the_headless_device_is_granted_the_storage_images_the_scene_device_is() {
+    // The window's device is the scene's, which takes the adapter's count up to sixteen.
+    let budget = storage_budget::DEFAULT_BYTES;
+    for (offered, expected) in [(1 << 20, 16), (32, 16), (16, 16), (8, 8), (5, 5), (4, 4)] {
+        assert_eq!(
+            negotiated(offered, budget * 2, budget).max_storage_textures_per_shader_stage,
+            expected,
+            "an adapter offering {offered}"
+        );
+    }
+}
+
 /// A launch that supplies `value` and asks for nothing else.
 fn launch_with(value: SuppliedGlobal) -> GpuLaunch {
     GpuLaunch {

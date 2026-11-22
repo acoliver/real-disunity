@@ -79,10 +79,19 @@ struct Prepared {
     draws: Vec<Vec<PreparedProgramDraw>>,
 }
 
+/// A texture the quads sample that the caller owns, as the host's render texture a UI draw reads.
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalTexture {
+    pub texture: Texture,
+    pub sampler: Sampler,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DynamicGpu {
     textures: Vec<Texture>,
     samplers: Vec<Sampler>,
+    /// Sampled after `textures`: a quad's texture index counts past the owned ones.
+    external: Vec<ExternalTexture>,
     draws: Vec<QuadDraw>,
     indices: Option<Buffer>,
     frames: Vec<Buffer>,
@@ -123,6 +132,15 @@ impl DynamicGpu {
         Ok(())
     }
 
+    /// Sets the textures the quads sample beyond the ones the caller made with `set_textures`,
+    /// which come after them in the quads' texture indices. Call it after `set_textures` and
+    /// before `set_quads`.
+    pub(crate) fn set_external(&mut self, external: Vec<ExternalTexture>) {
+        self.external = external;
+        self.draws.clear();
+        self.prepared.clear();
+    }
+
     pub(crate) fn set_quads(
         &mut self,
         device: &Device,
@@ -134,11 +152,25 @@ impl DynamicGpu {
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
-        let views: Vec<_> = self
+        let mut textures = self.textures.clone();
+        let mut samplers = self.samplers.clone();
+        let mut views: Vec<_> = self
             .textures
             .iter()
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
             .collect();
+        for external in &self.external {
+            textures.push(external.texture.clone());
+            samplers.push(external.sampler.clone());
+            // Level 0 of one layer, whatever the host made: nothing generates the smaller levels
+            // of a render texture the UI shows.
+            views.push(external.texture.create_view(&TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                mip_level_count: Some(1),
+                array_layer_count: Some(1),
+                ..TextureViewDescriptor::default()
+            }));
+        }
         let indices = self.quad_indices(device, queue);
         let (stage, overlay_layout) = match bindings.target {
             QuadTarget::Scene(stage) => (Some(stage), None),
@@ -146,8 +178,8 @@ impl DynamicGpu {
         };
         let material_bindings = QuadBindings {
             placeholder: (bindings.placeholder, &placeholder),
-            textures: (&self.textures, &views),
-            samplers: &self.samplers,
+            textures: (&textures, &views),
+            samplers: &samplers,
             sampler: bindings.sampler,
             indices: &indices,
             overlay_layout,
@@ -179,7 +211,7 @@ impl DynamicGpu {
             return Err(DynamicError::DeviceLimit("instance buffer size"));
         }
         for (index, quad) in quads.iter().enumerate() {
-            validate_quad(quad, index, self.textures.len())?;
+            validate_quad(quad, index, self.textures.len() + self.external.len())?;
         }
         let mut ordered: Vec<_> = quads.iter().collect();
         ordered.sort_by_key(|quad| {

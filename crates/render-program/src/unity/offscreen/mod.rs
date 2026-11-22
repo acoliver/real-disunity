@@ -220,6 +220,14 @@ impl OffscreenState {
             .map(textures::TextureInfo::primary)
     }
 
+    /// Whether `id` is a render texture the state holds that no frame it built has written. Storage
+    /// made again starts unwritten, and a texture a kernel writes as a storage image is never
+    /// counted as unwritten. An id the state holds no render texture for is not one.
+    #[must_use]
+    pub fn render_texture_is_unwritten(&self, id: TextureId) -> bool {
+        self.textures.never_written(id)
+    }
+
     /// The render textures the state holds and the bytes each takes in the runtime's budget, in
     /// id order. A host that must make room chooses among them.
     #[must_use]

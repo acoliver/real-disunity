@@ -1,6 +1,6 @@
 use super::{
-    UiDrawKind, UiDrawList, UiError, UiImage, UiImageOptions, UiRect, check_color, check_transform,
-    rotate,
+    UiDrawKind, UiDrawList, UiError, UiImage, UiImageOptions, UiRect, UiTexture, check_color,
+    check_transform, rotate,
 };
 
 impl UiDrawList<'_> {
@@ -35,7 +35,13 @@ impl UiDrawList<'_> {
             options.rotation_radians,
             options.pivot,
         );
-        let mut draw = self.quad(points, uv, [1.; 4], Some(image.id.0), UiDrawKind::Graphic)?;
+        let mut draw = self.quad(
+            points,
+            uv,
+            [1.; 4],
+            Some(UiTexture::Image(image.id.0)),
+            UiDrawKind::Graphic,
+        )?;
         draw.corner_colors = Some(options.colors);
         self.commit(vec![draw])
     }

@@ -7,7 +7,7 @@ use crate::presentation::extraction::{
 };
 use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
-use crate::ui::{CanvasRenderer, RectLayout, UiLayout};
+use crate::ui::{CanvasRenderer, RectLayout, UiLayout, UiTexture};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::BTreeMap;
 
@@ -28,8 +28,9 @@ pub struct UiGraphic {
     pub overlay: bool,
     pub sorting_layer: i32,
     pub sorting_order: i32,
-    /// The renderer identity of the texture the quads sample, or none for plain colour.
-    pub texture: Option<u64>,
+    /// The texture the quads sample, or none for plain colour. A `Target` is kept when the world
+    /// no longer holds it; the player decides what a missing render texture draws.
+    pub texture: Option<UiTexture>,
     pub quads: Vec<UiGraphicQuad>,
     /// Unpaired triangle-list vertices in the same drawn space as quads.
     pub triangles: Vec<[super::UiVertex; 3]>,
@@ -115,7 +116,7 @@ fn graphic(
         overlay,
         sorting_layer: rect.sorting_layer,
         sorting_order: rect.sorting_order,
-        texture: (renderer.graphic_texture != 0).then_some(renderer.graphic_texture),
+        texture: renderer.graphic_texture,
         quads,
         triangles: found
             .triangles
@@ -179,6 +180,13 @@ pub fn append_graphics(
     graphics: Vec<UiGraphic>,
 ) -> Result<(), worldrunner_camera::ViewError> {
     for mut graphic in graphics {
+        let texture = match graphic.texture {
+            None => None,
+            Some(UiTexture::Image(id)) => Some(id),
+            // Sprite quads sample stored images; a render texture reaches the screen through the
+            // overlay draw list only.
+            Some(UiTexture::Coverage(_) | UiTexture::Target(_)) => continue,
+        };
         for triangle in &graphic.triangles {
             let [a, b, c] = *triangle;
             graphic.quads.push(UiGraphicQuad {
@@ -194,7 +202,7 @@ pub fn append_graphics(
                 corners: ui_corners(plan.camera.as_ref(), quad.corners, graphic.overlay)?,
                 uv_rect: quad.uv_rect,
                 color: quad.color,
-                texture: graphic.texture,
+                texture,
                 sorting_layer: graphic.sorting_layer,
                 sorting_order: graphic.sorting_order,
             });

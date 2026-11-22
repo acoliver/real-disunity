@@ -14,7 +14,7 @@ use worldrunner_unity_serialized::{
 
 #[path = "support/mesh_bytes.rs"]
 mod mesh_bytes;
-use mesh_bytes::{Channel, MeshSpec, mesh_bytes};
+use mesh_bytes::{Channel, MeshSpec, SkinSpec, mesh_bytes};
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
@@ -153,6 +153,7 @@ fn two_sub_meshes() -> MeshSpec {
         channels: two_stream_channels(),
         vertex_data: two_stream_vertices(),
         stream: (0, 0, ""),
+        skin: SkinSpec::default(),
     }
 }
 
@@ -368,6 +369,7 @@ fn padded_stream_mesh() -> MeshSpec {
         channels,
         vertex_data,
         stream: (0, 0, ""),
+        skin: SkinSpec::default(),
     }
 }
 

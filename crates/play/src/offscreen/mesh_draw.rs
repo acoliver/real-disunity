@@ -191,7 +191,7 @@ impl Mapper<'_> {
                     .ok_or(Skip::BufferUnavailable)?;
                 Ok((!batch.visible.is_empty()).then(|| Prepared {
                     block: PropertyLayer::default(),
-                    per_draw: PropertyLayer::default(),
+                    per_draw: self.layerless_batch_draw(),
                     instances: Instances::Dots(DotsBatch {
                         buffer,
                         window: batch.offset..end,

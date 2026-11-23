@@ -14,7 +14,11 @@ internal sealed class TextLayoutResult(int visible, int fontSize)
 }
 
 /// <summary>The characters of a layout, the lines they break into and the measures of each line.</summary>
-internal sealed record Arranged(List<LayoutChar> Chars, List<TextLine> Lines, List<LineMeasures> Measures);
+internal sealed record Arranged(List<LayoutChar> Chars, List<TextLine> Lines, List<LineMeasures> Measures)
+{
+    /// <summary>The height of all the lines: the steps of all but the last line, and the last line's height.</summary>
+    public float Height => Measures.Count == 0 ? 0 : Measures.Take(Measures.Count - 1).Sum(m => m.Step) + Measures[^1].Height;
+}
 
 /// <summary>
 /// One layout of a string with one generation settings value: it reads the rich text tags, measures the characters, breaks
@@ -43,25 +47,19 @@ internal sealed class TextLayoutJob
     /// <summary>The generation of the font's atlas the last layout drew into.</summary>
     public int AtlasGeneration => _glyphs.AtlasGeneration;
 
-    /// <summary>The font size before the scale factor.</summary>
+    /// <summary>The font size before the scale factor, without best fit.</summary>
     public int FontSize { get; }
 
     private Vector2 Extents => new(_settings.generationExtents.x * _settings.scaleFactor, _settings.generationExtents.y * _settings.scaleFactor);
 
     private bool Wraps => _settings.horizontalOverflow == HorizontalWrapMode.Wrap;
 
-    /// <summary>The job for the text, or null when the settings have no font the engine can draw. Settings the layout does
-    /// not handle yet are rejected by name.</summary>
+    /// <summary>The job for the text, or null when the settings have no font the engine can draw.</summary>
     public static TextLayoutJob? For(string text, in TextGenerationSettings settings)
     {
-        if (settings.resizeTextForBestFit) throw Unsupported("resizeTextForBestFit");
-        if (settings.alignByGeometry) throw Unsupported("alignByGeometry");
         if (settings.font is not { } font || font.Glyphs is not { } glyphs || !glyphs.TryFace(out _)) return null;
         return new TextLayoutJob(TextMarkup.Parse(text, settings.richText, settings.color.a), settings, glyphs);
     }
-
-    private static NotSupportedException Unsupported(string member) =>
-        new($"TextGenerator cannot lay out text with {member} yet: the engine has no layout for it");
 
     private int Scaled(int size) => Math.Max(1, (int)MathF.Round(size * _settings.scaleFactor));
 
@@ -108,25 +106,46 @@ internal sealed class TextLayoutJob
     public float PreferredWidth() => Arrange(Scaled(FontSize), false).Lines.Select(line => line.Width).DefaultIfEmpty(0).Max();
 
     /// <summary>The height of the block of lines when the text wraps as the settings say, with no truncation.</summary>
-    public float PreferredHeight()
+    public float PreferredHeight() => Arrange(Scaled(FontSize), Wraps).Height;
+
+    /// <summary>The largest size from the minimum to the maximum at which the text, wrapped, has no line wider than the
+    /// extents and is no taller than them, or the minimum when none does. The search is over metrics, so it adds no glyphs
+    /// to the atlas.</summary>
+    private int BestFitSize()
     {
-        var measures = Arrange(Scaled(FontSize), Wraps).Measures;
-        return measures.Count == 0 ? 0 : measures.Take(measures.Count - 1).Sum(m => m.Step) + measures[^1].Height;
+        var min = Math.Max(1, _settings.resizeTextMinSize);
+        var (low, high, best) = (min, Math.Max(min, _settings.resizeTextMaxSize), min);
+        while (low <= high)
+        {
+            var size = (low + high) / 2;
+            if (FitsAt(size)) (best, low) = (size, size + 1);
+            else high = size - 1;
+        }
+        return best;
+    }
+
+    private bool FitsAt(int size)
+    {
+        var arranged = Arrange(Scaled(size), true);
+        var extents = Extents;
+        return arranged.Height <= extents.y && arranged.Lines.All(line => line.Width <= extents.x);
     }
 
     /// <summary>Lays the text out, drawing the glyphs of the kept lines into the font's atlas first so every UV refers to
     /// the final atlas.</summary>
     public TextLayoutResult Layout()
     {
-        var arranged = Arrange(Scaled(FontSize), Wraps);
+        var size = _settings.resizeTextForBestFit ? BestFitSize() : FontSize;
+        var arranged = Arrange(Scaled(size), Wraps);
         var extents = Extents;
         var area = new TextArea(-_settings.pivot.x * extents.x, (1 - _settings.pivot.y) * extents.y, extents,
             TextLayoutPlacer.AnchorFactors(_settings.textAnchor),
             _settings.verticalOverflow == VerticalWrapMode.Truncate && !_settings.generateOutOfBounds);
-        var (placed, kept) = TextLayoutPlacer.Place(arranged.Lines, arranged.Measures, area);
+        var inks = arranged.Lines.Select(line => TextLayoutInk.Of(arranged.Chars, line, _glyphs, _settings.alignByGeometry)).ToList();
+        var (placed, kept) = TextLayoutPlacer.Place(arranged.Lines, arranged.Measures, inks, area);
         var infos = DrawGlyphs(arranged.Chars, placed.Take(kept));
         var visible = kept < arranged.Lines.Count ? arranged.Lines[kept].Start : arranged.Chars.Count;
-        var result = new TextLayoutResult(visible, FontSize);
+        var result = new TextLayoutResult(visible, size);
         TextLayoutEmitter.Emit(result, new EmitInput(arranged.Chars, placed, kept), infos);
         result.Extents = TextLayoutEmitter.Extents(placed.Take(kept));
         return result;

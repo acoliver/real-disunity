@@ -8,7 +8,7 @@ internal static class TextGeneratorTests
     {
         ConstructsWithAndWithoutCapacity();
         EmptyTextPopulatesAnEmptyResult();
-        SettingsLayoutDoesNotYetHandleAreRejectedByName();
+        NullTextThrows();
         InvalidateClearsTheResult();
         SettingsCompareByValue();
         AFontHasItsOwnMaterial();
@@ -54,21 +54,9 @@ internal static class TextGeneratorTests
         Expect.Near(0f, generator.GetPreferredHeight("", Settings()), "preferred height of empty text");
     }
 
-    private static void SettingsLayoutDoesNotYetHandleAreRejectedByName()
+    private static void NullTextThrows()
     {
-        Disunity.Hosting.DisunityHost.LoadWorld();
-        try
-        {
-            var font = Disunity.Hosting.DisunityHost.RegisterFont(SyntheticFont.Bytes());
-            var generator = new TextGenerator();
-            var fit = Settings();
-            fit.font = font;
-            fit.resizeTextForBestFit = true;
-            var message = Expect.Catch<NotSupportedException>(() => generator.Populate("A", fit), "best fit").Message;
-            Expect.That(message.Contains("resizeTextForBestFit"), $"the member is named: {message}");
-            Expect.Throws<ArgumentNullException>(() => generator.Populate(null!, Settings()), "null text");
-        }
-        finally { Disunity.Hosting.DisunityHost.UnloadWorld(); }
+        Expect.Throws<ArgumentNullException>(() => new TextGenerator().Populate(null!, Settings()), "null text");
     }
 
     private static void InvalidateClearsTheResult()

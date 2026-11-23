@@ -70,8 +70,8 @@ public struct TextGenerationSettings : IEquatable<TextGenerationSettings>
 /// factor, in pixels measured from the pivot with y growing upward. Each glyph with ink is four vertices (top left, top
 /// right, bottom right, bottom left) whose UVs refer to the atlas that is the font material's main texture. A result is
 /// kept until the text, the settings or the font's atlas change. With rich text on the tags b, i, size and color are read; bold
-/// and italic draw the regular face. Best fit and aligning by geometry are rejected with a <see cref="NotSupportedException"/>
-/// naming the setting until the engine lays them out.
+/// and italic draw the regular face. Best fit picks the largest size in its range at which the wrapped text fits the
+/// extents, and aligning by geometry aligns the ink of each line.
 /// </summary>
 public sealed class TextGenerator
 {

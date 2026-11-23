@@ -3,8 +3,9 @@
 //! reads a result back.
 //!
 //! The callback runs with no world lock or borrow held. It can call the ABI on the world being
-//! flushed: take the pending work, read what a dispatch ran with and write the results into
-//! compute buffers. A flush started from inside the callback is refused.
+//! flushed: take the pending work with `disunity_graphics_snapshot`, which carries each dispatch
+//! with the values it ran with, and write the results into compute buffers. A flush started from
+//! inside the callback is refused.
 use crate::{DisunityResult, abi::translate_error, lock_store};
 
 /// The host's flush: called with the world and the `user` word it was registered with, it fills

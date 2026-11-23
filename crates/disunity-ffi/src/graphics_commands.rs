@@ -3,29 +3,16 @@
 //! one record; the world checks the rest and keeps the order. Global floats, vectors, matrices,
 //! arrays and keywords are direct writes of the world's global state (`graphics_properties`);
 //! the world puts a record for each in front of the next one.
-//!
-//! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives these records a
-//! kind from [`KIND_SET_RENDER_TARGET`] up and a token, from 1, that [`disunity_offscreen_detail`]
-//! reads the record's bytes by. A token is valid until the next call that takes work.
 use crate::{
     DisunityResult,
     callbacks::mutate,
     errors::AbiError,
     graphics::{DisunityRenderTexture, text},
-    graphics_context::context_kind,
     graphics_properties::DisunityTextureSlot,
 };
 use worldrunner_world_simulation::graphics::{
     MAX_COLOR_TARGETS, OffscreenWork, PropertyValue, RenderTextureId, TargetRef,
-    snapshot_wire::encode_work,
 };
-
-pub(crate) const KIND_SET_RENDER_TARGET: u32 = 4;
-pub(crate) const KIND_CLEAR_RENDER_TARGET: u32 = 5;
-pub(crate) const KIND_SET_GLOBAL: u32 = 6;
-pub(crate) const KIND_SET_GLOBAL_KEYWORD: u32 = 7;
-pub(crate) const KIND_ALLOCATE_TEMPORARY: u32 = 8;
-pub(crate) const KIND_RELEASE_TEMPORARY: u32 = 9;
 
 const TARGET_RENDER: u32 = 0;
 const TARGET_TEMPORARY: u32 = 1;
@@ -200,62 +187,4 @@ pub unsafe extern "C" fn disunity_offscreen_allocate_temporary(
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_offscreen_release_temporary(world: u64, name_id: i32) -> DisunityResult {
     record(world, || Ok(OffscreenWork::ReleaseTemporary { name_id }))
-}
-
-/// The kind a taken command record has, or `None` for other work.
-pub(crate) fn command_kind(work: &OffscreenWork) -> Option<u32> {
-    match work {
-        OffscreenWork::SetRenderTarget { .. } => Some(KIND_SET_RENDER_TARGET),
-        OffscreenWork::ClearRenderTarget { .. } => Some(KIND_CLEAR_RENDER_TARGET),
-        OffscreenWork::SetGlobal(_) => Some(KIND_SET_GLOBAL),
-        OffscreenWork::SetGlobalKeyword { .. } => Some(KIND_SET_GLOBAL_KEYWORD),
-        OffscreenWork::AllocateTemporary { .. } => Some(KIND_ALLOCATE_TEMPORARY),
-        OffscreenWork::ReleaseTemporary { .. } => Some(KIND_RELEASE_TEMPORARY),
-        other => context_kind(other),
-    }
-}
-
-/// The bytes of a command record, as the world's snapshot encoding writes it.
-pub(crate) fn detail_of(work: &OffscreenWork) -> Result<Vec<u8>, AbiError> {
-    encode_work(work).map_err(|error| AbiError::Message(error.to_string()))
-}
-
-/// Reads the encoded bytes of a command record by the token its take gave it (see
-/// `worldrunner_world_simulation::graphics::snapshot_wire::decode_work`). Writes the length to
-/// `length`; with a zero `capacity` that is all it does, and a smaller `capacity` is rejected.
-///
-/// # Safety
-/// `buffer` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
-/// writable for one value.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_detail(
-    world: u64,
-    token: u32,
-    buffer: *mut u8,
-    capacity: u32,
-    length: *mut u32,
-) -> DisunityResult {
-    if length.is_null() || (capacity > 0 && buffer.is_null()) {
-        return DisunityResult::invalid_argument();
-    }
-    mutate(world, |s| {
-        let index = usize::try_from(token)
-            .ok()
-            .and_then(|token| token.checked_sub(1))
-            .ok_or("a detail token is nonzero")?;
-        let held = s
-            .work_details
-            .get(index)
-            .ok_or("the detail token names no command of the last take")?;
-        let needed = u32::try_from(held.len()).map_err(|_| "detail overflow")?;
-        unsafe { *length = needed };
-        if capacity == 0 {
-            return Ok(());
-        }
-        if capacity < needed {
-            return Err("the buffer is too small for the record".into());
-        }
-        unsafe { std::ptr::copy_nonoverlapping(held.as_ptr(), buffer, held.len()) };
-        Ok(())
-    })
 }

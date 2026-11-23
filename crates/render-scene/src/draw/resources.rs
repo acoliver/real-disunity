@@ -1,13 +1,29 @@
-use worldrunner_render_gpu::census::{ResourceClass, Tracked};
+use worldrunner_render_gpu::census::ResourceClass;
+use worldrunner_render_gpu::census::Tracked;
 use worldrunner_render_program::runtime::ImportTable;
 
 use crate::object::prepared::LentMaterial;
 
-use super::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
-    GpuLod, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle,
-    TextureView, TextureViewDescriptor, upload_palette_array, upload_texture, upload_type_grid,
-};
+use super::BindGroup;
+use super::BindGroupLayout;
+use super::Buffer;
+use super::BufferUsages;
+use super::Device;
+use super::DrawError;
+use super::FRAME_UNIFORM_BYTES;
+use super::GpuLod;
+use super::GpuTerrain;
+use super::Queue;
+use super::RenderScene;
+use super::Sampler;
+use super::TerrainUniformState;
+use super::Texture;
+use super::TextureHandle;
+use super::TextureView;
+use super::TextureViewDescriptor;
+use super::upload_palette_array;
+use super::upload_texture;
+use super::upload_type_grid;
 use worldrunner_render_gpu::resource::upload_buffer;
 
 pub(super) fn allocate_frame_slots(

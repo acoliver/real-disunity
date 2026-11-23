@@ -9,7 +9,10 @@
 //! declares a queue the engine cannot read, plans as an error entry and a reference to it
 //! binds `null`.
 
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use worldrunner_unity_serialized::{
     ClassId,
@@ -23,7 +26,8 @@ use crate::{
     player_compute::{decode_compute_shader, unplanned_reference as unplanned_compute_reference},
     player_files::PlayerFiles,
     player_materials::{
-        decode_material, plan_material, unplanned_reference as unplanned_material_reference,
+        declared_vectors, decode_material, plan_material,
+        unplanned_reference as unplanned_material_reference,
     },
     player_plan::PlanSource,
     player_resources::ObjectKey,
@@ -49,6 +53,9 @@ pub(crate) struct ShaderDecl {
     /// with `/` separators, and the object's path id there.
     pub(crate) file: String,
     pub(crate) path_id: i64,
+    /// The properties the shader declares as vectors, which a material saves with its colors.
+    /// The plan of the shader does not hold them; the plans of its materials use them.
+    pub(crate) vectors: BTreeSet<String>,
 }
 
 impl ShaderDecl {
@@ -134,6 +141,7 @@ pub(crate) fn decode_shader(
         .and_then(|open| open.decode(*path_id))
         .map_err(|error| error.to_string())?;
     let queue = shader_render_queue(&shader)?;
+    let vectors = declared_vectors(&shader);
     let name = if shader.parsed.name.is_empty() {
         shader.name
     } else {
@@ -159,6 +167,7 @@ pub(crate) fn decode_shader(
         fallback: shader.parsed.fallback,
         file: file_name(&files.data_dir, file),
         path_id: *path_id,
+        vectors,
     })
 }
 
@@ -212,6 +221,8 @@ pub(crate) struct SceneSource {
     pub(crate) planned: Vec<(ObjectKey, usize)>,
     /// What the planned materials could not hold.
     pub(crate) differences: Vec<String>,
+    /// The vector properties of each shader a material of the scene names, by shader.
+    vectors: BTreeMap<ObjectKey, BTreeSet<String>>,
 }
 
 impl SceneSource {
@@ -222,7 +233,23 @@ impl SceneSource {
             assets: Vec::new(),
             planned: Vec::new(),
             differences: Vec::new(),
+            vectors: BTreeMap::new(),
         }
+    }
+
+    /// The properties the shader `pptr` of a material in `owner` declares as vectors; none for no
+    /// shader or one that does not decode, whose material plans every property as a color.
+    fn declared_vectors(&mut self, owner: &Path, pptr: PPtr) -> BTreeSet<String> {
+        let Ok(file) = self.files.referenced_file(owner, pptr) else {
+            return BTreeSet::new();
+        };
+        let key = (file, pptr.path_id);
+        if !self.vectors.contains_key(&key) {
+            let declared = decode_shader(&mut self.files, &key)
+                .map_or_else(|_| BTreeSet::new(), |decl| decl.vectors);
+            self.vectors.insert(key.clone(), declared);
+        }
+        self.vectors[&key].clone()
     }
 
     pub(crate) fn files_mut(&mut self) -> &mut PlayerFiles {
@@ -255,11 +282,12 @@ impl SceneSource {
         let material = decode_material(&mut self.files, key)
             .map_err(|cause| unplanned_material_reference(pptr, &cause))?;
         let mut found = Vec::new();
-        let planned = plan_material(
+        let mut planned = plan_material(
             &material,
             |reference| self.material_reference(&key.0, reference),
             &mut found,
         );
+        planned.separate_vectors(&self.declared_vectors(&key.0, material.shader));
         self.differences.append(&mut found);
         Ok(PlanAsset::Material { material: planned })
     }

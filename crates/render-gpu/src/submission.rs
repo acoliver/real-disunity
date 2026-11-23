@@ -3,18 +3,21 @@ pub mod capture;
 mod lease;
 mod pass;
 mod staging;
-pub use lease::{FrameLease, FrameOwner, LeaseError};
+pub use lease::FrameLease;
+pub use lease::FrameOwner;
+pub use lease::LeaseError;
 pub use pass::RecordingRenderPass;
 pub use staging::StagingStatistics;
-use std::{
-    cell::{Cell, RefCell},
-    hash::{Hash, Hasher},
-    rc::Rc,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
-};
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrepareError<E> {

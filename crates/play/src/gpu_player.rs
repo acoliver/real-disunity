@@ -18,14 +18,20 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::GpuFlush;
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::Configuration;
 use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
@@ -38,14 +44,28 @@ mod ui_offer;
 pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
-use crate::counts_line::{names_line, top_counts_line};
+use crate::counts_line::names_line;
+use crate::counts_line::top_counts_line;
 use crate::global_listing::GlobalListing;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
-use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, Settings, StandInCounts, StandInLook, SuppliedGlobal,
-    WorkTrace, supplied_line,
-};
+use crate::gpu_device::DeviceSource;
+use crate::gpu_device::PlayerStartupInputs;
+use crate::gpu_device::headless_gpu_instance;
+use crate::gpu_device::player_device;
+use crate::offscreen::ComputeAdapter;
+use crate::offscreen::DispatchTrace;
+use crate::offscreen::GlobalReads;
+use crate::offscreen::OffscreenAdapter;
+use crate::offscreen::OffscreenHost;
+use crate::offscreen::Phases;
+use crate::offscreen::PlayerKernels;
+use crate::offscreen::Reclaimed;
+use crate::offscreen::Report;
+use crate::offscreen::Settings;
+use crate::offscreen::StandInCounts;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
+use crate::offscreen::WorkTrace;
+use crate::offscreen::supplied_line;
 use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.
@@ -75,6 +95,8 @@ pub struct GpuLaunch {
     pub stand_ins: StandInLook,
     /// Whether a headless run prints the GPU report after every frame, not only at the end.
     pub report_each_frame: bool,
+    /// The records whose targets the run writes to files.
+    pub reads: Vec<crate::TargetRead>,
 }
 
 impl GpuLaunch {
@@ -141,6 +163,8 @@ pub struct GpuWorkReport {
     refusal: Option<String>,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
+    /// The `--read-target` reads that wrote no file.
+    pub reads_unwritten: usize,
     /// How the first dispatches were bound and what came of them.
     pub traces: Vec<DispatchTrace>,
     /// Camera renders, the draws they recorded and the draws left out for want of a pass.
@@ -497,6 +521,8 @@ pub struct PlayerGpu {
     drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
+    /// The reads of a record's target the run was asked for, which the frames they name make.
+    reads: RefCell<Vec<crate::TargetRead>>,
 }
 
 impl PlayerGpu {
@@ -672,6 +698,7 @@ impl PlayerGpu {
             device,
             drawn_screen: Cell::new(None),
             screen_size: Cell::new(None),
+            reads: RefCell::new(Vec::new()),
         })
     }
 
@@ -684,6 +711,11 @@ impl PlayerGpu {
         if size.is_none() {
             self.drawn_screen.set(None);
         }
+    }
+
+    /// Asks for the reads of a record's target, each made by the player's own frame it names.
+    pub fn set_reads(&self, reads: Vec<crate::TargetRead>) {
+        *self.reads.borrow_mut() = reads;
     }
 
     /// The number of the last frame whose work (or a flush before it) drew into the screen,

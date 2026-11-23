@@ -8,8 +8,12 @@ use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 
 use super::{GpuWorkReport, PlayerGpu};
-use crate::PlayError;
 use crate::offscreen::{Assets, Settling, UiFrame};
+use crate::target_read::{Finished, finish, refuse};
+use crate::{PlayError, TargetRead};
+
+/// The reads a frame was asked for, and what the build called each record.
+type Reads<'a> = (&'a [TargetRead], &'a [(usize, String)]);
 
 /// How a frame's operations leave the player.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -78,8 +82,10 @@ impl PlayerGpu {
             ui.join(&mut snapshot);
         }
         self.begin(delivery);
+        let reads = self.reads_due(delivery);
         if snapshot.work.is_empty() {
             let mut report = self.report.borrow_mut();
+            refuse(&reads, "the frame has no offscreen work").add_to(&mut report);
             // A flush earlier in the update may have drawn into the screen.
             self.note_for_player(delivery, report.frames);
             report.frames += 1;
@@ -91,20 +97,25 @@ impl PlayerGpu {
         let host_assets: &dyn Assets = &*host;
         let ui_assets = ui.map(|ui| ui.assets(host_assets));
         let assets: &dyn Assets = ui_assets.as_ref().map_or(host_assets, |assets| assets);
-        let built = self
-            .offscreen
-            .borrow_mut()
-            .frame(&snapshot, assets, delivery.settling());
+        let built =
+            self.offscreen
+                .borrow_mut()
+                .frame(&snapshot, assets, delivery.settling(), &reads);
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         let mut handed = None;
         match built {
             Ok((operations, frame_report)) => {
                 report.add(&frame_report, "frame");
-                if let Some(operations) = operations {
-                    handed = self.deliver(&mut report, operations, delivery);
+                match operations {
+                    Some(operations) => {
+                        let labels = frame_report.reads;
+                        handed = self.deliver(&mut report, operations, delivery, (&reads, &labels));
+                    }
+                    None => refuse(&reads, "the frame has no records").add_to(&mut report),
                 }
             }
             Err(error) => {
+                refuse(&reads, &format!("the frame did not build: {error}")).add_to(&mut report);
                 *report.errors.entry(error.to_string()).or_default() += 1;
             }
         }
@@ -113,6 +124,25 @@ impl PlayerGpu {
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(handed)
+    }
+
+    /// The reads the run asked for of the frame that is about to be built. A window's frames are
+    /// submitted by the viewer, which has no submission to wait for, so they are refused.
+    fn reads_due(&self, delivery: Delivery) -> Vec<TargetRead> {
+        let frame = self.report.borrow().frames;
+        let due: Vec<TargetRead> = self
+            .reads
+            .borrow()
+            .iter()
+            .filter(|read| read.frame == frame)
+            .cloned()
+            .collect();
+        if delivery == Delivery::Viewer && !due.is_empty() {
+            let why = "a window's frames are submitted by the viewer";
+            refuse(&due, why).add_to(&mut self.report.borrow_mut());
+            return Vec::new();
+        }
+        due
     }
 
     /// What a frame does before it builds. For the viewer it frees the storage the GPU has
@@ -140,6 +170,7 @@ impl PlayerGpu {
         report: &mut GpuWorkReport,
         mut operations: OffscreenOperations,
         delivery: Delivery,
+        reads: Reads<'_>,
     ) -> Option<OffscreenOperations> {
         if delivery == Delivery::Viewer {
             if let Err(error) = self.offscreen.borrow().export_screen(&mut operations) {
@@ -148,19 +179,29 @@ impl PlayerGpu {
             return Some(operations);
         }
         let submitted = Instant::now();
-        let ran = self.run(operations);
+        let ran = self.run(operations, reads);
         self.offscreen.borrow_mut().settle();
         if let Some(work) = report.work.last_mut() {
             work.phases.submit += submitted.elapsed();
         }
-        if let Err(message) = ran {
-            *report.errors.entry(message).or_default() += 1;
+        match ran {
+            Ok(finished) => finished.add_to(report),
+            Err(message) => {
+                refuse(reads.0, &format!("the frame did not run: {message}")).add_to(report);
+                *report.errors.entry(message).or_default() += 1;
+            }
         }
         None
     }
 
-    /// Records the operations into a frame of their own, submits it and waits for it.
-    fn run(&self, operations: OffscreenOperations) -> Result<(), String> {
+    /// Records the operations into a frame of their own, submits it and waits for it, then writes
+    /// the files of the frame's reads.
+    fn run(
+        &self,
+        mut operations: OffscreenOperations,
+        (reads, labels): Reads<'_>,
+    ) -> Result<Finished, String> {
+        let taps = operations.take_taps();
         let mut frame = self
             .authority
             .begin(&self.device)
@@ -179,6 +220,8 @@ impl PlayerGpu {
                 timeout: None,
             })
             .map_err(|error| error.to_string())?;
-        Ok(())
+        let missing =
+            "the build left out records of the frame and built it again without the reads";
+        Ok(finish(reads, labels, taps, &self.device, missing))
     }
 }

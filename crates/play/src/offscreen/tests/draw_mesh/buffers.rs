@@ -240,7 +240,7 @@ fn a_frame_binds_the_materials_buffer_and_counts_the_property_of_one_that_is_gon
         let mut host = host(PlayerKernels::new(directory.path()));
 
         let (operations, report) = host
-            .frame(&snapshot(&mut world), &meshes, Settling::Wait)
+            .frame(&snapshot(&mut world), &meshes, Settling::Wait, &[])
             .unwrap();
 
         assert!(operations.is_some(), "destroyed {destroyed}");

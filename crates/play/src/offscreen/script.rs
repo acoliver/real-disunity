@@ -9,23 +9,37 @@
 //! the exception that costs least to keep as a record of their own: a [`Record::Globals`] stands
 //! in front of the first record that follows a change.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
-use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
-};
+use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::layers::TextureInput;
+use worldrunner_render_program::unity::offscreen::frame::Attachment;
+use worldrunner_render_program::unity::offscreen::frame::Attachments;
+use worldrunner_render_program::unity::offscreen::frame::Clear;
+use worldrunner_render_program::unity::offscreen::frame::GlobalState;
+use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::offscreen::frame::RenderDimension;
+use worldrunner_render_program::unity::offscreen::frame::RenderTextureSpec;
 use worldrunner_world_simulation::ComponentHandle;
-use worldrunner_world_simulation::graphics::{
-    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc,
-    TargetRef, TextureRef, WorldRenderTexture, WorldSampler, dimension,
-};
+use worldrunner_world_simulation::graphics::CameraBuffers;
+use worldrunner_world_simulation::graphics::MAX_COLOR_TARGETS;
+use worldrunner_world_simulation::graphics::OffscreenWork;
+use worldrunner_world_simulation::graphics::PropertyValue as WorldValue;
+use worldrunner_world_simulation::graphics::RendererListDesc;
+use worldrunner_world_simulation::graphics::TargetRef;
+use worldrunner_world_simulation::graphics::TextureRef;
+use worldrunner_world_simulation::graphics::WorldRenderTexture;
+use worldrunner_world_simulation::graphics::WorldSampler;
+use worldrunner_world_simulation::graphics::dimension;
 
 use super::assets::sampler_of_world;
-use super::frame::{Mapper, RendererSkip, Skip};
+use super::frame::Mapper;
+use super::frame::RendererSkip;
+use super::frame::Skip;
 use super::ids;
 use super::properties::set_value;
 use super::raster::RasterScript;
@@ -235,6 +249,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DisableScissor => "DisableScissor",
         OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawMeshBatch { .. } => "DrawMeshBatch",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
@@ -286,6 +301,13 @@ impl Mapper<'_> {
                 (*material, *pass),
                 (block.as_deref(), *instances),
             ),
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                submesh,
+                pass,
+                batch,
+            } => self.draw_mesh_batch((*mesh, *submesh), (*material, *pass), batch),
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,

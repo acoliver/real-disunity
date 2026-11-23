@@ -16,6 +16,7 @@ use crate::packet::TargetSignature;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::blit_steps::{BlitStep, blit_step, copy_step};
+use super::dots::{self, DotsDraw};
 use super::error::{OffscreenError, Refusal};
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads, Written};
@@ -23,7 +24,9 @@ use super::mips;
 use super::pass_report::{pass_report, program_probes};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::raster::PassRaster;
+use super::readback::TapRead;
 use super::resample::ResampleStep;
+use super::tap;
 use super::tracker::Tracker;
 use super::{CameraCauses, CameraDraws, UnmatchedPasses};
 
@@ -74,6 +77,7 @@ pub(super) struct Globals<'a> {
 
 /// How the draws of one pass look: which pass of a shader draws, the view's values, the winding,
 /// the globals and the target's formats.
+#[derive(Clone, Copy)]
 pub(super) struct Look<'a> {
     pub(super) selector: &'a PassSelector,
     pub(super) values: &'a PropertyLayer,
@@ -84,6 +88,8 @@ pub(super) struct Look<'a> {
     pub(super) signature: TargetSignature,
     /// What the pass writes, which its draws may not sample.
     pub(super) written: &'a [Written],
+    /// The instances of a raw buffer the draw makes, when it makes them.
+    pub(super) dots: Option<DotsDraw<'a>>,
 }
 
 pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
@@ -93,15 +99,17 @@ pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
     )
 }
 
-/// Plans each record of the frame into a step.
+/// Plans each record of the frame into a step, with the reads the frame's taps ask for placed
+/// after the records they name.
 ///
 /// # Errors
 /// Fails with the first record the state refuses, which the refusal names.
 pub(super) fn plan_steps(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-) -> Result<Vec<Step>, Refusal> {
+) -> Result<(Vec<Step>, Vec<TapRead>), Refusal> {
     let mut steps = Vec::new();
+    let mut taps = Vec::new();
     let mut globals = Globals {
         layer: &frame.globals,
         keywords: &frame.global_keywords,
@@ -109,8 +117,10 @@ pub(super) fn plan_steps(
     for (index, record) in frame.records.iter().enumerate() {
         plan_record(svc, frame, (index, record), &mut globals, &mut steps)
             .map_err(|error| Refusal::at(index, error))?;
+        taps.extend(tap::plan_taps(svc, frame, index, &mut steps));
     }
-    Ok(steps)
+    taps.extend(tap::past_the_end(frame));
+    Ok((steps, taps))
 }
 
 /// Plans one record into the steps it adds to `steps`: none for a record of globals or one that
@@ -204,6 +214,7 @@ fn camera_step(
         globals,
         signature,
         written: &cells,
+        dots: None,
     };
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
@@ -295,11 +306,16 @@ pub(super) fn planned_draw(
     .into_iter()
     .flatten()
     .collect();
+    let mut keywords = keywords(material, look.globals);
+    if look.dots.is_some() {
+        dots::select_variant(&mut keywords);
+    }
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, look.globals),
+        keywords,
         selector: look.selector.clone(),
         layers: Layers::new(&layers),
+        dots: look.dots,
     };
     let Some(sub) = svc.meshes.get(renderer.mesh)?.sub_meshes.get(slot).copied() else {
         return Ok(None);

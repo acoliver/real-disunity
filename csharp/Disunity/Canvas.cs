@@ -69,6 +69,11 @@ public sealed class Font : Object
         FontData = file.Length == 0 ? null : file;
     }
 
+    /// <summary>True when the engine draws this font's glyphs on demand from font data, which is the case for a font that
+    /// holds its font file (registered by the host or stored by a player). A font with no file has only imported glyph data
+    /// and is not dynamic. The engine has no system fonts, so no font is made from an OS font.</summary>
+    public bool dynamic => FontData is not null;
+
     private Material? _material;
 
     /// <summary>The material UI text draws this font with: a copy of the default UI material named after the font,

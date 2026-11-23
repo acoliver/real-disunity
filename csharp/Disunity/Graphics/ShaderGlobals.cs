@@ -42,7 +42,7 @@ public sealed partial class Shader
     public static void SetGlobalVector(string name, Vector4 value) => SetGlobalVector(PropertyToID(name), value);
     public static void SetGlobalVector(int nameID, Vector4 value) => Globals.Vectors[nameID] = value;
     public static void SetGlobalColor(string name, Color value) => SetGlobalColor(PropertyToID(name), value);
-    public static void SetGlobalColor(int nameID, Color value) => Globals.Vectors[nameID] = value;
+    public static void SetGlobalColor(int nameID, Color value) => Globals.SetColor(nameID, value);
     public static void SetGlobalMatrix(string name, Matrix4x4 value) => SetGlobalMatrix(PropertyToID(name), value);
     public static void SetGlobalMatrix(int nameID, Matrix4x4 value) => Globals.Matrices[nameID] = value;
     public static void SetGlobalTexture(string name, Texture? value) => SetGlobalTexture(PropertyToID(name), value);
@@ -108,7 +108,7 @@ public sealed partial class Shader
     public static Vector4 GetGlobalVector(string name) => GetGlobalVector(PropertyToID(name));
     public static Vector4 GetGlobalVector(int nameID) => Globals.Vectors.GetValueOrDefault(nameID);
     public static Color GetGlobalColor(string name) => GetGlobalColor(PropertyToID(name));
-    public static Color GetGlobalColor(int nameID) => Globals.Vectors.GetValueOrDefault(nameID);
+    public static Color GetGlobalColor(int nameID) => Globals.GetColor(nameID);
     public static Matrix4x4 GetGlobalMatrix(string name) => GetGlobalMatrix(PropertyToID(name));
     public static Matrix4x4 GetGlobalMatrix(int nameID) => Globals.Matrices.TryGetValue(nameID, out var matrix) ? matrix : Matrix4x4.identity;
     public static Texture? GetGlobalTexture(string name) => GetGlobalTexture(PropertyToID(name));

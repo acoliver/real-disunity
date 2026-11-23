@@ -24,6 +24,10 @@ internal static class UndrawnCalls
     public static void NoteTextureUnstored(string name, string reason) =>
         WarnOnce("texture unstored: " + name, $"texture '{name}' {reason}, so it is sent as no texture");
 
+    /// <summary>Logs the first time a batch renderer group's culling callback or a batch draw fails for a reason, since the world
+    /// was loaded. The cull or the record goes on without that group's or that draw's batches.</summary>
+    public static void NoteBatchFailure(string reason) => WarnOnce("batch: " + reason, $"BatchRendererGroup: {reason}; its batches are left out");
+
     private static void WarnOnce(string key, string message)
     {
         lock (Noted)

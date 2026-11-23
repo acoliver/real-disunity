@@ -5,11 +5,25 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, TargetRead, key_code, play_player_window, prepare, prepare_player, run_player,
-};
-use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
+use worldrunner_play::Capture;
+use worldrunner_play::Game;
+use worldrunner_play::PlayDriver;
+use worldrunner_play::PlayerLaunch;
+use worldrunner_play::PlayerWindow;
+use worldrunner_play::ScheduledKey;
+use worldrunner_play::ScreenOutput;
+use worldrunner_play::StandInLook;
+use worldrunner_play::SuppliedGlobal;
+use worldrunner_play::TargetRead;
+use worldrunner_play::key_code;
+use worldrunner_play::play_player_window;
+use worldrunner_play::prepare;
+use worldrunner_play::prepare_player;
+use worldrunner_play::run_player;
+use worldrunner_scene_viewer::LiveInputEvent;
+use worldrunner_scene_viewer::LiveOptions;
+use worldrunner_scene_viewer::ScheduledInput;
+use worldrunner_scene_viewer::run_live;
 
 /// The window a player opens in when `--size` is not given.
 const WINDOW_SIZE: [u32; 2] = [1920, 1080];

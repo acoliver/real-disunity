@@ -39,7 +39,8 @@ wire_struct!(DrawBatch {
     offset,
     size,
     metadata,
-    visible
+    visible,
+    pass_tags
 });
 
 /// The most planes a decoder accepts for one culling result.

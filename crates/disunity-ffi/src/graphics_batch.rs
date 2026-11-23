@@ -14,8 +14,8 @@ pub const KIND_DRAW_MESH_BATCH: u32 = 23;
 
 /// The fields of a batch draw. `metadata_count` names are at the call's `names` pointer
 /// (`names_len` bytes of UTF-8 names joined by zero bytes) with one word each at `words`;
-/// `visible_count` instance indexes are at `visible`. `padding` keeps the record 8-byte aligned
-/// and is ignored.
+/// `visible_count` instance indexes are at `visible`. `tags_len` bytes at `tags` are the pass
+/// tags (`LightMode` values) joined by zero bytes, and a record that has them has pass -1.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityDrawBatch {
@@ -29,7 +29,7 @@ pub struct DisunityDrawBatch {
     pub metadata_count: u32,
     pub names_len: u32,
     pub visible_count: u32,
-    pub padding: u32,
+    pub tags_len: u32,
 }
 
 /// The pointers of a call, which `count` elements each must be readable for.
@@ -37,6 +37,7 @@ struct Lists<'a> {
     names: &'a [u8],
     words: &'a [u32],
     visible: &'a [u32],
+    tags: &'a [u8],
 }
 
 /// A slice of `count` elements at `data`, or an empty one for a count of zero.
@@ -75,19 +76,35 @@ fn metadata(lists: &Lists<'_>, count: u32) -> Result<Vec<(String, u32)>, AbiErro
         .collect()
 }
 
+/// The pass tags of the call: the names in `tags` joined by zero bytes, none for no bytes.
+fn pass_tags(tags: &[u8]) -> Result<Vec<String>, AbiError> {
+    if tags.is_empty() {
+        return Ok(Vec::new());
+    }
+    tags.split(|byte| *byte == 0)
+        .map(|tag| {
+            std::str::from_utf8(tag)
+                .map(str::to_owned)
+                .map_err(|_| "pass tags must be UTF-8".into())
+        })
+        .collect()
+}
+
 /// Records a draw of instances of sub-mesh `submesh` of the stored mesh `mesh`, with the
 /// material's `pass` (-1 for every pass), into the bound targets with the current view and
 /// projection. The shader reads each instance from the window of `buffer` that starts at `offset`
 /// and is `size` bytes long. `names` holds `batch.metadata_count` property names joined by zero
 /// bytes (`batch.names_len` bytes), `words` their metadata words and `visible` the indexes of the
-/// instances to draw, in order. A count of zero needs no pointer. An identity nothing stored, a
+/// instances to draw, in order, and `tags` the `batch.tags_len` bytes of pass tags, which a
+/// draw of a renderer list's passes names instead of a pass index (the pass must then be -1). A
+/// count of zero needs no pointer. An identity nothing stored, a
 /// dead material or buffer, a window outside the buffer, a name that is empty or too long and a
 /// count that disagrees with the names are refused and record nothing.
 ///
 /// # Safety
 /// `batch` is readable for one record. `names` is readable for `batch.names_len` bytes, `words`
-/// for `batch.metadata_count` words and `visible` for `batch.visible_count` words, each unless
-/// its count is zero.
+/// for `batch.metadata_count` words, `visible` for `batch.visible_count` words and `tags` for
+/// `batch.tags_len` bytes, each unless its count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn disunity_offscreen_draw_mesh_batch(
     world: u64,
@@ -95,6 +112,7 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh_batch(
     names: *const u8,
     words: *const u32,
     visible: *const u32,
+    tags: *const u8,
 ) -> DisunityResult {
     if batch.is_null() {
         return DisunityResult::invalid_argument();
@@ -105,15 +123,21 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh_batch(
             elements(names, batch.names_len),
             elements(words, batch.metadata_count),
             elements(visible, batch.visible_count),
+            elements(tags, batch.tags_len),
         )
     };
     mutate(world, |s| {
-        let (names, words, visible) = lists;
+        let (names, words, visible, tags) = lists;
         let lists = Lists {
             names: names?,
             words: words?,
             visible: visible?,
+            tags: tags?,
         };
+        let pass_tags = pass_tags(lists.tags)?;
+        if !pass_tags.is_empty() && batch.pass != -1 {
+            return Err("a batch draw with pass tags has the pass -1".into());
+        }
         if !s.meshes.contains_key(&batch.mesh) {
             return Err("a batch draw names a mesh identity nothing stored".into());
         }
@@ -128,6 +152,7 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh_batch(
                 size: batch.size,
                 metadata: metadata(&lists, batch.metadata_count)?,
                 visible: lists.visible.to_vec(),
+                pass_tags,
             },
         })?;
         Ok(())

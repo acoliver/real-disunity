@@ -628,7 +628,7 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityDrawBatch>("metadata_count").ToInt32() != 48) throw new InvalidOperationException("DisunityDrawBatch.metadata_count offset");
         if (Marshal.OffsetOf<DisunityDrawBatch>("names_len").ToInt32() != 52) throw new InvalidOperationException("DisunityDrawBatch.names_len offset");
         if (Marshal.OffsetOf<DisunityDrawBatch>("visible_count").ToInt32() != 56) throw new InvalidOperationException("DisunityDrawBatch.visible_count offset");
-        if (Marshal.OffsetOf<DisunityDrawBatch>("padding").ToInt32() != 60) throw new InvalidOperationException("DisunityDrawBatch.padding offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("tags_len").ToInt32() != 60) throw new InvalidOperationException("DisunityDrawBatch.tags_len offset");
         if (Marshal.SizeOf<DisunityDrawBatch>() != 64 || typeof(DisunityDrawBatch).GetFields().Length != 11) throw new InvalidOperationException("DisunityDrawBatch layout");
         if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");

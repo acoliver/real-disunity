@@ -79,6 +79,7 @@ fn batch(data: (ComputeBufferId, u64, u64), visible: Vec<u32>) -> DrawBatch {
         size: data.2,
         metadata: vec![(METADATA.to_owned(), word())],
         visible,
+        pass_tags: Vec::new(),
     }
 }
 
@@ -108,6 +109,55 @@ fn a_batch_with_three_visible_instances_draws_three_quads_at_their_matrices() {
         run.outcome.writes.is_empty(),
         "a draw only reads the buffer"
     );
+}
+
+/// A batch of the draw's data that names `tags`, with pass -1.
+fn tagged(data: (ComputeBufferId, u64, u64), tags: &[&str]) -> DrawBatch {
+    DrawBatch {
+        pass_tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+        ..batch(data, vec![0])
+    }
+}
+
+#[test]
+fn a_batch_with_pass_tags_draws_the_pass_the_first_tag_a_pass_has_names() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let material = material(&mut world);
+    let data = instances(&mut world, &[2], 0);
+    draw_batch(
+        &mut world,
+        material,
+        tagged(data, &["ShadowCaster", "Alpha"]),
+    );
+
+    let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
+
+    assert_eq!(run.columns(), [GREEN, GREEN, element_color(0), GREEN]);
+    assert!(run.outcome.report.skipped.is_empty());
+}
+
+#[test]
+fn a_batch_whose_pass_tags_match_no_pass_is_skipped_by_name_and_keeps_its_neighbours() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let material = material(&mut world);
+    let (before, left_out, after) = (
+        instances(&mut world, &[0], 0),
+        instances(&mut world, &[1], 0),
+        instances(&mut world, &[3], 0),
+    );
+    draw_batch(&mut world, material, batch(before, vec![0]));
+    draw_batch(&mut world, material, tagged(left_out, &["ShadowCaster"]));
+    draw_batch(&mut world, material, batch(after, vec![0]));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
+
+    assert_eq!(
+        run.columns(),
+        [element_color(0), GREEN, GREEN, element_color(0)]
+    );
+    assert_eq!(run.outcome.report.skipped[&super::Skip::NoTaggedPass], 1);
 }
 
 #[test]

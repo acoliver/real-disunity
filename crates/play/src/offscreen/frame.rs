@@ -216,6 +216,8 @@ pub enum Skip {
     EmptyMesh,
     /// A batch draw over a compute buffer the host does not hold.
     BufferUnavailable,
+    /// A batch draw whose pass tags name no pass of the material's shader.
+    NoTaggedPass,
 }
 
 /// Why a renderer was left out of the frame.

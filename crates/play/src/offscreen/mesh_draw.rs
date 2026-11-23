@@ -23,7 +23,7 @@ use worldrunner_world_simulation::graphics::{
 
 use super::frame::{Mapper, Skip};
 use super::ids;
-use super::lists::IMAGE_FRONT_FACE;
+use super::lists::{IMAGE_FRONT_FACE, list_pass_selector};
 use super::properties::layer;
 
 /// The layer of a mesh draw's renderer. No layer has this number, so no camera of the frame
@@ -47,6 +47,17 @@ struct Prepared {
     block: PropertyLayer,
     per_draw: PropertyLayer,
     instances: Instances,
+}
+
+/// The passes a draw of pass index `pass` makes: that one, or each of the shader's `passes` in
+/// order for -1.
+fn indexed_selectors(pass: i32, passes: usize) -> Result<Vec<PassSelector>, Skip> {
+    let range = match usize::try_from(pass) {
+        Ok(one) if one < passes => one..one + 1,
+        Err(_) if passes > 0 => 0..passes,
+        _ => return Err(Skip::NoSuchPass),
+    };
+    Ok(range.map(PassSelector::Index).collect())
 }
 
 impl Mapper<'_> {
@@ -92,10 +103,11 @@ impl Mapper<'_> {
         let (target, raster) = self.draw_target()?;
         self.check_sub_mesh(mesh, submesh)?;
         let (named, passes) = self.material_and_passes(material)?;
-        let passes = match usize::try_from(pass) {
-            Ok(one) if one < passes => one..one + 1,
-            Err(_) if passes > 0 => 0..passes,
-            _ => return Err(Skip::NoSuchPass),
+        let selectors = match instanced {
+            Instanced::Batch(DrawBatch { pass_tags, .. }) if !pass_tags.is_empty() => {
+                vec![self.tagged_selector(material, pass_tags)?]
+            }
+            _ => indexed_selectors(pass, passes)?,
         };
         let (values, _) = self.current_view()?;
         let Some(prepared) = self.prepare(instanced)? else {
@@ -120,17 +132,36 @@ impl Mapper<'_> {
             target,
             values,
             front_face: IMAGE_FRONT_FACE,
-            draws: passes
+            draws: selectors
+                .into_iter()
                 .map(|pass| ListDraw {
                     renderer,
                     slot,
                     material: Some(named),
-                    pass: PassSelector::Index(pass),
+                    pass,
                     instances: prepared.instances.clone(),
                     per_draw: PropertyLayer::default(),
                 })
                 .collect(),
         }))])
+    }
+
+    /// The pass a batch draw makes for the `LightMode` values `tags`, which a renderer list that
+    /// names them draws: the first pass with the first tag any pass of the material's shader has.
+    fn tagged_selector(
+        &self,
+        material: WorldMaterialId,
+        tags: &[String],
+    ) -> Result<PassSelector, Skip> {
+        let info = self
+            .snapshot
+            .materials
+            .get(&material)
+            .and_then(|held| self.available.shaders.get(&held.shader))
+            .ok_or(Skip::ShaderUnavailable)?;
+        info.list_tag(tags)
+            .map(|_| list_pass_selector(tags))
+            .ok_or(Skip::NoTaggedPass)
     }
 
     /// The renderer values and instances of a draw, or `None` for a draw of no instance.

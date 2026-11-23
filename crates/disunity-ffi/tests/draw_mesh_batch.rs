@@ -80,6 +80,7 @@ fn buffer(world: u64) -> u64 {
 const NAMES: &[u8] = b"unity_ObjectToWorld\0_Color";
 const WORDS: [u32; 2] = [0x8000_0010, 0x40];
 const VISIBLE: [u32; 3] = [2, 0, 1];
+const TAGS: &[u8] = b"UniversalForward\0SRPDefaultUnlit";
 
 fn description(buffer: u64, material: u64) -> DisunityDrawBatch {
     DisunityDrawBatch {
@@ -89,11 +90,11 @@ fn description(buffer: u64, material: u64) -> DisunityDrawBatch {
         offset: 16,
         size: 48,
         submesh: 1,
-        pass: 2,
+        pass: -1,
         metadata_count: 2,
         names_len: NAMES.len() as u32,
         visible_count: 3,
-        padding: 0,
+        tags_len: TAGS.len() as u32,
     }
 }
 
@@ -105,6 +106,7 @@ fn call(desc: &DisunityDrawBatch, world: u64) -> i32 {
             NAMES.as_ptr(),
             WORDS.as_ptr(),
             VISIBLE.as_ptr(),
+            TAGS.as_ptr(),
         )
     }
     .code
@@ -157,7 +159,7 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_twenty_three() {
             mesh: FIRST_PLAYER_MESH,
             material: MaterialId::from_bits(material),
             submesh: 1,
-            pass: 2,
+            pass: -1,
             batch: DrawBatch {
                 buffer: ComputeBufferId::from_bits(buffer),
                 offset: 16,
@@ -167,6 +169,7 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_twenty_three() {
                     ("_Color".into(), 0x40),
                 ],
                 visible: vec![2, 0, 1],
+                pass_tags: vec!["UniversalForward".into(), "SRPDefaultUnlit".into()],
             },
         }
     );
@@ -182,12 +185,14 @@ fn a_batch_with_no_metadata_and_no_visible_instance_is_recorded() {
         metadata_count: 0,
         names_len: 0,
         visible_count: 0,
+        tags_len: 0,
         ..description(buffer, material)
     };
     let code = unsafe {
         disunity_offscreen_draw_mesh_batch(
             world,
             &desc,
+            std::ptr::null(),
             std::ptr::null(),
             std::ptr::null(),
             std::ptr::null(),
@@ -199,7 +204,7 @@ fn a_batch_with_no_metadata_and_no_visible_instance_is_recorded() {
     let OffscreenWork::DrawMeshBatch { batch, .. } = &taken[0].1 else {
         panic!("expected a batch draw, got {:?}", taken[0].1);
     };
-    assert!(batch.metadata.is_empty() && batch.visible.is_empty());
+    assert!(batch.metadata.is_empty() && batch.visible.is_empty() && batch.pass_tags.is_empty());
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 
@@ -223,6 +228,8 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
         with(&|d| d.offset = 32),
         with(&|d| d.size = 0),
         with(&|d| d.pass = -2),
+        with(&|d| d.pass = 2),
+        with(&|d| d.tags_len = 17),
         with(&|d| d.metadata_count = 3),
         with(&|d| d.names_len = 3),
         call(&good, world + 999),
@@ -233,6 +240,7 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
                 NAMES.as_ptr(),
                 WORDS.as_ptr(),
                 VISIBLE.as_ptr(),
+                TAGS.as_ptr(),
             )
         }
         .code,
@@ -243,6 +251,7 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
                 std::ptr::null(),
                 WORDS.as_ptr(),
                 VISIBLE.as_ptr(),
+                TAGS.as_ptr(),
             )
         }
         .code,
@@ -253,6 +262,7 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
                 NAMES.as_ptr(),
                 std::ptr::null(),
                 VISIBLE.as_ptr(),
+                TAGS.as_ptr(),
             )
         }
         .code,
@@ -263,6 +273,29 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
                 NAMES.as_ptr(),
                 WORDS.as_ptr(),
                 std::ptr::null(),
+                TAGS.as_ptr(),
+            )
+        }
+        .code,
+        unsafe {
+            disunity_offscreen_draw_mesh_batch(
+                world,
+                &good,
+                NAMES.as_ptr(),
+                WORDS.as_ptr(),
+                VISIBLE.as_ptr(),
+                std::ptr::null(),
+            )
+        }
+        .code,
+        unsafe {
+            disunity_offscreen_draw_mesh_batch(
+                world,
+                &good,
+                NAMES.as_ptr(),
+                WORDS.as_ptr(),
+                VISIBLE.as_ptr(),
+                bad_utf8.as_ptr(),
             )
         }
         .code,
@@ -273,6 +306,7 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
                 bad_utf8.as_ptr(),
                 WORDS.as_ptr(),
                 VISIBLE.as_ptr(),
+                TAGS.as_ptr(),
             )
         }
         .code,

@@ -78,7 +78,7 @@ impl ShaderInfo {
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
-    fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
+    pub(super) fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
             self.has_light_mode(tag)
                 || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))

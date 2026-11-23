@@ -197,7 +197,7 @@ pub struct DisunityDrawBatch {
     pub metadata_count: u32,
     pub names_len: u32,
     pub visible_count: u32,
-    pub padding: u32,
+    pub tags_len: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

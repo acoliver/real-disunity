@@ -7,8 +7,9 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
     decode, decode_work, encode, encode_work,
 };
 use worldrunner_world_simulation::graphics::{
-    ComputeBufferId, DrawBatch, GraphicsError, GraphicsSnapshot, MAX_BATCH_VISIBLE, MAX_NAME_BYTES,
-    MAX_PROPERTIES_PER_KIND, MaterialId, OffscreenWork, WorldShader,
+    ComputeBufferId, DrawBatch, GraphicsError, GraphicsSnapshot, MAX_BATCH_PASS_TAGS,
+    MAX_BATCH_VISIBLE, MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MaterialId, OffscreenWork,
+    WorldShader,
 };
 use worldrunner_world_simulation::{World, WorldError, WorldSettings};
 
@@ -46,6 +47,7 @@ fn batch(buffer: ComputeBufferId) -> DrawBatch {
             ("_Color".into(), 0x0000_0040),
         ],
         visible: vec![2, 0, 1],
+        pass_tags: vec!["UniversalForward".into(), "SRPDefaultUnlit".into()],
     }
 }
 
@@ -205,6 +207,41 @@ fn metadata_and_visible_lists_over_their_limits_are_refused_by_name() {
     assert!(world.offscreen_work().is_empty());
     world
         .record_offscreen(with(Vec::new(), vec![0; MAX_BATCH_VISIBLE]))
+        .unwrap();
+    assert_eq!(world.offscreen_work().len(), 1);
+}
+
+#[test]
+fn pass_tags_over_their_limits_are_refused_by_name() {
+    let mut world = world();
+    let material = material(&mut world);
+    let held = buffer(&mut world);
+    let with = |pass_tags: Vec<String>| {
+        record(
+            material,
+            DrawBatch {
+                pass_tags,
+                ..batch(held)
+            },
+        )
+    };
+    let cases = [
+        (
+            with(vec!["t".repeat(MAX_NAME_BYTES + 1)]),
+            GraphicsError::InvalidName,
+        ),
+        (with(vec![String::new()]), GraphicsError::InvalidName),
+        (
+            with(vec!["Tag".to_owned(); MAX_BATCH_PASS_TAGS + 1]),
+            GraphicsError::InvalidOffscreen,
+        ),
+    ];
+    for (work, expected) in cases {
+        assert_eq!(graphics_error(world.record_offscreen(work)), expected);
+    }
+    assert!(world.offscreen_work().is_empty());
+    world
+        .record_offscreen(with(vec!["Tag".to_owned(); MAX_BATCH_PASS_TAGS]))
         .unwrap();
     assert_eq!(world.offscreen_work().len(), 1);
 }

@@ -72,6 +72,7 @@ var bytes = typeof(byte).MakePointerType();
 CheckImport("disunity_abi_check", u32);
 CheckImport("disunity_script_register", u64, u64, u64, u64.MakePointerType());
 CheckImport("disunity_script_messages", u64, u64, u32);
+CheckImport("disunity_script_execution_order", u64, u64, typeof(int));
 CheckImport("disunity_object_wake", u64, u64, advance.MakePointerType());
 CheckImport("disunity_construction_begin", u64, u64.MakePointerType());
 CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType());
@@ -391,6 +392,7 @@ PresentationTests.Run();
 
 CoroutineInputTests.Run();
 ScriptMessageSetTests.Run();
+ScriptExecutionOrderTests.Run();
 
 PhysicsTests.Run();
 TilemapTests.Run();

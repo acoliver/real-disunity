@@ -22,7 +22,7 @@ use worldrunner_render_program::state::RasterState;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec,
-        GameTargets, PassTarget, TargetDeclaration, TargetExtent,
+        GameTargets, PassTarget, StockReplacement, TargetDeclaration, TargetExtent,
     },
     wgpu,
 };
@@ -94,6 +94,8 @@ pub struct Knobs {
     pub without_depth: bool,
     /// Place the light pass after Opaque, where it draws over what the stock object drew.
     pub light_after_opaque: bool,
+    /// The stock surfaces the game draws, declared when the factory is installed.
+    pub replaces: StockReplacement,
     pub counts: Counts,
     /// The program runtime's counters after the latest preparation.
     pub stats: Option<worldrunner_render_program::runtime::RuntimeStats>,
@@ -116,6 +118,10 @@ pub struct StripGame {
 impl GameFeatureFactory for StripGame {
     fn name(&self) -> &'static str {
         "strip game"
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.knobs.lock().unwrap().replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

@@ -21,6 +21,8 @@ pub(super) struct PassRaster {
     pub(super) viewport: Option<[f32; 4]>,
     /// The depth bias of the pipelines of the triangle draws.
     pub(super) bias: wgpu::DepthBiasState,
+    /// Whether the draws blend their alpha as coverage (see `DrawRaster::coverage_alpha`).
+    pub(super) coverage_alpha: bool,
 }
 
 /// The state of the draws of `raster` over attachments of `size` texels, or `None` when its
@@ -45,6 +47,7 @@ pub(super) fn resolve(raster: &DrawRaster, size: [u32; 2]) -> Option<PassRaster>
             slope_scale: -slope,
             clamp: 0.0,
         },
+        coverage_alpha: raster.coverage_alpha,
     })
 }
 

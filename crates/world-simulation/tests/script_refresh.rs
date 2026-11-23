@@ -43,7 +43,7 @@ fn messages(work: &[LifecycleWork]) -> Vec<(ComponentHandle, ScriptMessage)> {
 }
 
 #[test]
-fn an_objects_scripts_refresh_in_handle_order_when_a_later_script_reuses_a_lower_slot() {
+fn an_objects_scripts_refresh_in_registration_order_when_a_later_script_reuses_a_lower_slot() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let temporary = world.create_object(ObjectDesc::default()).unwrap();
     script(&mut world, temporary);
@@ -59,10 +59,10 @@ fn an_objects_scripts_refresh_in_handle_order_when_a_later_script_reuses_a_lower
     assert_eq!(
         messages(&work),
         vec![
-            (second, ScriptMessage::Awake),
             (first, ScriptMessage::Awake),
-            (second, ScriptMessage::OnEnable),
+            (second, ScriptMessage::Awake),
             (first, ScriptMessage::OnEnable),
+            (second, ScriptMessage::OnEnable),
         ]
     );
 }

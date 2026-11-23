@@ -618,6 +618,7 @@ impl<'t> PlayerPlanner<'t> {
             script: String::new(),
             class: script.full_name,
             assembly: Some(script.assembly),
+            execution_order: Some(script.execution_order),
             enabled: data.enabled,
             fields,
         })

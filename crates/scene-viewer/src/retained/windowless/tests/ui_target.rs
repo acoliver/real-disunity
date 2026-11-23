@@ -54,7 +54,12 @@ fn overlay() -> UiOverlay {
         draws: vec![draw],
         ..UiPresentation::default()
     };
-    UiOverlay::from_presentation(&presentation, &BTreeMap::new()).unwrap()
+    UiOverlay::from_presentation(
+        &presentation,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap()
 }
 
 #[test]

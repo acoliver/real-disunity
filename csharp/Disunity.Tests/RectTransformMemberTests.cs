@@ -49,7 +49,7 @@ internal static class RectTransformMemberTests
     {
         var root = DisunityHost.CreateGameObject();
         var rect = root.AddComponent<RectTransform>();
-        root.AddComponent<Canvas>();
+        root.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         return rect;
     }
 

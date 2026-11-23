@@ -1,26 +1,30 @@
-//! Orbit navigation of the player window: the viewer's retained path draws a camera it is told
-//! and leaves moving it to the application, so the window's pointer and keys turn an
-//! [`OrbitCamera`] and the driver sends its pose on.
+//! Orbit navigation of a retained window: the retained host draws the camera it is told and leaves
+//! moving it to the application, so the window's pointer and keys turn an [`OrbitCamera`] and the
+//! driver sends its pose on.
 
 use worldrunner_render_scene::{CameraPose, Viewport};
-use worldrunner_scene_viewer::{MouseButton, OrbitCamera, OrbitLimits, RetainedInput, WheelDelta};
+
+use crate::{MouseButton, OrbitCamera, OrbitLimits, RetainedInput, ViewerError, WheelDelta};
 
 /// Wheel pixels that count as one zoom step.
 const PIXELS_PER_STEP: f64 = 40.0;
 
 /// The orbit camera and the pointer state that moves it.
 #[derive(Default)]
-pub struct Navigation {
+pub struct OrbitNavigation {
     orbit: Option<OrbitCamera>,
     dragging: bool,
     cursor: Option<[f64; 2]>,
     moved: bool,
 }
 
-impl Navigation {
+impl OrbitNavigation {
     /// Starts navigating from `pose`, which the R and Home keys return to.
-    pub fn start(&mut self, pose: CameraPose, limits: OrbitLimits) -> Result<(), String> {
-        self.orbit = Some(OrbitCamera::new(pose, limits).map_err(|error| error.to_string())?);
+    ///
+    /// # Errors
+    /// Fails when `pose` is outside `limits`.
+    pub fn start(&mut self, pose: CameraPose, limits: OrbitLimits) -> Result<(), ViewerError> {
+        self.orbit = Some(OrbitCamera::new(pose, limits)?);
         self.moved = false;
         Ok(())
     }

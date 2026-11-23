@@ -77,7 +77,9 @@ impl Objects {
                 RetainedUpdate::Camera { .. }
                 | RetainedUpdate::CameraWithContinuity { .. }
                 | RetainedUpdate::CameraWithShadowPolicy { .. } => {}
-                RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
+                RetainedUpdate::Ui(_) | RetainedUpdate::World(_) => {
+                    unreachable!("UI and world updates publish through readiness")
+                }
                 RetainedUpdate::Resources { .. }
                 | RetainedUpdate::AppendResources(_)
                 | RetainedUpdate::ReplaceTexture { .. }
@@ -226,10 +228,7 @@ impl Renderer {
         if !host.has_view_extent() {
             return Ok(false);
         }
-        let mut noop: crate::SceneUpdate = Box::new(|_| Ok(()));
-        Ok(self
-            .render_admitted(super::FrameSource::Retained(host), &mut noop, None)?
-            .is_some())
+        Ok(self.render_admitted(host)?.is_some())
     }
 }
 
@@ -350,4 +349,34 @@ pub(super) fn apply_ui(
         .scene_mut()
         .set_ui_overlay(context.device(), context.submission(), overlay, targets)
         .map_err(|error| ViewerError::Gpu(error.to_string()))
+}
+
+pub(super) fn apply_world(
+    context: &super::GpuContext,
+    resident: &mut Resident,
+    frame: &worldrunner_render_scene::simulation::WorldSceneContribution,
+) -> Result<(), ViewerError> {
+    let Resident::Plain(plain) = resident else {
+        return Err(ViewerError::UnsupportedScene("dynamic shadow host"));
+    };
+    plain.gpu.set_dynamic_contribution(
+        context.device(),
+        context.submission(),
+        &plain.pipelines,
+        &frame.textures,
+        &frame.quads,
+    )?;
+    let [r, g, b, a] = frame.clear;
+    plain.clear = Some(wgpu::Color { r, g, b, a });
+    Ok(())
+}
+
+impl Resident {
+    /// The colour a world frame clears to, when the resident has shown one.
+    pub(super) fn clear_color(&self) -> Option<wgpu::Color> {
+        match self {
+            Self::Plain(plain) => plain.clear,
+            Self::Shadowed(_) => None,
+        }
+    }
 }

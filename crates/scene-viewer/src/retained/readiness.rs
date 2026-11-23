@@ -34,6 +34,8 @@ pub(crate) struct Readiness {
     pub page_wait: bool,
     pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),
+    /// The view of the latest published world frame, which the host draws in place of `camera`.
+    pub world_view: Option<worldrunner_render_scene::SceneView>,
     pub shadow_policy: Option<super::CameraShadowPolicy>,
     pub camera_history: super::camera::CameraHistory,
     #[cfg(test)]
@@ -61,6 +63,9 @@ impl Readiness {
                 self.shadow_policy = camera.shadow_policy;
             }
             self.camera_history.publish(camera.continuity);
+        }
+        if let RetainedUpdate::World(frame) = &front.update {
+            self.world_view = Some(frame.view);
         }
         assert_eq!(front.generation, self.published + 1);
         self.published = front.generation;

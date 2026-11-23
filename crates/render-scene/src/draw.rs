@@ -354,6 +354,8 @@ pub struct SceneGpu {
     caster_fits: selection_reuse::CasterFits,
     /// The pairs the batches draw, until a placement or table changes.
     drawn_pair_memo: RefCell<object_runtime::DrawnPairs>,
+    /// What the recording sinks of the scene's passes fill, reused from pass to pass.
+    sink_scratch: RefCell<object_runtime::SinkScratch>,
     /// What every view's selection reads of each batch that holds while no placement or table
     /// changes.
     placement_rows: RefCell<visibility::PlacementRows>,
@@ -487,6 +489,7 @@ impl SceneGpu {
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
             drawn_pair_memo: RefCell::default(),
+            sink_scratch: RefCell::default(),
             placement_rows: RefCell::default(),
             selection_threads: visibility::selection_threads(),
             gather: compaction::Shared::default(),

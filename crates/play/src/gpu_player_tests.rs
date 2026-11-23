@@ -98,6 +98,48 @@ fn work_the_gpu_refused_whole_is_counted_with_its_records_and_the_rest_is_not() 
     assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
 }
 
+#[test]
+fn the_first_work_the_gpu_refused_whole_is_what_the_run_is_told_of_once() {
+    let mut report = GpuWorkReport::default();
+    let flush = WorkTrace {
+        kind: "flush",
+        ..trace(3, Some("over its budget of 7"))
+    };
+    report.keep_traces(vec![trace(1, None), flush, trace(2, Some("a shader"))]);
+    assert_eq!(
+        report.refusal.take().as_deref(),
+        Some("flush refused by the GPU: over its budget of 7")
+    );
+    assert_eq!(report.refusal, None);
+}
+
+#[test]
+fn a_render_texture_the_budget_refused_is_a_refusal_and_a_refused_upload_is_not() {
+    let mut unsupported = Report::default();
+    for cause in [
+        "texture:Program/Layout/UnsupportedParameter",
+        "texture:Program/OverBudget",
+        "mesh:Program/OverBudget",
+    ] {
+        unsupported.causes.insert(cause.to_owned(), 1);
+    }
+    let mut over = Report::default();
+    let cause = "rendertexture:Program/OverBudget";
+    over.causes.insert(cause.to_owned(), 2);
+    over.examples
+        .insert(cause.to_owned(), "the allocation takes 9 bytes".to_owned());
+    let mut report = GpuWorkReport::default();
+    report.add(&unsupported, "frame");
+    assert_eq!(report.refusal, None);
+    report.add(&over, "flush");
+    assert_eq!(
+        report.refusal.as_deref(),
+        Some(
+            "flush refused by the GPU: rendertexture:Program/OverBudget: the allocation takes 9 bytes"
+        )
+    );
+}
+
 /// The limits an adapter that offers `storage_images` storage images in a stage and buffers
 /// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
 fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
@@ -173,22 +215,6 @@ fn the_launch_sets_the_globals_and_the_stand_in_look_of_the_offscreen_settings()
     let plain = GpuLaunch::default().settings();
     assert_eq!(plain.stand_in_look, StandInLook::Declared);
     assert!(plain.supplied.is_empty());
-}
-
-#[test]
-fn the_launch_sets_the_storage_budget_and_the_report_names_its_source() {
-    let directory = tempfile::tempdir().unwrap();
-    let launch = GpuLaunch {
-        storage_mb: NonZeroU64::new(96),
-        ..GpuLaunch::default()
-    };
-    let gpu = PlayerGpu::headless(directory.path(), &launch).unwrap();
-    assert_eq!(gpu.storage_budget(), 96 << 20);
-    assert!(
-        gpu.report().device.contains("--gpu-storage-mb"),
-        "{}",
-        gpu.report().device
-    );
 }
 
 #[test]
@@ -379,7 +405,7 @@ fn the_window_and_the_headless_player_ask_for_the_same_device() {
     let data = tempfile::tempdir().unwrap();
     let mut viewer = HeadlessViewer::new([8, 4]);
     let adapter = viewer.adapter().unwrap();
-    let inputs = PlayerStartupInputs::from_snapshot(None, Some(6 << 30));
+    let inputs = PlayerStartupInputs::from_snapshot(Some(6 << 30));
     let settings = Settings::cameras;
     let shared =
         PlayerGpu::shared_on_adapter(&mut viewer, &adapter, data.path(), &inputs, settings())

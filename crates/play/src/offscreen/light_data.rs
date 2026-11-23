@@ -20,14 +20,14 @@
 //! * A renderer a camera render draws is shared by every camera of the frame that sees its layer,
 //!   so it has one value: the one the cameras agree on, and 0 when they pick different results.
 //!   A camera a script sets up after the frame's renderers were made does not count.
-//! * A mesh or procedural draw has no layer: `z` is 1 when the frame has a main light.
+//! * A mesh, procedural or batch draw has no layer: `z` is 1 when the frame has a main light.
 
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_world_simulation::graphics::WorldLight;
 use worldrunner_world_simulation::presentation::LightSettings;
 
-use super::builtins::draw_layer;
+use super::builtins::{draw_layer, instanced_draw_layer};
 use super::frame::Mapper;
 use crate::scene_light::main_light_index;
 
@@ -100,7 +100,17 @@ impl Mapper<'_> {
 
     /// The per-draw values of a draw with no layer at `local_to_world`.
     pub(super) fn layerless_draw(&self, local_to_world: &[f32; 16]) -> PropertyLayer {
-        let mut per_draw = draw_layer(local_to_world);
+        self.with_layerless_light(draw_layer(local_to_world))
+    }
+
+    /// The per-draw values of a batch draw, which has no layer and no matrix of its own: the
+    /// shader reads each instance's matrices from the batch's buffer.
+    pub(super) fn layerless_batch_draw(&self) -> PropertyLayer {
+        self.with_layerless_light(instanced_draw_layer())
+    }
+
+    /// `per_draw` with the light factor of a draw with no layer.
+    fn with_layerless_light(&self, mut per_draw: PropertyLayer) -> PropertyLayer {
         let any = MainLight::picked_by(&self.snapshot.lights, u32::MAX);
         add_light_data(&mut per_draw, any.exists.then_some(true));
         per_draw

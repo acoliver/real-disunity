@@ -4,7 +4,7 @@
 //! The host keeps the screen's texture, a colour with a depth buffer, like a render texture of the
 //! world: it persists from frame to frame until the screen's size changes, so a draw with no clear
 //! keeps the colour and the depth an earlier frame left. A run writes its screens from the texture
-//! itself (the player's `--screen` composes it with the UI on the GPU), so the host only notes
+//! itself (the viewer composes it with the UI on the GPU), so the host only notes
 //! that work drew into the colour ([`writes_screen`]).
 //!
 //! Tests read what draws left in the screen back as a `ScreenImage`, with the copy and read that

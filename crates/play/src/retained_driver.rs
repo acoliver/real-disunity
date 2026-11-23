@@ -14,6 +14,9 @@ mod gpu_tests;
 #[path = "retained_legacy_text_tests.rs"]
 mod legacy_text_tests;
 #[cfg(test)]
+#[path = "screen_run_tests.rs"]
+mod screen_run_tests;
+#[cfg(test)]
 #[path = "retained_screen_tests.rs"]
 mod screen_tests;
 #[cfg(test)]
@@ -21,11 +24,11 @@ mod screen_tests;
 pub(crate) mod ui_tests;
 
 use std::collections::BTreeSet;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use worldrunner_camera::{CameraState, ViewConvention, ViewHandedness};
 use worldrunner_disunity_runtime::DisunityHost;
-use worldrunner_render_gpu::{device::DeviceRequirements, submission::SubmissionAuthority};
 use worldrunner_render_plan::{
     SceneCamera, SceneMesh, SceneTexture, SceneValidationError, simulation::SpriteTextures,
 };
@@ -33,8 +36,8 @@ use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
     CameraContinuity, CapturePoolPolicy, FrameProfile, OrbitNavigation, PresentMode,
     PresentationBudget, PresentationCadence, RenderClock, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedTick, RetainedUpdate, ViewerOptions, ViewerStart,
-    WindowMode, WindowSizeUnit,
+    RetainedEventHost, RetainedHost, RetainedTick, RetainedUpdate, SharedGpu, ViewerError,
+    ViewerOptions, ViewerStart, WindowMode, WindowSizeUnit,
 };
 use worldrunner_world_simulation::ui::presentation::UiPresentation;
 
@@ -42,9 +45,9 @@ use crate::{
     PlayError, PreparedPlayer,
     camera_start::CameraStart,
     driver::{Capture, FIRST_COVERAGE_TEXTURE},
-    gpu_device::DeviceSource,
+    gpu_device::{SharedDevice, headless_shared_gpu},
     gpu_player::PlayerGpu,
-    player::window_gpu,
+    player::{report_times, window_gpu},
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, Screen, graphic_textures},
@@ -52,14 +55,14 @@ use crate::{
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
-    window_script::WindowScript,
+    window_script::{Turn, WindowScript},
 };
 
 const LEFT_HANDED: ViewConvention = ViewConvention {
     handedness: ViewHandedness::DirectXLeftHanded,
 };
 
-/// One key press or release, delivered to the game before the update at `frame`.
+/// One key press or release, delivered to the game before it advances to game frame `frame`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScheduledKey {
     pub frame: u64,
@@ -72,66 +75,152 @@ pub struct ScheduledKey {
 pub struct PlayerWindow {
     pub title: String,
     pub size: [u32; 2],
-    /// A fixed game step per update, in place of the time the window took.
+    /// A fixed game step per game frame, in place of the time the window took.
     pub fixed_dt: Option<Duration>,
-    /// The window closes after this many updates are presented.
+    /// The window closes after the game advances this many frames.
     pub max_frames: Option<u64>,
-    /// The updates whose presented frame is kept as a [`Capture`].
+    /// The game frames whose image is kept as a [`Capture`]: the frame presented after the game
+    /// advanced to that frame, with that frame's UI.
     pub capture_frames: BTreeSet<u64>,
+    /// Files each written with the image of its game frame as soon as that capture is delivered,
+    /// so a run that stops later keeps the frames it reached. A frame named here is captured as
+    /// well, and the run fails when one of these files was not written.
+    pub capture_files: Vec<(u64, PathBuf)>,
     pub keys: Vec<ScheduledKey>,
 }
 
-/// Boots the player, shows its scene in a window until the window closes or `max_frames`
-/// frames are presented, and returns the captured frames. The window does the player's offscreen
+impl PlayerWindow {
+    /// Checks that the window plays every frame it is asked to capture, before anything starts.
+    ///
+    /// # Errors
+    /// Fails naming the first capture frame that `max_frames` does not reach.
+    pub fn validate(&self) -> Result<(), PlayError> {
+        match (self.max_frames, self.captured_frames().last()) {
+            (Some(max), Some(frame)) if *frame >= max => Err(PlayError::Invalid(format!(
+                "screen frame {frame} is not among the {max} frames the run plays"
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    /// Every game frame the window keeps as a [`Capture`]: `capture_frames` and the frames of
+    /// `capture_files`.
+    pub(crate) fn captured_frames(&self) -> BTreeSet<u64> {
+        let files = self.capture_files.iter().map(|(frame, _)| *frame);
+        self.capture_frames.iter().copied().chain(files).collect()
+    }
+}
+
+/// How long a windowless run may go without a frame submitted, and how long a capture may take to
+/// arrive. A software adapter draws a large frame in seconds; a run past this is stuck.
+const STALL_LIMIT: Duration = Duration::from_mins(5);
+
+/// Boots the player, shows its scene in a window until the window closes or `max_frames` game
+/// frames are advanced, and returns the captured frames. The window does the player's offscreen
 /// work as a headless run does: a script's synchronous GPU flush, such as a
 /// `Texture2D.ReadPixels` after a `Graphics.Blit`, is answered, and each update's offscreen work
 /// runs on the viewer's own device, in the viewer's frame.
 ///
 /// # Errors
-/// Fails naming the reason when the viewer's device cannot be had, and when the scene cannot start
-/// or the window fails.
+/// Fails naming the reason when the window asks for a frame it never plays, when the viewer's
+/// device cannot be had, and when the scene cannot start or the window fails.
 pub fn play_player_window(
     prepared: &PreparedPlayer,
     window: &PlayerWindow,
 ) -> Result<Vec<Capture>, PlayError> {
+    window.validate()?;
     let mut start = ViewerStart::new()
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
     let options = viewer_options(window);
     let gpu = window_gpu(
         &prepared.data,
         &prepared.gpu,
-        &mut ViewerDevice {
-            start: &mut start,
+        &mut SharedDevice {
+            gpu: start.gpu(),
             options: &options,
         },
     )?;
-    let (viewer, mut driver) = start_window(prepared, window, gpu)?;
-    let ran = viewer.run(start, &mut driver);
+    let (viewer, mut driver) = start_window(prepared, window, options, gpu)?;
+    let ran = viewer
+        .run(start, &mut driver)
+        .map_err(|error| PlayError::Invalid(error.to_string()));
+    finish(driver, ran)
+}
+
+/// [`play_player_window`] with no window and no display: the same driver runs on a windowless
+/// retained host, at the window's size, one update at a time, and the run needs nothing a screen
+/// provides. Frame N of a capture is the image after game frame N with the UI of that frame over
+/// the game's screen. A capture of a frame no work had drawn the game's screen by is an error.
+/// The viewer renders at a fixed time, so a frame does not depend on the wall clock.
+///
+/// # Errors
+/// As [`play_player_window`], and when the run makes no progress for five minutes, or a capture of
+/// a frame arrives after no work drew the game's screen.
+pub fn play_player_windowless(
+    prepared: &PreparedPlayer,
+    window: &PlayerWindow,
+) -> Result<Vec<Capture>, PlayError> {
+    window.validate()?;
+    let mut shared = headless_shared_gpu();
+    let options = ViewerOptions {
+        render_clock: RenderClock::Fixed(Duration::ZERO),
+        ..viewer_options(window)
+    };
+    let gpu = window_gpu(
+        &prepared.data,
+        &prepared.gpu,
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )?;
+    let (viewer, mut driver) = start_window(prepared, window, options, gpu)?;
+    driver.write_frames();
+    let ran = run_windowless(viewer, &mut driver, shared);
+    finish(driver, ran)
+}
+
+/// Runs the windowless session until the script closes it.
+fn run_windowless(
+    viewer: RetainedHost,
+    driver: &mut PlayerRetainedDriver,
+    gpu: SharedGpu,
+) -> Result<(), PlayError> {
+    let failed = |error: ViewerError| PlayError::Invalid(error.to_string());
+    let mut run = viewer
+        .windowless(driver, Some(gpu))
+        .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
+    let mut progress = Instant::now();
+    while !run.is_closed() {
+        if run.frame().map_err(failed)? {
+            progress = Instant::now();
+        } else if progress.elapsed() > STALL_LIMIT {
+            return Err(PlayError::Invalid(format!(
+                "the run submitted no frame in {} s",
+                STALL_LIMIT.as_secs()
+            )));
+        } else {
+            std::thread::yield_now();
+        }
+        if !run.is_closed() {
+            run.poll().map_err(failed)?;
+        }
+    }
+    Ok(())
+}
+
+/// Reports what the run did, then gives its captures or the reason it failed.
+fn finish(
+    mut driver: PlayerRetainedDriver,
+    ran: Result<(), PlayError>,
+) -> Result<Vec<Capture>, PlayError> {
+    if ran.is_ok() {
+        eprintln!("[player] ran {} frames", driver.script.advanced());
+    }
+    report_times(driver.script.times());
     driver.report_gpu();
-    ran.map_err(|error| PlayError::Invalid(error.to_string()))?;
-    Ok(driver.script.take_captures())
-}
-
-/// The device the viewer's start makes before the scene loads, as the player's source for the one
-/// it shares.
-struct ViewerDevice<'a> {
-    start: &'a mut ViewerStart,
-    options: &'a ViewerOptions,
-}
-
-impl DeviceSource for ViewerDevice<'_> {
-    fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
-        self.start.adapter().map_err(|error| error.to_string())
-    }
-
-    fn device(
-        &mut self,
-        requirements: &DeviceRequirements,
-    ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
-        self.start
-            .device(self.options, requirements)
-            .map_err(|error| error.to_string())
-    }
+    ran?;
+    driver.script.finish()
 }
 
 /// Boots the host, loads the scene and makes the viewer and the driver that plays it. `gpu`
@@ -139,6 +228,7 @@ impl DeviceSource for ViewerDevice<'_> {
 fn start_window(
     prepared: &PreparedPlayer,
     window: &PlayerWindow,
+    mut options: ViewerOptions,
     gpu: PlayerGpu,
 ) -> Result<(RetainedHost, PlayerRetainedDriver), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
@@ -148,7 +238,6 @@ fn start_window(
     gpu.install(&mut host)?;
     gpu.set_screen(Some(window.size));
     host.run_slice(&prepared.request)?;
-    let mut options = viewer_options(window);
     // The first frame's lights decide whether the viewer starts with shadows, which it cannot
     // add later.
     host.export_presentation(window.size, FIRST_COVERAGE_TEXTURE)?;
@@ -159,7 +248,8 @@ fn start_window(
         .map_err(|error| scene_error("the initial scene", &error))?;
     let viewer = RetainedHost::new(scene, options)
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
-    let driver = PlayerRetainedDriver::new(host, window, lighting, gpu)?;
+    let driver =
+        PlayerRetainedDriver::new(host, window, lighting, gpu, prepared.gpu.report_each_frame)?;
     Ok((viewer, driver))
 }
 
@@ -254,6 +344,12 @@ struct PlayerRetainedDriver {
     script: WindowScript,
     size: [u32; 2],
     reported: BTreeSet<u64>,
+    /// Whether the GPU report is printed after every game frame, as a headless run's is.
+    report_each_frame: bool,
+    /// Whether the run writes the game's own frames, as a windowless run does. Then a capture of a
+    /// frame no work drew the game's screen by is an error rather than the stock scene, and a
+    /// frame the GPU refuses ends the run rather than leaving the last good image to be captured.
+    writes_frames: bool,
 }
 
 impl PlayerRetainedDriver {
@@ -262,6 +358,7 @@ impl PlayerRetainedDriver {
         window: &PlayerWindow,
         lighting: SceneLighting,
         gpu: PlayerGpu,
+        report_each_frame: bool,
     ) -> Result<Self, PlayError> {
         // The opening view can be orbited until the game presents a camera, which then owns it.
         let mut navigation = OrbitNavigation::default();
@@ -284,7 +381,15 @@ impl PlayerRetainedDriver {
             script: WindowScript::new(window),
             size: window.size,
             reported: BTreeSet::new(),
+            report_each_frame,
+            writes_frames: false,
         })
+    }
+
+    /// Makes the run one that writes the game's frames: a windowless run has the viewer's stock
+    /// scene in no frame it writes, and a window shows the stock scene until the game draws.
+    fn write_frames(&mut self) {
+        self.writes_frames = true;
     }
 
     /// Prints the GPU report of the run, as a headless run does when it ends, with the census of
@@ -298,10 +403,68 @@ impl PlayerRetainedDriver {
         self.gpu.report().print(None);
     }
 
-    /// Advances the game and brings the viewer's scene to the frame it shows.
+    /// Advances the game one frame and brings the viewer's scene to the frame it shows, unless a
+    /// capture is outstanding, which holds the game, the lights, the UI and the camera as they
+    /// were so the capture shows the frame that asked for it.
     fn step(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), PlayError> {
+        let turn = self.script.next(tick);
+        let Turn::Advance { frame, .. } = turn else {
+            return self.check_waiting();
+        };
         self.resize_screen(viewer.size());
-        self.script.advance(&mut self.host, tick)?;
+        self.script.advance(&mut self.host, &turn)?;
+        let stand_ins = self
+            .report_each_frame
+            .then(|| self.gpu.report().stand_ins.clone());
+        let shown = self.show_frame(viewer);
+        // A run that dies in a later frame still leaves the counts of the frames before it.
+        if let Some(before) = stand_ins {
+            eprintln!("[gpu] report after frame {frame}");
+            self.gpu.report().print(Some(&before));
+        }
+        shown?;
+        self.check_refusal(frame)?;
+        self.capture(viewer)
+    }
+
+    /// Ends a run that writes frames at a frame whose work the GPU refused: what the player drew
+    /// after it is not the game's frame, and a capture of it would show the last good image as if
+    /// it were one.
+    fn check_refusal(&self, frame: u64) -> Result<(), PlayError> {
+        match self.gpu.take_refusal() {
+            Some(refusal) if self.writes_frames => {
+                Err(PlayError::Invalid(format!("frame {frame}: {refusal}")))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Fails when a capture has waited for longer than a run may stall.
+    fn check_waiting(&self) -> Result<(), PlayError> {
+        match self.script.overdue(STALL_LIMIT) {
+            Some(frame) => Err(PlayError::Invalid(format!(
+                "the capture of frame {frame} did not arrive in {} s",
+                STALL_LIMIT.as_secs()
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    /// Asks for the frame just shown when the script keeps it.
+    fn capture(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
+        if let Some(frame) = self.script.due_capture()
+            && self.writes_frames
+            && self.gpu.drawn_screen().is_none()
+        {
+            return Err(PlayError::Invalid(format!(
+                "no screen image after frame {frame}: no work has drawn into the screen yet"
+            )));
+        }
+        self.script.request_capture(viewer)
+    }
+
+    /// Sends the viewer the scene, UI, lights and camera of the frame the game is at.
+    fn show_frame(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
         let presentation = self
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
@@ -348,8 +511,7 @@ impl PlayerRetainedDriver {
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
         }
         self.light(viewer)?;
-        self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
-        self.script.request_capture(viewer, tick.frame)
+        self.camera(viewer, presentation.camera_state, !objects.is_empty())
     }
 
     /// The screen the UI is drawn over, on the player's device.

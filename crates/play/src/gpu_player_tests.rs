@@ -1,8 +1,7 @@
 use super::*;
 
 use crate::gpu_device::device_requirements;
-use crate::gpu_device::headless::HeadlessViewer;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs};
+use crate::gpu_device::{DeviceSource, PlayerStartupInputs, SharedDevice, headless};
 use crate::offscreen::Settling;
 use crate::player::window_gpu;
 use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
@@ -10,6 +9,7 @@ use crate::storage_budget;
 use worldrunner_render_gpu::device::DeviceRequirements;
 use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_program::unity::offscreen::ViewCounts;
+use worldrunner_scene_viewer::SharedGpu;
 
 fn trace(records: usize, error: Option<&str>) -> WorkTrace {
     WorkTrace {
@@ -233,9 +233,13 @@ fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_suppl
 #[test]
 fn the_window_report_says_which_globals_the_run_supplied() {
     let directory = tempfile::tempdir().unwrap();
-    let mut viewer = HeadlessViewer::new([8, 4]);
+    let (mut shared, options) = headless::shared([8, 4]);
+    let mut source = SharedDevice {
+        gpu: &mut shared,
+        options: &options,
+    };
     let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
-    let gpu = PlayerGpu::shared(&mut viewer, directory.path(), &launch_with(value)).unwrap();
+    let gpu = PlayerGpu::shared(&mut source, directory.path(), &launch_with(value)).unwrap();
     assert_eq!(
         gpu.report().supplied_globals.as_deref(),
         Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
@@ -297,7 +301,7 @@ fn a_frame_that_clears_the_screen_numbers_it_and_frames_after_it_leave_the_numbe
 }
 
 #[test]
-fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
+fn without_a_screen_the_clear_is_left_out_and_no_frame_drew_it() {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
     let gpu = PlayerGpu::headless(data.path(), &GpuLaunch::default()).unwrap();
@@ -326,7 +330,7 @@ fn a_screen_taken_away_after_a_flush_wrote_it_gives_the_next_frame_no_number() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
         .unwrap();
-    // A flush in the middle of an update draws the screen before the frame reads it.
+    // A flush in the middle of an update draws the screen before the frame is built.
     let snapshot = host.graphics_snapshot().unwrap();
     gpu.offscreen.borrow_mut().flush(&snapshot, &host).unwrap();
     assert!(gpu.offscreen.borrow().screen_written());
@@ -371,13 +375,23 @@ fn a_player_on_a_callers_device_submits_through_the_callers_authority() {
     assert!(gpu.report().device.contains("runtime budget"));
 }
 
-/// A viewer with no window and a player on the device it made, with nothing to play yet.
-fn window_player(size: [u32; 2]) -> (HeadlessViewer, PlayerGpu, tempfile::TempDir) {
+/// A viewer with no window and a player on the device it made, with nothing to play yet. The
+/// authority is the one the viewer's frames and the player both submit through.
+fn window_player(size: [u32; 2]) -> (SharedGpu, SubmissionAuthority, PlayerGpu, tempfile::TempDir) {
     let data = tempfile::tempdir().unwrap();
-    let mut viewer = HeadlessViewer::new(size);
-    let gpu = PlayerGpu::shared(&mut viewer, data.path(), &GpuLaunch::default()).unwrap();
+    let (mut shared, options) = headless::shared(size);
+    let gpu = PlayerGpu::shared(
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+        data.path(),
+        &GpuLaunch::default(),
+    )
+    .unwrap();
     gpu.set_screen(Some(size));
-    (viewer, gpu, data)
+    let authority = headless::authority(&mut shared, &options);
+    (shared, authority, gpu, data)
 }
 
 /// Boots the screen fixture on `gpu`, as `play_screen_fixture` does, and advances its first update.
@@ -403,7 +417,11 @@ fn submit_like_the_viewer(gpu: &PlayerGpu, operations: PendingOffscreen) {
 #[test]
 fn the_window_and_the_headless_player_ask_for_the_same_device() {
     let data = tempfile::tempdir().unwrap();
-    let mut viewer = HeadlessViewer::new([8, 4]);
+    let (mut gpu, options) = headless::shared([8, 4]);
+    let mut viewer = SharedDevice {
+        gpu: &mut gpu,
+        options: &options,
+    };
     let adapter = viewer.adapter().unwrap();
     let inputs = PlayerStartupInputs::from_snapshot(Some(6 << 30));
     let settings = Settings::cameras;
@@ -464,8 +482,7 @@ fn a_window_whose_source_has_no_adapter_fails_naming_it() {
 #[test]
 fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
     let _turn = fixture_turn();
-    let (mut viewer, gpu, _data) = window_player([8, 4]);
-    let authority = viewer.authority();
+    let (_shared, authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
 
     let before = authority.submitted_serial();
@@ -482,10 +499,9 @@ fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
     );
     assert_eq!(
         gpu.drawn_screen(),
-        None,
-        "nothing has drawn into the screen yet"
+        Some(0),
+        "the clears handed over are work that draws into the screen"
     );
-    assert!(!gpu.offscreen.borrow().screen_written());
     let report = gpu.report();
     assert_eq!((report.frames, report.frames_with_work), (1, 1));
     assert!(report.errors.is_empty(), "{:?}", report.errors);
@@ -494,7 +510,7 @@ fn a_frame_for_the_viewer_gives_its_operations_and_submits_nothing() {
 #[test]
 fn a_frame_with_no_work_after_the_clears_gives_the_viewer_nothing() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     let operations = gpu.frame_for_viewer(&mut host, None).unwrap().unwrap();
     submit_like_the_viewer(&gpu, operations);
@@ -508,9 +524,9 @@ fn a_frame_with_no_work_after_the_clears_gives_the_viewer_nothing() {
 }
 
 #[test]
-fn the_window_reads_nothing_back_from_the_screen_it_shows() {
+fn the_window_shows_the_screen_texture_itself() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     let operations = gpu.frame_for_viewer(&mut host, None).unwrap().unwrap();
     submit_like_the_viewer(&gpu, operations);
@@ -527,7 +543,6 @@ fn the_window_reads_nothing_back_from_the_screen_it_shows() {
         !screen.submitted(),
         "the viewer's frame wrote it, not a flush"
     );
-    assert_eq!(gpu.drawn_screen(), None, "a window frame numbers nothing");
     let report = gpu.report();
     assert_eq!(report.frames_with_work, 1);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
@@ -536,7 +551,7 @@ fn the_window_reads_nothing_back_from_the_screen_it_shows() {
 #[test]
 fn there_is_no_screen_to_offer_before_work_made_it_or_after_it_was_taken_away() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     assert!(gpu.game_screen().is_none(), "no work has made it yet");
     let mut host = started_screen_fixture(&gpu);
     gpu.frame_for_viewer(&mut host, None).unwrap();
@@ -550,7 +565,7 @@ fn there_is_no_screen_to_offer_before_work_made_it_or_after_it_was_taken_away() 
 #[test]
 fn a_screen_of_another_size_than_the_window_is_not_offered() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     gpu.frame_for_viewer(&mut host, None).unwrap();
     assert!(gpu.game_screen().is_some());
@@ -598,7 +613,7 @@ fn plan_with_a_run() -> worldrunner_world_simulation::ui::presentation::UiPresen
 #[test]
 fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the_screen() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     let mut ui = crate::player_ui::PlayerUi::default();
     ui.update(
@@ -632,7 +647,7 @@ fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the
 #[test]
 fn the_layer_texture_is_the_size_of_the_atlas_the_runs_grew() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     let mut ui = crate::player_ui::PlayerUi::default();
     let mut plan = plan_with_a_run();

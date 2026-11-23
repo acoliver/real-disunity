@@ -155,6 +155,29 @@ impl MeshSelection {
             .unwrap_or_else(|| ceilings.len().saturating_sub(1))
     }
 
+    /// How far, in millimetres, an eye at `distance_squared` from a placement may move before
+    /// the level the placement draws at, `level` from its `scaled_ceilings`, can differ.
+    ///
+    /// The level is `level` while the squared distance stays above every ceiling of the levels
+    /// before it and, unless `level` is the last, within its own ceiling. A move of the eye of
+    /// at most the margin changes the distance by at most the margin, and the margin leaves
+    /// room for the rounding down of each integer square root, so the distance cannot reach a
+    /// ceiling.
+    pub(super) fn level_margin(distance_squared: u128, ceilings: &[u128], level: usize) -> u64 {
+        let distance = distance_squared.isqrt();
+        let below = ceilings[..level]
+            .iter()
+            .max()
+            .map(|&ceiling| distance.saturating_sub(ceiling.isqrt() + 1));
+        let above = (level + 1 < ceilings.len())
+            .then(|| ceilings[level].isqrt().saturating_sub(distance + 1));
+        below
+            .into_iter()
+            .chain(above)
+            .min()
+            .map_or(u64::MAX, |margin| u64::try_from(margin).unwrap_or(u64::MAX))
+    }
+
     #[cfg(test)]
     pub fn lod(&self, distance_squared: u128, scale_millionths: Option<u32>) -> usize {
         let mut ceilings = vec![0; self.levels()];

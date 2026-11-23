@@ -228,6 +228,9 @@ pub enum RendererSkip {
     /// The slots name materials, but the first of them left out is not in the snapshot.
     StaleMaterial,
     EmptySlot,
+    /// A skinned mesh renderer, which the snapshot leaves out because skinned meshes are not
+    /// drawn yet.
+    SkinnedNotDrawn,
 }
 
 impl RendererSkip {
@@ -342,6 +345,7 @@ pub fn adapt_probing(
     }
     mapper.records();
     mapper.renderers();
+    mapper.skinned_renderers();
     mapper.finish()
 }
 
@@ -667,9 +671,7 @@ impl<'a> Mapper<'a> {
             clear_depth,
             pass: self.settings.pass_selector(),
             values,
-            // Unity winds front faces clockwise as seen with up up. The image is the other way up
-            // (see `camera::clip_from_gl`), which reverses a winding.
-            front_face: wgpu::FrontFace::Ccw,
+            front_face: super::lists::IMAGE_FRONT_FACE,
             renderers,
         }
     }

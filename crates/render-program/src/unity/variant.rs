@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use worldrunner_unity_serialized::shader_program::{PlayerSubProgram, Program, SubProgram};
+use worldrunner_unity_serialized::shader_program::PlayerSubProgram;
 
 use crate::variant::{self as neutral, FeatureId, FeatureSet, UnknownFeatures};
 
@@ -13,45 +13,31 @@ pub enum VariantError {
     NoMatch { wanted: Vec<u16>, available: usize },
 }
 
-/// The variant whose keyword set equals the enabled keywords the stage declares. A keyword the
-/// stage does not declare is ignored.
+/// The variant whose keyword set equals the enabled keywords the stage declares, together with
+/// the default of each required group the enabled keywords leave out (see [`group_defaults`]). A
+/// keyword the stage does not declare is ignored.
 ///
-/// When no variant has that set, the enabled keywords are completed with the default of each
-/// required group (see [`group_defaults`]) and matched once more. The completed set is only
-/// tried after the exact one fails, so a set that has a variant never changes.
+/// When a variant has exactly the enabled set, every required group already has an enabled
+/// member, since each variant holds one member of every such group, so the defaults add nothing
+/// and that variant is the one chosen.
 ///
 /// # Errors
-/// Fails when no variant has exactly that keyword set, completed or not. The error names the
-/// enabled keywords as they were passed.
+/// Fails when no variant has the completed keyword set. The error names the enabled keywords the
+/// stage declares, as they were passed.
 pub fn select_variant<'a, V>(
     variants: &'a [V],
     keywords: impl Fn(&V) -> &[u16],
     declared: &[u16],
     enabled: &BTreeSet<u16>,
 ) -> Result<&'a V, VariantError> {
-    let error = match select_exact(variants, &keywords, declared, enabled) {
-        Ok(variant) => return Ok(variant),
-        Err(error) => error,
-    };
     let sets: Vec<&[u16]> = variants.iter().map(&keywords).collect();
-    let defaults = group_defaults(&sets, enabled);
-    if defaults.is_empty() {
-        return Err(error);
-    }
-    let completed: BTreeSet<u16> = enabled.union(&defaults).copied().collect();
-    select_exact(variants, &keywords, declared, &completed).map_err(|_| error)
-}
-
-/// The variant whose keyword set equals the enabled keywords the stage declares.
-fn select_exact<'a, V>(
-    variants: &'a [V],
-    keywords: &impl Fn(&V) -> &[u16],
-    declared: &[u16],
-    enabled: &BTreeSet<u16>,
-) -> Result<&'a V, VariantError> {
+    let completed: BTreeSet<u16> = enabled
+        .union(&group_defaults(&sets, enabled))
+        .copied()
+        .collect();
     let features =
         |indices: &[u16]| -> FeatureSet { indices.iter().map(|index| feature(*index)).collect() };
-    let enabled_features: FeatureSet = enabled.iter().map(|index| feature(*index)).collect();
+    let enabled_features: FeatureSet = completed.iter().map(|index| feature(*index)).collect();
     neutral::select_variant(
         variants,
         |variant| features(keywords(variant)),
@@ -118,30 +104,6 @@ fn feature(index: u16) -> FeatureId {
     FeatureId::new(index.to_string())
 }
 
-/// The keywords a program's variants differ by: its keyword state mask, or when that is empty
-/// the keywords its variants use.
-#[must_use]
-pub fn declared_keywords(program: &Program) -> Vec<u16> {
-    if !program.keyword_state_mask.is_empty() {
-        return program.keyword_state_mask.clone();
-    }
-    let used: BTreeSet<u16> = program
-        .sub_programs
-        .iter()
-        .map(|v| v.keyword_indices.as_slice())
-        .chain(
-            program
-                .player_sub_programs
-                .iter()
-                .flatten()
-                .map(|v| v.keyword_indices.as_slice()),
-        )
-        .flatten()
-        .copied()
-        .collect();
-    used.into_iter().collect()
-}
-
 /// The keywords the player variants differ by: the ones they use.
 ///
 /// The Unity 6 player stores every Vulkan variant of a pass on its vertex program, and that
@@ -157,38 +119,4 @@ pub fn declared_player_keywords<'a>(
         .flat_map(|variant| variant.keyword_indices.iter().copied())
         .collect();
     used.into_iter().collect()
-}
-
-/// The [`SubProgram`] of a program for the enabled keywords.
-///
-/// # Errors
-/// Fails when no variant matches.
-pub fn select_sub_program<'a>(
-    program: &'a Program,
-    enabled: &BTreeSet<u16>,
-) -> Result<&'a SubProgram, VariantError> {
-    select_variant(
-        &program.sub_programs,
-        |v| &v.keyword_indices,
-        &declared_keywords(program),
-        enabled,
-    )
-}
-
-/// The [`PlayerSubProgram`] for the enabled keywords, searching every platform list in order.
-///
-/// # Errors
-/// Fails when no variant matches.
-pub fn select_player_sub_program<'a>(
-    program: &'a Program,
-    enabled: &BTreeSet<u16>,
-) -> Result<&'a PlayerSubProgram, VariantError> {
-    let all: Vec<&PlayerSubProgram> = program.player_sub_programs.iter().flatten().collect();
-    select_variant(
-        &all,
-        |v| &v.keyword_indices,
-        &declared_player_keywords(all.iter().copied()),
-        enabled,
-    )
-    .copied()
 }

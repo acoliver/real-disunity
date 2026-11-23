@@ -20,6 +20,7 @@ mod group;
 mod interaction;
 mod layout;
 mod layout_groups;
+mod material;
 mod positioning;
 pub mod presentation;
 mod scroll;
@@ -72,6 +73,7 @@ use glam::{UVec2, Vec2};
 pub use graphics::{UiGraphic, UiGraphicQuad, append_graphics, extract_graphics};
 pub use group::{CanvasGroup, CanvasGroupFlags};
 pub use layout::{RectExtent, RectLayout, UiLayout};
+pub use material::{ENGINE_UI_SHADER, UiMaterial, draws_natively};
 pub use renderer::{CanvasRenderer, CanvasRendererFlags, MAX_CANVAS_MATERIALS, inherited_alpha};
 pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,

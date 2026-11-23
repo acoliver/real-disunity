@@ -10,7 +10,13 @@ fn field_plan() -> UiRenderPlan {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world

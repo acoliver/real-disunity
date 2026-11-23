@@ -132,13 +132,17 @@ impl RectTransform {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum CanvasMode {
-    #[default]
     ScreenSpaceOverlay,
     ScreenSpaceCamera {
         camera: ObjectHandle,
         orthographic_size: f32,
         plane_distance: f32,
     },
+    /// The mode of a canvas created without one, which is how a script adds a canvas at run time:
+    /// the game sets only the sorting order of a canvas it adds to a widget it has placed in the
+    /// world, and the original draws that widget at its place. Canvases loaded from scene or prefab
+    /// data carry their serialized mode.
+    #[default]
     WorldSpace,
 }
 

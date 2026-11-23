@@ -233,7 +233,7 @@ public static class NativeBridge
         camera.AddComponent<Camera>();
         var canvas = DisunityHost.CreateGameObject();
         var rect = canvas.AddComponent<RectTransform>();
-        canvas.AddComponent<Canvas>();
+        canvas.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         var label = DisunityHost.CreateGameObject();
         var child = label.AddComponent<RectTransform>();
         child.SetParent(rect, false);

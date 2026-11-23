@@ -2,7 +2,7 @@ use super::*;
 use crate::retained::ui_font;
 use glam::Vec2;
 use worldrunner_world_simulation::ui::{
-    Canvas, FontBook, RectTransform, TextRun, TextSpan, UiLimits, UiLinkId,
+    Canvas, CanvasMode, FontBook, RectTransform, TextRun, TextSpan, UiLimits, UiLinkId,
 };
 use worldrunner_world_simulation::{ComponentDesc, ParentSpace};
 
@@ -13,7 +13,13 @@ fn paragraph_plan(link: Option<UiLinkId>) -> UiRenderPlan {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let panel = world.create_object(ObjectDesc::default()).unwrap();
     world

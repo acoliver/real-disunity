@@ -337,7 +337,7 @@ returns more objects than the object has ids, the extra ones are added under fre
 returns fewer, the surplus ids are removed. Ids are never reused.
 
 `MeshExtractOptions::with_millimeters_per_unit` sets the world unit (default 1000.0, meters) for
-`edits_from_world_changes_with` and `extract_mesh_instances_with`. It applies to translation
+`edits_from_world_changes_with` and `extract_mesh_instances`. It applies to translation
 only; scale stays a ratio. Whole world units are exact up to 2^24 because positions are `f32`.
 
 ## Presentation settings

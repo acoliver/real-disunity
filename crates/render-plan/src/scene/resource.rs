@@ -11,7 +11,7 @@ mod descriptor;
 #[path = "resource_tables.rs"]
 mod tables;
 pub use descriptor::{
-    SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
+    SceneCubeDescriptor, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
     SceneTextureDescriptor,
 };
 

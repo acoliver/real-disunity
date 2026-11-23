@@ -85,8 +85,6 @@ pub enum MeshExtractError {
     Unresolved(ObjectHandle),
     #[error("{0} is not a positive finite number of millimeters per world unit")]
     InvalidUnit(f64),
-    #[error("{0:?} resolves to several scene objects; extract it with extract_mesh_objects")]
-    SeveralObjects(ObjectHandle),
     #[error("{object:?} has a world transform a scene object cannot hold: {reason}")]
     Transform {
         object: ObjectHandle,
@@ -152,18 +150,9 @@ pub struct ExtractedMeshObject {
     pub scene: SceneObject,
 }
 
-/// Extracts every active object that has a mesh instance, in object handle order, with
-/// [`MeshExtractOptions::default`]. This is the initial scene build; later frames use the
-/// journal.
+/// Extracts every active object that has a mesh instance, in object handle order. This is the
+/// initial scene build; later frames use the journal.
 pub fn extract_mesh_instances(
-    world: &World,
-    resolver: &impl MeshResolver,
-) -> Result<Vec<ExtractedMeshObject>, MeshExtractError> {
-    extract_mesh_instances_with(world, resolver, MeshExtractOptions::default())
-}
-
-/// [`extract_mesh_instances`] with explicit options.
-pub fn extract_mesh_instances_with(
     world: &World,
     resolver: &impl MeshResolver,
     options: MeshExtractOptions,
@@ -175,21 +164,6 @@ pub fn extract_mesh_instances_with(
         }
     }
     Ok(extracted)
-}
-
-/// The scene object for one world object, or `None` when it should not be drawn: it is gone,
-/// inactive in its hierarchy, or has no mesh instance. Fails with
-/// [`MeshExtractError::SeveralObjects`] when the resolver returns more than one object.
-pub fn extract_mesh_object(
-    world: &World,
-    object: ObjectHandle,
-    resolver: &impl MeshResolver,
-) -> Result<Option<SceneObject>, MeshExtractError> {
-    let mut scenes = extract_mesh_objects(world, object, resolver, MeshExtractOptions::default())?;
-    if scenes.len() > 1 {
-        return Err(MeshExtractError::SeveralObjects(object));
-    }
-    Ok(scenes.pop())
 }
 
 /// Every scene object for one world object, in the resolver's order. The list is empty when the

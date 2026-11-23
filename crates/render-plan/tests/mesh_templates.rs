@@ -2,7 +2,7 @@
 use glam::{Quat, Vec3};
 use worldrunner_render_plan::simulation::mesh_instances::{
     MeshExtractError, MeshExtractOptions, MeshResolver, MeshTemplate, ResolvedMesh,
-    extract_mesh_instances, extract_mesh_instances_with, extract_mesh_object, extract_mesh_objects,
+    extract_mesh_instances, extract_mesh_objects,
 };
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, SceneFadeBand, SceneObject, SceneRotation, SceneTint,
@@ -81,6 +81,20 @@ fn units(millimeters_per_unit: f64) -> MeshExtractOptions {
     MeshExtractOptions::with_millimeters_per_unit(millimeters_per_unit).unwrap()
 }
 
+/// The one scene object `object` resolves to, or `None` when it is not drawn.
+fn one(
+    world: &World,
+    object: ObjectHandle,
+    resolver: &impl MeshResolver,
+) -> Result<Option<SceneObject>, MeshExtractError> {
+    let mut scenes = extract_mesh_objects(world, object, resolver, MeshExtractOptions::default())?;
+    assert!(
+        scenes.len() <= 1,
+        "{object:?} resolves to one scene object at most"
+    );
+    Ok(scenes.pop())
+}
+
 fn only(world: &World, object: ObjectHandle, options: MeshExtractOptions) -> SceneObject {
     let mut scenes = extract_mesh_objects(world, object, &Layered { layers: 1 }, options).unwrap();
     assert_eq!(scenes.len(), 1);
@@ -98,9 +112,7 @@ fn template_fields_survive_and_only_the_transform_changes() {
             scale: Vec3::splat(2.0),
         },
     );
-    let scene = extract_mesh_object(&w, object, &Layered { layers: 1 })
-        .unwrap()
-        .unwrap();
+    let scene = one(&w, object, &Layered { layers: 1 }).unwrap().unwrap();
     let template = layer(0);
     assert_eq!(scene.lod_distance_scale_millionths(), Some(1_500_000));
     assert_eq!(scene.fade(), template.fade());
@@ -129,7 +141,7 @@ fn handle_resolvers_still_take_their_tint_from_the_instance() {
             material: MaterialHandle::from_raw(4),
         })
     };
-    let scene = extract_mesh_object(&w, object, &handles).unwrap().unwrap();
+    let scene = one(&w, object, &handles).unwrap().unwrap();
     assert_eq!(scene.tint(), SceneTint::WHITE);
     assert_eq!(scene.lod_distance_scale_millionths(), None);
     assert_eq!(scene.transform().position_millimeters, [1000, 0, 0]);
@@ -203,7 +215,7 @@ fn positions_out_of_range_and_bad_units_are_errors() {
         result,
         Err(MeshExtractError::Transform { object, .. }) if object == far
     ));
-    let result = extract_mesh_object(&w, far, &Layered { layers: 1 });
+    let result = one(&w, far, &Layered { layers: 1 });
     assert!(matches!(result, Err(MeshExtractError::Transform { .. })));
 }
 
@@ -214,7 +226,7 @@ fn one_instance_extracts_every_template_in_order() {
     let second = drawn(&mut w, at(2.0, 0.0, 0.0));
     let resolver = Layered { layers: 3 };
 
-    let extracted = extract_mesh_instances(&w, &resolver).unwrap();
+    let extracted = extract_mesh_instances(&w, &resolver, MeshExtractOptions::default()).unwrap();
     let owners: Vec<_> = extracted.iter().map(|e| e.object).collect();
     assert_eq!(owners, [first, first, first, second, second, second]);
     let meshes: Vec<_> = extracted.iter().map(|e| e.scene.mesh().raw()).collect();
@@ -224,12 +236,6 @@ fn one_instance_extracts_every_template_in_order() {
             .iter()
             .all(|e| e.scene.transform().position_millimeters == [2000, 0, 0])
     );
-    let with_default = extract_mesh_instances_with(&w, &resolver, MeshExtractOptions::default());
-    assert_eq!(with_default.unwrap().len(), extracted.len());
-    assert_eq!(
-        extract_mesh_object(&w, first, &resolver).unwrap_err(),
-        MeshExtractError::SeveralObjects(first)
-    );
 }
 
 #[test]
@@ -237,15 +243,11 @@ fn an_empty_template_list_draws_nothing() {
     let mut w = world();
     let object = drawn(&mut w, LocalTransform::default());
     assert!(
-        extract_mesh_instances(&w, &Layered { layers: 0 })
+        extract_mesh_instances(&w, &Layered { layers: 0 }, MeshExtractOptions::default())
             .unwrap()
             .is_empty()
     );
-    assert!(
-        extract_mesh_object(&w, object, &Layered { layers: 0 })
-            .unwrap()
-            .is_none()
-    );
+    assert!(one(&w, object, &Layered { layers: 0 }).unwrap().is_none());
 }
 
 /// A host with its own placement policy: the scene transform comes from the instance's mesh id,
@@ -288,7 +290,7 @@ fn placed_templates_come_out_exactly_as_the_host_built_them() {
         .collect();
     assert_eq!(scenes, expected);
 
-    let meter = extract_mesh_instances_with(&w, &Placer, units(1.0)).unwrap();
+    let meter = extract_mesh_instances(&w, &Placer, units(1.0)).unwrap();
     assert_eq!(meter.len(), 2);
     assert!(meter.iter().all(|e| e.object == object));
     assert_eq!(meter.iter().map(|e| e.scene).collect::<Vec<_>>(), expected);

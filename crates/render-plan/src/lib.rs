@@ -89,7 +89,7 @@ pub use scene::{
 };
 pub use scene::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
 pub use scene::{
-    SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
+    SceneCubeDescriptor, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
     SceneTextureDescriptor,
 };
 pub use scene::{SceneMaterialChannels, TextureChannel};

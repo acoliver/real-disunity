@@ -1,13 +1,28 @@
 #![cfg(feature = "simulation")]
 use glam::{Quat, Vec3};
 use worldrunner_render_plan::simulation::mesh_instances::{
-    MeshExtractError, MeshResolver, ResolvedMesh, extract_mesh_instances, extract_mesh_object,
+    MeshExtractError, MeshExtractOptions, MeshResolver, ResolvedMesh, extract_mesh_instances,
+    extract_mesh_objects,
 };
-use worldrunner_render_plan::{MaterialHandle, MeshHandle};
+use worldrunner_render_plan::{MaterialHandle, MeshHandle, SceneObject};
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, MaterialId, MeshId, MeshInstance, ObjectDesc, ObjectHandle,
     ParentSpace, World, WorldSettings,
 };
+
+/// The one scene object `object` resolves to, or `None` when it is not drawn.
+fn one(
+    world: &World,
+    object: ObjectHandle,
+    resolver: &impl MeshResolver,
+) -> Result<Option<SceneObject>, MeshExtractError> {
+    let mut scenes = extract_mesh_objects(world, object, resolver, MeshExtractOptions::default())?;
+    assert!(
+        scenes.len() <= 1,
+        "{object:?} resolves to one scene object at most"
+    );
+    Ok(scenes.pop())
+}
 
 /// Mesh id n lives at table index n, and material id m at index m - 100.
 fn table() -> impl MeshResolver {
@@ -68,7 +83,7 @@ fn two_level_hierarchy_extracts_composed_world_transforms() {
     w.set_parent(child, Some(parent), ParentSpace::KeepLocal)
         .unwrap();
 
-    let extracted = extract_mesh_instances(&w, &table()).unwrap();
+    let extracted = extract_mesh_instances(&w, &table(), MeshExtractOptions::default()).unwrap();
     assert_eq!(extracted.len(), 2);
 
     let p = &extracted[0];
@@ -105,7 +120,7 @@ fn tint_reaches_the_scene_object_in_micro_units() {
         .handle;
     w.set_component(component, ComponentDesc::MeshInstance(instance))
         .unwrap();
-    let scene = extract_mesh_object(&w, object, &table()).unwrap().unwrap();
+    let scene = one(&w, object, &table()).unwrap().unwrap();
     assert_eq!(scene.tint().channels(), [500_000, 1_000_000, 2_000_000]);
 }
 
@@ -118,8 +133,12 @@ fn inactive_and_undrawn_objects_are_not_extracted() {
     w.set_parent(child, Some(parent), ParentSpace::KeepLocal)
         .unwrap();
     w.set_active(parent, false).unwrap();
-    assert!(extract_mesh_instances(&w, &table()).unwrap().is_empty());
-    assert!(extract_mesh_object(&w, bare, &table()).unwrap().is_none());
+    assert!(
+        extract_mesh_instances(&w, &table(), MeshExtractOptions::default())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(one(&w, bare, &table()).unwrap().is_none());
 }
 
 #[test]
@@ -128,7 +147,7 @@ fn unresolved_ids_and_unrepresentable_transforms_are_errors() {
     let object = drawn(&mut w, 1, LocalTransform::default());
     let nothing = |_: &MeshInstance| None;
     assert_eq!(
-        extract_mesh_instances(&w, &nothing).unwrap_err(),
+        extract_mesh_instances(&w, &nothing, MeshExtractOptions::default()).unwrap_err(),
         MeshExtractError::Unresolved(object)
     );
 
@@ -141,7 +160,7 @@ fn unresolved_ids_and_unrepresentable_transforms_are_errors() {
         },
     );
     assert!(matches!(
-        extract_mesh_object(&w, skewed, &table()),
+        one(&w, skewed, &table()),
         Err(MeshExtractError::Transform { object, .. }) if object == skewed
     ));
     let flat = drawn(
@@ -153,7 +172,7 @@ fn unresolved_ids_and_unrepresentable_transforms_are_errors() {
         },
     );
     assert!(matches!(
-        extract_mesh_object(&w, flat, &table()),
+        one(&w, flat, &table()),
         Err(MeshExtractError::Transform { .. })
     ));
 }

@@ -5,8 +5,8 @@ use super::{DXGI_BC1_UNORM, DXGI_BC1_UNORM_SRGB, DXGI_BC7_UNORM, dds, encoded_si
 use crate::draw::{DrawError, PreparedScene};
 use crate::texture::{TextureReleaseError, describe_texture, release_texture_sources};
 use worldrunner_render_plan::{
-    RenderScene, SceneAlphaMode, SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor,
-    SceneDdsFormat, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneParts, SceneResources,
+    RenderScene, SceneAlphaMode, SceneCubeDescriptor, SceneDdsDescriptor, SceneDdsFormat,
+    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneParts, SceneResources,
     SceneSpecularConvention, SceneSpecularCube, SceneSpecularCubeFormat, SceneSpecularPreparation,
     SceneTexelDescriptor, SceneTexture, SceneTextureDescriptor, TexelFormat, TextureColorSpace,
     TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
@@ -242,16 +242,6 @@ fn cube_descriptor_records_layout_and_preparation() {
     else {
         panic!("fixtures are cubes");
     };
-    let faces = [
-        SceneCubeFace::PositiveX,
-        SceneCubeFace::NegativeX,
-        SceneCubeFace::PositiveY,
-        SceneCubeFace::NegativeY,
-        SceneCubeFace::PositiveZ,
-        SceneCubeFace::NegativeZ,
-    ];
-    assert_eq!(plain.face_order(), faces);
-    assert_eq!(prepared.face_order(), faces);
     assert_eq!(plain.preparation, None);
     assert_eq!(prepared.preparation, Some(preparation()));
     assert_eq!(prepared.format, SceneSpecularCubeFormat::Rgba16Float);

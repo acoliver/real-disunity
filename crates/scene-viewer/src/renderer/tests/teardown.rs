@@ -4,7 +4,7 @@ pub(super) fn assert_pending_submission_cleanup(mut renderer: Renderer) {
     let window = Arc::downgrade(renderer.window.as_ref().unwrap());
     let ready = renderer
         .execution
-        .acquire(&renderer.context, || Ok(()))
+        .acquire(&renderer.context)
         .unwrap()
         .expect("native surface must supply a frame");
     let mut encoder = renderer

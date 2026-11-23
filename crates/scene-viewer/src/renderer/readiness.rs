@@ -102,7 +102,7 @@ impl Renderer {
 }
 
 impl Renderer {
-    /// Publishes every generation that is ready, in order. A live driver sends several updates
+    /// Publishes every generation that is ready, in order. A driver sends several updates
     /// a frame (resources, objects, UI, camera), so publishing one a frame would let the queue
     /// grow until it refuses updates. Publishing stops at the first generation that is not ready
     /// (a scene still preparing, a page or geometry wait) and at one a capture holds, so a
@@ -197,6 +197,8 @@ impl Streaming {
         super::retained::preflight_preparation(context, presentation, front)?;
         if let crate::RetainedUpdate::Ui(overlay) = &front.update {
             self.ui.stage(context, (resident, presentation), overlay)?;
+        } else if let crate::RetainedUpdate::World(frame) = &front.update {
+            super::retained::apply_world(context, resident, frame)?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
         } else if let Some(edit) = front.edit.take() {

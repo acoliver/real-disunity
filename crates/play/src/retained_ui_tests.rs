@@ -71,16 +71,17 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     let mut source = HeadlessViewer::new([64, 64]);
     let gpu = crate::player::window_gpu(data.path(), &GpuLaunch::default(), &mut source)
         .expect("the test needs a GPU adapter");
+    let window = PlayerWindow {
+        title: "windowless player UI".into(),
+        size: [64, 64],
+        fixed_dt: Some(Duration::from_millis(16)),
+        max_frames: None,
+        capture_frames: BTreeSet::from([0, 1]),
+        keys: vec![],
+    };
     let mut driver = PlayerRetainedDriver::new(
         fixture_host(),
-        PlayerWindow {
-            title: "windowless player UI".into(),
-            size: [64, 64],
-            fixed_dt: Some(Duration::from_millis(16)),
-            max_frames: None,
-            capture_frames: BTreeSet::from([0, 1]),
-            keys: vec![],
-        },
+        &window,
         crate::scene_light::SceneLighting::start(&[], viewer_options_camera())
             .unwrap()
             .0,
@@ -88,7 +89,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     )
     .unwrap();
     let scene = SceneTables::initial_scene(None).unwrap();
-    let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
+    let host = RetainedHost::new(scene, viewer_options(&window)).unwrap();
     let mut run = host.windowless(&mut driver, Some(source.gpu)).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     run.frame().unwrap();
@@ -105,11 +106,12 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     run.shutdown().unwrap();
     drop(run);
     assert_eq!(driver.ui.updates, 1, "unchanged frames send no UI update");
-    assert_eq!(driver.captures.len(), 2);
-    for image in &driver.captures {
+    let captures = driver.script.take_captures();
+    assert_eq!(captures.len(), 2);
+    for image in &captures {
         assert_ui_pixels(image);
     }
-    assert_eq!(driver.captures[0].pixels, driver.captures[1].pixels);
+    assert_eq!(captures[0].pixels, captures[1].pixels);
 }
 
 fn viewer_options_camera() -> SceneCamera {

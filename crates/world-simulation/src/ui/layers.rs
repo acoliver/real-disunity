@@ -37,38 +37,108 @@ pub struct UiLayers {
     /// The size of the atlas the runs are packed into, in pixels.
     pub atlas_size: [u32; 2],
     pub runs: Vec<UiRun>,
-    /// The draws of each run whose rectangle does not fit the atlas.
-    pub too_large: Vec<Range<usize>>,
+    /// The largest side the atlas may have, in pixels: the device's texture limit.
+    pub max_side: u32,
+    /// The runs the atlas cannot hold even at its largest size.
+    pub too_large: Vec<UiRefused>,
+}
+
+/// A run the atlas cannot hold.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UiRefused {
+    /// Indices into `UiPresentation::draws`.
+    pub draws: Range<usize>,
+    /// The size of the run's rectangle, in pixels.
+    pub size: [u32; 2],
 }
 
 impl UiPresentation {
     /// Groups the draws that a game's shader draws into runs inside `viewport` and packs them
-    /// into an atlas of `atlas` pixels. A run with nothing visible in the viewport is dropped.
+    /// into an atlas. The atlas is the size of the viewport while the runs fit it, and grows
+    /// (alternately in height and width, at most to `max_side` pixels a side) until they do. A
+    /// run with nothing visible in the viewport is dropped. A run is refused, with its size, when
+    /// one side is larger than `max_side` or when the atlas at its largest is full.
     #[must_use]
-    pub fn layers(&self, viewport: [u32; 2], atlas: [u32; 2]) -> UiLayers {
+    pub fn layers(&self, viewport: [u32; 2], max_side: u32) -> UiLayers {
         let mut layers = UiLayers {
-            atlas_size: atlas,
+            max_side,
             ..UiLayers::default()
         };
-        let mut shelves = Shelves::new(atlas);
+        let mut wanted = vec![];
         for draws in run_ranges(&self.draws) {
             let clip = self.draws[draws.start].clip_rect;
             let Some(bounds) = visible_bounds(&self.draws[draws.clone()], clip, viewport) else {
                 continue;
             };
-            let Some(place) = shelves.place([bounds[2], bounds[3]]) else {
-                layers.too_large.push(draws);
-                continue;
-            };
-            layers.runs.push(UiRun {
-                spans: spans(&self.draws, &draws),
-                draws,
-                clip,
-                bounds,
-                atlas: place,
-            });
+            let size = [bounds[2], bounds[3]];
+            if size.iter().any(|side| *side > max_side) {
+                layers.too_large.push(UiRefused { draws, size });
+            } else {
+                wanted.push(Wanted {
+                    draws,
+                    clip,
+                    bounds,
+                });
+            }
         }
+        let (atlas_size, places) = pack_growing(&wanted, viewport, max_side);
+        layers.atlas_size = atlas_size;
+        for (run, place) in wanted.into_iter().zip(places) {
+            match place {
+                Some(atlas) => layers.runs.push(UiRun {
+                    spans: spans(&self.draws, &run.draws),
+                    draws: run.draws,
+                    clip: run.clip,
+                    bounds: run.bounds,
+                    atlas,
+                }),
+                None => layers.too_large.push(UiRefused {
+                    draws: run.draws,
+                    size: [run.bounds[2], run.bounds[3]],
+                }),
+            }
+        }
+        layers.too_large.sort_by_key(|refused| refused.draws.start);
         layers
+    }
+}
+
+/// A run that still needs its place in the atlas.
+struct Wanted {
+    draws: Range<usize>,
+    clip: [u32; 4],
+    bounds: [u32; 4],
+}
+
+/// The smallest atlas that holds `wanted`, and the place of each run in it, in the order of
+/// `wanted`. The atlas starts at the size of the viewport and grows until the runs fit or it has
+/// reached `max_side` on both sides, where the runs that do not fit have no place.
+fn pack_growing(
+    wanted: &[Wanted],
+    viewport: [u32; 2],
+    max_side: u32,
+) -> ([u32; 2], Vec<Option<[u32; 4]>>) {
+    let max_side = max_side.max(1);
+    let mut size = viewport.map(|side| side.clamp(1, max_side));
+    loop {
+        let mut shelves = Shelves::new(size);
+        let places: Vec<_> = wanted
+            .iter()
+            .map(|run| shelves.place([run.bounds[2], run.bounds[3]]))
+            .collect();
+        if size == [max_side; 2] || places.iter().all(Option::is_some) {
+            return (size, places);
+        }
+        size = grown(size, max_side);
+    }
+}
+
+/// `size` with its shorter side doubled (the height when they are equal), up to `max_side`.
+fn grown([width, height]: [u32; 2], max_side: u32) -> [u32; 2] {
+    if height <= width {
+        [width, height.saturating_mul(2).min(max_side)]
+    } else {
+        [width.saturating_mul(2).min(max_side), height]
     }
 }
 

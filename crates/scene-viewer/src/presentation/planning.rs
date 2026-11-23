@@ -7,7 +7,7 @@ use worldrunner_render_scene::{Viewport, compositor::RendererConfiguration};
 /// Capture storage and raster footprint to include in a descriptor-only plan.
 #[derive(Clone, Copy, Debug)]
 pub enum PresentationCapture<'a> {
-    /// Ordinary desktop or live presentation, without a retained recipe pool.
+    /// Ordinary desktop presentation, without a retained recipe pool.
     Ordinary,
     /// Retained presentation, including the configured shared recipe pool.
     Retained,

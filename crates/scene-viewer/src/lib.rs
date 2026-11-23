@@ -2,10 +2,10 @@
 //!
 //! A GPU starts only when a run mode is requested. Geometry, materials,
 //! pipelines and optional shadows remain resident across frames. The caller
-//! owns scene construction, camera framing and shadow fit; this host adds no
-//! asset lookup, terrain policy or command-line parsing.
-//!
-//! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
+//! owns scene construction, camera framing, shadow fit and input handling; this
+//! host adds no asset lookup, terrain policy or command-line parsing. A caller
+//! drives it through [`RetainedHost`] and [`RetainedDriver`]; [`OrbitNavigation`]
+//! turns the window's pointer and keys into orbit camera poses.
 
 mod application_paths;
 pub use application_paths::{ApplicationPathError, application_root};
@@ -17,19 +17,15 @@ pub use adapter::{
     FrameSettings, InitialContent, InitialContext,
 };
 mod app;
-pub mod cpu_profile;
-mod live;
-mod reflection_settings;
-pub use live::{
-    IngressOrigin, LiveCapture, LiveClock, LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample,
-    LiveOptions, LiveReceipt, LiveTick, ScheduledInput,
-};
 mod clock;
+pub mod cpu_profile;
+mod reflection_settings;
 pub use clock::RenderClock;
 mod game_screen;
 pub use game_screen::{GAME_SCREEN, GameScreen};
 mod camera;
 mod capture_pool;
+mod navigation;
 mod presentation;
 mod presentation_budget;
 pub use capture_pool::CapturePoolPolicy;
@@ -57,6 +53,7 @@ pub use retained::{
 pub use world_edits::{ObjectIdMap, edits_from_world_changes};
 
 pub use camera::{OrbitCamera, OrbitLimits};
+pub use navigation::OrbitNavigation;
 pub use wgpu::PresentMode;
 use worldrunner_render_plan::{RenderScene, SceneCamera};
 pub use worldrunner_render_post::{NativeRcasSettings, RcasDomain, ToneMap};
@@ -167,7 +164,7 @@ pub enum ViewerError {
     ),
     #[error("retained preparation bound {limit} reached")]
     BackPressure { limit: usize },
-    #[error("live driver failed: {0}")]
+    #[error("driver failed: {0}")]
     Driver(String),
     #[error(transparent)]
     Timing(#[from] worldrunner_render_post::TimingError),
@@ -226,67 +223,6 @@ pub enum ViewerError {
     Frame(#[from] worldrunner_render_scene::frame::FrameError),
     #[error(transparent)]
     Shadow(#[from] worldrunner_render_scene::shadows::ShadowError),
-}
-
-/// Runs a desktop event loop until Escape, close, or a typed failure.
-///
-/// Call on the main thread, once per process, only for explicit window mode.
-/// Invalid options and unsupported scene features fail before display/GPU startup.
-/// Native surface extents follow physical pixels; unsupported device dimensions
-/// return an error. Scene attachments downscale uniformly to at most 4096 pixels
-/// per side. Zero-area windows suspend rendering. Lost surfaces are recreated,
-/// outdated surfaces reconfigured, and timeouts retried without busy-spinning. The scene is never reuploaded per frame.
-pub fn run(scene: RenderScene, options: ViewerOptions) -> Result<(), ViewerError> {
-    run_with_updates(scene, options, |_| Ok(()))
-}
-
-/// Runs the viewer with a placement-edit callback before each rendered frame.
-/// The callback sees the same resident scene in plain and shadowed modes.
-/// Handles obtained on its first call remain valid until explicitly removed.
-/// Edits are flushed automatically; returning an error exits the viewer.
-pub fn run_with_updates(
-    scene: RenderScene,
-    options: ViewerOptions,
-    update: impl FnMut(
-        &mut worldrunner_render_scene::draw::SceneGpu,
-    ) -> Result<(), worldrunner_render_scene::draw::InstanceError>
-    + 'static,
-) -> Result<(), ViewerError> {
-    let scene = reflection_settings::startup_scene(scene, &options)?;
-    validate(&scene, &options)?;
-    app::run(scene, options, Box::new(update))
-}
-
-pub(crate) type SceneUpdate = Box<
-    dyn FnMut(
-        &mut worldrunner_render_scene::draw::SceneGpu,
-    ) -> Result<(), worldrunner_render_scene::draw::InstanceError>,
->;
-
-/// Runs a caller-owned live simulation through the shared desktop viewer.
-/// Call once on the main thread. The driver retains its state after this returns.
-pub fn run_live<D: LiveDriver>(driver: &mut D, options: LiveOptions) -> Result<(), ViewerError> {
-    if options.size.iter().any(|&side| side == 0 || side > 4096) {
-        return Err(ViewerError::InvalidOptions(
-            "window dimensions must be in 1..=4096",
-        ));
-    }
-    if options.frame_interval.is_zero()
-        || options.frame_interval > std::time::Duration::from_secs(1)
-    {
-        return Err(ViewerError::InvalidOptions(
-            "frame interval must be positive and at most one second",
-        ));
-    }
-    if options.max_frames == Some(0) {
-        return Err(ViewerError::InvalidOptions("frame limit must be positive"));
-    }
-    if driver.clock().real_time() && options.fixed_dt.is_some() {
-        return Err(ViewerError::InvalidOptions(
-            "acquisition clock cannot use a fixed replay delta",
-        ));
-    }
-    app::run_live(driver, options)
 }
 
 fn validate(scene: &RenderScene, options: &ViewerOptions) -> Result<(), ViewerError> {

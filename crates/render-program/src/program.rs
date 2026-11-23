@@ -6,7 +6,7 @@ use crate::binding::{BindingSource, ResourceLayout};
 use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
-use crate::pipeline_key::Key;
+use crate::pipeline_key::{Key, RequestKeys};
 use crate::runtime::ProgramRuntime;
 
 /// A program's bind group layouts and pipeline layout.
@@ -69,6 +69,8 @@ pub struct GraphicsProgram {
     /// What a pipeline is built from that the program alone decides: its stages, layout and lent
     /// sets. A vertex-only program is a different pipeline from any with a fragment stage.
     pub(crate) identity: blake3::Hash,
+    /// The keys of the pipelines requested for this program.
+    pub(crate) pipeline_keys: Arc<RequestKeys>,
 }
 
 impl ComputeProgram {
@@ -104,6 +106,7 @@ impl GraphicsProgram {
             fragment,
             gpu: Arc::new(gpu),
             identity: key.finish(),
+            pipeline_keys: Arc::default(),
         }
     }
 

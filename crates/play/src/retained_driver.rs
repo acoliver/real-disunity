@@ -3,7 +3,7 @@
 //! Each update advances the game, reads the mesh renderers its frame shows and turns them into
 //! retained edits (see [`SceneTables`]). From the first frame that shows a mesh object the
 //! viewer follows the game's camera, sent again whenever its pose or lens changes. Before then
-//! the window's pointer and keys orbit the opening view ([`Navigation`]); keys always reach the
+//! the window's pointer and keys orbit the opening view ([`OrbitNavigation`]); keys always reach the
 //! game's `Input`. Screen-space UI uses the
 //! engine overlay; ordinary 2D scene quads remain outside this retained path.
 
@@ -17,7 +17,7 @@ mod screen_tests;
 #[path = "retained_ui_tests.rs"]
 pub(crate) mod ui_tests;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use worldrunner_camera::{CameraState, ViewConvention, ViewHandedness};
@@ -28,10 +28,10 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
-    CameraContinuity, CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget,
-    PresentationCadence, RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
-    ViewerStart, WindowMode, WindowSizeUnit,
+    CameraContinuity, CapturePoolPolicy, FrameProfile, OrbitNavigation, PresentMode,
+    PresentationBudget, PresentationCadence, RenderClock, RetainedDriver, RetainedEvent,
+    RetainedEventHost, RetainedHost, RetainedTick, RetainedUpdate, ViewerOptions, ViewerStart,
+    WindowMode, WindowSizeUnit,
 };
 use worldrunner_world_simulation::ui::presentation::UiPresentation;
 
@@ -41,16 +41,15 @@ use crate::{
     driver::{Capture, FIRST_COVERAGE_TEXTURE},
     gpu_device::DeviceSource,
     gpu_player::PlayerGpu,
-    keys::key_code,
-    navigation::Navigation,
     player::window_gpu,
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
-    player_ui::{PlayerUi, graphic_textures},
+    player_ui::{PlayerUi, Screen, graphic_textures},
     scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
+    window_script::WindowScript,
 };
 
 const LEFT_HANDED: ViewConvention = ViewConvention {
@@ -90,11 +89,11 @@ pub struct PlayerWindow {
 /// or the window fails.
 pub fn play_player_window(
     prepared: &PreparedPlayer,
-    window: PlayerWindow,
+    window: &PlayerWindow,
 ) -> Result<Vec<Capture>, PlayError> {
     let mut start = ViewerStart::new()
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
-    let options = viewer_options(&window);
+    let options = viewer_options(window);
     let gpu = window_gpu(
         &prepared.data,
         &prepared.gpu,
@@ -107,7 +106,7 @@ pub fn play_player_window(
     let ran = viewer.run(start, &mut driver);
     driver.report_gpu();
     ran.map_err(|error| PlayError::Invalid(error.to_string()))?;
-    Ok(std::mem::take(&mut driver.captures))
+    Ok(driver.script.take_captures())
 }
 
 /// The device the viewer's start makes before the scene loads, as the player's source for the one
@@ -136,7 +135,7 @@ impl DeviceSource for ViewerDevice<'_> {
 /// answers the scene's GPU flushes from the first one, so it is installed before the scene loads.
 fn start_window(
     prepared: &PreparedPlayer,
-    window: PlayerWindow,
+    window: &PlayerWindow,
     gpu: PlayerGpu,
 ) -> Result<(RetainedHost, PlayerRetainedDriver), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
@@ -146,7 +145,7 @@ fn start_window(
     gpu.install(&mut host)?;
     gpu.set_screen(Some(window.size));
     host.run_slice(&prepared.request)?;
-    let mut options = viewer_options(&window);
+    let mut options = viewer_options(window);
     // The first frame's lights decide whether the viewer starts with shadows, which it cannot
     // add later.
     host.export_presentation(window.size, FIRST_COVERAGE_TEXTURE)?;
@@ -233,40 +232,35 @@ struct PlayerRetainedDriver {
     /// The device the window's offscreen work runs on. Declared after `host` so the host is
     /// dropped first.
     gpu: PlayerGpu,
-    window: PlayerWindow,
     tables: SceneTables,
     meshes: PlayerMeshes,
     player_textures: PlayerTextures,
     ui: PlayerUi,
     sprites: SpriteTextures,
-    navigation: Navigation,
+    navigation: OrbitNavigation,
     lighting: SceneLighting,
     lens: SceneCamera,
     /// The game's camera the window follows.
     start: CameraStart,
     /// The camera last accepted by the viewer, from the pose it opens with.
     publication: CameraPublication,
-    simulated: Duration,
+    script: WindowScript,
     size: [u32; 2],
-    presented: u64,
     reported: BTreeSet<u64>,
-    /// Requested captures not delivered yet, by request id, with the update they belong to.
-    pending: BTreeMap<u64, u64>,
-    captures: Vec<Capture>,
 }
 
 impl PlayerRetainedDriver {
     fn new(
         host: DisunityHost,
-        window: PlayerWindow,
+        window: &PlayerWindow,
         lighting: SceneLighting,
         gpu: PlayerGpu,
     ) -> Result<Self, PlayError> {
         // The opening view can be orbited until the game presents a camera, which then owns it.
-        let mut navigation = Navigation::default();
+        let mut navigation = OrbitNavigation::default();
         navigation
-            .start(viewer_options(&window).pose, orbit_limits())
-            .map_err(PlayError::Invalid)?;
+            .start(viewer_options(window).pose, orbit_limits())
+            .map_err(|error| PlayError::Invalid(error.to_string()))?;
         Ok(Self {
             host,
             gpu,
@@ -277,16 +271,12 @@ impl PlayerRetainedDriver {
             sprites: SpriteTextures::default(),
             navigation,
             lighting,
-            lens: viewer_options(&window).camera,
+            lens: viewer_options(window).camera,
             start: CameraStart::default(),
-            publication: CameraPublication::new(viewer_options(&window).pose),
-            simulated: Duration::ZERO,
+            publication: CameraPublication::new(viewer_options(window).pose),
+            script: WindowScript::new(window),
             size: window.size,
-            presented: 0,
             reported: BTreeSet::new(),
-            pending: BTreeMap::new(),
-            captures: Vec::new(),
-            window,
         })
     }
 
@@ -301,43 +291,20 @@ impl PlayerRetainedDriver {
         self.gpu.report().print(None);
     }
 
-    fn push_key(&mut self, code: u16, pressed: bool) -> Result<(), PlayError> {
-        // Input must follow the last advanced frame; the next update reads it.
-        let at = self.simulated + Duration::from_nanos(1);
-        Ok(self.host.push_key(at, code, pressed)?)
-    }
-
     /// Advances the game and brings the viewer's scene to the frame it shows.
     fn step(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), PlayError> {
-        let due: Vec<ScheduledKey> = self
-            .window
-            .keys
-            .iter()
-            .copied()
-            .filter(|key| key.frame == tick.frame)
-            .collect();
-        for key in due {
-            self.push_key(key.code, key.pressed)?;
-        }
-        let dt = self.window.fixed_dt.unwrap_or(if tick.frame == 0 {
-            Duration::ZERO
-        } else {
-            tick.dt
-        });
-        let nanos = u64::try_from(dt.as_nanos())
-            .map_err(|_| PlayError::Invalid("frame delta too long".into()))?;
         self.resize_screen(viewer.size());
-        self.host.advance(nanos, 1_000_000_000)?;
-        self.simulated += dt;
+        self.script.advance(&mut self.host, tick)?;
         let presentation = self
             .host
             .export_presentation(self.size, FIRST_COVERAGE_TEXTURE)?;
         let objects = self.host.mesh_objects()?;
         let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
+        let screen = self.ui_screen();
         self.ui.prepare(
             &mut ui,
-            self.size,
+            screen,
             &self.sprites,
             &self.player_textures,
             |message| {
@@ -362,7 +329,7 @@ impl PlayerRetainedDriver {
         self.offer_ui_textures(viewer, &mut ui);
         if let Some(update) = self.ui.update(
             ui,
-            self.size,
+            screen,
             &self.sprites,
             &self.player_textures,
             |message| {
@@ -375,7 +342,15 @@ impl PlayerRetainedDriver {
         }
         self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
-        self.capture(viewer, tick.frame)
+        self.script.request_capture(viewer, tick.frame)
+    }
+
+    /// The screen the UI is drawn over, on the player's device.
+    fn ui_screen(&self) -> Screen {
+        Screen {
+            size: self.size,
+            max_texture: self.gpu.max_texture_side(),
+        }
     }
 
     fn resize_screen(&mut self, size: [u32; 2]) {
@@ -486,24 +461,6 @@ impl PlayerRetainedDriver {
                     })
             })
     }
-
-    fn capture(&mut self, viewer: &mut RetainedHost, frame: u64) -> Result<(), PlayError> {
-        if !self.window.capture_frames.contains(&frame) {
-            return Ok(());
-        }
-        let id = viewer
-            .request_capture(viewer.accepted_generation())
-            .map_err(|error| PlayError::Invalid(format!("capture {frame}: {error}")))?;
-        self.pending.insert(id, frame);
-        Ok(())
-    }
-
-    fn finished(&self) -> bool {
-        self.window
-            .max_frames
-            .is_some_and(|max| self.presented >= max)
-            && self.pending.is_empty()
-    }
 }
 
 /// Sends the frame's new and changed resources, and then its object edits.
@@ -534,49 +491,9 @@ impl RetainedDriver for PlayerRetainedDriver {
         viewer: &mut RetainedEventHost<'_>,
         event: &RetainedEvent,
     ) -> Result<(), String> {
-        match event {
-            RetainedEvent::Input(input) => {
-                self.navigation.accept(input, self.size);
-                if let RetainedInput::Key {
-                    key,
-                    pressed,
-                    repeat: false,
-                    ..
-                } = input
-                    && let Some(code) = key_code(key)
-                {
-                    self.push_key(code, *pressed)
-                        .map_err(|error| error.to_string())?;
-                }
-            }
-            RetainedEvent::Presented { frame } => self.presented = frame + 1,
-            RetainedEvent::Capture { id, outcome, .. } => self.delivered(*id, outcome),
-            RetainedEvent::Shutdown
-            | RetainedEvent::WorkReady
-            | RetainedEvent::Timer { .. }
-            | RetainedEvent::AudioFinished { .. }
-            | RetainedEvent::AudioStatusChanged { .. }
-            | RetainedEvent::Accessibility(_) => {}
+        if let RetainedEvent::Input(input) = event {
+            self.navigation.accept(input, self.size);
         }
-        if self.finished() {
-            viewer.request_exit();
-        }
-        Ok(())
-    }
-}
-
-impl PlayerRetainedDriver {
-    fn delivered(&mut self, id: u64, outcome: &RetainedCaptureOutcome) {
-        let Some(frame) = self.pending.remove(&id) else {
-            return;
-        };
-        if let RetainedCaptureOutcome::Completed { image, .. } = outcome {
-            self.captures.push(Capture {
-                frame,
-                width: image.viewport.width,
-                height: image.viewport.height,
-                pixels: image.pixels.clone(),
-            });
-        }
+        self.script.event(&mut self.host, viewer, event)
     }
 }

@@ -94,7 +94,11 @@ impl ScenePages {
             statistics: std::rc::Rc::default(),
             identity: capture::identity(),
             generation: 1,
-            writer: PageWriter::new(device, settings),
+            writer: if layered.is_some() {
+                PageWriter::new_layered(device, settings)
+            } else {
+                PageWriter::new(device, settings)
+            },
             sample,
             layered,
             selection: None,
@@ -221,7 +225,7 @@ impl ScenePages {
             uploads.encode_layered(source, device, encoder, &self.cache, pending)
         } else {
             source
-                .encode_page(device, encoder, &self.cache, pending)
+                .encode_page(device, encoder, &self.writer, &self.cache, pending)
                 .map_err(preparation_error)
         }
     }

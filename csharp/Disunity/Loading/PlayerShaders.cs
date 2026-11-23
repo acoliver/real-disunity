@@ -14,7 +14,7 @@ internal static class PlayerShaders
         DisunityHost.DeclareShader(asset.Str("name"), Declaration(asset), difference,
             asset.TryGetProperty("file", out var file) ? file.GetString() : null, asset.TryGetProperty("path_id", out var pathId) ? pathId.GetInt64() : 0);
 
-    private static ShaderDeclaration Declaration(JsonElement asset) => new(asset.Int("render_queue"), PassNames(asset), asset.Int("subshader_count"),
+    private static ShaderDeclaration Declaration(JsonElement asset) => new(asset.Int("render_queue"), asset.Int("pass_count"), asset.Int("subshader_count"), PassNames(asset),
         asset.GetProperty("tags").EnumerateArray().Select(tag => KeyValuePair.Create(tag[0].GetString() ?? "", tag[1].GetString() ?? "")).ToArray(), asset.Str("fallback"));
 
     /// <summary>The names of the first sub-shader's passes in order, as many as <c>pass_count</c> says; a plan that disagrees with

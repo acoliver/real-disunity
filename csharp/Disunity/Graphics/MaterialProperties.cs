@@ -6,7 +6,9 @@ namespace UnityEngine;
 /// The typed property API of a material. A property is present once it has been set on this material; the
 /// shader's declared properties are not known yet, so HasProperty and the Has methods do not report a default
 /// the shader would declare. An unset property reads as zero, a matrix as identity and a texture as null.
-/// Colors share the vector slot, so HasColor and HasVector agree, and SetInt stores a float as Unity does.
+/// Colors share the vector slot, so HasColor and HasVector agree, and SetInt stores a float as Unity does. In a linear color space
+/// SetColor keeps the color converted to linear, as the shader reads it, and GetColor returns the color that was set; GetVector
+/// returns the linear value, and SetVector is never converted (see <c>PropertyStore.SetColor</c>).
 /// </summary>
 public partial class Material
 {
@@ -47,7 +49,7 @@ public partial class Material
     public void SetVector(string name, Vector4 value) => SetVector(Shader.PropertyToID(name), value);
     public void SetVector(int nameID, Vector4 value) => _properties.Vectors[nameID] = value;
     public void SetColor(string name, Color value) => SetColor(Shader.PropertyToID(name), value);
-    public void SetColor(int nameID, Color value) => _properties.Vectors[nameID] = value;
+    public void SetColor(int nameID, Color value) => _properties.SetColor(nameID, value);
     public void SetMatrix(string name, Matrix4x4 value) => SetMatrix(Shader.PropertyToID(name), value);
     public void SetMatrix(int nameID, Matrix4x4 value) => _properties.Matrices[nameID] = value;
     public void SetTexture(string name, Texture value) => SetTexture(Shader.PropertyToID(name), value);
@@ -63,8 +65,8 @@ public partial class Material
 
     public void SetBuffer(string name, GraphicsBuffer value) => SetBuffer(Shader.PropertyToID(name), value);
 
-    /// <summary>A <see cref="GraphicsBuffer"/> has no world buffer, so it is kept here and not sent; a compute buffer that was
-    /// sent under the same name is unbound from the world's material.</summary>
+    /// <summary>A <see cref="GraphicsBuffer"/> is kept here and not bound in the world's material (only batch draws name its world
+    /// buffer); a compute buffer that was sent under the same name is unbound from the world's material.</summary>
     public void SetBuffer(int nameID, GraphicsBuffer value)
     {
         _properties.Buffers[nameID] = value;
@@ -102,9 +104,9 @@ public partial class Material
     public void SetMatrixArray(string name, Matrix4x4[] values) => SetMatrixArray(Shader.PropertyToID(name), values);
     public void SetMatrixArray(int nameID, Matrix4x4[] values) => _properties.MatrixArrays[nameID] = PropertyStore.Copy(values, "SetMatrixArray");
     public void SetColorArray(string name, List<Color> values) => SetColorArray(Shader.PropertyToID(name), values);
-    public void SetColorArray(int nameID, List<Color> values) => _properties.ColorArrays[nameID] = PropertyStore.Copy(values, "SetColorArray");
+    public void SetColorArray(int nameID, List<Color> values) => _properties.SetColorArray(nameID, values, "SetColorArray");
     public void SetColorArray(string name, Color[] values) => SetColorArray(Shader.PropertyToID(name), values);
-    public void SetColorArray(int nameID, Color[] values) => _properties.ColorArrays[nameID] = PropertyStore.Copy(values, "SetColorArray");
+    public void SetColorArray(int nameID, Color[] values) => _properties.SetColorArray(nameID, values, "SetColorArray");
     public float GetFloat(string name) => GetFloat(Shader.PropertyToID(name));
     public float GetFloat(int nameID) => _properties.Floats.GetValueOrDefault(nameID);
     public int GetInt(string name) => GetInt(Shader.PropertyToID(name));
@@ -114,7 +116,7 @@ public partial class Material
     public Vector4 GetVector(string name) => GetVector(Shader.PropertyToID(name));
     public Vector4 GetVector(int nameID) => _properties.Vectors.GetValueOrDefault(nameID);
     public Color GetColor(string name) => GetColor(Shader.PropertyToID(name));
-    public Color GetColor(int nameID) => _properties.Vectors.GetValueOrDefault(nameID);
+    public Color GetColor(int nameID) => _properties.GetColor(nameID);
     public Matrix4x4 GetMatrix(string name) => GetMatrix(Shader.PropertyToID(name));
     public Matrix4x4 GetMatrix(int nameID) => _properties.Matrices.TryGetValue(nameID, out var matrix) ? matrix : Matrix4x4.identity;
     public Texture? GetTexture(string name) => GetTexture(Shader.PropertyToID(name));
@@ -132,7 +134,7 @@ public partial class Material
     public void GetMatrixArray(string name, List<Matrix4x4> values) => GetMatrixArray(Shader.PropertyToID(name), values);
     public void GetMatrixArray(int nameID, List<Matrix4x4> values) => PropertyStore.Fill(_properties.MatrixArrays.GetValueOrDefault(nameID), values);
     public Color[]? GetColorArray(string name) => GetColorArray(Shader.PropertyToID(name));
-    public Color[]? GetColorArray(int nameID) => PropertyStore.Clone(_properties.ColorArrays.GetValueOrDefault(nameID));
+    public Color[]? GetColorArray(int nameID) => _properties.GetColorArray(nameID);
     public void GetColorArray(string name, List<Color> values) => GetColorArray(Shader.PropertyToID(name), values);
-    public void GetColorArray(int nameID, List<Color> values) => PropertyStore.Fill(_properties.ColorArrays.GetValueOrDefault(nameID), values);
+    public void GetColorArray(int nameID, List<Color> values) => _properties.GetColorArray(nameID, values);
 }

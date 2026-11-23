@@ -42,7 +42,8 @@ use crate::{
     player_sorting::plan_sorting_group,
     player_values::FieldWriter,
     renderers::{
-        plan_material_slots, plan_mesh_filter, plan_mesh_renderer, plan_skinned_mesh_renderer,
+        PlannedSkin, plan_material_slots, plan_mesh_filter, plan_mesh_renderer,
+        plan_skinned_mesh_renderer,
     },
 };
 
@@ -495,12 +496,62 @@ impl<'t> PlayerPlanner<'t> {
                     src.files().local(&self.path, component)?.decode(id)?;
                 let slots =
                     self.material_slots(src, owner, "SkinnedMeshRenderer", &skinned.renderer);
-                plan_skinned_mesh_renderer(owner, &skinned, slots, &mut self.differences)
+                let skin = self.planned_skin(src, owner, &skinned);
+                plan_skinned_mesh_renderer(owner, &skinned, skin, slots, &mut self.differences)
             }
             other => PlanComponent::Unsupported {
                 class: other.to_string(),
             },
         })
+    }
+
+    /// The mesh, bones and root bone of a skinned renderer in the plan. A mesh the plan cannot
+    /// hold and a bone outside the planned hierarchy are `None` and listed.
+    fn planned_skin(
+        &mut self,
+        src: &mut impl PlanSource,
+        owner: &str,
+        skinned: &SkinnedMeshRenderer,
+    ) -> PlannedSkin {
+        let mesh = (!skinned.mesh.is_null())
+            .then(|| src.asset(&self.path, skinned.mesh))
+            .and_then(|found| {
+                found
+                    .map_err(|cause| {
+                        let place = format!("{owner}: SkinnedMeshRenderer mesh {cause}");
+                        self.differences.push(place);
+                    })
+                    .ok()
+            });
+        let bones = skinned
+            .bones
+            .iter()
+            .enumerate()
+            .map(|(slot, bone)| self.bone(owner, &format!("bone {slot}"), *bone))
+            .collect();
+        PlannedSkin {
+            mesh,
+            bones,
+            root_bone: self.bone(owner, "root bone", skinned.root_bone),
+        }
+    }
+
+    /// The object index of the planned transform a bone reference names; `None` for an empty
+    /// reference, and for one to anything else, which is listed.
+    fn bone(&mut self, owner: &str, what: &str, bone: PPtr) -> Option<usize> {
+        if bone.is_null() {
+            return None;
+        }
+        let planned = (bone.file_id == 0)
+            .then(|| self.index.get(&bone.path_id))
+            .flatten();
+        if let Some(&Target::Transform(object)) = planned {
+            return Some(object);
+        }
+        self.differences.push(format!(
+            "{owner}: SkinnedMeshRenderer {what} references an object outside the planned hierarchy"
+        ));
+        None
     }
 
     /// The asset index of each material slot of a renderer; a slot that holds no material, or
@@ -567,6 +618,7 @@ impl<'t> PlayerPlanner<'t> {
             script: String::new(),
             class: script.full_name,
             assembly: Some(script.assembly),
+            execution_order: Some(script.execution_order),
             enabled: data.enabled,
             fields,
         })

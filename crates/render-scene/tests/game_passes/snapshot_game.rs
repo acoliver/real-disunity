@@ -19,7 +19,7 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, GameBuild,
         GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, PostWaterDepth,
-        SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
+        SnapshotImage, SnapshotReads, StockReplacement, TargetDeclaration, TargetExtent,
     },
     wgpu,
 };
@@ -127,6 +127,9 @@ pub struct Plan {
     pub probe_linear: bool,
     /// A magenta fill into the frame, and where it is drawn.
     pub fill: Fill,
+    /// The stock surfaces the game draws. The factory declares it once, when it is installed, so
+    /// a later `replan` does not change it.
+    pub replaces: StockReplacement,
 }
 
 /// What the game saw, in the order it saw it.
@@ -196,6 +199,10 @@ impl GameFeatureFactory for SnapGame {
 
     fn snapshot_reads(&self) -> SnapshotReads {
         self.declared
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.plan.replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

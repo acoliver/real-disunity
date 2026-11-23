@@ -20,6 +20,8 @@ pub struct ScriptClass {
     pub assembly: String,
     /// The namespace and class name, joined by a dot.
     pub full_name: String,
+    /// The script's execution order: scripts with a lower order run first.
+    pub execution_order: i32,
 }
 
 impl ScriptClass {
@@ -90,6 +92,7 @@ impl PlayerFiles {
         let class = ScriptClass {
             assembly,
             full_name,
+            execution_order: script.execution_order,
         };
         self.scripts.insert(key, class.clone());
         Ok(class)

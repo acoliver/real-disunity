@@ -21,9 +21,9 @@ mod renderer_bytes;
 #[path = "support/shader_bytes.rs"]
 mod shader_bytes;
 use renderer_bytes::{
-    distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes, transform,
+    Rig, distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes, transform,
 };
-use shader_bytes::lit;
+use shader_bytes::{declaring, lit};
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
@@ -91,6 +91,17 @@ fn write_file(dir: &Path, name: &str, objects: Vec<ObjectData>, externals: &[&st
 /// (2, 3), offset (0.5, 0.25)), the int `_Mode` 2, the float `_Cutoff` 0.5 and the color
 /// `_Color`.
 fn material(name: &str, shader: PPtr, textures: &[(&str, PPtr)]) -> Vec<u8> {
+    material_with_colors(name, shader, textures, &[("_Color", [1.0, 0.5, 0.25, 1.0])])
+}
+
+/// A material as [`material`] writes it, with the saved color list `colors`, which a material
+/// keeps its vector properties in as well.
+fn material_with_colors(
+    name: &str,
+    shader: PPtr,
+    textures: &[(&str, PPtr)],
+    colors: &[(&str, [f32; 4])],
+) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(name).unwrap().pptr(shader);
     w.i32(2).string("_A").unwrap().string("_B").unwrap().i32(0);
@@ -108,10 +119,10 @@ fn material(name: &str, shader: PPtr, textures: &[(&str, PPtr)]) -> Vec<u8> {
     }
     w.i32(1).string("_Mode").unwrap().i32(2);
     w.i32(1).string("_Cutoff").unwrap().f32(0.5);
-    w.i32(1)
-        .string("_Color")
-        .unwrap()
-        .floats(&[1.0, 0.5, 0.25, 1.0]);
+    w.i32(i32::try_from(colors.len()).unwrap());
+    for (property, value) in colors {
+        w.string(property).unwrap().floats(value);
+    }
     w.i32(0);
     w.finish()
 }
@@ -239,13 +250,61 @@ fn planned_resources() -> (tempfile::TempDir, ResourcesPlan) {
             object(
                 24,
                 ClassId::SKINNED_MESH_RENDERER,
-                skinned_bytes(20, &distinct(), ptr(0, 0), &[ptr(0, 11)]),
+                skinned_bytes(20, &distinct(), ptr(0, 0), &[ptr(0, 11)], &Rig::default()),
             ),
         ],
         &[],
     );
     let plan = plan_player_resources(dir.path(), &layouts(), &dir.path().join("out")).unwrap();
     (dir, plan)
+}
+
+/// A player whose container lists the material `Tinted` of a shader that declares `_Tint` as a
+/// color and `_Scale` as a vector. The material saves both, and `_Extra`, which its shader does not
+/// declare, in its one color list.
+fn planned_tinted() -> ResourcesPlan {
+    let dir = tempfile::tempdir().unwrap();
+    let mut manager = ObjectWriter::new(false);
+    manager
+        .i32(1)
+        .string("materials/tinted")
+        .unwrap()
+        .pptr(ptr(1, 10));
+    manager.i32(0);
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(1, ClassId::RESOURCE_MANAGER, manager.finish())],
+        &["resources.assets"],
+    );
+    let colors = [
+        ("_Tint", [0.5, 0.0625, 0.375, 0.75]),
+        ("_Scale", [2.0, 3.0, 0.5, 0.25]),
+        ("_Extra", [0.125, 0.25, 0.375, 0.5]),
+    ];
+    let declared = declaring(
+        "Test/Tinted",
+        &[("_Tint", 0), ("_Scale", 1), ("_Cutoff", 2)],
+    );
+    write_file(
+        dir.path(),
+        "resources.assets",
+        vec![
+            object(2, ClassId::SHADER, declared),
+            object(
+                10,
+                ClassId::MATERIAL,
+                material_with_colors("Tinted", ptr(0, 2), &[], &colors),
+            ),
+        ],
+        &[],
+    );
+    plan_player_resources(
+        dir.path(),
+        &ScriptLayouts::new(Vec::new()),
+        &dir.path().join("out"),
+    )
+    .unwrap()
 }
 
 /// The index of the one material named `name`.
@@ -525,4 +584,84 @@ fn materials_of_a_scene_that_bind_one_texture_share_its_entry() {
     assert_eq!(types, ["Shader", "Texture2D", "Material", "Material"]);
     assert_eq!(assets[2]["textures"][0]["texture"], 1);
     assert_eq!(assets[3]["textures"][0]["texture"], 1);
+}
+
+#[test]
+fn a_property_its_shader_declares_as_a_vector_is_planned_apart_from_the_colors() {
+    let plan = planned_tinted();
+    let tinted = as_json(&plan, material_named(&plan, "Tinted"));
+    assert_eq!(
+        tinted["colors"],
+        json!([
+            ["_Tint", [0.5, 0.0625, 0.375, 0.75]],
+            ["_Extra", [0.125, 0.25, 0.375, 0.5]]
+        ]),
+        "a color the shader declares, and one it does not declare, stay colors"
+    );
+    assert_eq!(
+        tinted["vectors"],
+        json!([["_Scale", [2.0, 3.0, 0.5, 0.25]]])
+    );
+}
+
+#[test]
+fn a_material_with_no_vector_property_plans_no_vectors_key() {
+    let (_dir, plan) = planned_resources();
+    let lit = as_json(&plan, material_named(&plan, "Lit"));
+    assert!(lit.get("vectors").is_none(), "{lit}");
+}
+
+#[test]
+fn a_scene_material_plans_the_vectors_its_shader_declares_apart_from_its_colors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = game_object("Root", &[ptr(0, 3), ptr(0, 4)]);
+    write_file(
+        dir.path(),
+        "level0",
+        vec![
+            object(2, ClassId::GAME_OBJECT, root),
+            object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[])),
+            object(
+                4,
+                ClassId::MESH_RENDERER,
+                mesh_renderer_bytes(2, &distinct(), &[ptr(1, 10), ptr(1, 12)]),
+            ),
+        ],
+        &["sharedassets0.assets"],
+    );
+    let colors = [
+        ("_Tint", [0.5, 0.0625, 0.375, 0.75]),
+        ("_Scale", [2.0, 3.0, 0.5, 0.25]),
+    ];
+    let declared = declaring("Test/Tinted", &[("_Tint", 0), ("_Scale", 1)]);
+    write_file(
+        dir.path(),
+        "sharedassets0.assets",
+        vec![
+            object(9, ClassId::SHADER, declared),
+            object(
+                10,
+                ClassId::MATERIAL,
+                material_with_colors("First", ptr(0, 9), &[], &colors),
+            ),
+            object(
+                12,
+                ClassId::MATERIAL,
+                material_with_colors("Second", ptr(0, 9), &[], &colors),
+            ),
+        ],
+        &[],
+    );
+    let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
+    let assets = serde_json::to_value(&plan.assets).unwrap();
+    for index in [1, 2] {
+        assert_eq!(
+            assets[index]["colors"],
+            json!([["_Tint", [0.5, 0.0625, 0.375, 0.75]]])
+        );
+        assert_eq!(
+            assets[index]["vectors"],
+            json!([["_Scale", [2.0, 3.0, 0.5, 0.25]]])
+        );
+    }
 }

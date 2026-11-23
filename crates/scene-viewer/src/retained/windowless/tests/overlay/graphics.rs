@@ -3,7 +3,7 @@ mod ordering;
 mod scrolled;
 use super::*;
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,
+    Canvas, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,
 };
 use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, ParentSpace};
 
@@ -17,7 +17,13 @@ pub(super) fn graphic_world() -> (World, ObjectHandle) {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world

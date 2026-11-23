@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::ids::{CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId};
 use crate::layers::PropertyLayer;
+use crate::resources::BufferHandle;
 use crate::sampler::SamplerState;
 use crate::unity::shader::PassSelector;
 
@@ -239,6 +240,33 @@ pub struct Clear {
     pub stencil: Option<u32>,
 }
 
+/// The instances a list draw makes.
+#[derive(Clone, Debug)]
+pub enum Instances {
+    /// The sub-mesh repeated this many times with the renderer's own values: 1 draws it once and
+    /// 0 draws nothing. What differs between instances is read from the instance index.
+    Count(u32),
+    /// Instances whose data is in a raw buffer, drawn through the shader's DOTS instancing variant.
+    Dots(DotsBatch),
+}
+
+/// A batch of instances a game shader reads from a raw buffer, as the game's own code laid it out.
+/// The host copies the words and indexes below and binds the buffer; it does not read the buffer.
+#[derive(Clone, Debug)]
+pub struct DotsBatch {
+    /// The raw buffer the shader reads as `unity_DOTSInstanceData`.
+    pub buffer: BufferHandle,
+    /// The bytes of `buffer` the shader reads: the metadata offsets count from the window's
+    /// start, which a device binds only at its storage offset alignment.
+    pub window: Range<u64>,
+    /// The metadata word of each per-instance property the game set, by the property's name
+    /// (`unity_ObjectToWorld`, `_Color`). The word is the value the game gave the property's
+    /// metadata, copied as it is.
+    pub metadata: Vec<(String, u32)>,
+    /// The index of each instance to draw, in the order they draw.
+    pub visible: Vec<u32>,
+}
+
 /// One draw of a list: a sub-mesh slot of a renderer.
 #[derive(Clone, Debug)]
 pub struct ListDraw {
@@ -248,8 +276,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
-    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
-    pub instances: u32,
+    /// The instances of the sub-mesh the draw makes.
+    pub instances: Instances,
     /// The values the list gives this draw alone, such as a light factor that depends on the
     /// culling result the draw came from. They win over the renderer's own `per_draw` values.
     pub per_draw: PropertyLayer,
@@ -275,6 +303,13 @@ pub struct DrawRaster {
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],
+    /// Whether the draws blend their alpha channel as coverage: a colour blend of source alpha
+    /// and one minus source alpha leaves the target holding the colour premultiplied by the
+    /// alpha and the alpha as the coverage of everything drawn (source one, destination one
+    /// minus source alpha), as it does over a backdrop that is cleared to transparent. A host
+    /// that later composites the target over another image needs that alpha. A colour blend
+    /// of any other kind keeps the pass's own alpha blend.
+    pub coverage_alpha: bool,
 }
 
 /// A list of draws into attachments.
@@ -366,6 +401,66 @@ pub enum Record {
     Globals(Arc<GlobalState>),
 }
 
+impl Record {
+    /// The kind of the record, as a report names it.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::CameraRender { .. } => "CameraRender",
+            Self::Blit { .. } => "Blit",
+            Self::CopyTexture { .. } => "CopyTexture",
+            Self::GenerateMips { .. } => "GenerateMips",
+            Self::Clear { .. } => "Clear",
+            Self::Draws(_) => "Draws",
+            Self::Procedural(_) => "Procedural",
+            Self::Globals(_) => "Globals",
+        }
+    }
+
+    /// The texture the record writes: a camera's, blit's or copy's target, the texture mips are
+    /// generated for, or the first colour attachment of a clear or a draw (its depth when it has
+    /// no colour). A record of globals writes none.
+    #[must_use]
+    pub fn target(&self) -> Option<TextureId> {
+        let attached = |target: &Attachments| {
+            target
+                .colors
+                .first()
+                .or(target.depth.as_ref())
+                .map(|attachment| attachment.texture)
+        };
+        match self {
+            Self::CameraRender { target, .. }
+            | Self::Blit { target, .. }
+            | Self::CopyTexture { target, .. } => Some(*target),
+            Self::GenerateMips { texture } => Some(*texture),
+            Self::Clear { target, .. } => attached(target),
+            Self::Draws(list) => attached(&list.target),
+            Self::Procedural(draw) => attached(&draw.target),
+            Self::Globals(_) => None,
+        }
+    }
+
+    /// The texture whose depth buffer the record rendered with: the depth attachment a clear, a
+    /// draw list or a procedural draw binds, which may be a texture of its own or the colour
+    /// target's, and the depth buffer of a camera's target. A blit, a copy, a mip generation and
+    /// a record of globals have none, and neither has a clear or a draw that binds no depth.
+    #[must_use]
+    pub fn depth_target(&self) -> Option<TextureId> {
+        let attached = |target: &Attachments| target.depth.as_ref().map(|depth| depth.texture);
+        match self {
+            Self::CameraRender { target, .. } => Some(*target),
+            Self::Clear { target, .. } => attached(target),
+            Self::Draws(list) => attached(&list.target),
+            Self::Procedural(draw) => attached(&draw.target),
+            Self::Blit { .. }
+            | Self::CopyTexture { .. }
+            | Self::GenerateMips { .. }
+            | Self::Globals(_) => None,
+        }
+    }
+}
+
 /// A range of a texture the scene samples after the offscreen work.
 #[derive(Clone, Debug)]
 pub struct ReadRange {
@@ -404,6 +499,10 @@ pub struct OffscreenFrame {
     /// before. Without a default for a dimension, which is the default, every slot of that
     /// dimension no layer sets is missing.
     pub undeclared_textures: UndeclaredTextures,
+    /// The indices into `records` after which the host reads the record's target, in colour and
+    /// depth. A read leaves the frame's work as it was; see
+    /// [`OffscreenOperations::take_taps`](super::OffscreenOperations::take_taps).
+    pub taps: Vec<usize>,
 }
 
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
@@ -447,6 +546,7 @@ impl Default for OffscreenFrame {
             later_reads: Vec::new(),
             probe: CameraProbe::default(),
             undeclared_textures: UndeclaredTextures::default(),
+            taps: Vec::new(),
         }
     }
 }

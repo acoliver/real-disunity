@@ -51,6 +51,16 @@ fn component(world: u64, object: u64, kind: u32) -> u64 {
     handle
 }
 
+/// A canvas created without a mode is a world canvas; the frame under test is the screen's.
+fn overlay(world: u64, canvas: u64) {
+    let mut record = DisunityCanvas::default();
+    unsafe {
+        assert_eq!(disunity_canvas_read(world, canvas, &mut record).code, 0);
+        record.mode = 0;
+        assert_eq!(disunity_canvas_write(world, canvas, &record).code, 0);
+    }
+}
+
 fn scene() -> Scene {
     let (mut world, mut camera_object, mut camera) = (0, 0, 0);
     let (mut canvas, mut element, mut renderer) = (0, 0, 0);
@@ -83,7 +93,8 @@ fn scene() -> Scene {
             0
         );
         component(world, canvas, 0);
-        component(world, canvas, 1);
+        let screen = component(world, canvas, 1);
+        overlay(world, screen);
         component(world, element, 0);
         assert_eq!(
             disunity_canvas_renderer_create(world, element, &mut renderer).code,

@@ -87,17 +87,25 @@ fn draw(texture: UiTexture) -> UiDraw {
     }
 }
 
-fn overlay(texture: UiTexture, textures: &BTreeMap<u64, SceneTexture>) -> UiOverlay {
+fn overlay(
+    texture: UiTexture,
+    textures: &BTreeMap<u64, SceneTexture>,
+) -> std::sync::Arc<UiOverlay> {
     let presentation = UiPresentation {
         draws: vec![draw(texture)],
         ..UiPresentation::default()
     };
-    UiOverlay::from_presentation(&presentation, textures).unwrap()
+    let layers = worldrunner_world_simulation::ui::presentation::UiLayers::default();
+    std::sync::Arc::new(UiOverlay::from_presentation(&presentation, textures, &layers).unwrap())
 }
 
 /// The pixels, top row first, that the overlay pass writes over a cleared target when the overlay
 /// is staged once for each offer of `offers`; the last staging is the one drawn.
-fn shown(context: &GpuContext, overlay: &UiOverlay, offers: &[&[UiTarget]]) -> Vec<[u8; 4]> {
+fn shown(
+    context: &GpuContext,
+    overlay: &std::sync::Arc<UiOverlay>,
+    offers: &[&[UiTarget]],
+) -> Vec<[u8; 4]> {
     let device = context.device();
     let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
     let mut scene = SceneGpu::empty(device, context.submission(), &pipelines).unwrap();

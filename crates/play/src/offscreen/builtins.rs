@@ -175,23 +175,32 @@ pub const SPEC_CUBE0_HDR: &str = "unity_SpecCube0_HDR";
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
 
+/// The per-draw values of a draw whose object matrices the shader reads per instance from a
+/// buffer: the sign of the matrix determinant is not known, so the handedness is positive.
+#[must_use]
+pub fn instanced_draw_layer() -> PropertyLayer {
+    let mut layer = PropertyLayer::default();
+    layer.values.set(
+        WORLD_TRANSFORM_PARAMS,
+        PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]),
+    );
+    layer
+}
+
 /// The per-draw values of a renderer at `local_to_world`.
 #[must_use]
 pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     let matrix = Mat4::from_cols_array(local_to_world);
-    let mut layer = PropertyLayer::default();
+    let mut layer = instanced_draw_layer();
     layer
         .values
         .set(OBJECT_TO_WORLD, PropertyValue::Matrix(*local_to_world));
-    let handedness = if matrix.determinant() < 0.0 {
-        -1.0
-    } else {
-        1.0
-    };
-    layer.values.set(
-        WORLD_TRANSFORM_PARAMS,
-        PropertyValue::Vector([0.0, 0.0, 0.0, handedness]),
-    );
+    if matrix.determinant() < 0.0 {
+        layer.values.set(
+            WORLD_TRANSFORM_PARAMS,
+            PropertyValue::Vector([0.0, 0.0, 0.0, -1.0]),
+        );
+    }
     if matrix.determinant().abs() > SINGULAR {
         layer.values.set(
             WORLD_TO_OBJECT,

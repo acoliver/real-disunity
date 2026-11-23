@@ -40,8 +40,8 @@ impl Mapper<'_> {
 }
 
 impl Mapper<'_> {
-    /// Counts the skinned renderers the world left out of every set because skinned meshes are not
-    /// drawn yet. The snapshot gives each once for the frame.
+    /// Counts the skinned renderers the world left out of every set because their skins name no
+    /// root bone to place them. The snapshot gives each once for the frame.
     pub(super) fn skinned_renderers(&mut self) {
         let count = self.snapshot.skinned_not_drawn as usize;
         if count > 0 {

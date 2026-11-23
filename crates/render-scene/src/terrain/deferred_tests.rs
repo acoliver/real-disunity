@@ -4,25 +4,48 @@
 //! with the same material. The lighting pass runs before Opaque on the depth the prepass
 //! completed, so the plain frame, which has no prepass, lights nothing.
 
-use glam::{Mat3, Vec3};
+use glam::Mat3;
+use glam::Vec3;
 use wgpu::util::DeviceExt;
-use worldrunner_render_plan::{
-    RenderScene, SceneAlphaMode, SceneEffects, SceneMaterial, SceneMaterialParts, SceneOpaquePath,
-    SceneParts, SceneResources, SceneTranslucency, SceneTranslucencyParts, TextureHandle,
-};
-use worldrunner_render_post::{
-    BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError, FrameFeature, PassSlot,
-    PrepareContext, PreparedFeature, ToneMap,
-};
+use worldrunner_render_plan::RenderScene;
+use worldrunner_render_plan::SceneAlphaMode;
+use worldrunner_render_plan::SceneEffects;
+use worldrunner_render_plan::SceneMaterial;
+use worldrunner_render_plan::SceneMaterialParts;
+use worldrunner_render_plan::SceneOpaquePath;
+use worldrunner_render_plan::SceneParts;
+use worldrunner_render_plan::SceneResources;
+use worldrunner_render_plan::SceneTranslucency;
+use worldrunner_render_plan::SceneTranslucencyParts;
+use worldrunner_render_plan::TextureHandle;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::DrawContext;
+use worldrunner_render_post::FeatureDeclaration;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::FrameFeature;
+use worldrunner_render_post::PassSlot;
+use worldrunner_render_post::PrepareContext;
+use worldrunner_render_post::PreparedFeature;
+use worldrunner_render_post::ToneMap;
 
-use super::gbuffer_tests::{Drawn, Frame, prepare_scene, prepare_with, read, render};
-use crate::compositor::{FeatureTarget, RendererConfiguration};
+use super::gbuffer_tests::Drawn;
+use super::gbuffer_tests::Frame;
+use super::gbuffer_tests::prepare_scene;
+use super::gbuffer_tests::prepare_with;
+use super::gbuffer_tests::read;
+use super::gbuffer_tests::render;
+use crate::compositor::FeatureTarget;
+use crate::compositor::RendererConfiguration;
 use crate::device::GpuContext;
-use crate::dynamic::capture_tests::{SIZE, context};
+use crate::dynamic::capture_tests::SIZE;
+use crate::dynamic::capture_tests::context;
+use crate::gbuffer::GBUFFER_FORMATS;
+use crate::gbuffer::GBUFFER_WGSL;
 use crate::gbuffer::lighting::LightingTarget;
 use crate::gbuffer::records::LightingRecord;
-use crate::gbuffer::reference::{self, Surface};
-use crate::gbuffer::{GBUFFER_FORMATS, GBUFFER_WGSL};
+use crate::gbuffer::reference::Surface;
+use crate::gbuffer::reference::{self};
 use crate::pipeline::MaterialUniform;
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -94,9 +117,11 @@ fn lit_scene(frame: Frame) -> RenderScene {
 
 /// The flat fixture completes metadata depth through AO without reflection products.
 fn nonreflecting_effects() -> SceneEffects {
-    use worldrunner_render_plan::{
-        SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
-    };
+    use worldrunner_render_plan::SceneSsao;
+    use worldrunner_render_plan::SceneSsaoDepthFootprint;
+    use worldrunner_render_plan::SceneSsaoFilter;
+    use worldrunner_render_plan::SceneSsaoKernel;
+    use worldrunner_render_plan::SceneSsaoReceiver;
     let mut parts = crate::draw::tests::effect_parts();
     parts.ssao = Some(SceneSsao {
         receiver: SceneSsaoReceiver::Nearest,

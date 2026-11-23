@@ -3,9 +3,11 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use worldrunner_disunity_ffi::{
-    abi::*, buffers::*, compute::*, gpu_flush::*, graphics_offscreen::*,
-};
+#[path = "common/frame.rs"]
+mod frame;
+
+use worldrunner_disunity_ffi::{abi::*, buffers::*, compute::*, gpu_flush::*};
+use worldrunner_world_simulation::graphics::OffscreenWork;
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -105,7 +107,7 @@ struct Probe {
     calls: u32,
     world: u64,
     buffer: u64,
-    taken: Vec<u32>,
+    taken: Vec<OffscreenWork>,
     nested: Option<i32>,
     fail_with: Option<&'static str>,
 }
@@ -123,8 +125,8 @@ fn write_message(text: &str, message: *mut u8, capacity: u32, length: *mut u32) 
     }
 }
 
-/// Plays the host executor: takes the pending work, reads the dispatch's bindings, grows the
-/// kernel size and fills the bound buffer with the dispatch's group count, all through the ABI
+/// Plays the host executor: takes the pending work with the graphics snapshot, as the player does,
+/// grows the kernel size and fills the bound buffer with the dispatch's group count, all through the ABI
 /// on the world being flushed.
 unsafe extern "C" fn executor(
     world: u64,
@@ -144,22 +146,22 @@ unsafe extern "C" fn executor(
         };
     }
     state.nested = Some(disunity_gpu_flush(world).code);
-    let mut count = 0;
-    let mut records = vec![DisunityOffscreenWork::default(); 8];
-    let taken = unsafe { disunity_offscreen_take(world, records.as_mut_ptr(), 8, &mut count) };
-    if taken.code != 0 {
-        return taken;
-    }
-    for record in &records[..count as usize] {
-        state.taken.push(record.kind);
-        if record.kind != 3 {
+    for record in frame::snapshot(world).work {
+        state.taken.push(record.clone());
+        let OffscreenWork::Dispatch {
+            shader,
+            kernel,
+            groups,
+            ..
+        } = record
+        else {
             continue;
-        }
-        let size = disunity_compute_kernel_size_write(world, record.shader, record.kernel, 8, 8, 1);
+        };
+        let size = disunity_compute_kernel_size_write(world, shader.to_bits(), kernel, 8, 8, 1);
         if size.code != 0 {
             return size;
         }
-        let value = (record.kernel + record.groups_x).to_le_bytes();
+        let value = (kernel + groups[0]).to_le_bytes();
         let written =
             unsafe { disunity_compute_buffer_write(world, state.buffer, 4, value.as_ptr(), 4) };
         if written.code != 0 {
@@ -170,6 +172,25 @@ unsafe extern "C" fn executor(
         code: result_code::OK,
         detail: 0,
     }
+}
+
+/// The one dispatch of `compute` the flush took, with the kernel and thread groups it launched.
+fn assert_one_dispatch(taken: &[OffscreenWork], compute: u64) {
+    let [
+        OffscreenWork::Dispatch {
+            shader,
+            kernel,
+            groups,
+            ..
+        },
+    ] = taken
+    else {
+        panic!("expected one dispatch, got {taken:?}");
+    };
+    assert_eq!(
+        (shader.to_bits(), *kernel, *groups),
+        (compute, 0, [3, 1, 1])
+    );
 }
 
 fn register(world: u64, state: &mut Probe) {
@@ -231,7 +252,7 @@ fn the_callback_runs_with_no_lock_held_and_reaches_the_world_through_the_abi() {
 
     assert_eq!(state.calls, 1);
     assert_eq!(state.world, world);
-    assert_eq!(state.taken, [3]);
+    assert_one_dispatch(&state.taken, compute);
     assert_eq!(read_buffer(world, id, 8), [0, 0, 0, 0, 3, 0, 0, 0]);
     let mut info = DisunityComputeShaderInfo {
         kernel_count: 1,
@@ -287,7 +308,7 @@ fn the_work_is_taken_once_so_a_second_flush_finds_none() {
     assert_eq!(flush_with_timeout(world).code, 0);
     assert_eq!(flush_with_timeout(world).code, 0);
     assert_eq!(state.calls, 2);
-    assert_eq!(state.taken, [3]);
+    assert_one_dispatch(&state.taken, compute);
 }
 
 #[test]

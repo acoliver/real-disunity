@@ -1,15 +1,16 @@
 //! A command buffer's mesh draw through the ABI: the call forwards the stored mesh's identity,
-//! matrix, material, sub-mesh and pass as one record, and a take hands it back with kind 16 and
-//! the bytes that carry it. Property values written to the draw scope (3) before the call travel
-//! with that draw only. An identity nothing stored, a missing or non-finite matrix, a dead
-//! material and a pass below -1 are refused and record nothing.
+//! matrix, material, sub-mesh and pass as one record, and the frame's work holds it as one mesh
+//! draw. Property values written to the draw scope (3) before the call travel with that draw only.
+//! An identity nothing stored, a missing or non-finite matrix, a dead material and a pass below -1
+//! are refused and record nothing.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::graphics_properties::*;
-use worldrunner_disunity_ffi::{
-    abi::*, graphics::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
-    meshes::*,
-};
+use worldrunner_disunity_ffi::{abi::*, graphics::*, graphics_context::*, meshes::*};
 use worldrunner_world_simulation::graphics::{
-    MaterialId, OffscreenWork, PropertyValue, ShaderProperties, snapshot_wire::decode_work,
+    MaterialId, OffscreenWork, PropertyValue, ShaderProperties,
 };
 
 fn new_world() -> u64 {
@@ -65,39 +66,8 @@ fn store_mesh(world: u64, identity: u64) {
     }
 }
 
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let (mut length, mut bytes) = (0, [0_u8; 256]);
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        256,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
 #[test]
-fn every_field_reaches_the_frame_as_one_record_of_kind_sixteen() {
+fn every_field_reaches_the_frame_as_one_mesh_draw() {
     let world = new_world();
     let material = material(world);
     store_mesh(world, FIRST_PLAYER_MESH + 3);
@@ -114,12 +84,10 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_sixteen() {
     }
     .code;
     assert_eq!(code, 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 1);
-    assert_eq!(taken[0].0.kind, KIND_DRAW_MESH);
-    assert_eq!(KIND_DRAW_MESH, 16);
     assert_eq!(
-        taken[0].1,
+        taken[0],
         OffscreenWork::DrawMesh {
             mesh: FIRST_PLAYER_MESH + 3,
             matrix,
@@ -156,7 +124,7 @@ fn a_draw_the_world_or_the_store_refuses_records_nothing() {
             assert_ne!(result.code, 0, "case {index}");
         }
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 
@@ -202,17 +170,13 @@ fn values_staged_in_the_draw_scope_travel_with_the_next_draw_only() {
     assert_eq!(stage_float(world, "_Fade", 0.75), 0);
     assert_eq!(draw(world, material, 0), 0);
     assert_eq!(draw(world, material, 0), 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 2);
     assert_eq!(
-        block_of(&taken[0].1),
+        block_of(&taken[0]),
         Some(floats(&[("_Fade", 0.75), ("_Gain", 2.0)]))
     );
-    assert_eq!(
-        block_of(&taken[1].1),
-        None,
-        "the second draw staged nothing"
-    );
+    assert_eq!(block_of(&taken[1]), None, "the second draw staged nothing");
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 
@@ -236,16 +200,16 @@ fn a_cleared_or_refused_draw_leaves_nothing_staged() {
     };
     assert_ne!(missing.code, 0, "a draw without a matrix is refused");
     assert_eq!(draw(world, material, 0), 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 3);
-    assert_eq!(block_of(&taken[0].1), None, "the cleared block is empty");
+    assert_eq!(block_of(&taken[0]), None, "the cleared block is empty");
     assert_eq!(
-        block_of(&taken[1].1),
+        block_of(&taken[1]),
         None,
         "a refused draw consumes what was staged"
     );
     assert_eq!(
-        block_of(&taken[2].1),
+        block_of(&taken[2]),
         None,
         "a draw refused for its matrix consumes it too"
     );
@@ -283,10 +247,9 @@ fn an_instanced_draw_carries_its_count_and_a_zero_count_keeps_its_place() {
     assert_eq!(draw_instanced(world, material, 7), 0);
     assert_eq!(draw_instanced(world, material, 0), 0);
     assert_eq!(draw(world, material, 0), 0);
-    let taken = take(world);
-    let counts: Vec<u32> = taken.iter().map(|(_, work)| instances_of(work)).collect();
+    let taken = snapshot(world).work;
+    let counts: Vec<u32> = taken.iter().map(instances_of).collect();
     assert_eq!(counts, vec![7, 0, 1], "a plain draw makes one instance");
-    assert!(taken.iter().all(|(flat, _)| flat.kind == KIND_DRAW_MESH));
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 
@@ -298,12 +261,8 @@ fn an_instanced_draw_the_world_refuses_records_nothing_and_takes_the_staged_bloc
     assert_eq!(stage_float(world, "_Fade", 0.5), 0);
     assert_ne!(draw_instanced(world, material + 1_000, 3), 0);
     assert_eq!(draw_instanced(world, material, 3), 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 1);
-    assert_eq!(
-        block_of(&taken[0].1),
-        None,
-        "the refused draw took the block"
-    );
+    assert_eq!(block_of(&taken[0]), None, "the refused draw took the block");
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

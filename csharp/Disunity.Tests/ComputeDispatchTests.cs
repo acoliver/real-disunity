@@ -47,7 +47,7 @@ internal static class ComputeDispatchTests
     private static void DispatchRecordsGroupsAndBindings()
     {
         var world = DisunityHost.WorldHandle;
-        TakeWork(world);
+        CommandWireReader.Work(world);
         var shader = Planned(TerrainPlan);
         using var output = new ComputeBuffer(8, 4);
         shader.SetInt("_OutputWidth", 2048);
@@ -58,10 +58,10 @@ internal static class ComputeDispatchTests
         shader.SetTextureFromGlobal(0, "_Heights", "_GlobalTerrainHeightmap");
         shader.SetBuffer(1, "_OtherKernelOnly", output);
         shader.Dispatch(0, 256, 128, 1);
-        var work = TakeWork(world);
+        var work = CommandWireReader.Work(world);
         Expect.Equal(1, work.Length, "one dispatch recorded");
-        Expect.That(work[0].kind == 3 && work[0].kernel == 0 && work[0].groups_x == 256 && work[0].groups_y == 128 && work[0].groups_z == 1, "kernel and groups");
-        var entries = Bindings(world, work[0].bindings).ToDictionary(entry => entry.Name);
+        Expect.That(work[0].Tag == 3 && work[0].Kernel == 0 && work[0].Groups.SequenceEqual(new uint[] { 256, 128, 1 }), "kernel and groups");
+        var entries = work[0].Bindings.ToDictionary(entry => entry.Name);
         Expect.Equal(2048, entries["_OutputWidth"].Int, "the shader-wide integer");
         Expect.Near(0.5f, entries["_Scale"].Floats[0], "the shader-wide float");
         Expect.Sequence(new[] { 1f, 2f, 3f, 4f }, entries["_Tint"].Floats, "the shader-wide vector");
@@ -74,7 +74,7 @@ internal static class ComputeDispatchTests
     private static void GlobalTexturesAreResolvedAtTheDispatch()
     {
         var world = DisunityHost.WorldHandle;
-        TakeWork(world);
+        CommandWireReader.Work(world);
         var shader = Planned(TerrainPlan);
         var first = new RenderTexture(4, 4, 0);
         first.Create();
@@ -87,8 +87,8 @@ internal static class ComputeDispatchTests
         shader.Dispatch(0, 1, 1, 1);
         Shader.SetGlobalTexture("_GlobalTerrainHeightmap", (Texture)null!);
         // The direct global writes are ordered ahead of the dispatches as records of their own; the dispatches are checked here.
-        var work = TakeWork(world).Where(record => record.kind == 3).ToArray();
-        var heights = work.Select(record => Bindings(world, record.bindings).Single(entry => entry.Name == "_Heights")).ToArray();
+        var work = CommandWireReader.Work(world).Where(record => record.Tag == 3).ToArray();
+        var heights = work.Select(record => record.Bindings.Single(entry => entry.Name == "_Heights")).ToArray();
         Expect.That(heights[0].TextureKind == 2 && heights[0].Resource == first.WorldId, "the first dispatch holds the render texture the global held then");
         Expect.That(heights[1].TextureKind == 2 && heights[1].Resource == second.WorldId, "the second dispatch holds the render texture set after the first");
     }
@@ -96,7 +96,7 @@ internal static class ComputeDispatchTests
     private static void DispatchOrderAndSnapshot()
     {
         var world = DisunityHost.WorldHandle;
-        TakeWork(world);
+        CommandWireReader.Work(world);
         var shader = Planned(TerrainPlan);
         var target = new RenderTexture(4, 4, 0);
         target.Create();
@@ -105,13 +105,13 @@ internal static class ComputeDispatchTests
         Graphics.Blit(Texture2D.whiteTexture, target);
         shader.SetInt("_Mode", 2);
         shader.Dispatch(0, 2, 1, 1);
-        var work = TakeWork(world);
-        Expect.Sequence(new uint[] { 3, 1, 3 }, work.Select(record => record.kind), "dispatch, blit, dispatch in call order");
-        Expect.Equal(1, Bindings(world, work[0].bindings).Single(entry => entry.Name == "_Mode").Int, "the first dispatch kept the value it had");
-        Expect.Equal(2, Bindings(world, work[2].bindings).Single(entry => entry.Name == "_Mode").Int, "the second dispatch has the later value");
+        var work = CommandWireReader.Work(world);
+        Expect.Sequence(new uint[] { 3, 1, 3 }, work.Select(record => (uint)record.Tag), "dispatch, blit, dispatch in call order");
+        Expect.Equal(1, work[0].Bindings.Single(entry => entry.Name == "_Mode").Int, "the first dispatch kept the value it had");
+        Expect.Equal(2, work[2].Bindings.Single(entry => entry.Name == "_Mode").Int, "the second dispatch has the later value");
         Expect.Throws<DisunityException>(() => shader.Dispatch(0, 0, 1, 1), "zero groups");
         Expect.Throws<DisunityException>(() => shader.Dispatch(0, 65536, 1, 1), "too many groups");
-        Expect.Equal(0, TakeWork(world).Length, "a refused dispatch records nothing");
+        Expect.Equal(0, CommandWireReader.Work(world).Length, "a refused dispatch records nothing");
     }
 
     private static void GroupSizesComeFromThePlanThenTheHost()

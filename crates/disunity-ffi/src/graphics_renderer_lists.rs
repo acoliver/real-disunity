@@ -2,16 +2,8 @@
 //! pass draws (or of one light's shadow casters) and later draws the list from a command buffer.
 //! Each call validates its pointers, decodes its arguments and forwards one record; the world
 //! checks the rest and keeps the order.
-//!
-//! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives a list creation
-//! the kind [`KIND_CREATE_RENDERER_LIST`] and a draw the kind [`KIND_DRAW_RENDERER_LIST`], each
-//! with a token that `disunity_offscreen_detail` reads the record's encoded bytes by (see
-//! [`crate::graphics_commands`]).
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError};
 use worldrunner_world_simulation::graphics::{MaterialId, OffscreenWork, RendererListDesc};
-
-pub const KIND_CREATE_RENDERER_LIST: u32 = 13;
-pub const KIND_DRAW_RENDERER_LIST: u32 = 14;
 
 /// The fields of a list that draws a culling result's renderers. `tags_len` is the byte length of
 /// the pass tag names (`LightMode` values) that the call's `tags` pointer holds, UTF-8 names joined
@@ -52,15 +44,6 @@ pub struct DisunityShadowRendererList {
     pub rendering_layer_test: u32,
     pub padding: u32,
     pub cull: u64,
-}
-
-/// The kind a taken renderer list record has, or `None` for other work.
-pub(crate) fn renderer_list_kind(work: &OffscreenWork) -> Option<u32> {
-    match work {
-        OffscreenWork::CreateRendererList { .. } => Some(KIND_CREATE_RENDERER_LIST),
-        OffscreenWork::DrawRendererList { .. } => Some(KIND_DRAW_RENDERER_LIST),
-        _ => None,
-    }
 }
 
 /// Splits zero-joined UTF-8 names. No bytes mean no names; an empty name between two zero

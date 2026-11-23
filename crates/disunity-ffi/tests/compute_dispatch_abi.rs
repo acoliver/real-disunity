@@ -1,10 +1,16 @@
 //! Compute bindings and recorded dispatches through the ABI: what a dispatch captures, how
-//! its values are read back and that bad calls are refused.
+//! the frame's work carries it and that bad calls are refused.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::{
-    abi::*, compute::*, compute_bindings::*, graphics::*, graphics_offscreen::*,
-    graphics_properties::*, with_native_world,
+    abi::*, compute::*, graphics::*, graphics_offscreen::*, graphics_properties::*,
+    with_native_world,
 };
-use worldrunner_world_simulation::graphics::{ComputeBufferId, TextureRef};
+use worldrunner_world_simulation::graphics::{
+    ComputeBindings, ComputeBufferId, OffscreenWork, TextureRef,
+};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -64,30 +70,36 @@ fn work(kind: u32) -> DisunityOffscreenWork {
     }
 }
 
-/// The frame's dispatch records. A global written directly before one is ordered ahead of it as
-/// a record of its own, which these tests leave to the world's `ordered_globals.rs`.
-fn take_dispatches(world: u64) -> Vec<DisunityOffscreenWork> {
-    let mut records = take(world);
-    records.retain(|record| record.kind == 3);
-    records
+/// One dispatch of the frame: the shader, kernel and thread groups it launched and the values
+/// the kernel ran with.
+struct Launch {
+    shader: u64,
+    kernel: u32,
+    groups: [u32; 3],
+    bindings: ComputeBindings,
 }
 
-fn take(world: u64) -> Vec<DisunityOffscreenWork> {
-    let mut count = 0;
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, std::ptr::null_mut(), 0, &mut count).code,
-            0
-        );
-    }
-    let mut records = vec![DisunityOffscreenWork::default(); count as usize];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), count, &mut count).code,
-            0
-        );
-    }
-    records
+/// The frame's dispatch records. A global written directly before one is ordered ahead of it as
+/// a record of its own, which these tests leave to the world's `ordered_globals.rs`.
+fn dispatches(world: u64) -> Vec<Launch> {
+    snapshot(world)
+        .work
+        .into_iter()
+        .filter_map(|record| match record {
+            OffscreenWork::Dispatch {
+                shader,
+                kernel,
+                groups,
+                bindings,
+            } => Some(Launch {
+                shader: shader.to_bits(),
+                kernel,
+                groups,
+                bindings,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 fn int_write(world: u64, shader: u64, kernel: i32, name: &str, value: i32) -> DisunityResult {
@@ -149,7 +161,7 @@ fn bind_kernel_values(world: u64, id: u64, out: u64) {
 
 /// A world whose kernel 0 has every kind of value bound and was dispatched once; returns the
 /// world, the shader, the bound buffer and the dispatch record.
-fn dispatched_with_values() -> (u64, u64, u64, DisunityOffscreenWork) {
+fn dispatched_with_values() -> (u64, u64, u64, Launch) {
     let world = new_world();
     let id = shader(world);
     let out = buffer(world, 4, 4);
@@ -157,47 +169,39 @@ fn dispatched_with_values() -> (u64, u64, u64, DisunityOffscreenWork) {
     assert_eq!(int_write(world, id, 0, "_OutputHeight", 1024).code, 0);
     bind_kernel_values(world, id, out);
     assert_eq!(disunity_compute_dispatch(world, id, 0, 256, 128, 1).code, 0);
-    let records = take_dispatches(world);
+    let mut records = dispatches(world);
     assert_eq!(records.len(), 1);
-    (world, id, out, records[0])
+    (world, id, out, records.remove(0))
 }
 
 #[test]
-fn a_dispatch_record_names_the_shader_kernel_groups_and_a_binding_token() {
+fn a_dispatch_record_names_the_shader_kernel_and_groups() {
     let (_, id, _, record) = dispatched_with_values();
-    assert_eq!(record.kind, 3);
     assert_eq!((record.shader, record.kernel), (id, 0));
-    assert_eq!(
-        (record.groups_x, record.groups_y, record.groups_z),
-        (256, 128, 1)
-    );
-    assert_ne!(record.bindings, 0);
+    assert_eq!(record.groups, [256, 128, 1]);
 }
 
 #[test]
-fn values_and_buffers_bound_to_a_kernel_arrive_in_the_dispatch_snapshot() {
-    let (world, _, out, record) = dispatched_with_values();
-    let entries = read_bindings(world, record.bindings);
-    let find = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
-    assert_eq!(find("_OutputWidth").entry.int_value, 2048);
-    assert_eq!(find("_OutputHeight").entry.int_value, 1024);
-    assert_eq!(find("_Scale").floats, [0.25]);
-    assert_eq!(find("_Tint").floats, VECTOR);
-    assert_eq!(find("_Matrix").floats, matrix());
-    let albedo = find("_Albedo");
+fn values_and_buffers_bound_to_a_kernel_arrive_with_the_dispatch() {
+    let (_, _, out, record) = dispatched_with_values();
+    let held = &record.bindings.properties;
+    assert_eq!(held.int("_OutputWidth"), Some(2048));
+    assert_eq!(held.int("_OutputHeight"), Some(1024));
+    assert_eq!(held.float("_Scale"), Some(0.25));
+    assert_eq!(held.vector("_Tint"), Some(VECTOR));
+    assert_eq!(held.matrix("_Matrix"), Some(matrix()));
+    let albedo = held.texture("_Albedo").unwrap();
+    assert_eq!(albedo.texture, TextureRef::Asset((1 << 40) + 3));
+    assert_eq!((albedo.scale, albedo.offset), ([1.0, 1.0], [0.5, 0.0]));
     assert_eq!(
-        (albedo.entry.texture_kind, albedo.entry.resource),
-        (1, (1 << 40) + 3)
-    );
-    assert_eq!(albedo.floats, [1.0, 1.0, 0.5, 0.0]);
-    let heights = find("_Heights");
-    assert_eq!(
-        (heights.entry.texture_kind, heights.entry.resource),
-        (1, (1 << 40) + 9),
+        held.texture("_Heights").unwrap().texture,
+        TextureRef::Asset((1 << 40) + 9),
         "the record holds the texture the global state held at the dispatch"
     );
-    let bound = find("_Output");
-    assert_eq!((bound.entry.kind, bound.entry.resource), (5, out));
+    assert_eq!(
+        record.bindings.buffers,
+        [("_Output".to_string(), ComputeBufferId::from_bits(out))]
+    );
 }
 
 #[test]
@@ -229,19 +233,22 @@ fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_r
             disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(2 << 40));
         assert_eq!(second.code, 0);
     }
-    let held: Vec<(u32, u64)> = take_dispatches(world)
+    let held: Vec<TextureRef> = dispatches(world)
         .iter()
         .map(|record| {
-            let entries = read_bindings(world, record.bindings);
-            let heights = entries.iter().find(|e| e.name == "_Heights").unwrap();
-            (heights.entry.texture_kind, heights.entry.resource)
+            record
+                .bindings
+                .properties
+                .texture("_Heights")
+                .unwrap()
+                .texture
         })
         .collect();
-    assert_eq!(held, [(0, 0), (1, 1 << 40)]);
+    assert_eq!(held, [TextureRef::None, TextureRef::Asset(1 << 40)]);
 }
 
 #[test]
-fn a_global_written_after_the_last_record_is_counted_and_taken_after_it() {
+fn a_global_written_after_the_last_record_is_taken_after_it() {
     let world = new_world();
     let id = shader(world);
     let (global, length) = text("_Late");
@@ -257,10 +264,10 @@ fn a_global_written_after_the_last_record_is_counted_and_taken_after_it() {
         let late = disunity_shader_texture_write(world, 1, 0, global, length, &slot);
         assert_eq!(late.code, 0);
     }
-    let records = take(world);
+    let records = snapshot(world).work;
     assert_eq!(records.len(), 2);
-    assert_eq!(records[0].kind, 3);
-    assert_ne!(records[1].kind, 3);
+    assert!(matches!(records[0], OffscreenWork::Dispatch { .. }));
+    assert!(matches!(records[1], OffscreenWork::SetGlobal(_)));
 }
 
 #[test]
@@ -271,56 +278,11 @@ fn a_dispatch_snapshot_is_unaffected_by_later_binding_edits() {
     assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
     assert_eq!(int_write(world, id, -1, "_N", 2).code, 0);
     assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-    let records = take(world);
-    let values: Vec<i32> = records
+    let values: Vec<Option<i32>> = dispatches(world)
         .iter()
-        .map(|record| {
-            let entries = read_bindings(world, record.bindings);
-            entries
-                .iter()
-                .find(|e| e.name == "_N")
-                .unwrap()
-                .entry
-                .int_value
-        })
+        .map(|record| record.bindings.properties.int("_N"))
         .collect();
-    assert_eq!(values, [1, 2]);
-}
-
-#[test]
-fn binding_tokens_are_valid_until_the_next_take() {
-    let world = new_world();
-    let id = shader(world);
-    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-    let first = take(world)[0].bindings;
-    let mut info = DisunityComputeBindingsInfo::default();
-    unsafe {
-        let still = disunity_compute_bindings_read(
-            world,
-            first,
-            &mut info,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        assert_eq!(still.code, 0);
-    }
-    assert_eq!(disunity_compute_dispatch(world, id, 1, 2, 2, 2).code, 0);
-    let second = take(world);
-    assert_eq!(second.len(), 1);
-    for token in [0, 2, u32::MAX] {
-        let result = unsafe {
-            disunity_compute_bindings_read(
-                world,
-                token,
-                &mut info,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        assert_ne!(result.code, 0, "{token}");
-    }
+    assert_eq!(values, [Some(1), Some(2)]);
 }
 
 #[test]
@@ -340,7 +302,7 @@ fn dispatch_and_binding_calls_are_validated() {
         ];
         assert!(refused.iter().all(|result| result.code != 0));
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]
@@ -370,7 +332,7 @@ fn value_calls_are_validated() {
         ];
         assert!(refused.iter().all(|result| result.code != 0));
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]
@@ -403,23 +365,24 @@ fn compute_dispatches_keep_their_place_among_blits() {
         assert_eq!(disunity_compute_dispatch(world, id, 0, 4, 1, 1).code, 0);
         assert_eq!(disunity_offscreen_record(world, &blit).code, 0);
     }
-    let kinds: Vec<u32> = take(world).iter().map(|record| record.kind).collect();
-    assert_eq!(kinds, [1, 3, 1]);
+    let kinds: Vec<&str> = snapshot(world)
+        .work
+        .iter()
+        .map(|record| match record {
+            OffscreenWork::Blit { .. } => "blit",
+            OffscreenWork::Dispatch { .. } => "dispatch",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["blit", "dispatch", "blit"]);
 }
 
 #[test]
 fn a_dispatch_cannot_be_recorded_through_the_generic_record_call() {
     let world = new_world();
-    let id = shader(world);
-    let record = DisunityOffscreenWork {
-        shader: id,
-        groups_x: 1,
-        groups_y: 1,
-        groups_z: 1,
-        ..work(3)
-    };
+    let record = work(3);
     unsafe { assert_ne!(disunity_offscreen_record(world, &record).code, 0) };
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]
@@ -455,215 +418,4 @@ fn compute_buffer_ids_in_the_world_match_the_ids_the_abi_hands_out() {
         );
     })
     .unwrap();
-}
-
-struct Entry {
-    entry: DisunityComputeBinding,
-    name: String,
-    floats: Vec<f32>,
-}
-
-fn read_bindings(world: u64, token: u32) -> Vec<Entry> {
-    let mut info = DisunityComputeBindingsInfo::default();
-    unsafe {
-        let probe = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        assert_eq!(probe.code, 0);
-    }
-    let mut entries = vec![DisunityComputeBinding::default(); info.entry_count as usize];
-    let mut floats = vec![0.0_f32; info.float_count as usize];
-    let mut bytes = vec![0_u8; info.text_length as usize];
-    unsafe {
-        let read = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            entries.as_mut_ptr(),
-            floats.as_mut_ptr(),
-            bytes.as_mut_ptr(),
-        );
-        assert_eq!(read.code, 0);
-    }
-    let slice = |offset: u32, length: u32| {
-        String::from_utf8(bytes[offset as usize..(offset + length) as usize].to_vec()).unwrap()
-    };
-    entries
-        .iter()
-        .map(|entry| {
-            let count = match entry.kind {
-                0 | 1 | 5 => usize::from(entry.kind == 0),
-                2 => 4,
-                3 => 16,
-                _ => 4,
-            };
-            let start = entry.float_offset as usize;
-            Entry {
-                entry: *entry,
-                name: slice(entry.name_offset, entry.name_length),
-                floats: floats[start..start + count].to_vec(),
-            }
-        })
-        .collect()
-}
-
-#[test]
-fn bindings_without_floats_are_read_with_no_place_for_floats() {
-    let world = new_world();
-    let id = shader(world);
-    let out = buffer(world, 1, 4);
-    let (name, length) = text("_Output");
-    unsafe {
-        assert_eq!(
-            disunity_compute_buffer_bind(world, id, 0, name, length, out).code,
-            0
-        )
-    };
-    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-    let token = take(world)[0].bindings;
-    let mut info = DisunityComputeBindingsInfo::default();
-    unsafe {
-        let probe = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        assert_eq!(probe.code, 0);
-    }
-    assert_eq!((info.entry_count, info.float_count), (1, 0));
-    let mut entries = vec![DisunityComputeBinding::default(); 1];
-    let mut bytes = vec![0_u8; info.text_length as usize];
-    unsafe {
-        let read = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            entries.as_mut_ptr(),
-            std::ptr::null_mut(),
-            bytes.as_mut_ptr(),
-        );
-        assert_eq!(read.code, 0);
-        assert_eq!(&bytes[..7], b"_Output");
-        let no_text = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            entries.as_mut_ptr(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        assert_ne!(no_text.code, 0);
-    }
-}
-
-#[test]
-fn bindings_with_floats_need_a_place_for_them() {
-    let world = new_world();
-    let id = shader(world);
-    let (name, length) = text("_Scale");
-    unsafe {
-        assert_eq!(
-            disunity_compute_float_write(world, id, -1, name, length, 2.0).code,
-            0
-        )
-    };
-    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-    let token = take(world)[0].bindings;
-    let mut info = DisunityComputeBindingsInfo {
-        entry_count: 4,
-        float_count: 4,
-        text_length: 64,
-    };
-    let mut entries = vec![DisunityComputeBinding::default(); 4];
-    let mut bytes = vec![0_u8; 64];
-    let result = unsafe {
-        disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            entries.as_mut_ptr(),
-            std::ptr::null_mut(),
-            bytes.as_mut_ptr(),
-        )
-    };
-    assert_ne!(result.code, 0);
-}
-
-/// A dispatch with a buffer and a float bound, and the sizes its bindings read back with.
-fn dispatch_with_two_entries(world: u64) -> (u32, DisunityComputeBindingsInfo) {
-    let id = shader(world);
-    let out = buffer(world, 1, 4);
-    let (name, length) = text("_Output");
-    let (scale, scale_length) = text("_Scale");
-    unsafe {
-        let set = [
-            disunity_compute_buffer_bind(world, id, 0, name, length, out),
-            disunity_compute_float_write(world, id, -1, scale, scale_length, 2.0),
-        ];
-        assert!(set.iter().all(|result| result.code == 0));
-    }
-    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-    let token = take(world)[0].bindings;
-    let mut held = DisunityComputeBindingsInfo::default();
-    unsafe {
-        let probe = disunity_compute_bindings_read(
-            world,
-            token,
-            &mut held,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        assert_eq!(probe.code, 0);
-    }
-    (token, held)
-}
-
-fn read_with(world: u64, token: u32, mut info: DisunityComputeBindingsInfo) -> DisunityResult {
-    let mut entries = vec![DisunityComputeBinding::default(); 8];
-    let mut floats = vec![0.0_f32; 8];
-    let mut bytes = vec![0_u8; 64];
-    unsafe {
-        disunity_compute_bindings_read(
-            world,
-            token,
-            &mut info,
-            entries.as_mut_ptr(),
-            floats.as_mut_ptr(),
-            bytes.as_mut_ptr(),
-        )
-    }
-}
-
-#[test]
-fn bindings_are_refused_when_any_capacity_is_one_short() {
-    let world = new_world();
-    let (token, held) = dispatch_with_two_entries(world);
-    assert_eq!((held.entry_count, held.float_count), (2, 1));
-    let short = [
-        DisunityComputeBindingsInfo {
-            entry_count: held.entry_count - 1,
-            ..held
-        },
-        DisunityComputeBindingsInfo {
-            float_count: held.float_count - 1,
-            ..held
-        },
-        DisunityComputeBindingsInfo {
-            text_length: held.text_length - 1,
-            ..held
-        },
-    ];
-    for info in short {
-        assert_ne!(read_with(world, token, info).code, 0, "{info:?}");
-    }
-    assert_eq!(read_with(world, token, held).code, 0);
 }

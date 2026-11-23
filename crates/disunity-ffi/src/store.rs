@@ -35,12 +35,6 @@ pub(crate) struct Session {
     pub dispatch: crate::scheduling::Dispatch,
     pub objects: crate::object_ids::ObjectIds,
     pub pending_commands: Vec<DisunityCommand>,
-    /// The values the dispatches of the last offscreen take ran with; a record's token is an
-    /// index into this list, plus one.
-    pub dispatch_bindings: Vec<worldrunner_world_simulation::graphics::ComputeBindings>,
-    /// The encoded command records of the last offscreen take; a record's detail token is an
-    /// index into this list, plus one.
-    pub work_details: Vec<Vec<u8>>,
     /// The property values written to the draw scope since the last mesh draw call, which that
     /// call takes as its draw's own block.
     pub draw_block: worldrunner_world_simulation::graphics::ShaderProperties,
@@ -155,8 +149,6 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             dispatch: Default::default(),
             objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
-            dispatch_bindings: Vec::new(),
-            work_details: Vec::new(),
             draw_block: Default::default(),
             graphics_snapshot: None,
             gpu_flush: store.default_gpu_flush,

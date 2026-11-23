@@ -425,8 +425,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_twenty_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 20);
+fn the_wire_version_is_twenty_one_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 21);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);
@@ -487,15 +487,14 @@ fn clear_values_keep_their_bits_on_the_wire() {
     assert_eq!(*stencil_value, u32::MAX);
 }
 
-/// A snapshot body that holds one record and nothing else: three empty maps, no global, the
-/// work list of one, then `record`, and the empty remainder.
+/// A snapshot body that holds one record and nothing else: the work list of one, then `record`,
+/// three empty maps, no global, no environment ambient or reflection, and the empty remainder.
 fn one_record(record: &[u8]) -> Vec<u8> {
-    let mut body = vec![0; 12];
-    body.push(0);
-    // No environment ambient or reflection.
-    body.extend_from_slice(&[0; 2]);
-    body.extend_from_slice(&1_u32.to_le_bytes());
+    let mut body = 1_u32.to_le_bytes().to_vec();
     body.extend_from_slice(record);
+    body.extend_from_slice(&[0; 12]);
+    body.push(0);
+    body.extend_from_slice(&[0; 2]);
     body.extend_from_slice(&[0; 16]);
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());

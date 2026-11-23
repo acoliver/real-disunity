@@ -1,16 +1,10 @@
 //! The batch draw through the ABI: a command buffer draws instances of a stored mesh whose per
 //! instance data a game's shader reads from a window of a compute buffer. The call validates its
 //! pointers, decodes the names and forwards one record; the world checks the rest.
-//!
-//! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives the record the
-//! kind [`KIND_DRAW_MESH_BATCH`] and a token that `disunity_offscreen_detail` reads the record's
-//! encoded bytes by (see [`crate::graphics_commands`]).
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError};
 use worldrunner_world_simulation::graphics::{
     ComputeBufferId, DrawBatch, MaterialId, OffscreenWork,
 };
-
-pub const KIND_DRAW_MESH_BATCH: u32 = 23;
 
 /// The fields of a batch draw. `metadata_count` names are at the call's `names` pointer
 /// (`names_len` bytes of UTF-8 names joined by zero bytes) with one word each at `words`;

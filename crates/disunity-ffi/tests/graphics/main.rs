@@ -8,6 +8,8 @@ use worldrunner_world_simulation::graphics::{MaterialId, ShaderId, TextureRef};
 
 #[path = "../common/mod.rs"]
 mod common;
+#[path = "../common/frame.rs"]
+mod frame;
 mod render_textures;
 
 use common::{

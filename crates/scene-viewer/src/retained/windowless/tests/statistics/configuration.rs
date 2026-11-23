@@ -14,10 +14,10 @@ fn retained_configuration_replacement_preserves_captured_generations() {
     let mut run = prepass_host().windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut previous_frame = None;
-    for (generation, samples, exposure, center) in GENERATIONS {
+    for (generation, reach, exposure, center) in GENERATIONS {
         let prior = run.host().statistics().copied();
         if generation != 0 {
-            let effects = prepass_effects(run.host().scene().effects().unwrap(), samples, exposure);
+            let effects = prepass_effects(run.host().scene().effects().unwrap(), reach, exposure);
             run.host_mut()
                 .apply(RetainedUpdate::Settings(Box::new(effects)))
                 .unwrap();
@@ -57,20 +57,22 @@ fn retained_configuration_replacement_preserves_captured_generations() {
     run.shutdown().unwrap();
 }
 
-/// Each captured generation: its index, the depth-only SSAO sample count, the exposure and the
-/// centre pixel. The sample count changes the stock plan without changing a pixel (the SSAO has
-/// zero strength), so the middle generation is planned anew and the last one finds the first
-/// generation's plan. Reinhard maps unit radiance to 2/3 and 3/4, away from native sRGB rounding
-/// boundaries.
+/// Each captured generation: its index, the reflection ray length in millimetres, the exposure
+/// and the centre pixel. The ray length is part of what decides the stock plan, and a reflection
+/// parameter change keeps the scene's resources, where switching reflections on or off, or any
+/// SSAO change, would rebuild them. The quad is fully rough, at or above the reflection cutoff,
+/// so reflections change no pixel. The middle generation is therefore planned anew without a new
+/// upload, and the last one finds the first generation's plan. Reinhard maps unit radiance to 2/3
+/// and 3/4, away from native sRGB rounding boundaries.
 const GENERATIONS: [(u64, u32, u32, u8); 3] = [
-    (0, 1, 2_000_000, 213),
-    (1, 2, 3_000_000, 225),
-    (2, 1, 2_000_000, 213),
+    (0, 100_000, 2_000_000, 213),
+    (1, 12_000, 3_000_000, 225),
+    (2, 100_000, 2_000_000, 213),
 ];
 
 fn prepass_host() -> RetainedHost {
     let base = crate::renderer::retained_tests::source();
-    let effects = prepass_effects(base.effects().unwrap(), 1, 2_000_000);
+    let effects = prepass_effects(base.effects().unwrap(), GENERATIONS[0].1, 2_000_000);
     let scene = base
         .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
         .unwrap();
@@ -85,7 +87,7 @@ fn prepass_host() -> RetainedHost {
     retained
 }
 
-fn prepass_effects(base: &SceneEffects, samples: u32, exposure: u32) -> SceneEffects {
+fn prepass_effects(base: &SceneEffects, reach: u32, exposure: u32) -> SceneEffects {
     let mut grading = *base.grading();
     grading.exposure_micro = exposure;
     SceneEffects::new(SceneEffectsParts {
@@ -95,16 +97,21 @@ fn prepass_effects(base: &SceneEffects, samples: u32, exposure: u32) -> SceneEff
         ambient: *base.ambient(),
         shadows: base.shadows().clone(),
         // Zero strength reserves depth without changing the ambient-radiance oracle.
-        ssao: Some(prepass_settings(samples)),
+        ssao: Some(prepass_settings()),
         camera: *base.camera(),
         grading,
         post: vec![],
         anti_alias: *base.anti_alias(),
     })
     .unwrap()
+    .with_ssr(worldrunner_render_plan::SceneSsr {
+        max_distance_millimeters: reach,
+        ..Default::default()
+    })
+    .unwrap()
 }
 
-fn prepass_settings(sample_count: u32) -> worldrunner_render_plan::SceneSsao {
+fn prepass_settings() -> worldrunner_render_plan::SceneSsao {
     use worldrunner_render_plan::{
         SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
     };
@@ -113,7 +120,7 @@ fn prepass_settings(sample_count: u32) -> worldrunner_render_plan::SceneSsao {
         depth_footprint: SceneSsaoDepthFootprint::default(),
         kernel: SceneSsaoKernel::Hemisphere,
         filter: SceneSsaoFilter::DepthAwareBox,
-        sample_count,
+        sample_count: 1,
         bias_millimeters: 0,
         radius_millimeters: 1,
         intensity_micro: 0,

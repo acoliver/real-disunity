@@ -196,7 +196,7 @@ fn requested_timing_reports_capability_or_completed_frame_without_more_rendering
         frame
             .passes
             .iter()
-            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("post copy output", 0)))
+            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("tone", 0)))
     );
     assert_resize_retains_sample_and_labels(&mut run);
     run.shutdown().unwrap();

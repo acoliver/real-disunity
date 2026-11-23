@@ -275,20 +275,28 @@ pub(crate) fn source() -> RenderScene {
     .unwrap()
 }
 
+/// Draws the resident into a clamped HDR presentation, as the viewer does, and reads the output
+/// that presentation shows in `target`.
 fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTarget) -> RgbaImage {
     let options = crate::tests::options();
     let view = crate::OrbitCamera::new(options.pose, options.orbit)
         .unwrap()
         .view(options.camera, target.viewport())
         .unwrap();
-    let targets = crate::presentation::Targets::from_views(
-        target.color_view().clone(),
-        target.depth_view().clone(),
-    );
+    let mut presentation =
+        crate::presentation::fixtures::presentation(context, COLOR, target.viewport());
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
     resident
-        .render(context, &view, &targets, &mut encoder, scheduler.encoding())
+        .render(
+            context,
+            &view,
+            &presentation.targets,
+            &mut encoder,
+            presentation.scheduler.encoding(),
+        )
+        .unwrap();
+    presentation
+        .present(&mut encoder, target.color_view())
         .unwrap();
     target.encode_readback(&mut encoder).unwrap();
     let submission = encoder.finish().submit().unwrap();
@@ -415,7 +423,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
     .unwrap();
     assert_eq!(
         image, expected,
-        "legacy presentation is byte-equivalent to direct capture"
+        "the clamped presentation is byte-equivalent to direct capture"
     );
     assert!(
         image

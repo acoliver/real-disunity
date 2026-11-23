@@ -68,11 +68,7 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
             });
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].frame_id, frame_id);
-        for name in [
-            "sdsm receiver initialize",
-            "sdsm receiver reduce",
-            "post copy output",
-        ] {
+        for name in ["sdsm receiver initialize", "sdsm receiver reduce", "tone"] {
             assert_eq!(
                 samples[0]
                     .passes

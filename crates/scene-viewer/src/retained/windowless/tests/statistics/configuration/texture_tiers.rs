@@ -15,10 +15,10 @@ fn retained_reduced_texture_survives_capture_reconfiguration() {
     let mut captures = Vec::new();
     let mut plans = Vec::new();
     let mut mesh_residency = None;
-    for (generation, samples, exposure, center) in GENERATIONS {
+    for (generation, reach, exposure, center) in GENERATIONS {
         let prior = run.host().statistics().copied();
         if generation != 0 {
-            let effects = prepass_effects(run.host().scene().effects().unwrap(), samples, exposure);
+            let effects = prepass_effects(run.host().scene().effects().unwrap(), reach, exposure);
             run.host_mut()
                 .apply(RetainedUpdate::Settings(Box::new(effects)))
                 .unwrap();

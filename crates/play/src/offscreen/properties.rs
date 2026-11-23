@@ -175,7 +175,8 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
 }
 
 /// Sets `value` in the global `layer`: a texture the frame can read replaces the one of its name
-/// and one it cannot read takes the name away, since a global names one texture at most.
+/// and one it cannot read takes the name away, since a global names one texture at most. A null
+/// texture leaves the name set to none.
 pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut Textures<'_>) {
     match value {
         WorldValue::Float(name, held) => layer.values.set(name, PropertyValue::Float(*held)),
@@ -194,13 +195,18 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
         }
         WorldValue::Texture(name, slot) => {
             layer.stand_ins.remove(name);
+            layer.none_textures.remove(name);
             if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
                 layer
                     .textures
                     .insert(name.clone(), TextureInput { texture, sampler });
             } else {
                 layer.textures.remove(name);
-                explain(layer, name, textures.why_missing(&slot.texture));
+                let why = textures.why_missing(&slot.texture);
+                if why.is_none() {
+                    layer.none_textures.insert(name.clone());
+                }
+                explain(layer, name, why);
             }
         }
     }

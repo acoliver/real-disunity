@@ -232,8 +232,8 @@ pub enum RendererSkip {
     /// The slots name materials, but the first of them left out is not in the snapshot.
     StaleMaterial,
     EmptySlot,
-    /// A skinned mesh renderer, which the snapshot leaves out because skinned meshes are not
-    /// drawn yet.
+    /// A skinned mesh renderer the snapshot leaves out because its skin names no root bone that is
+    /// in the world, so nothing says where its mesh goes. It is counted once for the frame.
     SkinnedNotDrawn,
 }
 

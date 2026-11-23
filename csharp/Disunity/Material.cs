@@ -24,11 +24,10 @@ public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 /// </summary>
 public partial class Material : Object
 {
-    // Both sprite shaders queue as Transparent (3000). Sprites/Default is one subshader of one pass; the URP
-    // lit sprite shader's pass count is not known here.
-    private static readonly Shader SpriteUnlitShader = DisunityHost.RegisterShader("Sprites/Default").Declare(3000, 1, 1);
+    private static readonly Shader SpriteUnlitShader =
+        DisunityHost.DeclareShader("Sprites/Default", BuiltInShaders.SpriteUnlit, _ => { });
     private static readonly Shader SpriteLitShader =
-        DisunityHost.RegisterShader("Universal Render Pipeline/2D/Sprite-Lit-Default").Declare(3000, null, null);
+        DisunityHost.DeclareShader("Universal Render Pipeline/2D/Sprite-Lit-Default", BuiltInShaders.SpriteLit, _ => { });
     private static readonly int ColorId = Shader.PropertyToID("_Color");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
 
@@ -37,7 +36,7 @@ public partial class Material : Object
 
     private readonly PropertyStore _properties = new();
     private readonly List<string> _keywords = new();
-    private readonly Dictionary<string, string> _overrideTags = new();
+    private readonly Dictionary<string, string> _overrideTags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, bool> _passEnabled = new();
     private readonly BuiltinSpriteMaterial? _sprite;
     private int _renderQueue = -1;
@@ -240,7 +239,7 @@ public partial class Material : Object
         return -1;
     }
 
-    /// <summary>An empty value removes the override.</summary>
+    /// <summary>An empty value removes the override. Tag names match in any case, as <see cref="GetTag(string, bool, string)"/> reads them.</summary>
     public void SetOverrideTag(string tag, string val)
     {
         ArgumentNullException.ThrowIfNull(tag);
@@ -253,7 +252,7 @@ public partial class Material : Object
     /// first sub-shader, and with <paramref name="searchFallbacks"/> else the tag of the shader's fallback, and that shader's
     /// fallback in turn, else <paramref name="defaultValue"/>. A shader whose tags are not declared throws
     /// <see cref="NotSupportedException"/> naming this member unless the material overrides the tag, and so does a search of
-    /// fallbacks that reaches a fallback the engine does not know. A shader's tag names match in any case; the names of the material's own override tags match exactly.</summary>
+    /// fallbacks that reaches a fallback the engine does not know. Tag names match in any case, in the material's override tags and in the shader's alike.</summary>
     public string GetTag(string tag, bool searchFallbacks, string defaultValue)
     {
         ArgumentNullException.ThrowIfNull(tag);

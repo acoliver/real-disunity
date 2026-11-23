@@ -711,6 +711,18 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
 after the previous one has finished, so the software rasterizer does not compete with the timed
 thread. The example uses no game assets.
 
+`--clutter N` adds N pieces of clutter to the scene, spread over eight large instance batches.
+With `--edits E` the driver also edits E of them every frame, rounded up to a multiple of three,
+as a game that streams clutter around the camera does: a third are removed, a third are added
+near the camera and a third are recycled to a new spot near it. The edits go through one
+`RetainedUpdate::Objects` in the driver's update, so the timed span includes publishing them to
+the host's tables, the pick snapshot and the renderer's instance batches:
+
+```text
+cargo run --locked --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
+  --frames 300 --warmup 100 --clutter 20000 --edits 300
+```
+
 ## GPU pass timing
 
 Set `gpu_timing: true` to request GPU timestamps. The default is `false`, which

@@ -257,7 +257,7 @@ A coroutine that yields `WaitForEndOfFrame` resumes once, after every `LateUpdat
   A format outside the tables throws `NotSupportedException` naming it.
   No member draws.
 - `HDROutputSettings`: `main` and `displays` (one display) report no HDR output: `available`, `active` and `HDRModeChangeRequested` are false, `displayColorGamut` is `sRGB`, `graphicsFormat` and `format` are `R8G8B8A8_UNorm` and the luminance range is 0.
-  `RequestHDRModeChange` leaves `active` and `HDRModeChangeRequested` false, because the display cannot enter an HDR mode.
+  `RequestHDRModeChange(false)` finds HDR off already and changes nothing; `RequestHDRModeChange(true)` throws `NotSupportedException` naming the member, because the display cannot enter an HDR mode.
   `automaticHDRTonemapping` (true at first) and `paperWhiteNits` (160 at first) are stored.
 - `ScalableBufferManager`: `widthScaleFactor` and `heightScaleFactor` start at 1 and `ResizeBuffers(width, height)` stores them; a factor outside 0 to 1 or NaN throws `ArgumentOutOfRangeException` and leaves both as they were.
   The engine draws no dynamically scaled buffer, so a factor changes nothing else.
@@ -415,13 +415,17 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `additionalVertexStreams` is stored, `subMeshStartIndex` is 0.
   One `MeshRenderer` or `SkinnedMeshRenderer` per object.
   `AddComponent`, `GetComponent<Renderer>()`, `Instantiate`, `Destroy` of the component and destroying the object work as for other native components.
-  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the colour and texture each material slot draws.
+  The presentation lists, for each enabled `MeshRenderer` on an active object whose `MeshFilter` holds a mesh with a renderer identity, and each enabled `SkinnedMeshRenderer` that names a mesh and has a placement (see below), whose layer the presented camera's culling mask admits and whose `forceRenderingOff` is false, the object, its matrix in the camera's basis, the mesh identity and the colour and texture each material slot draws.
+  A skinned renderer's mesh is drawn in its bind pose, where the skin puts it: at the matrix of its root bone times the root bone's bind pose, which is the matrix every bone's matrix times its bind pose gives while the bones are at rest. A skinned renderer whose root bone is not one of its bones, or whose mesh has no bind pose for it, has no placement and is not listed; the snapshot the host draws from counts those renderers once for the frame.
   The host reads the mesh contents by that identity.
-  The list is exported, not drawn; a `SkinnedMeshRenderer` is not listed
+  The list is exported, not drawn
 - `SkinnedMeshRenderer`: A `Renderer`.
-  `sharedMesh`, `rootBone`, `bones`, `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
-  The engine's `Mesh` holds no bone weights, bind poses or blend shapes, so nothing deforms the shared mesh: `BakeMesh(Mesh)` and `BakeMesh(Mesh, false)` copy it into the target (the target is emptied without a shared mesh).
+  `quality`, `updateWhenOffscreen` and `localBounds` are stored on the managed component, as are blend shape weights (`GetBlendShapeWeight` is 0 until set; a negative index throws).
+  `sharedMesh`, `rootBone` and `bones` are kept on the managed component. The world holds the identity the host draws the mesh by (the mesh takes a renderer identity as a filter's mesh does), the root bone's object and the root bone's bind pose from the shared mesh, which is read when the mesh, the bones or the root bone is assigned; a clone's world skin names the clone's root bone where it is in the cloned hierarchy.
+  The engine's `Mesh` holds no blend shapes and nothing deforms the shared mesh yet, so the host draws it in its bind pose: `BakeMesh(Mesh)` and `BakeMesh(Mesh, false)` copy it into the target (the target is emptied without a shared mesh).
   `BakeMesh` throws `NotSupportedException` naming the member, and leaves the target as it was, for a renderer with bones, for a nonzero blend shape weight and for `useScale: true`.
+  A copy of the shared mesh is not the baked mesh of a renderer with bones, because the bones pose it and its bounds change with the pose, so the engine refuses where it cannot skin.
+  A scene plan carries no bones for a skinned renderer yet, so a renderer a player plans copies its mesh and does not throw; the throw appears when the importer plans the bones.
   A clone keeps the mesh and settings and points `rootBone` and `bones` at the clones of the original's where those are in the cloned hierarchy
 - `ParticleSystem`: A native component that requires a `ParticleSystemRenderer`, which `AddComponent` adds first.
   The engine does not simulate (the engine's choice for now): the system tracks `isPlaying`, `isPaused`, `isStopped`, `isEmitting` and `time`, stores every module value, and emits no particle, so `Emit(int)` adds nothing and `particleCount` is 0.
@@ -441,7 +445,7 @@ The 3D types are defined so that scripts that mention them compile, and they beh
 - `Sprite`: An `Object`, so it has `name` (the plan's name for a scene or player sprite, otherwise empty), an instance ID, and works with `Resources.Load<Sprite>` and `Resources.LoadAll<Sprite>`.
   Members: `rect`, `pivot` (pixels, from the fractional pivot a sprite is made with), `pixelsPerUnit`, `bounds`, `texture`, `textureRect`, `textureRectOffset`, `border` (left, bottom, right, top) and `packed`.
   `Sprite.Create(Texture2D, Rect, Vector2)` and its overloads with `pixelsPerUnit` (default 100), `extrude`, `SpriteMeshType`, `border` and the fallback physics flag make a sprite over a rectangle of a texture: a null texture throws `ArgumentNullException`, and a rect that is empty or outside the texture, a pivot that is not finite, or pixels per unit that are not finite and positive throw `ArgumentException`.
-  A sprite is drawn as its rectangle, so `SpriteMeshType.Tight`, an `extrude` above 0 and `generateFallbackPhysicsShape: true` throw `NotSupportedException` naming `Sprite.Create` and the argument; the overloads without a mesh type make the full rectangle with no extrusion and no physics shape.
+  A sprite is drawn as its rectangle, so `SpriteMeshType.Tight`, an `extrude` above 0 and `generateFallbackPhysicsShape: true` throw `NotSupportedException` naming `Sprite.Create` and the argument; the overloads without a mesh type pass `SpriteMeshType.FullRect` and make the full rectangle with no extrusion and no physics shape, so only a `Tight` mesh type given by name is refused.
   A sprite of the scene is created by the host with `DisunityHost.CreateSprite` and has no managed texture, so `texture` is null, `textureRect` is `rect` and `border` is zero.
   `associatedAlphaSplitTexture` is null: the engine has no split-alpha textures.
   A sprite from a player's resources, a sprite a player scene's script field references (planned as a scene asset with the texture it draws, read from the player's file) or `Sprite.Create` keeps its `Texture2D`, and the renderer draws it from the texture's stored bytes (see `Texture2D` from a player's resources); a sprite whose texture has a format the host cannot draw is left out of the frame and its texture is named once on stderr.
@@ -466,8 +470,9 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   `CopyPropertiesFromMaterial` and `Lerp` work on the stored values.
   `SetPass(pass)` checks the pass against the shader's declared `passCount` (a shader without a declared pass count throws `NotSupportedException` from `Shader.passCount`); a pass outside 0 to `passCount - 1` logs an error naming the material, the pass and the count and returns false, leaving the earlier active pass (the engine's choice), and any other pass returns true and, for a material that has a world material, becomes the world's active pass.
   Immediate-mode draws (`Graphics.DrawMeshNow`, `GL`) are still unsupported, so nothing draws with the active pass.
-  `GetTag(tag, searchFallbacks, defaultValue)` returns the material's override tag, else the tag the shader declares in its first sub-shader (the tags a player's plan carries), and with `searchFallbacks` else the tag of the shader's fallback shader and that shader's fallback in turn, else the default; a shader's tag names match in any case and the material's override names exactly.
-  A shader whose tags nothing declared (the built-in sprite shaders and the fallback shader of a material with none) throws `NotSupportedException` naming `Material.GetTag` for a tag the material does not override, and so does a search of fallbacks that reaches a fallback whose declaration is unknown or whose shader the engine does not have.
+  `GetTag(tag, searchFallbacks, defaultValue)` returns the material's override tag, else the tag the shader declares in its first sub-shader (the tags a player's plan carries), and with `searchFallbacks` else the tag of the shader's fallback shader and that shader's fallback in turn, else the default; tag names match in any case, in the material's override tags and in the shader's alike (`SetOverrideTag("queue", ...)` overrides the shader's `QUEUE`).
+  The shaders the engine defines itself (`Hidden/InternalErrorShader`, the fallback of a material with no shader; `Sprites/Default`; the lit sprite shader; `UI/Default`) declare no tags and no fallback, so `GetTag` returns `defaultValue` for them unless the material overrides the tag. A player's plan that declares a shader of one of these names replaces the engine's declaration, in either order, and its tags are read.
+A shader a host registers without declaring its tags throws `NotSupportedException` naming `Material.GetTag` for a tag the material does not override, and so does a search of fallbacks that reaches a fallback whose declaration is unknown or whose shader the engine does not have.
   `GetPassName(pass)` returns the name of a pass of the shader's first sub-shader as the player's plan declares it (empty for an unnamed pass); a pass outside 0 to `passCount - 1` logs an error naming the material, the pass and the count and returns the empty string (the engine's choice).
   `FindPass(name)` returns the index of the first pass with that name, ignoring case (the engine's choice), or -1 when none has it, and throws `ArgumentNullException` for null.
   Both throw `NotSupportedException` naming the member for a shader whose pass names nothing declared (the built-in sprite shaders, until a plan declares them).
@@ -514,7 +519,8 @@ The 3D types are defined so that scripts that mention them compile, and they beh
   Its enabled state, `sortingLayerID`, `sortingOrder` and `sortAtRoot` are stored natively and a clone has its own.
   `sortingOrder` is stored as given, without clamping to 16 bits, as `Renderer.sortingOrder` is (the engine's choice).
   `sortingLayerName` follows the renderers: it reads the registered name of `sortingLayerID`, and sets the id of the named layer or, for an unregistered name, keeps the layer and logs a warning once per name.
-  The settings are stored and no draw orders by them yet, so the values affect no ordering and `UpdateAllSortingGroups()` has no sorted result to refresh.
+  The settings are stored and read back, and no draw reads them: a draw orders by its renderer's sorting layer and order alone, so the values affect no ordering.
+  `UpdateAllSortingGroups()` does nothing, because the engine keeps no sort result built from groups to refresh.
   A script's `[RequireComponent(typeof(SortingGroup))]` makes `AddComponent` add it first, and `GetComponentInParent<SortingGroup>` finds it
 - `AudioListener`, `GUILayer`, `FlareLayer`: Exist as enable-able components.
   There is no audio output.
@@ -716,9 +722,9 @@ The offscreen list is a record: the engine draws nothing in C#, and the host tha
   The fixed-vertex store (position, normal, first uv, colour and the triangle sub-meshes) is unchanged: sub-meshes that are not triangle lists are reported and left out of it, and base vertices are applied to its indices.
   Beside it the host receives every channel the mesh holds (position, normal, tangent, colour and `uv` to `uv8` with the component count each was set with, as the engine's vertex attributes 0 to 11), all indices with the base vertex applied, and a range for every sub-mesh of any topology (triangles, quads, lines, line strip and points, an empty sub-mesh included, so range `i` is sub-mesh `i`).
   Edits to tangents and to any uv channel store the mesh again.
-  The mesh keeps no skin weights, so the blend channels are never sent.
+  A mesh that holds bone weights sends them as the blend weight and blend index channels (engine vertex attributes 12 and 13, four values per vertex, the bone indices as floats); a mesh without them sends neither. `bindposes` is kept on the managed mesh; a skinned renderer sends the bind pose of its root bone with its skin.
   `MeshCollider.sharedMesh` and `BatchRendererGroup.RegisterMesh` only hold the reference.
-  Channels: `vertices`, `normals`, `tangents`, `colors`, `colors32`, and `uv` to `uv8` (uv channels 0 to 7), with array and `List` forms `SetVertices`, `SetNormals`, `SetTangents`, `SetColors` (`Color` and `Color32`), `SetUVs` (`Vector2`, `Vector3`, `Vector4`) and the matching `Get...` that clear the list first.
+  Channels: `vertices`, `normals`, `tangents`, `colors`, `colors32`, `boneWeights` (empty or one `BoneWeight` per vertex, dropped when the vertex count changes), `bindposes` (one matrix per bone) and `uv` to `uv8` (uv channels 0 to 7), with array and `List` forms `SetVertices`, `SetNormals`, `SetTangents`, `SetColors` (`Color` and `Color32`), `SetUVs` (`Vector2`, `Vector3`, `Vector4`) and the matching `Get...` that clear the list first.
   Getters return copies, and a null array or list sets an empty channel.
   Colors are stored as `Color`; `colors32` converts.
   A uv channel remembers the component count of its last set (2, 3 or 4): reading with more components pads zeros and reading with fewer drops the rest.

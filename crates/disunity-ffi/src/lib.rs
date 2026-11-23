@@ -46,6 +46,8 @@ pub mod input_axes;
 pub mod light;
 pub mod mesh_channels;
 pub mod mesh_renderer;
+#[cfg(test)]
+mod mesh_renderer_skin_tests;
 pub mod meshes;
 pub mod object_api;
 mod object_ids;

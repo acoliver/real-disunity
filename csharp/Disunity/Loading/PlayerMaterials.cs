@@ -8,7 +8,7 @@ namespace Disunity.Hosting;
 /// "disabled_passes", "floats" [[name, value]], "ints", "colors" [[name, [r, g, b, a]]], "textures" [{"name", "texture"
 /// (asset index or null), "unsent" (true for a texture the plan did not build; it is not a null slot), "scale", "offset"}]}</c>. The material is <c>new Material(shader)</c> with the planned values
 /// set through the public setters. A material without a shader (none, or one that did not plan, which the plan lists
-/// as a difference) gets the shader named <c>Hidden/InternalErrorShader</c> (the engine's choice of fallback: queue 2000, one pass). Nothing
+/// as a difference) gets the shader named <c>Hidden/InternalErrorShader</c> (the engine's choice of fallback: queue 2000, one pass, no tags and no fallback shader of its own). Nothing
 /// draws with the material yet.</summary>
 internal static class PlayerMaterials
 {
@@ -20,7 +20,7 @@ internal static class PlayerMaterials
     {
         var shader = plan.GetProperty("shader") is { ValueKind: JsonValueKind.Number } index
             ? (Shader)resolve(index.GetInt32())
-            : DisunityHost.DeclareShader(FallbackShader, new ShaderDeclaration(FallbackQueue, [""], 1), _ => { });
+            : DisunityHost.DeclareShader(FallbackShader, new ShaderDeclaration(FallbackQueue, 1, 1, [""], [], "", DeclarationOrigin.Engine), _ => { });
         var material = new Material(shader) { name = plan.Str("name"), renderQueue = plan.Int("render_queue") };
         foreach (var keyword in plan.GetProperty("keywords").EnumerateArray()) material.EnableKeyword(keyword.GetString()!);
         foreach (var tag in plan.GetProperty("tags").EnumerateArray()) material.SetOverrideTag(tag[0].GetString()!, tag[1].GetString()!);

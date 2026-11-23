@@ -33,8 +33,14 @@ fn fixture() -> (World, UiRouter, Arc<FontBook>, ObjectHandle, ObjectHandle) {
     let fonts = Arc::new(fonts);
     let mut w = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut w, None, Vec2::ZERO);
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let text = rect(&mut w, Some(root), Vec2::new(30., 60.));
     w.add_component(
         text,

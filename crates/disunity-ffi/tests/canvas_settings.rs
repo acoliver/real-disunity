@@ -29,13 +29,14 @@ fn a_new_canvas_reports_the_default_settings() {
     let record = read(world, canvas);
     assert_eq!(
         (
+            record.mode,
             record.sorting_layer,
             record.override_sorting,
             record.target_display,
             record.additional_shader_channels,
             record.reference_pixels_per_unit.to_bits()
         ),
-        (0, 0, 0, 0, 100_f32.to_bits())
+        (2, 0, 0, 0, 0, 100_f32.to_bits())
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

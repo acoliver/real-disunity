@@ -20,7 +20,6 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
-use std::num::NonZeroU64;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -34,6 +33,7 @@ use worldrunner_render_program::unity::offscreen::ListDraws;
 use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
+mod refusal;
 mod ui_offer;
 pub(crate) use ui_offer::UiOffer;
 
@@ -73,8 +73,6 @@ pub struct GpuLaunch {
     pub globals: Vec<SuppliedGlobal>,
     /// How the stand-in textures the host supplies look.
     pub stand_ins: StandInLook,
-    /// The storage budget in MiB, in place of the one chosen for the adapter.
-    pub storage_mb: Option<NonZeroU64>,
     /// Whether a headless run prints the GPU report after every frame, not only at the end.
     pub report_each_frame: bool,
 }
@@ -139,6 +137,8 @@ pub struct GpuWorkReport {
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
     pub refused_works: usize,
+    /// The first refusal the run has not been told of yet (see `PlayerGpu::take_refusal`).
+    refusal: Option<String>,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
     /// How the first dispatches were bound and what came of them.
@@ -198,6 +198,7 @@ impl GpuWorkReport {
         for trace in traces.iter().filter(|trace| trace.error.is_some()) {
             self.refused_records += trace.records;
             self.refused_works += 1;
+            refusal::note_whole(&mut self.refusal, trace);
         }
         for trace in &traces {
             self.planner.add(&trace.phases);
@@ -207,6 +208,7 @@ impl GpuWorkReport {
     }
 
     fn add(&mut self, report: &Report, source: &'static str) {
+        refusal::note_over_budget(&mut self.refusal, report, source);
         self.records += report.records;
         self.built += report.built;
         self.dispatches += report.dispatches;
@@ -512,7 +514,7 @@ impl PlayerGpu {
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena.
     pub fn headless(data: &Path, launch: &GpuLaunch) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let inputs = PlayerStartupInputs::capture();
         let settings = launch.settings();
         let instance = headless_gpu_instance();
         let adapter =
@@ -556,7 +558,7 @@ impl PlayerGpu {
         data: &Path,
         launch: &GpuLaunch,
     ) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let inputs = PlayerStartupInputs::capture();
         let settings = launch.settings();
         let adapter = source.adapter()?;
         Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
@@ -716,6 +718,14 @@ impl PlayerGpu {
                     .or_default() += 1;
             })
             .ok()
+    }
+
+    /// The texture the UI frame's runs were drawn into, which the viewer's overlay shows. `None`
+    /// until a frame with runs made it, after a frame without any, and while it is not the size
+    /// of the screen: a resize makes the next frame that has runs a new one.
+    pub(crate) fn ui_layers(&self) -> Option<wgpu::Texture> {
+        let texture = self.offscreen.borrow().ui_layers_texture()?;
+        (self.screen_size.get() == Some([texture.width(), texture.height()])).then_some(texture)
     }
 
     /// Numbers the screen `frame` when work drew into it since the last frame of the player's own.

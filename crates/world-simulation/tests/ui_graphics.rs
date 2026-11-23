@@ -450,6 +450,60 @@ fn a_nested_canvas_under_a_camera_canvas_draws_at_its_screen_pixels() {
     }
 }
 
+/// A canvas the game added at run time and never gave a mode, below a plain object it placed in
+/// the world, with a quad on one element.
+fn runtime_canvas_at(
+    world: &mut World,
+    translation: glam::Vec3,
+    scale: f32,
+) -> (ObjectHandle, ObjectHandle) {
+    let parent = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .set_local_transform(
+            parent,
+            worldrunner_world_simulation::LocalTransform {
+                translation,
+                scale: glam::Vec3::splat(scale),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let canvas = element(world, parent);
+    world
+        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let object = element(world, canvas);
+    draw(world, object, renderer(unit_quad()));
+    (canvas, object)
+}
+
+fn camera_object(world: &mut World) {
+    let camera = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(camera, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+}
+
+#[test]
+fn a_canvas_created_without_a_mode_draws_at_its_place_in_the_world() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    camera_object(&mut world);
+    let at = glam::Vec3::new(25.98, 0., -17.89);
+    let (canvas, object) = runtime_canvas_at(&mut world, at, 0.059);
+    let found = graphics(&world);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].object, object);
+    assert_eq!(found[0].canvas, canvas);
+    assert!(!found[0].overlay, "the canvas is drawn in the world");
+    let expected = [[-50., -50.], [50., -50.], [50., 50.], [-50., 50.]];
+    for (corner, offset) in found[0].quads[0].corners.iter().zip(expected) {
+        near(
+            corner,
+            &[at.x + 0.059 * offset[0], at.y + 0.059 * offset[1], at.z],
+        );
+    }
+}
+
 fn material_named(world: &mut World, name: &str, with_source: bool) -> MaterialId {
     let source = with_source.then(|| ShaderSource {
         file: "shaders.bundle".into(),
@@ -535,6 +589,28 @@ fn over_target(target: RenderTextureId) -> CanvasRenderer {
         graphic_texture: Some(UiTexture::Target(target)),
         ..renderer(unit_quad())
     }
+}
+
+#[test]
+fn canvases_created_without_a_mode_under_different_parents_draw_in_different_places() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    camera_object(&mut world);
+    let first = glam::Vec3::new(10., 0., 4.);
+    let second = glam::Vec3::new(-6., 2., 9.);
+    let (_, near_object) = runtime_canvas_at(&mut world, first, 0.1);
+    let (_, far_object) = runtime_canvas_at(&mut world, second, 0.1);
+    let found = graphics(&world);
+    assert_eq!(found.len(), 2);
+    let centre = |object: ObjectHandle| {
+        let quad = found.iter().find(|g| g.object == object).unwrap().quads[0];
+        let sum = quad
+            .corners
+            .iter()
+            .fold(glam::Vec3::ZERO, |sum, c| sum + glam::Vec3::from(*c));
+        sum / 4.
+    };
+    near(&centre(near_object).to_array(), &first.to_array());
+    near(&centre(far_object).to_array(), &second.to_array());
 }
 
 #[test]

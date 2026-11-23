@@ -1,7 +1,7 @@
 use glam::{UVec2, Vec2};
 use worldrunner_world_simulation::ui::{
-    Canvas, FontBook, FontId, RectTransform, TextRun, UiAction, UiAxis, UiControl, UiLayout,
-    UiLimits, UiRouter, UiSemantics, UiSlider, UiStyle,
+    Canvas, CanvasMode, FontBook, FontId, RectTransform, TextRun, UiAction, UiAxis, UiControl,
+    UiLayout, UiLimits, UiRouter, UiSemantics, UiSlider, UiStyle,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, ObjectDesc, ObjectHandle, ParentSpace, World, WorldError,
@@ -24,7 +24,13 @@ impl Menu {
         let font = fonts.register(bytes)?;
         let mut world = World::new(WorldSettings::default())?;
         let root = rectangle(&mut world, None, 0.)?;
-        world.add_component(root, ComponentDesc::Canvas(Canvas::default()))?;
+        world.add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )?;
         let mut router = UiRouter::default();
         value_controls(&mut world, &mut router, root, font)?;
         let open = control(

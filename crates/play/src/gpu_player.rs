@@ -18,14 +18,20 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::GpuFlush;
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::Configuration;
 use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
@@ -38,14 +44,28 @@ mod ui_offer;
 pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
-use crate::counts_line::{names_line, top_counts_line};
+use crate::counts_line::names_line;
+use crate::counts_line::top_counts_line;
 use crate::global_listing::GlobalListing;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
-use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, Settings, StandInCounts, StandInLook, SuppliedGlobal,
-    WorkTrace, supplied_line,
-};
+use crate::gpu_device::DeviceSource;
+use crate::gpu_device::PlayerStartupInputs;
+use crate::gpu_device::headless_gpu_instance;
+use crate::gpu_device::player_device;
+use crate::offscreen::ComputeAdapter;
+use crate::offscreen::DispatchTrace;
+use crate::offscreen::GlobalReads;
+use crate::offscreen::OffscreenAdapter;
+use crate::offscreen::OffscreenHost;
+use crate::offscreen::Phases;
+use crate::offscreen::PlayerKernels;
+use crate::offscreen::Reclaimed;
+use crate::offscreen::Report;
+use crate::offscreen::Settings;
+use crate::offscreen::StandInCounts;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
+use crate::offscreen::WorkTrace;
+use crate::offscreen::supplied_line;
 use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.

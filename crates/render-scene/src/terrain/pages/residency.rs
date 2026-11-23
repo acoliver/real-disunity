@@ -23,7 +23,7 @@ pub enum PageCacheError {
     Submission(#[from] SubmitError),
     #[error(transparent)]
     Transaction(#[from] TransactionError),
-    #[error("the per-frame material upload limit is exhausted")]
+    #[error("the frame's share of the material upload allowance is exhausted")]
     UploadLimit,
     #[error("material upload scratch is still reserved or in flight")]
     ScratchFull,
@@ -163,15 +163,14 @@ impl ResidentPages {
         if key.depth() > self.settings.parts().maximum_depth || state.contains(key) {
             return Err(PageCacheError::Address);
         }
-        let bytes = self.page_bytes();
-        if state.uploaded + bytes > self.settings.parts().upload_bytes_per_frame {
+        if !state.frame_has_room() {
             return Err(PageCacheError::UploadLimit);
         }
         if !state.scratch_available() {
             return Err(PageCacheError::ScratchFull);
         }
         let slot = state.reserve(key).ok_or(PageCacheError::Full)?;
-        state.uploaded += bytes;
+        state.admit();
         Ok(PendingPage::new(storage.state.clone(), transaction, slot))
     }
 

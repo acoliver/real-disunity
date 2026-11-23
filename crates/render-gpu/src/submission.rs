@@ -211,6 +211,8 @@ struct Inner {
     queue: wgpu::Queue,
     state: Mutex<State>,
     in_flight: AtomicUsize,
+    /// Submitted frames (prepared transactions) whose completion callback has not run.
+    frames_in_flight: AtomicUsize,
     lost: Arc<Mutex<Option<String>>>,
     submitted: AtomicU64,
     completed: AtomicU64,
@@ -232,6 +234,7 @@ impl SubmissionAuthority {
             queue,
             state: Mutex::new(State::default()),
             in_flight: AtomicUsize::new(0),
+            frames_in_flight: AtomicUsize::new(0),
             lost: Arc::new(Mutex::new(None)),
             submitted: AtomicU64::new(0),
             completed: AtomicU64::new(0),
@@ -305,6 +308,12 @@ impl SubmissionAuthority {
     }
     pub fn completed_serial(&self) -> u64 {
         self.0.completed.load(Ordering::Acquire)
+    }
+    /// Submitted frames whose completion has not been seen yet. wgpu reports completions when
+    /// the device is polled or the queue submits. Work submitted outside a frame transaction is
+    /// not counted.
+    pub fn frames_in_flight(&self) -> usize {
+        self.0.frames_in_flight.load(Ordering::Acquire)
     }
     /// Whether every submission up to `serial` has finished its completion bookkeeping. The
     /// callback that does it runs on whichever thread's poll collected it, which can be after
@@ -413,6 +422,11 @@ impl SubmissionAuthority {
         let submission = queue.submit(commands);
         staging::Staging::remap(staged);
         self.0.in_flight.fetch_add(1, Ordering::Release);
+        // Transaction identities start at one; zero is convenience work outside a frame.
+        let frame = transaction != 0;
+        if frame {
+            self.0.frames_in_flight.fetch_add(1, Ordering::AcqRel);
+        }
         let serial = self.0.submitted.fetch_add(1, Ordering::AcqRel) + 1;
         for usage in &leases {
             usage.submitted(serial);
@@ -426,6 +440,9 @@ impl SubmissionAuthority {
             if let Some(inner) = inner.upgrade() {
                 inner.completed.fetch_max(serial, Ordering::AcqRel);
                 inner.in_flight.fetch_sub(1, Ordering::AcqRel);
+                if frame {
+                    inner.frames_in_flight.fetch_sub(1, Ordering::AcqRel);
+                }
                 drop(retained);
                 inner.unsettled.lock().unwrap().remove(&serial);
             }

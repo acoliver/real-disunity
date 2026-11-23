@@ -34,7 +34,10 @@ pub(in crate::terrain::pages) struct PageState {
     token: u64,
     cache: u64,
     transaction: Option<Publications>,
-    pub uploaded: u64,
+    /// Pages admitted in the current frame.
+    admitted: u64,
+    /// Pages the current frame may admit; see [`begin_frame`](Self::begin_frame).
+    frame_allowance: u64,
     uploads: BTreeMap<u64, Option<u64>>,
     maximum_uploads: u64,
     authority: SubmissionAuthority,
@@ -50,7 +53,8 @@ impl PageState {
             token: 0,
             cache: NEXT_CACHE.fetch_add(1, Ordering::Relaxed),
             transaction: None,
-            uploaded: 0,
+            admitted: 0,
+            frame_allowance: maximum_uploads,
             uploads: BTreeMap::new(),
             maximum_uploads,
             authority: authority.clone(),
@@ -72,6 +76,19 @@ impl PageState {
             .retain(|_, serial| serial.is_none_or(|serial| serial > completed));
         (self.uploads.len() as u64) < self.maximum_uploads
     }
+    /// Whether the current frame may admit another page.
+    pub fn frame_has_room(&self) -> bool {
+        self.admitted < self.frame_allowance
+    }
+    pub fn admit(&mut self) {
+        self.admitted += 1;
+    }
+    /// A page admitted now holds its upload scratch until this frame completes, after the
+    /// `frames_in_flight` frames submitted before it, so the scratch turns over once every
+    /// `1 + frames_in_flight` frames. Admitting the whole scratch in one frame leaves those
+    /// following frames none and puts every bake of a turnover in one frame; this frame takes
+    /// its share instead, rounded up so the scratch stays fully used. When the GPU keeps up, no
+    /// frame is in flight and the share is the whole per-frame allowance.
     pub fn begin_frame(&mut self, transaction: &Publications) {
         if !self
             .transaction
@@ -94,7 +111,9 @@ impl PageState {
             }
             self.uploads.retain(|_, serial| serial.is_some());
             self.transaction = Some(transaction.clone());
-            self.uploaded = 0;
+            self.admitted = 0;
+            let turnover = 1 + self.authority.frames_in_flight() as u64;
+            self.frame_allowance = self.maximum_uploads.div_ceil(turnover);
         }
     }
     pub fn capture_write_key(&self) -> WriteKey {

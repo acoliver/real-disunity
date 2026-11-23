@@ -9,6 +9,7 @@ use worldrunner_disunity_runtime::DisunityHost;
 use worldrunner_disunity_runtime::ManagedHostConfig;
 use worldrunner_original_games::workspace_root;
 use worldrunner_unity_import::player_identity::PlayerIdentity;
+use worldrunner_unity_import::player_identity::ProjectGraphics;
 use worldrunner_unity_import::player_identity::player_identity;
 use worldrunner_unity_import::player_identity::player_project_graphics;
 use worldrunner_unity_import::player_identity::player_quality;
@@ -109,23 +110,31 @@ pub fn prepare_player(
         &resources_path,
         &serde_json::to_vec(&resources).expect("plans serialize"),
     )?;
+    let project = player_project_graphics(data)?;
     let request = write_request(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, launch),
+        (&scenes, launch, project),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
-        gpu: GpuLaunch {
-            globals: launch.globals.to_vec(),
-            stand_ins: launch.stand_ins,
-            report_each_frame: launch.report_each_frame,
-            reads: launch.read_targets.to_vec(),
-        },
+        gpu: gpu_launch(launch, project),
     })
+}
+
+/// What the run asks of its GPU work: the launch's own settings, and the project's colour space
+/// the request tells the managed side.
+fn gpu_launch(launch: PlayerLaunch, project: Option<ProjectGraphics>) -> GpuLaunch {
+    GpuLaunch {
+        globals: launch.globals.to_vec(),
+        stand_ins: launch.stand_ins,
+        report_each_frame: launch.report_each_frame,
+        reads: launch.read_targets.to_vec(),
+        linear_colour_space: project.is_some_and(ProjectGraphics::is_linear),
+    }
 }
 
 /// Builds the layouts tool, has it write the player's script layouts and reads them.
@@ -210,15 +219,16 @@ fn plan_build_scenes(
 /// Writes the bridge's request: the player's paths, plans, identity, command line arguments,
 /// quality levels and project graphics settings. Each game keeps its preferences in its own
 /// `persistent/<company>/<product>` directory under `output`. `plans` are the scene plan and
-/// the resource plan; `launch` is the build's scene list and the command line.
+/// the resource plan; `launch` is the build's scene list, the command line and the project
+/// graphics settings, which the GPU work reads as well.
 fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], PlayerLaunch),
+    launch: (&[serde_json::Value], PlayerLaunch, Option<ProjectGraphics>),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, launch) = launch;
+    let (scenes, launch, project) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -245,7 +255,7 @@ fn write_request(
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
     }
-    if let Some(project) = player_project_graphics(data)? {
+    if let Some(project) = project {
         body["project"] = serde_json::json!(project);
     }
     write(&request, body.to_string().as_bytes())?;
@@ -568,6 +578,23 @@ mod tests {
             },
             Path::new("/out/callback-cache"),
         )
+    }
+
+    fn project(space: &'static str) -> Option<ProjectGraphics> {
+        Some(ProjectGraphics { color_space: space })
+    }
+
+    #[test]
+    fn a_linear_project_gives_its_gpu_work_a_linear_colour_space() {
+        let launch = PlayerLaunch::default();
+        assert!(gpu_launch(launch, project("linear")).linear_colour_space);
+    }
+
+    #[test]
+    fn a_gamma_project_and_a_player_with_no_project_settings_give_a_gamma_colour_space() {
+        let launch = PlayerLaunch::default();
+        assert!(!gpu_launch(launch, project("gamma")).linear_colour_space);
+        assert!(!gpu_launch(launch, None).linear_colour_space);
     }
 
     #[test]

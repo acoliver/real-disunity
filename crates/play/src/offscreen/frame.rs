@@ -83,6 +83,10 @@ pub struct Settings {
     pub supplied: Vec<SuppliedGlobal>,
     /// How the stand-in textures the host supplies look: their declared colours, or magenta.
     pub stand_in_look: StandInLook,
+    /// Whether the project's colour space is Linear. A colour property a material leaves unset
+    /// then takes its declared default as the linear form of that colour, as a colour the game
+    /// sets does (the managed property store), and a Gamma project uses the default as authored.
+    pub linear_colour_space: bool,
 }
 
 impl Settings {

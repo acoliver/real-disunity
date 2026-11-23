@@ -27,10 +27,12 @@ internal static unsafe class BatchRendererGroupDrawTests
         public Plane[] SeenPlanes = [];
         public BatchCullingViewType SeenView;
         public uint SeenLayerMask;
+        public Action<BatchRendererGroup>? BeforeEmit;
 
         public JobHandle OnPerformCulling(BatchRendererGroup group, BatchCullingContext context, BatchCullingOutput output, IntPtr userContext)
         {
             Calls++;
+            BeforeEmit?.Invoke(group);
             SeenPlanes = context.cullingPlanes.ToArray();
             (SeenView, SeenLayerMask) = (context.viewType, context.cullingLayerMask);
             if (Runs.Length == 0) return default;
@@ -106,6 +108,10 @@ internal static unsafe class BatchRendererGroupDrawTests
             Console.WriteLine("PASS: a shadow list invokes the callback with the split's planes as a light view and draws with the ShadowCaster tag, for casters only");
             EachListTakesTheDrawsItsFilterAccepts();
             Console.WriteLine("PASS: each renderer list of a camera takes the batch draws whose material is in its queue range and whose range shares a rendering layer");
+            ACallbackMayRemoveTheEmptyBatchBeforeEmitting();
+            Console.WriteLine("PASS: a callback that removes the empty batch ID and then emits draw commands has its draws recorded");
+            AThrowingCallbackLeavesOutOnlyThatCull();
+            Console.WriteLine("PASS: a callback that throws gives no draws for that cull and is asked again at the next one");
         }
         finally
         {
@@ -245,5 +251,38 @@ internal static unsafe class BatchRendererGroupDrawTests
         Expect.Sequence(new[] { group.Line(0, "8", "Opaque"), group.Line(1, "9,10", "Transparent"), group.Line(0, "8", "Shared"), group.Line(1, "9,10", "Shared") },
             DrawAll(context, opaque, transparent, otherLayer, sharedLayer), "the queue range and the rendering layer choose the draws of each list");
         Expect.Equal(1, group.Emitter.Calls, "the camera's lists share the one culling callback run");
+    }
+
+    private static void ACallbackMayRemoveTheEmptyBatchBeforeEmitting()
+    {
+        using var group = new Group(2000);
+        group.Emitter.Runs = [(0, 2)];
+        group.Emitter.Visible = [4, 6];
+        group.Emitter.BeforeEmit = brg => brg.RemoveBatch(default);
+        CommandWireReader.Take();
+        var context = default(ScriptableRenderContext);
+        var parameters = CameraParameters();
+        var culling = context.Cull(ref parameters);
+        var drawn = DrawAll(context, DrawList(context, culling, FilteringSettings.defaultValue, "UniversalForward"));
+        Expect.Sequence(new[] { group.Line(0, "4,6", "UniversalForward") }, drawn, "the draws written after RemoveBatch of the empty batch ID are recorded");
+    }
+
+    private static void AThrowingCallbackLeavesOutOnlyThatCull()
+    {
+        using var group = new Group(2000);
+        group.Emitter.Runs = [(0, 1)];
+        group.Emitter.Visible = [3];
+        group.Emitter.BeforeEmit = _ =>
+        {
+            if (group.Emitter.Calls == 1) throw new InvalidOperationException("first call fails");
+        };
+        CommandWireReader.Take();
+        var context = default(ScriptableRenderContext);
+        var parameters = CameraParameters();
+        var first = context.Cull(ref parameters);
+        Expect.Sequence(Array.Empty<string>(), DrawAll(context, DrawList(context, first, FilteringSettings.defaultValue, "A")), "the cull whose callback threw draws nothing");
+        var second = context.Cull(ref parameters);
+        Expect.Sequence(new[] { group.Line(0, "3", "A") }, DrawAll(context, DrawList(context, second, FilteringSettings.defaultValue, "A")), "the next cull draws what the callback wrote");
+        Expect.Equal(2, group.Emitter.Calls, "the group was asked again");
     }
 }

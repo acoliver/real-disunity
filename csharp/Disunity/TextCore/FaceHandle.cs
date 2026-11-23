@@ -78,4 +78,19 @@ internal readonly unsafe record struct FaceHandle(ulong World, ulong Face)
         metrics = found ? native : default;
         return found;
     }
+
+    /// <summary>The nonzero pair adjustments of every ordered pair of the glyphs, in the face's current size; empty when the
+    /// face, the glyphs or the adjustments are missing.</summary>
+    public DisunityGlyphPair[] Pairs(uint[] glyphIndexes)
+    {
+        uint count = 0;
+        if (!InLoadedWorld || glyphIndexes.Length == 0) return [];
+        fixed (uint* glyphs = glyphIndexes)
+        {
+            if (NativeBindings.disunity_face_pairs(World, Face, glyphs, (uint)glyphIndexes.Length, null, &count).code != 0 || count == 0) return [];
+            var native = new DisunityGlyphPair[count];
+            fixed (DisunityGlyphPair* records = native)
+                return NativeBindings.disunity_face_pairs(World, Face, glyphs, (uint)glyphIndexes.Length, records, &count).code == 0 ? native : [];
+        }
+    }
 }

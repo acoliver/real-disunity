@@ -17,6 +17,7 @@ internal static class TextLayoutInk
         var pen = 0f;
         for (var i = line.Start; i < line.End; i++)
         {
+            if (i > line.Start) pen += chars[i].Kern;
             if (TryInk(chars[i], glyphs, out var left, out var width))
             {
                 if (float.IsNaN(first)) first = pen + left;

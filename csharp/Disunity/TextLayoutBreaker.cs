@@ -4,8 +4,12 @@ namespace UnityEngine;
 internal readonly record struct CharStyle(int Size, FontStyle Style, Color32 Color);
 
 /// <summary>One character the generator lays out: its code point, glyph index (0 for none), whole-pixel advance and style.
-/// A newline has no glyph and no advance.</summary>
-internal readonly record struct LayoutChar(int Code, uint Glyph, int Advance, CharStyle Style);
+/// A newline has no glyph and no advance. <see cref="Kern"/> is the pixels added to the previous character's advance when
+/// this one follows it on a line; it is 0 for the first character of a line.</summary>
+internal readonly record struct LayoutChar(int Code, uint Glyph, int Advance, CharStyle Style)
+{
+    public int Kern { get; init; }
+}
 
 /// <summary>A line of laid-out characters: those from <see cref="Start"/> up to <see cref="End"/>, whose advances add up
 /// to <see cref="Width"/>. The space or newline a line break consumes sits at <see cref="End"/> and is on no line.</summary>
@@ -48,7 +52,7 @@ internal sealed class TextLayoutBreaker
     private int Measure(int from, int to)
     {
         var width = 0;
-        for (var i = from; i < to; i++) width += _chars[i].Advance;
+        for (var i = from; i < to; i++) width += _chars[i].Advance + (i > from ? _chars[i].Kern : 0);
         return width;
     }
 
@@ -67,7 +71,7 @@ internal sealed class TextLayoutBreaker
             var width = 0;
             for (var i = begin; i < end; i++)
             {
-                width += _chars[i].Advance;
+                width += _chars[i].Advance + (i > start ? _chars[i].Kern : 0);
                 while (width > _limit && i > start)
                 {
                     var space = LastSpace(start, i);

@@ -35,7 +35,11 @@ internal sealed class FontGlyphs
     {
         _font = font;
         _data = data;
+        Kerning = new FontKerning(this);
     }
+
+    /// <summary>The kerning of the face, dropped with it when the world changes.</summary>
+    public FontKerning Kerning { get; }
 
     /// <summary>The loaded face, loaded now if the world changed since the last call; false with no world or a file the
     /// engine cannot read.</summary>
@@ -58,6 +62,7 @@ internal sealed class FontGlyphs
         _hasFace = false;
         _metrics.Clear();
         _lines.Clear();
+        Kerning.Clear();
         _requested.Clear();
         _requestedInOrder.Clear();
         if (_atlas is null) return;

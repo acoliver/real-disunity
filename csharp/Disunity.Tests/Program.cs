@@ -585,6 +585,7 @@ TextGeneratorTests.Run();
 TextLayoutTests.Run();
 TextRichTests.Run();
 TextFitTests.Run();
+TextKerningTests.Run();
 FontDynamicTests.Run();
 CursorTests.Run();
 PanelInputConfigurationTests.Run();

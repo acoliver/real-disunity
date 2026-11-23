@@ -72,8 +72,24 @@ internal sealed class TextLayoutJob
             var size = marked.Size > 0 ? Scaled(marked.Size) : baseSize;
             chars.Add(Characterize(marked.Code, new CharStyle(size, _settings.fontStyle | marked.Style, marked.Color ?? _settings.color)));
         }
+        return Kern(chars);
+    }
+
+    /// <summary>Gives each glyph the kerning against the glyph before it, when both are glyphs of one size.</summary>
+    private List<LayoutChar> Kern(List<LayoutChar> chars)
+    {
+        var pairs = new List<(int Size, uint Left, uint Right)>();
+        for (var i = 1; i < chars.Count; i++)
+            if (Pairs(chars[i - 1], chars[i])) pairs.Add((chars[i].Style.Size, chars[i - 1].Glyph, chars[i].Glyph));
+        foreach (var size in pairs.Select(pair => pair.Size).Distinct())
+            _glyphs.Kerning.Prepare(size, pairs.Where(pair => pair.Size == size).Select(pair => (pair.Left, pair.Right)));
+        for (var i = 1; i < chars.Count; i++)
+            if (Pairs(chars[i - 1], chars[i]))
+                chars[i] = chars[i] with { Kern = _glyphs.Kerning.Adjustment(chars[i].Style.Size, chars[i - 1].Glyph, chars[i].Glyph) };
         return chars;
     }
+
+    private static bool Pairs(LayoutChar left, LayoutChar right) => left.Glyph != 0 && right.Glyph != 0 && left.Style.Size == right.Style.Size;
 
     private LayoutChar Characterize(int code, CharStyle style)
     {

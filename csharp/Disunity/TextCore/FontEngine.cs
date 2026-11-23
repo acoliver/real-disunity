@@ -177,18 +177,10 @@ public static unsafe partial class FontEngine
     public static GlyphPairAdjustmentRecord[] GetGlyphPairAdjustmentTable(uint[] glyphIndexes)
     {
         ArgumentNullException.ThrowIfNull(glyphIndexes);
-        if (Current is not { } face || glyphIndexes.Length == 0) return [];
-        uint count = 0;
-        fixed (uint* glyphs = glyphIndexes)
-        {
-            if (NativeBindings.disunity_face_pairs(face.World, face.Face, glyphs, (uint)glyphIndexes.Length, null, &count).code != 0 || count == 0) return [];
-            var native = new DisunityGlyphPair[count];
-            fixed (DisunityGlyphPair* records = native)
-                if (NativeBindings.disunity_face_pairs(face.World, face.Face, glyphs, (uint)glyphIndexes.Length, records, &count).code != 0) return [];
-            return Array.ConvertAll(native, pair => new GlyphPairAdjustmentRecord(
-                new GlyphAdjustmentRecord(pair.first, new GlyphValueRecord(0, 0, pair.x_advance, 0)),
-                new GlyphAdjustmentRecord(pair.second, default)));
-        }
+        if (Current is not { } face) return [];
+        return Array.ConvertAll(face.Pairs(glyphIndexes), pair => new GlyphPairAdjustmentRecord(
+            new GlyphAdjustmentRecord(pair.first, new GlyphValueRecord(0, 0, pair.x_advance, 0)),
+            new GlyphAdjustmentRecord(pair.second, default)));
     }
 
     /// <summary><see cref="GetGlyphPairAdjustmentTable"/> for a list of glyph indexes.</summary>

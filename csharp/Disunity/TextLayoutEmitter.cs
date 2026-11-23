@@ -29,6 +29,7 @@ internal static class TextLayoutEmitter
         for (var i = placed.Line.Start; i < placed.Line.End; i++)
         {
             var c = input.Chars[i];
+            if (i > placed.Line.Start) pen += c.Kern;
             AddCharacter(result, pen, placed.Top, c.Advance);
             var key = new GlyphKey(c.Glyph, c.Style.Size, c.Style.Style);
             if (keep && c.Glyph != 0 && infos.TryGetValue(key, out var info) && info.glyphWidth > 0)

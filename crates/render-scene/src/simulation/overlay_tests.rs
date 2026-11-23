@@ -128,7 +128,7 @@ fn runs_in_a_grown_atlas_sample_their_own_rectangles_of_it() {
         "two screens need a larger atlas"
     );
     let overlay = UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap();
-    let atlas = [layers.atlas_size[0] as f32, layers.atlas_size[1] as f32];
+    let atlas = glam::UVec2::from(layers.atlas_size).as_vec2().to_array();
     let mut sampled: Vec<_> = overlay
         .quads
         .iter()
@@ -140,7 +140,7 @@ fn runs_in_a_grown_atlas_sample_their_own_rectangles_of_it() {
         .runs
         .iter()
         .map(|run| {
-            let [x, y, width, height] = run.atlas.map(|value| value as f32);
+            let [x, y, width, height] = glam::UVec4::from(run.atlas).as_vec4().to_array();
             [
                 x / atlas[0],
                 (y + height) / atlas[1],

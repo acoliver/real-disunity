@@ -582,6 +582,7 @@ GraphicsTargetTests.Run();
 Texture3DTests.Run();
 FontEventTests.Run();
 TextGeneratorTests.Run();
+TextLayoutTests.Run();
 FontDynamicTests.Run();
 CursorTests.Run();
 PanelInputConfigurationTests.Run();

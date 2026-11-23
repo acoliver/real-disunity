@@ -67,6 +67,16 @@ public sealed partial class Font
         set => throw new NotSupportedException("Font.characterInfo cannot be set: the engine draws its fonts on demand");
     }
 
+    private bool _layoutFailureReported;
+
+    /// <summary>True the first time it is called for this font, so a text generator logs why the font cannot be laid out once.</summary>
+    internal bool ReportLayoutFailureOnce()
+    {
+        var first = !_layoutFailureReported;
+        _layoutFailureReported = true;
+        return first;
+    }
+
     /// <summary>Raises <see cref="textureRebuilt"/> if the atlas was replaced during the call that ends here. The event
     /// runs last so a handler that rebuilds text never re-enters a half-finished layout.</summary>
     internal void FlushTextureRebuilt()

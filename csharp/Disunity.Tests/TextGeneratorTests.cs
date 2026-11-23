@@ -1,18 +1,18 @@
 using UnityEngine;
 
-/// <summary>TextGenerator lays out nothing yet, so empty text gives an empty result and any other text is rejected with a
-/// NotSupportedException that names the member. UI Text builds one in OnEnable, so construction has to work.</summary>
+/// <summary>TextGenerator keeps no result for empty text and compares settings by value. UI Text builds one in OnEnable, so
+/// construction has to work. The layout of text is in TextLayoutTests.</summary>
 internal static class TextGeneratorTests
 {
     public static void Run()
     {
         ConstructsWithAndWithoutCapacity();
         EmptyTextPopulatesAnEmptyResult();
-        TextNeedingLayoutNamesTheMember();
+        SettingsLayoutDoesNotYetHandleAreRejectedByName();
         InvalidateClearsTheResult();
         SettingsCompareByValue();
         AFontHasItsOwnMaterial();
-        Console.WriteLine("PASS: TextGenerator builds, populates empty text, and rejects text it cannot lay out by member name");
+        Console.WriteLine("PASS: TextGenerator builds, populates empty text, compares settings and names the settings it cannot lay out");
     }
 
     private static TextGenerationSettings Settings(float width = 100f) => new()
@@ -54,18 +54,21 @@ internal static class TextGeneratorTests
         Expect.Near(0f, generator.GetPreferredHeight("", Settings()), "preferred height of empty text");
     }
 
-    private static void TextNeedingLayoutNamesTheMember()
+    private static void SettingsLayoutDoesNotYetHandleAreRejectedByName()
     {
-        var generator = new TextGenerator();
-        var populate = Expect.Catch<NotSupportedException>(() => generator.Populate("Loading", Settings()), "Populate of text");
-        Expect.That(populate.Message.Contains("TextGenerator.Populate"), $"Populate names itself: {populate.Message}");
-        var withErrors = Expect.Catch<NotSupportedException>(() => generator.PopulateWithErrors("Loading", Settings(), null!), "PopulateWithErrors of text");
-        Expect.That(withErrors.Message.Contains("TextGenerator.PopulateWithErrors"), $"PopulateWithErrors names itself: {withErrors.Message}");
-        var width = Expect.Catch<NotSupportedException>(() => generator.GetPreferredWidth("Loading", Settings()), "GetPreferredWidth of text");
-        Expect.That(width.Message.Contains("TextGenerator.GetPreferredWidth"), $"GetPreferredWidth names itself: {width.Message}");
-        var height = Expect.Catch<NotSupportedException>(() => generator.GetPreferredHeight("Loading", Settings()), "GetPreferredHeight of text");
-        Expect.That(height.Message.Contains("TextGenerator.GetPreferredHeight"), $"GetPreferredHeight names itself: {height.Message}");
-        Expect.Throws<ArgumentNullException>(() => generator.Populate(null!, Settings()), "null text");
+        Disunity.Hosting.DisunityHost.LoadWorld();
+        try
+        {
+            var font = Disunity.Hosting.DisunityHost.RegisterFont(SyntheticFont.Bytes());
+            var generator = new TextGenerator();
+            var rich = Settings();
+            rich.font = font;
+            rich.richText = true;
+            var message = Expect.Catch<NotSupportedException>(() => generator.Populate("A", rich), "rich text").Message;
+            Expect.That(message.Contains("richText"), $"the member is named: {message}");
+            Expect.Throws<ArgumentNullException>(() => generator.Populate(null!, Settings()), "null text");
+        }
+        finally { Disunity.Hosting.DisunityHost.UnloadWorld(); }
     }
 
     private static void InvalidateClearsTheResult()

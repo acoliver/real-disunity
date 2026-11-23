@@ -27,6 +27,10 @@ internal sealed class FontGlyphs
     private bool _hadAtlas;
     private bool _rebuilt;
 
+    /// <summary>Changes whenever the atlas is made, replaced or dropped, which moves glyph rectangles, so a layout built
+    /// from earlier UVs knows to run again.</summary>
+    public int AtlasGeneration { get; private set; }
+
     public FontGlyphs(Font font, byte[] data)
     {
         _font = font;
@@ -58,6 +62,7 @@ internal sealed class FontGlyphs
         _requestedInOrder.Clear();
         if (_atlas is null) return;
         _atlas = null;
+        AtlasGeneration++;
         _font.AdoptAtlas(null);
     }
 
@@ -100,11 +105,13 @@ internal sealed class FontGlyphs
             _atlas = new FontGlyphAtlas(this, $"{_font.name} atlas");
             _rebuilt |= _hadAtlas;
             _hadAtlas = true;
+            AtlasGeneration++;
             _font.AdoptAtlas(_atlas.Texture);
         }
         if (_atlas.Ensure(keys))
         {
             _rebuilt = true;
+            AtlasGeneration++;
             _font.AdoptAtlas(_atlas.Texture);
         }
         return true;
@@ -119,9 +126,17 @@ internal sealed class FontGlyphs
         if (glyph == 0) return false;
         var key = new GlyphKey(glyph, size, style);
         EnsureGlyphs([key]);
-        if (_atlas is null || !_atlas.TryGet(key, out var drawn)) return false;
+        if (!TryInfo(codePoint, key, out info)) return false;
         if (_requested.Add((codePoint, size, style))) _requestedInOrder.Add((codePoint, size, style));
-        info = CharacterInfo.Of(codePoint, size, style, drawn, _atlas.Texture.width, _atlas.Texture.height);
+        return true;
+    }
+
+    /// <summary>The info of a glyph that is in the atlas now, for the character that maps to it.</summary>
+    public bool TryInfo(int codePoint, GlyphKey key, out CharacterInfo info)
+    {
+        info = default;
+        if (_atlas is null || !_atlas.TryGet(key, out var glyph)) return false;
+        info = CharacterInfo.Of(codePoint, key.Size, key.Style, glyph, _atlas.Texture.width, _atlas.Texture.height);
         return true;
     }
 
@@ -130,8 +145,8 @@ internal sealed class FontGlyphs
     {
         var infos = new List<CharacterInfo>();
         foreach (var (code, size, style) in _requestedInOrder)
-            if (_atlas is not null && _atlas.TryGet(new GlyphKey(GlyphIndex(code), size, style), out var glyph))
-                infos.Add(CharacterInfo.Of(code, size, style, glyph, _atlas.Texture.width, _atlas.Texture.height));
+            if (TryInfo(code, new GlyphKey(GlyphIndex(code), size, style), out var info))
+                infos.Add(info);
         return infos.ToArray();
     }
 

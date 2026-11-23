@@ -5,6 +5,7 @@
 use super::foliage::pass_color;
 use super::mip_bias::{assert_level, distance_for, mipped_texture};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneAtlasSampling, SceneImpostor, SceneImpostorLayout};
 
 fn atlas_scene(sampling: SceneAtlasSampling) -> RenderScene {
@@ -60,7 +61,7 @@ fn render_center(
     bias: f32,
 ) -> [u8; 3] {
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &atlas_scene(sampling),

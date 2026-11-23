@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 
 fn edited_scene(source: &RenderScene, edits: &[(usize, i32)]) -> RenderScene {
     let base = source.terrain().unwrap();
@@ -66,8 +67,7 @@ fn check_replacement(edits: &[(usize, i32)], expected: usize) {
     let context = context();
     let source = source();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let old =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let old = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     prepare_completed(&context, &old, &frame, 0)
         .submit()
@@ -75,7 +75,7 @@ fn check_replacement(edits: &[(usize, i32)], expected: usize) {
     wait(&context);
     assert_eq!(resident_count(&old), 4);
     let request = old.terrain_geometry_request(&frame, [TARGET; 2]).unwrap();
-    let next = SceneGpu::upload_prepared_reusing(
+    let next = SceneGpu::upload(
         context.device(),
         context.submission(),
         super::super::super::PreparedScene::new(&edited_scene(&source, edits)).unwrap(),
@@ -154,13 +154,12 @@ fn tight_budget_pair(context: &GpuContext) -> (ScenePipelines, SceneGpu, SceneGp
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let old =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let old = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     prepare_completed(context, &old, &frame_from(pose()), 0)
         .submit()
         .unwrap();
     wait(context);
-    let next = SceneGpu::upload_prepared_reusing(
+    let next = SceneGpu::upload(
         context.device(),
         context.submission(),
         super::super::super::PreparedScene::new(&edited_scene(&source, &[(80, 1000)])).unwrap(),

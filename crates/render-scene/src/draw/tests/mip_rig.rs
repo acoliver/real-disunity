@@ -6,6 +6,7 @@
 use super::mip_bias::LEVELS;
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 use worldrunner_render_post::{
@@ -54,8 +55,7 @@ pub(super) fn center(
     frame: &FrameUniform,
 ) -> [f32; 3] {
     let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
     // The resident scene has no post effects of its own; it adopts the renderer's requested ones.
     gpu.post = renderer.configuration().post;
     let color = AttachmentView::new(

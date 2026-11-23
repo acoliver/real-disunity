@@ -123,10 +123,11 @@ internal static unsafe class GlobalArrayTests
         return count;
     }
 
-    /// <summary>Whether the last place the entry sits in the snapshot is its ordered work, which puts the work and property tags before it.</summary>
+    /// <summary>Whether the first place the entry sits in the snapshot is its ordered work, which puts the work and property tags
+    /// before it. The work list starts the snapshot body, ahead of the global state that holds the entry too.</summary>
     private static bool InWork(byte[] snapshot, byte[] entry, byte propertyTag)
     {
-        var at = snapshot.AsSpan().LastIndexOf(entry);
+        var at = snapshot.AsSpan().IndexOf(entry);
         return at >= 2 && snapshot[at - 2] == 6 && snapshot[at - 1] == propertyTag;
     }
 

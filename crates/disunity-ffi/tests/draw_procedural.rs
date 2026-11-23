@@ -1,13 +1,13 @@
 //! A command buffer's procedural draw through the ABI: the call forwards the matrix, material,
-//! pass, topology and counts as one record, and a take hands it back with kind 17 and the bytes
-//! that carry it. A missing or non-finite matrix, a dead material, a pass below -1, an unknown
-//! topology and a negative count are refused and record nothing.
-use worldrunner_disunity_ffi::{
-    abi::*, graphics::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
-};
-use worldrunner_world_simulation::graphics::{
-    DrawTopology, MaterialId, OffscreenWork, snapshot_wire::decode_work,
-};
+//! pass, topology and counts as one record, and the frame's work holds it as one procedural draw.
+//! A missing or non-finite matrix, a dead material, a pass below -1, an unknown topology and a
+//! negative count are refused and record nothing.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
+use worldrunner_disunity_ffi::{abi::*, graphics::*, graphics_context::*};
+use worldrunner_world_simulation::graphics::{DrawTopology, MaterialId, OffscreenWork};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -30,39 +30,8 @@ fn material(world: u64) -> u64 {
     material
 }
 
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let (mut length, mut bytes) = (0, [0_u8; 256]);
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        256,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
 #[test]
-fn every_field_reaches_the_frame_as_one_record_of_kind_seventeen() {
+fn every_field_reaches_the_frame_as_procedural_draws() {
     let world = new_world();
     let material = material(world);
     let matrix: [f32; 16] = std::array::from_fn(|i| 0.5 - i as f32);
@@ -73,16 +42,8 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_seventeen() {
         ]
     };
     assert_eq!(codes.map(|result| result.code), [0, 0]);
-    let taken = take(world);
-    assert_eq!(KIND_DRAW_PROCEDURAL, 17);
-    assert!(
-        taken
-            .iter()
-            .all(|(record, _)| record.kind == KIND_DRAW_PROCEDURAL)
-    );
-    let records: Vec<_> = taken.into_iter().map(|(_, work)| work).collect();
     assert_eq!(
-        records,
+        snapshot(world).work,
         [
             OffscreenWork::DrawProcedural {
                 matrix,
@@ -127,6 +88,6 @@ fn a_draw_the_abi_or_the_world_refuses_records_nothing() {
             assert_ne!(result.code, 0, "case {index}");
         }
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

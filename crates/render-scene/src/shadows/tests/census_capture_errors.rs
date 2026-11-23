@@ -3,6 +3,9 @@ use super::{
     context,
     fixture::{scene, settings, view},
 };
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::{
     Viewport,
     compositor::terms::{CaptureTerm, TermCapture},
@@ -24,7 +27,13 @@ fn assert_transaction_error(foreign: bool) {
     let _session = SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = ShadowedScene::new(
+        &context,
+        PreparedScene::new(&source).unwrap(),
+        settings(),
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
     let camera = view()
         .with_raster_sample(
             Viewport {

@@ -15,6 +15,8 @@ pub(crate) mod snapshots;
 pub(crate) mod surface;
 mod terms;
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 mod tests;
 mod vertex_seeds;
 
@@ -138,20 +140,6 @@ pub fn transmittance(absorption_per_meter: f32, distance_meters: f32) -> f32 {
     (-absorption_per_meter * distance_meters.max(0.0)).exp()
 }
 
-/// Foreground samples cannot supply a refracted background behind the surface.
-pub fn refraction_pixel(
-    original: [i32; 2],
-    distorted: [i32; 2],
-    sampled_depth: f32,
-    surface_depth: f32,
-) -> [i32; 2] {
-    if sampled_depth < surface_depth {
-        original
-    } else {
-        distorted
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
     pub draw_count: crate::draw::pass_statistics::PassCounter,
@@ -244,18 +232,6 @@ impl Water {
             depth: DepthMode::Independent,
         })
     }
-    #[cfg(test)]
-    pub fn feature(
-        &self,
-        encoder: &wgpu::CommandEncoder,
-        frame: &FrameUniform,
-        timing: (f32, usize),
-        shadow: Option<&wgpu::BindGroup>,
-    ) -> WaterFeature {
-        self.feature_with_depth(encoder, frame, timing, shadow, DepthMode::Independent)
-            .expect("the test frame belongs to water's authority")
-    }
-
     /// The feature of frame slot `timing.1`, its body draws prepared for passes with `depth`
     /// and retained by `encoder`'s frame.
     ///
@@ -263,7 +239,7 @@ impl Water {
     /// Fails when a body's program cannot be built or its draw prepared, and with
     /// `ForeignAuthority` when `encoder` is a frame of another authority than the one water was
     /// installed with.
-    pub fn feature_with_depth(
+    pub fn feature(
         &self,
         encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,
@@ -293,12 +269,6 @@ impl Water {
             draws,
             shadow: shadow.cloned(),
         })
-    }
-
-    /// Draws bodies of `key` with `source` compiled for `options` in place of the composed text.
-    #[cfg(test)]
-    pub(crate) fn substitute(&self, key: ([u32; 5], bool), source: &str, options: [u32; 5]) {
-        self.programs.borrow_mut().substitute(key, source, options);
     }
 
     /// The prepared draw of each body with vertices, `None` for one without, for frame slot

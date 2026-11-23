@@ -14,6 +14,7 @@ use super::{DrawError, SceneGpu};
 use crate::device::GpuContext;
 use crate::frame::FrameUniform;
 use crate::renderer::{DEPTH_FORMAT, ScenePipelines, depth_texture};
+use crate::test_support::upload_scene;
 use crate::view::{CameraPose, SceneView, Viewport};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoder, CommandEncoderDescriptor,
@@ -632,7 +633,7 @@ fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform)
     let device = context.device();
     let queue = context.queue();
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines)
+    let gpu = upload_scene(device, context.submission(), scene, &pipelines)
         .expect("the fixture scene uploads");
     gpu.set_frame(queue, *frame);
 

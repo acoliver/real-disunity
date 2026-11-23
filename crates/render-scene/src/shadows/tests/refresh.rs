@@ -1,6 +1,9 @@
 use super::shadowed_capture::scheduler;
 use super::*;
 use crate::compositor::StockReplacement;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 fn policy() -> worldrunner_render_shadow::CascadeRefreshPolicy {
     worldrunner_render_shadow::CascadeRefreshPolicy {
@@ -22,11 +25,12 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -71,11 +75,12 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
     let source = scene(&[[0, 0, 1_000], [500, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -150,7 +155,7 @@ fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
         refresh_policy: policy(),
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
@@ -241,11 +246,12 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -319,11 +325,12 @@ fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -366,7 +373,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
         refresh_policy: policy(),
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, configured).unwrap();
+    let mut renderer = shadowed(&context, &source, configured).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
@@ -430,11 +437,12 @@ fn gpu_a_game_that_draws_the_terrain_holds_the_retained_cascades() {
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();

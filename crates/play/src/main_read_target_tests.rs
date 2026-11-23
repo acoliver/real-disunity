@@ -79,7 +79,6 @@ fn read_checked(args: &[&str]) -> Result<(), String> {
 fn a_read_target_belongs_to_a_headless_player_run_that_reaches_its_frame() {
     let read = ["--player", "Game_Data", "--read-target", "1:2:a.png"];
     assert!(read_checked(&[&read[..], &["--frames", "2"]].concat()).is_ok());
-    assert!(read_checked(&[&read[..], &["--screen", "0:s.png", "--frames", "2"]].concat()).is_ok());
     assert!(
         read_checked(&read).is_err(),
         "frame 1 is not among the 1 frame run"
@@ -89,7 +88,11 @@ fn a_read_target_belongs_to_a_headless_player_run_that_reaches_its_frame() {
         read_checked(&["snake", "--read-target", "0:2:a.png"]).is_err(),
         "not a game's"
     );
-    for window in [["--capture", "0:w.png"], ["--key", "0:w:down"]] {
+    for window in [
+        ["--capture", "0:w.png"],
+        ["--key", "0:w:down"],
+        ["--screen", "0:s.png"],
+    ] {
         assert!(
             read_checked(&[&read[..], &["--frames", "2"], &window[..]].concat()).is_err(),
             "{window:?}"

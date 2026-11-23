@@ -289,7 +289,6 @@ CheckImport("disunity_shader_keyword_write", u64, u32, u64, bytes, u32, u32);
 CheckImport("disunity_shader_keyword_read", u64, u32, u64, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_shader_property_read", u64, u32, u64, bytes, u32, AbiType("DisunityPropertyRead").MakePointerType());
 CheckImport("disunity_offscreen_record", u64, offscreenWork);
-CheckImport("disunity_offscreen_take", u64, offscreenWork, u32, u32.MakePointerType());
 var targetRef = AbiType("DisunityTargetRef").MakePointerType();
 CheckImport("disunity_offscreen_set_render_target", u64, targetRef, u32, targetRef, u32, typeof(int), typeof(int));
 CheckImport("disunity_offscreen_clear_render_target", u64, u32, f32.MakePointerType(), f32, u32);
@@ -298,7 +297,6 @@ CheckImport("disunity_shader_global_vector_array_write", u64, bytes, u32, f32.Ma
 CheckImport("disunity_shader_global_matrix_array_write", u64, bytes, u32, f32.MakePointerType(), u32);
 CheckImport("disunity_offscreen_allocate_temporary", u64, typeof(int), renderTextureRecord);
 CheckImport("disunity_offscreen_release_temporary", u64, typeof(int));
-CheckImport("disunity_offscreen_detail", u64, u32, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_offscreen_cull", u64, u64, u64, u32, f32.MakePointerType(), u32, u32);
 CheckImport("disunity_offscreen_setup_camera", u64, u64, f32.MakePointerType(), targetRef, u64.MakePointerType(), u32, u64);
 CheckImport("disunity_offscreen_set_view_projection", u64, f32.MakePointerType(), f32.MakePointerType());
@@ -342,7 +340,6 @@ CheckImport("disunity_compute_texture_write", u64, u64, i32, bytes, u32, texture
 CheckImport("disunity_compute_texture_global_write", u64, u64, i32, AbiType("DisunityComputeGlobalTexture").MakePointerType(), bytes);
 CheckImport("disunity_compute_buffer_bind", u64, u64, u32, bytes, u32, u64);
 CheckImport("disunity_compute_dispatch", u64, u64, u32, u32, u32, u32);
-CheckImport("disunity_compute_bindings_read", u64, u32, AbiType("DisunityComputeBindingsInfo").MakePointerType(), AbiType("DisunityComputeBinding").MakePointerType(), f32.MakePointerType(), bytes);
 var flushRegister = bindings.GetMethod("disunity_gpu_flush_register", Imports) ?? throw new InvalidOperationException("missing import disunity_gpu_flush_register");
 var flushParameters = flushRegister.GetParameters().Select(p => p.ParameterType).ToArray();
 Require(flushParameters.Length == 3 && flushParameters[0] == u64 && flushParameters[1].IsFunctionPointer && flushParameters[2] == u64

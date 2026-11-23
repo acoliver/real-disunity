@@ -39,7 +39,7 @@ fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = normal_scene([191, 159, 7, 255], None, &mapped_material());
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform {
@@ -73,6 +73,7 @@ fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
 }
 
 use super::*;
+use crate::test_support::upload_scene;
 use glam::{Mat4, Vec3};
 use worldrunner_render_plan::{SceneNormalEncoding, SceneNormalY, SceneTint, TexelFormat};
 
@@ -180,11 +181,12 @@ fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_
                 &mapped_material(),
             );
             let prepared = super::super::PreparedScene::new(&scene).unwrap();
-            let gpu = SceneGpu::upload_prepared(
+            let gpu = SceneGpu::upload(
                 context.device(),
                 context.submission(),
                 prepared,
                 &layouts,
+                None,
             )
             .unwrap();
             gpu.set_frame(context.queue(), frame_from(pose()));
@@ -222,7 +224,7 @@ fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
                         .unwrap();
                     let scene = normal_scene(rgba, Some([MICRO, 0, 0, MICRO]), &material);
                     let gpu =
-                        SceneGpu::upload(context.device(), context.submission(), &scene, &layouts)
+                        upload_scene(context.device(), context.submission(), &scene, &layouts)
                             .unwrap();
                     gpu.set_frame(context.queue(), frame_from(pose()));
                     assert_pass_normals(

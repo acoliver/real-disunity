@@ -173,7 +173,8 @@ internal static class PipelineRenderTests
         CommandWireReader.Take();
         DisunityHost.Step(0.016f);
         camera.Render();
-        Expect.Sequence(new[] { "Flat0" }, CommandWireReader.Take(), "without a pipeline Camera.Render records a CameraRender");
+        var recorded = CommandWireReader.Work(DisunityHost.WorldHandle);
+        Expect.That(recorded.Length == 1 && recorded[0].Tag == 0 && recorded[0].Target == target.WorldId, "without a pipeline Camera.Render records a CameraRender");
         DestroyCameras(camera);
     }
 

@@ -88,18 +88,6 @@ internal static unsafe class WorldGraphicsTests
         return desc;
     }
 
-    /// <summary>Drains the world's offscreen work. A drain with a capacity of at least one also forgets the global writes the world
-    /// noted for ordering, so a drain before a step leaves earlier steps' globals out of the step's records.</summary>
-    private static DisunityOffscreenWork[] Take()
-    {
-        uint count;
-        DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, null, 0, &count));
-        var work = new DisunityOffscreenWork[Math.Max(count, 1u)];
-        fixed (DisunityOffscreenWork* pointer = work)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(DisunityHost.WorldHandle, pointer, (uint)work.Length, &count));
-        return work.Take((int)count).ToArray();
-    }
-
     private static void MaterialSettersReachTheWorld()
     {
         var material = new Material(NewShader("Test/World/Setters"));
@@ -355,25 +343,31 @@ internal static unsafe class WorldGraphicsTests
 
     private static void CameraRenderRecordsOffscreenWork()
     {
-        Take();
+        CommandWireReader.Work(DisunityHost.WorldHandle);
         var camera = NewCamera();
         var target = new RenderTexture(16, 16, 0);
         camera.targetTexture = target;
         Expect.That(camera.targetTexture == target, "targetTexture reads back");
+        var other = NewCamera();
+        var otherTarget = new RenderTexture(8, 8, 0);
+        other.targetTexture = otherTarget;
         camera.Render();
+        other.Render();
         camera.Render();
-        var work = Take();
-        Expect.That(work.Length == 2 && work.All(w => w.kind == 0 && w.camera == camera.Handle && w.target == target.WorldId), "two camera renders");
+        var work = CommandWireReader.Work(DisunityHost.WorldHandle);
+        Expect.That(work.Length == 3 && work.All(w => w.Tag == 0), "three camera renders");
+        Expect.That(work[0].Target == target.WorldId && work[1].Target == otherTarget.WorldId && work[2].Target == target.WorldId, "each render names its camera's target");
+        Expect.That(work[0].Camera == work[2].Camera && work[0].Camera != work[1].Camera, "a camera render names the component of the camera that rendered");
         Expect.That(target.IsCreated(), "Render creates the target");
 
         var screen = NewCamera();
         Expect.Throws<NotSupportedException>(() => screen.Render(), "a camera without a target");
-        Expect.That(Take().Length == 0, "a camera without a target records nothing");
+        Expect.That(CommandWireReader.Work(DisunityHost.WorldHandle).Length == 0, "a camera without a target records nothing");
     }
 
     private static void BlitAndCopyRecordInOrder()
     {
-        Take();
+        CommandWireReader.Work(DisunityHost.WorldHandle);
         var source = new Texture2D(4, 4);
         var a = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
         var b = new RenderTexture(8, 8, 0);
@@ -385,21 +379,21 @@ internal static unsafe class WorldGraphicsTests
         Graphics.Blit(null!, material);
         Graphics.CopyTexture(b, 0, 0, a, 0, 2);
         Graphics.CopyTexture(a, c);
-        var work = Take();
+        var work = CommandWireReader.Work(DisunityHost.WorldHandle);
 
-        Expect.That(work[0].kind == 1 && work[0].source_kind == 1 && work[0].source == source.RendererIdentity && work[0].target == a.WorldId
-            && work[0].material == 0 && work[0].pass == -1, "Blit(Texture2D, RenderTexture)");
-        Expect.That(work[1].kind == 1 && work[1].source_kind == 2 && work[1].source == a.WorldId && work[1].target == b.WorldId
-            && work[1].material == material.WorldLink.Id && work[1].pass == 2, "Blit(RenderTexture, RenderTexture, Material, int)");
-        Expect.That(work[2].kind == 1 && work[2].source_kind == 0 && work[2].target == b.WorldId && work[2].pass == -1
-            && work[2].material == material.WorldLink.Id, "Blit(null, Material) draws into the active render texture");
-        Expect.That(work[3].kind == 2 && work[3].source == b.WorldId && work[3].target == a.WorldId && work[3].source_mip == 0 && work[3].target_mip == 2,
+        Expect.That(work[0].Tag == 1 && work[0].SourceKind == 1 && work[0].Source == source.RendererIdentity && work[0].Target == a.WorldId
+            && work[0].Material == 0 && work[0].Pass == -1, "Blit(Texture2D, RenderTexture)");
+        Expect.That(work[1].Tag == 1 && work[1].SourceKind == 2 && work[1].Source == a.WorldId && work[1].Target == b.WorldId
+            && work[1].Material == material.WorldLink.Id && work[1].Pass == 2, "Blit(RenderTexture, RenderTexture, Material, int)");
+        Expect.That(work[2].Tag == 1 && work[2].SourceKind == 0 && work[2].Target == b.WorldId && work[2].Pass == -1
+            && work[2].Material == material.WorldLink.Id, "Blit(null, Material) draws into the active render texture");
+        Expect.That(work[3].Tag == 2 && work[3].Source == b.WorldId && work[3].Target == a.WorldId && work[3].SourceMip == 0 && work[3].TargetMip == 2,
             "CopyTexture with elements and mips");
         Expect.That(work.Length == 4 + 3, "a whole copy records one copy per shared mip level: " + work.Length);
         for (uint mip = 0; mip < 3; mip++)
         {
             var copy = work[4 + (int)mip];
-            Expect.That(copy.kind == 2 && copy.source == a.WorldId && copy.target == c.WorldId && copy.source_mip == mip && copy.target_mip == mip,
+            Expect.That(copy.Tag == 2 && copy.Source == a.WorldId && copy.Target == c.WorldId && copy.SourceMip == mip && copy.TargetMip == mip,
                 $"whole copy, mip {mip}");
         }
         RenderTexture.active = null;
@@ -410,7 +404,7 @@ internal static unsafe class WorldGraphicsTests
     /// an id of generation 0.</summary>
     private static void ABlitKeepsTheMaterialItSawWhenTheScriptEditsItLater()
     {
-        Take();
+        CommandWireReader.Work(DisunityHost.WorldHandle);
         var first = new RenderTexture(8, 8, 0);
         var second = new RenderTexture(8, 8, 0);
         var target = new RenderTexture(8, 8, 0);
@@ -419,12 +413,12 @@ internal static unsafe class WorldGraphicsTests
         Graphics.Blit(first, target, material, 0);
         material.SetTexture("_PrimaryTex", second);
         Graphics.Blit(second, target, material, 0);
-        var work = Take();
+        var work = CommandWireReader.Work(DisunityHost.WorldHandle);
 
         Expect.That(work.Length == 2, "two blits: " + work.Length);
-        Expect.That(work[1].material == material.WorldLink.Id, "the last blit names the material itself");
-        Expect.That(work[0].material != work[1].material && work[0].material >> 32 == 0,
-            "the blit before the edit names a copy of the material (generation 0): " + work[0].material);
+        Expect.That(work[1].Material == material.WorldLink.Id, "the last blit names the material itself");
+        Expect.That(work[0].Material != work[1].Material && work[0].Material >> 32 == 0,
+            "the blit before the edit names a copy of the material (generation 0): " + work[0].Material);
     }
 
     private static void UnsupportedOverloadsThrowNamingTheMember()
@@ -440,7 +434,7 @@ internal static unsafe class WorldGraphicsTests
         NotSupported(() => Graphics.BlitMultiTap(source, target, material, Vector2.zero), "BlitMultiTap", "Graphics.BlitMultiTap");
         NotSupported(() => Graphics.CopyTexture(target, 0, 0, 0, 0, 1, 1, target, 0, 0, 0, 0), "a region copy", "Graphics.CopyTexture(Texture, int, int, int, int, int, int, Texture, int, int, int, int)");
         NotSupported(() => Graphics.CopyTexture(target, new Texture2D(2, 2)), "a copy into a Texture2D", "Graphics.CopyTexture(Texture, Texture)");
-        Take();
+        CommandWireReader.Work(DisunityHost.WorldHandle);
     }
 
     private static void ShaderSourceComesFromThePlan()

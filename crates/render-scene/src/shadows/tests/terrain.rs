@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_off_camera_terrain_ridge_still_shadows_visible_valley() {
@@ -183,7 +184,7 @@ fn gpu_terrain_shadow_path_preserves_retained_placement_edits() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let handle = renderer.scene_mut().instance_handles().next().unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
@@ -283,7 +284,7 @@ fn gpu_steady_state_shadowed_terrain_frames_build_nothing_on_the_program_runtime
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_scene(&scene(&[], 600_000, None), true, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let before = renderer.pipelines.terrain_runtime_stats();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

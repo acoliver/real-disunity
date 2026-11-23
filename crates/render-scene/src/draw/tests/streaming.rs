@@ -7,6 +7,7 @@ mod order;
 mod replacement;
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::TerrainStreamingPolicy;
 
 fn streamed_scene() -> RenderScene {
@@ -37,7 +38,7 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
     let device = context.device();
     let source = streamed_scene();
     let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     gpu.set_frame(context.queue(), frame);
     let abandoned = context
@@ -60,7 +61,7 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
     let streamed = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(resident_count(&gpu), 4);
     let mut base =
-        SceneGpu::upload(device, context.submission(), &terrain_scene(1), &pipelines).unwrap();
+        upload_scene(device, context.submission(), &terrain_scene(1), &pipelines).unwrap();
     base.set_frame(context.queue(), frame);
     let default = target.render(&context, &mut base, &pipelines).unwrap();
     assert_eq!(streamed, default);
@@ -77,7 +78,7 @@ fn streaming_admits_contact_pages_and_capture_publications() {
     let context = context();
     let scene = streamed_scene();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
     assert!(
         gpu.terrain_residency_request(&frame, [TARGET; 2])
@@ -142,8 +143,7 @@ fn withheld_completion_setup(budget: u32) -> (GpuContext, SceneGpu, FrameUniform
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let near = frame_from(pose());
     let far_matrix = far_matrix();
     (context, gpu, near, far_matrix)
@@ -210,7 +210,7 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
     let source = streamed_scene();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = target(&context);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let frame = frame_from(pose());
@@ -263,7 +263,7 @@ fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = streamed_scene();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let object = gpu.instance(handle).unwrap().0;
     let buffer = streaming(&gpu).committed.borrow()[0].1.vertices.clone();
@@ -294,7 +294,7 @@ fn geometry_dependency_waits_for_submitted_chunks_and_rejects_other_sources() {
         .unwrap();
     assert!(gpu.terrain_geometry_ready(&request).unwrap());
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let other = SceneGpu::upload(
+    let other = upload_scene(
         context.device(),
         context.submission(),
         &streamed_scene(),

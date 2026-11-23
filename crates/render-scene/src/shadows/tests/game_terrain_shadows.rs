@@ -10,6 +10,7 @@ use crate::compositor::{
 };
 use crate::draw::TerrainChunkDraw;
 use crate::geometry::{VERTEX_STRIDE, vertex_attributes};
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -419,7 +420,7 @@ struct Outcome {
 /// `replaces`.
 fn run(replaces: StockReplacement) -> Outcome {
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, &ridge_scene(), settings()).unwrap();
+    let mut renderer = shadowed(&context, &ridge_scene(), settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,

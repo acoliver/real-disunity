@@ -7,6 +7,7 @@
 use super::foliage::foliage_scene;
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, FrameRenderer, RendererConfiguration};
+use crate::test_support::upload_scene;
 use glam::{Mat4, Vec3, Vec4};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{
@@ -208,8 +209,7 @@ fn velocity_after(
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_taa(scene);
     let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
@@ -469,7 +469,7 @@ fn output_after(
     } else {
         ScenePipelines::new(device, HDR, samples.count()).unwrap()
     };
-    let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let mut renderer = FrameRenderer::hdr_antialiased(
         context,
         [TARGET, TARGET],

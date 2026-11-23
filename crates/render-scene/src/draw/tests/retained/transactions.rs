@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::submission::{
     PrepareError, PreparedFrame, SubmitError, TransactionError,
 };
@@ -31,7 +32,7 @@ fn cancelling_resident_uploads_preserves_pending_edits_until_submission() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let handle = gpu.instance_handles().next().unwrap();
@@ -129,7 +130,7 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = retained_target(&context);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     prepare(&context, &mut gpu, &pipelines, &mut renderer, &target)
@@ -170,7 +171,7 @@ fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let expected = gpu.instances.batches.values().next().unwrap().bytes.clone();
     let object = source.geometry().objects()[0];
     let added: Vec<_> = (0..16)
@@ -212,7 +213,7 @@ fn owned_statistics_can_be_retained_across_publication() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let prepared = prepare(&context, &mut gpu, &pipelines, &mut renderer, &target);
@@ -232,7 +233,7 @@ fn resident_upload_rejects_standalone_and_foreign_encoders() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     gpu.set_instance_transform(handle, moved(4321)).unwrap();
     let mut foreign = context
@@ -264,7 +265,7 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let mut target = retained_target(&context);
     let before = gpu.view_stats();
@@ -310,7 +311,7 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let mut target = retained_target(&context);
     let before = gpu.view_stats();

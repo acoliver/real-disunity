@@ -1,3 +1,4 @@
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     device::GpuContext,
     draw::SceneGpu,
@@ -40,8 +41,14 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
     let view = page_view();
     for (interior, color) in [([4, 4], [64, 128, 192, 255]), ([7, 3], [192, 64, 128, 255])] {
         let source = fixture::scene(interior != [4, 4]);
-        let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        let mut gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(&source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let settings = page_settings(interior);
         gpu.enable_terrain_pages(
             context.device(),

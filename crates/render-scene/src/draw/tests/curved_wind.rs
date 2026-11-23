@@ -47,8 +47,7 @@ fn disabled_curvature_preserves_material_entry_depth_bytes() {
             effects: base.effects().cloned(),
         })
         .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let mut frame = frame_from(pose());
         frame.animation_time_milliseconds = 0;
         gpu.set_frame(context.queue(), frame);
@@ -107,8 +106,7 @@ fn phase_sources_and_local_hinge_translation_reach_production_geometry() {
             effects: base.effects().cloned(),
         })
         .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let mut frame = frame_from(CameraPose {
             eye_millimeters: [0, -4000, 2500],
             target_millimeters: [0, 0, 1000],
@@ -200,7 +198,7 @@ fn default_wind_preserves_legacy_vertex_arithmetic_and_material_prefix() {
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     let current = crate::shader::ENVIRONMENT_WGSL;
     let call =
         "scene_geometry_displacement(out.world_position, vertex.ambient_occlusion, instance)";
@@ -220,6 +218,7 @@ fn default_wind_preserves_legacy_vertex_arithmetic_and_material_prefix() {
 }
 
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAmbientOcclusion, SceneFoliageWind, SceneMaterialFeatures, SceneTerrainContact, SceneTint,
     SceneWind, SceneWindBand, SceneWindPhase,
@@ -297,7 +296,7 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
     let device = context.device();
     let forward = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let scene = scene_with_wind();
-    let gpu = SceneGpu::upload(device, context.submission(), &scene, &forward).unwrap();
+    let gpu = upload_scene(device, context.submission(), &scene, &forward).unwrap();
     let screen = device.create_buffer(&BufferDescriptor {
         label: None,
         size: 224,

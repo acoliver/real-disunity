@@ -54,6 +54,7 @@ fn started_with_lighting(
         fixed_dt: None,
         max_frames: None,
         capture_frames: BTreeSet::new(),
+        capture_files: Vec::new(),
         keys: Vec::new(),
     });
     let (lighting, shadows) = SceneLighting::start(lights, options.camera).unwrap();

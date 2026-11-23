@@ -520,8 +520,8 @@ pub struct PlayerGpu {
     report: Rc<RefCell<GpuWorkReport>>,
     authority: SubmissionAuthority,
     device: wgpu::Device,
-    /// The frame whose work (or a flush before it) last drew into the screen, counting from
-    /// zero; `None` before any did.
+    /// The frame whose work (or a flush before it) last drew into the screen, counting from zero;
+    /// `None` before any did.
     drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
@@ -727,28 +727,26 @@ impl PlayerGpu {
     }
 
     /// The number of the last frame whose work (or a flush before it) drew into the screen,
-    /// counting from zero, `None` before any did, so a caller writes an image once by remembering
-    /// the number.
+    /// counting from zero, `None` before any did.
     #[must_use]
     pub fn drawn_screen(&self) -> Option<u64> {
         self.drawn_screen.get()
     }
 
-    /// The screen as a window shows it: the texture the offscreen work draws into, and whether it
-    /// already holds what work drew: a flush the player submitted itself wrote it, or one of the
-    /// player's own frames, which it submits and waits for, drew into it ([`Self::drawn_screen`]).
-    /// A window's frames are submitted by the viewer, which knows their writes. Nothing is copied.
-    /// `None` while there is no screen, before any frame made its texture, and when the texture is
-    /// not the size the screen was last asked to be: a resize makes the next frame that has work a
-    /// new one, and the old texture shows a size the window no longer has. A texture the viewer
-    /// cannot sample is counted in the report and shows nothing.
+    /// The screen as the window shows it: the texture the offscreen work draws into, with whether
+    /// a flush the player submitted itself already wrote it. A frame's work handed to the viewer
+    /// is not counted: the viewer knows whether it ran. Nothing is copied. `None` while there is
+    /// no screen, before any frame made its texture, and when the texture is not the size the
+    /// screen was last asked to be: a resize makes the next frame that has work a new one, and the
+    /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
+    /// counted in the report and shows nothing.
     pub(crate) fn game_screen(&self) -> Option<GameScreen> {
         let host = self.offscreen.borrow();
         let (texture, flushed) = host.screen_texture()?;
         if self.screen_size.get() != Some([texture.width(), texture.height()]) {
             return None;
         }
-        GameScreen::new(texture, flushed || self.drawn_screen.get().is_some())
+        GameScreen::new(texture, flushed)
             .map_err(|error| {
                 *self
                     .report
@@ -774,7 +772,7 @@ impl PlayerGpu {
         self.device.limits().max_texture_dimension_2d
     }
 
-    /// Numbers the screen `frame` when work drew into it since the last frame of the player's own.
+    /// Numbers the screen `frame` when work drew into it since the last frame.
     fn note_drawn_screen(&self, frame: u64) {
         if self.offscreen.borrow_mut().take_screen_written() {
             self.drawn_screen.set(Some(frame));

@@ -397,36 +397,13 @@ impl SceneGpu {
             .clone()
     }
 
-    /// Uploads every texture, material, mesh and placement of one scene.
+    /// Uploads every texture, material, mesh and placement of one CPU-prepared scene, sharing
+    /// unchanged streamed chunk buffers with `previous`, the preceding retained generation.
     ///
     /// # Errors
     ///
-    /// Returns [`DrawError`] when a texture payload cannot be prepared for
-    /// upload or a mesh level cannot be packed.
+    /// Returns [`DrawError`] for unsupported profiles or GPU upload constraints.
     pub fn upload(
-        device: &Device,
-        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-        scene: &RenderScene,
-        pipelines: &ScenePipelines,
-    ) -> Result<Self, DrawError> {
-        Self::upload_prepared(device, authority, PreparedScene::new(scene)?, pipelines)
-    }
-
-    /// Uploads an owned CPU preparation without repacking source content.
-    ///
-    /// # Errors
-    /// Returns errors for unsupported profiles or GPU upload constraints.
-    pub fn upload_prepared(
-        device: &Device,
-        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-        prepared: PreparedScene,
-        pipelines: &ScenePipelines,
-    ) -> Result<Self, DrawError> {
-        Self::upload_prepared_reusing(device, authority, prepared, pipelines, None)
-    }
-
-    /// Reuses unchanged streamed chunks from the preceding retained generation.
-    pub fn upload_prepared_reusing(
         device: &Device,
         authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         prepared: PreparedScene,
@@ -725,8 +702,9 @@ impl SceneGpu {
 
     /// Returns live mesh/material batch counts per pipeline variant.
     /// Visibility holes can split a batch into several instanced draws.
+    #[cfg(test)]
     #[must_use]
-    pub fn batch_counts(&self) -> [usize; 4] {
+    pub(crate) fn batch_counts(&self) -> [usize; 4] {
         array::from_fn(|index| {
             self.instances
                 .batches

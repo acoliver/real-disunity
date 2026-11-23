@@ -9,7 +9,6 @@ use crate::compositor::forward_order::forward_order;
 use std::sync::Arc;
 use wgpu::CompareFunction;
 use worldrunner_render_post::{FeatureDeclaration, FrameError, validate_frame};
-use worldrunner_render_program::state::ColorState;
 
 const BEFORE_POST: GamePlace = GamePlace::BeforePost;
 const SCENE_DEPTH: ResourceRef = ResourceRef::new("scene depth");
@@ -36,11 +35,6 @@ fn particles() -> GamePassSpec {
         .writing([ColorOutput::Frame])
         .with_depth(DepthAccess::ReadOnlySampled)
 }
-
-const ALPHA_OVER_RGB: ColorState = ColorState {
-    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-    write_mask: wgpu::ColorWrites::COLOR,
-};
 
 #[test]
 fn a_pass_before_post_draws_over_every_colour_writer_and_tests_and_samples_the_depth() {
@@ -100,10 +94,12 @@ fn a_pass_before_post_draws_over_every_colour_writer_and_tests_and_samples_the_d
         "sampling a depth the pass attaches read-only is no hazard"
     );
 
-    let state = target(&passes, particles().entry())
-        .render_state_with(raster(), &[ALPHA_OVER_RGB])
-        .unwrap();
-    assert_eq!(state.colors, [Some(ALPHA_OVER_RGB)]);
+    let state = target(&passes, particles().entry()).render_state(raster());
+    assert_eq!(
+        state.colors.len(),
+        1,
+        "one colour state, for the frame colour the pass blends over"
+    );
     let test = state.depth.unwrap();
     assert_eq!(test.test, CompareFunction::LessEqual);
     assert!(!test.write);
@@ -170,20 +166,4 @@ fn only_a_pass_planned_to_sample_the_depth_reads_it() {
         .unwrap();
     assert!(planned.reads.is_empty());
     assert!(passes[1].depth.as_ref().unwrap().read_only);
-}
-
-#[test]
-fn a_render_state_names_one_colour_state_for_each_attachment() {
-    let targets = ordinary_targets();
-    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
-    targets
-        .plan_pass(&particles(), &mut passes, &mut Vec::new())
-        .unwrap();
-    let target = target(&passes, particles().entry());
-    for colors in [&[][..], &[ALPHA_OVER_RGB, ALPHA_OVER_RGB][..]] {
-        assert_eq!(
-            target.render_state_with(raster(), colors),
-            Err(FrameError::AttachmentContract(particles().entry()))
-        );
-    }
 }

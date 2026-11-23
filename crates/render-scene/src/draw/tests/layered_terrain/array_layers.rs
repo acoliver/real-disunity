@@ -1,4 +1,6 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::ConfigurationError;
 use worldrunner_render_plan::TerrainPagePolicy;
 
@@ -60,7 +62,7 @@ fn policy_pixels(context: &GpuContext, scene: &RenderScene) -> Vec<u8> {
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(device, &authority, scene, &pipelines).unwrap();
+    let gpu = upload_scene(device, &authority, scene, &pipelines).unwrap();
     let frame = matching_frame();
     gpu.set_frame(context.queue(), frame);
     let mut transaction = authority.begin(device).unwrap();
@@ -91,7 +93,11 @@ fn layered_policy_above_device_array_limit_fails_before_upload_with_both_counts(
     let scene = scene_with_slots(slots);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority = SubmissionAuthority::new(context.queue().clone());
-    let error = SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap_err();
+    let error = PreparedScene::new(&scene)
+        .and_then(|prepared| {
+            SceneGpu::upload(context.device(), &authority, prepared, &pipelines, None)
+        })
+        .unwrap_err();
     assert!(
         matches!(error, DrawError::TerrainPages(ConfigurationError::TextureArrayLayers {
         required, available: limit

@@ -82,8 +82,13 @@ impl SceneGpu {
         for range in &selection.ranges {
             for (id, selected) in intersections(range, &self.instances.contour_members) {
                 pass.set_bind_group(2, &draw.groups[&id]);
-                let mut sink =
-                    super::object_runtime::PreparedSink::new(pass, &self.objects, &draw.context);
+                let mut scratch = self.sink_scratch.borrow_mut();
+                let mut sink = super::object_runtime::PreparedSink::new(
+                    pass,
+                    &self.objects,
+                    &draw.context,
+                    &mut scratch,
+                );
                 // The camera's compacted instance indices do not address original skin streams.
                 self.record_lod_range(&mut sink, &selected, &mut drawn);
                 sink.finish();

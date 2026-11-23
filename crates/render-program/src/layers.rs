@@ -1,6 +1,6 @@
 //! Property layers: where a draw finds the value of a constant buffer member or a texture.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ids::TextureId;
 use crate::properties::PropertySet;
@@ -21,6 +21,10 @@ pub struct TextureInput {
 pub struct PropertyLayer {
     pub values: PropertySet,
     pub textures: BTreeMap<String, TextureInput>,
+    /// The texture properties the layer sets to none, as a script's `SetGlobalTexture(name, null)`
+    /// does. A name is in `textures` or here, not both. A draw's texture choice ignores this set;
+    /// it tells [`Layers::is_none`] that a name is set to none and not unset.
+    pub none_textures: BTreeSet<String>,
     /// The runtime buffers a read-only structured buffer slot of a graphics program reads, by the
     /// property name the shader declares. The handle is the one a compute dispatch binds, made
     /// with [`ProgramRuntime::create_buffer`](crate::runtime::ProgramRuntime::create_buffer).
@@ -90,6 +94,17 @@ impl<'a> Layers<'a> {
         self.highest_first
             .iter()
             .find_map(|layer| layer.textures.get(name))
+    }
+
+    /// Whether a layer sets `name` to none and no layer holds a texture for it: the draw reads a
+    /// default texture for `name`, and [`Layers::texture`] is `None` for it.
+    #[must_use]
+    pub fn is_none(&self, name: &str) -> bool {
+        self.texture(name).is_none()
+            && self
+                .highest_first
+                .iter()
+                .any(|layer| layer.none_textures.contains(name))
     }
 
     /// The buffer of the first layer that names `name`.

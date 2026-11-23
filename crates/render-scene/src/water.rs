@@ -161,20 +161,6 @@ pub fn transmittance(absorption_per_meter: f32, distance_meters: f32) -> f32 {
     (-absorption_per_meter * distance_meters.max(0.0)).exp()
 }
 
-/// Foreground samples cannot supply a refracted background behind the surface.
-pub fn refraction_pixel(
-    original: [i32; 2],
-    distorted: [i32; 2],
-    sampled_depth: f32,
-    surface_depth: f32,
-) -> [i32; 2] {
-    if sampled_depth < surface_depth {
-        original
-    } else {
-        distorted
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
     pub draw_count: crate::draw::pass_statistics::PassCounter,

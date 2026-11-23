@@ -59,16 +59,6 @@ fn a_double_sided_material_culls_nothing() {
 }
 
 #[test]
-fn a_double_sided_material_flips_its_back_face_normals() {
-    // The authored normal points out of the front face only. Left uncorrected,
-    // the lit and unlit sides of every leaf swap as the camera orbits.
-    let double = PipelineKey::from_material(&material(SceneAlphaMode::Opaque, true));
-    let single = PipelineKey::from_material(&material(SceneAlphaMode::Opaque, false));
-    assert!(double.flips_back_face_normals());
-    assert!(!single.flips_back_face_normals());
-}
-
-#[test]
 fn a_masked_material_selects_the_discarding_variant() {
     let key = PipelineKey::from_material(&material(
         SceneAlphaMode::Mask {

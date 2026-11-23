@@ -708,8 +708,9 @@ impl SceneGpu {
 
     /// Returns live mesh/material batch counts per pipeline variant.
     /// Visibility holes can split a batch into several instanced draws.
+    #[cfg(test)]
     #[must_use]
-    pub fn batch_counts(&self) -> [usize; 4] {
+    pub(crate) fn batch_counts(&self) -> [usize; 4] {
         array::from_fn(|index| {
             self.instances
                 .batches

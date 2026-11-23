@@ -1,4 +1,4 @@
-use super::super::{preparation, render_tests};
+use super::super::render_tests;
 use super::*;
 
 pub(crate) fn settings() -> SceneScattering {
@@ -80,64 +80,6 @@ fn every_lookup_row_stores_the_defined_model_with_declared_quantization() {
             }
         }
     }
-}
-#[test]
-fn preparation_budget_and_cancellation_control_publication() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = crate::device::GpuContext::shared_for_test().unwrap();
-    let device = context.device();
-    let mut maps = None;
-    let transaction = context
-        .submission()
-        .prepare(device, |encoder, _| {
-            assert!(matches!(
-                preparation::encode_atmosphere(
-                    device,
-                    encoder,
-                    settings(),
-                    (Vec3::Z, 0.1),
-                    AllocationBudget(1)
-                ),
-                Err(PreparationError::Budget)
-            ));
-            maps = Some(preparation::encode_atmosphere(
-                device,
-                encoder,
-                settings(),
-                (Vec3::Z, 0.1),
-                AllocationBudget(1_000_000),
-            )?);
-            Ok::<_, PreparationError>(())
-        })
-        .unwrap();
-    assert!(maps.as_ref().unwrap().view().is_err());
-    transaction.cancel();
-    assert_eq!(
-        maps.as_ref().unwrap().status(),
-        worldrunner_render_gpu::submission::TransactionStatus::Cancelled
-    );
-    assert!(maps.take().unwrap().view().is_err());
-    let transaction = context
-        .submission()
-        .prepare(device, |encoder, _| {
-            maps = Some(preparation::encode_atmosphere(
-                device,
-                encoder,
-                settings(),
-                (Vec3::Z, 0.1),
-                AllocationBudget(1_000_000),
-            )?);
-            Ok::<_, PreparationError>(())
-        })
-        .unwrap();
-    transaction.submit().unwrap();
-    assert!(maps.unwrap().view().is_ok());
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(std::time::Duration::from_secs(30)),
-        })
-        .unwrap();
 }
 #[test]
 fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {

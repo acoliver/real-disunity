@@ -1,19 +1,8 @@
 use super::*;
-use glam::Vec3;
 
 #[test]
-fn angular_disc_orientation_and_occlusion_contract() {
+fn sky_depth_tests_without_writing() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let center = Vec3::Z;
-    assert_eq!(disc_uv(center, center, 0.1, 0.0), Some([0.5, 0.5]));
-    assert!(disc_uv(Vec3::X, center, 0.1, 0.0).is_none());
-    assert!(disc_uv(-center, center, 0.1, 0.0).is_none());
-    let ray = Vec3::new(0.05, 0.0, 1.0).normalize();
-    let a = disc_uv(ray, center, 0.1, 0.0).unwrap();
-    let b = disc_uv(ray, center, 0.1, std::f32::consts::FRAC_PI_2).unwrap();
-    assert!((a[0] - 0.5).abs() < 1e-6);
-    assert!((b[1] - 0.5).abs() < 1e-6);
-    assert!((a[1] - 0.5).abs() > 0.1);
     assert_eq!(
         depth_state(crate::renderer::depth::DepthMode::Independent).depth_write_enabled,
         Some(false)

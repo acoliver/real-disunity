@@ -358,7 +358,8 @@ impl FrameRenderer {
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
     /// statistics. Callers rebind after resize; no additional prepass is allocated.
-    pub fn depth_statistics_source(
+    #[cfg(test)]
+    pub(crate) fn depth_statistics_source(
         &self,
     ) -> Result<Option<(AttachmentView, AttachmentView)>, FrameError> {
         use crate::frame::metadata::FrameProduct;

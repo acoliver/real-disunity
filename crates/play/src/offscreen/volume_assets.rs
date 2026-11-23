@@ -15,7 +15,7 @@ use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, Sourc
 
 use super::assets::RGBA8_SRGB;
 use super::layer_assets::{
-    FOUR_BYTE_ARRAY, FOUR_BYTE_DATA, four_byte_data, red_first, texel_format,
+    FOUR_BYTE_ARRAY, FOUR_BYTE_DATA, four_byte_data, red_first, texel_bytes, texel_format,
 };
 use crate::textures::{PlayerTextureError, player_rgba8};
 
@@ -72,22 +72,13 @@ fn level_len([width, height, depth]: [u32; 3], per_texel: usize) -> usize {
     width as usize * height as usize * depth as usize * per_texel
 }
 
-/// The bytes per texel of a stored volume's format.
-fn per_texel(stored: &PlayerTexture) -> usize {
-    match (stored.graphics_format, stored.format) {
-        (FOUR_BYTE_ARRAY | FOUR_BYTE_DATA, _) | (_, 4 | 5 | 14) => 4,
-        (_, 3) => 3,
-        _ => 1,
-    }
-}
-
 /// Checks that the bytes are exactly the chain of levels, and returns the length of each.
 fn level_lengths(
     stored: &PlayerTexture,
     size: [u32; 3],
     mips: u32,
 ) -> Result<Vec<usize>, PlayerTextureError> {
-    let texel = per_texel(stored);
+    let texel = texel_bytes(stored);
     let lengths: Vec<usize> = level_sizes(size, mips)
         .into_iter()
         .map(|level| level_len(level, texel))

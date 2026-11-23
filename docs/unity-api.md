@@ -170,7 +170,7 @@ A coroutine that yields `WaitForEndOfFrame` resumes once, after every `LateUpdat
   Return one shared `Material` named "Default UI Material" on the shader `UI/Default`, which the engine registers with render queue 3000 (transparent) and one pass (the engine's choice).
   The material is created on first use; if a game destroys it the next call makes a new one.
   The ETC1 form returns the same material, since the engine has no split colour and alpha textures.
-  Nothing draws with it yet.
+  A graphic on this material, or on any material whose shader has no source, draws with the engine's own UI look; the material's properties are not read.
 - `UnityEngine.Sprites.DataUtility`: Static.
   `GetOuterUV` is the sprite's `textureRect` divided by its texture size and `GetInnerUV` is that rectangle inset by the border (where the sprite's rectangle has padding around its pixels, the padding counts toward the border), both as (xMin, yMin, xMax, yMax).
   `GetPadding` is the offset of the pixels inside `rect` as (left, bottom, right, top), zero for a tight sprite.
@@ -754,7 +754,8 @@ A texture a dispatch took from the global shader state is already resolved in it
 Which renderers a camera render draws is fixed at the call, but their poses, materials and property blocks are read when the snapshot is taken, so an edit to a renderer's material between a camera render and the end of the frame also changes that render.
 A culling (`Cull`, which a render pipeline makes inside `Camera.Render`) has a set in the same way, with its own culling mask, so the renderer list a pipeline draws from its result holds the renderers that were drawable when it culled.
 A renderer that is drawable only after a record was made is in no set of it, and a record with no set draws nothing.
-The encoding is version 18.
+A skinned mesh renderer is in no set because skinned meshes are not drawn yet. The snapshot's `skinned_not_drawn` counts the enabled skinned renderers on active objects that the frame's camera renders and culls admit by layer, each once for the frame, and the player reports them as `SkinnedNotDrawn` among its skipped renderers.
+The encoding is version 19.
 
 - A host whose world is in its own process calls `GraphicsSnapshot::take(&mut World)`.
 - A host that loads the engine image calls `DisunityHost::graphics_snapshot()`, and a GPU flush handler calls `GpuFlush::snapshot()`.
@@ -822,7 +823,7 @@ The encoding is version 18.
   Its color, alpha, `cull`, `cullTransparentMesh`, `hasPopInstruction`, rect clipping (`EnableRectClipping`, `DisableRectClipping`, `hasRectClipping`), `clippingSoftness`, mesh, textures, `materialCount` and `popMaterialCount` are stored in the native renderer, so a clone has its own.
   `SetColor` and `SetAlpha` are separate; `SetAlpha(NaN)` throws `DisunityException` and any other alpha is kept as given.
   `GetInheritedAlpha` is the renderer's alpha times the `alpha` of every enabled `CanvasGroup` on its object and above, stopping at a group with `ignoreParentGroups`.
-  `SetMesh`, `SetTexture`, `SetAlphaTexture`, `SetMaterial` and `SetPopMaterial` store instance ids; `GetMesh`, `GetMaterial` and `GetPopMaterial` return the object that was set while it is alive (null after it is destroyed or collected).
+  `SetMesh`, `SetTexture`, `SetAlphaTexture`, `SetMaterial` and `SetPopMaterial` store instance ids, and `SetMaterial` at slot 0 also sends the material's world material (none for a null or destroyed material), which the UI presentation carries to each draw of the renderer; `GetMesh`, `GetMaterial` and `GetPopMaterial` return the object that was set while it is alive (null after it is destroyed or collected).
   `materialCount` and `popMaterialCount` are 0 through 8 and a larger count throws `ArgumentOutOfRangeException`; `SetMaterial(material, index)` needs the index below the count, lowering the count drops the later materials, and `SetMaterial(material, texture)` sets material 0, the count 1 and the main texture.
   `SetSecondaryTextureCount(count)` (negative throws `ArgumentOutOfRangeException`) and `SetSecondaryTexture(index, name, texture)` (the texture is a `Texture2D`; an index outside the count throws `ArgumentOutOfRangeException`) store named secondary texture slots in managed memory; a clone copies them, lowering the count drops the later slots, and nothing reads them yet.
   `Clear` drops the mesh and the geometry drawn from it and keeps the materials, the textures, the secondary textures and the color (the engine's choice), so a graphic that clears its renderer and sends a new mesh draws with the texture it set before.
@@ -838,7 +839,9 @@ The encoding is version 18.
   Graphics draw under the engine's own `Text` of the same sorting key.
   A renderer with rect clipping on drops the quads outside its clip rectangle and cuts the quads across its edge, scaling the texture rectangle in proportion.
   The rectangle is measured in the space of the renderer's root canvas (the topmost canvas above it), as `RectMask2D` supplies it; a quad that is not axis aligned in that space is kept whole, and a rectangle that is not finite clips nothing.
-  Softness, masks, materials and shaders are not applied.
+  Softness and masks are not applied.
+  A graphic whose slot 0 material has a shader with a source of the game's own (any shader except `UI/Default`) is not drawn yet: its draws are left out of the overlay and of the live 2D frame, and the player names the material and its shader once on stderr as `UI material <id> (shader <name>) is left out: UI draws with a game shader are not drawn yet`.
+  A graphic whose material has no shader source, or is the engine's `UI/Default`, draws with the engine's own look; the material's properties are not read.
   A script's `[RequireComponent(typeof(CanvasRenderer))]` makes `AddComponent` add the renderer first.
 - `DrivenRectTransformTracker`: `Add` (throws `ArgumentNullException` for a null rectangle), `Clear`, `StartRecordingUndo` and `StopRecordingUndo`.
   Driving only marks rectangle properties as script-controlled in an editor.

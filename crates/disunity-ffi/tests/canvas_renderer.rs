@@ -188,11 +188,12 @@ fn renderer_with_materials() -> (u64, u64) {
             0,
             index,
             100 + u64::from(index),
+            0,
         );
         assert_eq!(result.code, 0);
     }
     assert_eq!(
-        disunity_canvas_renderer_material_write(world, renderer, 1, 1, 201).code,
+        disunity_canvas_renderer_material_write(world, renderer, 1, 1, 201, 0).code,
         0
     );
     (world, renderer)
@@ -210,11 +211,11 @@ fn materials_are_stored_by_slot() {
     );
     assert_eq!(material(world, renderer, 0, 3), None, "past the count");
     assert_ne!(
-        disunity_canvas_renderer_material_write(world, renderer, 0, 3, 5).code,
+        disunity_canvas_renderer_material_write(world, renderer, 0, 3, 5, 0).code,
         0
     );
     assert_ne!(
-        disunity_canvas_renderer_material_write(world, renderer, 2, 0, 5).code,
+        disunity_canvas_renderer_material_write(world, renderer, 2, 0, 5, 0).code,
         0
     );
 }

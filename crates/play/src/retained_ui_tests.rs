@@ -84,6 +84,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
         fixed_dt: Some(Duration::from_millis(16)),
         max_frames: Some(2),
         capture_frames: BTreeSet::from([0, 1]),
+        capture_files: Vec::new(),
         keys: vec![],
     };
     let mut driver = PlayerRetainedDriver::new(
@@ -114,7 +115,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     run.shutdown().unwrap();
     drop(run);
     assert_eq!(driver.ui.updates, 1, "unchanged frames send no UI update");
-    let captures = driver.script.take_captures();
+    let captures = driver.script.finish().unwrap();
     assert_eq!(captures.len(), 2);
     for image in &captures {
         assert_ui_pixels(image);
@@ -129,6 +130,7 @@ fn viewer_options_camera() -> SceneCamera {
         fixed_dt: None,
         max_frames: None,
         capture_frames: BTreeSet::new(),
+        capture_files: Vec::new(),
         keys: vec![],
     })
     .camera

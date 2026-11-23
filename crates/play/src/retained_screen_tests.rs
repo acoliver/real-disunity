@@ -30,6 +30,7 @@ fn window(capture_frames: &[u64]) -> PlayerWindow {
         fixed_dt: Some(Duration::from_millis(16)),
         max_frames: Some(FRAMES),
         capture_frames: capture_frames.iter().copied().collect(),
+        capture_files: Vec::new(),
         keys: vec![],
     }
 }
@@ -75,7 +76,15 @@ fn play_screen_fixture() -> (PlayerRetainedDriver, Vec<u64>) {
     play_fixture("screen.fixture")
 }
 
-fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
+type Started = (
+    RetainedHost,
+    PlayerRetainedDriver,
+    (SharedGpu, SubmissionAuthority),
+);
+
+/// The viewer and driver that play `request`, a portable fixture, in `window`, with the GPU they
+/// run on.
+fn start_fixture(request: &str, window: &PlayerWindow) -> Started {
     let data = tempfile::tempdir().unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let prepared = PreparedPlayer {
@@ -95,8 +104,13 @@ fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
     )
     .expect("the test needs a GPU adapter");
     let authority = headless::authority(&mut shared, &options);
-    let (viewer, mut driver) = start_window(&prepared, &window(&[0, 3]), options, gpu).unwrap();
-    let submissions = run_frames(viewer, &mut driver, (shared, authority));
+    let (viewer, driver) = start_window(&prepared, window, options, gpu).unwrap();
+    (viewer, driver, (shared, authority))
+}
+
+fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
+    let (viewer, mut driver, gpu) = start_fixture(request, &window(&[0, 3]));
+    let submissions = run_frames(viewer, &mut driver, gpu);
     (driver, submissions)
 }
 
@@ -104,7 +118,7 @@ fn play_fixture(request: &str) -> (PlayerRetainedDriver, Vec<u64>) {
 fn the_window_shows_the_screen_a_script_cleared_over_the_stock_scene() {
     let _turn = fixture_turn();
     let (mut driver, submissions) = play_screen_fixture();
-    let captures = driver.script.take_captures();
+    let captures = driver.script.finish().unwrap();
 
     for frame in [0, 3] {
         let capture = capture_of(&captures, frame);
@@ -191,7 +205,7 @@ fn first_update_after_resize_flushes_into_resized_screen() {
 fn a_canvas_quad_over_a_render_texture_a_script_cleared_shows_it_in_the_window() {
     let _turn = fixture_turn();
     let (mut driver, _) = play_fixture("ui-target-draw.fixture");
-    let captures = driver.script.take_captures();
+    let captures = driver.script.finish().unwrap();
 
     let shown = capture_of(&captures, 3);
     assert_eq!(
@@ -207,4 +221,35 @@ fn a_canvas_quad_over_a_render_texture_a_script_cleared_shows_it_in_the_window()
     );
     let report = driver.gpu.report();
     assert!(report.errors.is_empty(), "{:?}", report.errors);
+}
+
+#[test]
+fn a_capture_is_in_its_file_once_its_frame_is_delivered_and_before_the_run_ends() {
+    let _turn = fixture_turn();
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("frame0.png");
+    let mut asked = window(&[]);
+    asked.capture_files = vec![(0, file.clone())];
+    let (viewer, mut driver, (gpu, _)) = start_fixture("screen.fixture", &asked);
+    let mut run = viewer.windowless(&mut driver, Some(gpu)).unwrap();
+    let deadline = Instant::now() + Duration::from_mins(1);
+    let mut written_while_running = false;
+
+    while !run.is_closed() {
+        if !run.frame().unwrap() {
+            std::thread::yield_now();
+        }
+        if !run.is_closed() {
+            run.poll().unwrap();
+        }
+        written_while_running |= !run.is_closed() && file.exists();
+        assert!(Instant::now() < deadline, "the run timed out");
+    }
+    run.shutdown().unwrap();
+
+    assert!(
+        written_while_running,
+        "the file of frame 0 appeared only when the run of {FRAMES} frames ended"
+    );
+    assert!(file.exists());
 }

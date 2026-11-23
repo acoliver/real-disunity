@@ -40,6 +40,7 @@ fn readback_window() -> PlayerWindow {
         fixed_dt: Some(Duration::from_millis(16)),
         max_frames: Some(UPDATES),
         capture_frames: BTreeSet::from([0, SECOND_COLOR_FRAME + 4]),
+        capture_files: Vec::new(),
         keys: vec![],
     }
 }
@@ -84,7 +85,7 @@ fn play() -> Played {
         frames: report.frames,
         pixel_reads: report.pixel_reads,
         errors: report.errors.keys().cloned().collect(),
-        captures: driver.script.take_captures(),
+        captures: driver.script.finish().unwrap(),
     }
 }
 

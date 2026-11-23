@@ -122,7 +122,7 @@ pub fn play_game_window(
     viewer
         .run(start, &mut driver)
         .map_err(|error| PlayError::Invalid(error.to_string()))?;
-    Ok(driver.script.take_captures())
+    driver.script.finish()
 }
 
 impl PlayDriver {

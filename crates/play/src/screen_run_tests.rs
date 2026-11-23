@@ -32,6 +32,7 @@ fn window(size: [u32; 2], max_frames: Option<u64>, captures: &[u64]) -> PlayerWi
         fixed_dt: Some(Duration::from_millis(16)),
         max_frames,
         capture_frames: captures.iter().copied().collect(),
+        capture_files: Vec::new(),
         keys: vec![],
     }
 }

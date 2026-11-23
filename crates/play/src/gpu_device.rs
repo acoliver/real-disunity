@@ -203,6 +203,7 @@ pub(crate) mod headless {
             fixed_dt: None,
             max_frames: None,
             capture_frames: BTreeSet::new(),
+            capture_files: Vec::new(),
             keys: Vec::new(),
         };
         (headless_shared_gpu(), viewer_options(&window))

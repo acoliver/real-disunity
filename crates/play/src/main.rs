@@ -2,13 +2,14 @@
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
 //! its 3D objects when `--size`, `--capture` or `--key` is given, in a windowless host that writes
 //! the frames `--screen` names, and with no viewer otherwise.
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayerLaunch, PlayerWindow, ScheduledKey, StandInLook, SuppliedGlobal, key_code,
+    Game, PlayerLaunch, PlayerWindow, ScheduledKey, StandInLook, SuppliedGlobal, key_code,
     play_game_window, play_player_window, play_player_windowless, prepare, prepare_player,
     run_player,
 };
@@ -208,7 +209,8 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         size,
         fixed_dt,
         max_frames: frames,
-        capture_frames: requested.iter().map(|(frame, _)| *frame).collect(),
+        capture_frames: BTreeSet::new(),
+        capture_files: requested.to_vec(),
         keys: arguments.keys.clone(),
     };
     if screens {
@@ -217,14 +219,15 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
             &arguments.screens,
             Some(dt),
         );
-        let captured =
-            play_player_windowless(&prepared, &window).map_err(|error| error.to_string())?;
-        return write_captures(&captured, &arguments.screens);
+        return play_player_windowless(&prepared, &window)
+            .map(drop)
+            .map_err(|error| error.to_string());
     }
     if windowed {
         let window = window(arguments.frames, &arguments.captures, arguments.fixed_dt);
-        let captured = play_player_window(&prepared, &window).map_err(|error| error.to_string())?;
-        return write_captures(&captured, &arguments.captures);
+        return play_player_window(&prepared, &window)
+            .map(drop)
+            .map_err(|error| error.to_string());
     }
     run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
 }
@@ -241,29 +244,13 @@ fn play_game(
         size: arguments.size.unwrap_or(size),
         fixed_dt: arguments.fixed_dt,
         max_frames: arguments.frames,
-        capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
+        capture_frames: BTreeSet::new(),
+        capture_files: arguments.captures,
         keys: arguments.keys,
     };
-    let captured = play_game_window(prepared, &window).map_err(|error| error.to_string())?;
-    write_captures(&captured, &arguments.captures)
-}
-
-/// Writes each captured frame to every file requested for it, and fails when a requested frame
-/// was never presented.
-fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<(), String> {
-    let mut missing = 0;
-    for (frame, file) in requested {
-        let Some(capture) = captured.iter().find(|capture| capture.frame == *frame) else {
-            missing += 1;
-            continue;
-        };
-        capture.write_png(file).map_err(|error| error.to_string())?;
-        println!("frame {frame} captured to {}", file.display());
-    }
-    if missing > 0 {
-        return Err(format!("{missing} requested frames were not presented"));
-    }
-    Ok(())
+    play_game_window(prepared, &window)
+        .map(drop)
+        .map_err(|error| error.to_string())
 }
 
 /// A screen image comes from a windowless player run.
@@ -650,48 +637,6 @@ mod tests {
             );
         }
         assert!(checked(&["--player", "Game_Data", "--capture", "0:w.png"]).is_ok());
-    }
-
-    fn capture(frame: u64) -> worldrunner_play::Capture {
-        worldrunner_play::Capture {
-            frame,
-            width: 2,
-            height: 1,
-            pixels: vec![255, 0, 0, 255, 0, 0, 255, 255],
-        }
-    }
-
-    #[test]
-    fn a_captured_frame_is_written_to_every_file_asked_for_it() {
-        let directory = tempfile::tempdir().unwrap();
-        let (first, second, other) = (
-            directory.path().join("a.png"),
-            directory.path().join("b.png"),
-            directory.path().join("c.png"),
-        );
-        let requested = [(3, first.clone()), (3, second.clone()), (5, other.clone())];
-
-        super::write_captures(&[capture(3), capture(5)], &requested).expect("written");
-
-        for file in [&first, &second, &other] {
-            assert!(file.exists(), "{}", file.display());
-        }
-    }
-
-    #[test]
-    fn a_requested_frame_that_was_not_captured_is_an_error_after_the_others_are_written() {
-        let directory = tempfile::tempdir().unwrap();
-        let (written, missing) = (
-            directory.path().join("a.png"),
-            directory.path().join("b.png"),
-        );
-        let requested = [(3, written.clone()), (4, missing.clone())];
-
-        let error = super::write_captures(&[capture(3)], &requested).unwrap_err();
-
-        assert_eq!(error, "1 requested frames were not presented");
-        assert!(written.exists());
-        assert!(!missing.exists());
     }
 
     #[test]

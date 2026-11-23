@@ -10,6 +10,7 @@
 //! that asked for it, with that frame's UI.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::DisunityHost;
@@ -38,6 +39,8 @@ pub(crate) struct WindowScript {
     fixed_dt: Option<Duration>,
     max_frames: Option<u64>,
     capture_frames: BTreeSet<u64>,
+    /// The files of the captures that are not written yet, by game frame.
+    unwritten: Vec<(u64, PathBuf)>,
     /// The game time the frames so far advanced.
     simulated: Duration,
     /// The game frames advanced so far.
@@ -60,7 +63,8 @@ impl WindowScript {
             keys: window.keys.clone(),
             fixed_dt: window.fixed_dt,
             max_frames: window.max_frames,
-            capture_frames: window.capture_frames.clone(),
+            capture_frames: window.captured_frames(),
+            unwritten: window.capture_files.clone(),
             simulated: Duration::ZERO,
             advanced: 0,
             pending: BTreeMap::new(),
@@ -195,7 +199,8 @@ impl WindowScript {
             }
             RetainedEvent::Presented { .. } => self.close_time(),
             RetainedEvent::Capture { id, outcome, .. } => {
-                self.delivered(*id, outcome);
+                self.delivered(*id, outcome)
+                    .map_err(|error| error.to_string())?;
                 self.close_time();
             }
             _ => {}
@@ -216,21 +221,42 @@ impl WindowScript {
         }
     }
 
-    pub(crate) fn delivered(&mut self, id: u64, outcome: &RetainedCaptureOutcome) {
+    /// Keeps the capture a request got and writes it to every file asked for its frame now, so a
+    /// run that stops later has the frames it reached.
+    pub(crate) fn delivered(
+        &mut self,
+        id: u64,
+        outcome: &RetainedCaptureOutcome,
+    ) -> Result<(), PlayError> {
         let Some(frame) = self.pending.remove(&id) else {
-            return;
+            return Ok(());
         };
         if self.pending.is_empty() {
             self.asked = None;
         }
         if let RetainedCaptureOutcome::Completed { image, .. } = outcome {
-            self.captures.push(Capture {
+            let capture = Capture {
                 frame,
                 width: image.viewport.width,
                 height: image.viewport.height,
                 pixels: image.pixels.clone(),
-            });
+            };
+            self.write_files(&capture)?;
+            self.captures.push(capture);
         }
+        Ok(())
+    }
+
+    fn write_files(&mut self, capture: &Capture) -> Result<(), PlayError> {
+        let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.unwritten)
+            .into_iter()
+            .partition(|(frame, _)| *frame == capture.frame);
+        self.unwritten = later;
+        for (frame, file) in due {
+            capture.write_png(&file)?;
+            println!("frame {frame} captured to {}", file.display());
+        }
+        Ok(())
     }
 
     /// Whether the last game frame is advanced and every capture arrived.
@@ -238,8 +264,24 @@ impl WindowScript {
         self.max_frames.is_some_and(|max| self.advanced >= max) && self.pending.is_empty()
     }
 
-    pub(crate) fn take_captures(&mut self) -> Vec<Capture> {
-        std::mem::take(&mut self.captures)
+    /// The captures the run kept, once every file asked for has been written.
+    ///
+    /// # Errors
+    /// Fails naming each frame and file that no capture reached.
+    pub(crate) fn finish(&mut self) -> Result<Vec<Capture>, PlayError> {
+        if !self.unwritten.is_empty() {
+            let missing: Vec<String> = self
+                .unwritten
+                .iter()
+                .map(|(frame, file)| format!("frame {frame} to {}", file.display()))
+                .collect();
+            return Err(PlayError::Invalid(format!(
+                "{} requested frames were not captured: {}",
+                missing.len(),
+                missing.join(", ")
+            )));
+        }
+        Ok(std::mem::take(&mut self.captures))
     }
 }
 

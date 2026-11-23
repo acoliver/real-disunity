@@ -21,6 +21,7 @@ cargo run -p worldrunner-play -- breakout --frames 300 --fixed-dt 20 --key 30:a:
   They reach the game as the standard `KeyCode` values.
 - `--capture FRAME:FILE`: Write the frame presented after game frame FRAME to an RGB PNG.
   The game waits for the capture, so the image is that game frame's, with that frame's UI.
+  The file is written when the capture is delivered, with `frame N captured to FILE` on standard output, so a run that stops later keeps the frames it reached. The run fails naming any requested frame that was not written.
   A FRAME that is not among the `--frames` run is refused before the game starts.
 - `--seed N`: Seed the game's `Random` before the scene loads, so runs with `--fixed-dt` and the same keys repeat exactly.
   Without it, as in Unity, each run differs.
@@ -60,6 +61,7 @@ See "Player native plugins" in `docs/unity-projects.md`.
 
 `--report-each-frame` prints the GPU report after every game frame of a run, in a window or not, not only at the end (the counts are the run's so far, except the stand-in census, which is the frame's own).
 `--screen FRAME:FILE.png` (repeatable, like `--capture`, and several files may name one frame) plays the run in a windowless host with no display and writes the image after game frame FRAME (counting from 0) to FILE as an RGB PNG: the newest image of the screen with the game's UI over it, at `--size` (the window's default, 1920x1080, when it is not given).
+Each file is written when its frame's capture is delivered (`frame N captured to FILE`), and the run fails naming any frame that was not written.
 It takes `--frames` (one by default) and `--fixed-dt` (60 Hz by default) like a window run, and no `--key` or `--capture`, which make a window.
 The screen is what a command buffer's `CameraTarget` draws into when no camera texture names it, so the option needs a game whose scripts draw into the screen.
 A FRAME that is not among the `--frames` run is refused before the scene starts.
@@ -522,7 +524,7 @@ It checks every pixel of the first and fourth window captures and that the updat
 A separate managed readback fixture checks that the first update after a resize flushes into the new screen allocation before any viewer submission.
 `offscreen/tests/reclaim/pending_completion.rs` holds completion bookkeeping after GPU execution and checks that an evicted texture remains charged until completion is recorded, then releases exactly its bytes and admits the next upload.
 Viewer and compositor tests cover row order, UI ordering, dropped writers and resize.
-`screen_run_tests.rs` runs the fixtures through `play_player_windowless`: the same fixture checks every pixel of frames 0 and 2; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of frame 1, the rectangle in the upper left and yellow elsewhere; a third (`screen-count.fixture`) clears the screen to a different colour and moves the rectangle in every update, so the captures of frames 1 to 3 show which game frame drew them; a frame with no drawn screen and a frame past the run are refused.
+`screen_run_tests.rs` runs the fixtures through `play_player_windowless`: the same fixture checks every pixel of frames 0 and 2; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of frame 1, the rectangle in the upper left and yellow elsewhere; a third (`screen-count.fixture`) clears the screen to a different colour and moves the rectangle in every update, so the captures of frames 1 to 3 show which game frame drew them; a frame with no drawn screen and a frame past the run are refused. `retained_screen_tests.rs` checks that the file of a capture exists while the run still has frames to play, and `window_script_tests.rs` that a delivered capture reaches every file asked for its frame and that a file whose frame never arrived fails the run.
 `window_script_tests.rs` checks without a game or a viewer which updates advance the game, hold it or end the run.
 `offscreen/tests/draw_mesh/screen.rs` draws a mesh over the top half of the screen on a real adapter and reads the top rows back first, then draws again with no clear (what the first left stays), and resizes the screen.
 `offscreen/tests/screen.rs` pins the mapping without a device: the camera target binds the screen's colour and depth when a screen is set, the textures are described as held targets of its size, and without a screen the same records are still left out as `UnboundTarget`.

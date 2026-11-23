@@ -21,6 +21,7 @@ mod screen_tests;
 pub(crate) mod ui_tests;
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use worldrunner_camera::{CameraState, ViewConvention, ViewHandedness};
@@ -78,6 +79,10 @@ pub struct PlayerWindow {
     /// The game frames whose image is kept as a [`Capture`]: the frame presented after the game
     /// advanced to that frame, with that frame's UI.
     pub capture_frames: BTreeSet<u64>,
+    /// Files each written with the image of its game frame as soon as that capture is delivered,
+    /// so a run that stops later keeps the frames it reached. A frame named here is captured as
+    /// well, and the run fails when one of these files was not written.
+    pub capture_files: Vec<(u64, PathBuf)>,
     pub keys: Vec<ScheduledKey>,
 }
 
@@ -87,12 +92,19 @@ impl PlayerWindow {
     /// # Errors
     /// Fails naming the first capture frame that `max_frames` does not reach.
     pub fn validate(&self) -> Result<(), PlayError> {
-        match (self.max_frames, self.capture_frames.last()) {
+        match (self.max_frames, self.captured_frames().last()) {
             (Some(max), Some(frame)) if *frame >= max => Err(PlayError::Invalid(format!(
                 "screen frame {frame} is not among the {max} frames the run plays"
             ))),
             _ => Ok(()),
         }
+    }
+
+    /// Every game frame the window keeps as a [`Capture`]: `capture_frames` and the frames of
+    /// `capture_files`.
+    pub(crate) fn captured_frames(&self) -> BTreeSet<u64> {
+        let files = self.capture_files.iter().map(|(frame, _)| *frame);
+        self.capture_frames.iter().copied().chain(files).collect()
     }
 }
 
@@ -205,7 +217,7 @@ fn finish(
     report_times(driver.script.times());
     driver.report_gpu();
     ran?;
-    Ok(driver.script.take_captures())
+    driver.script.finish()
 }
 
 /// Boots the host, loads the scene and makes the viewer and the driver that plays it. `gpu`

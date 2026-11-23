@@ -641,16 +641,19 @@ fn a_sampler_at_the_ends_of_each_engine_range_is_accepted() {
 }
 
 #[test]
-fn a_record_that_states_no_dimension_is_refused_with_its_reason() {
+fn a_dimension_the_engine_does_not_define_is_refused_naming_its_value() {
     let world = new_world();
-    let described = DisunityTextureInfo {
-        dimension: 0,
-        ..info(FIRST, 8)
-    };
-    let result = store_described(world, &described, &[0; 8]);
-    assert_eq!(result.code, result_code::ERROR);
-    assert_eq!(result.detail, DisunityErrorReason::InvalidArgument as u64);
-    let message = crate::store::last_error(world).unwrap().unwrap();
-    assert!(message.contains("dimension 0"), "{message}");
-    assert_eq!(read(world, FIRST, 0).1.present, 0);
+    for dimension in [0, 1, 6, 7, 99] {
+        let described = DisunityTextureInfo {
+            dimension,
+            ..info(FIRST, 8)
+        };
+        let result = store_described(world, &described, &[0; 8]);
+        assert_eq!(result.code, result_code::ERROR, "dimension {dimension}");
+        assert_eq!(result.detail, DisunityErrorReason::InvalidArgument as u64);
+        let message = crate::store::last_error(world).unwrap().unwrap();
+        let named = format!("dimension {dimension} is refused");
+        assert!(message.contains(&named), "{message}");
+        assert_eq!(read(world, FIRST, 0).1.present, 0);
+    }
 }

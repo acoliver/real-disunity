@@ -96,7 +96,7 @@ After an intentional ABI change:
    `graphics_format`, `dimension` and a zero `reserved` word to the stored-texture
    record `DisunityTextureInfo` (48 to 64 bytes): a 2D array, a cube or a 3D texture
    states its layer count, `GraphicsFormat` and shader dimension code (2 2D, 3 3D,
-   4 cube, 5 2D array), and every writer states the dimension. Revision 18 adds
+   4 cube, 5 2D array), and a writer that sets none stores a plain 2D texture. Revision 18 adds
    `disunity_offscreen_enable_scissor`, `disunity_offscreen_disable_scissor` and
    `disunity_offscreen_set_depth_bias` (offscreen kinds 20 to 22) and the shadow
    caster query `disunity_shadow_query`.
@@ -121,10 +121,13 @@ After an intentional ABI change:
    `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
    render texture the world holds) and adds `texture_kind` and a padding word to
    `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
-   texture of a draw whose kind is 1 is the render texture id. Revision 26 makes the
-   stored-texture `dimension` 2 the only spelling of a 2D texture: `disunity_texture_store`
-   refuses a record whose `dimension` is 0, and the host reads only 2, 3, 4 and 5. Native and
-   managed hosts reject mismatched revisions before creating a world or accessing versioned records.
+   texture of a draw whose kind is 1 is the render texture id. Revision 26 adds the
+   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
+   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
+   `DisunityUiDraw` (160 to 176 bytes). Revision 27 makes the stored-texture `dimension` 2 the
+   only spelling of a 2D texture: `disunity_texture_store` refuses a record whose `dimension` is
+   0, and the host reads only 2, 3, 4 and 5. Native and managed hosts reject
+   mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,
    whose message and `Expected`/`Actual` properties identify both revisions;

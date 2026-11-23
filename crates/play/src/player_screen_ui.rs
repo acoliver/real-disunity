@@ -203,7 +203,7 @@ impl ScreenComposer<'_> {
         drawn: u64,
     ) -> Result<Capture, PlayError> {
         self.send_ui(host, gpu)?;
-        let screen = gpu.written_screen().ok_or_else(|| {
+        let screen = gpu.game_screen().ok_or_else(|| {
             PlayError::Invalid(format!(
                 "the screen drawn by frame {drawn} cannot be shown with the UI"
             ))

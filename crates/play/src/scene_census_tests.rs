@@ -63,6 +63,23 @@ fn the_lines_rank_reasons_largest_first_and_equal_counts_by_name() {
 }
 
 #[test]
+fn the_ui_draws_left_out_for_a_game_material_have_one_line_ranked_by_shader() {
+    let census = SubstitutionCensus {
+        drawn: 3,
+        ui_game_materials: BTreeMap::from([
+            ("Game/Outline".to_owned(), 2),
+            ("Game/Silhouette".to_owned(), 7),
+        ]),
+        ..SubstitutionCensus::default()
+    };
+    assert_eq!(
+        census.lines().last().unwrap(),
+        "UI draws with a game material by shader (last frame): Game/Silhouette 7, Game/Outline 2"
+    );
+    assert_eq!(census.lines().len(), 2);
+}
+
+#[test]
 fn a_frame_replaces_the_last_frame_and_raises_the_worst_frame_only_where_it_was_worse() {
     let mut census = SubstitutionCensus::default();
     let mut first = FrameCensus::default();

@@ -170,8 +170,8 @@ impl World {
         let held = self
             .components
             .get(component.0)
-            .is_some_and(|stored| stored.desc.decides_drawing());
-        self.note_drawable_edit(held, false);
+            .and_then(|stored| stored.desc.draw_input());
+        self.note_drawable_edit(held, None);
         if let Some(owner) = self.components.get(component.0).map(|c| c.object)
             && let Some(object) = self.objects.get_mut(owner.0)
         {

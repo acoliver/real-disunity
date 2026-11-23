@@ -16,6 +16,7 @@ use crate::packet::TargetSignature;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::blit_steps::{BlitStep, blit_step, copy_step};
+use super::dots::{self, DotsDraw};
 use super::error::{OffscreenError, Refusal};
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads, Written};
@@ -74,6 +75,7 @@ pub(super) struct Globals<'a> {
 
 /// How the draws of one pass look: which pass of a shader draws, the view's values, the winding,
 /// the globals and the target's formats.
+#[derive(Clone, Copy)]
 pub(super) struct Look<'a> {
     pub(super) selector: &'a PassSelector,
     pub(super) values: &'a PropertyLayer,
@@ -84,6 +86,8 @@ pub(super) struct Look<'a> {
     pub(super) signature: TargetSignature,
     /// What the pass writes, which its draws may not sample.
     pub(super) written: &'a [Written],
+    /// The instances of a raw buffer the draw makes, when it makes them.
+    pub(super) dots: Option<DotsDraw<'a>>,
 }
 
 pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
@@ -204,6 +208,7 @@ fn camera_step(
         globals,
         signature,
         written: &cells,
+        dots: None,
     };
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
@@ -295,11 +300,16 @@ pub(super) fn planned_draw(
     .into_iter()
     .flatten()
     .collect();
+    let mut keywords = keywords(material, look.globals);
+    if look.dots.is_some() {
+        dots::select_variant(&mut keywords);
+    }
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, look.globals),
+        keywords,
         selector: look.selector.clone(),
         layers: Layers::new(&layers),
+        dots: look.dots,
     };
     let Some(sub) = svc.meshes.get(renderer.mesh)?.sub_meshes.get(slot).copied() else {
         return Ok(None);

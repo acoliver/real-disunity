@@ -15,6 +15,7 @@ mod constants;
 mod copy;
 mod defaults;
 mod depth_only;
+mod dots_instances;
 mod formats;
 mod keep;
 mod layers;

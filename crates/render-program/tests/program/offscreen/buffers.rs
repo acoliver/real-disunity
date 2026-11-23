@@ -12,8 +12,8 @@ use worldrunner_render_program::ids::{MaterialId, RendererId, ShaderId, TextureI
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::MissingBufferDraws;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, DrawRaster, ListDraw, Material, OffscreenFrame,
-    Record, Renderer,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, Instances, ListDraw, Material,
+    OffscreenFrame, Record, Renderer,
 };
 use worldrunner_render_program::unity::runtime::BufferHandle;
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
@@ -26,8 +26,8 @@ use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParam
 use super::rig::{CLEAR, QUAD, Rig, pixel, quad, texture};
 use crate::common::Gpu;
 
-const PROGRAM: ShaderId = ShaderId(1);
-const TARGET: TextureId = TextureId(10);
+pub(super) const PROGRAM: ShaderId = ShaderId(1);
+pub(super) const TARGET: TextureId = TextureId(10);
 const SIDE: u32 = 6;
 const CELLS: u32 = 3;
 const PROPERTIES: &str = "_Properties";
@@ -118,7 +118,7 @@ fn program(wgsl: &str, parameters: VariantParameters) -> ProgramShader {
     ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap()
 }
 
-fn alpha() -> PassSelector {
+pub(super) fn alpha() -> PassSelector {
     PassSelector::Tag {
         key: "LightMode".to_owned(),
         values: vec!["Alpha".to_owned()],
@@ -149,7 +149,7 @@ fn with_buffer(buffer: BufferHandle) -> Material {
 }
 
 /// A material that names no buffer.
-fn bare() -> Material {
+pub(super) fn bare() -> Material {
     Material {
         shader: Some(PROGRAM),
         keywords: Vec::new(),
@@ -166,13 +166,13 @@ fn item(material: u64, instances: u32) -> ListDraw {
         slot: 0,
         material: Some(MaterialId(material)),
         pass: alpha(),
-        instances,
+        instances: Instances::Count(instances),
         per_draw: PropertyLayer::default(),
     }
 }
 
 /// A frame that clears the target and draws `items` of renderer 1, a quad, in order.
-fn frame(
+pub(super) fn frame(
     rig: &mut Rig,
     program: ProgramShader,
     materials: Vec<Material>,
@@ -224,7 +224,7 @@ fn frame(
     }
 }
 
-fn render(rig: &mut Rig, frame: &OffscreenFrame) -> Vec<u8> {
+pub(super) fn render(rig: &mut Rig, frame: &OffscreenFrame) -> Vec<u8> {
     rig.run(frame, &[(TARGET, 0, 0)]).unwrap().remove(0)
 }
 

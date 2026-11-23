@@ -130,7 +130,11 @@ After an intentional ABI change:
    identity and the root bone of a skinned mesh renderer with the root bone's bind pose (16
    column-major floats); the renderer is drawn where the root bone's matrix times that pose
    puts it, and one with no root bone is left out. The graphics snapshot, at wire version 19,
-   carries the count of skinned renderers it leaves out for want of a root bone. Native and managed hosts reject
+   carries the count of skinned renderers it leaves out for want of a root bone. Revision 29 adds
+   `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
+   draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
+   words by property name and the visible instance indexes, carried in the graphics snapshot from
+   wire version 20. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

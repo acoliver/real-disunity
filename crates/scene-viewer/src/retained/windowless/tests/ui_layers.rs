@@ -60,7 +60,7 @@ fn overlay() -> Arc<UiOverlay> {
         ],
         ..UiPresentation::default()
     };
-    let layers = plan.layers([SIZE, SIZE], [SIZE, SIZE]);
+    let layers = plan.layers([SIZE, SIZE], 4096);
     assert_eq!(layers.runs.len(), 1);
     assert_eq!(layers.runs[0].atlas, [0, 0, 8, 8]);
     Arc::new(UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap())

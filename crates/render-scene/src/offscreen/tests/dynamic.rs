@@ -1,5 +1,6 @@
 use super::*;
 use crate::dynamic::DynamicQuad;
+use crate::test_support::upload_scene;
 
 #[test]
 fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
@@ -9,8 +10,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     let view = fixture::view(&scene, viewport(64, 64));
     let pipelines =
         ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),

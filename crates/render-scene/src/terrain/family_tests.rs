@@ -5,6 +5,7 @@
 //! it prepared for the runtime that drew it first, so each draw has to find or make what its own
 //! runtime needs, whatever drew the scene before it.
 
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{RenderScene, SceneSsr};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
@@ -173,8 +174,7 @@ fn through_reconfiguration(source: Source) {
         scene.effects().expect("the scene has effects"),
     );
     let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame);
     if source.pages() {
         gpu.enable_terrain_pages(

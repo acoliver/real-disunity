@@ -12,12 +12,11 @@ use crate::compositor::StockReplacement;
 /// shadow scene, and returns what the last frame left.
 fn run(context: &GpuContext, source: &RenderScene, games: &[StockReplacement]) -> Captured {
     let view = view();
-    let mut shadowed = ShadowedScene::with_target(
+    let mut shadowed = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let mut last = None;

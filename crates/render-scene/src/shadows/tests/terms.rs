@@ -2,6 +2,7 @@ use super::*;
 use crate::Viewport;
 use crate::compositor::terms::{CaptureTerm, TermCapture};
 use crate::offscreen::LinearRgbaImage;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn sun_visibility_capture_matches_cpu_occluder_projection_across_edge() {
@@ -17,7 +18,7 @@ fn sun_visibility_capture_matches_cpu_occluder_projection_across_edge() {
             [0.0; 2],
         )
         .unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let capture = TermCapture::new(context.device(), [64, 64], CaptureTerm::SunVisibility);

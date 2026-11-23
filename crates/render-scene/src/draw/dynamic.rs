@@ -1,8 +1,10 @@
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 #[path = "dynamic_tests.rs"]
 mod tests;
 
-use super::{Device, DrawError, RenderScene, SceneGpu, ScenePipelines};
+use super::{Device, DrawError, PreparedScene, RenderScene, SceneGpu, ScenePipelines};
 
 fn dynamic_refused(error: &crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
     worldrunner_render_post::FrameError::FeaturePreparation {
@@ -27,7 +29,13 @@ impl SceneGpu {
             effects: None,
         })
         .expect("empty scene");
-        Self::upload(device, authority, &scene, pipelines)
+        Self::upload(
+            device,
+            authority,
+            PreparedScene::new(&scene)?,
+            pipelines,
+            None,
+        )
     }
     /// Atomically replaces the runtime quad contribution. The quads are prepared for the pass
     /// `pipelines` describe, which is the pass the frames that draw them must open.
@@ -120,11 +128,6 @@ impl SceneGpu {
         self.dynamic
             .retain(encoder, pipelines)
             .map_err(|error| dynamic_refused(&error))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn dynamic_probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
-        self.dynamic.probes()
     }
 
     /// Releases every runtime texture, draw buffer and retained quad index buffer on unload.

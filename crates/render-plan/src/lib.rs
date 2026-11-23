@@ -36,7 +36,6 @@ pub use scene::SceneContourFill;
 pub use scene::SceneContourStyle;
 pub use scene::SceneContours;
 pub use scene::SceneCubeDescriptor;
-pub use scene::SceneCubeFace;
 pub use scene::SceneDdsDescriptor;
 pub use scene::SceneDdsFormat;
 pub use scene::SceneDirection;

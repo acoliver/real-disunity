@@ -3,6 +3,7 @@ use crate::draw::lod_material::FixedSink;
 use crate::draw::object_runtime::PreparedSink;
 use crate::pipeline::PipelineKey;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
+use crate::test_support::upload_scene;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Kind {
@@ -124,7 +125,7 @@ pub(super) fn capture(
 ) -> (Vec<Vec<u8>>, super::super::super::DrawCount) {
     let device = context.device();
     let setup = Setup::new(device, kind);
-    let mut gpu = SceneGpu::upload(device, context.submission(), scene, &setup.pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), scene, &setup.pipelines).unwrap();
     gpu.instances.fade_cull_disabled = cull != Cull::Enabled;
     let frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],

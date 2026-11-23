@@ -1,8 +1,9 @@
 use super::{capture, capture_gpu, decal, source, srgb, texel};
 use crate::draw::{
-    SceneGpu, ScenePipelines,
+    ScenePipelines,
     tests::{COLOR_FORMAT, context, frame_from, pose},
 };
+use crate::test_support::upload_scene;
 use glam::Vec3;
 use worldrunner_render_plan::{SceneDecalAlphaMode, SceneDecalColorModifier, SceneResources};
 
@@ -61,8 +62,7 @@ fn modifier_only_replace_updates_each_slot_without_rebuilding_palettes() {
     let d = decal();
     let scene = source(false, false).with_decals(vec![d]).unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
     let mut before = Vec::new();
     for slot in 0..gpu.decals.buffers.len() {
@@ -123,8 +123,7 @@ fn default_modifier_preserves_rendered_bytes_against_unmodified_shader() {
                 .with_decals(vec![decal()])
                 .unwrap();
             let mut gpu =
-                SceneGpu::upload(context.device(), context.submission(), &scene, &original)
-                    .unwrap();
+                upload_scene(context.device(), context.submission(), &scene, &original).unwrap();
             let expected = capture_gpu(&context, &mut gpu, &original, samples, true);
             // The default modifier multiplies by one in a different compiled shader, so the two
             // renders hold the same ideal value and may round one code apart.
@@ -174,8 +173,8 @@ fn modifier_blends_before_forward_lighting_and_material_metadata_like_baked_texe
         }
         let pipelines = material_metadata_pipelines(&context);
         let mut actual_gpu =
-            SceneGpu::upload(context.device(), context.submission(), &actual, &pipelines).unwrap();
-        let mut expected_gpu = SceneGpu::upload(
+            upload_scene(context.device(), context.submission(), &actual, &pipelines).unwrap();
+        let mut expected_gpu = upload_scene(
             context.device(),
             context.submission(),
             &expected,
@@ -195,7 +194,7 @@ fn modifier_blends_before_forward_lighting_and_material_metadata_like_baked_texe
         // lighting or half intermediate between the blend and the store.
         let albedo = &channel_pipelines(&context)[0];
         let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), &actual, albedo).unwrap();
+            upload_scene(context.device(), context.submission(), &actual, albedo).unwrap();
         assert_interior_within_store(
             &capture_gpu(&context, &mut gpu, albedo, 1, true),
             Vec3::new(51.0, 102.0, 153.0).lerp(Vec3::new(128.0, 64.0, 100.0), 128.0 / 255.0 * 0.5)
@@ -244,7 +243,7 @@ fn opacity_edge_thresholds_angle_faded_alpha_for_mesh_and_terrain() {
             }
             for (pipelines, expected) in metadata.iter().zip(expected) {
                 let mut gpu =
-                    SceneGpu::upload(context.device(), context.submission(), &scene, pipelines)
+                    upload_scene(context.device(), context.submission(), &scene, pipelines)
                         .unwrap();
                 assert_interior(
                     &capture_gpu(&context, &mut gpu, pipelines, 1, true),
@@ -418,7 +417,7 @@ fn opacity_edge_with_disabled_albedo_and_alpha_test_matches_scalar_oracle() {
                 let scene = base.with_decals(vec![d]).unwrap();
                 for (pipeline, expected) in pipelines.iter().zip(expected) {
                     let mut gpu =
-                        SceneGpu::upload(context.device(), context.submission(), &scene, pipeline)
+                        upload_scene(context.device(), context.submission(), &scene, pipeline)
                             .unwrap();
                     assert_interior(
                         &capture_gpu(&context, &mut gpu, pipeline, 1, true),

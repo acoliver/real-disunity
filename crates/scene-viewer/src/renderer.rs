@@ -3,6 +3,7 @@ mod budget_tests;
 mod texture_tiers;
 
 use std::sync::{Arc, mpsc};
+use worldrunner_render_scene::shadows::ShadowedTarget;
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
@@ -550,13 +551,14 @@ impl Resident {
     ) -> Result<Self, ViewerError> {
         let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            let mut shadowed = ShadowedScene::with_prepared_target_reusing(
+            let mut shadowed = ShadowedScene::new(
                 context,
                 prepared,
                 settings,
-                profile.target().0,
-                profile.target().1,
-                previous,
+                ShadowedTarget {
+                    previous,
+                    ..ShadowedTarget::new(profile.target().0, profile.target().1)
+                },
             )?;
             shadowed.set_scene_depth_fitting(
                 context,
@@ -579,7 +581,7 @@ impl Resident {
                 ScenePipelines::new
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload_prepared_reusing(
+            let gpu = SceneGpu::upload(
                 context.device(),
                 context.submission(),
                 prepared,

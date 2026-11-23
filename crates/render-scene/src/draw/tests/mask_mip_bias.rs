@@ -6,6 +6,7 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::mip_bias::{distance_for, masked_scene, mipped_texture};
 use super::*;
+use crate::test_support::upload_scene;
 
 fn level_zero_transparent() -> SceneTexture {
     let SceneTexture::Texels {
@@ -44,7 +45,7 @@ fn forward_prepass_and_metadata_keep_the_same_masked_pixels_at_a_nonzero_bias() 
     let device = context.device();
     let scene = masked_scene(level_zero_transparent());
     let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm, 1).unwrap();
-    let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let [forward, prepass, metadata, _shadow] = geometry_sources();
     for (bias, expect_covered) in [(0.0_f32, true), (-1.0, false)] {
         let mut frame = frame_from(CameraPose {

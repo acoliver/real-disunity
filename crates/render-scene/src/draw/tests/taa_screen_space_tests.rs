@@ -8,6 +8,7 @@
 //! sRGB bytes, which carries a quantisation floor of about 0.001.
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, TexelFormat,
 };
@@ -179,7 +180,7 @@ fn render(
     )
     .unwrap();
     let pipelines = pipelines(context, feature, variant, samples);
-    let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let attach = |name, texture| AttachmentView::new(ResourceRef::new(name), texture).unwrap();
     let color = attach("scene color", renderer.targets().scene().texture());
     let depth = attach("scene depth", renderer.targets().depth().texture());

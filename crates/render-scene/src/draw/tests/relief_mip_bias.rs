@@ -6,6 +6,7 @@ use super::foliage::pass_color;
 use super::impostor_mip_bias::atlas_scene_with_normal;
 use super::mip_bias::distance_for;
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneAtlasSampling, TexelFormat};
 
 /// Encoded `rg` per mip level. `scene_relief_decode` maps them to the normals (0, 0, 1),
@@ -49,7 +50,7 @@ fn normal_source() -> String {
 fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [u8; 3] {
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = atlas_scene_with_normal(SceneAtlasSampling::Implicit, Some(relief_texture()));
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -distance_for(level), 1000],
         target_millimeters: [0, 0, 1000],

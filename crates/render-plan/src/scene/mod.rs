@@ -162,10 +162,10 @@ pub use geometry::{
 };
 mod sampler;
 pub use resource::{
-    MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneCubeDescriptor, SceneCubeFace,
-    SceneDdsDescriptor, SceneDdsFormat, SceneMaterial, SceneMaterialParts, SceneResources,
-    SceneTexelDescriptor, SceneTexture, SceneTextureDescriptor, TexelFormat, TextureColorSpace,
-    TextureEncoding, TextureHandle,
+    MATERIAL_MICRO_SCALE, MaterialHandle, SceneAlphaMode, SceneCubeDescriptor, SceneDdsDescriptor,
+    SceneDdsFormat, SceneMaterial, SceneMaterialParts, SceneResources, SceneTexelDescriptor,
+    SceneTexture, SceneTextureDescriptor, TexelFormat, TextureColorSpace, TextureEncoding,
+    TextureHandle,
 };
 pub use sampler::{TextureAnisotropy, TextureFilter, TextureSampler, TextureWrap};
 pub use terrain::{

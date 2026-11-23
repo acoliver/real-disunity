@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground() {
@@ -21,7 +22,7 @@ fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground
         depth_half_extent_meters: 0.5,
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

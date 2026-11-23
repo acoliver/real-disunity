@@ -1,4 +1,6 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 
 #[test]
 fn gpu_water_pcf5_keeps_ambient_shadow_input_byte_identical() {
@@ -273,16 +275,15 @@ fn submit(
     frame: &mut crate::compositor::FrameRenderer,
     shadow: Option<&wgpu::BindGroup>,
 ) {
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             depth_bias: 0.0,
             normal_bias_meters: 0.0,
             ..settings()
         },
-        wgpu::TextureFormat::Rgba16Float,
-        4,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 4),
     )
     .unwrap();
     let color = AttachmentView::new(

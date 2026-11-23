@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::AdoptionState;
 
 fn interval_input(range: RangeFit) -> crate::shadows::sdsm::CaptureInput<()> {
@@ -39,7 +40,7 @@ fn gpu_sdsm_capture_interval_matches_cascade_construction() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::new(vec![1_000, 2_000, 3_000], 100_000).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     context
         .device()
         .poll(wgpu::PollType::wait_indefinitely())
@@ -96,7 +97,7 @@ fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
     let context = context();
     let source =
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     enable_pages(&context, &mut renderer, 1);
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     renderer
@@ -148,7 +149,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
     let context = context();
     let source =
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     enable_pages(&context, &mut renderer, 5);
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let metadata = crate::scene_metadata::SceneMetadata::new(
@@ -195,7 +196,7 @@ fn gpu_sdsm_adopted_interval_is_not_fitted_twice() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     for (step, span) in [(1.0, 1.5), (0.1, 1.37)] {
         for adoption in [
             AdoptionPolicy::SameFrameCapture,

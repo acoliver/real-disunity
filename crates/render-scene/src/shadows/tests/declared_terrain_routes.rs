@@ -45,7 +45,7 @@ fn gpu_declared_terrain_leaves_the_shadowed_camera_depth_as_a_terrain_free_scene
 /// draws what `replaces` says.
 fn cascade_depths(source: &RenderScene, replaces: StockReplacement) -> Vec<Vec<f32>> {
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, source, settings()).unwrap();
+    let mut renderer = shadowed(&context, source, settings()).unwrap();
     let mut scheduler = scheduler(&context, replaces);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();

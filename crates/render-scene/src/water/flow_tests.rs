@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 
 fn phases(time: f32, period: f32) -> ([f32; 2], [f32; 2]) {
     let a = (time / period).rem_euclid(1.0);
@@ -206,13 +207,8 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
                 samples,
             )
             .unwrap();
-            let mut gpu = crate::draw::SceneGpu::upload(
-                context.device(),
-                context.submission(),
-                &source,
-                &pipelines,
-            )
-            .unwrap();
+            let mut gpu =
+                upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
             let mut renderer = ConfiguredFrameRenderer::new(
                 &context,
                 configuration(samples, bodies),

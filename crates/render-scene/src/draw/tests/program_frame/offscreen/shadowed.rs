@@ -2,6 +2,8 @@
 //! through the shadowed path, so that path takes the admitted operations and runs them in the
 //! frame's one submission, as the plain path does.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowedScene};
 use worldrunner_render_post::AttachmentView;
 
@@ -15,9 +17,9 @@ fn lit() -> RenderScene {
 }
 
 fn shadowed(fixture: &Fixture) -> ShadowedScene {
-    ShadowedScene::with_target(
+    ShadowedScene::new(
         &fixture.context,
-        &lit(),
+        PreparedScene::new(&lit()).unwrap(),
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 1.0),
             half_extent_meters: 4.0,
@@ -27,8 +29,7 @@ fn shadowed(fixture: &Fixture) -> ShadowedScene {
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
-        SCENE_FORMAT,
-        1,
+        ShadowedTarget::new(SCENE_FORMAT, 1),
     )
     .unwrap()
 }

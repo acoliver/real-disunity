@@ -1,7 +1,10 @@
 //! A common producer isolates the forwarding depth/stencil policy from receiver derivatives.
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::scene_metadata::receiver::{ReceiverLayout, ReceiverReference};
+use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 use worldrunner_render_post::ToneMap;
 
@@ -229,21 +232,18 @@ impl ReceiverFrame {
             source.effects(),
         )
         .unwrap();
-        let build: fn(&GpuContext, &RenderScene, _, _, _) -> _ = if reflection {
-            crate::shadows::ShadowedScene::with_taa_velocity
-        } else {
-            crate::shadows::ShadowedScene::with_target
-        };
-        let shadowed = build(
+        let shadowed = crate::shadows::ShadowedScene::new(
             context,
-            source,
+            PreparedScene::new(source).unwrap(),
             crate::shadows::DirectionalShadowSettings {
                 resolution: 256,
                 normal_bias_meters: bias,
                 ..super::shadow_settings()
             },
-            TextureFormat::Rgba16Float,
-            1,
+            ShadowedTarget {
+                velocity: reflection,
+                ..ShadowedTarget::new(TextureFormat::Rgba16Float, 1)
+            },
         )
         .unwrap();
         let pipelines = if reflection {
@@ -252,7 +252,7 @@ impl ReceiverFrame {
             ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1)
         }
         .unwrap();
-        let gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
         let mut shadowed = shadowed;
         if matches!(reference, Some(ReceiverReference::LateCardRejection)) {
             shadowed.late_card_casters_for_test(device);
@@ -644,7 +644,7 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
     let source = sloped(true);
     let pipelines =
         ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1).unwrap();
-    let gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     assert!(gpu.has_transmission());
     let mut plain = FrameRenderer::new(device);
     plain
@@ -726,7 +726,7 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
             .unwrap()
             .with_objects_and_effects(Vec::new(), source.effects().cloned())
             .unwrap();
-        let empty = SceneGpu::upload(device, context.submission(), &empty, &pipelines).unwrap();
+        let empty = upload_scene(device, context.submission(), &empty, &pipelines).unwrap();
         assert!(!empty.has_shadow_receivers());
         renderer
             .prepare_receiver_gradients(device, &empty, 0.012)

@@ -147,7 +147,7 @@ pub use compute::TextureTrace;
 pub use defaults::DefaultTexture;
 pub use defaults::StandInLook;
 pub use environment::SPEC_CUBE0;
-pub use environment::add_environment;
+pub use environment::{ReflectionCube, add_environment};
 pub use flush::BufferWrite;
 pub use flush::FlushError;
 pub use flush::FlushOutcome;

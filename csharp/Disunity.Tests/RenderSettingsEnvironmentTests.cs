@@ -30,6 +30,9 @@ internal static unsafe class RenderSettingsEnvironmentTests
             DisunityHost.LoadWorld();
             try { ASceneWithoutAnEnvironmentLeavesTheRecordUnset(directory.FullName); }
             finally { DisunityHost.UnloadWorld(); }
+            DisunityHost.LoadWorld();
+            try { TheDefaultReflectionTextureIsTheCubeTheSceneReflects(directory.FullName); }
+            finally { DisunityHost.UnloadWorld(); }
         }
         finally { directory.Delete(recursive: true); }
     }
@@ -176,6 +179,20 @@ internal static unsafe class RenderSettingsEnvironmentTests
         Expect.That(RenderSettings.defaultReflectionMode == DefaultReflectionMode.Custom && RenderSettings.ambientMode == AmbientMode.Trilight
             && RenderSettings.ambientLight == new Color(1f, 0.9f, 0.8f, 0.7f), "RenderSettings reads the scene's values");
         Console.WriteLine("PASS: a scene load fills the world's environment record from its plan, with its cubemaps stored by identity");
+    }
+
+    private static void TheDefaultReflectionTextureIsTheCubeTheSceneReflects(string directory)
+    {
+        Expect.That(ReflectionProbe.defaultTexture == null, "a world whose scene wrote no reflection has no default reflection texture");
+        var assembly = typeof(RenderSettingsEnvironmentTests).Assembly;
+        using var scene = DisunityHost.LoadScene(ScenePlan(directory, environment: true), new SceneLoadOptions(assembly, _ => []));
+        Expect.That(ReflectionProbe.defaultTexture is Cubemap { name: "Custom" }, "the custom mode reads the custom cube");
+        RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+        Expect.That(ReflectionProbe.defaultTexture is Cubemap { name: "Baked" }, "the skybox mode reads the cube baked from the skybox");
+        RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+        RenderSettings.customReflectionTexture = null;
+        Expect.That(ReflectionProbe.defaultTexture is Cubemap { name: "Baked" }, "the custom mode without a custom cube reads the cube baked from the skybox");
+        Console.WriteLine("PASS: ReflectionProbe.defaultTexture is the cube the scene's default reflection reads");
     }
 
     private static void ASceneWithoutAnEnvironmentLeavesTheRecordUnset(string directory)

@@ -421,7 +421,7 @@ impl<'a> Mapper<'a> {
         add_main_light(&mut frame.globals, &snapshot.lights);
         // The scene's environment fills the reflection cube and the ambient names no layer holds,
         // and the engine's default ambient takes the names that remain.
-        add_environment(&mut frame.globals, &snapshot.environment, &mut textures);
+        let reflection = add_environment(&mut frame.globals, &snapshot.environment, &mut textures);
         add_ambient(&mut frame.globals);
         let script = Script::new(
             frame.globals.clone(),
@@ -436,6 +436,7 @@ impl<'a> Mapper<'a> {
             frame,
             report: Report {
                 records: snapshot.work.len(),
+                census: BTreeMap::from([(reflection.census().to_owned(), 1)]),
                 ..Report::default()
             },
             script,

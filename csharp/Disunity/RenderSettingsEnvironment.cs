@@ -151,6 +151,13 @@ namespace UnityEngine
         /// the scene's render settings; scripts have no member for it.</summary>
         internal static Texture? generatedSkyboxReflection => Get(r => r->skybox_kind == 0 ? null : _state.SkyboxReflection);
 
+        /// <summary>The cube the scene's default reflection reads, which is what <see cref="ReflectionProbe.defaultTexture"/> returns:
+        /// the custom cube in the custom mode when one is set, and otherwise the cube baked from the skybox. It is null when the scene
+        /// names neither. The host binds the same cube to a draw as <c>unity_SpecCube0</c>.</summary>
+        internal static Texture? defaultReflectionTexture => Get(r =>
+            (DefaultReflectionMode)r->reflection_mode == DefaultReflectionMode.Custom && !WorldGraphics.IsUnbound(r->custom_kind) ? _state.CustomReflection
+            : WorldGraphics.IsUnbound(r->skybox_kind) ? null : _state.SkyboxReflection);
+
         /// <summary>The environment a scene's plan carries: its ambient light and default reflection, which a scene load writes to
         /// the world's record as one write.</summary>
         internal readonly record struct SceneEnvironment(AmbientMode AmbientMode, Color Sky, Color Equator, Color Ground, float AmbientIntensity,

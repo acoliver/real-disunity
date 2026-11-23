@@ -13,6 +13,7 @@ fn affine_scaled_link_bounds_match_the_extracted_snapped_glyphs() {
         canvas,
         ComponentDesc::Canvas(Canvas {
             pixel_perfect: true,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )

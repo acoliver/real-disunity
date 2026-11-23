@@ -26,3 +26,28 @@ pub extern "C" fn disunity_script_messages(
             .map_err(crate::errors::AbiError::from)
     })
 }
+
+/// Sets the execution order of the script bound to `identity`. A phase, a batch of lifecycle
+/// messages and a batch of cleanup deliver `Awake`, `OnEnable`, `Start`, `FixedUpdate`, `Update`,
+/// `LateUpdate`, `OnDisable` and `OnDestroy` to the scripts with the lowest order first, and to
+/// scripts of equal order in the order they were registered, whatever handle slot each took.
+/// Coroutine resumption is not ordered by it. A script never reported has order 0 and a clone
+/// starts with its source's order.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_script_execution_order(
+    world: u64,
+    identity: u64,
+    order: i32,
+) -> DisunityResult {
+    mutate(world, |session| {
+        let script = session
+            .dispatch
+            .scripts
+            .handle_of(identity)
+            .ok_or("script binding missing")?;
+        session
+            .native
+            .set_script_execution_order(script, order)
+            .map_err(crate::errors::AbiError::from)
+    })
+}

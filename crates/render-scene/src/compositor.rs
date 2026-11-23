@@ -41,12 +41,9 @@ mod temporal;
 mod timing;
 mod validation;
 mod water_draws;
-pub use crate::draw::{TerrainDraws, WaterDraws};
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
-#[cfg(test)]
-pub(crate) use game::terrain_probe;
 pub use game::{
     BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
     EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
@@ -59,10 +56,12 @@ pub use game::{
     GameLevel, GamePassSpec, GamePasses, GameReadback, GameResourceError, GameResources,
     GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
     LevelAccess, OcclusionDepth, PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade,
-    SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration, TargetExtent,
-    TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
+    SnapshotImage, SnapshotReads, SnapshotStatistics, StockReplacement, TargetDeclaration,
+    TargetExtent, TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
     prepass_writes_frame_depth,
 };
+#[cfg(test)]
+pub(crate) use game::{declaring_stock, terrain_probe};
 use output::FrameOutput;
 pub use output::FrameProfile;
 pub use stock_plan::StockPlanStatistics;
@@ -118,10 +117,6 @@ pub struct FrameRenderer {
     game_terrain: FrameTerrainHandle,
     /// Where every route lends the scene's resident textures to the game's features.
     game_textures: game::FrameSceneTexturesHandle,
-    /// Whether the stock passes draw the scene's terrain.
-    terrain_draws: TerrainDraws,
-    /// Whether the stock passes draw the scene's water.
-    water_draws: WaterDraws,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -184,8 +179,6 @@ impl FrameRenderer {
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
             game_textures: game::FrameSceneTexturesHandle::default(),
-            terrain_draws: TerrainDraws::Stock,
-            water_draws: WaterDraws::Stock,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -521,7 +514,7 @@ impl FrameRenderer {
                 feature: "water",
                 reason: error.to_string(),
             })?;
-        self.record_water_frame(feature);
+        self.water_state.borrow_mut().feature = feature;
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
@@ -587,8 +580,7 @@ impl FrameRenderer {
             slot: self.frame_slot,
             ssao: self.ssao.as_ref(),
             ssr: self.ssr.as_ref(),
-            water: self.water_draws.drawn(self.water.as_ref()),
-            water_registered: self.water.is_some(),
+            water: self.game.replaces.stock_water(self.water.as_ref()),
             gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),

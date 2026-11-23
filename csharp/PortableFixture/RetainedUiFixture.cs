@@ -14,7 +14,9 @@ internal static class RetainedUiFixture
         Background();
         var canvas = DisunityHost.CreateGameObject();
         var root = canvas.AddComponent<RectTransform>();
-        canvas.AddComponent<Canvas>().sortingOrder = 7;
+        var screen = canvas.AddComponent<Canvas>();
+        screen.renderMode = RenderMode.ScreenSpaceOverlay;
+        screen.sortingOrder = 7;
         // Allocate the front child first: hierarchy, not identity, must determine overlap.
         var front = Rectangle(null, 32);
         var back = Rectangle(root, 48);
@@ -29,7 +31,9 @@ internal static class RetainedUiFixture
         var graphic = Graphic(front, new Color(0, 1, 0, 1));
         graphic.EnableRectClipping(new Rect(-8, -8, 8, 8));
         var behind = Rectangle(null, 64);
-        behind.gameObject.AddComponent<Canvas>().sortingOrder = -3;
+        var underlay = behind.gameObject.AddComponent<Canvas>();
+        underlay.renderMode = RenderMode.ScreenSpaceOverlay;
+        underlay.sortingOrder = -3;
         Graphic(Rectangle(behind, 56), new Color(1, 1, 0, 1));
         var spatial = Rectangle(null, 8);
         spatial.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;

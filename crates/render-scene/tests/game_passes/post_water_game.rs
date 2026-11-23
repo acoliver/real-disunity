@@ -17,7 +17,8 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
         GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
-        PostWaterDepth, SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
+        PostWaterDepth, SnapshotImage, SnapshotReads, StockReplacement, TargetDeclaration,
+        TargetExtent,
     },
     wgpu,
 };
@@ -144,6 +145,8 @@ pub struct Plan {
     pub early_reader: bool,
     /// Samples the depths at [`READER`] into [`PROBE`].
     pub reader: Option<Reading>,
+    /// The stock surfaces the game draws.
+    pub replaces: StockReplacement,
 }
 
 #[derive(Clone)]
@@ -178,6 +181,10 @@ impl GameFeatureFactory for PostWaterGame {
 
     fn snapshot_reads(&self) -> SnapshotReads {
         self.declared
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.plan.replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

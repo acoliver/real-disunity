@@ -147,3 +147,41 @@ fn each_blit_of_one_material_reads_the_texture_set_before_it_through_the_abi() {
         MaterialId::from_bits(0)
     );
 }
+
+#[test]
+fn a_take_record_that_names_a_material_copy_resolves_to_the_state_the_blit_saw() {
+    let world = new_world();
+    let (first, second) = (render_texture(world), render_texture(world));
+    let target = render_texture(world);
+    let material_bits = material(world);
+    set_texture(world, material_bits, first);
+    blit(world, first, target, material_bits);
+    set_texture(world, material_bits, second);
+
+    let mut records = [DisunityOffscreenWork::default(); 1];
+    let mut count = 0;
+    unsafe {
+        assert_eq!(
+            disunity_offscreen_take(world, records.as_mut_ptr(), 1, &mut count).code,
+            0
+        )
+    };
+    assert_eq!(count, 1);
+    let copy = records[0].material;
+    assert_ne!(copy, material_bits, "the edit froze the blit's state into a copy");
+
+    let name = b"_PrimaryTex";
+    let mut read = DisunityPropertyRead::default();
+    let result = unsafe {
+        disunity_shader_property_read(
+            world,
+            SCOPE_MATERIAL,
+            copy,
+            name.as_ptr(),
+            name.len() as u32,
+            &mut read,
+        )
+    };
+    assert_eq!(result.code, 0, "the copy named by the record can be read");
+    assert_eq!(read.texture, first);
+}

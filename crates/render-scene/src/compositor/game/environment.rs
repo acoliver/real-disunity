@@ -68,8 +68,8 @@ pub struct FrameEnvironmentHandle(Lent<Option<FrameEnvironment>>);
 
 impl FrameEnvironmentHandle {
     /// The environment of the frame now being prepared; `None` when the host installed no
-    /// environment cube for the reflections or water. A water cube is lent even while
-    /// `WaterDraws::Suppressed` keeps the stock passes from drawing the water.
+    /// environment cube for the reflections or water. A water cube is lent even while a game
+    /// that declares the water keeps the stock passes from drawing it.
     ///
     /// # Errors
     /// [`FrameInputError::OutsideFrame`] outside a frame, and [`FrameInputError::NotPrepared`]

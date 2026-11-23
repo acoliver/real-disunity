@@ -162,15 +162,7 @@ impl FrameRenderer {
             .map(|screen| screen.rebuilt(device, config.size).unwrap());
         self.install_reflections(device).unwrap();
         if self.water.is_some() {
-            self.chain
-                .register(
-                    device,
-                    Box::new(crate::water::WaterRegistration {
-                        state: self.water_state.clone(),
-                        samples: config.samples,
-                    }),
-                )
-                .unwrap();
+            self.register_water(device).unwrap();
         }
     }
 

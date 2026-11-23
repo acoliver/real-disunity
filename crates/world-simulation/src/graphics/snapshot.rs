@@ -101,6 +101,10 @@ pub struct GraphicsSnapshot {
     /// renderers that were drawable when the record was made. The world makes one for every cull
     /// and for every camera render whose camera it can read; a record with no entry draws nothing.
     pub record_sets: BTreeMap<u32, u32>,
+    /// How many skinned mesh renderers the frame's camera renders and culls would have drawn if
+    /// skinned meshes were drawn, each counted once however many records admit it. They are in no
+    /// set and not in `renderers`; the count lets a host say that they are left out.
+    pub skinned_not_drawn: u32,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
     /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
@@ -155,10 +159,41 @@ impl GraphicsSnapshot {
         snapshot.renderers = drawn.views;
         snapshot.renderer_sets = drawn.sets;
         snapshot.record_sets = captured.records;
+        snapshot.skinned_not_drawn = index_of(captured.skinned);
         snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
         Ok(snapshot)
+    }
+
+    /// Adds the materials `ids` name, their shaders and the buffers they bind to a snapshot, for a
+    /// host that draws with them in a frame whose records do not name them, such as the UI's own
+    /// draws. A material a record of the snapshot already copied keeps that copy. A destroyed
+    /// material or shader is left out. When something is added to a snapshot of a frame with no
+    /// work, the global state and the environment are the world's now.
+    pub fn include_materials(&mut self, world: &World, ids: impl IntoIterator<Item = MaterialId>) {
+        let mut added = false;
+        for id in ids {
+            if self.materials.contains_key(&id) {
+                continue;
+            }
+            let Ok(material) = world.material(id) else {
+                continue;
+            };
+            if let Ok(shader) = world.shader(material.shader) {
+                self.shaders.insert(material.shader, shader.clone());
+            }
+            self.materials.insert(id, material.clone());
+            added = true;
+        }
+        if !added {
+            return;
+        }
+        if self.global.is_none() {
+            self.global = Some(world.global_shader_state().clone());
+            self.environment = world.live_environment();
+        }
+        self.copy_material_buffers(world);
     }
 
     /// The materials the blits, mesh draws and renderers name, and their shaders. A material that

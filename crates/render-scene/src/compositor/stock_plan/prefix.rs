@@ -30,7 +30,6 @@ impl FrameRenderer {
             ssao: Some(source),
             ssr: self.ssr.as_ref(),
             water: None,
-            water_registered: false,
             velocity: self.targets().velocity_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: false,

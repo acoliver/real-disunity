@@ -109,8 +109,6 @@ fn construct_renderer(
         game_camera: super::FrameCameraHandle::default(),
         game_terrain: super::FrameTerrainHandle::default(),
         game_textures: super::game::FrameSceneTexturesHandle::default(),
-        terrain_draws: super::TerrainDraws::Stock,
-        water_draws: super::WaterDraws::Stock,
         ssr: None,
         water: None,
         water_state: std::rc::Rc::default(),

@@ -60,9 +60,7 @@ pub use geometry_statistics::{
 };
 pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
-mod terrain_draws;
 mod terrain_runtime;
-mod water_draws;
 pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 #[cfg(test)]
@@ -71,10 +69,8 @@ pub use streaming::{
     TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
     TerrainChunkViewError, TerrainGeometryRequest,
 };
-pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
-pub use water_draws::WaterDraws;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
@@ -328,8 +324,8 @@ pub struct SceneGpu {
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
-    /// Whether the stock passes draw the terrain; selected by the renderer each frame.
-    terrain_draws: Cell<TerrainDraws>,
+    /// Whether a game feature draws the terrain surface; set by the renderer each frame.
+    terrain_surface_replaced: Cell<bool>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
     player: programs::PlayerWork,
@@ -480,7 +476,7 @@ impl SceneGpu {
             selection_threads: visibility::selection_threads(),
             gather: compaction::Shared::default(),
             terrain,
-            terrain_draws: Cell::new(TerrainDraws::Stock),
+            terrain_surface_replaced: Cell::new(false),
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
             player: programs::PlayerWork::default(),

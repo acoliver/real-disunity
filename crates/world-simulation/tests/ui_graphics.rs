@@ -4,12 +4,15 @@
 use std::sync::Arc;
 
 use glam::UVec2;
-use worldrunner_world_simulation::graphics::{RenderTextureId, WorldRenderTexture, WorldSampler};
+use worldrunner_world_simulation::graphics::{
+    MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderSource, WorldRenderTexture,
+    WorldSampler, WorldShader,
+};
 use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 use worldrunner_world_simulation::ui::{
     Canvas, CanvasGroup, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry,
-    UiGraphic, UiLimits, UiTexture, UiVertex, append_graphics, extract_graphics,
+    UiGraphic, UiLimits, UiMaterial, UiTexture, UiVertex, append_graphics, extract_graphics,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ObjectDesc, ObjectHandle, ParentSpace, UiError, World, WorldSettings,
@@ -447,6 +450,122 @@ fn a_nested_canvas_under_a_camera_canvas_draws_at_its_screen_pixels() {
     }
 }
 
+/// A canvas the game added at run time and never gave a mode, below a plain object it placed in
+/// the world, with a quad on one element.
+fn runtime_canvas_at(
+    world: &mut World,
+    translation: glam::Vec3,
+    scale: f32,
+) -> (ObjectHandle, ObjectHandle) {
+    let parent = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .set_local_transform(
+            parent,
+            worldrunner_world_simulation::LocalTransform {
+                translation,
+                scale: glam::Vec3::splat(scale),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let canvas = element(world, parent);
+    world
+        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .unwrap();
+    let object = element(world, canvas);
+    draw(world, object, renderer(unit_quad()));
+    (canvas, object)
+}
+
+fn camera_object(world: &mut World) {
+    let camera = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(camera, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+}
+
+#[test]
+fn a_canvas_created_without_a_mode_draws_at_its_place_in_the_world() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    camera_object(&mut world);
+    let at = glam::Vec3::new(25.98, 0., -17.89);
+    let (canvas, object) = runtime_canvas_at(&mut world, at, 0.059);
+    let found = graphics(&world);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].object, object);
+    assert_eq!(found[0].canvas, canvas);
+    assert!(!found[0].overlay, "the canvas is drawn in the world");
+    let expected = [[-50., -50.], [50., -50.], [50., 50.], [-50., 50.]];
+    for (corner, offset) in found[0].quads[0].corners.iter().zip(expected) {
+        near(
+            corner,
+            &[at.x + 0.059 * offset[0], at.y + 0.059 * offset[1], at.z],
+        );
+    }
+}
+
+fn material_named(world: &mut World, name: &str, with_source: bool) -> MaterialId {
+    let source = with_source.then(|| ShaderSource {
+        file: "shaders.bundle".into(),
+        path_id: 12,
+    });
+    let shader = world
+        .create_shader(WorldShader {
+            name: name.into(),
+            source,
+        })
+        .unwrap();
+    world.create_material(shader).unwrap()
+}
+
+/// One overlay element whose renderer draws the unit quad with a game material as its slot 0.
+fn element_with_material() -> (World, ObjectHandle, MaterialId) {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let own = material_named(&mut world, "Game/Silhouette", true);
+    let object = element(&mut world, canvas);
+    let drawn = CanvasRenderer {
+        material_count: 1,
+        world_material: Some(own),
+        ..renderer(unit_quad())
+    };
+    draw(&mut world, object, drawn);
+    (world, object, own)
+}
+
+#[test]
+fn a_graphic_names_the_world_material_of_its_renderer() {
+    use worldrunner_world_simulation::ui::{
+        contribution::extract_ui, presentation::UiPresentation,
+    };
+    let (world, _, material) = element_with_material();
+    let expected = UiMaterial {
+        id: material,
+        generation: world.material(material).unwrap().generation,
+    };
+    assert_eq!(graphics(&world)[0].material, Some(expected));
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, VIEWPORT).unwrap();
+    let draws = UiPresentation::from_plan(&plan).draws;
+    assert_eq!(draws.len(), 1);
+    assert_eq!(draws[0].material, Some(expected));
+}
+
+#[test]
+fn a_material_on_an_engine_supplied_shader_is_drawn_natively() {
+    for (name, with_source) in [("Game/Plain", false), ("UI/Default", true)] {
+        let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+        let engine = material_named(&mut world, name, with_source);
+        let object = element(&mut world, canvas);
+        let drawn = CanvasRenderer {
+            material_count: 1,
+            world_material: Some(engine),
+            ..renderer(unit_quad())
+        };
+        draw(&mut world, object, drawn);
+        assert_eq!(graphics(&world)[0].material, None, "{name}");
+    }
+}
+
 fn render_texture(world: &mut World) -> RenderTextureId {
     world
         .create_render_texture(WorldRenderTexture {
@@ -470,6 +589,68 @@ fn over_target(target: RenderTextureId) -> CanvasRenderer {
         graphic_texture: Some(UiTexture::Target(target)),
         ..renderer(unit_quad())
     }
+}
+
+#[test]
+fn canvases_created_without_a_mode_under_different_parents_draw_in_different_places() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    camera_object(&mut world);
+    let first = glam::Vec3::new(10., 0., 4.);
+    let second = glam::Vec3::new(-6., 2., 9.);
+    let (_, near_object) = runtime_canvas_at(&mut world, first, 0.1);
+    let (_, far_object) = runtime_canvas_at(&mut world, second, 0.1);
+    let found = graphics(&world);
+    assert_eq!(found.len(), 2);
+    let centre = |object: ObjectHandle| {
+        let quad = found.iter().find(|g| g.object == object).unwrap().quads[0];
+        let sum = quad
+            .corners
+            .iter()
+            .fold(glam::Vec3::ZERO, |sum, c| sum + glam::Vec3::from(*c));
+        sum / 4.
+    };
+    near(&centre(near_object).to_array(), &first.to_array());
+    near(&centre(far_object).to_array(), &second.to_array());
+}
+
+#[test]
+fn a_destroyed_material_is_no_material() {
+    let (mut world, _, material) = element_with_material();
+    assert!(graphics(&world)[0].material.is_some());
+    world.destroy_material(material).unwrap();
+    assert_eq!(graphics(&world)[0].material, None);
+}
+
+#[test]
+fn a_property_change_gives_the_draw_a_new_material_generation() {
+    let (mut world, _, material) = element_with_material();
+    let before = graphics(&world)[0].material.unwrap();
+    let edit = MaterialEdit::Property(PropertyValue::Float("_Cutoff".into(), 0.5));
+    world.edit_material(material, edit).unwrap();
+    let after = graphics(&world)[0].material.unwrap();
+    assert_eq!(after.id, before.id);
+    assert_ne!(after.generation, before.generation);
+}
+
+#[test]
+fn a_2d_graphic_with_a_game_material_is_left_out() {
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    world
+        .add_component(canvas, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+    let own = material_named(&mut world, "Game/Silhouette", true);
+    let (engine_look, game_look) = (element(&mut world, canvas), element(&mut world, canvas));
+    draw(&mut world, engine_look, renderer(unit_quad()));
+    let drawn = CanvasRenderer {
+        material_count: 1,
+        world_material: Some(own),
+        ..renderer(unit_quad())
+    };
+    draw(&mut world, game_look, drawn);
+    assert_eq!(graphics(&world).len(), 2);
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
+    append_graphics(&mut plan, graphics(&world)).unwrap();
+    assert_eq!(plan.quads.len(), 1, "only the engine's own look is drawn");
 }
 
 #[test]

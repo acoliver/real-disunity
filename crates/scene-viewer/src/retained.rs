@@ -281,6 +281,8 @@ pub struct RetainedHost {
     pub(crate) offscreen: Option<PendingOffscreen>,
     /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
     pub(crate) game_screen: Option<crate::GameScreen>,
+    /// The texture the player's runs of UI draws were drawn into, which the overlay shows.
+    pub(crate) ui_layers: Option<wgpu::Texture>,
     /// The render textures of the player the UI draws read, which the overlay binds.
     pub(crate) ui_targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
     pub(crate) scene: Option<RenderScene>,
@@ -586,6 +588,28 @@ impl RetainedHost {
     /// [`crate::ViewerError::UnsupportedScene`] while the screen can replace that scene.
     pub fn show_game_screen(&mut self, screen: Option<crate::GameScreen>) {
         self.game_screen = screen;
+    }
+
+    /// Offers the texture that holds the runs of UI draws the player drew with a game's shader,
+    /// or withdraws it with `None`. The UI overlay shows each run of it at the sort position of the
+    /// run's first draw (see [`UiOverlay::from_presentation`]), over the screen and the scene. The
+    /// texture is a single-sample `Rgba8UnormSrgb` texture the viewer can sample, its rows bottom
+    /// first as a render texture's are. A texture nothing wrote is transparent. Until the host
+    /// offers one, the overlay's runs are transparent too.
+    ///
+    /// # Errors
+    /// Fails by name when the texture is not such a texture; the previous offer stays.
+    ///
+    /// [`UiOverlay::from_presentation`]: worldrunner_render_scene::simulation::UiOverlay::from_presentation
+    pub fn show_ui_layers(&mut self, layers: Option<wgpu::Texture>) -> Result<(), ViewerError> {
+        if let Some(texture) = &layers {
+            crate::game_screen::require_render_texture(
+                texture,
+                "UI layers that are not a single-sample sampled Rgba8UnormSrgb texture",
+            )?;
+        }
+        self.ui_layers = layers;
+        Ok(())
     }
 
     /// Offers the device textures of the render textures the UI draws read, replacing the earlier

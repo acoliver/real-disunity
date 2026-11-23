@@ -87,6 +87,7 @@ mod sink;
 mod stand_ins;
 mod supplied;
 mod trace;
+mod ui_frame;
 mod volume_assets;
 
 #[cfg(test)]
@@ -103,7 +104,7 @@ pub use builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
     PROJECTION_PARAMS, SCREEN_PARAMS, SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C,
     SPEC_CUBE0_HDR, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_ambient,
-    add_main_light, add_screen_size, camera_layer, draw_layer,
+    add_main_light, camera_layer, draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
@@ -123,6 +124,7 @@ pub use pixels::{
     PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
     REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
 };
+#[cfg(test)]
 pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
@@ -130,3 +132,4 @@ pub use sink::BufferSink;
 pub use stand_ins::{GlobalReads, StandInCounts, StandInReason};
 pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};
+pub use ui_frame::{UiAssets, UiFrame, atlas_id};

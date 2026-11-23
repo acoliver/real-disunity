@@ -1,4 +1,4 @@
-//! What a renderer with suppressed water reports and accepts at the two renderer-level entries
+//! What a renderer whose game draws the water reports and accepts at the two renderer-level entries
 //! that used to treat any installed water as drawn. The capture contract lists the writes the
 //! frame's passes make, so water that no pass draws adds no snapshot or receiver writes unless
 //! something else reads the snapshot banks. The geometry-only `encode` refuses water that the
@@ -7,7 +7,7 @@ use super::taa_end_to_end_tests::{OUTPUT, context};
 use super::temporal_water_tests::{body, frame, scene_bytes};
 use crate::compositor::{
     ConfiguredFrameRenderer, GameBuild, GameFeatureFactory, GamePasses, RendererConfiguration,
-    SnapshotReads, WaterDraws, attachment,
+    SnapshotReads, StockReplacement, attachment, declaring_stock,
 };
 use crate::device::GpuContext;
 use std::sync::Arc;
@@ -23,11 +23,11 @@ use worldrunner_render_post::{
 const EXTENT: [u32; 2] = [64, 64];
 const REFUSAL: &str = "SSAO requires stock geometry composition";
 
-/// An HDR renderer with, when `water`, one body whose draws are `draws`.
-fn settings(water: bool, draws: WaterDraws) -> RendererConfiguration {
+/// An HDR renderer with, when `water`, one body, and the game inventory `game`.
+fn settings(water: bool, game: GamePasses) -> RendererConfiguration {
     let mut settings = RendererConfiguration::new(EXTENT, OUTPUT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(EXTENT, wgpu::TextureFormat::Rgba16Float, 1);
-    settings.water_draws = draws;
+    settings.game_passes = game;
     if water {
         settings.water = vec![body(false)];
     }
@@ -62,20 +62,23 @@ fn keys(
 }
 
 #[test]
-fn gpu_suppressed_water_reports_the_capture_keys_of_a_renderer_without_water() {
+fn gpu_declared_water_reports_the_capture_keys_of_a_renderer_without_water() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (dry_effects, dry_writes) = keys(
         &context,
-        &mut build(&context, settings(false, WaterDraws::Stock)),
+        &mut build(&context, settings(false, GamePasses::new())),
     );
     let (hidden_effects, hidden_writes) = keys(
         &context,
-        &mut build(&context, settings(true, WaterDraws::Suppressed)),
+        &mut build(
+            &context,
+            settings(true, declaring_stock(StockReplacement::WATER)),
+        ),
     );
     let (drawn_effects, drawn_writes) = keys(
         &context,
-        &mut build(&context, settings(true, WaterDraws::Stock)),
+        &mut build(&context, settings(true, GamePasses::new())),
     );
 
     assert_eq!(kinds(&hidden_effects), kinds(&dry_effects), "effect keys");
@@ -89,8 +92,10 @@ fn gpu_suppressed_water_reports_the_capture_keys_of_a_renderer_without_water() {
     assert_eq!(kinds(&drawn_writes), kinds(&dry_writes), "stock write keys");
 }
 
-/// A game feature that reads the opaque colour snapshot and draws nothing.
-struct Reader;
+/// A game feature that reads the opaque colour snapshot and draws nothing, and draws `replaces`.
+struct Reader {
+    replaces: StockReplacement,
+}
 
 struct ReadsSnapshot;
 
@@ -106,6 +111,10 @@ impl GameFeatureFactory for Reader {
             color: true,
             ..SnapshotReads::NONE
         }
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.replaces
     }
 
     fn build(&self, _: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
@@ -134,34 +143,28 @@ impl PreparedFeature for Idle {
 }
 
 #[test]
-fn gpu_suppressed_water_still_lists_the_snapshot_banks_a_game_feature_reads() {
+fn gpu_declared_water_still_lists_the_snapshot_banks_a_game_feature_reads() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let reading = |water: bool, draws: WaterDraws| {
-        let mut settings = settings(water, draws);
-        settings.game_passes = GamePasses::new().with(Arc::new(Reader));
-        settings
+    let reading = |water: bool, replaces: StockReplacement| {
+        settings(water, GamePasses::new().with(Arc::new(Reader { replaces })))
     };
     let (plain, _) = keys(
         &context,
-        &mut build(&context, settings(false, WaterDraws::Stock)),
+        &mut build(&context, settings(false, GamePasses::new())),
     );
     let (dry, _) = keys(
         &context,
-        &mut build(&context, reading(false, WaterDraws::Stock)),
+        &mut build(&context, reading(false, StockReplacement::NONE)),
     );
     let (hidden, _) = keys(
         &context,
-        &mut build(&context, reading(true, WaterDraws::Suppressed)),
+        &mut build(&context, reading(true, StockReplacement::WATER)),
     );
 
     // The reader makes the frame write the colour, depth and final-depth banks.
     assert_eq!(dry.len(), plain.len() + 3, "a reader without water");
-    assert_eq!(
-        kinds(&hidden),
-        kinds(&dry),
-        "a reader with suppressed water"
-    );
+    assert_eq!(kinds(&hidden), kinds(&dry), "a reader with declared water");
 }
 
 /// The declaration of a caller feature that reads the opaque colour snapshot after transparents.
@@ -170,11 +173,14 @@ fn reads_snapshot() -> FeatureDeclaration {
 }
 
 #[test]
-fn gpu_suppressed_water_lists_the_snapshot_banks_once_a_caller_feature_has_read_them() {
+fn gpu_declared_water_lists_the_snapshot_banks_once_a_caller_feature_has_read_them() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let mut renderer = build(&context, settings(true, WaterDraws::Suppressed));
+    let mut renderer = build(
+        &context,
+        settings(true, declaring_stock(StockReplacement::WATER)),
+    );
     let (before, _) = keys(&context, &mut renderer);
     let (opaque, views) = opaque(&renderer);
     let mut output = opaque.clone();
@@ -249,15 +255,18 @@ fn encode(
 }
 
 #[test]
-fn gpu_suppressed_water_encodes_geometry_only_frames_like_a_scene_without_water() {
+fn gpu_declared_water_encodes_geometry_only_frames_like_a_scene_without_water() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let control = encode(
         &context,
-        &mut build(&context, settings(false, WaterDraws::Stock)),
+        &mut build(&context, settings(false, GamePasses::new())),
     )
     .expect("a scene without water encodes");
-    let mut hidden = build(&context, settings(true, WaterDraws::Suppressed));
+    let mut hidden = build(
+        &context,
+        settings(true, declaring_stock(StockReplacement::WATER)),
+    );
     for frame in 0..2 {
         let output = encode(&context, &mut hidden)
             .unwrap_or_else(|error| panic!("frame {frame} refused: {error}"));
@@ -272,7 +281,7 @@ fn gpu_suppressed_water_encodes_geometry_only_frames_like_a_scene_without_water(
 fn gpu_stock_water_still_refuses_geometry_only_frames() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let mut stock = build(&context, settings(true, WaterDraws::Stock));
+    let mut stock = build(&context, settings(true, GamePasses::new()));
     let error = encode(&context, &mut stock).expect_err("stock water needs stock composition");
     assert_eq!(error, FrameError::UnsupportedEffect(REFUSAL));
 }

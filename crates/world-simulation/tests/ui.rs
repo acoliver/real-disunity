@@ -184,8 +184,14 @@ fn viewport() -> UVec2 {
 fn anchors_pivot_nested_scale_and_resize() {
     let mut w = world();
     let root = rect(&mut w, None, RectTransform::default());
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let child = rect(
         &mut w,
         Some(root),
@@ -296,7 +302,13 @@ fn disabled_ancestors_and_canvas_suppress_output() {
     let mut w = world();
     let root = rect(&mut w, None, RectTransform::default());
     let canvas = w
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     rect(&mut w, Some(root), RectTransform::default());
     w.set_active(root, false).unwrap();
@@ -306,6 +318,7 @@ fn disabled_ancestors_and_canvas_suppress_output() {
         canvas,
         ComponentDesc::Canvas(Canvas {
             enabled: false,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )
@@ -409,8 +422,14 @@ fn typed_font_shaping_and_resource_errors() {
 fn a_child_larger_than_its_parent_allows_keeps_a_negative_size() {
     let mut w = world();
     let root = rect(&mut w, None, RectTransform::default());
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let parent = rect(
         &mut w,
         Some(root),

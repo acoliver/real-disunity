@@ -30,6 +30,7 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
             uv_rect: [0., 0., 1., 1.],
             color: [1.; 4],
             texture: Some(UiTexture::Image(identity)),
+            material: None,
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 1,
@@ -184,9 +185,12 @@ fn unavailable_text_coverage_is_still_an_error() {
 #[test]
 fn generic_overlay_still_rejects_unresolved_graphics() {
     let (plan, _) = fixture();
-    let error =
-        worldrunner_render_scene::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new())
-            .unwrap_err();
+    let error = worldrunner_render_scene::simulation::UiOverlay::from_presentation(
+        &plan,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("unresolved UI texture identity"));
 }
 

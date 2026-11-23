@@ -38,10 +38,8 @@ pub(crate) struct Environment<'s> {
     pub slot: usize,
     pub ssao: Option<&'s SceneMetadata>,
     pub ssr: Option<&'s Ssr>,
-    /// The water the stock passes draw. It is `None` while the draws are suppressed.
+    /// The water the stock passes draw. It is `None` while a game feature draws the water.
     pub water: Option<&'s Water>,
-    /// Whether the chain carries the water registration, which plans whether or not it draws.
-    pub water_registered: bool,
     pub velocity: Option<wgpu::Texture>,
     /// The screen-space settings the renderer was configured with.
     pub requested: (Option<SceneSsao>, Option<SceneSsr>),
@@ -142,7 +140,7 @@ pub(crate) fn plan_frame<'s>(
         overlay,
     } = parts;
     let probe = probe(environment, authored, snapshots.as_ref());
-    let cacheable = chain.registered_feature_count() == usize::from(environment.water_registered);
+    let cacheable = chain.registered_feature_count() == usize::from(environment.water.is_some());
     let lookup = if cacheable {
         cache.borrow_mut().frames.lookup(&probe)
     } else {

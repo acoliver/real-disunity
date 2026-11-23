@@ -1,4 +1,5 @@
 //! The state of a canvas renderer: what a UI element submits to be drawn.
+use crate::graphics::MaterialId;
 use crate::ui::UiTexture;
 use crate::ui::geometry::UiGeometry;
 use crate::ui::group::{effective_alpha, groups_by_object};
@@ -43,6 +44,9 @@ pub struct CanvasRenderer {
     pub graphic_texture: Option<UiTexture>,
     /// Slots at or past `material_count` are always 0.
     pub materials: [u64; MAX_CANVAS_MATERIALS],
+    /// The world material of main slot 0, which the presentation draws a graphic with. None
+    /// when slot 0 holds no live world material, and always None when `material_count` is 0.
+    pub world_material: Option<MaterialId>,
     /// Slots at or past `pop_material_count` are always 0.
     pub pop_materials: [u64; MAX_CANVAS_MATERIALS],
 }
@@ -63,6 +67,7 @@ impl Default for CanvasRenderer {
             geometry: None,
             graphic_texture: None,
             materials: [0; MAX_CANVAS_MATERIALS],
+            world_material: None,
             pop_materials: [0; MAX_CANVAS_MATERIALS],
         }
     }
@@ -91,6 +96,9 @@ impl CanvasRenderer {
         }
         let (count, pops) = (slots(self.material_count)?, slots(self.pop_material_count)?);
         self.materials[count..].fill(0);
+        if count == 0 {
+            self.world_material = None;
+        }
         self.pop_materials[pops..].fill(0);
         Ok(self)
     }
@@ -100,7 +108,10 @@ impl CanvasRenderer {
             return Err(UiError::InvalidCanvasRenderer);
         }
         let normal = self.clone().normalized()?;
-        if normal.materials == self.materials && normal.pop_materials == self.pop_materials {
+        if normal.materials == self.materials
+            && normal.pop_materials == self.pop_materials
+            && normal.world_material == self.world_material
+        {
             Ok(())
         } else {
             Err(UiError::InvalidCanvasRenderer)
@@ -108,17 +119,28 @@ impl CanvasRenderer {
     }
 
     /// Sets a main material (`pop` false) or a pop material (`pop` true). The slot must be
-    /// inside the matching count.
-    pub fn with_material(mut self, pop: bool, index: u32, id: u64) -> Result<Self, UiError> {
+    /// inside the matching count. `world` is the world material of the slot; only main slot 0
+    /// holds one, so a write to any other slot with a world material is rejected.
+    pub fn with_material(
+        mut self,
+        pop: bool,
+        index: u32,
+        id: u64,
+        world: Option<MaterialId>,
+    ) -> Result<Self, UiError> {
         let (count, list) = if pop {
             (self.pop_material_count, &mut self.pop_materials)
         } else {
             (self.material_count, &mut self.materials)
         };
-        if index >= count {
+        let holds_world = !pop && index == 0;
+        if index >= count || (world.is_some() && !holds_world) {
             return Err(UiError::InvalidCanvasRenderer);
         }
         list[index as usize] = id;
+        if holds_world {
+            self.world_material = world;
+        }
         Ok(self)
     }
 }

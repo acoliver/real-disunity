@@ -9,7 +9,7 @@ use worldrunner_render_program::unity::offscreen::OffscreenOperations;
 
 use super::{GpuWorkReport, PlayerGpu};
 use crate::PlayError;
-use crate::offscreen::Settling;
+use crate::offscreen::{Assets, Settling, UiFrame};
 
 /// How a frame's operations leave the player.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,9 +37,10 @@ impl PlayerGpu {
     ///
     /// # Errors
     /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
-    /// report, not an error: the player goes on without it.
+    /// report, not an error here: the player goes on without it, and a headless run ends at it
+    /// through `take_refusal`.
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
-        self.frame_with(host, Delivery::Submit).map(drop)
+        self.frame_with(host, Delivery::Submit, None).map(drop)
     }
 
     /// Takes the frame's snapshot and builds its offscreen work for the viewer, which admits it
@@ -52,13 +53,17 @@ impl PlayerGpu {
     /// the window. Operations the viewer replaces before it renders never run, and the viewer
     /// counts only a screen it submitted a write to.
     ///
+    /// `ui` is the work that draws the runs of UI draws a game's shader draws. It runs after the
+    /// frame's own work, into the layer atlas ([`Self::ui_layers`]), in the same operations.
+    ///
     /// # Errors
     /// As [`Self::frame`].
     pub(crate) fn frame_for_viewer(
         &self,
         host: &mut DisunityHost,
+        ui: Option<&UiFrame>,
     ) -> Result<Option<PendingOffscreen>, PlayError> {
-        self.frame_with(host, Delivery::Viewer)
+        self.frame_with(host, Delivery::Viewer, ui)
             .map(|operations| operations.map(OffscreenOperations::into_pending))
     }
 
@@ -66,23 +71,30 @@ impl PlayerGpu {
         &self,
         host: &mut DisunityHost,
         delivery: Delivery,
+        ui: Option<&UiFrame>,
     ) -> Result<Option<OffscreenOperations>, PlayError> {
-        let snapshot = host.graphics_snapshot()?;
+        let mut snapshot = host.graphics_snapshot()?;
+        if let Some(ui) = ui {
+            ui.join(&mut snapshot);
+        }
         self.begin(delivery);
         if snapshot.work.is_empty() {
             let mut report = self.report.borrow_mut();
             // A flush earlier in the update may have drawn into the screen.
-            self.read_for_player(&mut report, delivery);
+            self.note_for_player(delivery, report.frames);
             report.frames += 1;
             return Ok(None);
         }
         let started = Instant::now();
         let mut report = self.report.borrow_mut();
         report.frames_with_work += 1;
+        let host_assets: &dyn Assets = &*host;
+        let ui_assets = ui.map(|ui| ui.assets(host_assets));
+        let assets: &dyn Assets = ui_assets.as_ref().map_or(host_assets, |assets| assets);
         let built = self
             .offscreen
             .borrow_mut()
-            .frame(&snapshot, &*host, delivery.settling());
+            .frame(&snapshot, assets, delivery.settling());
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         let mut handed = None;
         match built {
@@ -97,7 +109,7 @@ impl PlayerGpu {
             }
         }
         report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        self.read_for_player(&mut report, delivery);
+        self.note_for_player(delivery, report.frames);
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(handed)
@@ -111,12 +123,12 @@ impl PlayerGpu {
         }
     }
 
-    /// Reads the screen back for the player's own frames, which have the image written to a file.
-    /// The viewer shows the screen from the GPU, so its frames read nothing.
-    fn read_for_player(&self, report: &mut GpuWorkReport, delivery: Delivery) {
+    /// Numbers the screen for the player's own frames, which have the image written to a file
+    /// from the screen texture. The viewer shows the screen from the GPU, so its frames note
+    /// nothing.
+    fn note_for_player(&self, delivery: Delivery, frame: u64) {
         if delivery == Delivery::Submit {
-            let frame = report.frames;
-            self.read_screen(report, frame);
+            self.note_drawn_screen(frame);
         }
     }
 

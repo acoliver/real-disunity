@@ -1,4 +1,6 @@
+use super::shadowed_capture::scheduler;
 use super::*;
+use crate::compositor::StockReplacement;
 
 fn policy() -> worldrunner_render_shadow::CascadeRefreshPolicy {
     worldrunner_render_shadow::CascadeRefreshPolicy {
@@ -419,9 +421,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
 }
 
 #[test]
-fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_frame() {
-    use crate::compositor::TerrainDraws;
-    use worldrunner_render_shadow::RefreshReason;
+fn gpu_a_game_that_draws_the_terrain_holds_the_retained_cascades() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
@@ -443,88 +443,19 @@ fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_
             .cascade_refresh_states()
             .map(|state| state.last_frame())
     };
-    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(0); 4],
-        "the interval holds the maps"
-    );
-
-    // The same scene, size and light, with the terrain casters dropped from the cascades.
-    scheduler.force_terrain_draws(TerrainDraws::Suppressed);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(2); 4], "suppressing refreshes");
-    assert_eq!(
-        renderer.cascade_refresh_states()[3].last_reason(),
-        Some(RefreshReason::Invalidated)
-    );
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(2); 4],
-        "and then the maps are held"
-    );
-
-    scheduler.force_terrain_draws(TerrainDraws::Stock);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(4); 4],
-        "so does selecting them again"
-    );
-}
-
-#[test]
-fn gpu_casters_only_terrain_holds_the_retained_cascades_and_suppressing_it_refreshes_them() {
-    use crate::compositor::TerrainDraws;
-    use worldrunner_render_shadow::RefreshReason;
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let source = super::cascades::source_with(
-        &super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false),
-        SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 0).unwrap(),
-    );
-    let mut renderer = ShadowedScene::new(
-        &context,
-        &source,
-        DirectionalShadowSettings {
-            refresh_policy: policy(),
-            ..settings()
-        },
-    )
-    .unwrap();
-    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let refreshed = |renderer: &ShadowedScene| {
-        renderer
-            .cascade_refresh_states()
-            .map(|state| state.last_frame())
-    };
-    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
+    let mut stock = scheduler(&context, StockReplacement::NONE);
+    let mut declared = scheduler(&context, StockReplacement::TERRAIN_SURFACE);
+    render_target(&mut renderer, &mut stock, &context, &view(), &target).unwrap();
     let maps = depth_layers(&context, &renderer);
 
-    // The casters are the stock ones, so the retained maps stay.
-    scheduler.force_terrain_draws(TerrainDraws::CastersOnly);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(0); 4], "casters only holds");
+    // The casters are the stock ones whatever draws the camera terrain, so the retained maps
+    // stay in either direction.
+    render_target(&mut renderer, &mut declared, &context, &view(), &target).unwrap();
+    assert_eq!(refreshed(&renderer), [Some(0); 4], "a declaring game holds");
     assert_eq!(maps, depth_layers(&context, &renderer));
-
-    // Returning to the stock draws changes nothing either.
-    scheduler.force_terrain_draws(TerrainDraws::Stock);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(0); 4], "stock holds");
-
-    scheduler.force_terrain_draws(TerrainDraws::CastersOnly);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    scheduler.force_terrain_draws(TerrainDraws::Suppressed);
-    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(4); 4], "suppressing refreshes");
-    assert_eq!(
-        renderer.cascade_refresh_states()[0].last_reason(),
-        Some(RefreshReason::Invalidated)
-    );
+    render_target(&mut renderer, &mut stock, &context, &view(), &target).unwrap();
+    assert_eq!(refreshed(&renderer), [Some(0); 4], "the stock draws hold");
+    assert_eq!(maps, depth_layers(&context, &renderer));
 }
 
 fn translated_view(shift: i64, viewport: crate::Viewport) -> SceneView {

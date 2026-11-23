@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use worldrunner_render_program::ids::RendererId;
 
-use super::frame::Mapper;
+use super::frame::{Mapper, RendererSkip};
 
 /// A set of renderers, with the index the snapshot lists it under so that records which share a
 /// set share a camera of the frame.
@@ -36,5 +36,20 @@ impl Mapper<'_> {
             id,
             renderers: Arc::clone(renderers),
         })
+    }
+}
+
+impl Mapper<'_> {
+    /// Counts the skinned renderers the world left out of every set because their skins name no
+    /// root bone to place them. The snapshot gives each once for the frame.
+    pub(super) fn skinned_renderers(&mut self) {
+        let count = self.snapshot.skinned_not_drawn as usize;
+        if count > 0 {
+            *self
+                .report
+                .renderers_skipped
+                .entry(RendererSkip::SkinnedNotDrawn)
+                .or_default() += count;
+        }
     }
 }

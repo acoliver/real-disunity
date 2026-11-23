@@ -54,6 +54,7 @@ fn play() -> Played {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/readback.fixture"),
         data: data.path().to_owned(),
+        screen: None,
         gpu: GpuLaunch::default(),
     };
     let window = readback_window();

@@ -55,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1" or "portable-ui-triangle-v1" or "portable-ui-target-v1" or "portable-ui-target-draw-v1" or "portable-pipeline-v1" or "portable-readback-v1" or "portable-screen-v1" or "portable-screen-ui-v1" or "portable-screen-count-v1" or "portable-resize-flush-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1" or "portable-ui-triangle-v1" or "portable-ui-target-v1" or "portable-ui-target-draw-v1" or "portable-pipeline-v1" or "portable-readback-v1" or "portable-screen-v1" or "portable-screen-ui-v1" or "portable-screen-count-v1" or "portable-screen-refused-v1" or "portable-resize-flush-v1"))
             {
                 return -2;
             }
@@ -89,6 +89,7 @@ public static class NativeBridge
             if (kind == "portable-pipeline-v1") ProbePipeline.Install();
             if (kind == "portable-readback-v1") ReadbackFixture.Create();
             if (kind == "portable-screen-v1") ScreenFixture.Create();
+            if (kind == "portable-screen-refused-v1") ScreenRefusedFixture.Create();
             if (kind == "portable-screen-ui-v1") ScreenUiFixture.Create();
             if (kind == "portable-screen-count-v1") ScreenCountFixture.Create();
             if (kind == "portable-resize-flush-v1") ResizeFlushFixture.Create();
@@ -234,7 +235,7 @@ public static class NativeBridge
         camera.AddComponent<Camera>();
         var canvas = DisunityHost.CreateGameObject();
         var rect = canvas.AddComponent<RectTransform>();
-        canvas.AddComponent<Canvas>();
+        canvas.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         var label = DisunityHost.CreateGameObject();
         var child = label.AddComponent<RectTransform>();
         child.SetParent(rect, false);

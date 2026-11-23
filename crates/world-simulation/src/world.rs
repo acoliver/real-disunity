@@ -322,7 +322,7 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
-        self.note_drawable_edit(false, desc.decides_drawing());
+        self.note_drawable_edit(None, desc.draw_input());
         self.physics_population.note_stored(&desc);
         self.objects
             .get_mut(object.0)
@@ -384,7 +384,7 @@ impl World {
             .get_mut(handle.0)
             .expect("validated component");
         let previous = std::mem::replace(&mut slot.desc, desc);
-        let (before, after) = (previous.decides_drawing(), slot.desc.decides_drawing());
+        let (before, after) = (previous.draw_input(), slot.desc.draw_input());
         self.note_drawable_edit(before, after);
         self.note_component_replaced(handle, previous);
     }

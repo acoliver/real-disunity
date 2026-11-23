@@ -11,6 +11,25 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
+        ///  `written` receives the number of children. When `capacity` is smaller the call returns
+        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
+        ///  Children without an ABI identity (objects still being constructed) are not listed.
+        ///
+        ///  # Safety
+        ///  `buffer` is writable for `capacity` identities and `written` for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one callback record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_callback_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
+        [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one coroutine identity.
         /// </summary>
@@ -723,23 +742,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_destroy(ulong world, ulong material);
-        /// <summary>
-        ///  Points a material at another live shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
-        /// <summary>
-        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
-        /// <summary>
-        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
-        ///
-        ///  # Safety
-        ///  `name` spans `length` readable bytes.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
     }
 }

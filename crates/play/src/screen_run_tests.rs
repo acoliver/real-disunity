@@ -20,6 +20,7 @@ fn prepared(request: &str) -> (PreparedPlayer, tempfile::TempDir) {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture").join(request),
         data: data.path().to_owned(),
+        screen: None,
         gpu: GpuLaunch::default(),
     };
     (prepared, data)
@@ -180,4 +181,86 @@ fn a_run_with_no_viewer_advances_the_fixture_without_a_screen() {
     let (prepared, _data) = prepared("screen.fixture");
 
     crate::run_player(&prepared, 2, Duration::from_millis(16)).unwrap();
+}
+
+#[test]
+fn a_frame_the_gpu_refuses_ends_the_run_and_no_screen_is_written_for_it_or_after() {
+    let _turn = fixture_turn();
+    let (prepared, _data) = prepared("screen-refused.fixture");
+    let directory = tempfile::tempdir().unwrap();
+    let mut window = window([8, 4], Some(4), &[]);
+    window.capture_files = (0..4)
+        .map(|frame| (frame, directory.path().join(format!("screen-{frame}.png"))))
+        .collect();
+
+    let error = play_player_windowless(&prepared, &window).expect_err("the run is refused");
+
+    // Frame 0 drew the yellow; the clear of frame 1 needs 256 GiB, which no budget has.
+    let message = error.to_string();
+    assert!(message.contains("frame 1"), "{message}");
+    assert!(message.contains("refused by the GPU"), "{message}");
+    assert!(message.contains("over its budget"), "{message}");
+    let mut written: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    written.sort();
+    assert_eq!(written, ["screen-0.png"], "{message}");
+}
+
+/// The size and RGB bytes of a PNG.
+fn decoded(path: &std::path::Path) -> ([u32; 2], Vec<u8>) {
+    let mut reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()))
+        .read_info()
+        .unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut bytes).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgb);
+    bytes.truncate(info.buffer_size());
+    ([info.width, info.height], bytes)
+}
+
+#[test]
+fn a_run_with_no_viewer_writes_the_target_of_the_record_it_is_asked_for() {
+    let _turn = fixture_turn();
+    let (mut prepared, _data) = prepared("screen.fixture");
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("record.png");
+    prepared.screen = Some([8, 4]);
+    prepared.gpu.reads = vec![crate::TargetRead {
+        frame: 0,
+        record: 0,
+        file: file.clone(),
+    }];
+
+    crate::run_player(&prepared, 2, Duration::from_millis(16)).unwrap();
+
+    // The fixture's first record clears the screen to yellow.
+    let (size, bytes) = decoded(&file);
+    assert_eq!(size, [8, 4]);
+    assert!(
+        bytes.chunks_exact(3).all(|texel| texel == YELLOW),
+        "{bytes:?}"
+    );
+}
+
+#[test]
+fn a_read_of_a_frame_the_run_does_not_play_is_refused_before_the_scene_starts() {
+    let _turn = fixture_turn();
+    let (mut prepared, _data) = prepared("screen.fixture");
+    prepared.gpu.reads = vec![crate::TargetRead {
+        frame: 2,
+        record: 0,
+        file: "never.png".into(),
+    }];
+
+    let error = crate::run_player(&prepared, 2, Duration::from_millis(16))
+        .expect_err("the read names a frame past the run");
+
+    assert!(
+        error
+            .to_string()
+            .contains("--read-target frame 2 is not among the 2 frames the run plays"),
+        "{error}"
+    );
 }

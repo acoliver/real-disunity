@@ -57,8 +57,6 @@ pub fn plan_presentation(
     };
     settings.receiver_gradients = policy.receiver_gradients;
     settings.game_passes = policy.game.passes.clone();
-    settings.terrain_draws = policy.game.terrain_draws;
-    settings.water_draws = policy.game.water_draws;
     let pool = policy.pool_bytes(&settings)?;
     let capture_size = recipe_settings(
         size,

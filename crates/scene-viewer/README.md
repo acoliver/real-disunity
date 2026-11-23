@@ -358,14 +358,12 @@ have no surface.
 
 ## Game rendering
 
-`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene`, a `TerrainDraws` choice and a `WaterDraws` choice. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. The viewer does not know what the game draws.
+`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene`. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. A factory that draws the scene's terrain surface or water itself declares it with `GameFeatureFactory::replaces_stock`, and the renderers the viewer builds then skip the stock draws of it. The viewer does not know what the game draws.
 
 ```rust,ignore
 let mut options = ViewerOptions::default();
 options.game = GameRendering {
     passes: GamePasses::new().with(Arc::new(MyGame::new())),
-    terrain_draws: TerrainDraws::Suppressed, // the game's own passes draw the terrain
-    water_draws: WaterDraws::Stock,
 };
 ```
 
@@ -712,6 +710,18 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
 `--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
 after the previous one has finished, so the software rasterizer does not compete with the timed
 thread. The example uses no game assets.
+
+`--clutter N` adds N pieces of clutter to the scene, spread over eight large instance batches.
+With `--edits E` the driver also edits E of them every frame, rounded up to a multiple of three,
+as a game that streams clutter around the camera does: a third are removed, a third are added
+near the camera and a third are recycled to a new spot near it. The edits go through one
+`RetainedUpdate::Objects` in the driver's update, so the timed span includes publishing them to
+the host's tables, the pick snapshot and the renderer's instance batches:
+
+```text
+cargo run --locked --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
+  --frames 300 --warmup 100 --clutter 20000 --edits 300
+```
 
 ## GPU pass timing
 

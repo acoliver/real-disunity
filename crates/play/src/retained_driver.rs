@@ -48,7 +48,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, graphic_textures},
-    scene_census::WhiteReason,
+    scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
@@ -172,7 +172,7 @@ pub fn play_player_windowless(
         },
     )?;
     let (viewer, mut driver) = start_window(prepared, window, options, gpu)?;
-    driver.require_screen();
+    driver.write_frames();
     let ran = run_windowless(viewer, &mut driver, shared);
     finish(driver, ran)
 }
@@ -339,9 +339,10 @@ struct PlayerRetainedDriver {
     reported: BTreeSet<u64>,
     /// Whether the GPU report is printed after every game frame, as a headless run's is.
     report_each_frame: bool,
-    /// Whether a capture of a frame no work drew the game's screen by is an error, rather than
-    /// the stock scene.
-    screen_required: bool,
+    /// Whether the run writes the game's own frames, as a windowless run does. Then a capture of a
+    /// frame no work drew the game's screen by is an error rather than the stock scene, and a
+    /// frame the GPU refuses ends the run rather than leaving the last good image to be captured.
+    writes_frames: bool,
 }
 
 impl PlayerRetainedDriver {
@@ -374,21 +375,24 @@ impl PlayerRetainedDriver {
             size: window.size,
             reported: BTreeSet::new(),
             report_each_frame,
-            screen_required: false,
+            writes_frames: false,
         })
     }
 
-    /// Makes a capture of a frame whose work never drew into the game's screen an error. A
-    /// windowless run writes the game's frame, so the viewer's stock scene is no answer; a window
-    /// shows the stock scene until the game draws.
-    fn require_screen(&mut self) {
-        self.screen_required = true;
+    /// Makes the run one that writes the game's frames: a windowless run has the viewer's stock
+    /// scene in no frame it writes, and a window shows the stock scene until the game draws.
+    fn write_frames(&mut self) {
+        self.writes_frames = true;
     }
 
     /// Prints the GPU report of the run, as a headless run does when it ends, with the census of
     /// the renderers drawn white.
     fn report_gpu(&self) {
-        self.gpu.note_retained(self.tables.census().clone());
+        let census = SubstitutionCensus {
+            ui_game_materials: self.ui.game_material_draws().clone(),
+            ..self.tables.census().clone()
+        };
+        self.gpu.note_retained(census);
         self.gpu.report().print(None);
     }
 
@@ -412,7 +416,20 @@ impl PlayerRetainedDriver {
             self.gpu.report().print(Some(&before));
         }
         shown?;
+        self.check_refusal(frame)?;
         self.capture(viewer)
+    }
+
+    /// Ends a run that writes frames at a frame whose work the GPU refused: what the player drew
+    /// after it is not the game's frame, and a capture of it would show the last good image as if
+    /// it were one.
+    fn check_refusal(&self, frame: u64) -> Result<(), PlayError> {
+        match self.gpu.take_refusal() {
+            Some(refusal) if self.writes_frames => {
+                Err(PlayError::Invalid(format!("frame {frame}: {refusal}")))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Fails when a capture has waited for longer than a run may stall.
@@ -429,7 +446,7 @@ impl PlayerRetainedDriver {
     /// Asks for the frame just shown when the script keeps it.
     fn capture(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
         if let Some(frame) = self.script.due_capture()
-            && self.screen_required
+            && self.writes_frames
             && self.gpu.drawn_screen().is_none()
         {
             return Err(PlayError::Invalid(format!(
@@ -447,6 +464,15 @@ impl PlayerRetainedDriver {
         let objects = self.host.mesh_objects()?;
         let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
+        self.ui.prepare(
+            &mut ui,
+            self.size,
+            &self.sprites,
+            &self.player_textures,
+            |message| {
+                eprintln!("{message}");
+            },
+        );
         // After the meshes are refreshed, as in a headless run, and before the frame's textures
         // and UI go to the viewer, so texels a readback filled this frame show this frame.
         self.show_screen(viewer)?;
@@ -491,11 +517,13 @@ impl PlayerRetainedDriver {
     /// The offer is made every update so a texture a resize replaced or a screen taken away is
     /// withdrawn at once.
     fn show_screen(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
-        if let Some(operations) = self.gpu.frame_for_viewer(&mut self.host)? {
+        if let Some(operations) = self.gpu.frame_for_viewer(&mut self.host, self.ui.frame())? {
             viewer.admit_offscreen(operations);
         }
         viewer.show_game_screen(self.gpu.game_screen());
-        Ok(())
+        viewer
+            .show_ui_layers(self.gpu.ui_layers())
+            .map_err(|error| PlayError::Invalid(error.to_string()))
     }
 
     /// Offers the viewer the render textures the UI's draws read, as the player's device holds them

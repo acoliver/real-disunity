@@ -3,8 +3,9 @@
 //!
 //! A mesh keeps the vertex channels the managed engine stored it with, under their own numbers,
 //! which are the numbers the shaders' vertex input tables use: 0 position, 1 normal, 2 tangent,
-//! 3 colour, 4 to 11 the texture coordinate sets 0 to 7. Blend weights and indices (12 and 13)
-//! are not inputs of this renderer and are left out.
+//! 3 colour, 4 to 11 the texture coordinate sets 0 to 7, 12 blend weights and 13 blend indices
+//! (four floats each, the indices as floats). A pass reads the blend channels of a skinned mesh as
+//! it reads any other channel.
 
 use worldrunner_disunity_runtime::{
     DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureDimension, TextureSampler,
@@ -21,8 +22,6 @@ use super::layer_assets::{Layered, layers_of};
 use super::volume_assets::volume_of;
 use crate::textures::{PlayerTextureError, player_rgba8};
 
-/// The first channel number that is not a vertex input here: blend weights.
-const FIRST_SKIN_CHANNEL: u32 = 12;
 /// The vertex channel numbers of the positions and of the first texture coordinate set.
 pub const POSITION: i8 = 0;
 pub const TEXTURE_COORDINATES: i8 = 4;
@@ -257,9 +256,6 @@ pub fn mesh_of(stored: &MeshChannels) -> Result<Mesh, MeshError> {
     }
     let mut channels = Vec::new();
     for channel in &stored.channels {
-        if channel.number >= FIRST_SKIN_CHANNEL {
-            continue;
-        }
         let format = format_of(channel.number, channel.dimension)?;
         let expected = vertices * channel.dimension as usize;
         if channel.data.len() != expected {

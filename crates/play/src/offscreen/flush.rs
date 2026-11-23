@@ -32,7 +32,7 @@ use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime, TextureHandle};
 use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 use worldrunner_render_program::unity::offscreen::{
-    OffscreenError, OffscreenOperations, OffscreenState,
+    CameraDraws, ListDraws, OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, OffscreenWork};
 
@@ -48,6 +48,7 @@ use super::probe::{BeforeDispatch, Probe};
 use super::screen::ScreenImage;
 use super::screen::writes_screen;
 use super::sink::BufferSink;
+use super::taps;
 use super::trace::WorkTrace;
 
 mod parts;
@@ -371,12 +372,12 @@ impl OffscreenHost {
             left_out: report
                 .camera_draws
                 .iter()
-                .map(|c| c.unmatched + c.missing_texture + c.missing_channel + c.feedback_loop)
+                .map(CameraDraws::left_out)
                 .sum::<usize>()
                 + report
                     .list_draws
                     .iter()
-                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
+                    .map(ListDraws::left_out)
                     .sum::<usize>(),
             live_before,
             live_after: self.runtime.live_bytes(),
@@ -413,6 +414,7 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         settling: Settling,
+        reads: &[crate::TargetRead],
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
         let live_before = self.runtime.live_bytes();
         self.release_frame_buffers();
@@ -432,6 +434,7 @@ impl OffscreenHost {
             .report
             .count_many("materialbuffer:BufferUpload", uploaded.refused);
         adapted.report.phases.adapt = started.elapsed();
+        taps::arrange(&mut adapted, reads);
         if adapted.frame.records.is_empty() {
             self.release_frame_buffers();
             self.note(("frame", live_before), &adapted.report, None);

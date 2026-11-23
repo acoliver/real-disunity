@@ -118,6 +118,8 @@ pub(super) struct CameraSetup {
     pub(super) view: Mat4,
     pub(super) projection: Mat4,
     pub(super) viewport: [f32; 4],
+    /// The orthographic half height of the camera, when the snapshot holds it.
+    pub(super) half_height: Option<f32>,
 }
 
 /// What a target names as attachments: the textures whose color buffers are drawn into, in order,
@@ -233,6 +235,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DisableScissor => "DisableScissor",
         OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawMeshBatch { .. } => "DrawMeshBatch",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
@@ -284,6 +287,13 @@ impl Mapper<'_> {
                 (*material, *pass),
                 (block.as_deref(), *instances),
             ),
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                submesh,
+                pass,
+                batch,
+            } => self.draw_mesh_batch((*mesh, *submesh), (*material, *pass), batch),
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,
@@ -327,6 +337,7 @@ impl Mapper<'_> {
                 let globals = &mut self.script.globals;
                 match temporary {
                     Some((name, input)) => {
+                        globals.layer.none_textures.remove(&name);
                         globals.layer.textures.insert(name, input);
                     }
                     None => set_value(&mut globals.layer, value, &mut self.textures),
@@ -650,17 +661,15 @@ impl Mapper<'_> {
     ) -> Result<(), Skip> {
         // The world copies the cameras that camera renders name, so a camera set up alone may be
         // absent; it then has the whole target.
-        let viewport = self
-            .snapshot
-            .cameras
-            .get(&camera)
-            .map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
+        let held = self.snapshot.cameras.get(&camera);
+        let viewport = held.map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
         self.script.camera = Some(CameraSetup {
             target,
             buffers,
             view: Mat4::from_cols_array(view),
             projection: Mat4::from_cols_array(projection),
             viewport,
+            half_height: held.map(|held| held.settings.half_height),
         });
         self.script.viewport = None;
         self.script.raster.end_scissor();
@@ -711,6 +720,7 @@ impl Mapper<'_> {
                     view,
                     projection,
                     viewport: [0.0, 0.0, 1.0, 1.0],
+                    half_height: None,
                 });
             }
         }

@@ -309,7 +309,9 @@ impl OffscreenAdapter {
 /// The identities of the meshes the snapshot's renderers and mesh draws name.
 fn named_meshes(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
     let drawn = snapshot.work.iter().filter_map(|work| match work {
-        OffscreenWork::DrawMesh { mesh, .. } => Some(*mesh),
+        OffscreenWork::DrawMesh { mesh, .. } | OffscreenWork::DrawMeshBatch { mesh, .. } => {
+            Some(*mesh)
+        }
         _ => None,
     });
     snapshot
@@ -435,7 +437,7 @@ pub fn build(
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
     let started = Instant::now();
-    let operations = match state.build_naming_record(runtime, arena, &adapted.frame) {
+    let operations = match state.build(runtime, arena, &adapted.frame) {
         Ok(operations) => operations,
         Err(first) => {
             let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, first);
@@ -512,6 +514,9 @@ fn rebuild_without_unusable_parts(
     first: Refusal,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
+    // Leaving records out renumbers the ones after them, so a read could land on another record.
+    adapted.frame.taps.clear();
+    adapted.report.reads.clear();
     let over_budget = is_over_budget(&first.error);
     if over_budget && adapted.report.holdings.is_empty() {
         adapted.report.holdings = holdings::describe(runtime);
@@ -529,13 +534,13 @@ fn rebuild_without_unusable_parts(
     if over_budget {
         match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
-            Err(error) if is_over_budget(&error) => return Err(error),
+            Err(refusal) if is_over_budget(&refusal.error) => return Err(refusal.error),
             Err(_) => {}
         }
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
 }
 
 /// Leaves out the record the state refused and builds the frame again, for as long as the state
@@ -550,7 +555,7 @@ fn rebuild_without_named_records(
 ) -> Result<OffscreenOperations, OffscreenError> {
     let mut index = named;
     while drop_record_refused_alone(state, runtime, arena, adapted, index) {
-        match state.build_naming_record(runtime, arena, &adapted.frame) {
+        match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
             Err(refusal) if refusal.error.is_frame_wide() => return Err(refusal.error),
             Err(Refusal {
@@ -561,7 +566,19 @@ fn rebuild_without_named_records(
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
+}
+
+/// Builds what is left of the frame once its unusable parts are out.
+fn build_rest(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &Adapted,
+) -> Result<OffscreenOperations, OffscreenError> {
+    state
+        .build(runtime, arena, &adapted.frame)
+        .map_err(|refusal| refusal.error)
 }
 
 /// Builds the record at `index` alone, with the globals in force for it. When the state refuses
@@ -617,6 +634,7 @@ fn part(
         render_textures: textures.to_vec(),
         records,
         later_reads: Vec::new(),
+        taps: Vec::new(),
         ..frame.clone()
     }
 }

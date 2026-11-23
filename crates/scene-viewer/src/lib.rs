@@ -123,12 +123,9 @@ pub struct ViewerOptions {
 /// its persistent targets survive replacement. The viewer itself knows nothing of what they draw.
 #[derive(Clone, Debug, Default)]
 pub struct GameRendering {
-    /// The game's feature factories and the targets they declare.
+    /// The game's feature factories and the targets they declare. A factory that draws the
+    /// scene's terrain surface or water itself declares it, and the stock passes then skip it.
     pub passes: worldrunner_render_scene::compositor::GamePasses,
-    /// Whether the stock passes draw the scene's terrain. The terrain stays resident either way.
-    pub terrain_draws: worldrunner_render_scene::compositor::TerrainDraws,
-    /// Whether the stock passes draw the scene's water. The water stays resident either way.
-    pub water_draws: worldrunner_render_scene::compositor::WaterDraws,
 }
 
 /// Presentation policy, independent of GPU submission admission.

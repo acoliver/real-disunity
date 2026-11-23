@@ -91,6 +91,7 @@ fn start_fixture(request: &str, window: &PlayerWindow) -> Started {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture").join(request),
         data: data.path().to_owned(),
+        screen: None,
         gpu: GpuLaunch::default(),
     };
     let (mut shared, options) = headless::shared([SIZE, SIZE]);
@@ -159,6 +160,7 @@ fn first_update_after_resize_flushes_into_resized_screen() {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/resize-flush.fixture"),
         data: data.path().to_owned(),
+        screen: None,
         gpu: GpuLaunch::default(),
     };
     let (mut shared, options) = headless::shared([SIZE, SIZE]);

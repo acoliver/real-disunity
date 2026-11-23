@@ -618,6 +618,18 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("padding").ToInt32() != 60) throw new InvalidOperationException("DisunityRenderTexture.padding offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 64) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
         if (Marshal.SizeOf<DisunityRenderTexture>() != 72 || typeof(DisunityRenderTexture).GetFields().Length != 17) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("mesh").ToInt32() != 0) throw new InvalidOperationException("DisunityDrawBatch.mesh offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("material").ToInt32() != 8) throw new InvalidOperationException("DisunityDrawBatch.material offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("buffer").ToInt32() != 16) throw new InvalidOperationException("DisunityDrawBatch.buffer offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("offset").ToInt32() != 24) throw new InvalidOperationException("DisunityDrawBatch.offset offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("size").ToInt32() != 32) throw new InvalidOperationException("DisunityDrawBatch.size offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("submesh").ToInt32() != 40) throw new InvalidOperationException("DisunityDrawBatch.submesh offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("pass").ToInt32() != 44) throw new InvalidOperationException("DisunityDrawBatch.pass offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("metadata_count").ToInt32() != 48) throw new InvalidOperationException("DisunityDrawBatch.metadata_count offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("names_len").ToInt32() != 52) throw new InvalidOperationException("DisunityDrawBatch.names_len offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("visible_count").ToInt32() != 56) throw new InvalidOperationException("DisunityDrawBatch.visible_count offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("tags_len").ToInt32() != 60) throw new InvalidOperationException("DisunityDrawBatch.tags_len offset");
+        if (Marshal.SizeOf<DisunityDrawBatch>() != 64 || typeof(DisunityDrawBatch).GetFields().Length != 11) throw new InvalidOperationException("DisunityDrawBatch layout");
         if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("render").ToInt32() != 8) throw new InvalidOperationException("DisunityTargetRef.render offset");
@@ -765,13 +777,15 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_a").ToInt32() != 148) throw new InvalidOperationException("DisunityUiDraw.effect_a offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("texture_kind").ToInt32() != 152) throw new InvalidOperationException("DisunityUiDraw.texture_kind offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("padding").ToInt32() != 156) throw new InvalidOperationException("DisunityUiDraw.padding offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 160 || typeof(DisunityUiDraw).GetFields().Length != 38) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material").ToInt32() != 160) throw new InvalidOperationException("DisunityUiDraw.material offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material_generation").ToInt32() != 168) throw new InvalidOperationException("DisunityUiDraw.material_generation offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 176 || typeof(DisunityUiDraw).GetFields().Length != 40) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 25;
+    internal const uint Version = 29;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

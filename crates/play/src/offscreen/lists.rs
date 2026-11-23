@@ -31,13 +31,13 @@ use std::sync::Arc;
 use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
+use worldrunner_render_program::unity::offscreen::frame::{DrawList, Instances, ListDraw, Record};
 use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 use worldrunner_world_simulation::shadows::{CASTS_NO_SHADOW, SHADOWS_ONLY};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
-use super::builtins::{add_screen_size, view_layer};
+use super::builtins::view_layer;
 use super::frame::{
     LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
 };
@@ -60,8 +60,9 @@ const NO_CASTER_PASS: &str = "no shadow caster pass";
 const NO_SHADOW_CAST: &str = "casts no shadow";
 const SHADOWS_ONLY_LEFT_OUT: &str = "casts shadows only";
 
-/// The winding that counts as a front face for a list or a mesh draw. The image is the other way
-/// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
+/// The winding that counts as a front face for every draw the player plans: camera renders, lists,
+/// mesh and procedural draws. It follows from the clip-space Y the stages write (see
+/// `camera::clip_from_gl`).
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
@@ -77,7 +78,7 @@ impl ShaderInfo {
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
-    fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
+    pub(super) fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
             self.has_light_mode(tag)
                 || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
@@ -220,10 +221,12 @@ impl<'a> Mapper<'a> {
         match &self.script.camera {
             Some(setup) if !fills_target(setup.viewport) => Err(Skip::PartialViewport),
             Some(setup) => {
-                let mut values = view_layer(&setup.view, &setup.projection);
-                if let Some(size) = self.target_size() {
-                    add_screen_size(&mut values, size);
-                }
+                let values = view_layer(
+                    &setup.view,
+                    &setup.projection,
+                    self.target_size(),
+                    setup.half_height,
+                );
                 Ok((values, setup.view.inverse().w_axis.truncate()))
             }
             None => Ok((PropertyLayer::default(), Vec3::ZERO)),
@@ -438,7 +441,7 @@ impl<'a> Mapper<'a> {
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
-                    instances: 1,
+                    instances: Instances::Count(1),
                     per_draw: item_values(main, layer),
                 }
             })

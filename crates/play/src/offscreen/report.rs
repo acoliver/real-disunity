@@ -43,6 +43,8 @@ pub struct Report {
     pub built: usize,
     /// The dispatches among the records. They are not frame records; see [`Placed`].
     pub dispatches: usize,
+    /// The record and what it is, for each `--read-target` the frame was asked for.
+    pub reads: Vec<(usize, String)>,
     pub skipped: BTreeMap<Skip, usize>,
     pub renderers_skipped: BTreeMap<RendererSkip, usize>,
     /// The `GraphicsFormat` codes of the render textures the frame uses.

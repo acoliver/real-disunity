@@ -57,6 +57,7 @@ fn material_slot(work: &mut OffscreenWork) -> Option<&mut MaterialId> {
             ..
         }
         | OffscreenWork::DrawMesh { material, .. }
+        | OffscreenWork::DrawMeshBatch { material, .. }
         | OffscreenWork::DrawProcedural { material, .. } => Some(material),
         _ => None,
     }

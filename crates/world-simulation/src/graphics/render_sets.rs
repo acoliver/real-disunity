@@ -7,8 +7,8 @@
 //! renderer that is drawable when the snapshot is taken but was not when a record was made is in no
 //! set, so no record draws it.
 //!
-//! A set holds the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an
-//! object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
+//! A set holds the mesh and skinned renderers that are enabled, not forced off, have a drawn mesh and
+//! sit on an object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
 //! of one mask share a set while nothing that decides drawability changes; `drawable_epoch` counts
 //! those changes.
 //!
@@ -18,20 +18,42 @@
 
 use std::collections::BTreeMap;
 
+use glam::Mat4;
+
 use super::OffscreenWork;
 use crate::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectHandle, RendererKind, World,
+    WorldError,
 };
 
+/// What a component contributes to a renderer being drawable. A component that contributes
+/// nothing is not any set's concern, whether it is absent or only present.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DrawInput {
+    /// A mesh renderer of the mesh kind that is enabled and not forced off.
+    ShownRenderer,
+    /// A skinned mesh renderer that is enabled, not forced off and names a drawn mesh.
+    ShownSkinned,
+    /// A mesh filter that has a drawn mesh. Which mesh it is does not matter to a set: the mesh
+    /// is read when the snapshot is taken.
+    MeshedFilter,
+}
+
 impl ComponentDesc {
-    /// Whether this component takes part in deciding which renderers draw: a mesh renderer that is
-    /// enabled, not forced off and of the mesh kind, or a mesh filter that has a drawn mesh. A
-    /// component that does not is no set's concern, whether it is absent or only present.
-    pub(crate) fn decides_drawing(&self) -> bool {
+    /// What this component contributes to deciding which renderers draw, or `None` when it
+    /// contributes nothing: a mesh renderer that is enabled and not forced off, a skinned one
+    /// only when it names a drawn mesh, or a mesh filter that has a drawn mesh. A component that
+    /// contributes nothing is no set's concern, whether it is absent or only present.
+    pub(crate) fn draw_input(&self) -> Option<DrawInput> {
         match self {
-            Self::MeshRenderer(renderer) => shows(renderer),
-            Self::MeshFilter(filter) => filter_draws(filter).is_some(),
-            _ => false,
+            Self::MeshRenderer(renderer) if !renderer.shows() => None,
+            Self::MeshRenderer(renderer) => match renderer.kind {
+                RendererKind::Mesh => Some(DrawInput::ShownRenderer),
+                RendererKind::Skinned => renderer.own_mesh().map(|_| DrawInput::ShownSkinned),
+                RendererKind::Particle => None,
+            },
+            Self::MeshFilter(filter) => filter_draws(filter).map(|_| DrawInput::MeshedFilter),
+            _ => None,
         }
     }
 }
@@ -42,13 +64,6 @@ impl ComponentDesc {
 /// most once, and the world holds at most `max_components` components, a `u32`.
 pub(super) fn index_of(count: usize) -> u32 {
     u32::try_from(count).expect("a frame's records, sets and renderers are fewer than 2^32")
-}
-
-/// Whether `renderer` is a mesh renderer that is enabled and not forced off.
-fn shows(renderer: &MeshRenderer) -> bool {
-    renderer.kind == RendererKind::Mesh
-        && renderer.switches.enabled
-        && !renderer.switches.force_rendering_off
 }
 
 /// The mesh a mesh filter draws, or `None` when it has none. Which mesh it is does not matter to
@@ -96,16 +111,20 @@ impl RenderSets {
 impl World {
     /// Notes that a change may have altered which renderers are drawable: an object's activity,
     /// parent or layer, or a component that decides drawing (see
-    /// [`ComponentDesc::decides_drawing`]).
+    /// [`ComponentDesc::draw_input`]).
     pub(crate) fn note_drawables_changed(&mut self) {
         self.graphics.drawable_epoch += 1;
     }
 
-    /// Notes a component going from deciding drawing or not (see
-    /// [`ComponentDesc::decides_drawing`]) to `after`, where a component that was not there or is
-    /// not there now does not decide it. Only a change in whether it decides drawing alters the
-    /// drawable renderers.
-    pub(crate) fn note_drawable_edit(&mut self, before: bool, after: bool) {
+    /// Notes a component going from the draw input `before` to `after` (see
+    /// [`ComponentDesc::draw_input`]), where a component that was not there or is not there now
+    /// contributes none. Only a change of draw input alters the drawable renderers, and that
+    /// includes a renderer replaced by one of another kind, which a flag could not tell apart.
+    pub(crate) fn note_drawable_edit(
+        &mut self,
+        before: Option<DrawInput>,
+        after: Option<DrawInput>,
+    ) {
         if before != after {
             self.note_drawables_changed();
         }
@@ -168,27 +187,69 @@ impl World {
                 let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
                     return None;
                 };
-                let layer = self.object_layer(component.object).ok()?;
-                let admitted = mask
-                    .checked_shr(u32::from(layer))
-                    .is_some_and(|bits| bits & 1 == 1);
-                (admitted
-                    && self.drawn_mesh(component.object, renderer).is_some()
-                    && self.active_in_hierarchy(component.object).ok()?)
+                (self.admits(mask, component.object)
+                    && self.drawn_mesh(component.object, renderer).is_some())
                 .then_some(component.handle)
             })
             .collect()
     }
 
-    /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not a
-    /// mesh renderer that is enabled and not forced off, or its object has no drawn mesh. Whether
-    /// the object is active is a separate question.
+    /// Whether `object` is active in the hierarchy on a layer `mask` admits.
+    fn admits(&self, mask: u32, object: ObjectHandle) -> bool {
+        let Ok(layer) = self.object_layer(object) else {
+            return false;
+        };
+        mask.checked_shr(u32::from(layer))
+            .is_some_and(|bits| bits & 1 == 1)
+            && self.active_in_hierarchy(object).unwrap_or(false)
+    }
+
+    /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not
+    /// enabled and not forced off, or has no drawn mesh. Whether the object is active is a separate
+    /// question.
     fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
-        if shows(renderer) {
-            self.filter_mesh(object)
+        if renderer.shows() {
+            self.renderer_mesh(object, renderer)
         } else {
             None
         }
+    }
+
+    /// The identity of the mesh `renderer` on `object` names, whatever its switches say: a mesh
+    /// renderer's is its object's mesh filter's, a skinned renderer's its own, and a particle
+    /// renderer has none. Every list of drawn renderers asks here, so they agree.
+    pub(crate) fn renderer_mesh(
+        &self,
+        object: ObjectHandle,
+        renderer: &MeshRenderer,
+    ) -> Option<u64> {
+        match renderer.kind {
+            RendererKind::Mesh => self.filter_mesh(object),
+            RendererKind::Skinned => renderer.own_mesh(),
+            RendererKind::Particle => None,
+        }
+    }
+
+    /// The matrix that places the mesh of `renderer` on `object`. A mesh renderer's mesh is in its
+    /// own object's space. A skinned renderer is drawn in its bind pose, where every bone's matrix
+    /// times its bind pose is the matrix the mesh was bound at, so the root bone's matrix times the
+    /// root bone's bind pose places it. `None` when the skin names no root bone or the root bone is
+    /// gone: the skin then does not say where the mesh goes, and the renderer is left out.
+    ///
+    /// # Errors
+    /// Fails when the world cannot describe the object of a mesh renderer.
+    pub(crate) fn renderer_placement(
+        &self,
+        object: ObjectHandle,
+        renderer: &MeshRenderer,
+    ) -> Result<Option<Mat4>, WorldError> {
+        if renderer.kind != RendererKind::Skinned {
+            return self.presented_matrix(object).map(Some);
+        }
+        Ok(renderer.skin.root.and_then(|root| {
+            let bone = self.presented_matrix(root.bone).ok()?;
+            Some(bone * Mat4::from_cols_array(&root.bind_pose))
+        }))
     }
 
     /// The drawn mesh of the object's mesh filter, when it has one with a mesh.

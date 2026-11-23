@@ -1,5 +1,4 @@
 //! Runs a built Unity player's scene headless in the managed host.
-use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -21,6 +20,7 @@ use crate::PlayError;
 use crate::offscreen::{StandInLook, SuppliedGlobal};
 use crate::plan_differences::shader_difference_lines;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
+use crate::target_read::TargetRead;
 use crate::{
     driver::FIRST_COVERAGE_TEXTURE,
     gpu_player::{GpuLaunch, PlayerGpu},
@@ -33,20 +33,23 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
     /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
     pub data: PathBuf,
-    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, the storage
-    /// budget and whether it reports after every frame.
+    /// The size the player reads as its screen, which a headless run presents its frames at and
+    /// draws its screen texture in; `None` when the launch gave none.
+    pub screen: Option<[u32; 2]>,
+    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, whether it
+    /// reports after every frame and the target reads.
     pub gpu: GpuLaunch,
 }
 
 /// How a player is started besides its files: the command line after its executable path,
 /// the size of the window the frame is drawn into, which is the size the player's `Screen`
-/// reports (a headless run gives none), and extra native plugin directories the player
+/// reports (a run with no viewer gives none unless it reads targets), and extra native plugin directories the player
 /// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
 /// values `--global` supplies; they reach the GPU work only, not the request, and so do
-/// `stand_ins` (how the stand-in textures look), `gpu_storage_mb` (the storage budget in MiB, in
-/// place of the adapter's) and `report_each_frame`. The default has no arguments, no window, no
-/// extra plugins and no globals, and the declared stand-ins, the adapter's budget and a report at
-/// the end only.
+/// `stand_ins` (how the stand-in textures look), `report_each_frame` and `read_targets` (the
+/// records whose targets a headless run writes to files). The default has no arguments, no
+/// window, no extra plugins and no globals, and the declared stand-ins and a report at the end
+/// only.
 #[derive(Clone, Copy, Default)]
 pub struct PlayerLaunch<'a> {
     pub arguments: &'a [String],
@@ -54,8 +57,8 @@ pub struct PlayerLaunch<'a> {
     pub plugins: &'a [PathBuf],
     pub globals: &'a [SuppliedGlobal],
     pub stand_ins: StandInLook,
-    pub gpu_storage_mb: Option<NonZeroU64>,
     pub report_each_frame: bool,
+    pub read_targets: &'a [TargetRead],
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -109,11 +112,12 @@ pub fn prepare_player(
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
+        screen: launch.screen,
         gpu: GpuLaunch {
             globals: launch.globals.to_vec(),
             stand_ins: launch.stand_ins,
-            storage_mb: launch.gpu_storage_mb,
             report_each_frame: launch.report_each_frame,
+            reads: launch.read_targets.to_vec(),
         },
     })
 }
@@ -338,23 +342,29 @@ fn gpu_unavailable(reason: &str) -> PlayError {
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
 /// player's offscreen work on a device and no viewer: the run measures the game and its GPU work
-/// and shows nothing. The error names the step that failed: the missing GPU, starting the scene or
-/// the frame that failed. A run that writes frames is a windowless run
-/// ([`play_player_windowless`](crate::play_player_windowless)).
+/// and shows nothing. It presents its frames at the screen size `prepared` carries, else at a small
+/// window's, and writes each `--read-target` read its frame names. The error names the step that
+/// failed: the missing GPU, starting the scene or the frame that failed. A run that writes frames
+/// is a windowless run ([`play_player_windowless`](crate::play_player_windowless)).
 ///
 /// # Errors
 /// Fails naming the reason when the machine has no GPU adapter or device, when the scene cannot
-/// start, and at a frame that fails.
+/// start, when a read names a frame the run does not play, and at a frame that fails, including a
+/// frame or flush the GPU refuses (the error names the refusal).
 pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     let gpu = player_gpu(prepared)?;
+    TargetRead::check_frames(&prepared.gpu.reads, frames).map_err(PlayError::Invalid)?;
+    gpu.set_reads(prepared.gpu.reads.clone());
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     gpu.install(&mut host)?;
+    gpu.set_screen(prepared.screen);
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
+    let viewport = prepared.screen.unwrap_or(PRESENTED_SIZE);
     let mut times = Vec::new();
     for frame in 0..frames {
         let stand_ins_before = gpu.report().stand_ins.clone();
@@ -362,8 +372,12 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
-            .and_then(|()| present_meshes(&mut host, &mut meshes))
-            .and_then(|()| gpu.frame(&mut host));
+            .and_then(|()| present_meshes(&mut host, &mut meshes, viewport))
+            .and_then(|()| gpu.frame(&mut host))
+            .and_then(|()| match gpu.take_refusal() {
+                Some(refusal) => Err(PlayError::Invalid(refusal)),
+                None => Ok(()),
+            });
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it. The
         // counts are the run's so far, except the stand-in census, which is the frame's own.
@@ -381,6 +395,12 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     }
     report_times(&times);
     gpu.report().print(None);
+    let unwritten = gpu.report().reads_unwritten;
+    if result.is_ok() && unwritten > 0 {
+        result = Err(PlayError::Invalid(format!(
+            "{unwritten} --read-target reads wrote no file; the errors above name each"
+        )));
+    }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
@@ -409,10 +429,14 @@ pub(crate) fn report_times(times: &[Duration]) {
 /// The size a headless run presents its frames at: a small window's.
 const PRESENTED_SIZE: [u32; 2] = [960, 540];
 
-/// Prepares the frame's presentation at the headless size and brings its meshes in, so a headless
-/// run reports what the player shows in 3D.
-fn present_meshes(host: &mut DisunityHost, meshes: &mut PlayerMeshes) -> Result<(), PlayError> {
-    host.export_presentation(PRESENTED_SIZE, FIRST_COVERAGE_TEXTURE)?;
+/// Prepares the frame's presentation at `viewport` and brings its meshes in, so a headless run
+/// reports what the player shows in 3D.
+fn present_meshes(
+    host: &mut DisunityHost,
+    meshes: &mut PlayerMeshes,
+    viewport: [u32; 2],
+) -> Result<(), PlayError> {
+    host.export_presentation(viewport, FIRST_COVERAGE_TEXTURE)?;
     let objects = host.mesh_objects()?;
     meshes.refresh(host, &objects)
 }

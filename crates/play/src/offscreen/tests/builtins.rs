@@ -11,8 +11,8 @@ use worldrunner_world_simulation::presentation::{Camera, LightKind, LightSetting
 use super::super::builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
     PROJECTION_PARAMS, SCREEN_PARAMS, SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C,
-    SPEC_CUBE0_HDR, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size,
-    camera_layer, draw_layer,
+    SPEC_CUBE0_HDR, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_main_light, camera_layer,
+    draw_layer,
 };
 use super::super::camera::projection;
 use super::super::frame::{Settings, adapt};
@@ -73,7 +73,7 @@ fn a_camera_supplies_its_view_and_position() {
         world_matrix: Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)).to_cols_array(),
         target_buffers: None,
     };
-    let layer = camera_layer(&view, 1.0);
+    let layer = camera_layer(&view, [1, 1]);
     // Facing +Z from (1, 2, 3), the point (1.5, 2.5, 5) is 0.5 right, 0.5 up and 2 ahead, and
     // the view looks down -Z.
     let found = transform(&matrix(&layer, VIEW), [1.5, 2.5, 5.0, 1.0]);
@@ -97,7 +97,7 @@ fn the_camera_position_follows_a_view_a_script_set() {
         world_matrix: IDENTITY,
         target_buffers: None,
     };
-    let layer = camera_layer(&view, 1.0);
+    let layer = camera_layer(&view, [1, 1]);
     assert_eq!(
         layer.values.get(CAMERA_POSITION),
         Some(&PropertyValue::Vector([7.0, 0.0, 0.0, 0.0]))
@@ -279,16 +279,23 @@ fn an_orthographic_view_sets_the_ortho_flag_and_a_perspective_view_clears_it() {
         ..orthographic
     };
     for (settings, flag) in [(orthographic, 1.0), (perspective, 0.0), (overridden, 0.0)] {
-        let layer = camera_layer(&at(settings), 2.0);
-        assert_close(&vector(&layer, ORTHO_PARAMS), &[0.0, 0.0, 0.0, flag]);
+        let layer = camera_layer(&at(settings), [2, 1]);
+        assert_close(&vector(&layer, ORTHO_PARAMS)[3..], &[flag]);
     }
 }
 
 #[test]
-fn the_screen_size_is_the_target_size_in_pixels() {
-    let mut layer = PropertyLayer::default();
-    add_screen_size(&mut layer, [640, 360]);
-    assert_close(&vector(&layer, SCREEN_PARAMS), &[640.0, 360.0, 0.0, 0.0]);
+fn the_screen_params_hold_the_target_size_in_pixels_and_its_reciprocals_plus_one() {
+    let view = CameraView {
+        settings: Camera::default(),
+        world_matrix: IDENTITY,
+        target_buffers: None,
+    };
+    let layer = camera_layer(&view, [640, 360]);
+    assert_close(
+        &vector(&layer, SCREEN_PARAMS),
+        &[640.0, 360.0, 1.0 + 1.0 / 640.0, 1.0 + 1.0 / 360.0],
+    );
 }
 
 #[test]
@@ -306,8 +313,8 @@ fn a_camera_render_carries_its_target_size_and_projection_kind() {
         &Settings::default(),
     );
     let values = &adapted.frame.cameras[&CameraId(0)].values;
-    assert_close(&vector(values, SCREEN_PARAMS), &[8.0, 4.0, 0.0, 0.0]);
-    assert_close(&vector(values, ORTHO_PARAMS), &[0.0, 0.0, 0.0, 1.0]);
+    assert_close(&vector(values, SCREEN_PARAMS), &[8.0, 4.0, 1.125, 1.25]);
+    assert_close(&vector(values, ORTHO_PARAMS), &[10.0, 5.0, 0.0, 1.0]);
 }
 
 #[test]
@@ -347,8 +354,14 @@ fn the_projection_params_hold_the_screen_y_sign_and_the_near_plane() {
         ..perspective
     };
     for (settings, near) in [(perspective, 0.5), (orthographic, 0.3), (scripted, 2.0)] {
-        let layer = camera_layer(&at(settings), 2.0);
-        assert_close(&vector(&layer, PROJECTION_PARAMS), &[1.0, near, 0.0, 0.0]);
+        let layer = camera_layer(&at(settings), [2, 1]);
+        let found = vector(&layer, PROJECTION_PARAMS);
+        assert_close(&found[..1], &[1.0]);
+        assert!(found[2] > found[1], "{found:?}");
+        assert!(
+            (found[1] - near).abs() <= 1.0e-5 * near.max(1.0),
+            "{found:?}"
+        );
     }
 }
 
@@ -364,7 +377,7 @@ fn a_projection_without_a_near_plane_leaves_the_projection_params_missing() {
         target_buffers: None,
     };
     assert!(
-        camera_layer(&view, 1.0)
+        camera_layer(&view, [1, 1])
             .values
             .get(PROJECTION_PARAMS)
             .is_none()

@@ -420,6 +420,7 @@ PlayerMeshStoreTests.Run();
 PlayerMeshLiveMaterialTests.Run();
 PlayerMeshChannelTests.Run();
 SkinnedMeshTests.Run();
+SkinnedPrefabTests.Run();
 PlayerSamplerTests.Run();
 
 EnabledTests.Run();

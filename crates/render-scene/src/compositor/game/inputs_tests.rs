@@ -111,7 +111,11 @@ impl FrameFeature for Placer {
 
 fn renderer(context: &GpuContext, place: bool) -> (ConfiguredFrameRenderer, Seen) {
     let seen = Seen::default();
-    let mut settings = RendererConfiguration::legacy(EXTENT, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        EXTENT,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     settings.game_passes = GamePasses::new().with(Arc::new(Probe {
         seen: seen.clone(),
         place,

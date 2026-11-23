@@ -123,8 +123,9 @@ fn encode_two_opaque_entries(
                 device,
                 encoder,
                 (&[first, next], &views),
+                None,
                 &mut features,
-                (prepared, None),
+                &(prepared, None),
             )
         })
         .map_err(|error| match error {

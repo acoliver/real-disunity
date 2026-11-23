@@ -11,7 +11,7 @@ enum Setter {
 fn assert_corner_colors_rejected(setter: Setter, overlay: bool) {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let authority = SubmissionAuthority::new(queue);
-    let pipelines = ScenePipelines::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let pipelines = ScenePipelines::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb, 1).unwrap();
     let mut scene = SceneGpu::empty(&device, &authority, &pipelines).unwrap();
     let ordinary = DynamicQuad::default();
     scene

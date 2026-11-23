@@ -129,7 +129,11 @@ fn smaa_is_a_resolve_that_enables_the_display_path_and_excludes_fxaa() {
     // One resolve is selected, so SMAA carries no FXAA strength and vice versa.
     assert_eq!(settings.resolve.fxaa_strength(), None);
     assert_eq!(settings.resolve.active_fxaa(), None);
-    assert!(PostResolve::fxaa(1.0).active_smaa().is_none());
+    assert!(
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default())
+            .active_smaa()
+            .is_none()
+    );
     let bad = HdrPostSettings {
         resolve: PostResolve::Smaa(SmaaSettings {
             threshold: 0.0,

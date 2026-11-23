@@ -239,8 +239,9 @@ fn missing_snapshot_version_fails_before_retained_preparation() {
         context.device(),
         &mut encoder,
         (&[opaque], &[color, depth]),
+        None,
         &mut [],
-        (FrameUniform::new(&fixture_view(), None).unwrap(), None),
+        &(FrameUniform::new(&fixture_view(), None).unwrap(), None),
     );
     assert_eq!(result, Err(FrameError::MissingProducer(resource)));
     assert_eq!(prepared.get(), 0);

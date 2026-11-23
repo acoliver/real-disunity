@@ -6,7 +6,7 @@ use worldrunner_render_plan::{SceneFoldSampling, SceneTerrainContact, SceneTint}
 fn fold_only_preserves_surface_channels_at_local_heights_and_raised_placements() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for height in [-500, 0, 500, 2000] {
         let base = super::fold_translucency::folded_scene(height);
         let mut materials = base.resources().materials().to_vec();

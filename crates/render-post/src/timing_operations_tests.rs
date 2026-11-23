@@ -71,6 +71,7 @@ fn run(timed: bool) -> (Vec<u8>, Vec<crate::FrameTiming>, TimingSupport) {
         FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
         Resources::default(),
         Factory,
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let support = if timed {
@@ -183,6 +184,7 @@ fn a_positioned_group_is_timed_between_the_passes_around_it() {
         FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
         Resources::default(),
         Factory,
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let support = chain

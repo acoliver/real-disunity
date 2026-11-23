@@ -182,8 +182,11 @@ fn scene(bodies: Vec<SceneWaterBody>, textures: Vec<SceneTexture>) -> RenderScen
     .unwrap()
 }
 fn configuration(samples: u32, bodies: Vec<SceneWaterBody>) -> RendererConfiguration {
-    let mut config = RendererConfiguration::legacy([32, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
-    config.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut config = RendererConfiguration::new(
+        [32, 32],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     config.frame = FrameConfig::new([32, 32], wgpu::TextureFormat::Rgba16Float, samples);
     config.water = bodies;
     config
@@ -215,7 +218,7 @@ fn encode(
             FrameUniform::new(&fixture_view(), None).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 fn map(bytes: Vec<u8>) -> SceneTexture {
@@ -234,7 +237,7 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
     let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let (bodies, source) = authored_scene();
-        let pipelines = crate::renderer::ScenePipelines::with_samples(
+        let pipelines = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
             samples,
@@ -255,7 +258,7 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
         .unwrap();
         let mut outputs = Vec::new();
         for time in [0.0, 0.375] {
-            renderer.set_frame_time(time).unwrap();
+            renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
             encode(&context, &mut renderer, &mut gpu, &pipelines);
             let (normal, _, _) = renderer.water_receivers().unwrap();
             let bytes =
@@ -291,7 +294,7 @@ fn configured_environment_survives_extent_replacement() {
         body.color_micro = [0; 3];
         body.absorption_micro = [10_000_000; 3];
         let source = scene(vec![body.clone()], vec![]);
-        let pipelines = crate::renderer::ScenePipelines::with_samples(
+        let pipelines = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
             samples,

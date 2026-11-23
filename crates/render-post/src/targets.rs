@@ -193,41 +193,13 @@ pub const TEMPORAL_MASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg8Un
 pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
 impl FrameTargets {
-    pub fn new(device: &wgpu::Device, config: FrameConfig) -> Result<Self, PostError> {
-        Self::with_velocity(device, config, false)
-    }
-
-    /// As [`Self::new`], also allocating the velocity attachment when `velocity` is true.
+    /// Allocates the resolved colour and depth, the optional attachments `options` selects and
+    /// the depth ownership allocation `scene_depth` selects.
     ///
-    /// The attachment sits beside the depth: same extent and sample count, never resolved
-    /// (averaging the residuals of two objects has no meaning), and the TAA resolve reads it
-    /// per sample. A host clears it to zero, which means "camera reprojection only".
-    pub fn with_velocity(
-        device: &wgpu::Device,
-        config: FrameConfig,
-        velocity: bool,
-    ) -> Result<Self, PostError> {
-        Self::with_options(
-            device,
-            config,
-            TargetOptions {
-                velocity,
-                temporal_mask: false,
-            },
-        )
-    }
-
-    /// As [`Self::new`], with the optional attachments `options` selects.
-    pub fn with_options(
-        device: &wgpu::Device,
-        config: FrameConfig,
-        options: TargetOptions,
-    ) -> Result<Self, PostError> {
-        Self::with_scene_depth(device, config, options, SceneDepth::Independent)
-    }
-
-    /// As [`Self::with_options`], with an explicit depth ownership allocation.
-    pub fn with_scene_depth(
+    /// The velocity attachment sits beside the depth: same extent and sample count, never
+    /// resolved (averaging the residuals of two objects has no meaning), and the TAA resolve
+    /// reads it per sample. A host clears it to zero, which means "camera reprojection only".
+    pub fn new(
         device: &wgpu::Device,
         config: FrameConfig,
         options: TargetOptions,
@@ -378,11 +350,7 @@ impl FrameTargets {
     }
 
     /// Resolve retained scene samples without altering their values.
-    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
-        self.encode_resolve_timed(encoder, None);
-    }
-
-    pub(crate) fn encode_resolve_timed(
+    pub(crate) fn encode_resolve(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,

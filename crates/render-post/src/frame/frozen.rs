@@ -11,17 +11,14 @@
 //! attachments differ from what its feature declared ([`FrameError::AttachmentContract`]) and a
 //! target written twice in one pass ([`FrameError::AttachmentHazard`]).
 use super::{
-    AttachmentLoad, FeatureDeclaration, FrameError, GamePlace, PassDeclaration, PassEntry,
-    PassSlot, ResourceRef,
+    FeatureDeclaration, FrameError, GamePlace, PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 /// Refuses a frozen plan whose entries are listed in an order the stock passes cannot run in.
 ///
 /// # Errors
-/// [`FrameError::StockOrder`] for a role listed before a role it must follow,
-/// [`FrameError::IncompleteDepth`] for a read of the opaque depth before it is complete, and
-/// [`FrameError::AttachmentContract`] for an `OpaqueGbuffer` producer that tests depth the depth
-/// prefix has not completed.
+/// [`FrameError::StockOrder`] for a role listed before a role it must follow, and
+/// [`FrameError::IncompleteDepth`] for a read of the opaque depth before it is complete.
 ///
 /// The depth prefix is the depth/normal prepass and the game's passes after it
 /// ([`GamePlace::AfterDepthPrepass`]); the last of them that writes a depth completes it.
@@ -30,21 +27,17 @@ pub(crate) fn validate_stock_order(
     features: &[FeatureDeclaration],
 ) -> Result<(), FrameError> {
     validate_role_order(passes)?;
-    validate_gbuffer_depth(passes, features)?;
     validate_opaque_depth(passes, features)
 }
 
 /// Whether the stock passes of `slot` need every entry of the role `earlier` listed before them.
 ///
-/// The lighting pass lights what the G-buffer pass stored. Opaque loads what the lighting pass
-/// wrote, the colour and the reflection products it takes over, and draws over them. The
-/// reflection trace and the screen-space resolve read those products, so the lighting pass and
-/// Opaque must have finished them. Contours attach depth read-only; resource validation alone
+/// The reflection trace and the screen-space resolve read the reflection products Opaque writes,
+/// so Opaque must have finished them. Contours attach depth read-only; resource validation alone
 /// cannot establish that every Opaque entry has finished writing it.
 ///
 /// The game's passes after the depth prepass load what the prepass wrote, and every pass that
-/// reads the depth prefix (the depth pyramid, the occlusion metadata, SSAO, the G-buffer and
-/// Opaque) must see what they added. Resource validation alone cannot establish that: those
+/// reads the depth prefix (the depth pyramid, the occlusion metadata, SSAO and Opaque) must see what they added. Resource validation alone cannot establish that: those
 /// passes read products the prepass already produced.
 ///
 /// The game's passes before post are the frame's last colour writers: every other role, stock
@@ -63,17 +56,13 @@ const fn must_follow(slot: PassSlot, earlier: PassSlot) -> bool {
         | PassSlot::Ssao
         | PassSlot::SsaoBlurHorizontal
         | PassSlot::SsaoBlur
-        | PassSlot::OpaqueGbuffer => {
+        | PassSlot::Opaque => {
             matches!(earlier, PassSlot::Game(GamePlace::AfterDepthPrepass))
         }
-        PassSlot::OpaqueLighting => matches!(earlier, PassSlot::OpaqueGbuffer),
-        PassSlot::Opaque => matches!(
-            earlier,
-            PassSlot::OpaqueLighting | PassSlot::Game(GamePlace::AfterDepthPrepass)
-        ),
-        PassSlot::ContourIds => matches!(earlier, PassSlot::Opaque),
-        PassSlot::ReflectionTrace | PassSlot::ScreenSpaceAfterTransparent => {
-            matches!(earlier, PassSlot::OpaqueLighting | PassSlot::Opaque)
+        PassSlot::ContourIds
+        | PassSlot::ReflectionTrace
+        | PassSlot::ScreenSpaceAfterTransparent => {
+            matches!(earlier, PassSlot::Opaque)
         }
         _ => false,
     }
@@ -105,39 +94,6 @@ fn validate_role_order(passes: &[PassDeclaration]) -> Result<(), FrameError> {
                 pass: pass.entry(),
                 needs: needs.entry(),
             });
-        }
-    }
-    Ok(())
-}
-
-/// A G-buffer producer that tests depth in `OpaqueGbuffer` tests the depth the depth prefix
-/// completed, read-only, so that depth ownership stays with the prefix and Opaque.
-fn validate_gbuffer_depth(
-    passes: &[PassDeclaration],
-    features: &[FeatureDeclaration],
-) -> Result<(), FrameError> {
-    let producers = features
-        .iter()
-        .flat_map(|feature| &feature.passes)
-        .filter(|pass| pass.slot == PassSlot::OpaqueGbuffer && pass.depth_format.is_some());
-    for producer in producers {
-        let Some((index, pass)) = passes
-            .iter()
-            .enumerate()
-            .find(|(_, pass)| pass.entry() == producer.entry())
-        else {
-            // Frame validation names an entry no pass declares.
-            continue;
-        };
-        let completed = pass
-            .depth
-            .as_ref()
-            .filter(|depth| depth.read_only && depth.load == AttachmentLoad::Load)
-            .is_some_and(|depth| {
-                prefix_depth_writer(passes, depth.resource).is_some_and(|writer| writer < index)
-            });
-        if !completed {
-            return Err(FrameError::AttachmentContract(producer.entry()));
         }
     }
     Ok(())

@@ -24,8 +24,7 @@ fn staged(quads: &[DynamicQuad]) -> Staged {
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("actual GPU required");
     let pipelines =
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba8UnormSrgb, 1)
-            .unwrap();
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba8UnormSrgb, 1).unwrap();
     let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let view = SceneView::orthographic(
         CameraPose {
@@ -139,8 +138,7 @@ fn quads_staged_for_one_pass_are_prepared_for_another_before_its_pass_opens() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&two_groups());
     let hdr =
-        ScenePipelines::with_samples(staged.context.device(), wgpu::TextureFormat::Rgba16Float, 4)
-            .unwrap();
+        ScenePipelines::new(staged.context.device(), wgpu::TextureFormat::Rgba16Float, 4).unwrap();
     let frame = staged
         .context
         .submission()

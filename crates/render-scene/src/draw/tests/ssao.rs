@@ -247,7 +247,7 @@ pub(super) fn capture_metadata(
             FrameUniform::new(&view, source.effects()).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     assert_observations(&gpu, source);
     let read = |texture: &wgpu::Texture| read_texture(context, size, texture);

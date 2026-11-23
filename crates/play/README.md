@@ -2,7 +2,7 @@
 
 `worldrunner-play` runs Snake, Pong or Breakout from its original Unity scene in a window.
 It fetches the game with `worldrunner-original-games`, plans the scene with `unity-import`, compiles the game's scripts unchanged with `csharp/OriginalGames`, and loads the scene through the `csharp/Disunity.Play` bridge.
-Each frame advances the world and draws its presentation in the desktop host from `worldrunner-scene-viewer`.
+Each frame advances the world and shows its presentation in the retained host's window from `worldrunner-scene-viewer` (`play_game_window`, which applies a `RetainedUpdate::World` per frame).
 
 ## Command line
 
@@ -453,7 +453,8 @@ A script's synchronous flush still runs and waits in its own submission, between
 A script's `Texture2D.ReadPixels` after a `Graphics.Blit` therefore fills its texture, and `Apply` stores the new texels under a higher generation, which `PlayerTextures::refresh` and the UI's image generations pick up in the same frame.
 What the player asks of an adapter (storage images, buffer size from the storage budget, block compression, filterable 32-bit floats) is one function in `gpu_device.rs`, used by the headless player, the compute census and the window.
 Each startup snapshots host `MemAvailable` once, so repeated device requests in that startup use identical inputs while retaining the adaptive budget policy.
-The live driver (`PlayDriver`, the original games) has no hook that gives the player the viewer's device, so the live driver does not run the offscreen work yet.
+The original games' driver (`play_game_window`) draws 2D worlds through `RetainedUpdate::World`, has no player GPU and runs no offscreen work.
+Both drivers share the window script (`window_script.rs`): scheduled keys, the step of each update, requested captures and the update after which the window closes.
 Headless runs without `--screen` keep the player's own device and its submit-and-wait path (`gpu_player/frame.rs`); a `--screen` run keeps that path for its frames and makes its device through the viewer instead (see "Headless screen frames").
 
 `play_player_window` draws built-player mesh objects and screen-space overlay UI
@@ -471,11 +472,13 @@ A texture stored
 later becomes visible without changing the UI draw.
 A UI draw whose material has a shader of the game's own (a shader with a source
 other than `UI/Default`) is drawn by that shader: the player records the runs of such draws
-as offscreen work after the game's own work, into a layer texture the size of the screen, and
+as offscreen work after the game's own work, into a layer texture that is the size of the screen while the runs fit it and grows (up to
+the device's texture limit) when they do not, and
 the overlay shows that texture where each run sorts. The run report counts the draws by shader
-name in one line, `UI draws with a game material by shader (last frame)`. A run that does not
-fit the layer texture is named once as
-`UI material <id> (shader <name>) is left out: its run does not fit the layer atlas`.
+name in one line, `UI draws with a game material by shader (last frame)`. A run is left out only
+when its size cannot be had on the device (a side beyond the texture limit, or a texture
+already full at that limit) and is named once as
+`UI material <id> (shader <name>) is left out: its run of <w>x<h> pixels does not fit the layer atlas, which grows to at most <n> pixels a side`.
 Draws on the engine's own look (a material with no shader source, or `UI/Default`) are
 unchanged.
 Other images, text and 3D

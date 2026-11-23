@@ -269,18 +269,6 @@ These integer scene types carry no GPU dependency. `render-scene` translates the
 into the existing three-pass post resolve without automatic projection jitter.
 There is no serialized SMAA field. CMAA2 is not exposed by `SceneAntiAlias`.
 
-`SceneEffects::with_opaque_path` defaults to `SceneOpaquePath::Forward`.
-It admits one experiment, `SceneOpaquePath::GBUFFER_OBSERVATION`, which is
-`experiment(Observe, Terrain, Compact, MaterialOwnedDepth)`: the renderer allocates
-the compact deferred G-buffer, clears it every frame before Opaque and exposes it
-to captures, while the visible frame stays forward. Every other
-`SceneOpaquePath::Experiment` tuple returns
-`SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
-The target layout and the shared WGSL interface are described in the
-[render-scene README](../render-scene/README.md#deferred-g-buffer).
-The CPU admission census is a separate explicit query on
-`RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
-
 ## Shared specular environment
 
 `SceneEffects::with_environment` selects an optional `SceneEnvironment` by texture

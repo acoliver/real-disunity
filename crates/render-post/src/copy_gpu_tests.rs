@@ -21,7 +21,12 @@ fn invalid_frame_targets_fail_without_gpu_validation_errors() {
         ),
     ] {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let result = FrameTargets::new(&device, FrameConfig::new([8, 8], format, samples));
+        let result = FrameTargets::new(
+            &device,
+            FrameConfig::new([8, 8], format, samples),
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        );
         let validation = pollster::block_on(scope.pop());
         assert_eq!(result.err(), Some(expected));
         assert!(
@@ -54,6 +59,7 @@ fn copy_texture_load_preserves_float32_without_requiring_filterability() {
                 config,
                 Resources::default(),
                 CopyOutput::new(&device, format),
+                crate::SceneDepth::Independent,
             )
             .unwrap();
             let output = color_texture(&device, "float32 copy", config.size, format);
@@ -101,6 +107,7 @@ fn hdr_four_sample_resolve_and_copy_preserve_values_outside_unorm_range() {
         FrameConfig::new([17, 9], format, 4),
         Resources::default(),
         factory.clone(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     for size in [[17, 9], [5, 3]] {
@@ -141,7 +148,13 @@ fn copy_rejects_integer_sources_without_gpu_validation_errors() {
         wgpu::TextureFormat::Rgba8Sint,
     ] {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let targets = FrameTargets::new(&device, FrameConfig::new([8, 8], format, 1)).unwrap();
+        let targets = FrameTargets::new(
+            &device,
+            FrameConfig::new([8, 8], format, 1),
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         assert!(targets.resolve().is_none());
         let result = CopyOutput::new(&device, wgpu::TextureFormat::Rgba8Unorm).build(
             &device,
@@ -175,6 +188,7 @@ fn copy_rejects_non_float_or_non_renderable_outputs_without_gpu_validation_error
             FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
             Resources::default(),
             CopyOutput::new(&device, format),
+            crate::SceneDepth::Independent,
         );
         let validation = pollster::block_on(scope.pop());
         assert_eq!(result.err(), Some(PostError::CopyOutputFormat(format)));
@@ -198,6 +212,7 @@ fn copy_preserves_pattern_orientation_alpha_and_every_srgb_code() {
             config,
             Resources::default(),
             CopyOutput::new(&device, format),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         let pipeline = pattern_pipeline(&device, format);
@@ -341,4 +356,85 @@ fn clear_hdr(encoder: &mut wgpu::CommandEncoder, targets: &FrameTargets) {
         })],
         ..wgpu::RenderPassDescriptor::default()
     });
+}
+
+/// A game's finished screen shown the way play's window shows it: the screen is sampled into
+/// the `Rgba16Float` scene colour, which the `ToneMap::Clamp` output writes to an sRGB target.
+/// Every 8-bit code reaches the output unchanged.
+#[test]
+fn a_screen_through_the_clamp_output_keeps_every_srgb_code() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let size = [257, 3];
+    let screen_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let screen = color_texture(&device, "game screen", size, screen_format);
+    let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, 1);
+    let chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        crate::ToneMapOutput::new(screen_format, 1.0, crate::ToneMap::Clamp).unwrap(),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
+    let copy = CopyOutput::bottom_first(&device, config.format)
+        .source(
+            &device,
+            &crate::AttachmentView::new(crate::ResourceRef::new("game screen"), &screen).unwrap(),
+        )
+        .unwrap();
+    let output = color_texture(&device, "window", size, screen_format);
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    fullscreen_pass(
+        &mut encoder,
+        Some("screen pattern"),
+        wgpu::RenderPassColorAttachment {
+            view: &screen.create_view(&wgpu::TextureViewDescriptor::default()),
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        },
+        &pattern_pipeline(&device, screen_format),
+        &[],
+    );
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("screen into scene colour"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: chain.targets().scene(),
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        copy.record(&mut pass);
+    }
+    chain.encode(
+        &mut encoder,
+        &output.create_view(&wgpu::TextureViewDescriptor::default()),
+    );
+    queue.submit([encoder.finish()]);
+    let readable = FrameConfig::new(size, screen_format, 1);
+    let mut readback = Readback::new(&device, readable, 1024 * 1024).unwrap();
+    let shown = readback
+        .read(&device, &crate::test_authority(&queue), &output)
+        .unwrap();
+    let drawn = readback
+        .read(&device, &crate::test_authority(&queue), &screen)
+        .unwrap();
+    let row = 257 * 4;
+    for y in 0..3 {
+        // The screen's first stored row is its bottom row.
+        let source = &drawn[(2 - y) * row..(3 - y) * row];
+        let window = &shown[y * row..(y + 1) * row];
+        assert_eq!(window, source, "row {y}");
+    }
+    let red: std::collections::BTreeSet<_> = drawn.chunks_exact(4).map(|pixel| pixel[0]).collect();
+    assert_eq!(red.len(), 256, "the pattern exercises every code");
 }

@@ -51,10 +51,9 @@ mod contact;
 mod contours;
 pub(crate) mod decals;
 pub(crate) use contours::ContourDraw;
+pub use decals::validate_decal_materials;
 pub(crate) use lent_meshes::LentLevel;
 pub(crate) use lent_meshes::LentMesh;
-mod deferred;
-pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
 mod lent_meshes;
@@ -127,8 +126,6 @@ enum Route {
     Prepass,
     /// The capture terms: objects and terrain only.
     Capture,
-    /// The G-buffer slot: objects and terrain only.
-    Gbuffer,
 }
 
 #[cfg(test)]
@@ -337,8 +334,6 @@ pub struct SceneGpu {
     frame_slots: Vec<(Buffer, BindGroup)>,
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
-    /// The lighting records the material uniforms index, for deferred lighting.
-    lighting_records: crate::gbuffer::lighting::SceneRecords,
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
@@ -447,7 +442,7 @@ impl SceneGpu {
         let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
             worldrunner_render_plan::TextureAnisotropy::default(),
         ));
-        let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
+        let (material_uniforms, material_imports) = resources::upload_materials(
             device,
             queue,
             scene,
@@ -502,7 +497,6 @@ impl SceneGpu {
             frame_buffer: frame_slots[0].0.clone(),
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
             arena,
             meshes,
@@ -566,39 +560,6 @@ impl SceneGpu {
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
             .drawn
-    }
-
-    /// Records the terrain and objects the camera selected into the G-buffer slot with
-    /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
-    /// the one the prepass and the colour pass draw. In observation the caller publishes
-    /// nothing for it; when the frame renders from the G-buffer it stands in for the colour
-    /// pass's draw of the same surfaces.
-    pub(crate) fn draw_gbuffer(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        group: &BindGroup,
-    ) -> ColorDraw {
-        pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer)
-    }
-
-    /// Records what Opaque still draws when the frame renders from the G-buffer: the sky, the
-    /// celestial meshes and the dynamic meshes, which have no G-buffer producer, over the lit
-    /// colour with `pipelines`, the colour pass's pipelines. Terrain and objects were stored
-    /// in the G-buffer and lit before this pass. Returns the sky's draw count.
-    pub(crate) fn draw_forward_remainder(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-    ) -> DrawCount {
-        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
-            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
-        }
-        let frame = self.drawing_uniform();
-        let selected = self.selected_pipelines(pipelines, &frame);
-        let frame_group = self.drawing_frame_group();
-        self.draw_forward_tail(pass, &frame_group, &selected)
     }
 
     /// The forward pass's draws after terrain and objects.
@@ -707,7 +668,6 @@ impl SceneGpu {
         ColorDraw {
             drawn,
             terrain,
-            terrain_bound,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),
             ssao: ReceiverBindings::new(

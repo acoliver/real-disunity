@@ -59,7 +59,7 @@ fn render(reflections: bool, velocity: bool) -> Vec<u8> {
         source.effects(),
     )
     .unwrap();
-    let upload = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
+    let upload = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let selected = if velocity {
         ScenePipelines::with_taa_velocity(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap()
     } else {

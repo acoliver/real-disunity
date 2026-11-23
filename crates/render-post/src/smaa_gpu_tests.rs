@@ -380,7 +380,11 @@ fn smaa_and_fxaa_stage_timestamps() {
     let cmaa2 = PostResolve::cmaa2;
     for (name, resolve, sharpen) in [
         ("none", PostResolve::None, None),
-        ("fxaa", PostResolve::fxaa(1.0), None),
+        (
+            "fxaa",
+            PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
+            None,
+        ),
         ("smaa low", PostResolve::smaa(SmaaPreset::Low), None),
         ("smaa medium", PostResolve::smaa(SmaaPreset::Medium), None),
         ("smaa high", PostResolve::smaa(SmaaPreset::High), None),
@@ -390,7 +394,11 @@ fn smaa_and_fxaa_stage_timestamps() {
         ("cmaa2 high", cmaa2(crate::Cmaa2Preset::High), None),
         ("cmaa2 ultra", cmaa2(crate::Cmaa2Preset::Ultra), None),
         ("cas", PostResolve::None, cas),
-        ("fxaa + cas", PostResolve::fxaa(1.0), cas),
+        (
+            "fxaa + cas",
+            PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
+            cas,
+        ),
         (
             "smaa medium + cas",
             PostResolve::smaa(SmaaPreset::Medium),

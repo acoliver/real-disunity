@@ -81,6 +81,7 @@ impl PlayerGpu {
         if let Some(ui) = ui {
             ui.join(&mut snapshot);
         }
+        self.ui_atlas.set(ui.map(UiFrame::atlas_size));
         self.begin(delivery);
         let reads = self.reads_due(delivery);
         if snapshot.work.is_empty() {

@@ -548,9 +548,9 @@ impl SceneObject {
         self.casts_shadow
     }
 
-    /// Keeps the placement out of every camera view (colour, depth prefix, G-buffer,
-    /// contours) while it still casts into the shadow maps as `casts_shadow` says. For
-    /// objects a game draws itself through its own passes, and for shadow-only proxies.
+    /// Keeps the placement out of every camera view (colour, depth prefix, contours) while it
+    /// still casts into the shadow maps as `casts_shadow` says. For objects a game draws itself
+    /// through its own passes, and for shadow-only proxies.
     #[must_use]
     pub const fn with_shadow_only(mut self, shadow_only: bool) -> Self {
         self.shadow_only = shadow_only;

@@ -65,7 +65,7 @@ impl VertexLayoutId {
     pub(crate) fn of(layouts: &[VertexLayout<'_>]) -> Self {
         let mut key = Key::new("vertex layout");
         for layout in layouts {
-            key.debug(&(layout.stride, layout.step, layout.attributes));
+            key.value(&(layout.stride, layout.step, layout.attributes));
         }
         Self(key.finish())
     }

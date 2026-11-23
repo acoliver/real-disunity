@@ -4,7 +4,6 @@ use worldrunner_render_post::PreparedWrite;
 
 use crate::error::ProgramError;
 use crate::import::Import;
-use crate::pipeline_key::Key;
 use crate::program::ComputeProgram;
 use crate::resources::{BoundResource, Keepalive, Pins};
 use crate::runtime::{ProgramRuntime, guarded};
@@ -204,10 +203,7 @@ impl ProgramRuntime {
         &mut self,
         program: &ComputeProgram,
     ) -> Result<wgpu::ComputePipeline, ProgramError> {
-        let mut key = Key::new("compute");
-        key.hash(program.stage.content_key());
-        key.debug(&program.gpu.layout);
-        let key = key.finish();
+        let key = program.identity;
         if let Some(pipeline) = self.compute_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }

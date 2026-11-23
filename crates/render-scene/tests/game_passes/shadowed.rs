@@ -463,17 +463,11 @@ pub(super) fn fitted(
     scene
 }
 
-/// Captures one frame with the rig's renderer and returns its colour.
+/// Captures one frame with the rig's renderer and returns its output, which shows the scene
+/// colour unchanged.
 pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
     capture_fit(rig, scene, frame);
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
+    rig.output()
 }
 
 /// Captures one frame with the rig's renderer and returns the fit it adopted.

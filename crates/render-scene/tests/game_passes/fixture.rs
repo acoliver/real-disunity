@@ -371,26 +371,45 @@ impl Rig {
 
     /// Draws one frame, submits it and returns the frame's output, in [`FORMAT`].
     pub fn render(&mut self) -> Result<Vec<[u8; 4]>, FrameError> {
-        let output = worldrunner_render_post::color_texture(
-            self.context.device(),
-            "rig output",
-            self.size,
-            FORMAT,
-        );
         let mut encoder = self
             .context
             .submission()
             .begin(self.context.device())
             .unwrap();
         self.encode(&mut encoder)?;
+        let output = self.encode_output(&mut encoder);
+        encoder.finish().submit().unwrap();
+        Ok(self.read(&output))
+    }
+
+    /// Shows the frame the renderer last drew, for example in a shadowed capture, submits it and
+    /// returns the output, in [`FORMAT`].
+    pub fn output(&self) -> Vec<[u8; 4]> {
+        let mut encoder = self
+            .context
+            .submission()
+            .begin(self.context.device())
+            .unwrap();
+        let output = self.encode_output(&mut encoder);
+        encoder.finish().submit().unwrap();
+        self.read(&output)
+    }
+
+    /// Encodes the frame's output into a new [`FORMAT`] texture, read after submission.
+    fn encode_output(&self, encoder: &mut wgpu::CommandEncoder) -> wgpu::Texture {
+        let output = worldrunner_render_post::color_texture(
+            self.context.device(),
+            "rig output",
+            self.size,
+            FORMAT,
+        );
         self.renderer
             .encode_output(
-                &mut encoder,
+                encoder,
                 &output.create_view(&wgpu::TextureViewDescriptor::default()),
             )
             .unwrap();
-        encoder.finish().submit().unwrap();
-        Ok(self.read(&output))
+        output
     }
 
     /// Draws one frame in the host's frame `slot`, as seen from `height_millimeters`, submits it
@@ -439,7 +458,14 @@ impl Rig {
             .collect()
     }
 
+    /// The texels of a texture with four-byte texels, such as an 8-bit target or [`FORMAT`].
     pub fn read(&self, texture: &wgpu::Texture) -> Vec<[u8; 4]> {
+        assert_eq!(
+            texture.format().block_copy_size(None),
+            Some(4),
+            "{:?} texels are not four bytes",
+            texture.format()
+        );
         let config = FrameConfig::new([texture.width(), texture.height()], texture.format(), 1);
         let mut readback = Readback::new(self.context.device(), config, 1 << 22).unwrap();
         readback

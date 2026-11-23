@@ -56,9 +56,14 @@ impl Products {
         }
     }
 
+    /// What only the refused suffix would have written is as the completed frame left it.
     pub(super) fn assert_completed_unchanged(&self, completed: &Self) {
         assert_eq!(self.color, completed.color, "completed raw scene colour");
         assert_eq!(self.output, completed.output, "completed final AA output");
+        assert_eq!(
+            self.velocity, completed.velocity,
+            "completed motion: the forward Opaque pass of the refused suffix writes velocity"
+        );
         assert_eq!(
             self.confidence, completed.confidence,
             "completed confidence"
@@ -69,10 +74,6 @@ impl Products {
         assert_eq!(
             self.normals, retried.normals,
             "refused prefix coverage matches retry"
-        );
-        assert_eq!(
-            self.velocity, retried.velocity,
-            "refused prefix motion matches ordinary retry"
         );
     }
 

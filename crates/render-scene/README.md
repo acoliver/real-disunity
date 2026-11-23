@@ -1209,7 +1209,7 @@ The snapshots, all at the frame's extent:
 
 | Snapshot | Format | Holds |
 | --- | --- | --- |
-| `color` | `Rgba16Float` | The lit opaque colour after Opaque and the game passes at `AfterOpaque`, with the samples of a multisampled frame averaged. Needs an HDR frame (`FrameError::UnsupportedEffect("snapshots require HDR")` otherwise). No transparent pass, water included, has drawn into it. |
+| `color` | `Rgba16Float` | The lit opaque colour after Opaque and the game passes at `AfterOpaque`, with the samples of a multisampled frame averaged. No transparent pass, water included, has drawn into it. |
 | `linear_depth` | `R32Float` | Positive view-space metres along the camera's forward axis, reconstructed from the nearest sample of each pixel. A pixel no opaque surface covers holds the far plane's distance. |
 | `device_depth` | `R32Float` | The depth buffer's own values. The engine's depth is not reversed: `0.0` is the near plane, `1.0` is the far plane and the cleared value, and nearer surfaces have smaller values. A multisampled frame keeps the smallest sample of a pixel, the nearest. |
 | `post_water_depth` | `R32Float` | The frame's depth buffer after every pass before the game's `AfterTransparent` passes, as positive view-space metres from the nearest sample of each pixel, like `linear_depth`. It is the stock `post-water depth` product, a copy of the frame's own depth at that point, so it holds the depth a game pass wrote at `AfterOpaqueSnapshots` (a game water drawn with depth writes, for one) and the depth the stock water pass writes when the stock passes draw the water. Where no pass wrote depth after the opaque snapshots it equals `linear_depth`. Only a pass at `AfterTransparent` can read it. |

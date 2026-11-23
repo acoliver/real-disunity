@@ -42,8 +42,12 @@ internal static class RectDimensionMessages
         _flushing = false;
     }
 
-    /// <summary>Sends the message to each active listener whose size differs from the last one it was told. A handler
-    /// that changes a size is told on the next flush, and a flush a handler starts does nothing.</summary>
+    /// <summary>Sends the message to each enabled listener on an active object whose size differs from the last one it
+    /// was told. A script that is destroyed in the frame, disabled or inactive is told nothing and keeps the size it was
+    /// last told, so it hears of the change once it is enabled and active again. A handler that changes a size is told
+    /// on the next flush, and a flush a handler starts does nothing. A handler's exception is reported against its
+    /// script and the other listeners are still told; a native error faults the world and fails the step, as for every
+    /// message.</summary>
     internal static void Flush()
     {
         if (!_changed || _flushing) return;
@@ -60,7 +64,7 @@ internal static class RectDimensionMessages
     private static void Deliver(Listener listener)
     {
         var script = listener.Script;
-        if (script.Destroyed || !script.gameObject.activeInHierarchy) return;
+        if (script.Life != ComponentLife.Alive || script.Destroyed || !script.isActiveAndEnabled) return;
         if (script.GetComponent<RectTransform>() is not { } rect) return;
         var size = rect.rect.size;
         if (listener.Delivered == size) return;

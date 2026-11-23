@@ -80,7 +80,7 @@ impl PlayerGpu {
         if snapshot.work.is_empty() {
             let mut report = self.report.borrow_mut();
             // A flush earlier in the update may have drawn into the screen.
-            self.read_for_player(&mut report, delivery);
+            self.note_for_player(delivery, report.frames);
             report.frames += 1;
             return Ok(None);
         }
@@ -108,7 +108,7 @@ impl PlayerGpu {
             }
         }
         report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        self.read_for_player(&mut report, delivery);
+        self.note_for_player(delivery, report.frames);
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(handed)
@@ -122,12 +122,12 @@ impl PlayerGpu {
         }
     }
 
-    /// Reads the screen back for the player's own frames, which have the image written to a file.
-    /// The viewer shows the screen from the GPU, so its frames read nothing.
-    fn read_for_player(&self, report: &mut GpuWorkReport, delivery: Delivery) {
+    /// Numbers the screen for the player's own frames, which have the image written to a file
+    /// from the screen texture. The viewer shows the screen from the GPU, so its frames note
+    /// nothing.
+    fn note_for_player(&self, delivery: Delivery, frame: u64) {
         if delivery == Delivery::Submit {
-            let frame = report.frames;
-            self.read_screen(report, frame);
+            self.note_drawn_screen(frame);
         }
     }
 

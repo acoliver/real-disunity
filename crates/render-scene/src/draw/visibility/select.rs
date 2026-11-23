@@ -4,7 +4,8 @@
 //! placement in them as before, and emits the admitted slots in ascending order, so ranges,
 //! levels and statistics equal those of a scan over every slot. A placement's level and fade
 //! outcome depend on the eye and not on the view, so every view of a frame shares them
-//! through each batch's level memo.
+//! through each batch's level memo, which keeps a level while the eye stays near where it
+//! was computed.
 use std::cell::RefCell;
 use std::ops::Range;
 
@@ -19,7 +20,7 @@ use super::{
 };
 use crate::draw::slice_hull::LightMap;
 use crate::instances::fade::Fade;
-use crate::instances::slot_bounds::{Level, LevelKey, Node, SlotBounds};
+use crate::instances::slot_bounds::{Computed, Level, LevelKey, Node, SlotBounds};
 use crate::instances::{BatchKey, Instances, LayoutStamp};
 
 /// What every view of one frame selects from. It holds only shared references to plain data
@@ -33,8 +34,9 @@ pub(in crate::draw) struct Placements<'a> {
     relief: bool,
     eye_millimeters: [i64; 3],
     fade_eye: Vec3,
-    /// The epoch under which the batches' level memos hold the outcomes for this eye.
-    epoch: u8,
+    /// How far the eye has travelled, which tells whether an entry of a batch's level memo
+    /// still holds for this eye.
+    travelled: u64,
     /// Live placements in every batch, which every view considers.
     live: usize,
 }
@@ -165,7 +167,7 @@ pub(in crate::draw) fn with_placements<R>(
         fade_cull_disabled,
     };
     placement::refresh_all(instances, meshes);
-    let epoch = instances.level_epoch(key);
+    let travelled = instances.eye_travel(key);
     let borrowed: Vec<_> = instances
         .batches
         .values()
@@ -201,7 +203,7 @@ pub(in crate::draw) fn with_placements<R>(
             .any(|extent| extent[1] != 0.0),
         eye_millimeters,
         fade_eye,
-        epoch,
+        travelled,
         live: rows.live,
     };
     select(&placements)
@@ -218,23 +220,27 @@ impl Selection {
     ) -> Selection {
         let mut chosen = Selection::default();
         chosen.stats.drawn_per_lod = vec![0; self.stats.drawn_per_lod.len()];
-        let mut admitted = Vec::new();
+        let mut admitted = Admitted::default();
         let mut stack = Vec::new();
         for batch in &placements.batches[batches] {
             if batch.small {
                 // The slots of a lone small leaf ascend, so they are tested and emitted in
                 // place, without the list and sort of a walk.
-                for &slot in batch.bounds.tree().slots() {
-                    if self.admits_slot(batch, slot, view, Passed::default()) {
+                let tree = batch.bounds.tree();
+                let members = tree
+                    .slots()
+                    .iter()
+                    .zip(tree.boxes().chunks_exact(tree.stride()));
+                for (&slot, boxes) in members {
+                    if self.admits_slot(batch, (slot, boxes), view, Passed::default()) {
                         chosen.push_level(placements, batch, slot);
                     }
                 }
                 continue;
             }
-            admitted.clear();
+            admitted.reset(batch.flags.len());
             self.admit(batch, view, &mut stack, &mut admitted);
-            admitted.sort_unstable();
-            for &slot in &admitted {
+            for slot in admitted.slots() {
                 chosen.push_level(placements, batch, slot);
             }
         }
@@ -267,17 +273,13 @@ impl Selection {
     fn admits_slot(
         &self,
         batch: &IndexedBatch<'_>,
-        slot: u32,
+        (slot, boxes): (u32, &[[Vec3; 2]]),
         view: ViewTests<'_>,
         passed: Passed,
     ) -> bool {
         batch.flags[slot as usize] & view.flag != 0
             && self.admits(view.frustum, view.light, passed, || {
-                placement::placement(
-                    batch.bounds.boxes(slot as usize),
-                    batch.bounds.reliefs(),
-                    view.stretch,
-                )
+                placement::placement(boxes, batch.bounds.reliefs(), view.stretch)
             })
     }
 
@@ -289,7 +291,7 @@ impl Selection {
         batch: &IndexedBatch<'_>,
         view: ViewTests<'_>,
         stack: &mut Vec<(usize, Passed)>,
-        admitted: &mut Vec<u32>,
+        admitted: &mut Admitted,
     ) {
         let tree = batch.bounds.tree();
         // Each placement grows by at most the largest relief, so the grown group box holds
@@ -316,16 +318,48 @@ impl Selection {
                 Node::Inner { children, .. } => {
                     stack.extend(children.map(|child| (child, passed)));
                 }
-                Node::Leaf { slots, .. } => {
-                    admitted.extend(
-                        slots
-                            .iter()
-                            .copied()
-                            .filter(|&slot| self.admits_slot(batch, slot, view, passed)),
-                    );
+                Node::Leaf { slots, boxes, .. } => {
+                    for (&slot, boxes) in slots.iter().zip(boxes.chunks_exact(tree.stride())) {
+                        if self.admits_slot(batch, (slot, boxes), view, passed) {
+                            admitted.insert(slot);
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/// The slots a view admits from one batch, one bit each, which come out in ascending order
+/// without a sort however the walk of the tree met them.
+#[derive(Default)]
+struct Admitted {
+    words: Vec<u64>,
+}
+
+impl Admitted {
+    /// Empties the set and makes room for slots below `slots`.
+    fn reset(&mut self, slots: usize) {
+        self.words.clear();
+        self.words.resize(slots.div_ceil(64), 0);
+    }
+
+    fn insert(&mut self, slot: u32) {
+        self.words[slot as usize / 64] |= 1 << (slot % 64);
+    }
+
+    fn slots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.words.iter().enumerate().flat_map(|(index, &word)| {
+            let mut bits = word;
+            let first = u32::try_from(index * 64).expect("validated instance slot");
+            std::iter::from_fn(move || {
+                (bits != 0).then(|| {
+                    let slot = first + bits.trailing_zeros();
+                    bits &= bits - 1;
+                    slot
+                })
+            })
+        })
     }
 }
 
@@ -401,29 +435,41 @@ impl Placements<'_> {
 
     /// The level `slot` draws at, or whether every fragment it could draw is faded out.
     fn level(&self, batch: &IndexedBatch<'_>, slot: usize) -> Level {
-        batch.bounds.levels().get_or_compute(self.epoch, slot, || {
-            let (object, _) = batch.placements[slot].as_ref().expect("live instance");
-            let inputs = batch.bounds.inputs(slot);
-            let distance = distance_squared(
-                object.transform().position_millimeters,
-                self.eye_millimeters,
-            );
-            let lod = MeshSelection::level(distance, inputs.ceilings);
-            if !self.fade_cull_disabled
-                && batch.fade_reach.applies(inputs.fade.band)
-                && self.meshes[batch.key.1].fade_empty(
-                    self.fades,
-                    object.material(),
-                    &inputs,
-                    lod,
-                    self.fade_eye,
-                )
-            {
-                Level::Faded
-            } else {
-                Level::Drawn(lod)
-            }
-        })
+        batch
+            .bounds
+            .levels()
+            .get_or_compute(self.travelled, slot, || {
+                let (object, _) = batch.placements[slot].as_ref().expect("live instance");
+                let inputs = batch.bounds.inputs(slot);
+                let distance = distance_squared(
+                    object.transform().position_millimeters,
+                    self.eye_millimeters,
+                );
+                let lod = MeshSelection::level(distance, inputs.ceilings);
+                if batch.fade_reach.applies(inputs.fade.band) {
+                    // A fade can change with any step of the eye, so it holds for this eye alone.
+                    let faded = !self.fade_cull_disabled
+                        && self.meshes[batch.key.1].fade_empty(
+                            self.fades,
+                            object.material(),
+                            &inputs,
+                            lod,
+                            self.fade_eye,
+                        );
+                    return Computed {
+                        level: if faded {
+                            Level::Faded
+                        } else {
+                            Level::Drawn(lod)
+                        },
+                        margin: 0,
+                    };
+                }
+                Computed {
+                    level: Level::Drawn(lod),
+                    margin: MeshSelection::level_margin(distance, inputs.ceilings, lod),
+                }
+            })
     }
 }
 

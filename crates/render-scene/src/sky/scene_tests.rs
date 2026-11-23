@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use crate::{
     device::GpuContext,
     draw::SceneGpu,
@@ -211,14 +212,7 @@ pub(super) fn render_at(
 ) -> Capture {
     let device = context.device();
     let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(
-        device,
-        context.submission(),
-        PreparedScene::new(source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
     let mut frame = FrameUniform::new(view, source.effects()).unwrap();
     frame.exposure = exposure;
     capture(context, |encoder, color, depth| {

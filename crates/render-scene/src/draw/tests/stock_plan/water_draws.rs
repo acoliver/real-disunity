@@ -5,7 +5,7 @@
 //! nothing of the other choice behind.
 use super::*;
 use crate::compositor::WaterDraws;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 
 /// What one frame submitted and drew.
 #[derive(Debug, PartialEq)]
@@ -35,14 +35,7 @@ pub(super) fn rig_configured(
         ConfiguredFrameRenderer::new(context, settings, AllocationBudget(64 << 20)).unwrap();
     let pipelines =
         ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     Rig {
         context,
         source,

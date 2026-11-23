@@ -1,5 +1,5 @@
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use crate::{
     draw::{DrawCount, ObjectDraws, ObjectRecording},
     offscreen::OffscreenTarget,
@@ -11,14 +11,8 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 3);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = target(&context);
     let handles: Vec<_> = gpu.instance_handles().collect();
     gpu.set_instance_visible(handles[1], false).unwrap();
@@ -121,14 +115,8 @@ fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
         ),
     ];
     for (source, frame, meshes, impostors) in cases {
-        let gpu = SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(&source).unwrap(),
-            &pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu =
+            upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
         gpu.set_frame(context.queue(), frame);
         let mut target = target(&context);
         target.render(&context, &gpu, &pipelines).unwrap();
@@ -150,14 +138,8 @@ fn decal_statistics_apply_visibility_and_shader_capacity_at_submission() {
         .with_decals(decals)
         .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let target = target(&context);
     let mut encoder = context.submission().begin(context.device()).unwrap();
@@ -222,14 +204,7 @@ fn raw_terrain_and_sky_draw_preserves_submitted_statistics() {
         )
         .unwrap();
     let pipelines = ScenePipelines::new(context.device(), TextureFormat::Rgba16Float);
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let previous = gpu.statistics();
     let mut encoder = context.submission().begin(context.device()).unwrap();

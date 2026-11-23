@@ -13,7 +13,7 @@
 //! arrays and a type grid), [`Source::Pages`] (baked material pages), [`Source::Layered`]
 //! (layered source composition) and [`Source::LayeredPages`] (layered pages).
 
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use wgpu::{BindGroup, CommandEncoder, RenderPass, TextureFormat};
 use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
 
@@ -97,14 +97,7 @@ impl<'a> Rig<'a> {
         (source, frame): (Source, FrameUniform),
     ) -> Self {
         let (device, authority) = (context.device(), context.submission());
-        let gpu = SceneGpu::upload(
-            device,
-            authority,
-            PreparedScene::new(scene).unwrap(),
-            pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(device, authority, scene, pipelines).unwrap();
         gpu.set_frame(context.queue(), frame);
         let mut rig = Self {
             context,

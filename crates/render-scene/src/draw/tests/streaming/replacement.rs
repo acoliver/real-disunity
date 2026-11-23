@@ -1,5 +1,5 @@
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 
 fn edited_scene(source: &RenderScene, edits: &[(usize, i32)]) -> RenderScene {
     let base = source.terrain().unwrap();
@@ -67,14 +67,7 @@ fn check_replacement(edits: &[(usize, i32)], expected: usize) {
     let context = context();
     let source = source();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let old = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let old = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     prepare_completed(&context, &old, &frame, 0)
         .submit()
@@ -161,14 +154,7 @@ fn tight_budget_pair(context: &GpuContext) -> (ScenePipelines, SceneGpu, SceneGp
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let old = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let old = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     prepare_completed(context, &old, &frame_from(pose()), 0)
         .submit()
         .unwrap();

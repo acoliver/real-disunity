@@ -1,6 +1,6 @@
 use super::*;
 use crate::device::{DeviceRequest, REQUIRED_FEATURES};
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
 
 pub(super) fn cutout_texture() -> SceneTexture {
@@ -123,12 +123,11 @@ fn wind_and_alpha_have_identical_depth_bytes_in_every_geometry_pass() {
     );
     let device = context.device();
     let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm);
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         device,
         &worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone()),
-        PreparedScene::new(&scene).unwrap(),
+        &scene,
         &pipelines,
-        None,
     )
     .unwrap();
     let mut frame = frame_from(pose());
@@ -396,14 +395,7 @@ fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
             } else {
                 with_material(&scene, &material(SceneAlphaMode::Opaque, true))
             };
-            let mut gpu = SceneGpu::upload(
-                context.device(),
-                &authority,
-                PreparedScene::new(&scene).unwrap(),
-                &pipelines,
-                None,
-            )
-            .unwrap();
+            let mut gpu = upload_scene(context.device(), &authority, &scene, &pipelines).unwrap();
             let handle = gpu.instance_handles().next().unwrap();
             let object = gpu.instance(handle).unwrap().0;
             gpu.set_instance_object(
@@ -565,14 +557,7 @@ fn foliage_resources_retire_after_scene_drop() {
         card_transition_scene(500_000),
         contact_scene(-500, true, false),
     ] {
-        let gpu = SceneGpu::upload(
-            context.device(),
-            &authority,
-            PreparedScene::new(&scene).unwrap(),
-            &pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(context.device(), &authority, &scene, &pipelines).unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
         let [source, ..] = geometry_sources();
         let _ = pass_depth(&context, &gpu, &pipelines, &source, "fs_masked", true);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use std::{cell::Cell, rc::Rc};
 use worldrunner_render_post::{
     BufferReadback, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassEntry, PassSlot,
@@ -51,14 +51,8 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -121,14 +115,8 @@ fn published_slots_leave_the_dirty_set() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 4);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -183,14 +171,8 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {

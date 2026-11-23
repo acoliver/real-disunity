@@ -6,6 +6,7 @@ use super::*;
 use crate::draw::PreparedScene;
 use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowedScene};
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr,
 };
@@ -149,14 +150,7 @@ fn reflective_velocity_after(
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_reflections(scene);
     let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();
@@ -185,14 +179,7 @@ fn occluded_velocity_after(
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_occlusion(scene);
     let pipelines = ScenePipelines::with_ssao_taa_velocity(context.device(), HDR, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();

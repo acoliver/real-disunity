@@ -1,5 +1,5 @@
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAtlasSampling, SceneImpostor, SceneImpostorLayout, TexelFormat,
 };
@@ -159,14 +159,7 @@ fn source(constant: bool, relief: bool, sampling: SceneAtlasSampling) -> RenderS
 }
 
 fn upload(context: &GpuContext, layouts: &ScenePipelines, source: &RenderScene) -> SceneGpu {
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(source).unwrap(),
-        layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), source, layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
         target_millimeters: [0, 0, 1000],

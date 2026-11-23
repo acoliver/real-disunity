@@ -1,6 +1,6 @@
 //! Public raw colour draws advance motion history without publishing view selections.
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::submission::{
     PreparedFrame, SubmissionAuthority, SubmitError, TransactionError,
 };
@@ -26,14 +26,7 @@ impl Fixture {
         let context = context();
         let authority = SubmissionAuthority::new(context.queue().clone());
         let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-        let gpu = SceneGpu::upload(
-            context.device(),
-            &authority,
-            PreparedScene::new(source).unwrap(),
-            &pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(context.device(), &authority, source, &pipelines).unwrap();
         let handle = gpu.instance_handles().next().unwrap();
         gpu.set_frame(context.queue(), temporal_frame());
         let targets = attachments(&context);

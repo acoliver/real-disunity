@@ -21,14 +21,7 @@ fn octahedral_card_blends_three_independently_colored_cells() {
     .unwrap();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 2000],
         target_millimeters: [0, 0, 1000],
@@ -60,14 +53,7 @@ fn atlas_blending_interpolates_linear_color_on_a_card() {
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = half_color_scene();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [4000, 4000, 1000],
         target_millimeters: [0, 0, 1000],
@@ -100,7 +86,7 @@ fn atlas_blending_interpolates_linear_color_on_a_card() {
 }
 
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 
 fn scene(masked: bool, rotation: SceneRotation) -> RenderScene {
@@ -181,14 +167,7 @@ fn atlas_material_draws_selected_color_and_instance_orientation() {
         ),
     ] {
         let source = scene(false, rotation);
-        let gpu = SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(&source).unwrap(),
-            &layouts,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
         let mut frame = frame_from(CameraPose {
             eye_millimeters: [0, -4000, 1000],
             target_millimeters: [0, 0, 1000],
@@ -220,14 +199,7 @@ fn atlas_cutout_depth_matches_forward_metadata() {
     let device = context.device();
     let forward = ScenePipelines::new(device, COLOR_FORMAT);
     let source = relief_scene();
-    let gpu = SceneGpu::upload(
-        device,
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &forward,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(device, context.submission(), &source, &forward).unwrap();
     gpu.set_frame(
         context.queue(),
         frame_from(CameraPose {
@@ -405,14 +377,7 @@ fn instance_fade_bands_share_forward_and_shadow_silhouettes() {
             effects: None,
         })
         .unwrap();
-        let gpu = SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(&scene).unwrap(),
-            &layouts,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         gpu.set_frame(
             context.queue(),
             frame_from(CameraPose {
@@ -480,14 +445,7 @@ fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = contact_relief_scene();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 2000],
         target_millimeters: [0, 0, 1000],
@@ -552,14 +510,7 @@ fn relief_raster_bias_keeps_surface_when_card_is_beyond_far_plane() {
         effects: None,
     })
     .unwrap();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
         target_millimeters: [0, 0, 1000],

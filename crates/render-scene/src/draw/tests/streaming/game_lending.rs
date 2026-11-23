@@ -1,18 +1,17 @@
 //! The resident route lends its streamed terrain to the game's features.
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 
 #[test]
 fn resident_frames_lend_their_streamed_terrain_to_game_features() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
-        PreparedScene::new(&streamed_scene()).unwrap(),
+        &streamed_scene(),
         &pipelines,
-        None,
     )
     .unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));

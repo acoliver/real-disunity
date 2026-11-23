@@ -1,7 +1,7 @@
 //! Chunk meshes are built by a worker, and a frame only uploads the ones that are finished.
 use super::*;
-use crate::draw::PreparedScene;
 use crate::terrain::streaming::TerrainChunk;
+use crate::test_support::upload_scene;
 
 /// Frames of the calling thread stop waiting for the builds they request, as in production.
 pub(super) fn unsynchronized() -> impl Drop {
@@ -39,12 +39,11 @@ impl Rig {
     fn new() -> Self {
         let context = context();
         let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-        let gpu = SceneGpu::upload(
+        let gpu = upload_scene(
             context.device(),
             context.submission(),
-            PreparedScene::new(&streamed_scene()).unwrap(),
+            &streamed_scene(),
             &pipelines,
-            None,
         )
         .unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
@@ -132,14 +131,7 @@ fn dropping_the_gpu_scene_stops_the_mesh_worker() {
     let source = streamed_scene();
     let terrain = source.shared_terrain().unwrap().clone();
     let baseline = std::sync::Arc::strong_count(&terrain);
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let before = std::sync::Arc::strong_count(&terrain);
     prepare_completed(&context, &gpu, &frame_from(pose()), 0).cancel();
     assert_eq!(std::sync::Arc::strong_count(&terrain), before + 1);

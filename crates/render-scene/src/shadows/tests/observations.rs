@@ -5,6 +5,7 @@ use crate::draw::{
     EffectEnabled, ObjectDraws, ObjectRecording, PassExecution, PassInstallation, ReceiverBinding,
 };
 use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::ToneMap;
 
 #[test]
@@ -62,14 +63,7 @@ fn unshadowed(
     frame: &mut FrameRenderer,
 ) -> crate::draw::SsaoStatistics {
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         frame.targets().scene().texture(),

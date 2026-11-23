@@ -8,6 +8,7 @@ mod shared_source_arrays;
 use super::*;
 use crate::draw::PreparedScene;
 use crate::terrain::pages::{layered::LayeredReference, scene::TerrainPageSource};
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::{configuration::AllocationBudget, submission::SubmissionAuthority};
 use worldrunner_render_plan::{
     SceneNormalEncoding, TerrainLayer, TerrainLayeredSource, TerrainPageSettings,
@@ -152,14 +153,7 @@ fn render_with_source(
         source,
         None,
     );
-    let mut gpu = SceneGpu::upload(
-        device,
-        &authority,
-        PreparedScene::new(scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(device, &authority, scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *frame);
     if cached {
         gpu.enable_terrain_pages(device, &authority, page_source())

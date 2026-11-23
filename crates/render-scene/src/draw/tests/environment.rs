@@ -1,6 +1,6 @@
 use super::*;
-use crate::draw::PreparedScene;
 use crate::frame::FrameError;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{ScenePostStage, SceneSsao};
 
 #[test]
@@ -118,13 +118,7 @@ fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     assert!(matches!(
-        PreparedScene::new(&source).and_then(|prepared| SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            prepared,
-            &pipelines,
-            None
-        )),
+        upload_scene(context.device(), context.submission(), &source, &pipelines),
         Err(DrawError::Frame(FrameError::UnsupportedEffect("SSAO")))
     ));
 }

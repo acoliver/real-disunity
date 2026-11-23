@@ -2,7 +2,7 @@
 //! forward frame, the four targets are cleared every frame, and a producer drawn in the
 //! `OpaqueGbuffer` slot through `scene_gbuffer_encode` stores what the CPU reference decodes.
 
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use glam::{Mat3, Vec3};
 use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -118,14 +118,7 @@ pub(super) fn prepare_with(
     } else {
         ScenePipelines::new(context.device(), HDR)
     };
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *uniform);
     let renderer =
         ConfiguredFrameRenderer::new(context, configuration, AllocationBudget(1 << 28)).unwrap();

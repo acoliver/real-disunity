@@ -1,6 +1,6 @@
 use super::*;
 use crate::draw::PassDrawStatistics;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::{PassEntry, PassSlot, StageId};
 
 struct FrameViews {
@@ -41,14 +41,7 @@ fn resident(
         .unwrap();
     Resident {
         path,
-        gpu: crate::draw::SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(source).unwrap(),
-            pipelines,
-            None,
-        )
-        .unwrap(),
+        gpu: upload_scene(context.device(), context.submission(), source, pipelines).unwrap(),
         renderer,
         output: worldrunner_render_post::color_texture(
             context.device(),

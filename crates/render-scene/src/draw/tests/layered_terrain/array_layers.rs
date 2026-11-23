@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::ConfigurationError;
 use worldrunner_render_plan::TerrainPagePolicy;
 
@@ -61,14 +62,7 @@ fn policy_pixels(context: &GpuContext, scene: &RenderScene) -> Vec<u8> {
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
-        device,
-        &authority,
-        PreparedScene::new(scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(device, &authority, scene, &pipelines).unwrap();
     let frame = matching_frame();
     gpu.set_frame(context.queue(), frame);
     let mut transaction = authority.begin(device).unwrap();

@@ -10,7 +10,7 @@ mod water_draws;
 use super::*;
 use crate::compositor::plan_trace::{self, SubmittedPlan, assert_pinned};
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::SceneSsr;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
@@ -169,14 +169,8 @@ impl<'a> Rig<'a> {
         .unwrap();
         let pipelines =
             ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
-        let gpu = SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(&source).unwrap(),
-            &pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu =
+            upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
         Self {
             context,
             source,

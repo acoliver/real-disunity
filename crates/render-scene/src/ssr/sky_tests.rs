@@ -1,6 +1,6 @@
 use super::tests::{context, read};
-use crate::draw::PreparedScene;
-use crate::{compositor::FrameRenderer, draw::SceneGpu, renderer::ScenePipelines};
+use crate::test_support::upload_scene;
+use crate::{compositor::FrameRenderer, renderer::ScenePipelines};
 use worldrunner_render_plan::*;
 use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap};
 
@@ -50,14 +50,7 @@ fn render(reflections: Option<bool>, velocity: bool, capture: bool) -> Vec<u8> {
     } else {
         ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float)
     };
-    let mut gpu = SceneGpu::upload(
-        device,
-        context.submission(),
-        PreparedScene::new(&scene).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

@@ -13,14 +13,7 @@ fn hashed_distance_fade_keeps_stock_rendered_bytes() {
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&scene).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let stock = crate::shader::ENVIRONMENT_WGSL.replace(
         "scene_fade_covered(input.clip_position.xy",
@@ -40,7 +33,7 @@ fn hashed_distance_fade_keeps_stock_rendered_bytes() {
 
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneFadeBand, SceneFadeCoverage, SceneFadeQuantization, SceneImpostor, SceneImpostorLayout,
     TexelFormat,
@@ -92,14 +85,7 @@ fn threshold_coverage_matches_point_repeat_oracle_in_every_pass_and_impostors() 
         (true, true, [-3, 4]),
     ] {
         let scene = threshold_scene(impostor, quantized, jitter);
-        let gpu = SceneGpu::upload(
-            context.device(),
-            context.submission(),
-            PreparedScene::new(&scene).unwrap(),
-            &layouts,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         gpu.set_frame(
             context.queue(),
             frame_from(CameraPose {

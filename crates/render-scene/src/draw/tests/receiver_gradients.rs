@@ -4,6 +4,7 @@ use crate::compositor::FrameRenderer;
 use crate::draw::PreparedScene;
 use crate::scene_metadata::receiver::{ReceiverLayout, ReceiverReference};
 use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 use worldrunner_render_post::ToneMap;
 
@@ -251,14 +252,7 @@ impl ReceiverFrame {
             ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1)
         }
         .unwrap();
-        let gpu = SceneGpu::upload(
-            device,
-            context.submission(),
-            PreparedScene::new(source).unwrap(),
-            &pipelines,
-            None,
-        )
-        .unwrap();
+        let gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
         let mut shadowed = shadowed;
         if matches!(reference, Some(ReceiverReference::LateCardRejection)) {
             shadowed.late_card_casters_for_test(device);
@@ -650,11 +644,7 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
     let source = sloped(true);
     let pipelines =
         ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1).unwrap();
-    let upload = |scene: &RenderScene| {
-        let prepared = PreparedScene::new(scene).unwrap();
-        SceneGpu::upload(device, context.submission(), prepared, &pipelines, None).unwrap()
-    };
-    let gpu = upload(&source);
+    let gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     assert!(gpu.has_transmission());
     let mut plain = FrameRenderer::new(device);
     plain
@@ -736,7 +726,7 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
             .unwrap()
             .with_objects_and_effects(Vec::new(), source.effects().cloned())
             .unwrap();
-        let empty = upload(&empty);
+        let empty = upload_scene(device, context.submission(), &empty, &pipelines).unwrap();
         assert!(!empty.has_shadow_receivers());
         renderer
             .prepare_receiver_gradients(device, &empty, 0.012)

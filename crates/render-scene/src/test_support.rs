@@ -316,3 +316,21 @@ mod gpu_tests {
         buffer.unmap();
     }
 }
+
+/// Uploads `scene` whole, with no previous retained generation, as most unit tests build their
+/// resident scene.
+#[cfg(test)]
+pub(crate) fn upload_scene(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+    scene: &worldrunner_render_plan::RenderScene,
+    pipelines: &crate::renderer::ScenePipelines,
+) -> Result<crate::draw::SceneGpu, crate::draw::DrawError> {
+    crate::draw::SceneGpu::upload(
+        device,
+        authority,
+        crate::draw::PreparedScene::new(scene)?,
+        pipelines,
+        None,
+    )
+}

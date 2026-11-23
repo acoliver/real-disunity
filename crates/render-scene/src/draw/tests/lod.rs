@@ -1,6 +1,6 @@
 use super::*;
-use crate::draw::PreparedScene;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 
 #[test]
 fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
@@ -29,14 +29,7 @@ fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
         1,
     );
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -103,14 +96,7 @@ fn gpu_selected_level_owns_its_billboard_policy() {
     })
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &pipelines,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {

@@ -13,7 +13,7 @@ use super::mip_bias::masked_scene;
 use super::mip_textures::{smooth, stripes};
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
 use worldrunner_render_post::{
@@ -65,12 +65,11 @@ impl<'a> Harness<'a> {
         let renderer =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();
         let pipelines = ScenePipelines::new(device, HDR);
-        let mut gpu = SceneGpu::upload(
+        let mut gpu = upload_scene(
             device,
             context.submission(),
-            PreparedScene::new(&masked_scene(texture)).unwrap(),
+            &masked_scene(texture),
             &pipelines,
-            None,
         )
         .unwrap();
         gpu.post = renderer.configuration().post;

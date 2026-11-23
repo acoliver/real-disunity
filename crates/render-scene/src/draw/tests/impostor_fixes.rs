@@ -1,5 +1,5 @@
 use super::*;
-use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 
 fn cropped_scene(shaped: bool) -> RenderScene {
@@ -71,12 +71,11 @@ fn asymmetric_border_map_crops_instead_of_rescaling_source_image() {
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut images = Vec::new();
     for shaped in [false, true] {
-        let gpu = SceneGpu::upload(
+        let gpu = upload_scene(
             context.device(),
             context.submission(),
-            PreparedScene::new(&cropped_scene(shaped)).unwrap(),
+            &cropped_scene(shaped),
             &layouts,
-            None,
         )
         .unwrap();
         let mut frame = frame_from(CameraPose {
@@ -105,14 +104,7 @@ fn pitched_relief_instance_normals_match_inverse_capture_rotation() {
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = pitched_scene();
-    let gpu = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        PreparedScene::new(&source).unwrap(),
-        &layouts,
-        None,
-    )
-    .unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     gpu.set_frame(
         context.queue(),
         frame_from(CameraPose {

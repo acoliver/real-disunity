@@ -14,6 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use glam::Mat4;
+
 use super::render_sets::index_of;
 use super::{
     CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
@@ -21,9 +23,7 @@ use super::{
     WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
-use crate::{
-    ComponentDesc, ComponentHandle, MeshRenderer, ObjectHandle, RendererKind, World, WorldError,
-};
+use crate::{ComponentDesc, ComponentHandle, MeshRenderer, World, WorldError};
 
 /// A camera a record names: its settings and its object's pose in the world, column-major.
 #[derive(Clone, Debug, PartialEq)]
@@ -101,9 +101,9 @@ pub struct GraphicsSnapshot {
     /// renderers that were drawable when the record was made. The world makes one for every cull
     /// and for every camera render whose camera it can read; a record with no entry draws nothing.
     pub record_sets: BTreeMap<u32, u32>,
-    /// How many skinned mesh renderers the frame's camera renders and culls would have drawn if
-    /// skinned meshes were drawn, each counted once however many records admit it. They are in no
-    /// set and not in `renderers`; the count lets a host say that they are left out.
+    /// How many skinned renderers the frame's sets name that no view lists, each counted once
+    /// however many sets name it: the renderer's skin names no root bone that is in the world, so
+    /// nothing says where its mesh goes.
     pub skinned_not_drawn: u32,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
@@ -158,8 +158,8 @@ impl GraphicsSnapshot {
         let drawn = renderer_views(world, &captured.sets)?;
         snapshot.renderers = drawn.views;
         snapshot.renderer_sets = drawn.sets;
+        snapshot.skinned_not_drawn = index_of(drawn.unplaced.len());
         snapshot.record_sets = captured.records;
-        snapshot.skinned_not_drawn = index_of(captured.skinned);
         snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
@@ -329,30 +329,36 @@ fn light_views(world: &World) -> Result<Vec<WorldLight>, WorldError> {
 struct RendererViews {
     views: Vec<RendererView>,
     sets: Vec<Vec<u32>>,
+    /// The skinned renderers of the sets that have no placement, so no view.
+    unplaced: BTreeSet<ComponentHandle>,
 }
 
 /// The renderers of the `captured` sets, each listed once, and the sets as indices into them. A
-/// renderer the world no longer holds, or that no longer has a mesh, is left out of its set. The
-/// renderer is read as it is now: the set fixes which renderers draw, and the view says what they
-/// draw.
+/// renderer the world no longer holds, or that no longer has a mesh, is left out of its set, and
+/// so is a skinned renderer with no placement, which is noted in `unplaced`. The renderer is read
+/// as it is now: the set fixes which renderers draw, and the view says what they draw.
 fn renderer_views(
     world: &World,
     captured: &[Vec<ComponentHandle>],
 ) -> Result<RendererViews, WorldError> {
-    let mut views = Vec::new();
+    let mut listing = RendererViews {
+        views: Vec::new(),
+        sets: Vec::with_capacity(captured.len()),
+        unplaced: BTreeSet::new(),
+    };
     let mut index = BTreeMap::new();
-    let mut sets = Vec::with_capacity(captured.len());
     for set in captured {
-        sets.push(set_indices(world, set, &mut views, &mut index)?);
+        let indices = set_indices(world, set, &mut listing, &mut index)?;
+        listing.sets.push(indices);
     }
-    Ok(RendererViews { views, sets })
+    Ok(listing)
 }
 
-/// The indices in `views` of the renderers of `set`, listing those that `views` lacks.
+/// The indices in `listing.views` of the renderers of `set`, listing those that it lacks.
 fn set_indices(
     world: &World,
     set: &[ComponentHandle],
-    views: &mut Vec<RendererView>,
+    listing: &mut RendererViews,
     index: &mut BTreeMap<ComponentHandle, u32>,
 ) -> Result<Vec<u32>, WorldError> {
     let mut indices = Vec::with_capacity(set.len());
@@ -367,36 +373,34 @@ fn set_indices(
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let Some(mesh) = world
-            .filter_mesh(component.object)
-            .filter(|_| renderer.kind == RendererKind::Mesh)
-        else {
+        let Some(mesh) = world.renderer_mesh(component.object, renderer) else {
+            continue;
+        };
+        let Some(placement) = world.renderer_placement(component.object, renderer)? else {
+            listing.unplaced.insert(*handle);
             continue;
         };
         let layer = u32::from(world.object_layer(component.object)?);
-        let at = index_of(views.len());
-        views.push(renderer_view(
-            world,
-            component.object,
-            renderer,
-            (mesh, layer),
-        )?);
+        let at = index_of(listing.views.len());
+        listing
+            .views
+            .push(renderer_view(renderer, placement, (mesh, layer), world));
         index.insert(*handle, at);
         indices.push(at);
     }
     Ok(indices)
 }
 
-/// What a camera needs of `renderer` on `object`, which draws `mesh` on `layer`.
+/// What a camera needs of `renderer`, which draws `mesh` on `layer` at `placement`.
 fn renderer_view(
-    world: &World,
-    object: ObjectHandle,
     renderer: &MeshRenderer,
+    placement: Mat4,
     (mesh, layer): (u64, u32),
-) -> Result<RendererView, WorldError> {
+    world: &World,
+) -> RendererView {
     let slots = renderer.material_count as usize;
-    Ok(RendererView {
-        local_to_world: world.presented_matrix(object)?.to_cols_array(),
+    RendererView {
+        local_to_world: placement.to_cols_array(),
         mesh,
         layer,
         shadow_casting_mode: renderer.shadow_casting_mode,
@@ -409,5 +413,5 @@ fn renderer_view(
         render_queue: renderer.render_queue,
         property_block: renderer.property_block.clone(),
         slot_blocks: renderer.slot_blocks.clone(),
-    })
+    }
 }

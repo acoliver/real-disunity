@@ -10,6 +10,12 @@ internal sealed class MeshData
     public Vector4[] Tangents { get; init; } = [];
     public Color[] Colors { get; init; } = [];
 
+    /// <summary>The bones that move each vertex, empty or one per vertex.</summary>
+    public BoneWeight[] BoneWeights { get; init; } = [];
+
+    /// <summary>The matrix of each bone that takes a vertex from the mesh's space into the bone's.</summary>
+    public Matrix4x4[] BindPoses { get; init; } = [];
+
     /// <summary>The eight uv channels as four-component values; the dimension of each is in <see cref="UvDimensions"/>.</summary>
     public Vector4[][] Uvs { get; init; } = [];
 

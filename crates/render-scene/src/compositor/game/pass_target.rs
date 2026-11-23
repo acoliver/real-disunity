@@ -128,7 +128,12 @@ impl PassTarget {
     }
 
     /// The state of a draw into the pass that writes every colour attachment without blending,
-    /// under the pass's depth and stencil rules, with `raster` as its raster state.
+    /// under the pass's depth and stencil rules, with `raster` as its raster state. `colors` has
+    /// one entry for each colour attachment, in location order; a draw that blends sets its
+    /// entries. Particles blended over the frame's colour at
+    /// [`GamePlace::BeforePost`](worldrunner_render_post::GamePlace::BeforePost), for example,
+    /// set `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which keeps the
+    /// colour's alpha.
     pub fn render_state(&self, raster: RasterState) -> RenderState {
         match self.depth {
             Some(depth) => depth
@@ -147,29 +152,6 @@ impl PassTarget {
                 stencil: None,
             },
         }
-    }
-
-    /// The state of a draw into the pass under the pass's depth and stencil rules, with `raster`
-    /// as its raster state and `colors` as what it does with each colour attachment, in location
-    /// order: its blend state and write mask. Particles blended over the frame's colour at
-    /// [`GamePlace::BeforePost`](worldrunner_render_post::GamePlace::BeforePost), for example,
-    /// pass `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which keeps the
-    /// colour's alpha.
-    ///
-    /// # Errors
-    /// [`FrameError::AttachmentContract`] naming the entry when `colors` does not have one
-    /// state for each colour attachment of the pass.
-    pub fn render_state_with(
-        &self,
-        raster: RasterState,
-        colors: &[ColorState],
-    ) -> Result<RenderState, FrameError> {
-        if colors.len() != self.colors.len() {
-            return Err(FrameError::AttachmentContract(self.entry));
-        }
-        let mut state = self.render_state(raster);
-        state.colors = colors.iter().copied().map(Some).collect();
-        Ok(state)
     }
 
     /// The frame's depth that `entry` attaches read-only, for the pass to sample as well as

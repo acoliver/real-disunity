@@ -264,7 +264,8 @@ impl ParticleFrame {
             return Ok((&programs.fill, target.render_state(RASTER), Vec::new(), 6));
         }
         if self.mode != Mode::Soft {
-            let state = target.render_state_with(RASTER, &[ALPHA_OVER_RGB])?;
+            let mut state = target.render_state(RASTER);
+            state.colors[0] = Some(ALPHA_OVER_RGB);
             return Ok((&programs.blend, state, Vec::new(), 6));
         }
         let depth = PassTarget::sampled_depth(context, entry)?;

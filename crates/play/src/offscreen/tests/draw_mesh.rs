@@ -48,6 +48,7 @@ mod declared;
 mod persistent;
 mod raster;
 mod screen;
+mod ui_frame;
 
 /// A vertex stage that places its position by the draw's matrices and negates clip Y as every
 /// compiled player stage does, a fragment stage that writes the material's `_Tint` and one that
@@ -130,6 +131,9 @@ struct Shaders;
 
 impl ShaderSupply for Shaders {
     fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError> {
+        if source.file.as_str() == "no-such-shader" {
+            return Err(ShaderLoadError::NoVulkanPlatform);
+        }
         let synthetic = synthetic(source.file.as_str());
         let texture_defaults = declared(&synthetic.shader);
         let program = ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap();

@@ -45,6 +45,8 @@
 mod camera;
 mod compute;
 mod declared_textures;
+#[cfg(test)]
+mod declaring;
 mod engine;
 mod environment;
 mod frame_start;
@@ -54,6 +56,7 @@ mod occlusion;
 mod pass_target;
 mod plan;
 mod registry;
+mod replacement;
 mod resources;
 mod scene_meshes;
 mod scene_textures;
@@ -65,6 +68,8 @@ mod terrain;
 pub use camera::{FrameCamera, FrameCameraHandle};
 pub use compute::GameComputeSpec;
 pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
+#[cfg(test)]
+pub(crate) use declaring::declaring_stock;
 pub(crate) use engine::SceneSources;
 pub use engine::{
     BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
@@ -79,6 +84,7 @@ pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes
 pub(crate) use plan::{place_after_prepass, reconcile_loads};
 pub(crate) use registry::Installed;
 pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
+pub use replacement::StockReplacement;
 pub use resources::{
     GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
     GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,

@@ -78,8 +78,6 @@ fn new_renderer(
         game_camera: super::super::FrameCameraHandle::default(),
         game_terrain: super::super::FrameTerrainHandle::default(),
         game_textures: super::super::game::FrameSceneTexturesHandle::default(),
-        terrain_draws: settings.terrain_draws,
-        water_draws: settings.water_draws,
         chain: scene_chain(context, settings, factory)?,
         environment_conventions: [None; 2],
         water: None,
@@ -144,11 +142,13 @@ fn finish_renderer(
     renderer.install_gbuffer_producer(device);
     renderer.share_metadata_depth(device);
     install_jitter(renderer, settings)?;
-    renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
-    ensure_snapshots(renderer, device, settings);
+    // The inventory installs first: what its factories draw decides whether the stock water
+    // registers.
     settings
         .game_passes
         .install(renderer, context, carried.game)?;
+    renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
+    ensure_snapshots(renderer, device, settings);
     renderer.ensure_game_snapshots(device);
     restore_timing(renderer, context, settings.timing, carried.timing)?;
     Ok(())

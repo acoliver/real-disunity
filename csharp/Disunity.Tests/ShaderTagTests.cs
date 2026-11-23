@@ -14,16 +14,20 @@ internal static class ShaderTagTests
         Console.WriteLine("PASS: Material.GetTag returns a tag its shader declares, the default for one it does not, and the material's override over the shader's value");
         SearchingFallbacksFollowsTheDeclaredChain();
         Console.WriteLine("PASS: Material.GetTag with searchFallbacks reads the fallback shader's tags, ends at a shader with no fallback and survives a cycle");
+        TheEnginesOwnShadersDeclareNoTags();
+        Console.WriteLine("PASS: Material.GetTag gives the default on the sprite and UI shaders the engine defines, with and without searchFallbacks");
         WhatTheEngineCannotKnowThrowsByName();
         Console.WriteLine("PASS: Material.GetTag throws NotSupportedException naming the shader for undeclared tags, an undeclared fallback and a fallback shader the engine does not have");
         ALaterDeclarationCompletesOrDisagrees();
         Console.WriteLine("PASS: a later declaration completes unknown tags and fallback, and one that disagrees is noted and not applied");
         PlanHarness.WithPlan(WritePlan, APlannedShaderCarriesItsTags);
         Console.WriteLine("PASS: a planned shader's tags reach Material.GetTag, through a copied material as Old World's batching reads them");
+        PlanHarness.WithPlan(WriteBuiltInPlan, APlanDeclaringABuiltInShaderWins);
+        Console.WriteLine("PASS: a plan that declares UI/Default replaces the engine's declaration, with no difference noted, and the engine does not declare over it again");
     }
 
     private static Shader Declare(string name, string? fallback, params (string Key, string Value)[] tags) =>
-        DisunityHost.DeclareShader(name, new ShaderDeclaration(2000, OnePass, 1, tags.Select(tag => KeyValuePair.Create(tag.Key, tag.Value)).ToArray(), fallback), _ => { });
+        DisunityHost.DeclareShader(name, new ShaderDeclaration(2000, 1, 1, OnePass, tags.Select(tag => KeyValuePair.Create(tag.Key, tag.Value)).ToArray(), fallback), _ => { });
 
     private static void AMaterialReadsTheTagsItsShaderDeclares()
     {
@@ -37,6 +41,13 @@ internal static class ShaderTagTests
         Expect.Equal("Transparent", material.GetTag("RenderType", false, "fallback"), "the material's override wins over the shader's value");
         material.SetOverrideTag("RenderType", "");
         Expect.Equal("Opaque", material.GetTag("RenderType", false, "fallback"), "removing the override shows the shader's value again");
+        material.SetOverrideTag("renderTYPE", "Overlay");
+        Expect.Equal("Overlay", material.GetTag("RenderType", false, "fallback"), "an override name matches in any case, as a shader's tag name does");
+        material.SetOverrideTag("RENDERTYPE", "");
+        Expect.Equal("Opaque", material.GetTag("RenderType", false, "fallback"), "an empty value in another case removes the override");
+        material.SetOverrideTag("queue", "Overlay");
+        Expect.Equal("Overlay", material.GetTag("QUEUE", false, "fallback"), "an override set in lower case is read in upper case");
+        material.SetOverrideTag("QUEUE", "");
         var copy = new Material(material);
         Expect.Equal("True", copy.GetTag("MohawkStaticBatching", false, ""), "a copied material reads the same shader's tag");
     }
@@ -58,6 +69,23 @@ internal static class ShaderTagTests
         var loop = new Material(Shader.Find("Test/ShaderTags/Loop1")!);
         Expect.Equal("2", loop.GetTag("B", true, "d"), "a fallback cycle still finds a tag on it");
         Expect.Equal("d", loop.GetTag("C", true, "d"), "a fallback cycle ends the search with the default");
+    }
+
+    private static void TheEnginesOwnShadersDeclareNoTags()
+    {
+        // The registered shaders of these names carry whatever an earlier plan declared, so the engine's declarations are applied to fresh shaders.
+        var engineDefined = new (string What, ShaderDeclaration Declaration)[]
+        {
+            ("Sprites/Default", BuiltInShaders.SpriteUnlit), ("the lit sprite shader", BuiltInShaders.SpriteLit), ("UI/Default", BuiltInShaders.CanvasDefault),
+        };
+        foreach (var (what, declaration) in engineDefined)
+        {
+            var material = new Material(new Shader($"Test/ShaderTags/Engine/{what}").Declare(declaration));
+            Expect.Equal("d", material.GetTag("MohawkStaticBatching", false, "d"), $"{what} declares no tags");
+            Expect.Equal("d", material.GetTag("MRTBlending", true, "d"), $"{what} has no fallback to search");
+            Expect.Equal("", material.GetTag("RenderType", false), $"{what}: the two-argument form gives the empty default");
+        }
+        Expect.Equal("d", Material.SpriteUnlit.GetTag("MohawkStaticBatching", false, "d"), "the engine's unlit sprite material reads a tag nobody declares as the default");
     }
 
     private static void WhatTheEngineCannotKnowThrowsByName()
@@ -87,17 +115,17 @@ internal static class ShaderTagTests
     private static void ALaterDeclarationCompletesOrDisagrees()
     {
         var differences = new List<string>();
-        var first = DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, OnePass, 1), differences.Add);
+        var first = DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, 1, 1, OnePass), differences.Add);
         var tags = new[] { KeyValuePair.Create("Own", "x") };
-        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, OnePass, 1, tags, ""), differences.Add);
+        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, 1, 1, OnePass, tags, ""), differences.Add);
         Expect.Equal("x", new Material(first).GetTag("Own", true, "d"), "a later declaration supplies the tags and fallback the first left unknown");
-        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, OnePass, 1), differences.Add);
+        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, 1, 1, OnePass), differences.Add);
         Expect.Equal("x", new Material(first).GetTag("Own", false, "d"), "a declaration without tags keeps the known ones");
         Expect.Equal(0, differences.Count, "agreeing declarations are not noted");
-        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, OnePass, 1, [KeyValuePair.Create("Own", "y")], ""), differences.Add);
+        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, 1, 1, OnePass, [KeyValuePair.Create("Own", "y")], ""), differences.Add);
         Expect.That(differences.Count == 1 && differences[0].Contains("first stays"), $"a different tag value is noted, got {string.Join("; ", differences)}");
         Expect.Equal("x", new Material(first).GetTag("Own", false, "d"), "the first tags stay");
-        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, OnePass, 1, tags, "Other"), differences.Add);
+        DisunityHost.DeclareShader("Test/ShaderTags/Later", new ShaderDeclaration(2000, 1, 1, OnePass, tags, "Other"), differences.Add);
         Expect.Equal(2, differences.Count, "a different fallback is noted");
     }
 
@@ -122,5 +150,29 @@ internal static class ShaderTagTests
         Expect.Equal("Opaque", source.GetTag("RenderType", true), "a planned shader's own tag is found with searchFallbacks, which ends at its empty fallback");
         Expect.Equal("Geometry", source.GetTag("Queue", searchFallbacks: false), "a tag the player stores in upper case is read by its usual spelling");
         Expect.Equal("", source.GetTag("MRTBlending", searchFallbacks: false), "an undeclared tag reads empty");
+    }
+
+    private static string WriteBuiltInPlan(string directory)
+    {
+        var shader = new JsonObject
+        {
+            ["type"] = "Shader", ["name"] = "UI/Default", ["render_queue"] = 3000, ["pass_count"] = 1,
+            ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1, ["fallback"] = "",
+            ["tags"] = new JsonArray(new JsonArray("PlannedUiTag", "Ui")),
+        };
+        var entries = new JsonArray(new JsonObject { ["path"] = "shaders/ui", ["class"] = "Shader", ["asset"] = 0 });
+        return PlanHarness.WriteJson(directory, entries, new JsonArray(shader));
+    }
+
+    private static void APlanDeclaringABuiltInShaderWins()
+    {
+        var engineCanvas = Canvas.GetDefaultCanvasMaterial();
+        Expect.Equal("d", engineCanvas.GetTag("PlannedUiTag", false, "d"), "before the plan, the engine's declaration of UI/Default has no tags");
+        var ui = Resources.Load<Shader>("shaders/ui")!;
+        Expect.That(ReferenceEquals(ui, engineCanvas.shader), "the planned shader is the built-in one");
+        Expect.Equal(0, DisunityHost.Resources!.Differences.Count, $"the plan's declaration of a built-in shader is no difference, got {string.Join("; ", DisunityHost.Resources.Differences)}");
+        Expect.Equal("Ui", engineCanvas.GetTag("PlannedUiTag", false, "d"), "the plan's tag on UI/Default is read through the engine's material");
+        UnityEngine.Object.DestroyImmediate(engineCanvas);
+        Expect.Equal("Ui", Canvas.GetDefaultCanvasMaterial().GetTag("PlannedUiTag", false, "d"), "the engine declaring UI/Default again leaves the plan's tags");
     }
 }

@@ -220,6 +220,7 @@ fn rotated_pixel_snapped_links_use_the_extracted_glyph_rectangles() {
         canvas,
         ComponentDesc::Canvas(Canvas {
             pixel_perfect: true,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )

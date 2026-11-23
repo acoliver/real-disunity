@@ -33,8 +33,14 @@ fn stretched(inset: f32) -> RectTransform {
 
 fn screen_canvas(w: &mut World, parent: Option<ObjectHandle>) -> ObjectHandle {
     let root = rect(w, parent, RectTransform::default());
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     root
 }
 
@@ -86,6 +92,7 @@ fn a_canvas_inside_a_canvas_is_laid_out_as_a_rectangle() {
         nested,
         ComponentDesc::Canvas(Canvas {
             sorting_order: 4,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )
@@ -234,8 +241,14 @@ fn each_extent_matches_the_full_layout() {
         ),
     );
     let nested = rect(&mut w, Some(panel), stretched(3.));
-    w.add_component(nested, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        nested,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let label = rect(
         &mut w,
         Some(nested),
@@ -292,7 +305,13 @@ fn a_canvas_awaiting_destruction_no_longer_lays_out_its_children() {
     let mut w = world();
     let root = rect(&mut w, None, RectTransform::default());
     let canvas = w
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let child = rect(&mut w, Some(root), stretched(10.));
     let before = w.ui_extent(viewport(), child).unwrap().unwrap();

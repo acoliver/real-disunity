@@ -247,8 +247,8 @@ mod temporal_water_tests;
 mod temporal_water_draws_tests;
 
 #[cfg(test)]
-#[path = "temporal_suppressed_water_tests.rs"]
-mod temporal_suppressed_water_tests;
+#[path = "temporal_declared_water_tests.rs"]
+mod temporal_declared_water_tests;
 
 #[cfg(test)]
 #[path = "temporal_mip_bias_tests.rs"]

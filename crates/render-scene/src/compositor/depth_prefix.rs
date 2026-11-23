@@ -439,7 +439,7 @@ impl FrameRenderer {
                 textures.extend(receiver.textures.iter());
             }
         }
-        if let Some(water) = self.water_draws.drawn(self.water.as_ref()) {
+        if let Some(water) = self.game.replaces.stock_water(self.water.as_ref()) {
             textures.extend(water.receivers[self.frame_slot].iter());
         }
         if let Some(ssr) = &self.ssr {

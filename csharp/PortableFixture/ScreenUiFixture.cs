@@ -16,7 +16,7 @@ internal static class ScreenUiFixture
         DisunityHost.CreateGameObject().AddComponent<Camera>().transform.position = new Vector3(0, 0, -10);
         var canvas = DisunityHost.CreateGameObject();
         var root = canvas.AddComponent<RectTransform>();
-        canvas.AddComponent<Canvas>();
+        canvas.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         var rect = DisunityHost.CreateGameObject().AddComponent<RectTransform>();
         rect.SetParent(root, false);
         rect.sizeDelta = new Vector2(16, 16);

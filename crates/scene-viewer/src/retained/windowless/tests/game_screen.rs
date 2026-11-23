@@ -19,7 +19,7 @@ use worldrunner_render_scene::offscreen::RgbaImage;
 const YELLOW: [u8; 4] = [255, 255, 0, 255];
 const RED: [u8; 4] = [255, 0, 0, 255];
 
-fn shared() -> (SharedGpu, wgpu::Device, SubmissionAuthority) {
+pub(super) fn shared() -> (SharedGpu, wgpu::Device, SubmissionAuthority) {
     let mut gpu = SharedGpu::headless_for_test();
     let (device, authority) = gpu
         .device(&crate::tests::options(), &DeviceRequirements::default())
@@ -27,7 +27,7 @@ fn shared() -> (SharedGpu, wgpu::Device, SubmissionAuthority) {
     (gpu, device, authority)
 }
 
-fn scene() -> RenderScene {
+pub(super) fn scene() -> RenderScene {
     crate::renderer::retained_tests::source()
 }
 
@@ -37,11 +37,11 @@ fn all(image: &RgbaImage, expected: [u8; 4]) -> bool {
 }
 
 /// A texture of the game screen's format that nothing wrote.
-fn blank(device: &wgpu::Device, size: u32) -> wgpu::Texture {
+pub(super) fn blank(device: &wgpu::Device, size: u32) -> wgpu::Texture {
     device.create_texture(&blank_descriptor(size))
 }
 
-fn blank_descriptor(size: u32) -> wgpu::TextureDescriptor<'static> {
+pub(super) fn blank_descriptor(size: u32) -> wgpu::TextureDescriptor<'static> {
     wgpu::TextureDescriptor {
         label: Some("blank game screen"),
         size: wgpu::Extent3d {

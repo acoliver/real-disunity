@@ -7,24 +7,23 @@
 //! renderer that is drawable when the snapshot is taken but was not when a record was made is in no
 //! set, so no record draws it.
 //!
-//! A set holds the mesh renderers that are enabled, not forced off, have a drawn mesh and sit on an
-//! object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
+//! A set holds the mesh and skinned renderers that are enabled, not forced off, have a drawn mesh and
+//! sit on an object active in the hierarchy, on a layer the camera's culling mask admits. Consecutive records
 //! of one mask share a set while nothing that decides drawability changes; `drawable_epoch` counts
 //! those changes.
-//!
-//! Skinned mesh renderers are not drawn yet, so no set holds one. The frame keeps the ones that
-//! meet every other condition of a set, each once, so that its snapshot can say how many it leaves
-//! out.
 //!
 //! Changes that follow from one already noted need no note of their own. A renderer's removal
 //! retires its components first, which note it, so removing the object notes nothing more, and a
 //! rolled back edit undoes a change that noted itself when it was made, with no record between.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+
+use glam::Mat4;
 
 use super::OffscreenWork;
 use crate::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, ObjectHandle, RendererKind, World,
+    WorldError,
 };
 
 /// What a component contributes to a renderer being drawable. A component that contributes
@@ -33,7 +32,7 @@ use crate::{
 pub(crate) enum DrawInput {
     /// A mesh renderer of the mesh kind that is enabled and not forced off.
     ShownRenderer,
-    /// A skinned mesh renderer that is enabled and not forced off. It is counted, not drawn.
+    /// A skinned mesh renderer that is enabled, not forced off and names a drawn mesh.
     ShownSkinned,
     /// A mesh filter that has a drawn mesh. Which mesh it is does not matter to a set: the mesh
     /// is read when the snapshot is taken.
@@ -42,14 +41,15 @@ pub(crate) enum DrawInput {
 
 impl ComponentDesc {
     /// What this component contributes to deciding which renderers draw, or `None` when it
-    /// contributes nothing: a mesh renderer that is enabled and not forced off (of the mesh or the
-    /// skinned kind), or a mesh filter that has a drawn mesh. A component that contributes
-    /// nothing is no set's concern, whether it is absent or only present.
+    /// contributes nothing: a mesh renderer that is enabled and not forced off, a skinned one
+    /// only when it names a drawn mesh, or a mesh filter that has a drawn mesh. A component that
+    /// contributes nothing is no set's concern, whether it is absent or only present.
     pub(crate) fn draw_input(&self) -> Option<DrawInput> {
         match self {
+            Self::MeshRenderer(renderer) if !renderer.shows() => None,
             Self::MeshRenderer(renderer) => match renderer.kind {
-                RendererKind::Mesh => shows(renderer).then_some(DrawInput::ShownRenderer),
-                RendererKind::Skinned => switched_on(renderer).then_some(DrawInput::ShownSkinned),
+                RendererKind::Mesh => Some(DrawInput::ShownRenderer),
+                RendererKind::Skinned => renderer.own_mesh().map(|_| DrawInput::ShownSkinned),
                 RendererKind::Particle => None,
             },
             Self::MeshFilter(filter) => filter_draws(filter).map(|_| DrawInput::MeshedFilter),
@@ -64,16 +64,6 @@ impl ComponentDesc {
 /// most once, and the world holds at most `max_components` components, a `u32`.
 pub(super) fn index_of(count: usize) -> u32 {
     u32::try_from(count).expect("a frame's records, sets and renderers are fewer than 2^32")
-}
-
-/// Whether `renderer` is a mesh renderer that is enabled and not forced off.
-fn shows(renderer: &MeshRenderer) -> bool {
-    renderer.kind == RendererKind::Mesh && switched_on(renderer)
-}
-
-/// Whether `renderer` is enabled and not forced off, whatever its kind.
-fn switched_on(renderer: &MeshRenderer) -> bool {
-    renderer.switches.enabled && !renderer.switches.force_rendering_off
 }
 
 /// The mesh a mesh filter draws, or `None` when it has none. Which mesh it is does not matter to
@@ -93,17 +83,12 @@ pub(crate) struct RenderSets {
     by_mask: BTreeMap<u32, u32>,
     /// The `drawable_epoch` that `by_mask` belongs to.
     epoch: u64,
-    /// The skinned renderers that some set of the frame would have held if skinned meshes were
-    /// drawn.
-    skinned: BTreeSet<ComponentHandle>,
 }
 
 /// What a frame's camera renders captured, drained for the snapshot.
 pub(crate) struct CapturedSets {
     pub(crate) sets: Vec<Vec<ComponentHandle>>,
     pub(crate) records: BTreeMap<u32, u32>,
-    /// How many distinct skinned renderers the sets leave out.
-    pub(crate) skinned: usize,
 }
 
 impl RenderSets {
@@ -113,7 +98,6 @@ impl RenderSets {
             records: BTreeMap::new(),
             by_mask: BTreeMap::new(),
             epoch: 0,
-            skinned: BTreeSet::new(),
         }
     }
 
@@ -121,7 +105,6 @@ impl RenderSets {
         self.sets.clear();
         self.records.clear();
         self.by_mask.clear();
-        self.skinned.clear();
     }
 }
 
@@ -154,7 +137,6 @@ impl World {
         CapturedSets {
             sets: std::mem::take(&mut state.sets),
             records: std::mem::take(&mut state.records),
-            skinned: std::mem::take(&mut state.skinned).len(),
         }
     }
 
@@ -191,9 +173,7 @@ impl World {
             return *set;
         }
         let drawable = self.drawable_renderers(mask);
-        let skinned = self.skinned_renderers(mask);
         let state = &mut self.graphics.render_sets;
-        state.skinned.extend(skinned);
         let set = index_of(state.sets.len());
         state.sets.push(drawable);
         state.by_mask.insert(mask, set);
@@ -214,22 +194,6 @@ impl World {
             .collect()
     }
 
-    /// The skinned renderers that would draw now on a layer `mask` admits if skinned meshes were
-    /// drawn.
-    fn skinned_renderers(&self, mask: u32) -> Vec<ComponentHandle> {
-        self.published_components()
-            .filter_map(|component| {
-                let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
-                    return None;
-                };
-                (renderer.kind == RendererKind::Skinned
-                    && switched_on(renderer)
-                    && self.admits(mask, component.object))
-                .then_some(component.handle)
-            })
-            .collect()
-    }
-
     /// Whether `object` is active in the hierarchy on a layer `mask` admits.
     fn admits(&self, mask: u32, object: ObjectHandle) -> bool {
         let Ok(layer) = self.object_layer(object) else {
@@ -240,15 +204,52 @@ impl World {
             && self.active_in_hierarchy(object).unwrap_or(false)
     }
 
-    /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not a
-    /// mesh renderer that is enabled and not forced off, or its object has no drawn mesh. Whether
-    /// the object is active is a separate question.
+    /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not
+    /// enabled and not forced off, or has no drawn mesh. Whether the object is active is a separate
+    /// question.
     fn drawn_mesh(&self, object: ObjectHandle, renderer: &MeshRenderer) -> Option<u64> {
-        if shows(renderer) {
-            self.filter_mesh(object)
+        if renderer.shows() {
+            self.renderer_mesh(object, renderer)
         } else {
             None
         }
+    }
+
+    /// The identity of the mesh `renderer` on `object` names, whatever its switches say: a mesh
+    /// renderer's is its object's mesh filter's, a skinned renderer's its own, and a particle
+    /// renderer has none. Every list of drawn renderers asks here, so they agree.
+    pub(crate) fn renderer_mesh(
+        &self,
+        object: ObjectHandle,
+        renderer: &MeshRenderer,
+    ) -> Option<u64> {
+        match renderer.kind {
+            RendererKind::Mesh => self.filter_mesh(object),
+            RendererKind::Skinned => renderer.own_mesh(),
+            RendererKind::Particle => None,
+        }
+    }
+
+    /// The matrix that places the mesh of `renderer` on `object`. A mesh renderer's mesh is in its
+    /// own object's space. A skinned renderer is drawn in its bind pose, where every bone's matrix
+    /// times its bind pose is the matrix the mesh was bound at, so the root bone's matrix times the
+    /// root bone's bind pose places it. `None` when the skin names no root bone or the root bone is
+    /// gone: the skin then does not say where the mesh goes, and the renderer is left out.
+    ///
+    /// # Errors
+    /// Fails when the world cannot describe the object of a mesh renderer.
+    pub(crate) fn renderer_placement(
+        &self,
+        object: ObjectHandle,
+        renderer: &MeshRenderer,
+    ) -> Result<Option<Mat4>, WorldError> {
+        if renderer.kind != RendererKind::Skinned {
+            return self.presented_matrix(object).map(Some);
+        }
+        Ok(renderer.skin.root.and_then(|root| {
+            let bone = self.presented_matrix(root.bone).ok()?;
+            Some(bone * Mat4::from_cols_array(&root.bind_pose))
+        }))
     }
 
     /// The drawn mesh of the object's mesh filter, when it has one with a mesh.

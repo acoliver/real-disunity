@@ -5,7 +5,7 @@ namespace UnityEngine.TextCore.LowLevel;
 public static unsafe partial class FontEngine
 {
     /// <summary>Where and how a batch of glyphs is drawn: the packing state the caller passed and the texture it owns.</summary>
-    private readonly record struct AtlasTarget(
+    internal readonly record struct AtlasTarget(
         int Padding, GlyphPackingMode Packing, List<GlyphRect> Free, List<GlyphRect> Used, GlyphRenderMode Mode, Texture2D Texture);
 
     /// <summary>
@@ -93,9 +93,12 @@ public static unsafe partial class FontEngine
             or GlyphRenderMode.SDFAA or GlyphRenderMode.SDFAA_HINTED;
 
     /// <summary>The drawn glyph, or null when it cannot be drawn.</summary>
-    private static Glyph? TryAdd(uint index, AtlasTarget target)
+    private static Glyph? TryAdd(uint index, AtlasTarget target) => Current is { } face ? TryAdd(face, index, target) : null;
+
+    /// <summary>The glyph of the given face drawn into the target's atlas, or null when it cannot be drawn.</summary>
+    internal static Glyph? TryAdd(FaceHandle face, uint index, AtlasTarget target)
     {
-        if (GlyphOf(index) is not { } glyph) return null;
+        if (GlyphOf(face, index) is not { } glyph) return null;
         var metrics = glyph.metrics;
         if (metrics.width <= 0 || metrics.height <= 0) return glyph;
         var width = (int)Math.Ceiling(metrics.width) + 2 * target.Padding;
@@ -103,7 +106,7 @@ public static unsafe partial class FontEngine
         var texture = target.Texture;
         var free = target.Free.ToArray();
         if (!FontAtlasPacker.TryPlace(target.Packing, width, height, texture.width, texture.height, target.Free, target.Used, out var rect)) return null;
-        if (!Render(index, rect, target))
+        if (!Render(face, index, rect, target))
         {
             target.Used.RemoveAt(target.Used.Count - 1);
             target.Free.Clear();
@@ -123,7 +126,7 @@ public static unsafe partial class FontEngine
         target.Texture.Apply(false);
     }
 
-    private static bool Render(uint index, GlyphRect rect, AtlasTarget target)
+    private static bool Render(FaceHandle face, uint index, GlyphRect rect, AtlasTarget target)
     {
         var texture = target.Texture;
         var render = new DisunityGlyphRender
@@ -132,8 +135,6 @@ public static unsafe partial class FontEngine
             x = (uint)rect.x, y = (uint)rect.y, width = (uint)rect.width, height = (uint)rect.height,
             atlas_width = (uint)texture.width, atlas_height = (uint)texture.height,
         };
-        var pixels = texture.PixelBytes;
-        fixed (byte* atlas = pixels)
-            return NativeBindings.disunity_face_glyph_render(_faceWorld, _face, &render, atlas, (uint)pixels.Length).code == 0;
+        return face.RenderGlyph(render, texture.PixelBytes);
     }
 }

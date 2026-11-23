@@ -357,7 +357,10 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
         if !supported(&context, samples) {
             continue;
         }
-        let aa = AntiAliasing::new(samples, PostResolve::fxaa(0.75));
+        let aa = AntiAliasing::new(
+            samples,
+            PostResolve::fxaa(0.75, worldrunner_render_post::FxaaQuality::default()),
+        );
         let frame = FrameRenderer::hdr_antialiased(
             &context,
             [SIZE, SIZE],
@@ -370,7 +373,10 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
         assert_eq!(frame.targets().config().samples, samples.count());
     }
     let authored = crate::post_fxaa_tests::effects(None);
-    let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(0.5));
+    let aa = AntiAliasing::new(
+        MsaaSamples::X4,
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
+    );
     let result = FrameRenderer::hdr_antialiased(
         &context,
         [SIZE, SIZE],
@@ -400,7 +406,10 @@ fn sharpening_follows_any_resolve_and_an_invalid_sharpness_is_rejected() {
         )
     };
     let sharpen = CasSettings::new(0.5);
-    for resolve in [PostResolve::None, PostResolve::fxaa(0.75)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(0.75, worldrunner_render_post::FxaaQuality::default()),
+    ] {
         let aa = AntiAliasing::new(MsaaSamples::X4, resolve).with_sharpen(sharpen);
         assert!(build(aa, None).is_ok(), "{resolve:?}");
     }

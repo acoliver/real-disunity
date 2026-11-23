@@ -44,7 +44,7 @@ fn fully_clipped_depth_tested_overlay_does_not_publish_draws() {
 fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
     let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(device, context.submission(), &pipelines).unwrap();
     scene
         .set_ui_overlay(
@@ -136,8 +136,11 @@ fn assert_submission(
 fn overlay_depth_inventory_reserves_snapshots_only_for_depth_consumers() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
-    let mut settings =
-        super::RendererConfiguration::legacy([64, 64], OffscreenTarget::COLOR_FORMAT);
+    let mut settings = super::RendererConfiguration::new(
+        [64, 64],
+        OffscreenTarget::COLOR_FORMAT,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let before = settings.allocations().validate(&limits).unwrap();
     settings.ui_depth = true;
     let with_depth = settings.allocations().validate(&limits).unwrap();

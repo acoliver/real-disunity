@@ -7,10 +7,9 @@ fn configured(
     context: &GpuContext,
     reservation: ReceiverGradientReservation,
 ) -> (Configuration<FrameRenderer>, u64) {
-    let mut settings = RendererConfiguration::legacy(SIZE, COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(SIZE, COLOR_FORMAT, ToneMap::Reinhard);
     settings.receiver_gradients = reservation;
     settings.frame.format = TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     let source = sloped(true);
     let effects = source.effects().unwrap();
     let mut renderer = FrameRenderer::hdr(

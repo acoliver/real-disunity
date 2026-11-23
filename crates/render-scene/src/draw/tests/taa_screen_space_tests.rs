@@ -132,7 +132,7 @@ fn pipelines(
     if feature == Feature::Ssao && variant.feature_on {
         ScenePipelines::with_ssao(device, HDR, samples.count()).unwrap()
     } else {
-        ScenePipelines::with_samples(device, HDR, samples.count()).unwrap()
+        ScenePipelines::new(device, HDR, samples.count()).unwrap()
     }
 }
 

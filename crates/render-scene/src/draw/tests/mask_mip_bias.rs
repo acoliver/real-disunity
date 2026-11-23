@@ -43,7 +43,7 @@ fn forward_prepass_and_metadata_keep_the_same_masked_pixels_at_a_nonzero_bias() 
     let context = context();
     let device = context.device();
     let scene = masked_scene(level_zero_transparent());
-    let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm);
+    let pipelines = ScenePipelines::new(device, TextureFormat::Rgba8Unorm, 1).unwrap();
     let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
     let [forward, prepass, metadata, _shadow] = geometry_sources();
     for (bias, expect_covered) in [(0.0_f32, true), (-1.0, false)] {

@@ -140,9 +140,11 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sa
         let mut submissions = Vec::new();
         for (slot, red) in [(0, 0.25), (1, 0.5)] {
             renderer.select_frame_slot(slot);
-            renderer
-                .set_frame_time(if slot == 0 { 0.0 } else { 2.0 })
-                .unwrap();
+            renderer.set_frame_time(std::time::Duration::from_secs_f32(if slot == 0 {
+                0.0
+            } else {
+                2.0
+            }));
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, red);
             submissions.push(encoder.finish().submit().unwrap());
         }
@@ -195,11 +197,12 @@ fn encode_fixture(
             context.device(),
             &mut encoder,
             (&[pass], &[color.clone(), depth.clone()]),
+            None,
             &mut [],
-            (*frame, None),
+            &(*frame, None),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
 
     encoder
 }
@@ -435,7 +438,7 @@ fn draw_water_with(
         });
         record(&feature, &mut pass);
     }
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     wait(context.device());
 }

@@ -258,6 +258,7 @@ fn direct_pixels(context: &GpuContext, settings: &p::HdrPostSettings) -> Vec<u8>
         p::FrameConfig::new([2, 2], wgpu::TextureFormat::Rgba16Float, 1),
         p::Resources::default(),
         factory,
+        worldrunner_render_post::SceneDepth::Independent,
     )
     .unwrap();
     capture(context, chain.targets().resolved(), |encoder, output| {

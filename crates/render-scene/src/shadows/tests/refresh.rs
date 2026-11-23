@@ -1,4 +1,4 @@
-use super::deferred::scheduler;
+use super::shadowed_capture::scheduler;
 use super::*;
 use crate::compositor::StockReplacement;
 

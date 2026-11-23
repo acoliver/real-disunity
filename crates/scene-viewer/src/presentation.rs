@@ -127,11 +127,8 @@ impl Presentation {
         let (settings, capture_pool) =
             policy.inventory(settings, capture_size, &context.device().limits())?;
         let native_rcas = settings.post.native_rcas;
-        let scheduler = ConfiguredFrameRenderer::new_with_policy(
-            context,
-            settings,
-            policy.budget.allocation_policy(),
-        )?;
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, policy.budget.allocation_policy())?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,
@@ -216,6 +213,12 @@ impl Presentation {
             self.capture_size = capture_size;
         }
         Ok(())
+    }
+
+    /// The format every output stage of the frame chain is built for, and so the format of any
+    /// texture a frame draws its output into.
+    pub fn output_format(&self) -> wgpu::TextureFormat {
+        self.scheduler.configuration().output_format
     }
 
     pub(crate) fn capture_pool_bytes(&self) -> u64 {

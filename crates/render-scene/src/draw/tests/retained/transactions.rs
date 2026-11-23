@@ -29,7 +29,7 @@ fn cancelling_resident_uploads_preserves_pending_edits_until_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
@@ -88,7 +88,7 @@ fn cancelling_resident_uploads_preserves_pending_edits_until_submission() {
 
 fn target_busy(
     context: &GpuContext,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     pipelines: &ScenePipelines,
 ) -> Result<crate::offscreen::RgbaImage, crate::offscreen::OffscreenError> {
     retained_target(context).render(context, gpu, pipelines)
@@ -127,7 +127,7 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = retained_target(&context);
@@ -135,7 +135,7 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
     prepare(&context, &mut gpu, &pipelines, &mut renderer, &target)
         .submit()
         .unwrap();
-    let expected = target.render(&context, &gpu, &pipelines).unwrap();
+    let expected = target.render(&context, &mut gpu, &pipelines).unwrap();
     let old_stats = gpu.view_stats();
     gpu.select_frame_slot(1);
     let mut camera = frame_from(pose());
@@ -154,7 +154,10 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
         .unwrap();
     cancelled.cancel();
     assert_eq!(
-        target.render(&context, &gpu, &pipelines).unwrap().pixels,
+        target
+            .render(&context, &mut gpu, &pipelines)
+            .unwrap()
+            .pixels,
         expected.pixels
     );
     assert_eq!(gpu.view_stats(), old_stats);
@@ -165,7 +168,7 @@ fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let expected = gpu.instances.batches.values().next().unwrap().bytes.clone();
@@ -207,7 +210,7 @@ fn owned_statistics_can_be_retained_across_publication() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = retained_target(&context);
@@ -227,7 +230,7 @@ fn resident_upload_rejects_standalone_and_foreign_encoders() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
@@ -259,8 +262,8 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu =
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let mut target = retained_target(&context);
@@ -295,7 +298,7 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
     );
     assert_eq!(gpu.view_stats(), before);
     assert_eq!(gpu.shadow_view_stats().considered, 0);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().considered, 2);
     assert!(!gpu.views[0].published.borrow().ranges.is_empty());
 }
@@ -305,8 +308,8 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu =
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let mut target = retained_target(&context);
@@ -348,7 +351,7 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
             .values()
             .all(|batch| batch.history.has_pending())
     );
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().considered, 2);
     assert!(!gpu.views[0].published.borrow().ranges.is_empty());
 }

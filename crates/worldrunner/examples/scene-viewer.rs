@@ -377,12 +377,8 @@ fn frame_profile() -> worldrunner::scene::viewer::FrameProfile {
             },
         };
     }
-    if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
-        FrameProfile::Hdr {
-            samples,
-            tone_map: ToneMap::Reinhard,
-        }
-    } else {
-        FrameProfile::Legacy
+    FrameProfile::Hdr {
+        samples,
+        tone_map: ToneMap::Reinhard,
     }
 }

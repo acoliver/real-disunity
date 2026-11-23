@@ -107,7 +107,7 @@ fn shown(
     offers: &[&[UiTarget]],
 ) -> Vec<[u8; 4]> {
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(device, context.submission(), &pipelines).unwrap();
     for targets in offers {
         scene

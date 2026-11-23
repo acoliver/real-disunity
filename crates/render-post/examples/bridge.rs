@@ -65,7 +65,7 @@ fn view(
     lifetime: ResourceLifetime,
 ) -> CheckedView {
     let key = registry
-        .import(texture, lifetime, Semantic::LinearColor, None)
+        .import(texture, lifetime, Semantic::LinearColor, None, &[])
         .unwrap();
     registry
         .view(key, TextureRange::single(0, 0, wgpu::TextureAspect::All), 1)

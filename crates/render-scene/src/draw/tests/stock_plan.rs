@@ -85,9 +85,8 @@ fn scene_with(request: Option<SceneSsr>, water: bool) -> RenderScene {
 }
 
 fn configuration(source: &RenderScene, size: [u32; 2]) -> RendererConfiguration {
-    let mut settings = RendererConfiguration::legacy(size, COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(size, COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame.format = TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     let effects = source.effects().unwrap();
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
@@ -167,7 +166,7 @@ impl<'a> Rig<'a> {
         )
         .unwrap();
         let pipelines =
-            ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
+            ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1).unwrap();
         let gpu =
             SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
         Self {

@@ -48,7 +48,14 @@ impl Rig {
         let config = FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1)
             .with_render_extent(render);
         let factory = public_factory(&device, &settings());
-        let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
+        let chain = PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            factory,
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         Self {
             device,
             queue,

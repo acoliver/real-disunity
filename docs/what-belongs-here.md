@@ -29,4 +29,4 @@ Follow the project writing guide ([acoliver/vibetools, docs/writing/styleguide.m
 
 Keep examples honest. Every code block in these pages should compile against the current engine. Build it before committing, and update it in the same PR when an API it uses changes. When a page describes a limit, check it against the source; `csharp/Disunity` is the source of truth for the [API list](unity-api.md).
 
-Use one term per concept across all pages: "world" for the native simulation, "host" for `DisunityHost`, "importer" for `unity-import`, and "frame profile" for the legacy or HDR rendering setup.
+Use one term per concept across all pages: "world" for the native simulation, "host" for `DisunityHost`, "importer" for `unity-import`, and "frame profile" for the sample count, tone curve and upscaling a renderer is built with.

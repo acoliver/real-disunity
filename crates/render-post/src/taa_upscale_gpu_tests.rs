@@ -243,6 +243,7 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
             history: history.clone(),
             parity: crate::history_parity::HistoryParity::default(),
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let sink = color_texture(&device, "sink", output, taa_upscale_gpu::FORMAT);

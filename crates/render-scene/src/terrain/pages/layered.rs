@@ -3,6 +3,8 @@
 mod anisotropy;
 #[cfg(test)]
 mod anisotropy_tests;
+#[cfg(test)]
+mod reach_tests;
 mod sampling;
 mod splat;
 #[cfg(test)]

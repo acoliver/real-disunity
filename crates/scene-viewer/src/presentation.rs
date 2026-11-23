@@ -215,6 +215,12 @@ impl Presentation {
         Ok(())
     }
 
+    /// The format every output stage of the frame chain is built for, and so the format of any
+    /// texture a frame draws its output into.
+    pub fn output_format(&self) -> wgpu::TextureFormat {
+        self.scheduler.configuration().output_format
+    }
+
     pub(crate) fn capture_pool_bytes(&self) -> u64 {
         self.capture_pool.unwrap_or(0)
     }

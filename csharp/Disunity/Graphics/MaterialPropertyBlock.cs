@@ -6,7 +6,7 @@ namespace UnityEngine;
 /// Per-renderer property overrides. The block stores the values set on it and nothing reads them yet.
 /// The light probe copies (CopySHCoefficientArraysFrom, CopyProbeOcclusionArrayFrom) need light probe data
 /// the engine does not have and throw <see cref="NotSupportedException"/>. An unset property reads as zero,
-/// a matrix as identity and a texture as null.
+/// a matrix as identity and a texture as null. Colors follow the project's color space as a material's do.
 /// </summary>
 public sealed partial class MaterialPropertyBlock
 {
@@ -50,7 +50,7 @@ public sealed partial class MaterialPropertyBlock
     public void SetVector(string name, Vector4 value) => SetVector(Shader.PropertyToID(name), value);
     public void SetVector(int nameID, Vector4 value) => _properties.Vectors[nameID] = value;
     public void SetColor(string name, Color value) => SetColor(Shader.PropertyToID(name), value);
-    public void SetColor(int nameID, Color value) => _properties.Vectors[nameID] = value;
+    public void SetColor(int nameID, Color value) => _properties.SetColor(nameID, value);
     public void SetMatrix(string name, Matrix4x4 value) => SetMatrix(Shader.PropertyToID(name), value);
     public void SetMatrix(int nameID, Matrix4x4 value) => _properties.Matrices[nameID] = value;
     public void SetTexture(string name, Texture value) => SetTexture(Shader.PropertyToID(name), value);
@@ -86,7 +86,7 @@ public sealed partial class MaterialPropertyBlock
     public Vector4 GetVector(string name) => GetVector(Shader.PropertyToID(name));
     public Vector4 GetVector(int nameID) => _properties.Vectors.GetValueOrDefault(nameID);
     public Color GetColor(string name) => GetColor(Shader.PropertyToID(name));
-    public Color GetColor(int nameID) => _properties.Vectors.GetValueOrDefault(nameID);
+    public Color GetColor(int nameID) => _properties.GetColor(nameID);
     public Matrix4x4 GetMatrix(string name) => GetMatrix(Shader.PropertyToID(name));
     public Matrix4x4 GetMatrix(int nameID) => _properties.Matrices.TryGetValue(nameID, out var matrix) ? matrix : Matrix4x4.identity;
     public Texture? GetTexture(string name) => GetTexture(Shader.PropertyToID(name));

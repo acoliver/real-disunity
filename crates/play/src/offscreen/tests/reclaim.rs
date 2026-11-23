@@ -390,7 +390,7 @@ fn the_least_recently_named_texture_goes_first() {
 #[test]
 fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
     render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
-        host.frame(snapshot, &Textures::default(), Settling::Wait)
+        host.frame(snapshot, &Textures::default(), Settling::Wait, &[])
             .unwrap()
             .1
     });
@@ -399,7 +399,7 @@ fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
 #[test]
 fn the_render_textures_of_a_viewer_frame_take_the_room_of_what_no_snapshot_names() {
     render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
-        host.frame(snapshot, &Textures::default(), Settling::Poll)
+        host.frame(snapshot, &Textures::default(), Settling::Poll, &[])
             .unwrap()
             .1
     });

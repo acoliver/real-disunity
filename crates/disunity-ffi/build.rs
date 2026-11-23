@@ -44,6 +44,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/environment.rs",
     "src/gpu_flush.rs",
     "src/graphics.rs",
+    "src/graphics_batch.rs",
     "src/graphics_commands.rs",
     "src/graphics_context.rs",
     "src/graphics_offscreen.rs",

@@ -91,10 +91,22 @@ internal static unsafe class CommandWireReader
             20 => $"Scissor rect={input.Floats(4)}",
             21 => "ScissorOff",
             22 => $"DepthBias bias={input.F32().ToString("R", CultureInfo.InvariantCulture)} slope={input.F32().ToString("R", CultureInfo.InvariantCulture)}",
+            23 => $"DrawMeshBatch mesh={input.U64()} material={input.U64()} submesh={input.U32()} pass={input.I32()} {Batch(input)}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
         return text;
+    }
+
+    /// <summary>A batch draw's part after the mesh: the buffer window, the metadata words by name, the visible indexes and the pass tags.</summary>
+    private static string Batch(Cursor input)
+    {
+        var buffer = input.U64();
+        var window = $"{input.U64()}+{input.U64()}";
+        var metadata = string.Join(",", input.List(() => $"{input.Text()}={input.U32()}"));
+        var visible = string.Join(",", input.List(input.U32));
+        var tags = string.Join(",", input.List(input.Text));
+        return $"buffer={buffer} window={window} metadata=[{metadata}] visible=[{visible}] tags=[{tags}]";
     }
 
     /// <summary>A mesh draw's instance count, written only when it is not the one instance of a plain draw.</summary>

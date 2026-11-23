@@ -10,8 +10,15 @@
 //! ```text
 //! VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
 //!   cargo run --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
-//!   [--frames 300] [--warmup 60] [--objects 3000] [--in-flight 1] [--size 1280x720]
+//!   [--frames 300] [--warmup 60] [--objects 3000] [--in-flight 1] [--size 1280x720] \
+//!   [--clutter 20000 --edits 300]
 //! ```
+//!
+//! `--clutter N` adds N pieces of clutter to the scene, spread over eight large instance
+//! batches. With `--edits E` the driver also edits E of them every frame, as a game that streams
+//! clutter around the camera does: a third are removed, a third are replaced by new pieces near
+//! the camera and a third move where they stand. The edits happen in the driver's update, so
+//! the timed span includes publishing them to the retained host and the renderer.
 //!
 //! Lavapipe makes GPU time meaningless; the CPU figures stay valid. `--in-flight 1` keeps the
 //! software rasterizer from competing with the timed thread for cores.
@@ -30,6 +37,8 @@ use worldrunner_scene_viewer::{
     ViewerOptions, WindowlessRetained,
 };
 
+#[path = "moving_frame_cpu/edits.rs"]
+mod edits;
 #[path = "moving_frame_cpu/scene.rs"]
 mod scene;
 #[path = "moving_frame_cpu/stats.rs"]
@@ -41,6 +50,8 @@ struct Config {
     frames: usize,
     warmup: usize,
     objects: usize,
+    clutter: usize,
+    edits: usize,
     in_flight: usize,
     size: [u32; 2],
 }
@@ -51,6 +62,8 @@ impl Config {
             frames: 300,
             warmup: 60,
             objects: 3000,
+            clutter: 0,
+            edits: 0,
             in_flight: 1,
             size: [1280, 720],
         };
@@ -61,6 +74,8 @@ impl Config {
                 "--frames" => config.frames = value()?.parse()?,
                 "--warmup" => config.warmup = value()?.parse()?,
                 "--objects" => config.objects = value()?.parse()?,
+                "--clutter" => config.clutter = value()?.parse()?,
+                "--edits" => config.edits = value()?.parse()?,
                 "--in-flight" => config.in_flight = value()?.parse()?,
                 "--size" => config.size = parse_size(&value()?)?,
                 other => return Err(format!("unknown argument {other}").into()),
@@ -140,19 +155,26 @@ fn pose(frame: u64) -> CameraPose {
     }
 }
 
-/// Walks the camera and records how long its own update took.
+/// Walks the camera, edits the streamed clutter and records how long its own update took.
 struct Walker {
     spent: Rc<Cell<Duration>>,
+    clutter: edits::Clutter,
 }
 
 impl RetainedDriver for Walker {
     fn update(&mut self, host: &mut RetainedHost, tick: &RetainedTick) -> Result<(), String> {
         let started = Instant::now();
-        let result = host.apply(RetainedUpdate::Camera {
-            pose: pose(tick.frame),
+        let pose = pose(tick.frame);
+        let mut result = host.apply(RetainedUpdate::Camera {
+            pose,
             lens: scene::lens(),
             convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         });
+        if result.is_ok()
+            && let Some(edits) = self.clutter.edits(pose.eye_millimeters)
+        {
+            result = host.apply(RetainedUpdate::Objects(edits));
+        }
         self.spent.set(self.spent.get() + started.elapsed());
         result.map_err(|error| error.to_string())
     }
@@ -228,10 +250,11 @@ fn submit_one(
 fn main() -> Result<(), Failure> {
     let started = Instant::now();
     let config = Config::from_args()?;
-    let scene = scene::scene(config.objects)?;
+    let scene = scene::scene(config.objects, config.clutter)?;
     let spent = Rc::new(Cell::new(Duration::ZERO));
     let mut walker = Walker {
         spent: Rc::clone(&spent),
+        clutter: edits::Clutter::new(config.objects, config.clutter, config.edits),
     };
     let mut host = RetainedHost::new(scene, config.options())?.windowless(&mut walker, None)?;
     let mut pacer = Pacer {
@@ -262,7 +285,13 @@ fn main() -> Result<(), Failure> {
 
 fn config_summary(config: &Config) -> String {
     format!(
-        "{} objects, {}x{}, HDR bloom+FXAA profile, {} in flight, {} warm-up frames",
-        config.objects, config.size[0], config.size[1], config.in_flight, config.warmup,
+        "{} objects, {} clutter edited {} per frame, {}x{}, HDR bloom+FXAA profile, {} in flight, {} warm-up frames",
+        config.objects,
+        config.clutter,
+        config.edits,
+        config.size[0],
+        config.size[1],
+        config.in_flight,
+        config.warmup,
     )
 }

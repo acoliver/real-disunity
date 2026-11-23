@@ -105,6 +105,25 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_renderer_materials_read(ulong world, ulong handle, ulong* materials, uint capacity, uint* count);
         /// <summary>
+        ///  Records a draw of instances of sub-mesh `submesh` of the stored mesh `mesh`, with the
+        ///  material's `pass` (-1 for every pass), into the bound targets with the current view and
+        ///  projection. The shader reads each instance from the window of `buffer` that starts at `offset`
+        ///  and is `size` bytes long. `names` holds `batch.metadata_count` property names joined by zero
+        ///  bytes (`batch.names_len` bytes), `words` their metadata words and `visible` the indexes of the
+        ///  instances to draw, in order, and `tags` the `batch.tags_len` bytes of pass tags, which a
+        ///  draw of a renderer list's passes names instead of a pass index (the pass must then be -1). A
+        ///  count of zero needs no pointer. An identity nothing stored, a
+        ///  dead material or buffer, a window outside the buffer, a name that is empty or too long and a
+        ///  count that disagrees with the names are refused and record nothing.
+        ///
+        ///  # Safety
+        ///  `batch` is readable for one record. `names` is readable for `batch.names_len` bytes, `words`
+        ///  for `batch.metadata_count` words, `visible` for `batch.visible_count` words and `tags` for
+        ///  `batch.tags_len` bytes, each unless its count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh_batch", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh_batch(ulong world, DisunityDrawBatch* batch, byte* names, uint* words, uint* visible, byte* tags);
+        /// <summary>
         ///  Records that draws from here go to `color_count` color targets and an optional `depth`
         ///  target (null for none), at `mip`, cube `face` (-1 for every face) and depth `slice` (-1 for
         ///  every slice).

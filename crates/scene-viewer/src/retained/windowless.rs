@@ -89,6 +89,13 @@ impl WindowlessRetained<'_> {
     pub fn host(&self) -> &RetainedHost {
         &self.session.host
     }
+
+    /// Whether the session has ended: the driver asked to exit, a call failed or `shutdown` ran.
+    /// `frame` and `poll` fail after that.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
     pub fn host_mut(&mut self) -> &mut RetainedHost {
         &mut self.session.host
     }

@@ -94,6 +94,7 @@ mod scenarios {
             fixed_dt: Some(Duration::from_millis(20)),
             max_frames: Some(frames),
             capture_frames: captures.iter().copied().collect(),
+            capture_files: Vec::new(),
             keys,
         };
         let frames_shown = play_game_window(prepared, &window).unwrap();

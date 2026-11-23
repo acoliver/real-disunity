@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use crate::GpuLaunch;
 use crate::PreparedPlayer;
-use crate::gpu_device::headless::HeadlessViewer;
+use crate::gpu_device::{SharedDevice, headless};
 use crate::player::window_gpu;
 
 const SIZE: u32 = 64;
@@ -40,8 +40,9 @@ fn readback_window() -> PlayerWindow {
         title: "windowless readback".into(),
         size: [SIZE, SIZE],
         fixed_dt: Some(Duration::from_millis(16)),
-        max_frames: None,
+        max_frames: Some(UPDATES),
         capture_frames: BTreeSet::from([0, SECOND_COLOR_FRAME + 4]),
+        capture_files: Vec::new(),
         keys: vec![],
     }
 }
@@ -55,21 +56,29 @@ fn play() -> Played {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/readback.fixture"),
         data: data.path().to_owned(),
+        screen: None,
         gpu: GpuLaunch::default(),
     };
     let window = readback_window();
-    let mut source = HeadlessViewer::new([SIZE, SIZE]);
-    let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
-        .expect("the test needs a GPU adapter");
-    let (viewer, mut driver) = start_window(&prepared, &window, gpu).unwrap();
-    let mut run = viewer.windowless(&mut driver, Some(source.gpu)).unwrap();
+    let (mut shared, options) = headless::shared([SIZE, SIZE]);
+    let gpu = window_gpu(
+        &prepared.data,
+        &prepared.gpu,
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )
+    .expect("the test needs a GPU adapter");
+    let (viewer, mut driver) = start_window(&prepared, &window, options, gpu).unwrap();
+    let mut run = viewer.windowless(&mut driver, Some(shared)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
-    for _ in 0..UPDATES {
+    while !run.is_closed() {
+        assert!(Instant::now() < deadline, "the run timed out");
         run.frame().unwrap();
-        run.poll().unwrap();
-    }
-    while run.poll().unwrap() {
-        assert!(Instant::now() < deadline, "capture timed out");
+        if !run.is_closed() {
+            run.poll().unwrap();
+        }
         std::thread::yield_now();
     }
     run.shutdown().unwrap();
@@ -79,7 +88,7 @@ fn play() -> Played {
         frames: report.frames,
         pixel_reads: report.pixel_reads,
         errors: report.errors.keys().cloned().collect(),
-        captures: driver.script.take_captures(),
+        captures: driver.script.finish().unwrap(),
     }
 }
 

@@ -261,10 +261,10 @@ impl OffscreenTarget {
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
         self.wait_for_terrain_pages(context, scene)?;
-        let frame = scene.resident_frame();
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
+                let frame = scene.resident_frame();
                 let color = self.color_attachment();
                 let depth = self.depth_attachment();
                 let renderer = self

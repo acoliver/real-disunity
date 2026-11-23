@@ -40,15 +40,16 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
     gpu.set_frame(context.queue(), frame);
     target.render(&context, &mut gpu, &pipelines).unwrap();
     let stats = gpu.statistics();
-    // The resident path gathers no view instances, so each selected range is one draw.
+    // The stock frame gathers the view's visible instances, so the batch's two visible
+    // instances, either side of the hidden one, are one draw.
     assert_eq!(
         stats.passes.opaque_objects.recording,
-        ObjectRecording::Ranged
+        ObjectRecording::Compacted
     );
     assert_eq!(
         stats.passes.opaque_objects.meshes,
         DrawCount {
-            calls: 2,
+            calls: 1,
             instances: 2
         }
     );

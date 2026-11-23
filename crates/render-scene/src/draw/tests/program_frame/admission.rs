@@ -50,7 +50,9 @@ fn attempt(fixture: &mut Fixture, signature: TargetSignature) -> (Result<(), Fra
 fn draws_prepared_for_other_attachments_are_refused_before_any_draw() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
-    let prepared = TargetSignature::new(&[HDR], Some(DEPTH_FORMAT), 1).unwrap();
+    // The stock scene colour is Rgba16Float; these draws were prepared for an 8-bit target.
+    let prepared = TargetSignature::new(&[COLOR_FORMAT], Some(DEPTH_FORMAT), 1).unwrap();
+    assert_ne!(prepared, fixture.signature());
     let (encoded, scene) = attempt(&mut fixture, prepared);
     assert_eq!(
         refusal(encoded.unwrap_err()),

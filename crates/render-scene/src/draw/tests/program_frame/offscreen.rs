@@ -461,8 +461,9 @@ fn a_draw_prepared_for_another_target_refuses_the_frame_by_name_and_takes_its_of
     fixture
         .gpu
         .admit_offscreen(operations.admit(&recording).unwrap());
+    // The stock scene colour is Rgba16Float; this draw was prepared for an 8-bit target.
     let prepared =
-        TargetSignature::new(&[TextureFormat::Rgba16Float], Some(DEPTH_FORMAT), 1).unwrap();
+        TargetSignature::new(&[TextureFormat::Rgba8UnormSrgb], Some(DEPTH_FORMAT), 1).unwrap();
     assert_ne!(prepared, fixture.signature());
     admit_scene_draw_for(&mut fixture, &mut player, &recording, prepared);
 

@@ -36,6 +36,7 @@ mod sampling;
 mod slot_dimension;
 mod steps;
 mod storage_buffers;
+mod tap;
 mod texel_size;
 mod texture_binding;
 mod textures;
@@ -81,7 +82,7 @@ pub use probe::{
     CONSTANT_COLOR, CameraProbe, ClipCounts, MemberOrigin, Origin, PassSetup, ProgramProbe,
     SampledTexture, StateVariant, TriangleCounts,
 };
-pub use readback::PendingImage;
+pub use readback::{PendingImage, TapRead};
 pub use steps::DRAW_LAYERS;
 pub use views::ViewCounts;
 
@@ -351,7 +352,7 @@ impl OffscreenState {
         let mut missing = BTreeSet::new();
         let mut counts = DrawCounts::default();
         let mut shares = Vec::new();
-        let (steps, reads) = {
+        let (steps, taps, reads) = {
             let mut services = Services {
                 runtime: &mut *runtime,
                 shaders: &mut self.shaders,
@@ -376,8 +377,8 @@ impl OffscreenState {
                     services.import(spec.id)?;
                 }
             }
-            let steps = steps::plan_steps(&mut services, frame)?;
-            (steps, later_reads(&mut services, frame)?)
+            let (steps, taps) = steps::plan_steps(&mut services, frame)?;
+            (steps, taps, later_reads(&mut services, frame)?)
         };
         let (blocks, shared_blocks) = constants.block_counts();
         let constants_use = ConstantsUse {
@@ -417,6 +418,7 @@ impl OffscreenState {
             counts,
             constants_use,
             planned_draws,
+            taps,
         };
         Ok((operations, written))
     }

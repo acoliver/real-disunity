@@ -24,7 +24,9 @@ use super::mips;
 use super::pass_report::{pass_report, program_probes};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::raster::PassRaster;
+use super::readback::TapRead;
 use super::resample::ResampleStep;
+use super::tap;
 use super::tracker::Tracker;
 use super::{CameraCauses, CameraDraws, UnmatchedPasses};
 
@@ -97,15 +99,17 @@ pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
     )
 }
 
-/// Plans each record of the frame into a step.
+/// Plans each record of the frame into a step, with the reads the frame's taps ask for placed
+/// after the records they name.
 ///
 /// # Errors
 /// Fails with the first record the state refuses, which the refusal names.
 pub(super) fn plan_steps(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-) -> Result<Vec<Step>, Refusal> {
+) -> Result<(Vec<Step>, Vec<TapRead>), Refusal> {
     let mut steps = Vec::new();
+    let mut taps = Vec::new();
     let mut globals = Globals {
         layer: &frame.globals,
         keywords: &frame.global_keywords,
@@ -113,8 +117,10 @@ pub(super) fn plan_steps(
     for (index, record) in frame.records.iter().enumerate() {
         plan_record(svc, frame, (index, record), &mut globals, &mut steps)
             .map_err(|error| Refusal::at(index, error))?;
+        taps.extend(tap::plan_taps(svc, frame, index, &mut steps));
     }
-    Ok(steps)
+    taps.extend(tap::past_the_end(frame));
+    Ok((steps, taps))
 }
 
 /// Plans one record into the steps it adds to `steps`: none for a record of globals or one that

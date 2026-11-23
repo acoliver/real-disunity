@@ -281,7 +281,7 @@ impl ProgramRuntime {
         let mut allocations = AllocationSet::default();
         allocations.buffer("render-program block transfer", size, 1);
         let reservation =
-            Arc::new(self.admit(allocations, Note::new("block transfer staging", ""))?);
+            Arc::new(self.admit(&allocations, Note::new("block transfer staging", ""))?);
         let buffer = self.guarded(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("render-program block transfer"),

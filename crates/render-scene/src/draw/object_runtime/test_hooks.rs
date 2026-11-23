@@ -32,7 +32,9 @@ impl SceneGpu {
         mask: usize,
     ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
-        let mut sink = PreparedSink::new(pass, &self.objects, context).with_mask(mask);
+        let mut scratch = self.sink_scratch.borrow_mut();
+        let mut sink =
+            PreparedSink::new(pass, &self.objects, context, &mut scratch).with_mask(mask);
         let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
         sink.finish();
         self.end_objects(view, None, objects)

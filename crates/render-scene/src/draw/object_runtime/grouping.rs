@@ -43,6 +43,15 @@ impl GroupKey {
     }
 }
 
+/// What `grouped` sorts and answers in, kept between passes so that each reuses the storage the
+/// one before grew.
+#[derive(Debug, Default)]
+pub(super) struct Grouping {
+    packed: Vec<u128>,
+    unpacked: Vec<(GroupKey, u32)>,
+    order: Vec<u32>,
+}
+
 /// The positions of `keys` in the order a stable sort by key leaves them: keys that tie keep
 /// the order the walk named them in.
 ///
@@ -51,22 +60,28 @@ impl GroupKey {
 /// The position makes every packed key distinct and orders ties as a stable sort does, so the
 /// unstable sort leaves the order of the stable one. Keys that do not fit sort as they are,
 /// with the position as their last term.
-pub(super) fn grouped(keys: &[GroupKey]) -> Vec<u32> {
+pub(super) fn grouped<'a>(keys: &[GroupKey], storage: &'a mut Grouping) -> &'a [u32] {
+    storage.order.clear();
     if let Some(packing) = Packing::fitting(keys) {
-        let mut packed: Vec<u128> = keys
-            .iter()
-            .zip(0..)
-            .map(|(key, position)| packing.pack(key, position))
-            .collect();
-        packed.sort_unstable();
-        return packed
-            .into_iter()
-            .map(|key| packing.position(key))
-            .collect();
+        storage.packed.clear();
+        storage.packed.extend(
+            keys.iter()
+                .zip(0..)
+                .map(|(key, position)| packing.pack(key, position)),
+        );
+        storage.packed.sort_unstable();
+        storage
+            .order
+            .extend(storage.packed.iter().map(|&key| packing.position(key)));
+    } else {
+        storage.unpacked.clear();
+        storage.unpacked.extend(keys.iter().copied().zip(0..));
+        storage.unpacked.sort_unstable();
+        storage
+            .order
+            .extend(storage.unpacked.iter().map(|&(_, position)| position));
     }
-    let mut order: Vec<(GroupKey, u32)> = keys.iter().copied().zip(0..).collect();
-    order.sort_unstable();
-    order.into_iter().map(|(_, position)| position).collect()
+    &storage.order
 }
 
 /// How many bits each field of a packed key takes.
@@ -243,6 +258,13 @@ impl BufferTable {
         number
     }
 
+    /// Forgets every buffer, keeping the storage.
+    pub fn clear(&mut self) {
+        self.numbers.clear();
+        self.buffers.clear();
+        self.last = None;
+    }
+
     pub fn get(&self, number: u32) -> &Buffer {
         &self.buffers[number as usize]
     }
@@ -265,6 +287,10 @@ impl BufferTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn order_of(keys: &[GroupKey]) -> Vec<u32> {
+        grouped(keys, &mut Grouping::default()).to_vec()
+    }
 
     fn lcg(state: &mut u64) -> u64 {
         *state = state
@@ -317,7 +343,7 @@ mod tests {
                     "spread {spread}, {count} draws pack"
                 );
                 assert_eq!(
-                    grouped(&keys),
+                    order_of(&keys),
                     stable_reference(&keys),
                     "spread {spread}, {count} draws"
                 );
@@ -346,7 +372,7 @@ mod tests {
                 })
                 .collect();
             assert!(Packing::fitting(&keys).is_none());
-            assert_eq!(grouped(&keys), stable_reference(&keys), "{count} draws");
+            assert_eq!(order_of(&keys), stable_reference(&keys), "{count} draws");
         }
     }
 
@@ -368,7 +394,7 @@ mod tests {
             })
             .collect();
         assert!(Packing::fitting(&keys).is_some());
-        assert_eq!(grouped(&keys), stable_reference(&keys));
+        assert_eq!(order_of(&keys), stable_reference(&keys));
     }
 
     #[test]
@@ -389,7 +415,7 @@ mod tests {
             pipeline: 0,
             ..tied
         };
-        assert_eq!(grouped(&[tied, earlier, tied, tied]), [1, 0, 2, 3]);
+        assert_eq!(order_of(&[tied, earlier, tied, tied]), [1, 0, 2, 3]);
     }
 
     /// The keys of draws of one mesh level in one material that draw the instances `starts`, each
@@ -435,7 +461,7 @@ mod tests {
     fn draws_of_one_level_whose_instances_follow_one_another_are_one_run_however_they_were_named() {
         // Named out of order, the instances 0..2, 2..5 and 5..6 sort side by side.
         let keys = level(&[(5, 6), (0, 2), (2, 5)]);
-        let order = grouped(&keys);
+        let order = order_of(&keys);
         assert_eq!(order, [1, 2, 0]);
         assert_eq!(runs(&order, &keys, &[6, 2, 5]), [(0, 6)]);
     }
@@ -446,7 +472,7 @@ mod tests {
         keys[3].material = 3;
         keys[4].index_count = 3;
         keys[5].first_index = 31;
-        let order = grouped(&keys);
+        let order = order_of(&keys);
         assert_eq!(
             runs(&order, &keys, &[2, 4, 6, 8, 9, 10]),
             [(8, 9), (0, 4), (5, 6), (9, 10), (6, 8)]

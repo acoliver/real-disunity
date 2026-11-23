@@ -208,7 +208,7 @@ impl ProgramRuntime {
     /// name before anything is created.
     pub(crate) fn admit(
         &self,
-        allocations: AllocationSet,
+        allocations: &AllocationSet,
         note: Note,
     ) -> Result<Reservation, ProgramError> {
         self.collect();

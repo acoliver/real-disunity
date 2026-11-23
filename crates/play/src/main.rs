@@ -1,7 +1,6 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
 //! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
-use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -21,7 +20,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta] [--gpu-storage-mb N]
+            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta]
             [--report-each-frame] [--global NAME=v0,v1,v2,v3]...
             [--read-target FRAME:RECORD:FILE.png]... [--plugins DIRECTORY]...";
 
@@ -47,8 +46,6 @@ struct Arguments {
     globals: Vec<SuppliedGlobal>,
     /// How the stand-in textures look: `--stand-ins`.
     stand_ins: StandInLook,
-    /// The storage budget in MiB that `--gpu-storage-mb` asks for.
-    gpu_storage_mb: Option<NonZeroU64>,
     /// Whether `--report-each-frame` was given.
     report_each_frame: bool,
     /// The player's command line after its executable path, in the order given.
@@ -133,7 +130,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
             arguments.stand_ins = StandInLook::from_name(value)
                 .ok_or_else(|| format!("--stand-ins `{value}` is declared or magenta"))?;
         }
-        "--gpu-storage-mb" => arguments.gpu_storage_mb = Some(storage_mb(value)?),
         "--global" => {
             let global = SuppliedGlobal::parse(value)
                 .map_err(|reason| format!("--global `{value}`: {reason}"))?;
@@ -153,14 +149,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         _ => return Err(format!("unknown option {name}")),
     }
     Ok(())
-}
-
-/// `--gpu-storage-mb`: a positive number of MiB whose byte count fits in 64 bits.
-fn storage_mb(text: &str) -> Result<NonZeroU64, String> {
-    text.parse::<NonZeroU64>()
-        .ok()
-        .filter(|mebibytes| mebibytes.get().checked_mul(1 << 20).is_some())
-        .ok_or_else(|| format!("--gpu-storage-mb `{text}` is not a positive number of MiB"))
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
@@ -208,7 +196,6 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         plugins: &arguments.plugins,
         globals: &arguments.globals,
         stand_ins: arguments.stand_ins,
-        gpu_storage_mb: arguments.gpu_storage_mb,
         report_each_frame: arguments.report_each_frame,
         read_targets: &arguments.reads,
     };
@@ -473,28 +460,14 @@ mod tests {
     }
 
     #[test]
-    fn the_gpu_storage_budget_is_a_positive_number_of_mebibytes() {
-        let budget = |value: &str| {
-            parsed(&["--player", "Game_Data", "--gpu-storage-mb", value]).map(|a| a.gpu_storage_mb)
-        };
-        assert_eq!(
-            budget("1536").unwrap().map(std::num::NonZero::get),
-            Some(1536)
-        );
-        for bad in [
-            "0",
-            "-4",
-            "1.5",
-            "lots",
-            "",
-            "99999999999999999999",
-            "18446744073709551615",
-        ] {
-            let error = budget(bad).unwrap_err();
-            assert!(error.starts_with("--gpu-storage-mb"), "{bad:?}: {error}");
+    fn the_gpu_storage_budget_has_no_option_because_the_adapter_sets_it() {
+        for value in ["1536", "0", "lots"] {
+            let error = parsed(&["--player", "Game_Data", "--gpu-storage-mb", value])
+                .map(|_| ())
+                .unwrap_err();
+            assert_eq!(error, "unknown option --gpu-storage-mb", "{value}");
         }
-        let none = parsed(&["--player", "Game_Data"]).expect("parses");
-        assert_eq!(none.gpu_storage_mb, None);
+        assert!(!super::USAGE.contains("gpu-storage"));
     }
 
     #[test]

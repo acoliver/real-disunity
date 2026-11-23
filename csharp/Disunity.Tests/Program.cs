@@ -278,6 +278,7 @@ CheckImport("disunity_render_texture_destroy", u64, u64);
 CheckImport("disunity_mesh_renderer_materials_write", u64, u64, u64.MakePointerType(), u32);
 CheckImport("disunity_mesh_renderer_materials_read", u64, u64, u64.MakePointerType(), u32, u32.MakePointerType());
 CheckImport("disunity_mesh_renderer_slot_block_target", u64, u64, u32, u64.MakePointerType());
+CheckImport("disunity_skinned_renderer_write", u64, u64, u64, u64, f32.MakePointerType());
 CheckImport("disunity_shader_float_write", u64, u32, u64, bytes, u32, f32);
 CheckImport("disunity_shader_int_write", u64, u32, u64, bytes, u32, typeof(int));
 CheckImport("disunity_shader_vector_write", u64, u32, u64, bytes, u32, f32.MakePointerType());
@@ -417,6 +418,7 @@ Texture3DWorldTests.Run();
 PlayerMeshStoreTests.Run();
 PlayerMeshLiveMaterialTests.Run();
 PlayerMeshChannelTests.Run();
+SkinnedMeshTests.Run();
 PlayerSamplerTests.Run();
 
 EnabledTests.Run();

@@ -30,7 +30,8 @@ fn overlay(draws: Vec<UiDraw>, textures: &BTreeMap<u64, SceneTexture>) -> UiOver
         draws,
         ..UiPresentation::default()
     };
-    UiOverlay::from_presentation(&presentation, textures).unwrap()
+    let layers = worldrunner_world_simulation::ui::presentation::UiLayers::default();
+    UiOverlay::from_presentation(&presentation, textures, &layers).unwrap()
 }
 
 fn near(actual: &[f32], expected: &[f32]) {

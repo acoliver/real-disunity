@@ -60,6 +60,8 @@ See "Player native plugins" in `docs/unity-projects.md`.
 `--screen FRAME:FILE.png` (repeatable, like `--capture`) writes the composed frame from a headless run, the frame a window's `--capture` shows at that size: after the GPU work of frame FRAME (counting from 0), the newest image of the screen with the game's UI over it goes to FILE as an RGB PNG, at `--size` (the window's default, 1920x1080, when it is not given).
 The screen is what a command buffer's `CameraTarget` draws into when no camera texture names it, so the option needs a game whose scripts draw into the screen; it takes no `--key` or `--capture`, which make a window, and a FRAME that is not among the `--frames` run is refused before the scene starts.
 A FRAME whose work drew nothing into the screen gets the image of the last frame that did, and an error when none has.
+A frame or flush the GPU refuses whole, or whose work goes without an allocation the storage budget refuses (a render texture; a texture or mesh upload the budget refuses is asked for again, see "The storage budget"), ends the run at that frame with an error naming the refusal and a non-zero exit, and writes no screen file for that frame or after it: the image such a frame would show is the last good one, which looks valid.
+The report still prints, and `refused whole` and `failures` keep counting what was refused.
 The UI is the screen-space overlay the world holds at FRAME, laid out for the screen's size, drawn by the viewer's own overlay renderer (see "Headless screen frames" below); a world with no overlay canvas gives the screen as it is.
 The player reads the same size as its `Screen`.
 Without `--screen` a headless run sets no screen and behaves as it always did.
@@ -166,7 +168,7 @@ It is in `play` because it needs the world's types (`world-simulation`), the imp
 - `GraphicsSnapshot`: `worldrunner_world_simulation::graphics::GraphicsSnapshot` holds what the frame's records reach: the cameras they name with their pose, the renderers those cameras may draw (every layer a camera's mask admits, not only the screen camera's), the set of renderers each camera render drew when the script called it (`renderer_sets`; an object a script switched on only around `Camera.Render` is in its set though it is inactive when the snapshot is taken), the materials and shaders of those renderers and of the blits, the render textures with their samplers, the global state, and the compute shaders and buffers the dispatches name.
   `DisunityHost::graphics_snapshot()` drains it once per call, and `GpuFlush::snapshot()` does the same inside a flush; a frame with no work gives a snapshot with no records that still lists every live render texture, because the host gives back the render textures a snapshot omits.
 - `OffscreenAdapter::adapt`: Loads each shader (`ShaderLoader`, or any `ShaderSupply`), uploads the meshes and stored textures the frame names through `Assets` (implemented for `DisunityHost`), and maps the snapshot with `adapt`.
-  A mesh keeps its vertex channels under the numbers the host stored them with (0 position, 1 normal, 2 tangent, 3 colour, 4 to 11 texture coordinate sets 0 to 7; blend weights and indices are left out), each as 1 to 4 floats, and its ranges become the sub-meshes by range number; a range that draws and is not triangles refuses the mesh by the name of its topology (`QuadTopology`, `LineTopology`, `LineStripTopology`, `PointTopology`).
+  A mesh keeps its vertex channels under the numbers the host stored them with (0 position, 1 normal, 2 tangent, 3 colour, 4 to 11 texture coordinate sets 0 to 7; 12 blend weights and 13 blend indices of a skinned mesh), each as 1 to 4 floats, and its ranges become the sub-meshes by range number; a range that draws and is not triangles refuses the mesh by the name of its topology (`QuadTopology`, `LineTopology`, `LineStripTopology`, `PointTopology`).
   A stored texture is uploaded with its wrap along u, v and w, its filter and its anisotropy level as render-program's `SamplerState`; a stored 2D array (the record's `dimension` 5, of one layer or more) is uploaded as one source array holding every level of each layer, a stored cube (`dimension` 4) as one source cube of six square faces in the order +X, -X, +Y, -Y, +Z, -Z, each holding its whole mip chain, and a stored 3D texture (`dimension` 3) as one source volume of `depth` slices whose bytes are its mip levels one after another, each level as wide, as high and as deep as the base level halved and at least one texel.
   The four-byte `GraphicsFormat` 87 (the terrain atlases' normal, metallic and roughness maps, which has no `TextureFormat`) is stored blue, green, red, alpha: every array, cube and volume that holds it goes up as sRGB RGBA8 with bytes 0 and 2 of each texel exchanged, so a shader reads its red from the stored red byte (a plain 2D texture has no `TextureFormat` for 87 and is refused as unsupported), and `GraphicsFormat` 88 (a four-byte data volume) goes up in the order it is stored.
   A cube that is not six square faces (`CubeFaces`), a volume with more levels than its size has (`VolumeMips`), a cube or volume whose bytes are not exactly its levels (`Layers`, `Levels`) and a block-compressed volume (`Unsupported`) are refused by name, counted by format, and left out with the draws that read them; a draw whose shader declares a dimension the stored texture does not have (a cube slot over a 2D texture, a 2D slot over a cube or a volume, and the other pairs) is left out as `SlotDimensionMismatch`; a render texture brings the same from its `WorldSampler` wherever a property names it.
@@ -176,7 +178,7 @@ It is in `play` because it needs the world's types (`world-simulation`), the imp
   A blit, mesh draw or procedural draw reads its material as it stood when the script recorded it: the snapshot holds a copy of each earlier state of a material the script edited after drawing with it, under an id of its own, and the adapter maps it as a material (`tests/blit_material_gpu.rs` draws two blits of one material with a texture changed between them and reads each target).
   A blit with a material has no renderer and no camera, so the adapter gives it the identity as `unity_ObjectToWorld`, `unity_WorldToObject` and `unity_MatrixVP` (`blit_layer`, the frame's `blit_values`): its quad is in clip space, and a pass that places the quad by those matrices drew nothing before.
   A record that names a destroyed texture, camera or material, or something the host cannot supply, is skipped and counted by reason in the `Report`.
-  A renderer the cameras can see that the frame leaves out is counted in `Report::renderers_skipped` (the `[gpu] skipped renderers:` line of `play`) by cause: `MeshUnavailable`, `EmptySlot` (a slot with no usable material before one that has), `NoMaterial` (no slot names a material), and, when the slots name materials but none of them can be drawn, the cause of the first one left out, `ShaderUnavailable` (the material's shader has no source or failed to load) or `StaleMaterial`. `SkinnedNotDrawn` counts the skinned mesh renderers a camera render would have drawn: skinned meshes are not drawn yet, so the world leaves them out of the snapshot's renderers and gives their count once per frame as `GraphicsSnapshot::skinned_not_drawn`, which the adapter adds to this line.
+  A renderer the cameras can see that the frame leaves out is counted in `Report::renderers_skipped` (the `[gpu] skipped renderers:` line of `play`) by cause: `MeshUnavailable`, `EmptySlot` (a slot with no usable material before one that has), `NoMaterial` (no slot names a material), and, when the slots name materials but none of them can be drawn, the cause of the first one left out, `ShaderUnavailable` (the material's shader has no source or failed to load) or `StaleMaterial`. A skinned renderer with no root bone in the world has no placement and is counted as `SkinnedNotDrawn`.
   A dispatch is not a frame record: `Adapted::dispatches` says how many records come before it, and the render textures its properties name are in the frame.
 - Renderer sets (`GraphicsSnapshot::record_sets`): A camera render becomes a render-program `Camera` whose `renderers` holds its set (a renderer's id is its index in the snapshot's `renderers`), so the camera draws those renderers that its mask also admits.
   A camera render with no set, which the world leaves for a camera it cannot read, is skipped as a stale camera.
@@ -330,12 +332,15 @@ The records the adapter generated are in `Report::built` and counted in the cens
 ### The storage budget
 
 The program runtime holds all GPU storage the host makes (stored textures and meshes, render textures, constants and the staging of pixel reads) under one budget.
-The budget is a total, not a buffer size: it is not tied to the device's `max_buffer_size`, and the runtime reserves its arena in buffers the device can hold (`ProgramRuntime::arena_allocations_within`). wgpu 30 reports no memory size for an adapter, so `storage_budget::choose` picks it, in this order:
+The budget is a total, not a buffer size: it is not tied to the device's `max_buffer_size`, and the runtime reserves its arena in buffers the device can hold (`ProgramRuntime::arena_allocations_within`). wgpu 30 reports no memory size for an adapter, so `storage_budget::choose` picks it with one rule on every adapter, from the two sizes the platform does publish (a size that is not known counts as none):
 
-1. `--gpu-storage-mb N`, a positive whole number of MiB (`PlayerLaunch::gpu_storage_mb`).
-   `play` refuses a value that is not one, and the report names the option as the budget's source.
-2. For a software adapter such as lavapipe, whose textures live in host memory, a quarter of the `MemAvailable` the host reports, no less than 512 MiB and no more than 2 GiB.
-3. 512 MiB for any other adapter.
+- the adapter's device-local memory, which `AdapterMemory::probe` reads where the platform publishes it (Linux amdgpu through sysfs): dedicated VRAM, or an integrated GPU's carve-out;
+- a quarter of the host's `MemAvailable`, which is what a software adapter such as lavapipe and an integrated GPU, whose textures live in host memory, can use.
+
+The budget is the larger of the two and no less than 512 MiB.
+An adapter that publishes no size on a host that publishes none (Metal and Direct3D today, which have no reader yet) gets 512 MiB: the same rule with both sizes unknown.
+`play` has no option for the budget: a run that left one out drew a different frame of the same game than a run that gave it, and the frame looked valid either way.
+A discrete GPU on a host with much more memory than VRAM gets the quarter of the host's, which is more than its VRAM; the driver then places the excess in system memory.
 
 The `[gpu] adapter` report line names the budget and which rule chose it.
 When an allocation would not fit, the host gives back what the snapshot being mapped does not name, least recently named first: stored meshes, stored textures and render textures.
@@ -351,7 +356,7 @@ In both cases the storage of the generation it replaced is given back, so a fail
 
 A draw that binds a texture the host supplied in place of a real one is a draw with a stand-in: a shader's declared default (`white`, `black`, `grey`, `bump`, in 2D, cube, array or 3D) and the grey that a slot nothing sets and no shader declares reads.
 Such a draw is not an error and not a missing texture, so a run can report no failures while many of its draws read stand-ins.
-Each recorded draw that binds one is counted, and the report prints two lines (also after every frame when `PLAY_REPORT_EACH_FRAME` is set; that report counts the draws of the frame, including the flushes it ran, and the summary at the end of the run counts all of them):
+Each recorded draw that binds one is counted, and the report prints two lines (also after every frame when `--report-each-frame` is given; that report counts the draws of the frame, including the flushes it ran, and the summary at the end of the run counts all of them):
 
 ```
 [gpu] draws with stand-ins N
@@ -372,7 +377,7 @@ The reasons are the host's account of why the slot has no real texture:
 - `exists-not-loaded`: The slot names a texture the engine knows of and the host holds no pixels of: the engine stored none, the upload failed or went over the storage budget, or the render texture no longer exists.
 - `unwritten-render-texture`: The slot names a render texture that nothing has written: no draw, copy or blit of a frame the host built wrote it, so it holds the zeros it was made with.
   A render texture bound as a storage image for a kernel is counted as written, because the host cannot see the kernel's writes.
-  The host supplies this texture itself and `PLAY_STAND_INS_MAGENTA` leaves it alone, so it reads zeros.
+  The host supplies this texture itself and `--stand-ins magenta` leaves it alone, so it reads zeros.
 - `unsupported-format`: The slot names a stored texture whose format the host does not decode.
 - `undeclared`: The shader reflects a slot it does not declare and no layer sets it, so the grey of the slot's dimension is read.
 
@@ -395,7 +400,7 @@ The report also lists the texture globals that were set and that no draw's slot 
 A name is set when the world's globals hold a texture under it at a frame (the names of the `globals at a flush` listing) or when a command of the frame sets one with `SetGlobal`.
 A name is read when a planned draw's texture slot looked it up in the layers, whether or not a layer held a texture under it, so a slot that falls back to the grey `undeclared` stand-in counts as a read of its own name.
 The names are exact and the engine translates none: a game that sets `Foo` while its shader reads `_Foo` shows `Foo` in this line and `_Foo undeclared` in the stand-ins line.
-The line names the first 30 names in name order and counts the rest, and covers the whole run, so `PLAY_REPORT_EACH_FRAME` prints the run's names so far.
+The line names the first 30 names in name order and counts the rest, and covers the whole run, so `--report-each-frame` prints the run's names so far.
 `GlobalReads` in `offscreen/stand_ins.rs` holds the two sets; the lookups come from `OffscreenOperations::looked_up_textures`, which render-program fills when it binds a draw's texture slots.
 
 `--stand-ins magenta` makes every stand-in texture the host supplies read as magenta, RGBA (255, 0, 255, 255), in its own dimension (2D, cube, array and 3D), so a capture shows which draws read stand-ins.
@@ -447,7 +452,7 @@ The window samples a frame's screen in that same submission.
 A script's synchronous flush still runs and waits in its own submission, between the viewer's frames.
 A script's `Texture2D.ReadPixels` after a `Graphics.Blit` therefore fills its texture, and `Apply` stores the new texels under a higher generation, which `PlayerTextures::refresh` and the UI's image generations pick up in the same frame.
 What the player asks of an adapter (storage images, buffer size from the storage budget, block compression, filterable 32-bit floats) is one function in `gpu_device.rs`, used by the headless player, the compute census and the window.
-Each startup snapshots the requested storage budget and host `MemAvailable` once, so repeated device requests in that startup use identical inputs while retaining the adaptive budget policy.
+Each startup snapshots host `MemAvailable` once, so repeated device requests in that startup use identical inputs while retaining the adaptive budget policy.
 The live driver (`PlayDriver`, the original games) has no hook that gives the player the viewer's device, so the live driver does not run the offscreen work yet.
 Headless runs without `--screen` keep the player's own device and its submit-and-wait path (`gpu_player/frame.rs`); a `--screen` run keeps that path for its frames and makes its device through the viewer instead (see "Headless screen frames").
 
@@ -465,12 +470,14 @@ managed host has not stored, or a texture conversion failure.
 A texture stored
 later becomes visible without changing the UI draw.
 A UI draw whose material has a shader of the game's own (a shader with a source
-other than `UI/Default`) is also left out, because no path draws a game shader in
-the UI yet. The driver names each such material once as
-`UI material <id> (shader <name>) is left out: UI draws with a game shader are not drawn yet`,
-and the run report counts the left-out draws by shader name in one line,
-`UI draws with a game material by shader (last frame)`. Draws on the engine's own
-look (a material with no shader source, or `UI/Default`) are unchanged.
+other than `UI/Default`) is drawn by that shader: the player records the runs of such draws
+as offscreen work after the game's own work, into a layer texture the size of the screen, and
+the overlay shows that texture where each run sorts. The run report counts the draws by shader
+name in one line, `UI draws with a game material by shader (last frame)`. A run that does not
+fit the layer texture is named once as
+`UI material <id> (shader <name>) is left out: its run does not fit the layer atlas`.
+Draws on the engine's own look (a material with no shader source, or `UI/Default`) are
+unchanged.
 Other images, text and 3D
 objects continue to draw; missing text coverage remains an error.
 The renderer's

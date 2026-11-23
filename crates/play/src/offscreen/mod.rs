@@ -88,6 +88,7 @@ mod stand_ins;
 mod supplied;
 mod taps;
 mod trace;
+mod ui_frame;
 mod volume_assets;
 
 #[cfg(test)]
@@ -132,3 +133,4 @@ pub use sink::BufferSink;
 pub use stand_ins::{GlobalReads, StandInCounts, StandInReason};
 pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};
+pub use ui_frame::{UiAssets, UiFrame, atlas_id};

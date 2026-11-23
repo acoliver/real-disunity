@@ -166,9 +166,6 @@ pub(super) struct Shape {
     ssao_requested: Option<SceneSsao>,
     ssr_requested: Option<SceneSsr>,
     water: Option<std::sync::Arc<[SceneWaterBody]>>,
-    /// Whether a water registration is retained, which decides the retained declarations even
-    /// when the water draws nothing.
-    water_registered: bool,
     screen: Option<ScreenShape>,
     gbuffer_renders: Option<bool>,
     overlay_depth: bool,
@@ -182,7 +179,6 @@ impl Shape {
             ssao_requested: environment.requested.0,
             ssr_requested: environment.requested.1,
             water: environment.water.map(|water| water.settings.clone()),
-            water_registered: environment.water_registered,
             screen: environment.ssao.map(ScreenShape::new),
             gbuffer_renders: environment.gbuffer.map(crate::gbuffer::Gbuffer::renders),
             overlay_depth: environment.overlay_depth,

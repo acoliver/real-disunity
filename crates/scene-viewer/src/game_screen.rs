@@ -18,6 +18,21 @@ pub const GAME_SCREEN: ResourceRef = ResourceRef::new("game-screen");
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
+/// Checks that `texture` is a single-sample `Rgba8UnormSrgb` texture the viewer can sample, the
+/// form of every render texture a host offers, and fails with `reason` otherwise.
+pub(crate) fn require_render_texture(
+    texture: &wgpu::Texture,
+    reason: &'static str,
+) -> Result<(), ViewerError> {
+    let sampled = texture
+        .usage()
+        .contains(wgpu::TextureUsages::TEXTURE_BINDING);
+    if texture.format() != FORMAT || texture.sample_count() != 1 || !sampled {
+        return Err(ViewerError::UnsupportedScene(reason));
+    }
+    Ok(())
+}
+
 /// The game's screen texture and what the host knows of its contents.
 #[derive(Clone, Debug)]
 pub struct GameScreen {
@@ -34,14 +49,10 @@ impl GameScreen {
     /// # Errors
     /// Fails by name when the texture is not such a texture.
     pub fn new(texture: wgpu::Texture, submitted: bool) -> Result<Self, ViewerError> {
-        let sampled = texture
-            .usage()
-            .contains(wgpu::TextureUsages::TEXTURE_BINDING);
-        if texture.format() != FORMAT || texture.sample_count() != 1 || !sampled {
-            return Err(ViewerError::UnsupportedScene(
-                "a game screen that is not a single-sample sampled Rgba8UnormSrgb texture",
-            ));
-        }
+        require_render_texture(
+            &texture,
+            "a game screen that is not a single-sample sampled Rgba8UnormSrgb texture",
+        )?;
         Ok(Self { texture, submitted })
     }
 

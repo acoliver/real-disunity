@@ -6,7 +6,7 @@ use super::render_path::{
     EDGE_SHARE, MEAN, RELATIVE, front_settings, share_and_mean, stored_errors,
 };
 use super::*;
-use crate::compositor::{FeatureTarget, FrameRenderer};
+use crate::compositor::{FeatureTarget, FrameRenderer, StockReplacement, declaring_stock};
 use crate::gbuffer::GbufferTarget;
 use crate::gbuffer::lighting::LightingTarget;
 use crate::gbuffer::reference::Surface;
@@ -164,17 +164,67 @@ fn capture_frame(
     Ok(captured(context, frame))
 }
 
-/// One shadowed frame of `source` through `path`, with the stock terrain draws `draws`.
+/// One shadowed frame of `source` through `path`, with a game that draws what `replaces` says.
 pub(super) fn capture_drawing(
     context: &GpuContext,
     source: &RenderScene,
     view: &SceneView,
     path: SceneOpaquePath,
-    (draws, shadows): (crate::compositor::TerrainDraws, DirectionalShadowSettings),
+    (replaces, shadows): (StockReplacement, DirectionalShadowSettings),
 ) -> Result<Captured, ShadowError> {
-    let mut frame = frame(context, source, view, path);
-    frame.force_terrain_draws(draws);
+    let mut frame = frame_declaring(context, source, view, path, replaces);
     capture_frame(context, source, view, shadows, &mut frame)
+}
+
+/// [`frame`] with a game that draws what `replaces` says; the stock renderer when it says
+/// nothing. The game installs before the scene's water does, as in a configured renderer, so the
+/// renderer is built without the water and takes the bodies afterwards.
+pub(super) fn frame_declaring(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+    replaces: StockReplacement,
+) -> FrameRenderer {
+    if replaces == StockReplacement::NONE {
+        return frame(context, source, view, path);
+    }
+    let effects = source
+        .effects()
+        .unwrap()
+        .clone()
+        .with_opaque_path(path)
+        .unwrap();
+    let bodies = effects.water_bodies().to_vec();
+    let dry = effects.with_water_bodies(Vec::new()).unwrap();
+    let mut frame = FrameRenderer::hdr(
+        context,
+        [view.viewport().width, view.viewport().height],
+        OffscreenTarget::COLOR_FORMAT,
+        1,
+        ToneMap::Reinhard,
+        Some(&dry),
+    )
+    .unwrap();
+    declaring_stock(replaces)
+        .install(&mut frame, context, None)
+        .unwrap();
+    frame
+        .install_water_bodies(context.device(), context.submission(), bodies)
+        .unwrap();
+    frame
+}
+
+/// A renderer with no scene, for a host that supplies the frame's attachments, whose game draws
+/// what `replaces` says; the stock renderer when it says nothing.
+pub(super) fn scheduler(context: &GpuContext, replaces: StockReplacement) -> FrameRenderer {
+    let mut frame = FrameRenderer::new(context.device());
+    if replaces != StockReplacement::NONE {
+        declaring_stock(replaces)
+            .install(&mut frame, context, None)
+            .unwrap();
+    }
+    frame
 }
 
 pub(super) fn frame(

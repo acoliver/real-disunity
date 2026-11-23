@@ -5,11 +5,14 @@ using UnityEngine.Rendering;
 namespace UnityEngine;
 
 /// <summary>
-/// A <see cref="Renderer"/> that draws a mesh deformed by bones. The native component holds the renderer settings;
-/// the mesh, the bones, the root bone, the quality, the blend shape weights and the bounds are stored on the managed
-/// component. The engine's <see cref="Mesh"/> holds no bone weights, bind poses or blend shapes, so nothing deforms the
-/// shared mesh: <see cref="BakeMesh(Mesh)"/> copies it, and refuses a renderer that has bones or a nonzero blend shape weight.
-/// <see cref="localBounds"/> is the shared mesh's bounds until it is set.
+/// A <see cref="Renderer"/> that draws a mesh deformed by bones. The native component holds the renderer settings and
+/// the skin: the identity the host draws the shared mesh by and the root bone with its bind pose. The quality, the blend
+/// shape weights and the bounds are stored on the managed component. The engine does not deform the shared mesh yet, so
+/// the host draws it in its bind pose, where the root bone's matrix times its bind pose puts it (the matrix every bone's
+/// matrix times its bind pose gives while the bones are at rest). A renderer whose root bone is not one of its bones, or
+/// whose mesh has no bind pose for it, has no placement and is left out of frames. The bind pose is read when the mesh,
+/// the bones or the root bone is assigned. <see cref="BakeMesh(Mesh)"/> copies the shared mesh and refuses a renderer that
+/// has bones or a nonzero blend shape weight. <see cref="localBounds"/> is the shared mesh's bounds until it is set.
 /// A clone keeps the mesh and settings, and its bones and root bone are the clones of the original's where those
 /// are in the cloned hierarchy and the original's otherwise.
 /// </summary>
@@ -17,6 +20,8 @@ public sealed class SkinnedMeshRenderer : Renderer
 {
     private readonly Dictionary<int, float> _weights = new();
     private Bounds? _localBounds;
+    private Mesh? _sharedMesh;
+    private Transform? _rootBone;
     private Transform[] _bones = [];
 
     private unsafe DisunityMeshRenderer Read()
@@ -33,14 +38,59 @@ public sealed class SkinnedMeshRenderer : Renderer
 
     internal override Mesh? BoundsMesh => sharedMesh;
 
-    public Mesh? sharedMesh { get; set; }
+    public Mesh? sharedMesh
+    {
+        get => _sharedMesh;
+        set
+        {
+            _sharedMesh = value;
+            WriteSkin();
+        }
+    }
 
-    public Transform? rootBone { get; set; }
+    public Transform? rootBone
+    {
+        get => _rootBone;
+        set
+        {
+            _rootBone = value;
+            WriteSkin();
+        }
+    }
 
     public Transform[] bones
     {
         get => [.. _bones];
-        set => _bones = [.. value ?? throw new ArgumentNullException(nameof(value))];
+        set
+        {
+            _bones = [.. value ?? throw new ArgumentNullException(nameof(value))];
+            WriteSkin();
+        }
+    }
+
+    /// <summary>Sends the world the identity the host draws the shared mesh by and the root bone with its bind pose.
+    /// Asking for the mesh's identity stores a dirty mesh and can be refused, so it comes before the write.</summary>
+    private unsafe void WriteSkin()
+    {
+        var drawn = _sharedMesh is { } mesh && mesh ? mesh.RendererIdentity : 0UL;
+        var values = stackalloc float[16];
+        var pose = RootBindPose();
+        if (pose is { } matrix)
+            for (var i = 0; i < 16; i++) values[i] = matrix[i];
+        var root = pose is null ? 0UL : _rootBone!.gameObject.NativeHandle;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_skinned_renderer_write(DisunityHost.WorldHandle, Handle, drawn, root, pose is null ? null : values));
+    }
+
+    /// <summary>The shared mesh's bind pose of the root bone, or null when there is no root bone among the bones, the mesh has no
+    /// bind pose for its slot or the pose is not finite.</summary>
+    private Matrix4x4? RootBindPose()
+    {
+        if (_rootBone is not { } root || !root || _sharedMesh is not { } mesh || !mesh) return null;
+        var slot = Array.FindIndex(_bones, bone => ReferenceEquals(bone, root));
+        if (mesh.BindPoseAt(slot) is not { } pose) return null;
+        for (var i = 0; i < 16; i++)
+            if (!float.IsFinite(pose[i])) return null;
+        return pose;
     }
 
     public SkinQuality quality { get; set; }
@@ -89,13 +139,14 @@ public sealed class SkinnedMeshRenderer : Renderer
     {
         base.CopyManagedState(source, remap);
         var original = (SkinnedMeshRenderer)source;
-        sharedMesh = original.sharedMesh;
         quality = original.quality;
         updateWhenOffscreen = original.updateWhenOffscreen;
         _localBounds = original._localBounds;
         foreach (var (index, weight) in original._weights) _weights[index] = weight;
-        rootBone = Remapped(original.rootBone, remap);
+        _sharedMesh = original._sharedMesh;
+        _rootBone = Remapped(original._rootBone, remap);
         _bones = [.. original._bones.Select(bone => Remapped(bone, remap)!)];
+        WriteSkin();
     }
 
     private static Transform? Remapped(Transform? bone, Func<Object, Object> remap) =>

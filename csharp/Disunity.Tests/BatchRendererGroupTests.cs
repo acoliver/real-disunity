@@ -154,8 +154,11 @@ internal static class BatchRendererGroupTests
         group.RemoveBatch(removed);
         Expect.That(group.GetBatch(removed) == null && group.GetBatch(kept) != null, "RemoveBatch frees only that batch");
         Expect.Throws<ArgumentException>(() => group.RemoveBatch(removed), "removing a removed batch");
-        Expect.Throws<ArgumentException>(() => group.RemoveBatch(new BatchID { value = 99 }), "removing an unknown batch");
-        Expect.Throws<ArgumentException>(() => group.RemoveBatch(BatchID.Null), "removing the null batch");
+        var unknown = Expect.Catch<ArgumentException>(() => group.RemoveBatch(new BatchID { value = 99 }), "removing an unknown batch");
+        Expect.That(unknown.Message.Contains("batch 99"), $"the refusal names the batch: {unknown.Message}");
+        group.RemoveBatch(BatchID.Null);
+        group.RemoveBatch(default);
+        Expect.That(group.GetBatch(kept) != null, "removing the empty batch ID removes nothing");
     }
 
     private static void ModuleFacadesForwardTheTypes()

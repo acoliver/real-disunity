@@ -125,7 +125,8 @@ use worldrunner::scene::{
     viewer::{
         ActivityReason, CapturePoolPolicy, FrameProfile, GameRendering, OrbitLimits, PresentMode,
         PresentationBudget, PresentationCadence, RenderClock, RetainedDriver, RetainedHost,
-        RetainedTick, RetainedUpdate, ViewerOptions, ViewerStart, WindowMode, WindowSizeUnit,
+        RetainedTick, RetainedUpdate, ToneMap, ViewerOptions, ViewerStart, WindowMode,
+        WindowSizeUnit,
     },
 };
 use worldrunner::simulation::{
@@ -221,7 +222,10 @@ fn options() -> ViewerOptions {
             max_elevation_radians: 1.4,
         },
         shadows: None,
-        frame_profile: FrameProfile::Legacy,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         gpu_timing: false,
         present_mode: PresentMode::Fifo,

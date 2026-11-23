@@ -198,21 +198,6 @@ pub(in crate::terrain) fn reflecting(request: worldrunner_render_plan::SceneSsr)
     scene_with(rolling(), resources(), effects)
 }
 
-/// A level terrain at height zero with screen-space reflections, so the frame has the depth
-/// prepass the G-buffer producer tests against.
-pub(in crate::terrain) fn flat_reflecting(
-    request: worldrunner_render_plan::SceneSsr,
-) -> RenderScene {
-    let effects = effects()
-        .with_ssr(request)
-        .expect("the fixture request validates");
-    scene_with(
-        grid_terrain(|_, _| 0, TerrainLodPolicy::FullResolution),
-        resources(),
-        effects,
-    )
-}
-
 /// The same terrain streamed as resident chunks.
 pub(in crate::terrain) fn streamed(maximum_resident: u32) -> RenderScene {
     let terrain = rolling().with_streaming_policy(Some(

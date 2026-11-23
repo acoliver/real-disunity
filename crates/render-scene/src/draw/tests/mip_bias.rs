@@ -4,6 +4,7 @@
 //! the trilinear blend has no second level in it.
 use super::foliage::pass_color;
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::TexelFormat;
 
 pub(super) const LEVELS: [[u8; 3]; 7] = [
@@ -87,8 +88,8 @@ pub(super) fn distance_for(level: u32) -> i64 {
 }
 
 fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [u8; 3] {
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &plain_scene(),

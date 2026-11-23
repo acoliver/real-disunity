@@ -16,7 +16,7 @@ pub(super) fn retained_budget(event_loop: &EventLoop<()>, window: &Arc<Window>) 
         window.clone(),
         &scene,
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         startup,
     ))
     .unwrap();

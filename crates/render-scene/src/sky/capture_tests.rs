@@ -25,6 +25,7 @@
 
 use super::meshes::Recorder;
 use super::scene_tests::{atmosphere, material, read, textures};
+use crate::test_support::upload_scene;
 use crate::{
     device::GpuContext,
     draw::SceneGpu,
@@ -361,8 +362,8 @@ pub(super) fn render(
 fn compare(context: &GpuContext, case: &Case) -> Image {
     let device = context.device();
     let source = scene(case);
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     assert_eq!(
         gpu.celestial_meshes()
             .map(super::meshes::Meshes::draw_count),

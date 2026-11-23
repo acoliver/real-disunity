@@ -25,9 +25,8 @@ const REFUSAL: &str = "SSAO requires stock geometry composition";
 
 /// An HDR renderer with, when `water`, one body, and the game inventory `game`.
 fn settings(water: bool, game: GamePasses) -> RendererConfiguration {
-    let mut settings = RendererConfiguration::legacy(EXTENT, OUTPUT);
+    let mut settings = RendererConfiguration::new(EXTENT, OUTPUT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(EXTENT, wgpu::TextureFormat::Rgba16Float, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.game_passes = game;
     if water {
         settings.water = vec![body(false)];
@@ -198,11 +197,12 @@ fn gpu_declared_water_lists_the_snapshot_banks_once_a_caller_feature_has_read_th
             device,
             &mut encoder,
             (&[opaque, output], &views),
+            None,
             &mut [BorrowedFeature {
                 declaration: reads_snapshot(),
                 prepared: &mut idle,
             }],
-            (uniform, None),
+            &(uniform, None),
         )
         .unwrap();
     encoder.finish().submit().unwrap();

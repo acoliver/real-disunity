@@ -337,7 +337,7 @@ returns more objects than the object has ids, the extra ones are added under fre
 returns fewer, the surplus ids are removed. Ids are never reused.
 
 `MeshExtractOptions::with_millimeters_per_unit` sets the world unit (default 1000.0, meters) for
-`edits_from_world_changes_with` and `extract_mesh_instances_with`. It applies to translation
+`edits_from_world_changes_with` and `extract_mesh_instances`. It applies to translation
 only; scale stays a ratio. Whole world units are exact up to 2^24 because positions are `f32`.
 
 ## Presentation settings
@@ -707,7 +707,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
   --frames 300 --warmup 60 --objects 3000 --in-flight 1 --size 1280x720
 ```
 
-`--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
+`--in-flight 1`, the default, admits a frame only
 after the previous one has finished, so the software rasterizer does not compete with the timed
 thread. The example uses no game assets.
 
@@ -744,8 +744,8 @@ submission statistics. Capture recipe timings identify each rendered subframe; l
 subframes have distinct IDs, while the capture result retains its initial source ID.
 Each pass retains its existing `PassId`: geometry uses `PassSlot` (shadows,
 metadata/prepass, AO, opaque, SSR and water), output stages use `StageId`, and
-multisample resolve uses `Resolve`. Only executed passes appear. Legacy presentation
-is the `post copy output` stage. HDR output retains its authored post stage names.
+multisample resolve uses `Resolve`. Only executed passes appear. Output retains its
+authored post stage names.
 Depth fitting adds `sdsm receiver initialize` and `sdsm receiver reduce` stages at
 level zero to the same geometry/output sample, including same-frame captures.
 Durations are nanoseconds using the queue timestamp period. All-zero or reversed
@@ -783,7 +783,7 @@ domain transfer, reciprocal and quantization behavior.
 
 ## A device another user shares
 
-`ViewerStart::new` makes the event loop before the window. `ViewerStart::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `ViewerStart::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own.
+`ViewerStart::new` makes the event loop before the window. `ViewerStart::gpu` gives its `SharedGpu`. `SharedGpu::adapter` chooses the adapter once, without a surface and without a device, so a caller can size its requirements to what the adapter offers. `SharedGpu::device(options, requirements)` then makes the one device, for the viewer's needs combined with the caller's, and returns it with its `SubmissionAuthority`; a later call returns the same device. `RetainedHost::run(start, driver)` runs the window on that device and checks that the adapter can present to the window. A start that made no device leaves the viewer to make its own.
 
 `RetainedHost::admit_offscreen(operations)` hands the caller's format-neutral `render_program::offscreen::PendingOffscreen`, built on that device, to the next frame the viewer renders. The frame admits them on its own recording and runs them before its first pass in its one submission, so the caller submits and waits for nothing. An accumulated recipe's first admitted warmup or sample consumes the packet once; later samples do not replay it. A later call replaces operations no frame took. An operation the contract refuses fails the run with `ViewerError::Offscreen`.
 
@@ -827,4 +827,4 @@ fitting lets a compatible frame consume those operations without readmission.
 If preparing an update submits GPU work, the call returns pending without taking
 the operations; a later call checks compatibility before rendering.
 
-`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless(driver, Some(gpu))` runs a windowless session on its device, refusing a scene feature the device lacks as a window does.
+`SharedGpu` is the same instance, adapter and device without a window: `SharedGpu::headless` makes one, and `RetainedHost::windowless(driver, Some(gpu))` runs a windowless session on its device, refusing a scene feature the device lacks as a window does. `WindowlessRetained::is_closed` says when the session has ended, because the driver asked to exit or `shutdown` ran, so a loop that calls `frame` and `poll` knows when to stop.

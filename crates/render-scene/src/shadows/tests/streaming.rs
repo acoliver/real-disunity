@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 pub(super) fn multilevel_source() -> RenderScene {
     let source = super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
@@ -51,7 +54,7 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     renderer
         .set_depth_fitting(
@@ -114,7 +117,7 @@ fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let first = observe_preparations(|| {
@@ -203,12 +206,11 @@ fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
     let context = context();
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
-    let mut resident = ShadowedScene::with_target(
+    let mut resident = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let mut frame = crate::compositor::FrameRenderer::hdr(
@@ -318,7 +320,7 @@ fn still_streamed_frames_keep_cascades_until_the_resident_chunks_change() {
         refresh_policy: policy,
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let layers = usize::try_from(renderer.map.depth.layers()).unwrap();
     cascade_passes();

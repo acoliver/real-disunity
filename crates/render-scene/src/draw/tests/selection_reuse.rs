@@ -2,10 +2,11 @@ use super::lod_material::{scene, selection_frame};
 use super::*;
 use crate::draw::PreparedTextureReplacement;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 
 fn rebuilds_after(
-    gpu: &SceneGpu,
-    render: &mut dyn FnMut(&SceneGpu) -> crate::offscreen::RgbaImage,
+    gpu: &mut SceneGpu,
+    render: &mut dyn FnMut(&mut SceneGpu) -> crate::offscreen::RgbaImage,
 ) -> (crate::offscreen::RgbaImage, usize) {
     let rebuilds = |gpu: &SceneGpu| {
         gpu.views
@@ -22,8 +23,8 @@ fn rebuilds_after(
 fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -38,21 +39,21 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
         },
     )
     .unwrap();
-    let mut render = |gpu: &SceneGpu| target.render(&context, gpu, &pipelines).unwrap();
+    let mut render = |gpu: &mut SceneGpu| target.render(&context, gpu, &pipelines).unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));
-    let (near, _) = rebuilds_after(&gpu, &mut render);
-    assert_eq!(rebuilds_after(&gpu, &mut render), (near.clone(), 0));
+    let (near, _) = rebuilds_after(&mut gpu, &mut render);
+    assert_eq!(rebuilds_after(&mut gpu, &mut render), (near.clone(), 0));
     gpu.set_frame(context.queue(), selection_frame(50_000));
-    let (_, moved) = rebuilds_after(&gpu, &mut render);
+    let (_, moved) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!(moved, 1);
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     gpu.set_frame(context.queue(), selection_frame(5_000));
     let handle = gpu.instance_handles().next().unwrap();
     gpu.set_instance_visible(handle, false).unwrap();
-    let (_, hidden) = rebuilds_after(&gpu, &mut render);
+    let (_, hidden) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!((hidden, gpu.view_stats().culled), (1, 1));
     gpu.set_instance_visible(handle, true).unwrap();
-    assert_eq!(rebuilds_after(&gpu, &mut render), (near, 1));
+    assert_eq!(rebuilds_after(&mut gpu, &mut render), (near, 1));
     let away = SceneTransform {
         position_millimeters: [0, 0, 1_000_000],
         ..*gpu.instance(handle).unwrap().0.transform()
@@ -60,7 +61,7 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     gpu.set_instance_transform(handle, away).unwrap();
     gpu.flush_instances(context.device(), context.submission())
         .unwrap();
-    let (_, moved_away) = rebuilds_after(&gpu, &mut render);
+    let (_, moved_away) = rebuilds_after(&mut gpu, &mut render);
     assert_eq!((moved_away, gpu.view_stats().culled), (1, 1));
 }
 
@@ -68,8 +69,8 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
 fn caster_fits_are_reused_until_a_placement_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -133,8 +134,8 @@ fn fresh_fits(gpu: &SceneGpu, receivers: &[glam::Mat4]) -> Vec<[u32; 16]> {
 fn cascade_fits_follow_the_receivers_and_placements_frame_after_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -192,8 +193,8 @@ fn receivers_after(receivers: &[glam::Mat4]) -> Vec<glam::Mat4> {
 fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -236,8 +237,8 @@ fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
 fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -305,10 +306,10 @@ fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
 fn replacing_a_materials_texture_prepares_the_pair_list_again() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let objects = pipelines.object_context();
     gpu.prepare_object_context(objects).unwrap();
     let pairs = gpu.drawn_pairs().len();
@@ -341,8 +342,8 @@ fn replacing_a_materials_texture_prepares_the_pair_list_again() {
 fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -376,8 +377,8 @@ fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
 fn passes_share_one_selection_of_a_view_instead_of_copying_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),

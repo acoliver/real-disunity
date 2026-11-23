@@ -2,6 +2,7 @@
 use super::decals::source;
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::{
     AntiAliasing, AttachmentView, FrameError, MsaaSamples, PostResolve, ResourceRef, ToneMap,
 };
@@ -62,7 +63,10 @@ fn renderers_without_taa_accept_any_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let host = foreign_depth(&context);
-    for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
+    ] {
         let plain = renderer(&context, resolve);
         assert_eq!(
             plain.validate_taa_depth(&attachment("scene depth", &host)),
@@ -76,9 +80,8 @@ fn encode_scene_refuses_a_host_depth_that_is_not_the_frame_depth_before_changing
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mut taa = renderer(&context, PostResolve::taa(0.9));
     let color = attachment("scene color", taa.targets().scene().texture());
     let host = foreign_depth(&context);

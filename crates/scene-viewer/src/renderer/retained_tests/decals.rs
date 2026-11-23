@@ -165,8 +165,8 @@ fn unsupported_maps_and_incompatible_arrays_reject_before_acceptance_then_valid_
     }))
     .unwrap();
     assert!(host.readiness.queue.front().unwrap().scene.is_none());
-    let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming = super::super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(&context, &scene, None, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::super::readiness::Streaming::new(None, crate::tests::CLAMP);
     publish(&context, &mut streaming, &mut resident, &mut host);
     assert_eq!(host.ready_generation(), 1);
     assert_eq!(resident.scene_mut().decal_placements(), vec![(0, decal(4))]);
@@ -179,8 +179,8 @@ fn retained_decal_add_transform_and_remove_publish_without_preparing_the_scene()
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source_with_materials();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
-    let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming = super::super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(&context, &scene, None, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::super::readiness::Streaming::new(None, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -227,8 +227,8 @@ fn retained_modifier_only_replace_publishes_without_scene_preparation() {
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source_with_materials().with_decals(vec![decal(4)]).unwrap();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
-    let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming = super::super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(&context, &scene, None, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::super::readiness::Streaming::new(None, crate::tests::CLAMP);
     let mut changed = decal(4);
     changed.color_modifier.rgb_scale_micro = [1_770_000, 0, 500_000];
     changed.color_modifier.opacity_micro = 500_000;

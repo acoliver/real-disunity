@@ -18,11 +18,6 @@ pub(crate) struct SceneFeature<'a> {
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     pub contour: Option<crate::draw::ContourDraw>,
-    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
-    pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
-    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
-    /// before Opaque, which draws only the rest.
-    pub renders: bool,
     /// Metadata-only prefixes retain the previous colour pass's published draw results.
     pub opaque_drawn: std::cell::Cell<bool>,
 }
@@ -75,12 +70,6 @@ impl PreparedFeature for SceneFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == PassSlot::OpaqueLighting {
-            let inputs = self.deferred.as_ref().expect("declared lighting pass");
-            let pipelines = self.colour_pipelines(pass);
-            self.gpu.draw_deferred_lighting(pass, pipelines, inputs);
-            return;
-        }
         if self.draw_metadata(context.slot, pass) {
             return;
         }
@@ -88,25 +77,11 @@ impl PreparedFeature for SceneFeature<'_> {
         if let Some(screen) = &self.screen {
             if let Some((pipelines, group)) = &screen.forward {
                 pass.set_bind_group(3, group, &[]);
-                if self.renders {
-                    self.publications.record_remainder(
-                        self.gpu,
-                        self.gpu.draw_forward_remainder(pass, pipelines),
-                    );
-                    return;
-                }
                 self.publications
                     .record_color(self.gpu, self.gpu.draw_color(pass, pipelines, None));
                 return;
             }
             pass.set_bind_group(3, &screen.ambient, &[]);
-        }
-        if self.renders {
-            self.publications.record_remainder(
-                self.gpu,
-                self.gpu.draw_forward_remainder(pass, &self.pipelines),
-            );
-            return;
         }
         self.publications
             .record_color(self.gpu, self.gpu.draw_color(pass, &self.pipelines, None));
@@ -133,20 +108,6 @@ impl SceneFeature<'_> {
         let Some(screen) = &self.screen else {
             return false;
         };
-        if slot == PassSlot::OpaqueGbuffer || (self.renders && slot == PassSlot::DepthNormalPrepass)
-        {
-            if self.renders {
-                self.publications.prepass();
-            }
-            if let Some((pipelines, group)) = &screen.gbuffer {
-                let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
-                if self.renders {
-                    let ao = colour_pipelines(&self.pipelines, Some(screen)).has_ao_receiver();
-                    self.publications.record_gbuffer(draw, false, ao);
-                }
-            }
-            return true;
-        }
         if slot == PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             self.publications.record_prepass(
@@ -158,33 +119,6 @@ impl SceneFeature<'_> {
         }
         false
     }
-
-    /// The pipelines the colour pass draws with, after binding set 3 as that pass does.
-    fn colour_pipelines(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-    ) -> &crate::renderer::ScenePipelines {
-        let Some(screen) = &self.screen else {
-            return &self.pipelines;
-        };
-        if let Some((pipelines, group)) = &screen.forward {
-            pass.set_bind_group(3, group, &[]);
-            return pipelines;
-        }
-        pass.set_bind_group(3, &screen.ambient, &[]);
-        &self.pipelines
-    }
-}
-
-/// The pipelines a stock feature's colour pass draws with: the forward reflection pipelines
-/// when installed, otherwise `pipelines`.
-pub(crate) fn colour_pipelines<'a>(
-    pipelines: &'a crate::renderer::ScenePipelines,
-    screen: Option<&'a crate::scene_metadata::Geometry>,
-) -> &'a crate::renderer::ScenePipelines {
-    screen
-        .and_then(|screen| screen.forward.as_ref())
-        .map_or(pipelines, |(forward, _)| forward)
 }
 
 /// Prepares the terrain and object pipelines of the passes the scene feature draws them in: the
@@ -204,10 +138,6 @@ pub(super) fn prepare_terrain(
     };
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
     gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
-    if let Some((gbuffer, _)) = &screen.gbuffer {
-        gpu.prepare_terrain(gbuffer, frame)?;
-        gpu.prepare_objects(gbuffer, frame)?;
-    }
     let colour = screen
         .forward
         .as_ref()
@@ -261,7 +191,7 @@ fn validate_effects(
 /// passes.push(caller_pass);
 /// views.push(caller_view);
 /// let offscreen = stock.take_offscreen_operations();
-/// renderer.encode_frame_with(
+/// renderer.encode_frame(
 ///     device,
 ///     encoder,
 ///     (&passes, &views),
@@ -302,7 +232,7 @@ impl StockSceneFeature<'_> {
 
     /// Takes the admitted offscreen work retained during preparation, at most once.
     /// Keep it alive and pass its `FrameOperations` reference as the head of
-    /// [`FrameRenderer::encode_frame_with`]; it is not included in [`Self::plan`].
+    /// [`FrameRenderer::encode_frame`]; it is not included in [`Self::plan`].
     /// Retaining or taking this work does not encode it. A `None` head still records the
     /// stock draws without refreshing their offscreen inputs. Forward any returned work
     /// on the preparation encoder before the stock passes, or abandon the frame.
@@ -314,7 +244,7 @@ impl StockSceneFeature<'_> {
     }
 
     /// The frame uniform the renderer prepared, with exposure and jitter applied. Pass this to
-    /// `encode_frame_with`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
+    /// `encode_frame`; the uniform given to [`prepare_stock_scene`] has neither applied yet.
     #[must_use]
     pub fn frame(&self) -> crate::frame::FrameUniform {
         self.feature.frame
@@ -376,11 +306,11 @@ fn declare_scene_passes(
 
 /// Prepares a resident unshadowed scene as a feature that callers compose with their own.
 /// Performs depth and effect validation, retains the player's admitted offscreen work, stages
-/// dynamic and terrain uploads, and prepares the stock plan and deferred lighting inputs.
+/// dynamic and terrain uploads, and prepares the stock plan.
 /// Checked attachments retain their selected mip, array layer and view format.
 ///
 /// Take the returned feature's offscreen operations and forward them to
-/// [`FrameRenderer::encode_frame_with`]. Preparation retains that work without encoding it;
+/// [`FrameRenderer::encode_frame`]. Preparation retains that work without encoding it;
 /// the frame executor runs it ahead of the stock passes.
 ///
 /// The submission and abandonment rules of [`FrameRenderer`] apply. Dynamic uploads are staged
@@ -430,7 +360,6 @@ fn prepare_scene_draw<'a, 'b>(
 ) -> Result<SceneDraw<'a, 'b>, FrameError> {
     let SceneRefs { gpu, pipelines } = scene;
     let ColorDepth { color, depth } = attachments;
-    renderer.validate_opaque_depth(depth)?;
     renderer.validate_taa_depth(depth)?;
     validate_effects(renderer, gpu, pipelines)?;
     if let Some(screen) = &mut renderer.ssao {
@@ -440,7 +369,7 @@ fn prepare_scene_draw<'a, 'b>(
     let depth_mode = renderer.forward_depth(gpu, depth);
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
-    let writes_velocity = renderer.adopt_scene_velocity(device, gpu, pipelines);
+    let writes_velocity = renderer.adopt_scene_velocity(gpu, pipelines);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     let (programs, offscreen) =
         encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
@@ -479,23 +408,9 @@ fn finish_stock_scene<'a>(
         &draw.frame,
         (&mut plan.passes, &mut plan.views, &mut plan.declaration),
     )?;
-    let deferred = renderer.prepare_deferred_lighting(
-        device,
-        (
-            draw.gpu,
-            colour_pipelines(&draw.pipelines, draw.screen.as_ref()),
-        ),
-        (
-            plan.depth_id,
-            &plan.depth_texture,
-            draw.depth_mode == crate::renderer::depth::DepthMode::Reuse,
-        ),
-        &draw.frame,
-        &mut plan.declaration,
-    )?;
     let offscreen = draw.offscreen.take();
     Ok(StockSceneFeature {
-        feature: draw.into_feature(renderer, contour, deferred),
+        feature: draw.into_feature(contour),
         declaration: plan.declaration,
         passes: plan.passes,
         views: plan.views,
@@ -504,25 +419,15 @@ fn finish_stock_scene<'a>(
 }
 
 impl<'a> SceneDraw<'a, '_> {
-    fn into_feature(
-        self,
-        renderer: &FrameRenderer,
-        contour: Option<crate::draw::ContourDraw>,
-        deferred: Option<crate::gbuffer::lighting::LightingInputs>,
-    ) -> SceneFeature<'a> {
+    fn into_feature(self, contour: Option<crate::draw::ContourDraw>) -> SceneFeature<'a> {
         SceneFeature {
-            publications: renderer.draw_publications(),
+            publications: crate::draw::DrawPublications::default(),
             screen: self.screen,
             programs: self.programs,
             contour,
             gpu: self.gpu,
             pipelines: Cow::Owned(self.pipelines),
             frame: self.frame,
-            deferred,
-            renders: renderer
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders),
             opaque_drawn: std::cell::Cell::new(false),
         }
     }

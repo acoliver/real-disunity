@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::flight::{Admission, FrameAdmission};
 use worldrunner_render_post::BufferReadback;
 
@@ -21,9 +22,9 @@ fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
 fn overlapping_frames(widths: &[u32]) {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut targets: Vec<_> = widths
         .iter()
         .map(|&width| {

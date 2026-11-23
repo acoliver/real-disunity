@@ -100,7 +100,7 @@ fn encode_composed(
     // Eager work during stock preparation cannot appear in this frame's timing.
     renderer.begin_timing(8).unwrap();
     renderer
-        .encode_frame_with(
+        .encode_frame(
             device,
             encoder,
             (&passes, &views),

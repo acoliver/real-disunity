@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::TerrainGeometryStatistics;
+use crate::test_support::upload_scene;
 
 fn source(budget: u32) -> RenderScene {
     let base = streamed_scene();
@@ -47,8 +48,8 @@ fn observed(gpu: &SceneGpu) -> crate::draw::TerrainStreamingStatistics {
 fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &source(1000),
@@ -58,24 +59,24 @@ fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity
     let mut target = target(&context);
     gpu.set_frame(context.queue(), near_frame());
     assert!(gpu.statistics().terrain_geometry.is_none());
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     let first = observed(&gpu);
     assert!(!first.complete);
     assert!(first.unresolved_leaves > 0);
     assert!(first.drawn_coarse > 0);
     for _ in 0..32 {
-        target.render(&context, &gpu, &pipelines).unwrap();
+        target.render(&context, &mut gpu, &pipelines).unwrap();
     }
     let settled = observed(&gpu);
     assert!(settled.complete);
     assert_eq!(settled.selected_leaves, settled.drawn_at_detail);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(observed(&gpu).drawn, settled.drawn);
     let mut far = near_frame();
     far.view_projection = far_matrix();
     gpu.set_frame(context.queue(), far);
     for _ in 0..4 {
-        target.render(&context, &gpu, &pipelines).unwrap();
+        target.render(&context, &mut gpu, &pipelines).unwrap();
     }
     assert_ne!(observed(&gpu).drawn, settled.drawn);
     wait(&context);
@@ -85,8 +86,8 @@ fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity
 fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &source(9),
@@ -96,7 +97,7 @@ fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
     let mut target = target(&context);
     let frame = near_frame();
     gpu.set_frame(context.queue(), frame);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     let previous = gpu.statistics().terrain_geometry;
     assert!(!observed(&gpu).complete);
     assert!(observed(&gpu).drawn_coarse > 0);

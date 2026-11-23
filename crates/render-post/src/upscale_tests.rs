@@ -177,6 +177,7 @@ fn stored_intermediate(
             settings,
             output_format: wgpu::TextureFormat::Rgba16Float,
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     paint(device, queue, chain.targets().texture(), pattern);
@@ -199,6 +200,7 @@ fn chain(
             settings,
             output_format: wgpu::TextureFormat::Rgba32Float,
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap()
 }

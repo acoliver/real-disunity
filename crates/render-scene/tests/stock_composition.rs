@@ -10,17 +10,18 @@ mod fixture;
 mod prefix_operations;
 
 use callers::{CALLER_FORMAT, Probe, SAMPLER_ENTRY, Sampler, Seen};
-use fixture::{SIZE, gbuffer_taa_scene, scene, view};
+use fixture::{SIZE, scene, view};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 use worldrunner_render_gpu::submission::{
     PrepareError,
     capture::{CaptureError, CaptureObserver, CaptureOutcome, CaptureWrites, WriteKey},
 };
-use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_plan::SceneEffects;
 use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
     PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
@@ -47,16 +48,7 @@ struct Frame {
 }
 impl Frame {
     fn new() -> Self {
-        Self::from_source(&scene(), false)
-    }
-
-    /// A renderer that renders from the G-buffer under temporal anti-aliasing, with the pipelines
-    /// whose colour draws write the object-motion residual.
-    fn gbuffer_taa() -> Self {
-        Self::from_source(&gbuffer_taa_scene(), true)
-    }
-
-    fn from_source(source: &RenderScene, velocity: bool) -> Self {
+        let source = &scene();
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
             .expect("stock composition acceptance requires a real adapter; never skip");
         let renderer = FrameRenderer::hdr(
@@ -68,15 +60,17 @@ impl Frame {
             source.effects(),
         )
         .unwrap();
-        let format = wgpu::TextureFormat::Rgba16Float;
-        let pipelines = if velocity {
-            ScenePipelines::with_ssao_taa_velocity(context.device(), format, 1)
-        } else {
-            ScenePipelines::with_ssao(context.device(), format, 1)
-        }
+        let pipelines =
+            ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
+                .unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(source).unwrap(),
+            &pipelines,
+            None,
+        )
         .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -234,7 +228,7 @@ impl Frame {
         views.push(view);
         let (declaration, frame) = (stock.declaration(), stock.frame());
         let offscreen = stock.take_offscreen_operations();
-        self.renderer.encode_frame_with(
+        self.renderer.encode_frame(
             device,
             encoder,
             (&passes, &views),
@@ -690,7 +684,7 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
             views.push(contribution.view.clone());
             let (declaration, stock_frame) = (stock.declaration(), stock.frame());
             let offscreen = stock.take_offscreen_operations();
-            frame.renderer.encode_frame_with(
+            frame.renderer.encode_frame(
                 &device,
                 encoder,
                 (&passes, &views),
@@ -718,43 +712,4 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
         "prepared in the prefix before it ran, then found completed by the suffix"
     );
     assert!(frame.gpu.statistics().passes.opaque_objects.meshes.calls > 0);
-}
-
-#[test]
-fn gpu_a_fresh_gbuffer_frame_composes_its_stock_prefix_and_suffix() {
-    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let mut frame = Frame::gbuffer_taa();
-    let seen = Rc::new(RefCell::new(Seen::default()));
-    let mut sampler = frame.sampler(&seen);
-    let device = frame.context.device().clone();
-    let authority = frame.context.submission().clone();
-
-    // No frame has been encoded: the producer is the one the renderer was built with.
-    let composed = authority
-        .prepare(&device, |encoder, _| {
-            frame.encode_composed(encoder, &view(0), &mut sampler)
-        })
-        .map_err(unwrap_preparation);
-    let prepared = match composed {
-        Ok(prepared) => prepared,
-        Err(error) => panic!("a fresh G-buffer frame was refused: {error:?}"),
-    };
-    prepared.submit().unwrap();
-    frame.settle();
-
-    assert_eq!(
-        seen.borrow().completed,
-        [
-            (PassEntry::new(PassSlot::DepthNormalPrepass), true),
-            (PassEntry::nth(PassSlot::DepthNormalPrepass, 1), false),
-            (PassEntry::new(PassSlot::DepthPyramid(0)), true),
-            (PassEntry::new(PassSlot::Opaque), false),
-            (SAMPLER_ENTRY, false),
-        ],
-        "the suffix finds the prefix entries completed"
-    );
-    assert!(
-        frame.gpu.statistics().passes.prepass_objects.meshes.calls > 0,
-        "the fused producer drew the quad"
-    );
 }

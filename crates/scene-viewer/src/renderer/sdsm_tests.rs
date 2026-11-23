@@ -68,11 +68,7 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
             });
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].frame_id, frame_id);
-        for name in [
-            "sdsm receiver initialize",
-            "sdsm receiver reduce",
-            "post copy output",
-        ] {
+        for name in ["sdsm receiver initialize", "sdsm receiver reduce", "tone"] {
             assert_eq!(
                 samples[0]
                     .passes
@@ -291,12 +287,12 @@ fn render_frame(
 
 fn fixture(context: &GpuContext) -> (Resident, Presentation) {
     let scene = fitted_scene();
-    assert!(Resident::new(context, &scene, None, crate::FrameProfile::Legacy).is_err());
+    assert!(Resident::new(context, &scene, None, crate::tests::CLAMP).is_err());
     let resident = Resident::new(
         context,
         &scene,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let size = Viewport {
@@ -348,7 +344,7 @@ fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
         &context,
         &base,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let mut presentation = crate::presentation::fixtures::presentation(

@@ -86,6 +86,7 @@ fn gpu_sharpen(
             settings: CasSettings::new(sharpness),
             source: upload(device, queue, image),
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let target = color_texture(

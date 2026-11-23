@@ -279,6 +279,7 @@ impl LayeredGpuSource {
                     ResourceLifetime::ImportedReadOnly,
                     Semantic::Unspecified,
                     Some(1),
+                    &[],
                 )?;
                 Ok(TextureBinding {
                     binding: 5 + index,

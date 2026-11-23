@@ -21,7 +21,7 @@ pub(crate) fn presentation(
     format: wgpu::TextureFormat,
     size: Viewport,
 ) -> Presentation {
-    presentation_with_profile(context, format, size, FrameProfile::Legacy, None).unwrap()
+    presentation_with_profile(context, format, size, crate::tests::CLAMP, None).unwrap()
 }
 
 pub(crate) fn presentation_with_profile(

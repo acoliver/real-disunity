@@ -29,9 +29,11 @@ fn scene_environment_consumers_isolate_water_and_reflections() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let maps = uploaded_reflection_maps(&context);
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.ssr = Some(worldrunner_render_plan::SceneSsr::default());
     settings.water = vec![environment_water_body()];
     let mut renderer =
@@ -125,7 +127,11 @@ fn initial_allocation_reports_loss_before_success_or_validation_failure() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for fail in [false, true] {
         let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
-        let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+        let settings = RendererConfiguration::new(
+            [5, 3],
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            worldrunner_render_post::ToneMap::Clamp,
+        );
         let result = ConfiguredFrameRenderer::new_with(
             &context,
             settings,
@@ -162,7 +168,11 @@ fn foreign_device_is_rejected_before_validation_or_allocation() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let owner = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let foreign = pollster::block_on(GpuContext::request_for_test()).unwrap();
-    let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let mut renderer =
         ConfiguredFrameRenderer::new(&owner, settings.clone(), AllocationBudget(4096)).unwrap();
     let before = renderer.targets().texture().clone();
@@ -193,7 +203,11 @@ fn foreign_device_is_rejected_before_validation_or_allocation() {
 fn timing_changes_are_rejected_without_changing_inventory() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
-    let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(4096)).unwrap();
     let before = renderer.targets().texture().clone();
@@ -211,18 +225,20 @@ fn timing_changes_are_rejected_without_changing_inventory() {
 #[test]
 fn stock_inventory_matches_hand_computed_bytes() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    // One resolved RGBA8 target and one depth32 target.
+    let settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Reinhard,
+    );
+    // One resolved Rgba16Float target and one depth32 target.
     assert_eq!(
         settings
             .allocations()
             .validate(&wgpu::Limits::default())
             .unwrap(),
-        5 * 3 * 8
+        5 * 3 * (8 + 4)
     );
     let mut hdr = settings;
-    hdr.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
-    hdr.frame.format = wgpu::TextureFormat::Rgba16Float;
     hdr.frame.samples = 4;
     assert_eq!(
         hdr.allocations()
@@ -235,7 +251,11 @@ fn stock_inventory_matches_hand_computed_bytes() {
 fn replacement_preserves_history_and_rejection_preserves_targets() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::device::GpuContext::shared_for_test().unwrap();
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(4096)).unwrap();
     let before = renderer.targets().texture().clone();
@@ -257,9 +277,11 @@ fn replacement_preserves_history_and_rejection_preserves_targets() {
 fn exposure_history_and_stock_output_survive_replacement() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.post.adaptive = Some(adaptive_settings());
     let mut control =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(100_000))
@@ -283,23 +305,9 @@ fn exposure_history_and_stock_output_survive_replacement() {
         capture(&context, &mut control),
         capture(&context, &mut candidate)
     );
-    let old_exposure = candidate
-        .history
-        .as_ref()
-        .unwrap()
-        .exposure_buffer(0)
-        .unwrap()
-        .clone();
+    let old_exposure = candidate.history.exposure_buffer(0).unwrap().clone();
     candidate.reconfigure(&context, settings.clone()).unwrap();
-    assert_eq!(
-        candidate
-            .history
-            .as_ref()
-            .unwrap()
-            .exposure_buffer(0)
-            .unwrap(),
-        &old_exposure
-    );
+    assert_eq!(candidate.history.exposure_buffer(0).unwrap(), &old_exposure);
     let expected = capture(&context, &mut control);
     assert_eq!(expected, capture(&context, &mut candidate));
     settings.frame.size = [9, 7];
@@ -334,15 +342,7 @@ fn capture(context: &GpuContext, renderer: &mut ConfiguredFrameRenderer) -> (Vec
                 .unwrap();
             image.encode(encoder, &output).unwrap();
             exposure
-                .encode(
-                    encoder,
-                    renderer
-                        .history
-                        .as_ref()
-                        .unwrap()
-                        .exposure_buffer(0)
-                        .unwrap(),
-                )
+                .encode(encoder, renderer.history.exposure_buffer(0).unwrap())
                 .unwrap();
             Ok::<_, ()>(())
         })
@@ -394,9 +394,11 @@ fn reflection_maps_and_composition_survive_both_replacement_paths() {
     };
     let maps = reflection_maps(&context, preparation);
     let views = maps.views().unwrap();
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.ssr = Some(worldrunner_render_plan::SceneSsr {
         enabled: true,
         max_steps: 64,
@@ -480,9 +482,11 @@ fn authored_reflection_composition_changes_override_retained_service_selection()
     use worldrunner_render_plan::{SceneSsr, SceneSsrComposition};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.ssr = Some(SceneSsr::default());
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(100_000))
@@ -524,8 +528,11 @@ fn ssr_intensity(renderer: &FrameRenderer) -> u32 {
 fn contour_id_reservation_is_opt_in_and_counts_three_multisampled_slots() {
     let limits = wgpu::Limits::default();
     for samples in [1, 4] {
-        let mut settings =
-            RendererConfiguration::legacy([32, 24], wgpu::TextureFormat::Rgba8UnormSrgb);
+        let mut settings = RendererConfiguration::new(
+            [32, 24],
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            worldrunner_render_post::ToneMap::Clamp,
+        );
         settings.frame.samples = samples;
         assert!(!settings.contour_ids);
         let disabled = settings.allocations().validate(&limits).unwrap();
@@ -545,9 +552,11 @@ fn frame_targets_count_as_render_targets_through_a_resize_until_the_renderer_dro
     let context = GpuContext::shared_for_test().unwrap();
     let census = context.submission().census().clone();
     let limits = context.device().limits();
-    let mut settings = RendererConfiguration::legacy([64, 32], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [64, 32],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(64 << 20))
             .unwrap();
@@ -575,9 +584,11 @@ fn lent_environment_is_the_installed_reflection_cube_else_water() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let maps = uploaded_reflection_maps(&context);
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.ssr = Some(worldrunner_render_plan::SceneSsr::default());
     settings.water = vec![environment_water_body()];
     let mut renderer =

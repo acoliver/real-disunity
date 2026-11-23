@@ -70,12 +70,13 @@ mod gaussian;
 mod gaussian_gpu;
 mod hdr_post;
 pub use exposure_policy::{
-    ExposureAdaptation, ExposureMetering, PercentileExposure, luminance_key, metering_bin,
-    percentile_luminance,
+    ExposureAdaptation, ExposureMetering, PercentileExposure, percentile_luminance,
 };
+#[cfg(test)]
+pub(crate) use exposure_policy::{luminance_key, metering_bin};
 pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS, gaussian_extents,
-    gaussian_extents_with_terminal, gaussian_weights,
+    gaussian_weights,
 };
 mod aces;
 mod display_grading;
@@ -215,9 +216,9 @@ mod tone_map;
 pub use native_rcas::{NativeRcasSettings, RcasDomain};
 mod upscale;
 mod upscale_temporal;
-pub use hdr_post::{
-    AdaptiveExposure, Bloom, HdrPostSettings, adapt_exposure, histogram_bin, target_exposure,
-};
+pub use hdr_post::{AdaptiveExposure, Bloom, HdrPostSettings, histogram_bin};
+#[cfg(test)]
+pub(crate) use hdr_post::{adapt_exposure, target_exposure};
 pub use tone_map::{ToneMap, ToneMapOutput};
 pub use upscale::SpatialUpscale;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};

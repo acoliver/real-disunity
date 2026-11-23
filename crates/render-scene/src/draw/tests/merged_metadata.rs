@@ -4,6 +4,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneDecal, SceneSsr, SceneTint};
 use worldrunner_render_post::{AttachmentView, PassSlot, ResourceRef, ToneMap};
 
@@ -119,8 +120,7 @@ fn draw_with(
     pipelines: &ScenePipelines,
 ) {
     let (scene, pose) = shot;
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), scene, pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), scene, pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -142,7 +142,7 @@ fn draw_with(
             FrameUniform::new(&view(pose), scene.effects()).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 
@@ -179,8 +179,7 @@ fn products(
 /// A frame with reflections on: the prepass writes the normals and the material together.
 fn merged(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> Products {
     let pipelines =
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
-            .unwrap();
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let renderer = render(context, (&lit(scene, true), pose), &pipelines);
     let material = renderer.ssr.as_ref().unwrap().material_target();
     products(context, &renderer, Some(material))
@@ -330,7 +329,7 @@ fn differential_frame(
     let (ssr, samples, reference) = config;
     let scene = lit(shot.0, ssr);
     let pipelines = if ssr {
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
     } else {
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
     }

@@ -310,7 +310,7 @@ pub fn clutter_near(stream: &mut Stream, center: (i64, i64), radius: i64) -> Sce
 }
 
 /// Sun, even ambient light, three camera-split cascades, and an HDR bloom plus FXAA chain.
-pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
+pub fn effects() -> Result<SceneEffects, SceneValidationError> {
     let white = SceneColor {
         red: 255,
         green: 255,
@@ -341,9 +341,6 @@ pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
         post: Vec::new(),
         anti_alias: SceneAntiAlias::Disabled,
     })?;
-    if !hdr {
-        return Ok(effects);
-    }
     effects.with_hdr_post(SceneHdrPost {
         tone_map: None,
         grading: None,
@@ -360,16 +357,12 @@ pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
     })
 }
 
-pub fn scene(
-    object_count: usize,
-    clutter: usize,
-    hdr: bool,
-) -> Result<RenderScene, SceneValidationError> {
+pub fn scene(object_count: usize, clutter: usize) -> Result<RenderScene, SceneValidationError> {
     let meshes = (0..MESH_COUNT).map(mesh).collect::<Result<Vec<_>, _>>()?;
     RenderScene::new(SceneParts {
         resources: resources()?,
         geometry: SceneGeometry::new(meshes, objects(object_count, clutter))?,
         terrain: Some(terrain()?),
-        effects: Some(effects(hdr)?),
+        effects: Some(effects()?),
     })
 }

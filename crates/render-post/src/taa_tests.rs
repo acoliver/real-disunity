@@ -115,43 +115,33 @@ fn active_taa_is_only_present_for_the_taa_resolve() {
         Some(TaaSettings::new(0.9))
     );
     assert_eq!(PostResolve::None.active_taa(), None);
-    assert_eq!(PostResolve::fxaa(0.5).active_taa(), None);
+    assert_eq!(
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()).active_taa(),
+        None
+    );
     assert_eq!(PostResolve::smaa(SmaaPreset::High).active_taa(), None);
 }
 
 #[test]
-fn taa_without_explicit_jitter_gets_the_default_sequence() {
-    let aa = AntiAliasing::new(MsaaSamples::X1, PostResolve::taa(0.9));
-    assert_eq!(aa.jitter, None);
-    assert_eq!(aa.effective_jitter(), Some(ProjectionJitter::default()));
+fn taa_renders_with_the_default_sequence() {
     assert_eq!(
-        aa.resolve.effective_jitter(None),
+        PostResolve::taa(0.9).effective_jitter(),
         Some(ProjectionJitter::default())
     );
 }
 
 #[test]
-fn explicit_jitter_wins_over_the_taa_default() {
-    let jitter = ProjectionJitter::new(16).unwrap();
-    let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::taa(0.9)).with_jitter(jitter);
-    assert_eq!(aa.effective_jitter(), Some(jitter));
-}
-
-#[test]
-fn other_resolves_keep_their_explicit_jitter_choice() {
-    let jitter = ProjectionJitter::new(4).unwrap();
+fn other_resolves_render_unjittered() {
     for resolve in [
         PostResolve::None,
-        PostResolve::fxaa(0.5),
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::High),
         PostResolve::Fxaa(FxaaSettings {
             strength: 0.0,
             quality: crate::FxaaQuality::default(),
         }),
     ] {
-        let plain = AntiAliasing::new(MsaaSamples::X1, resolve);
-        assert_eq!(plain.effective_jitter(), None, "{resolve:?}");
-        assert_eq!(plain.with_jitter(jitter).effective_jitter(), Some(jitter));
+        assert_eq!(resolve.effective_jitter(), None, "{resolve:?}");
     }
 }
 

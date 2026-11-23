@@ -4,6 +4,7 @@
 //! levels, with every fifth card hidden and some outside the view, so every batch selects many
 //! short ranges with holes between them. The reference copies each selected range from its batch
 //! buffer with `copy_buffer_to_buffer` on the same device, after the frame that gathered it.
+use crate::test_support::upload_scene;
 use std::collections::BTreeSet;
 
 use super::compaction::{mesh, placement, pose_at, unlit};
@@ -125,9 +126,8 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(device, context.submission(), &fragmented(), &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &fragmented(), &pipelines).unwrap();
     hide_every_fifth(&mut gpu);
     let target = OffscreenTarget::new(
         device,

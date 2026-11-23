@@ -238,6 +238,7 @@ fn gpu_caller_snapshot_reader_without_screen_space_effects_hits_from_the_second_
                 device,
                 &mut encoder,
                 (&passes, &views),
+                None,
                 &mut [
                     BorrowedFeature {
                         declaration: paints(),
@@ -248,7 +249,7 @@ fn gpu_caller_snapshot_reader_without_screen_space_effects_hits_from_the_second_
                         prepared: &mut sampler,
                     },
                 ],
-                (frame, None),
+                &(frame, None),
             )
             .unwrap();
         encoder.finish().submit().unwrap();

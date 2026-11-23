@@ -170,7 +170,7 @@ fn compositor(
             FrameUniform::unlit(&contribution.view),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),
@@ -188,7 +188,7 @@ fn compositor(
 
 pub(super) fn captures(context: &GpuContext, name: &str, frame: &WorldSceneContribution) {
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(context.device(), SPRITE, samples).unwrap();
+        let pipelines = ScenePipelines::new(context.device(), SPRITE, samples).unwrap();
         let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         gpu.set_dynamic_contribution(
             context.device(),

@@ -1,9 +1,7 @@
-//! A game that draws the terrain, through the two G-buffer routes of the shadowed frame. No
-//! G-buffer producer draws the terrain, so the camera result is the one of the same scene
-//! without a terrain: the same depth and the same stored pixels, while the stock draws of the
-//! same terrain change each of them. The stock terrain stays in the shadow cascades.
-use super::deferred::{capture_drawing, scheduler, with_prepass};
-use super::render_path::front_settings;
+//! A game that draws the terrain, through the shadowed frame. No stock camera pass draws the
+//! terrain, so the camera depth is the one of the same scene without a terrain, while the stock
+//! draws of the same terrain change it. The stock terrain stays in the shadow cascades.
+use super::shadowed_capture::{capture_drawing, scheduler, with_prepass};
 use super::*;
 use crate::compositor::StockReplacement;
 
@@ -19,55 +17,16 @@ fn without_terrain(source: &RenderScene) -> RenderScene {
 }
 
 #[test]
-fn gpu_declared_terrain_leaves_the_observation_camera_result_as_a_terrain_free_scene() {
+fn gpu_declared_terrain_leaves_the_shadowed_camera_depth_as_a_terrain_free_scene() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let terrain = with_prepass(
-        &super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false),
+    let terrain = with_prepass(&super::terrain::terrain_scene(
+        &scene(&[[0, 0, 1_000]], 600_000, None),
         true,
-    );
-    let route = SceneOpaquePath::GBUFFER_OBSERVATION;
+        false,
+    ));
     let capture = |source: &RenderScene, replaces| {
-        capture_drawing(
-            &context,
-            source,
-            &view(),
-            route,
-            (replaces, front_settings()),
-        )
-        .unwrap()
-    };
-    let control = capture(&without_terrain(&terrain), StockReplacement::NONE);
-    let drawn = capture(&terrain, StockReplacement::NONE);
-    let declared = capture(&terrain, StockReplacement::TERRAIN_SURFACE);
-    assert!(
-        drawn.depth != control.depth,
-        "the stock terrain shows in depth"
-    );
-    assert!(drawn.g3 != control.g3, "the stock terrain stores pixels");
-    // The lit pixels are not compared: the terrain's shadows may legitimately change them.
-    assert!(declared.depth == control.depth, "depth");
-    assert!(declared.g3 == control.g3, "stored pixels");
-}
-
-#[test]
-fn gpu_declared_terrain_leaves_the_render_camera_result_as_a_terrain_free_scene() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let terrain = with_prepass(
-        &super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false),
-        true,
-    );
-    let route = SceneOpaquePath::GBUFFER_RENDER;
-    let capture = |source: &RenderScene, replaces| {
-        capture_drawing(
-            &context,
-            source,
-            &view(),
-            route,
-            (replaces, front_settings()),
-        )
-        .unwrap()
+        capture_drawing(&context, source, &view(), replaces).unwrap()
     };
     let control = capture(&without_terrain(&terrain), StockReplacement::NONE);
     let drawn = capture(&terrain, StockReplacement::NONE);
@@ -77,6 +36,7 @@ fn gpu_declared_terrain_leaves_the_render_camera_result_as_a_terrain_free_scene(
         "the stock terrain shows in depth"
     );
     assert!(drawn.colour != control.colour, "the stock terrain is lit");
+    // The frame is not compared with the control: the terrain's shadows may change it.
     assert!(declared.depth == control.depth, "depth");
     assert!(declared.colour != drawn.colour, "the terrain is not lit");
 }
@@ -85,7 +45,7 @@ fn gpu_declared_terrain_leaves_the_render_camera_result_as_a_terrain_free_scene(
 /// draws what `replaces` says.
 fn cascade_depths(source: &RenderScene, replaces: StockReplacement) -> Vec<Vec<f32>> {
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, source, settings()).unwrap();
+    let mut renderer = shadowed(&context, source, settings()).unwrap();
     let mut scheduler = scheduler(&context, replaces);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();

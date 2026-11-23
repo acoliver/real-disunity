@@ -17,21 +17,19 @@ use worldrunner_render_post::{GamePlace, PassDeclaration, PassSlot};
 /// 4. occlusion metadata, by level
 /// 5. SSAO, its horizontal blur, its final blur
 /// 6. celestial radiance
-/// 7. the opaque G-buffer (present only when the scene selects the G-buffer opaque path)
-/// 8. opaque lighting of the G-buffer (present with the G-buffer)
-/// 9. the game's passes before Opaque
-/// 10. opaque
-/// 11. the game's passes after Opaque
-/// 12. visible contour IDs, then the opaque colour and depth snapshots
-/// 13. the game's passes after the opaque snapshots
-/// 14. water, then the water mask
-/// 15. transparent alpha (rejected by validation today)
-/// 16. the post-water depth
-/// 17. the game's passes after the transparent passes
-/// 18. the reflection depth pyramid, by level
-/// 19. the reflection trace, then reflection mips by level
-/// 20. the screen-space pass after transparency
-/// 21. the game's passes before post, after every other pass that writes the scene colour
+/// 7. the game's passes before Opaque
+/// 8. opaque
+/// 9. the game's passes after Opaque
+/// 10. visible contour IDs, then the opaque colour and depth snapshots
+/// 11. the game's passes after the opaque snapshots
+/// 12. water, then the water mask
+/// 13. transparent alpha (rejected by validation today)
+/// 14. the post-water depth
+/// 15. the game's passes after the transparent passes
+/// 16. the reflection depth pyramid, by level
+/// 17. the reflection trace, then reflection mips by level
+/// 18. the screen-space pass after transparency
+/// 19. the game's passes before post, after every other pass that writes the scene colour
 ///
 /// The game's passes are the only roles whose place is not their position in the `PassSlot`
 /// enum; within one place they keep the order of their entries' occurrences.
@@ -46,25 +44,23 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::SsaoBlurHorizontal => (5, 0),
         PassSlot::SsaoBlur => (6, 0),
         PassSlot::Celestial => (7, 0),
-        PassSlot::OpaqueGbuffer => (8, 0),
-        PassSlot::OpaqueLighting => (9, 0),
-        PassSlot::Game(GamePlace::BeforeOpaque) => (10, 0),
-        PassSlot::Opaque => (11, 0),
-        PassSlot::Game(GamePlace::AfterOpaque) => (12, 0),
-        PassSlot::ContourIds => (13, 0),
-        PassSlot::AfterOpaqueSnapshot => (13, 1),
-        PassSlot::AfterOpaqueDepth => (14, 0),
-        PassSlot::Game(GamePlace::AfterOpaqueSnapshots) => (14, 1),
-        PassSlot::TransparentWater => (15, 0),
-        PassSlot::TransparentWaterMask => (16, 0),
-        PassSlot::TransparentAlpha => (17, 0),
-        PassSlot::AfterWaterDepth => (18, 0),
-        PassSlot::Game(GamePlace::AfterTransparent) => (19, 0),
-        PassSlot::ReflectionDepthPyramid(level) => (20, level),
-        PassSlot::ReflectionTrace => (21, 0),
-        PassSlot::ReflectionMip(level) => (22, level),
-        PassSlot::ScreenSpaceAfterTransparent => (23, 0),
-        PassSlot::Game(GamePlace::BeforePost) => (24, 0),
+        PassSlot::Game(GamePlace::BeforeOpaque) => (8, 0),
+        PassSlot::Opaque => (9, 0),
+        PassSlot::Game(GamePlace::AfterOpaque) => (10, 0),
+        PassSlot::ContourIds => (11, 0),
+        PassSlot::AfterOpaqueSnapshot => (11, 1),
+        PassSlot::AfterOpaqueDepth => (12, 0),
+        PassSlot::Game(GamePlace::AfterOpaqueSnapshots) => (12, 1),
+        PassSlot::TransparentWater => (13, 0),
+        PassSlot::TransparentWaterMask => (14, 0),
+        PassSlot::TransparentAlpha => (15, 0),
+        PassSlot::AfterWaterDepth => (16, 0),
+        PassSlot::Game(GamePlace::AfterTransparent) => (17, 0),
+        PassSlot::ReflectionDepthPyramid(level) => (18, level),
+        PassSlot::ReflectionTrace => (19, 0),
+        PassSlot::ReflectionMip(level) => (20, level),
+        PassSlot::ScreenSpaceAfterTransparent => (21, 0),
+        PassSlot::Game(GamePlace::BeforePost) => (22, 0),
     }
 }
 
@@ -90,8 +86,6 @@ mod tests {
             PassSlot::SsaoBlurHorizontal,
             PassSlot::SsaoBlur,
             PassSlot::Celestial,
-            PassSlot::OpaqueGbuffer,
-            PassSlot::OpaqueLighting,
             PassSlot::Opaque,
             PassSlot::ContourIds,
             PassSlot::AfterOpaqueSnapshot,
@@ -132,8 +126,6 @@ mod tests {
             SsaoBlurHorizontal,
             SsaoBlur,
             Celestial,
-            OpaqueGbuffer,
-            OpaqueLighting,
             Opaque,
             ContourIds,
             AfterOpaqueSnapshot,
@@ -269,7 +261,7 @@ mod tests {
             game(GamePlace::BeforeOpaque, 1),
             stock(PassSlot::ReflectionDepthPyramid(0)),
             game(GamePlace::BeforeOpaque, 0),
-            stock(PassSlot::OpaqueLighting),
+            stock(PassSlot::Celestial),
             stock(PassSlot::AfterWaterDepth),
         ]
         .into_iter()
@@ -282,7 +274,7 @@ mod tests {
                 .map(PassDeclaration::entry)
                 .collect::<Vec<_>>(),
             [
-                stock(PassSlot::OpaqueLighting),
+                stock(PassSlot::Celestial),
                 game(GamePlace::BeforeOpaque, 0),
                 game(GamePlace::BeforeOpaque, 1),
                 stock(PassSlot::Opaque),

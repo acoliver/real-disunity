@@ -86,7 +86,7 @@ fn encode_suffix(
     views.push(substitution.replacement.clone());
     let (declaration, frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    scene.frame.encode_frame_with(
+    scene.frame.encode_frame(
         context.device(),
         encoder,
         (&passes, &views),

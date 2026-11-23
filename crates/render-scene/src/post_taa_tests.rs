@@ -102,7 +102,10 @@ fn a_descriptor_resolve_and_an_authored_resolve_conflict_in_either_order() {
     let aa = |resolve| p::AntiAliasing::new(p::MsaaSamples::X1, resolve);
     for (effects, resolve) in [
         (&authored_taa, p::PostResolve::taa(0.5)),
-        (&authored_taa, p::PostResolve::fxaa(0.5)),
+        (
+            &authored_taa,
+            p::PostResolve::fxaa(0.5, p::FxaaQuality::default()),
+        ),
         (&authored_fxaa, p::PostResolve::taa(0.5)),
     ] {
         assert_eq!(
@@ -127,7 +130,6 @@ fn a_descriptor_taa_or_an_authored_taa_alone_selects_the_resolve() {
 
 #[test]
 fn the_merged_resolve_decides_the_jitter_whichever_route_chose_it() {
-    let explicit = p::ProjectionJitter::new(16).unwrap();
     let default = Some(p::ProjectionJitter::default());
     let from_authoring = post::settings(&effects(taa(900_000), None)).unwrap();
     let from_descriptor = post::settings_with_antialiasing(
@@ -136,20 +138,12 @@ fn the_merged_resolve_decides_the_jitter_whichever_route_chose_it() {
     )
     .unwrap();
     for settings in [from_authoring, from_descriptor] {
-        assert_eq!(post::jitter(&settings, config(), None), Ok(default));
-        assert_eq!(
-            post::jitter(&settings, config(), Some(explicit)),
-            Ok(Some(explicit))
-        );
+        assert_eq!(post::jitter(&settings, config()), Ok(default));
     }
     let fxaa = post::settings(&effects(s::SceneAntiAlias::Disabled, Some(500_000))).unwrap();
-    assert_eq!(post::jitter(&fxaa, config(), None), Ok(None));
-    assert_eq!(
-        post::jitter(&fxaa, config(), Some(explicit)),
-        Ok(Some(explicit))
-    );
+    assert_eq!(post::jitter(&fxaa, config()), Ok(None));
     let plain = p::HdrPostSettings::default();
-    assert_eq!(post::jitter(&plain, config(), None), Ok(None));
+    assert_eq!(post::jitter(&plain, config()), Ok(None));
 }
 
 fn config() -> p::FrameConfig {
@@ -172,7 +166,7 @@ fn reduced_temporal() -> (p::HdrPostSettings, p::FrameConfig) {
 fn a_reduced_temporal_renderer_derives_its_jitter_from_both_extents() {
     let (settings, reduced) = reduced_temporal();
     let derived = p::ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();
-    assert_eq!(post::jitter(&settings, reduced, None), Ok(Some(derived)));
+    assert_eq!(post::jitter(&settings, reduced), Ok(Some(derived)));
 }
 
 #[test]

@@ -6,23 +6,19 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::texture::{TextureTierPolicy, TierChoice};
 
 #[test]
-fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
+fn retained_reduced_texture_survives_capture_reconfiguration() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut host = gbuffer_host();
+    let mut host = prepass_host();
     install_reducible_texture(&mut host);
     let mut run = host.windowless(&mut driver, None).unwrap();
     let mut captures = Vec::new();
     let mut plans = Vec::new();
     let mut mesh_residency = None;
-    for (generation, path, exposure, center) in [
-        (0, SceneOpaquePath::GBUFFER_RENDER, 2_000_000, 213),
-        (1, SceneOpaquePath::GBUFFER_OBSERVATION, 3_000_000, 225),
-        (2, SceneOpaquePath::GBUFFER_RENDER, 2_000_000, 213),
-    ] {
+    for (generation, reach, exposure, center) in GENERATIONS {
         let prior = run.host().statistics().copied();
         if generation != 0 {
-            let effects = gbuffer_effects(run.host().scene().effects().unwrap(), path, exposure);
+            let effects = prepass_effects(run.host().scene().effects().unwrap(), reach, exposure);
             run.host_mut()
                 .apply(RetainedUpdate::Settings(Box::new(effects)))
                 .unwrap();
@@ -34,9 +30,8 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
         let mesh_bytes =
             *mesh_residency.get_or_insert(capture.statistics.scene.mesh_buffers.resident_bytes);
         assert_tier_generation(&capture.statistics, generation, mesh_bytes);
-        assert_gbuffer_generation(&capture.statistics, generation, path);
+        assert_generation(&capture.statistics, generation);
         assert_eq!(run.host().ready_generation(), generation);
-        assert_eq!(run.host().scene().effects().unwrap().opaque_path(), path);
         assert!(!events.borrow().iter().any(|event| matches!(
             event, RetainedEvent::Capture { id, .. } if *id == capture.id
         )));
@@ -56,7 +51,7 @@ fn retained_reduced_texture_survives_gbuffer_capture_reconfiguration() {
     assert!(steady.frame > captures.last().unwrap().statistics.frame);
     assert_eq!(steady.generation, 2);
     assert_tier_generation(&steady, 2, mesh_residency.unwrap());
-    assert_gbuffer_generation(&steady, 2, SceneOpaquePath::GBUFFER_RENDER);
+    assert_generation(&steady, 2);
     run.renderer.drain().unwrap();
     run.poll().unwrap();
     for capture in &captures {
@@ -171,17 +166,17 @@ fn assert_tier_generation(
 fn assert_stock_plan_reused_after_reconfiguration(
     plans: &[worldrunner_render_scene::compositor::StockPlanStatistics],
 ) {
-    let [initial, observation, render] = plans else {
+    let [initial, changed, restored] = plans else {
         panic!("one stock-plan snapshot per captured generation");
     };
     assert!(initial.rebuilds > 0);
     assert!(initial.binding_resolutions > 0);
     assert!(initial.binding > 0);
-    assert_eq!(observation.rebuilds, initial.rebuilds + 1);
-    assert!(observation.binding_resolutions > initial.binding_resolutions);
-    assert_eq!(render.rebuilds, observation.rebuilds);
-    assert!(render.binding_resolutions > observation.binding_resolutions);
-    assert_ne!(render.binding, observation.binding);
+    assert_eq!(changed.rebuilds, initial.rebuilds + 1);
+    assert!(changed.binding_resolutions > initial.binding_resolutions);
+    assert_eq!(restored.rebuilds, changed.rebuilds);
+    assert!(restored.binding_resolutions > changed.binding_resolutions);
+    assert_ne!(restored.binding, changed.binding);
 }
 
 fn assert_stock_plan_reused_for_steady_frame(

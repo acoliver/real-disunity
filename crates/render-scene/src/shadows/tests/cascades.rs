@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 pub(super) fn source_with(source: &RenderScene, shadows: SceneShadowCascades) -> RenderScene {
     let mut effects = fixture::effects_parts(600_000);
@@ -18,7 +21,7 @@ fn resident_statistics_clear_shadows_only_after_submission() {
     let context = context();
     let base = scene(&[[0, 0, 1_000]], 600_000, None);
     let source = super::terrain::terrain_scene(&base, false, false);
-    let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut shadowed = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut shadowed, &mut scheduler, &context, &view(), &target).unwrap();
@@ -42,18 +45,22 @@ fn resident_statistics_clear_shadows_only_after_submission() {
             .iter()
             .any(|count| count.calls > 0)
     );
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     for submit in [false, true] {
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_resident(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (shadowed.scene_mut(), &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
-        )
-        .unwrap();
+        let frame = shadowed.scene_mut().resident_frame();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (shadowed.scene_mut(), &pipelines),
+                (&target.color_attachment(), &target.depth_attachment()),
+                frame,
+            )
+            .unwrap();
         assert_eq!(shadowed.scene_mut().statistics(), previous);
         if submit {
             encoder.finish().submit().unwrap();
@@ -90,7 +97,7 @@ fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
         SceneShadowCascades::new(vec![650, 1_200, 2_000, 3_500], 100_000).unwrap(),
     );
     let baseline = capture_scene(&context, &source, &view()).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     assert_eq!(renderer.map.depth.layers(), 4);
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -153,11 +160,12 @@ fn gpu_each_cascade_keeps_off_camera_casters_and_main_camera_lod() {
     .unwrap();
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             depth_half_extent_meters: 0.5,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
@@ -190,7 +198,7 @@ fn gpu_camera_splits_blend_and_reconfigure_without_reupload() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, Some([255, 255, 0, 0]));
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let handle = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

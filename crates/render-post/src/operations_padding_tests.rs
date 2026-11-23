@@ -93,6 +93,7 @@ fn fixture(
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     let view = registry

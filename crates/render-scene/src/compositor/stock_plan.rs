@@ -2,10 +2,10 @@
 //!
 //! A frame's passes come from several contributors: the scene or the shadowed scene authors the
 //! base passes (the opaque pass, the shadow casters, the celestial pass, velocity), and the
-//! screen-space effects, reflections, retained features, snapshots and the G-buffer add their own
-//! around them. This module collects them in that order, applies the one forward order and
-//! positions the operations group, for the unfitted frame, the frame that follows a depth prefix
-//! and the prefix itself, with Forward, the G-buffer observation and the early producer.
+//! screen-space effects, reflections, retained features and snapshots add their own around them.
+//! This module collects them in that order, applies the one forward order and positions the
+//! operations group, for the unfitted frame, the frame that follows a depth prefix and the prefix
+//! itself.
 //!
 //! The result splits in two. The **logical schedule** is the entries, their roles and
 //! occurrences, the attachment resources they name, the declared effects and the position of

@@ -5,6 +5,7 @@ mod output;
 pub(crate) mod receiver;
 use crate::{frame::FrameUniform, renderer::ScenePipelines};
 pub(crate) use geometry::pipelines;
+#[cfg(test)]
 pub(crate) use geometry::pipelines_from_sources;
 #[cfg(test)]
 pub(crate) use geometry::sources;
@@ -23,9 +24,6 @@ pub(crate) struct Geometry {
     /// when reflections are installed.
     pub merged: Option<ScenePipelines>,
     pub forward: Option<(ScenePipelines, wgpu::BindGroup)>,
-    /// Material producers: observation tests completed depth read-only; early Render writes
-    /// depth, G0-G3 and the configured canonical metadata in the prepass slot.
-    pub gbuffer: Option<(ScenePipelines, wgpu::BindGroup)>,
 }
 
 #[derive(Clone, Debug)]
@@ -129,7 +127,6 @@ impl SceneMetadata {
                 ambient,
                 merged: None,
                 forward: None,
-                gbuffer: None,
             },
             passes,
             receiver: None,
@@ -153,9 +150,6 @@ impl SceneMetadata {
         } else {
             DepthMode::Independent
         };
-        geometry.gbuffer = geometry.gbuffer.filter(|(pipelines, _)| {
-            pipelines.early_outputs().is_some() || crate::gbuffer::producer_depth_available(depth)
-        });
         geometry.pipelines = geometry.pipelines.for_depth(metadata);
         geometry.merged = geometry
             .merged
@@ -163,12 +157,6 @@ impl SceneMetadata {
             .map(|pipelines| pipelines.for_depth(metadata));
         if let Some((pipelines, _)) = &mut geometry.forward {
             *pipelines = pipelines.for_depth(depth);
-        }
-        if let Some((pipelines, _)) = &mut geometry.gbuffer {
-            *pipelines = pipelines.for_depth(crate::gbuffer_writes::producer_depth(
-                pipelines.early_outputs(),
-                self.depth.format(),
-            ));
         }
         geometry
     }

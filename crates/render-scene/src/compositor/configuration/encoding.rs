@@ -150,11 +150,8 @@ impl ConfiguredFrameRenderer {
     pub fn has_temporal_history(&self) -> bool {
         self.state.current().has_temporal_history()
     }
-    pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
-        self.state.current_mut().set_frame_time(seconds)
-    }
-    pub fn set_frame_time_duration(&mut self, time: std::time::Duration) -> Result<(), FrameError> {
-        self.state.current_mut().set_frame_time_duration(time)
+    pub fn set_frame_time(&mut self, time: std::time::Duration) {
+        self.state.current_mut().set_frame_time(time);
     }
     pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {
         self.state.current_mut().set_frame_delta(delta)
@@ -168,6 +165,9 @@ impl ConfiguredFrameRenderer {
         output: &wgpu::TextureView,
     ) -> Result<(), PostError> {
         self.state.current().encode_output(encoder, output)
+    }
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.state.current().encode_resolve(encoder);
     }
     pub fn begin_timing(
         &self,
@@ -195,7 +195,7 @@ impl FrameEncoding<'_> {
     ///
     /// This is [`prepare_stock_scene`](super::super::prepare_stock_scene) encoded alone: callers
     /// that add passes or features of their own prepare the stock scene themselves and forward
-    /// its offscreen operations to [`FrameRenderer::encode_frame_with`].
+    /// its offscreen operations to [`FrameRenderer::encode_frame`].
     pub fn encode_scene(
         &mut self,
         device: &wgpu::Device,
@@ -210,7 +210,7 @@ impl FrameEncoding<'_> {
         let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
         let (declaration, frame) = (stock.declaration(), stock.frame());
         let offscreen = stock.take_offscreen_operations();
-        self.0.encode_frame_with(
+        self.0.encode_frame(
             device,
             encoder,
             (&passes, &views),

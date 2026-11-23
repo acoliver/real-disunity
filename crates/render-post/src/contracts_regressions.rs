@@ -84,6 +84,7 @@ fn writable_storage_cannot_bind_a_read_only_import() {
             ResourceLifetime::ImportedReadOnly,
             Semantic::Unspecified,
             Some(0),
+            &[],
         )
         .unwrap();
     let entry = binding(
@@ -132,6 +133,7 @@ fn import(registry: &mut ResourceRegistry, texture: &wgpu::Texture) -> Allocatio
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             Some(0),
+            &[],
         )
         .unwrap()
 }
@@ -313,6 +315,7 @@ fn read_only_replacement_is_rejected_without_mutating_identity_or_validity() {
             ResourceLifetime::ImportedReadOnly,
             Semantic::Unspecified,
             Some(0),
+            &[],
         )
         .unwrap();
     let old = view(&registry, key, 0);
@@ -341,6 +344,7 @@ fn read_only_replacement_is_rejected_without_mutating_identity_or_validity() {
             ResourceLifetime::ImportedReadOnly,
             Semantic::Unspecified,
             Some(7),
+            &[],
         )
         .unwrap();
     consumer.bindings.clear();
@@ -352,7 +356,8 @@ fn read_only_replacement_is_rejected_without_mutating_identity_or_validity() {
                 &original,
                 ResourceLifetime::ImportedReadOnly,
                 Semantic::Unspecified,
-                Some(1)
+                Some(1),
+                &[]
             )
             .is_err()
     );
@@ -540,6 +545,7 @@ fn read_only_source(
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     let source = view(registry, key, 0);

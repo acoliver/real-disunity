@@ -171,7 +171,7 @@ fn live_unlit_program_sources_are_non_invariant() {
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let format = wgpu::TextureFormat::Rgba16Float;
     for pipelines in [
-        crate::renderer::ScenePipelines::new(context.device(), format),
+        crate::renderer::ScenePipelines::new(context.device(), format, 1).unwrap(),
         crate::renderer::ScenePipelines::with_taa_velocity(context.device(), format, 1).unwrap(),
         crate::renderer::ScenePipelines::with_ssao(context.device(), format, 1).unwrap(),
         crate::renderer::ScenePipelines::with_ssao_taa_velocity(context.device(), format, 1)

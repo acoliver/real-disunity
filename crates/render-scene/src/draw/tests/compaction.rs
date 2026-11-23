@@ -7,6 +7,7 @@ use super::*;
 use crate::compositor::FrameRenderer;
 use crate::draw::InstanceHandle;
 use crate::offscreen::{OffscreenTarget, RgbaImage};
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneCard, SceneLodMaterialSlot};
 
 pub(super) fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
@@ -96,9 +97,8 @@ impl Rig {
 
     pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
         let context = context();
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
         gpu.views[0]
             .compaction
             .observed

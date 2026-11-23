@@ -3,6 +3,7 @@ mod budget_tests;
 mod texture_tiers;
 
 use std::sync::{Arc, mpsc};
+use worldrunner_render_scene::shadows::ShadowedTarget;
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
@@ -89,7 +90,8 @@ impl Renderer {
         .await
     }
 
-    /// As [`Self::new`] with no shadows and the legacy profile, on a device made before the window.
+    /// As [`Self::new`] with no shadows and the clamped HDR test profile, on a device made before
+    /// the window.
     #[cfg(all(test, target_os = "linux"))]
     pub async fn new_shared(
         display: OwnedDisplayHandle,
@@ -101,7 +103,7 @@ impl Renderer {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows: None,
-                profile: crate::FrameProfile::Legacy,
+                profile: crate::tests::CLAMP,
                 startup: 2.into(),
             })
         })
@@ -240,8 +242,8 @@ impl Renderer {
     }
 
     /// Draws `view` with no host. Admission and completion progress never wait for GPU work on the
-    /// event thread.
-    #[cfg(test)]
+    /// event thread. Only the Linux window tests (`mod tests`) draw without a host.
+    #[cfg(all(test, target_os = "linux"))]
     pub fn render(&mut self, view: &SceneView) -> Result<bool, ViewerError> {
         let Some(ready) = self.acquire_render_frame()? else {
             return Ok(false);
@@ -398,9 +400,7 @@ impl Renderer {
         self.resident.select_frame_slot(slot);
         self.presentation.scheduler.select_frame_slot(slot);
         self.frame_time = self.clock.time();
-        self.presentation
-            .scheduler
-            .set_frame_time_duration(self.frame_time)?;
+        self.presentation.scheduler.set_frame_time(self.frame_time);
         Ok(())
     }
 }
@@ -551,13 +551,14 @@ impl Resident {
     ) -> Result<Self, ViewerError> {
         let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            let mut shadowed = ShadowedScene::with_prepared_target_reusing(
+            let mut shadowed = ShadowedScene::new(
                 context,
                 prepared,
                 settings,
-                profile.target().0,
-                profile.target().1,
-                previous,
+                ShadowedTarget {
+                    previous,
+                    ..ShadowedTarget::new(profile.target().0, profile.target().1)
+                },
             )?;
             shadowed.set_scene_depth_fitting(
                 context,
@@ -577,10 +578,10 @@ impl Resident {
             let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
                 ScenePipelines::with_ssao
             } else {
-                ScenePipelines::with_samples
+                ScenePipelines::new
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload_prepared_reusing(
+            let gpu = SceneGpu::upload(
                 context.device(),
                 context.submission(),
                 prepared,

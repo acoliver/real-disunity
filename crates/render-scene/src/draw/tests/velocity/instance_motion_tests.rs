@@ -4,6 +4,7 @@
 //! instance transform between frames. The camera is fixed, so the previous unjittered
 //! view-projection is the current one and only the instance motion contributes.
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::SceneTransform;
 
 fn at(millimetres: i16) -> SceneTransform {
@@ -49,7 +50,7 @@ impl Moving {
             (
                 still(),
                 effects(),
-                ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
+                ScenePipelines::new(device, HDR, samples.count()).unwrap(),
             )
         } else if previous == Previous::Occluded {
             let (scene, effects) = super::screen_space::with_occlusion(&still());
@@ -62,7 +63,7 @@ impl Moving {
                 ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap();
             (scene, effects, pipelines)
         };
-        let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
         let renderer = FrameRenderer::hdr_antialiased(
             &context,
             [TARGET, TARGET],
@@ -106,8 +107,9 @@ impl Moving {
         }
         self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer
-            .set_frame_time(f32::from(self.frame) * 0.03125)
-            .unwrap();
+            .set_frame_time(std::time::Duration::from_secs_f32(
+                f32::from(self.frame) * 0.03125,
+            ));
         let mut encoder = self.context.submission().begin(device).unwrap();
         self.renderer
             .encoding()

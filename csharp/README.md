@@ -136,7 +136,13 @@ After an intentional ABI change:
    words by property name and the visible instance indexes, carried in the graphics snapshot from
    wire version 20. Revision 30 makes the stored-texture `dimension` 2 the only spelling of a 2D
    texture: `disunity_texture_store` refuses a record whose `dimension` is 0, and the host reads
-   only 2, 3, 4 and 5. Native and managed hosts reject
+   only 2, 3, 4 and 5. Revision 31 removes `disunity_offscreen_take`, `disunity_offscreen_detail`
+   and `disunity_compute_bindings_read`, the test-only reading calls that ran beside the graphics
+   snapshot, and the fields of `DisunityOffscreenWork` that only they wrote (`shader`, `kernel`,
+   `groups_x`, `groups_y`, `groups_z`, `bindings`; 104 to 72 bytes). A host reads the frame's work,
+   the material copies its records name, the global state they replay from and the values each
+   dispatch ran with in `disunity_graphics_snapshot`, whose wire version 21 puts the work list
+   first in the body so a reader that needs only the work stops after it. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

@@ -45,14 +45,6 @@ pub enum PassSlot {
     SsaoBlurHorizontal,
     SsaoBlur,
     Celestial,
-    /// The deferred G-buffer: four material targets that opaque producers write before
-    /// Opaque. Present only when the scene selects the G-buffer opaque path.
-    OpaqueGbuffer,
-    /// Deferred lighting of the G-buffer: one full-screen pass after the G-buffer and before
-    /// Opaque, reading the scene depth the depth prepass completed. Present only when the scene
-    /// selects a G-buffer opaque path; when it renders from the G-buffer, this pass writes the
-    /// scene colour and Opaque draws only the surfaces without a G-buffer producer.
-    OpaqueLighting,
     Opaque,
     /// Visible object IDs, tested against completed opaque depth without writing it.
     ContourIds,

@@ -28,10 +28,9 @@ fn settings(water: bool, game: GamePasses) -> RendererConfiguration {
         .unwrap()
         .extent(OUTPUT_EXTENT)
         .unwrap();
-    let mut settings = RendererConfiguration::legacy(OUTPUT_EXTENT, OUTPUT);
+    let mut settings = RendererConfiguration::new(OUTPUT_EXTENT, OUTPUT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(OUTPUT_EXTENT, wgpu::TextureFormat::Rgba16Float, 1)
         .with_render_extent(render);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve: PostResolve::taa(0.9),
         upscale: Some(UpscaleSettings {

@@ -328,7 +328,7 @@ fn screen_capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> [f32;
         .submission()
         .begin(rig.context.device())
         .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
+    rig.renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     at(&rig.read_half(rig.renderer.targets().texture()), OUTSIDE)
 }

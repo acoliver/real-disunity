@@ -4,6 +4,7 @@
 //! edit, so the frame after an edit must gather them again for the residual to settle to zero.
 use super::super::compaction::{cards, pose_at, unlit};
 use super::*;
+use crate::test_support::upload_scene;
 
 struct Rig {
     context: GpuContext,
@@ -37,11 +38,10 @@ impl Rig {
         let context = context();
         let (scene, effects) = with_taa(source);
         let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
         let (renderer, color, depth) = taa_target(&context, &effects, MsaaSamples::X1);
         Self {
-            colour_only: ScenePipelines::new(context.device(), HDR),
+            colour_only: ScenePipelines::new(context.device(), HDR, 1).unwrap(),
             context,
             gpu,
             pipelines,

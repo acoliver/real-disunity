@@ -422,8 +422,7 @@ fn terrain_quad_footprint(fragment: vec4<f32>, axis: vec2<f32>, normal: vec3<f32
     return clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4));
 }
 
-// A terrain fragment's material after projected decals: the values the forward path lights and
-// the G-buffer stores, evaluated once by either.
+// A terrain fragment's material after projected decals: the values the forward path lights.
 struct TerrainMaterial {
     // The unit normal of the triangle plane the fragment rasterises on, which the forward
     // receiver derivatives follow. The pixel's smooth heightfield normal differs from it.

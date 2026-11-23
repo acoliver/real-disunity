@@ -99,7 +99,7 @@ fn submit(run: &mut WindowlessRetained<'_>, annotation: Annotation) {
 }
 fn profiles() -> [crate::FrameProfile; 4] {
     [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,

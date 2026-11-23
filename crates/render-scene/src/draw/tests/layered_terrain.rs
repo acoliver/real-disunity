@@ -8,6 +8,7 @@ mod shared_source_arrays;
 use super::*;
 use crate::draw::PreparedScene;
 use crate::terrain::pages::{layered::LayeredReference, scene::TerrainPageSource};
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::{configuration::AllocationBudget, submission::SubmissionAuthority};
 use worldrunner_render_plan::{
     SceneNormalEncoding, TerrainLayer, TerrainLayeredSource, TerrainPageSettings,
@@ -152,13 +153,7 @@ fn render_with_source(
         source,
         None,
     );
-    let mut gpu = SceneGpu::upload_prepared(
-        device,
-        &authority,
-        PreparedScene::new(scene).unwrap(),
-        &pipelines,
-    )
-    .unwrap();
+    let mut gpu = upload_scene(device, &authority, scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), *frame);
     if cached {
         gpu.enable_terrain_pages(device, &authority, page_source())
@@ -283,7 +278,7 @@ fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
     let context = context();
     let source = layered_scene(TerrainSplatFilter::Bilinear);
     let config = page_source();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority = SubmissionAuthority::new(context.queue().clone());
     for budget in [config.budget.0, config.settings.page_bytes()] {
         let policy =
@@ -298,7 +293,9 @@ fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
         let scene = source
             .with_terrain(Some(std::sync::Arc::new(terrain)))
             .unwrap();
-        let uploaded = SceneGpu::upload(context.device(), &authority, &scene, &pipelines);
+        let uploaded = PreparedScene::new(&scene).and_then(|prepared| {
+            SceneGpu::upload(context.device(), &authority, prepared, &pipelines, None)
+        });
         if budget != config.budget.0 {
             assert!(matches!(uploaded, Err(DrawError::TerrainPages(_))));
             continue;

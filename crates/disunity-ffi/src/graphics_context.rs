@@ -1,13 +1,8 @@
 //! The work a scriptable render context records into the frame's offscreen list: camera setup and
 //! culling results. Each call validates its arguments and forwards one record; the world checks the rest
 //! and keeps the order.
-//!
-//! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives these records a
-//! kind from [`KIND_CULL`] up and a token that `disunity_offscreen_detail` reads the record's
-//! encoded bytes by (see [`crate::graphics_commands`]).
 use crate::{
-    DisunityResult, callbacks::mutate, graphics_batch::KIND_DRAW_MESH_BATCH,
-    graphics_commands::DisunityTargetRef, graphics_readback::readback_kind, physics::component,
+    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef, physics::component,
 };
 use worldrunner_world_simulation::{
     WorldError,
@@ -16,17 +11,6 @@ use worldrunner_world_simulation::{
         RenderTextureId,
     },
 };
-
-pub const KIND_CULL: u32 = 10;
-pub const KIND_SETUP_CAMERA: u32 = 11;
-pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
-pub const KIND_DRAW_MESH: u32 = 16;
-pub const KIND_DRAW_PROCEDURAL: u32 = 17;
-pub const KIND_SET_VIEWPORT: u32 = 18;
-pub const KIND_GENERATE_MIPS: u32 = 19;
-pub const KIND_ENABLE_SCISSOR: u32 = 20;
-pub const KIND_DISABLE_SCISSOR: u32 = 21;
-pub const KIND_SET_DEPTH_BIAS: u32 = 22;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -345,22 +329,4 @@ pub extern "C" fn disunity_offscreen_generate_mips(world: u64, texture: u64) -> 
         })?;
         Ok(())
     })
-}
-
-/// The kind a taken context record has, or `None` for other work.
-pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
-    match work {
-        OffscreenWork::Cull { .. } => Some(KIND_CULL),
-        OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
-        OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
-        OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
-        OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
-        OffscreenWork::DrawMeshBatch { .. } => Some(KIND_DRAW_MESH_BATCH),
-        OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
-        OffscreenWork::GenerateMips { .. } => Some(KIND_GENERATE_MIPS),
-        OffscreenWork::EnableScissor { .. } => Some(KIND_ENABLE_SCISSOR),
-        OffscreenWork::DisableScissor => Some(KIND_DISABLE_SCISSOR),
-        OffscreenWork::SetDepthBias { .. } => Some(KIND_SET_DEPTH_BIAS),
-        other => readback_kind(other),
-    }
 }

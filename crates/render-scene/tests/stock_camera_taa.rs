@@ -1,14 +1,14 @@
-//! Public compatibility regression for camera-only TAA on a stock G-buffer depth prefix.
+//! Public regression for camera-only TAA on the stock depth prefix.
 #[path = "stock_composition/fixture.rs"]
 mod fixture;
 
 use fixture::{SIZE, view};
 use std::time::Duration;
-use worldrunner_render_plan::{RenderScene, SceneEffects};
+use worldrunner_render_plan::{RenderScene, SceneAntiAlias, SceneEffects};
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FramePlan, PassEntry, PassSlot, ResourceRef, ToneMap,
-    color_texture,
+    AttachmentView, BorrowedFeature, FramePlan, ResourceRef, ToneMap, color_texture,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FrameRenderer, prepare_stock_scene},
@@ -46,8 +46,14 @@ impl CameraTaaFrame {
         let pipelines =
             ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
                 .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(&source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let output = color_texture(
             context.device(),
             "camera-only TAA output",
@@ -135,7 +141,6 @@ impl CameraTaaFrame {
             .stock_depth_prefix(device, (&mut self.gpu, &self.pipelines))
             .unwrap();
         assert_no_scene_velocity(&prefix.plan());
-        assert_fused_gbuffer_prepass(&prefix.plan());
         prefix
             .encode(
                 &mut self.renderer,
@@ -179,7 +184,7 @@ impl CameraTaaFrame {
         let (declaration, frame) = (stock.declaration(), stock.frame());
         let offscreen = stock.take_offscreen_operations();
         self.renderer
-            .encode_frame_with(
+            .encode_frame(
                 device,
                 encoder,
                 (&passes, &views),
@@ -194,20 +199,16 @@ impl CameraTaaFrame {
     }
 }
 
-fn assert_fused_gbuffer_prepass(plan: &FramePlan<'_>) {
-    let prepass = plan
-        .passes
-        .iter()
-        .find(|pass| pass.entry() == PassEntry::new(PassSlot::DepthNormalPrepass))
-        .expect("stock prefix declares its depth and normal prepass");
-    assert!(
-        prepass.color.is_some() && !prepass.additional_colors.is_empty(),
-        "the fused G-buffer prepass declares its colour outputs"
-    );
-}
-
+/// The quad scene under temporal anti-aliasing.
 fn camera_taa_scene() -> RenderScene {
-    fixture::gbuffer_taa_scene()
+    let effects = fixture::effects_with(SceneAntiAlias::Taa {
+        history_micro: 900_000,
+        clip_scale_micro: 1_000_000,
+    });
+    let source = fixture::scene();
+    source
+        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects))
+        .unwrap()
 }
 
 fn assert_no_scene_velocity(plan: &FramePlan<'_>) {
@@ -254,7 +255,7 @@ fn public_stock_depth_prefix_plain_pipelines_keep_camera_only_taa() {
     let draws = frame.gpu.statistics().passes;
     assert!(draws.prepass_objects.meshes.calls > 0, "{draws:?}");
     assert_eq!(draws.prepass_objects.meshes.instances, 1, "{draws:?}");
-    assert_eq!(draws.opaque_objects.meshes.calls, 0, "{draws:?}");
+    assert!(draws.opaque_objects.meshes.calls > 0, "{draws:?}");
     frame
         .context
         .device()
@@ -295,7 +296,7 @@ fn public_stock_depth_prefix_drops_completed_velocity_for_plain_pipelines() {
     let draws = frame.gpu.statistics().passes;
     assert!(draws.prepass_objects.meshes.calls > 0, "{draws:?}");
     assert_eq!(draws.prepass_objects.meshes.instances, 1, "{draws:?}");
-    assert_eq!(draws.opaque_objects.meshes.calls, 0, "{draws:?}");
+    assert!(draws.opaque_objects.meshes.calls > 0, "{draws:?}");
     device
         .poll(wgpu::PollType::Wait {
             submission_index: None,

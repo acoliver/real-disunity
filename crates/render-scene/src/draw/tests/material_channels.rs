@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, SceneMaterialChannels,
     SceneValidationError, TexelFormat, TextureChannel,
@@ -258,7 +259,7 @@ fn auxiliary_scene(packed: bool, custom: bool) -> RenderScene {
 fn auxiliary_and_packed_impostor_selectors_sample_authored_lanes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let probe = format!(
         "{}\n@fragment fn fs_channels(input: VertexOutput) -> @location(0) vec4<f32> {{ let s = scene_surface_channels(input); let a = scene_auxiliary_samples(input); return vec4<f32>(s, a); }}",
         crate::shader::ENVIRONMENT_WGSL
@@ -267,8 +268,8 @@ fn auxiliary_and_packed_impostor_selectors_sample_authored_lanes() {
         let mut results = Vec::new();
         for custom in [false, true] {
             let source = auxiliary_scene(packed, custom);
-            let gpu = SceneGpu::upload(context.device(), context.submission(), &source, &layouts)
-                .unwrap();
+            let gpu =
+                upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
             let camera = if packed {
                 CameraPose {
                     eye_millimeters: [0, -4000, 2000],

@@ -263,37 +263,32 @@ mod tests {
     }
 
     #[test]
-    fn contour_pass_follows_completed_opaque_depth_on_both_paths() {
-        for gbuffer in [false, true] {
-            let depth = AttachmentDeclaration {
-                resource: ResourceRef::new("scene depth"),
-                format: wgpu::TextureFormat::Depth32Float,
-                size: [32, 24],
-                samples: 4,
-                load: AttachmentLoad::ClearDepth(1.0),
-                store: wgpu::StoreOp::Store,
-                read_only: false,
-            };
-            let mut passes = vec![PassDeclaration::new(PassSlot::Opaque), pass(&depth)];
-            if gbuffer {
-                passes.push(PassDeclaration::new(PassSlot::OpaqueGbuffer));
-            }
-            passes.sort_by_key(|pass| pass.slot);
-            let contour = passes
-                .iter()
-                .position(|pass| pass.slot == PassSlot::ContourIds)
-                .unwrap();
-            assert_eq!(passes[contour - 1].slot, PassSlot::Opaque);
-            let read = passes[contour].depth.as_ref().unwrap();
-            assert!(read.read_only);
-            assert_eq!(read.load, AttachmentLoad::Load);
-            assert_eq!(read.store, wgpu::StoreOp::Store);
-            assert_eq!(read.resource, depth.resource);
-            assert_eq!(
-                passes[contour].color.as_ref().unwrap().samples,
-                depth.samples
-            );
-        }
+    fn contour_pass_follows_completed_opaque_depth() {
+        let depth = AttachmentDeclaration {
+            resource: ResourceRef::new("scene depth"),
+            format: wgpu::TextureFormat::Depth32Float,
+            size: [32, 24],
+            samples: 4,
+            load: AttachmentLoad::ClearDepth(1.0),
+            store: wgpu::StoreOp::Store,
+            read_only: false,
+        };
+        let mut passes = [PassDeclaration::new(PassSlot::Opaque), pass(&depth)];
+        passes.sort_by_key(|pass| pass.slot);
+        let contour = passes
+            .iter()
+            .position(|pass| pass.slot == PassSlot::ContourIds)
+            .unwrap();
+        assert_eq!(passes[contour - 1].slot, PassSlot::Opaque);
+        let read = passes[contour].depth.as_ref().unwrap();
+        assert!(read.read_only);
+        assert_eq!(read.load, AttachmentLoad::Load);
+        assert_eq!(read.store, wgpu::StoreOp::Store);
+        assert_eq!(read.resource, depth.resource);
+        assert_eq!(
+            passes[contour].color.as_ref().unwrap().samples,
+            depth.samples
+        );
     }
 
     #[test]

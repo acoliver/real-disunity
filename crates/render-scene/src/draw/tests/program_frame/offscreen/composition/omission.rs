@@ -1,7 +1,7 @@
 //! Omitting the caller's offscreen forwarding leaves the stock draw with an unwritten texture.
 
 use super::super::super::rig::{Fixture, RED};
-use super::super::{COLOR_FORMAT, ScenePipelines, admit_scene_draw, build, player, settings};
+use super::super::{SCENE_FORMAT, ScenePipelines, admit_scene_draw, build, player, settings};
 use super::attachments;
 use crate::compositor::prepare_stock_scene;
 use worldrunner_render_post::BorrowedFeature;
@@ -42,7 +42,7 @@ fn encode_without_forwarding(
     fixture
         .renderer
         .renderer_mut()
-        .encode_frame_with(
+        .encode_frame(
             device,
             encoder,
             (&passes, &views),
@@ -60,7 +60,7 @@ fn encode_without_forwarding(
 fn characterize_omission(omission: Omission) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     });
     let mut player = player(&mut fixture);
     let authority = fixture.context.submission().clone();

@@ -67,7 +67,7 @@ pub const LIGHT_WGSL: &str = "
     return vec4<f32>(a.r, b.g, c.b, select(0.0, 1.0, d == 7u));
 }";
 
-/// The four formats of the engine's G-buffer, in attachment order.
+/// The four formats of a game's G-buffer, in attachment order.
 pub const FORMATS: [TextureFormat; 4] = [
     TextureFormat::Rgb10a2Unorm,
     TextureFormat::Rgba8UnormSrgb,

@@ -297,15 +297,6 @@ impl World {
         &self.graphics.offscreen
     }
 
-    /// How many records [`World::take_offscreen`] returns now: the work so far and, when there is
-    /// any, a record for each global written after its last record.
-    pub fn pending_offscreen_count(&self) -> usize {
-        match self.graphics.offscreen.len() {
-            0 => 0,
-            held => held + self.ordered_global_records().len(),
-        }
-    }
-
     /// Drains the frame's offscreen work, in call order, with the materials its records name. A
     /// frame that starts with work nobody took drops it, so a host that never draws offscreen does
     /// not accumulate records.

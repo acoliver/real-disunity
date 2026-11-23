@@ -140,7 +140,7 @@ fn capture_pool_maximum_extent_does_not_enforce_request_byte_limit() {
     ] {
         let options = crate::ViewerOptions {
             size: [32, 32],
-            frame_profile: crate::FrameProfile::Legacy,
+            frame_profile: crate::tests::CLAMP,
             capture_pool,
             ..crate::tests::options()
         };
@@ -329,7 +329,7 @@ fn recipe_raster_override_preserves_declared_surface_pool() {
         &context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),

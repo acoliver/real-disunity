@@ -29,7 +29,7 @@ pub struct GameComputeSpec {
     pub reads: Vec<ResourceRef>,
     /// Single (layer, mip) subresources of declared targets the pass samples.
     pub mip_reads: Vec<ResourceRef>,
-    /// Stock products of the frame the pass samples, such as the G-buffer or the post-water depth;
+    /// Stock products of the frame the pass samples, such as the post-water depth;
     /// frame validation refuses the frame when no earlier pass produces them.
     pub frame_reads: Vec<ResourceRef>,
     /// The frame's opaque snapshots the pass samples, which its factory must have declared.

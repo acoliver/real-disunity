@@ -11,16 +11,6 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
-        ///  Points a material at another live shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
-        /// <summary>
-        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
-        /// <summary>
         ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
         ///
         ///  # Safety
@@ -170,17 +160,6 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_release_temporary", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_release_temporary(ulong world, int name_id);
         /// <summary>
-        ///  Reads the encoded bytes of a command record by the token its take gave it (see
-        ///  `worldrunner_world_simulation::graphics::snapshot_wire::decode_work`). Writes the length to
-        ///  `length`; with a zero `capacity` that is all it does, and a smaller `capacity` is rejected.
-        ///
-        ///  # Safety
-        ///  `buffer` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
-        ///  writable for one value.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_detail", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_detail(ulong world, uint token, byte* buffer, uint capacity, uint* length);
-        /// <summary>
         ///  Records a culling of the world's renderers for `camera` under the handle `id`, which later
         ///  records of the frame name the result by. The host culls by the layers in `culling_mask`, the
         ///  `plane_count` planes at `planes` (4 floats each: a unit normal and a distance) and the
@@ -286,23 +265,6 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_record", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_record(ulong world, DisunityOffscreenWork* work);
-        /// <summary>
-        ///  Drains the frame's offscreen work into `records` (up to `capacity` of them, in call order)
-        ///  and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
-        ///  the count; a capacity below the count is rejected and drains nothing. The count includes the
-        ///  records for the globals written after the last record, which the take orders after it.
-        ///
-        ///  A draw record names its material by the material's id, or, when the script edited the material
-        ///  after the draw, by the id of a copy of the state the draw saw (generation 0, which no material
-        ///  has). The record cannot carry the copy: a host reads the copies, with the rest of the frame,
-        ///  in the graphics snapshot, and this call is the record reader that the ABI tests use.
-        ///
-        ///  # Safety
-        ///  `records` is writable for `capacity` records, or null when `capacity` is zero; `count` is
-        ///  writable for one value.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_offscreen_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_offscreen_take(ulong world, DisunityOffscreenWork* records, uint capacity, uint* count);
         /// <summary>
         ///  Writes the scope target of the property block of one material slot of a mesh renderer to
         ///  `target`, for the shader property calls with scope 4. The block holds the values the draws of

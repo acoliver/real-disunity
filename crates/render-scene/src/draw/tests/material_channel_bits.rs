@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use std::fmt::Write;
 
 // Inject the sampler result so these assertions measure selection, independently of
@@ -83,11 +84,10 @@ fn probe(packed: bool, negative_zero: bool) -> String {
 
 fn assert_bits(negative_zero: bool) {
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for packed in [false, true] {
         let scene = auxiliary_scene(packed, false);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let camera = if packed {
             CameraPose {
                 eye_millimeters: [0, -4000, 2000],

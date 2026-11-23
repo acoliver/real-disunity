@@ -1,5 +1,6 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::SceneSsr;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -66,10 +67,9 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
     )
     .unwrap();
     let pipelines =
-        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
-            .unwrap();
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, samples).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -91,7 +91,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
             FrameUniform::new(&view, source.effects()).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),

@@ -5,7 +5,6 @@ mod arithmetic_reference;
 #[cfg(test)]
 pub(crate) use arithmetic_reference::positions as main_receiver_positions;
 mod cards;
-pub(crate) use cards::normal_inputs as prepared_normal_source;
 #[cfg(test)]
 pub(crate) use cards::reference as late_card_source;
 mod backing;
@@ -15,8 +14,6 @@ mod reject;
 mod reservation;
 pub(crate) use bindings::{SetTwo, ShadowInputs, object_layout, shadow_layout};
 pub use reservation::ReceiverGradientReservation;
-#[cfg(test)]
-mod front_tests;
 #[cfg(test)]
 pub(crate) mod poison;
 mod shader;
@@ -126,6 +123,7 @@ pub(crate) fn card_reject_source(source: &str, layout: ReceiverLayout) -> String
 }
 
 /// The text of WGSL function `name` in `source`, from `fn` to its closing brace.
+#[cfg(test)]
 pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
     shader::function(source, name)
 }
@@ -277,22 +275,7 @@ impl crate::compositor::FrameRenderer {
         gpu: &crate::draw::SceneGpu,
         bias: f32,
     ) -> Result<(), worldrunner_render_post::FrameError> {
-        self.validate_opaque_normal_bias(bias)?;
         let paired = self.targets().config().samples == 1 && gpu.has_shadow_receivers();
-        if paired
-            && self
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders)
-            && !self.receiver_gradients.admits(ReceiverLayout::Front)
-        {
-            return Err(worldrunner_render_post::FrameError::UnsupportedEffect(
-                "receiver displacements exceed configured reservation",
-            ));
-        }
-        if self.prepare_reconstructed_front_receiver() {
-            return Ok(());
-        }
         if let Some(screen) = &mut self.ssao {
             if !paired {
                 screen.receiver = None;

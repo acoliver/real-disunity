@@ -2,16 +2,17 @@ use super::lod_material::scene;
 use super::*;
 use crate::draw::{PreparedMeshReplacement, ResourceBase};
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::MeshHandle;
 
 #[test]
 fn replacing_a_mesh_changes_the_casters_and_keeps_the_placements() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handles: Vec<_> = gpu.instance_handles().collect();
     let generation = gpu.caster_generation();
     let handle = MeshHandle::from_raw(0);
@@ -27,10 +28,10 @@ fn replacing_a_mesh_changes_the_casters_and_keeps_the_placements() {
 fn a_replacement_for_a_missing_mesh_is_refused_and_changes_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let base: ResourceBase = gpu.resource_base();
     let generation = gpu.caster_generation();
     let stale = {
@@ -83,9 +84,9 @@ fn a_still_view_selects_again_after_its_mesh_is_replaced() {
         two_lod_quad(5_000),
         1,
     );
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -99,13 +100,13 @@ fn a_still_view_selects_again_after_its_mesh_is_replaced() {
     frame.camera_position = glam::Vec3::new(0.0, 0.0, 5.001);
     frame.camera_position_millimeters = [0, 0, 5_001];
     gpu.set_frame(context.queue(), frame);
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     let replacement =
         PreparedMeshReplacement::new(&source, MeshHandle::from_raw(0), &two_lod_quad(10_000))
             .unwrap();
     gpu.replace_mesh_prepared(context.device(), replacement)
         .unwrap();
-    target.render(&context, &gpu, &pipelines).unwrap();
+    target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![1, 0]);
 }

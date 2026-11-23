@@ -8,7 +8,6 @@ mod compaction;
 mod culling;
 mod declared_terrain_routes;
 mod declared_water;
-mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -45,6 +44,9 @@ mod water_identity;
 mod water_pcf5;
 mod water_response;
 
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use glam::{Vec3, Vec4};
 use worldrunner_render_plan::*;
 use worldrunner_render_post::{PassEntry, PassSlot, ResourceRef};
@@ -59,6 +61,20 @@ fn context() -> GpuContext {
         .expect("shadow GPU acceptance requires a real adapter/device; never skip");
     println!("shadow GPU: {:?}", context.adapter().get_info());
     context
+}
+
+/// A shadowed scene drawing single-sample into the offscreen target's colour format.
+fn shadowed(
+    context: &GpuContext,
+    scene: &RenderScene,
+    settings: DirectionalShadowSettings,
+) -> Result<ShadowedScene, ShadowError> {
+    ShadowedScene::new(
+        context,
+        PreparedScene::new(scene)?,
+        settings,
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
 }
 
 #[test]
@@ -318,7 +334,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
@@ -402,12 +418,12 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
     })
     .unwrap();
     assert!(matches!(
-        ShadowedScene::new(&context, &water, settings()),
+        shadowed(&context, &water, settings()),
         Err(ShadowError::Draw(DrawError::Frame(
             FrameError::UnsupportedEffect("water requires HDR")
         )))
     ));
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     assert!(
         renderer
             .set_settings(
@@ -604,7 +620,7 @@ fn render_views(
 }
 
 mod refresh;
-mod render_path;
+mod shadowed_capture;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {
@@ -636,7 +652,7 @@ fn shadow_depth_arrays_count_in_the_census_through_a_resolution_change() {
     let context = context();
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let texel_bytes = 4; // Depth32Float
     let layer_bytes = |resolution: u32| u64::from(resolution).pow(2) * texel_bytes;
     let first = census.snapshot().get(ResourceClass::ShadowMap);

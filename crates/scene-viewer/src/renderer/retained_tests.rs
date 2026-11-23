@@ -1,7 +1,6 @@
 mod capture_offscreen;
 mod generation_boundaries;
 pub(crate) mod offscreen;
-mod opaque_admission;
 mod resource_budget;
 mod resource_edits;
 mod shadow_direction;
@@ -29,8 +28,7 @@ fn retained_lighting_settings_change_the_next_frame_without_reupload() {
     .unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let mut host = crate::RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
-        let mut resident =
-            Resident::new(&context, &scene, shadows, crate::FrameProfile::Legacy).unwrap();
+        let mut resident = Resident::new(&context, &scene, shadows, crate::tests::CLAMP).unwrap();
         let mut target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -43,7 +41,7 @@ fn retained_lighting_settings_change_the_next_frame_without_reupload() {
         let handles: Vec<_> = resident.scene_mut().instance_handles().collect();
         host.apply(crate::RetainedUpdate::Settings(Box::new(effects.clone())))
             .unwrap();
-        let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
+        let mut streaming = super::readiness::Streaming::new(shadows, crate::tests::CLAMP);
         publish(&context, &mut streaming, &mut resident, &mut host);
         assert_eq!(
             resident.scene_mut().instance_handles().collect::<Vec<_>>(),
@@ -61,8 +59,8 @@ fn retained_host_ordered_edits_reach_the_next_frame() {
     for shadows in [None, Some(shadow_settings())] {
         let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
         let mut resident =
-            Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
-        let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
+            Resident::new(&context, &source(), shadows, crate::tests::CLAMP).unwrap();
+        let mut streaming = super::readiness::Streaming::new(shadows, crate::tests::CLAMP);
         let mut target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -177,7 +175,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
         worldrunner_render_scene::offscreen::capture_scene(&context, &source, &view).unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let options = crate::ViewerOptions {
-            frame_profile: crate::FrameProfile::Legacy,
+            frame_profile: crate::tests::CLAMP,
             frames_in_flight: 2,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
@@ -192,8 +190,7 @@ fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
             ..crate::tests::options()
         };
         crate::validate(&source, &options).unwrap();
-        let mut resident =
-            Resident::new(&context, &source, shadows, crate::FrameProfile::Legacy).unwrap();
+        let mut resident = Resident::new(&context, &source, shadows, crate::tests::CLAMP).unwrap();
         let mut target = OffscreenTarget::new(context.device(), viewport).unwrap();
         assert_eq!(frame(&mut resident, &context, &mut target), expected);
         let handle = resident.scene_mut().instance_handles().next().unwrap();
@@ -278,20 +275,28 @@ pub(crate) fn source() -> RenderScene {
     .unwrap()
 }
 
+/// Draws the resident into a clamped HDR presentation, as the viewer does, and reads the output
+/// that presentation shows in `target`.
 fn frame(resident: &mut Resident, context: &GpuContext, target: &mut OffscreenTarget) -> RgbaImage {
     let options = crate::tests::options();
     let view = crate::OrbitCamera::new(options.pose, options.orbit)
         .unwrap()
         .view(options.camera, target.viewport())
         .unwrap();
-    let targets = crate::presentation::Targets::from_views(
-        target.color_view().clone(),
-        target.depth_view().clone(),
-    );
+    let mut presentation =
+        crate::presentation::fixtures::presentation(context, COLOR, target.viewport());
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
     resident
-        .render(context, &view, &targets, &mut encoder, scheduler.encoding())
+        .render(
+            context,
+            &view,
+            &presentation.targets,
+            &mut encoder,
+            presentation.scheduler.encoding(),
+        )
+        .unwrap();
+    presentation
+        .present(&mut encoder, target.color_view())
         .unwrap();
     target.encode_readback(&mut encoder).unwrap();
     let submission = encoder.finish().submit().unwrap();
@@ -316,7 +321,7 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let mut resident =
-            Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
+            Resident::new(&context, &source(), shadows, crate::tests::CLAMP).unwrap();
         let mut target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -387,7 +392,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
         &context,
         &source(),
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let mut presentation = crate::presentation::fixtures::presentation(&context, COLOR, size);
@@ -419,7 +424,7 @@ fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() 
     .unwrap();
     assert_eq!(
         image, expected,
-        "legacy presentation is byte-equivalent to direct capture"
+        "the clamped presentation is byte-equivalent to direct capture"
     );
     assert!(
         image
@@ -536,8 +541,8 @@ fn assert_replace_frame(
 ) {
     use crate::{ObjectId, RetainedHost, RetainedUpdate};
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
-    let mut resident = Resident::new(context, scene, shadows, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming = super::readiness::Streaming::new(shadows, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(context, scene, shadows, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::readiness::Streaming::new(shadows, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -560,13 +565,8 @@ fn assert_replace_frame(
     assert_replacement_writes(context, resident.scene_mut(), &handles, expected_scene);
     let updated = frame(&mut resident, context, &mut target);
     assert_ne!(updated, initial);
-    let mut expected = Resident::new(
-        context,
-        expected_scene,
-        shadows,
-        crate::FrameProfile::Legacy,
-    )
-    .unwrap();
+    let mut expected =
+        Resident::new(context, expected_scene, shadows, crate::tests::CLAMP).unwrap();
     assert_eq!(updated, frame(&mut expected, context, &mut target));
     if replacement.tint() != SceneTint::WHITE {
         assert!(
@@ -652,8 +652,8 @@ fn streaming_retained_install_replace_remove_pixels_and_generations() {
     );
     let empty = base.with_terrain(None).unwrap();
     let mut host = RetainedHost::new(empty.clone(), crate::tests::options()).unwrap();
-    let mut resident = Resident::new(&context, &empty, None, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming = super::readiness::Streaming::new(None, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(&context, &empty, None, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::readiness::Streaming::new(None, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -696,11 +696,11 @@ fn retained_casts_shadow_replace_preserves_handle_and_receiving_membership() {
         &context,
         &scene,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let mut streaming =
-        super::readiness::Streaming::new(Some(shadow_settings()), crate::FrameProfile::Legacy);
+        super::readiness::Streaming::new(Some(shadow_settings()), crate::tests::CLAMP);
     let handle = resident.scene_mut().instance_handles().next().unwrap();
     let original = resident.scene_mut().instance(handle).unwrap().0;
     for casts in [false, true] {

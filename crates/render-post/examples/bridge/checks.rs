@@ -61,6 +61,7 @@ fn check_identity(
             ResourceLifetime::PersistentMutable,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     assert_eq!(key, owned);
@@ -69,7 +70,8 @@ fn check_identity(
             output,
             ResourceLifetime::ImportedReadOnly,
             Semantic::LinearColor,
-            Some(0)
+            Some(0),
+            &[]
         ),
         Err(ContractError::Identity(_))
     ));
@@ -80,6 +82,7 @@ fn check_identity(
             ResourceLifetime::ImportedReadOnly,
             Semantic::LinearColor,
             Some(0),
+            &[],
         )
         .unwrap();
     let target = registry

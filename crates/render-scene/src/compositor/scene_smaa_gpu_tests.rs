@@ -66,7 +66,14 @@ impl<'a> Rig<'a> {
                     },
                     prepared.view_projection,
                 );
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 Ok::<_, FrameError>(())
             })
@@ -159,7 +166,7 @@ fn scene_fxaa_and_taa_match_the_existing_descriptor_path_bytes() {
             SceneAntiAlias::Fxaa {
                 subpixel_micro: 750_000,
             },
-            PostResolve::fxaa(0.75),
+            PostResolve::fxaa(0.75, worldrunner_render_post::FxaaQuality::default()),
         ),
         (SceneAntiAlias::taa(900_000), PostResolve::taa(0.9)),
     ] {

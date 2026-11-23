@@ -29,6 +29,7 @@ fn gpu_depth_gather_runs_in_mesh_and_terrain_forward_draws() {
 
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneSsao, TexelFormat};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -92,7 +93,7 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let original = *source.effects().unwrap().ssao().unwrap();
     let before = gpu.frame.get();
     for changed in crate::ssao::tests::differing_settings(original) {
@@ -224,8 +225,7 @@ pub(super) fn capture_metadata(
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
             .unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -247,7 +247,7 @@ pub(super) fn capture_metadata(
             FrameUniform::new(&view, source.effects()).unwrap(),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     assert_observations(&gpu, source);
     let read = |texture: &wgpu::Texture| read_texture(context, size, texture);

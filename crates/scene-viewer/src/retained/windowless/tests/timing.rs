@@ -138,7 +138,7 @@ fn depth_fitted(effects: SceneEffects) -> SceneEffects {
 #[test]
 fn requesting_timing_preserves_rendered_bytes() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,
@@ -196,7 +196,7 @@ fn requested_timing_reports_capability_or_completed_frame_without_more_rendering
         frame
             .passes
             .iter()
-            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("post copy output", 0)))
+            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("tone", 0)))
     );
     assert_resize_retains_sample_and_labels(&mut run);
     run.shutdown().unwrap();

@@ -1,6 +1,6 @@
 //! Persistent targets: kept across frames, left alone by cancelled frames, kept across renderer
 //! replacement, and steady frames that build nothing.
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene};
 use super::layers::{self, ARRAY, HISTORY, HISTORY_PRODUCER, LAYERS, LayersGame, READER, Shared};
 use super::prepared;
 use std::sync::Arc;
@@ -152,7 +152,7 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
 
     // A frame-sized persistent target is recreated by a resize, which discards its contents;
     // the fixed-size array keeps its texture and its layers.
-    settings.frame = FrameConfig::new([32, 24], FORMAT, 1);
+    settings.frame = FrameConfig::new([32, 24], SCENE_FORMAT, 1);
     rig.renderer.reconfigure(&rig.context, settings).unwrap();
     assert_eq!(
         rig.renderer.game_targets().created(),

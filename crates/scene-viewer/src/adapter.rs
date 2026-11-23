@@ -71,19 +71,10 @@ pub(crate) fn resolve_startup(
     identity: &AdapterIdentity,
     scene: &worldrunner_render_plan::RenderScene,
     options: &mut crate::ViewerOptions,
-    retained: Option<(
-        &mut u64,
-        &mut crate::retained::Captures,
-        &crate::retained::readiness::Readiness,
-    )>,
+    retained: Option<(&mut u64, &mut crate::retained::Captures)>,
 ) -> Result<(), crate::ViewerError> {
     let changed = resolve(identity, scene, options)?;
-    if changed && let Some((pool, captures, readiness)) = retained {
-        for preparation in &readiness.queue {
-            if let crate::RetainedUpdate::Settings(effects) = &preparation.update {
-                crate::RetainedHost::validate_streamed_effects(effects, options)?;
-            }
-        }
+    if changed && let Some((pool, captures)) = retained {
         *pool = options.capture_pool.effective_bytes(
             options.frame_profile.target().1,
             crate::retained::ao_format_from_settings(

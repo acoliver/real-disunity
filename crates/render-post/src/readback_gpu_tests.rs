@@ -278,13 +278,11 @@ fn assert_padded(
         .unwrap();
     readback.encode(&mut encoder, source).unwrap();
     let submission = encoder.finish().submit().unwrap();
-    let padded = readback
-        .read_encoded_padded(device, Some(submission))
-        .unwrap();
     let pitch = readback.padded_bytes_per_row();
     assert!(pitch.is_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
+    assert!(pitch as usize >= 17 * pixel.len());
     assert_eq!(
-        unpad_rows(pitch, 17 * pixel.len(), 3, &padded).unwrap(),
+        readback.read_encoded(device, Some(submission)).unwrap(),
         bytes
     );
 }

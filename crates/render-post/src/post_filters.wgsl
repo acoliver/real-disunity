@@ -86,6 +86,7 @@ fn mapped(r: f32, e: f32) -> f32 {
     if b == 0x7f800000u { return 1.0; }
     let v = r * e;
     if CURVE == 1u { return aces_display(v); }
+    if CURVE == 3u { return min(v, 1.0); }
     return v / (1.0 + v);
 }
 @fragment fn tone(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {

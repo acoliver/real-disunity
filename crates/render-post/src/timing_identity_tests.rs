@@ -68,7 +68,7 @@ fn unread_post_ids_survive_resize_and_reconfiguration() {
                     &device,
                     HdrPostSettings {
                         adaptive: Some(adaptive()),
-                        resolve: crate::PostResolve::fxaa(1.0),
+                        resolve: crate::PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
                         ..settings
                     },
                 )

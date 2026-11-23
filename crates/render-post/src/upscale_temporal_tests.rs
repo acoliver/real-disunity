@@ -33,7 +33,10 @@ fn unsupported(message: &'static str) -> Result<(), PostError> {
 
 #[test]
 fn temporal_without_taa_is_rejected_at_reduced_and_equal_extents() {
-    for resolve in [PostResolve::None, PostResolve::fxaa(1.0)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
+    ] {
         for render in [REDUCED, OUTPUT] {
             assert_eq!(
                 temporal(resolve).validate_frame(config(render, 1)),
@@ -70,8 +73,9 @@ fn temporal_below_half_the_output_on_either_axis_is_rejected() {
 fn temporal_accepts_exactly_half_the_output_up_to_the_jitter_check() {
     let post = temporal(PostResolve::taa(0.9));
     let jitter = ProjectionJitter::for_extents([32, 24], OUTPUT).unwrap();
+    assert_eq!(post.validate_frame(config([32, 24], 1)), Ok(()));
     assert_eq!(
-        post.validate_frame_with_jitter(config([32, 24], 1), Some(jitter)),
+        post.validate_jitter(config([32, 24], 1), Some(jitter)),
         Ok(())
     );
 }
@@ -84,7 +88,7 @@ fn explicit_jitter_shorter_than_the_derived_sequence_is_rejected() {
     for length in [1, ProjectionJitter::DEFAULT_LENGTH, needed.length() - 1] {
         let short = ProjectionJitter::new(length).unwrap();
         assert_eq!(
-            post.validate_frame_with_jitter(config(REDUCED, 1), Some(short)),
+            post.validate_jitter(config(REDUCED, 1), Some(short)),
             unsupported(
                 "temporal upscaling requires a jitter sequence at least as long as the derived one"
             ),
@@ -94,16 +98,14 @@ fn explicit_jitter_shorter_than_the_derived_sequence_is_rejected() {
     for length in [needed.length(), needed.length() + 1] {
         let enough = ProjectionJitter::new(length).unwrap();
         assert_eq!(
-            post.validate_frame_with_jitter(config(REDUCED, 1), Some(enough)),
+            post.validate_jitter(config(REDUCED, 1), Some(enough)),
             Ok(()),
             "length {length}"
         );
     }
     // No explicit choice means the derived sequence, which is long enough by definition.
-    assert_eq!(
-        post.validate_frame_with_jitter(config(REDUCED, 1), None),
-        Ok(())
-    );
+    assert_eq!(post.validate_jitter(config(REDUCED, 1), None), Ok(()));
+    assert_eq!(post.validate_frame(config(REDUCED, 1)), Ok(()));
 }
 
 #[test]
@@ -154,25 +156,20 @@ fn reduced_temporal_derives_its_jitter_from_both_extents() {
     let derived = ProjectionJitter::for_extents(REDUCED, OUTPUT).unwrap();
     let reduced = temporal(PostResolve::taa(0.9));
     assert_eq!(
-        reduced.effective_jitter(config(REDUCED, 1), None),
+        reduced.effective_jitter(config(REDUCED, 1)),
         Ok(Some(derived))
     );
     assert!(derived.length() > ProjectionJitter::default().length());
 }
 
 #[test]
-fn an_explicit_jitter_and_the_other_modes_keep_the_resolve_default() {
-    let long = ProjectionJitter::new(64).unwrap();
+fn the_other_modes_keep_the_resolve_default() {
     let reduced = temporal(PostResolve::taa(0.9));
-    assert_eq!(
-        reduced.effective_jitter(config(REDUCED, 1), Some(long)),
-        Ok(Some(long))
-    );
     // Equal extents are the native TAA: the 8 phase default.
     assert_eq!(
-        reduced.effective_jitter(config(OUTPUT, 1), None),
+        reduced.effective_jitter(config(OUTPUT, 1)),
         Ok(Some(ProjectionJitter::default()))
     );
     let plain = HdrPostSettings::default();
-    assert_eq!(plain.effective_jitter(config(OUTPUT, 1), None), Ok(None));
+    assert_eq!(plain.effective_jitter(config(OUTPUT, 1)), Ok(None));
 }

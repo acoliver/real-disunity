@@ -20,6 +20,8 @@
 //! in one chunk set the vertex and index buffers once and differ in `first_index` and
 //! `base_vertex`.
 
+#[cfg(test)]
+mod test_hooks;
 use std::rc::Rc;
 
 use wgpu::{Buffer, RenderPipeline};
@@ -509,46 +511,6 @@ impl SceneGpu {
             self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
         sink.finish();
         self.end_objects(view, shadow, objects).selection
-    }
-
-    /// The group the object draws bind at set 0, for tests that record the objects into pass
-    /// commands of their own.
-    #[cfg(test)]
-    pub(crate) fn drawing_frame_group_for_test(&self) -> wgpu::BindGroup {
-        self.drawing_frame_group()
-    }
-
-    /// The keys, as indices into `PipelineKey::ALL` after `mask`, that the camera view's
-    /// selection draws now. It runs the walk a pass records and keeps each draw's pipeline.
-    #[cfg(test)]
-    pub(crate) fn pipeline_keys_drawn(&self, mask: usize) -> std::collections::BTreeSet<usize> {
-        let frame = self.drawing_uniform();
-        let selection = self.select_objects(None, &frame);
-        let mut sink = KeySink {
-            mask,
-            keys: std::collections::BTreeSet::new(),
-        };
-        self.record_selection(&mut sink, (None, &frame), &selection.ranges);
-        sink.keys
-    }
-
-    /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the
-    /// pipeline of key `i ^ mask`.
-    #[cfg(test)]
-    pub(crate) fn draw_objects_prepared_masked<P: PassCommands + ?Sized>(
-        &self,
-        pass: &mut P,
-        frame_group: &wgpu::BindGroup,
-        context: &Context,
-        mask: usize,
-    ) -> DrawnObjects {
-        let view = self.begin_objects(pass, frame_group, None);
-        let mut scratch = self.sink_scratch.borrow_mut();
-        let mut sink =
-            PreparedSink::new(pass, &self.objects, context, &mut scratch).with_mask(mask);
-        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        sink.finish();
-        self.end_objects(view, None, objects)
     }
 
     /// Prepares the pipelines of the pairs of pipeline key and material that the scene's batches

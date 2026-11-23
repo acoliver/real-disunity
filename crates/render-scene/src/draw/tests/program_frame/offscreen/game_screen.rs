@@ -16,7 +16,7 @@ const SCREEN: ResourceRef = ResourceRef::new("game-screen");
 
 fn fixture() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 

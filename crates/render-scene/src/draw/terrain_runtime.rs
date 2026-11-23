@@ -97,9 +97,9 @@ impl SceneGpu {
         self.terrain_surface_replaced.set(replaced);
     }
 
-    /// Whether the camera passes draw the terrain: the opaque colour pass, the G-buffer and
-    /// depth prepasses, the metadata prefixes and the capture terms. The shadow casters draw it
-    /// whatever a game draws.
+    /// Whether the camera passes draw the terrain: the opaque colour pass, the depth prepass,
+    /// the metadata prefixes and the capture terms. The shadow casters draw it whatever a game
+    /// draws.
     pub(crate) fn draws_terrain_in_camera_passes(&self) -> bool {
         !self.terrain_surface_replaced.get()
     }

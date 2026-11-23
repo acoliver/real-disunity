@@ -43,6 +43,7 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
         config,
         Resources::default(),
         CopyOutput::new(&device, config.format),
+        SceneDepth::Independent,
     )
     .unwrap();
     let counts = Rc::new(Cell::new([0; 3]));
@@ -103,6 +104,7 @@ fn checked_nonzero_subresources_are_valid_in_generic_executor() {
         config,
         Resources::default(),
         CopyOutput::new(&device, config.format),
+        SceneDepth::Independent,
     )
     .unwrap();
     let texture = device.create_texture(&wgpu::TextureDescriptor {

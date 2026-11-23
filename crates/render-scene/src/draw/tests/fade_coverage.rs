@@ -2,7 +2,7 @@
 fn hashed_distance_fade_keeps_stock_rendered_bytes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let base = threshold_scene(false, false, [0, 0]);
     let material = base.resources().materials()[0].with_fade_coverage(SceneFadeCoverage::Hashed);
     let scene = RenderScene::new(SceneParts {
@@ -13,7 +13,7 @@ fn hashed_distance_fade_keeps_stock_rendered_bytes() {
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let stock = crate::shader::ENVIRONMENT_WGSL.replace(
         "scene_fade_covered(input.clip_position.xy",
@@ -33,6 +33,7 @@ fn hashed_distance_fade_keeps_stock_rendered_bytes() {
 
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneFadeBand, SceneFadeCoverage, SceneFadeQuantization, SceneImpostor, SceneImpostorLayout,
     TexelFormat,
@@ -77,15 +78,14 @@ fn threshold_scene(impostor: bool, quantized: bool, jitter: [i32; 2]) -> RenderS
 fn threshold_coverage_matches_point_repeat_oracle_in_every_pass_and_impostors() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (impostor, quantized, jitter) in [
         (false, false, [0, 0]),
         (false, true, [1, -2]),
         (true, true, [-3, 4]),
     ] {
         let scene = threshold_scene(impostor, quantized, jitter);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         gpu.set_frame(
             context.queue(),
             frame_from(CameraPose {

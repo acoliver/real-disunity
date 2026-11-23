@@ -100,22 +100,12 @@ pub struct ScenePipelines {
 }
 
 impl ScenePipelines {
-    /// Builds shared layouts and terrain pipelines for one colour target format.
+    /// Builds shared layouts and terrain pipelines for one colour target format and sample
+    /// count, refused when the device cannot render that pair.
     ///
     /// Material variants are shared and compiled on demand. Relief variants
     /// must not add shader compilation cost to scenes that never use them.
-    #[must_use]
-    pub fn new(device: &Device, color_format: TextureFormat) -> Self {
-        Self::with_environment(
-            device,
-            (color_format, 1),
-            ENVIRONMENT_WGSL,
-            TERRAIN_WGSL,
-            None,
-        )
-    }
-
-    pub fn with_samples(
+    pub fn new(
         device: &Device,
         color_format: TextureFormat,
         samples: u32,
@@ -547,21 +537,8 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
     targets
 }
 
-#[cfg(test)]
-pub(crate) fn base_source_targets_for_test(
-    source: &str,
-    format: TextureFormat,
-) -> Vec<Option<ColorTargetState>> {
-    base_source_targets(source, format)
-}
-
 fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
-    if source.contains(crate::gbuffer_writes::MARKER) {
-        crate::gbuffer_writes::source_formats(source)
-            .into_iter()
-            .map(|format| color_targets(format)[0].clone())
-            .collect()
-    } else if source.contains(crate::velocity::MARKER) {
+    if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {
             vec![color_targets(format)[0].clone(); 3]

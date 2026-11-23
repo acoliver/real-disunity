@@ -90,7 +90,8 @@ pub(crate) fn layered_source(source: &str) -> String {
     );
     // The frame's material mip bias finer-selects the screen-space gradients. The page bake
     // defines the same function as 1.0 because its footprints are not screen footprints.
+    // A fragment composes every layer; only the bake's workgroups can share a candidate set.
     format!(
-        "{source}\nfn layered_gradient_scale() -> f32 {{ return exp2(frame.lighting_options.w); }}\n{shared}"
+        "{source}\nfn layered_gradient_scale() -> f32 {{ return exp2(frame.lighting_options.w); }}\nfn layered_next(index: u32) -> u32 {{ return index; }}\n{shared}"
     )
 }

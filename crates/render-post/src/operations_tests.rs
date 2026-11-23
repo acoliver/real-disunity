@@ -274,6 +274,7 @@ fn layered_textures(
             ResourceLifetime::ImportedReadOnly,
             Semantic::Unspecified,
             Some(0),
+            &[],
         )
         .unwrap();
     let b = registry
@@ -282,6 +283,7 @@ fn layered_textures(
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     (a, b)

@@ -8,7 +8,7 @@ impl FrameRenderer {
     /// Encodes a complete frame plan exactly as given: the entries in the order listed, the
     /// views, the requested effects and the operations groups at the positions they name. Nothing
     /// is added, removed or sorted, and none of the stock helpers (screen-space effects,
-    /// reflections, snapshots, the G-buffer, retained-feature planning, the forward order) runs;
+    /// reflections, snapshots, retained-feature planning, the forward order) runs;
     /// those belong to the stock builder, which the caller replaces by authoring the plan.
     /// [`Self::encode_frame`] is this entry fed the stock builder's plan.
     ///

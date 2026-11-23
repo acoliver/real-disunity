@@ -14,6 +14,7 @@ use super::{DrawError, SceneGpu};
 use crate::device::GpuContext;
 use crate::frame::FrameUniform;
 use crate::renderer::{DEPTH_FORMAT, ScenePipelines, depth_texture};
+use crate::test_support::upload_scene;
 use crate::view::{CameraPose, SceneView, Viewport};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoder, CommandEncoderDescriptor,
@@ -99,6 +100,10 @@ mod view_pins;
 
 /// The colour format every test renders into.
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
+
+/// The scene colour of every configured renderer, which its output stage shows in
+/// [`COLOR_FORMAT`].
+const SCENE_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 /// Edge length of the render target, chosen so a readback stays cheap.
 const TARGET: u32 = 64;
@@ -627,8 +632,8 @@ fn render_from(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> V
 fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform) -> Vec<u8> {
     let device = context.device();
     let queue = context.queue();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines)
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(device, context.submission(), scene, &pipelines)
         .expect("the fixture scene uploads");
     gpu.set_frame(queue, *frame);
 

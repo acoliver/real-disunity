@@ -1,5 +1,6 @@
 use super::*;
 use crate::dynamic::DynamicQuad;
+use crate::test_support::upload_scene;
 
 #[test]
 fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
@@ -7,9 +8,9 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(64, 64));
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),
@@ -29,7 +30,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &[quad])
         .unwrap();
     assert_eq!(
-        center(target.render(&context, &gpu, &pipelines).unwrap()),
+        center(target.render(&context, &mut gpu, &pipelines).unwrap()),
         [255, 0, 0, 255],
         "opaque scene occludes deeper dynamic geometry"
     );
@@ -44,7 +45,7 @@ fn gpu_dynamic_geometry_shares_perspective_scene_depth_and_lighting_frame() {
     )
     .unwrap();
     assert_eq!(
-        center(target.render(&context, &gpu, &pipelines).unwrap()),
+        center(target.render(&context, &mut gpu, &pipelines).unwrap()),
         [0, 255, 0, 255],
         "nearer dynamic geometry uses the same depth and perspective view"
     );

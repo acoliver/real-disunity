@@ -1,5 +1,8 @@
 //! Stock scheduling, temporal identity and immutable products across water, resize and slots.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
 #[path = "receiver_gradients.rs"]
 mod receiver_gradients;
@@ -57,15 +60,17 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
     if independent {
         renderer.independent_depth_for_test(device);
     }
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     stage_quad(context, &mut gpu, &pipelines);
     let mut shadowed = shadows.then(|| {
-        crate::shadows::ShadowedScene::with_taa_velocity(
+        crate::shadows::ShadowedScene::new(
             context,
-            &source,
+            PreparedScene::new(&source).unwrap(),
             shadow_settings(),
-            TextureFormat::Rgba16Float,
-            1,
+            ShadowedTarget {
+                velocity: true,
+                ..ShadowedTarget::new(TextureFormat::Rgba16Float, 1)
+            },
         )
         .unwrap()
     });
@@ -160,7 +165,7 @@ fn draw_frame_with_view(
     if index == 3 {
         renderer.resize(device, SIZE).unwrap();
     }
-    renderer.set_frame_time(time).unwrap();
+    renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
     renderer.select_frame_slot(index % 3);
     if let Some(shadowed) = &mut shadowed {
         shadowed.select_frame_slot(index % 3);
@@ -304,13 +309,15 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
     if independent {
         scheduler.independent_depth_for_test(device);
     }
-    scheduler.set_frame_time(0.125).unwrap();
-    let mut shadowed = crate::shadows::ShadowedScene::with_taa_velocity(
+    scheduler.set_frame_time(std::time::Duration::from_secs_f32(0.125));
+    let mut shadowed = crate::shadows::ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         shadow_settings(),
-        TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget {
+            velocity: true,
+            ..ShadowedTarget::new(TextureFormat::Rgba16Float, 1)
+        },
     )
     .unwrap();
     shadowed

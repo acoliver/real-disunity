@@ -79,7 +79,7 @@ fn text_and_rect_follow_the_same_hierarchy_order_as_pointer_hits_in_both_orders(
 #[test]
 fn translucent_rect_blends_straight_alpha_over_retained_geometry() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 4,
             tone_map: crate::ToneMap::Reinhard,

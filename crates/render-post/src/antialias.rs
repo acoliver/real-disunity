@@ -72,12 +72,7 @@ pub enum PostResolve {
     Taa(TaaSettings),
 }
 impl PostResolve {
-    /// FXAA with the default quality controls.
-    pub fn fxaa(strength: f32) -> Self {
-        Self::fxaa_with(strength, FxaaQuality::default())
-    }
-
-    pub fn fxaa_with(strength: f32, quality: FxaaQuality) -> Self {
+    pub fn fxaa(strength: f32, quality: FxaaQuality) -> Self {
         Self::Fxaa(FxaaSettings { strength, quality })
     }
 
@@ -108,15 +103,13 @@ impl PostResolve {
         }
     }
 
-    /// The projection jitter this resolve renders with, given the explicitly requested one.
-    ///
-    /// TAA needs jitter, so it supplies the default sequence when none was requested and
-    /// keeps an explicit choice. Every other resolve renders unjittered unless jitter was
-    /// requested. This is the one place that rule lives.
-    pub fn effective_jitter(self, explicit: Option<ProjectionJitter>) -> Option<ProjectionJitter> {
-        match (self, explicit) {
-            (Self::Taa(_), None) => Some(ProjectionJitter::default()),
-            _ => explicit,
+    /// The projection jitter this resolve renders with: TAA accumulates jittered frames and uses
+    /// the default sequence; every other resolve renders unjittered. This is the one place that
+    /// rule lives.
+    pub fn effective_jitter(self) -> Option<ProjectionJitter> {
+        match self {
+            Self::Taa(_) => Some(ProjectionJitter::default()),
+            _ => None,
         }
     }
 
@@ -200,16 +193,14 @@ impl PostResolve {
 /// `sharpen` is independent of the resolve: it runs after FXAA, SMAA or, with `PostResolve::None`,
 /// directly after tone mapping. `None` schedules no pass and leaves the output unchanged.
 ///
-/// `jitter` selects sub-pixel projection jitter for the scene passes. It is off by default, and
-/// then every output is byte-identical to a renderer without the field. Jitter alone shimmers:
-/// it exists for the temporal resolve that accumulates the jittered frames, and `PostResolve::Taa`
-/// turns it on by itself. Read the jitter a renderer uses through [`Self::effective_jitter`].
+/// Projection jitter is not a separate choice: it exists for the temporal resolve that
+/// accumulates the jittered frames, and `PostResolve::Taa` turns it on by itself
+/// ([`PostResolve::effective_jitter`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AntiAliasing {
     pub msaa: MsaaSamples,
     pub resolve: PostResolve,
     pub sharpen: Option<CasSettings>,
-    pub jitter: Option<ProjectionJitter>,
 }
 impl AntiAliasing {
     /// A choice without sharpening.
@@ -218,19 +209,6 @@ impl AntiAliasing {
             msaa,
             resolve,
             sharpen: None,
-            jitter: None,
-        }
-    }
-
-    /// This choice with sub-pixel projection jitter. See the type documentation: without a
-    /// temporal resolve the jittered image shimmers. A multisampled target is never jittered,
-    /// so the sequence has no effect there ([`ProjectionJitter::offset_pixels_for`] returns zero
-    /// for more than one sample), although [`Self::effective_jitter`] still returns it.
-    #[must_use]
-    pub const fn with_jitter(self, jitter: ProjectionJitter) -> Self {
-        Self {
-            jitter: Some(jitter),
-            ..self
         }
     }
 
@@ -241,11 +219,6 @@ impl AntiAliasing {
             sharpen: Some(sharpen),
             ..self
         }
-    }
-
-    /// The jitter the scene passes use: the explicit choice, or the default sequence under TAA.
-    pub fn effective_jitter(self) -> Option<ProjectionJitter> {
-        self.resolve.effective_jitter(self.jitter)
     }
 
     pub fn validate(self) -> Result<(), PostError> {

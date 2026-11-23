@@ -75,7 +75,8 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
     let mut rig = Rig::moving(
         &context,
         &pipelines,
@@ -140,7 +141,8 @@ fn ribbon_map(
     scene: &worldrunner_render_plan::RenderScene,
 ) -> Vec<u8> {
     let device = context.device();
-    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
     let mut rig = Rig::moving(context, &pipelines, scene, false);
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
@@ -186,7 +188,8 @@ fn recorded_casters(
 ) -> super::super::cost_tests::Counted {
     let context = context();
     let device = context.device();
-    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
     let mut rig = Rig::moving(&context, &pipelines, scene, false);
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
@@ -263,7 +266,8 @@ fn unmasked_casters_bind_only_what_materials_share_by_class() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines =
-        crate::renderer::ScenePipelines::new(context.device(), TextureFormat::Rgba16Float);
+        crate::renderer::ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1)
+            .unwrap();
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
     live.family()

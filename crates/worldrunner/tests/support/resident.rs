@@ -1,13 +1,14 @@
 use worldrunner::scene::{
-    gpu::{compositor, draw::SceneGpu, renderer::ScenePipelines, wgpu},
+    gpu::{compositor, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines, wgpu},
     post::{AttachmentView, FrameError, ResourceRef},
 };
 
 pub fn encode(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    scene: (&SceneGpu, &ScenePipelines),
+    scene: (&mut SceneGpu, &ScenePipelines),
     attachments: (&wgpu::TextureView, &wgpu::TextureView),
+    frame: &FrameUniform,
 ) -> Result<(), FrameError> {
     let color = AttachmentView::new(
         ResourceRef::new("consumer scene color"),
@@ -17,11 +18,7 @@ pub fn encode(
         ResourceRef::new("consumer scene depth"),
         attachments.1.texture(),
     )?;
-    compositor::encode_resident(
-        &mut compositor::FrameRenderer::new(device),
-        device,
-        encoder,
-        scene,
-        (&color, &depth),
-    )
+    compositor::FrameRenderer::new(device)
+        .encoding()
+        .encode_scene(device, encoder, scene, (&color, &depth), *frame)
 }

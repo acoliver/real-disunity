@@ -2,6 +2,7 @@
 use super::decals::{capture_with_renderer, source};
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::{FrameConfig, ProjectionJitter};
 
 fn renderer(context: &GpuContext) -> FrameRenderer {
@@ -18,9 +19,8 @@ fn jitter_explicitly_off_renders_the_bytes_of_a_renderer_without_the_setting() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mut absent = renderer(&context);
     let mut toggled = renderer(&context);
     toggled
@@ -40,9 +40,8 @@ fn jitter_on_moves_the_drawn_scene_and_publishes_history_when_the_frame_is_submi
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mut plain = renderer(&context);
     let unjittered = capture_with_renderer(&context, &mut plain, (&mut gpu, &pipelines), true);
     let mut jittered = renderer(&context);
@@ -90,8 +89,8 @@ fn the_scene_frame_group_carries_the_previous_frame_the_temporal_view_published(
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_with_history();
     gpu.set_frame(context.queue(), frame);
     assert_eq!(
@@ -105,8 +104,8 @@ fn a_frame_without_history_hands_shaders_its_own_matrix_camera_and_clock() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
-    let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let mut frame = frame_from(pose());
     frame.animation_time_milliseconds = 777;
     gpu.set_frame(context.queue(), frame);

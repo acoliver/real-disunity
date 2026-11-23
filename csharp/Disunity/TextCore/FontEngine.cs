@@ -33,11 +33,13 @@ public static unsafe partial class FontEngine
     private const float DefaultPointSize = 16;
 
     private static bool _hasFace;
-    private static ulong _face;
-    private static ulong _faceWorld;
+    private static FaceHandle _current;
 
     /// <summary>Whether a face is loaded in the loaded world.</summary>
-    private static bool HasFace => _hasFace && DisunityHost.IsLoaded && _faceWorld == DisunityHost.WorldHandle;
+    private static bool HasFace => _hasFace && _current.InLoadedWorld;
+
+    /// <summary>The current face, or null when none is loaded in the loaded world.</summary>
+    private static FaceHandle? Current => HasFace ? _current : null;
 
     public static FontEngineError InitializeFontEngine() => FontEngineError.Success;
 
@@ -45,7 +47,7 @@ public static unsafe partial class FontEngine
 
     public static FontEngineError UnloadFontFace()
     {
-        if (HasFace) NativeBindings.disunity_face_unload(_faceWorld, _face);
+        if (HasFace) _current.Unload();
         _hasFace = false;
         return FontEngineError.Success;
     }
@@ -82,12 +84,8 @@ public static unsafe partial class FontEngine
         if (sourceFontFile is null || sourceFontFile.Length == 0 || faceIndex < 0) return UnusableFile;
         if (!(pointSize > 0) || !float.IsFinite(pointSize)) return FontEngineError.Invalid_Pixel_Size;
         if (!DisunityHost.IsLoaded) return FontEngineError.Invalid_Library;
-        ulong face;
-        DisunityResult result;
-        fixed (byte* bytes = sourceFontFile)
-            result = NativeBindings.disunity_face_load(DisunityHost.WorldHandle, bytes, (uint)sourceFontFile.Length, (uint)faceIndex, pointSize, &face);
-        if (result.code != 0) return UnusableFile;
-        (_hasFace, _face, _faceWorld) = (true, face, DisunityHost.WorldHandle);
+        if (!FaceHandle.TryLoad(sourceFontFile, pointSize, faceIndex, out var face)) return UnusableFile;
+        (_hasFace, _current) = (true, face);
         return FontEngineError.Success;
     }
 
@@ -109,18 +107,16 @@ public static unsafe partial class FontEngine
 
     public static FontEngineError SetFaceSize(int pointSize)
     {
-        if (!HasFace) return NoFace;
-        return NativeBindings.disunity_face_set_size(_faceWorld, _face, pointSize).code == 0 ? FontEngineError.Success : FontEngineError.Invalid_Pixel_Size;
+        if (Current is not { } face) return NoFace;
+        return face.SetSize(pointSize) ? FontEngineError.Success : FontEngineError.Invalid_Pixel_Size;
     }
 
     public static FaceInfo GetFaceInfo()
     {
-        if (!HasFace) return default;
-        DisunityFaceInfo native;
-        if (NativeBindings.disunity_face_info(_faceWorld, _face, &native).code != 0) return default;
+        if (Current is not { } face || !face.TryInfo(out var native)) return default;
         return new FaceInfo
         {
-            faceIndex = (int)native.face_index, familyName = FaceName(0), styleName = FaceName(1), pointSize = native.point_size,
+            faceIndex = (int)native.face_index, familyName = face.Name(0), styleName = face.Name(1), pointSize = native.point_size,
             scale = native.scale, unitsPerEM = (int)native.units_per_em, lineHeight = native.line_height, ascentLine = native.ascent_line,
             capLine = native.cap_line, meanLine = native.mean_line, baseline = native.baseline, descentLine = native.descent_line,
             superscriptOffset = native.superscript_offset, superscriptSize = native.superscript_size,
@@ -128,16 +124,6 @@ public static unsafe partial class FontEngine
             underlineOffset = native.underline_offset, underlineThickness = native.underline_thickness,
             strikethroughOffset = native.strikethrough_offset, strikethroughThickness = native.strikethrough_thickness, tabWidth = native.tab_width,
         };
-    }
-
-    private static string FaceName(uint which)
-    {
-        uint length;
-        if (NativeBindings.disunity_face_name(_faceWorld, _face, which, null, 0, &length).code != 0 || length == 0) return string.Empty;
-        var bytes = new byte[length];
-        fixed (byte* pointer = bytes)
-            if (NativeBindings.disunity_face_name(_faceWorld, _face, which, pointer, length, &length).code != 0) return string.Empty;
-        return System.Text.Encoding.UTF8.GetString(bytes);
     }
 
     public static string[] GetSystemFontNames() => [];
@@ -152,9 +138,7 @@ public static unsafe partial class FontEngine
 
     public static uint GetGlyphIndex(uint unicode)
     {
-        uint glyph = 0;
-        if (HasFace) NativeBindings.disunity_face_glyph_index(_faceWorld, _face, unicode, &glyph);
-        return glyph;
+        return Current?.GlyphIndex(unicode) ?? 0;
     }
 
     public static bool TryGetGlyphIndex(uint unicode, out uint glyphIndex)
@@ -177,11 +161,13 @@ public static unsafe partial class FontEngine
     }
 
     /// <summary>A glyph with its metrics at the face's size and no place in an atlas, or null with no face or no such glyph.</summary>
-    private static Glyph? GlyphOf(uint index)
+    private static Glyph? GlyphOf(uint index) => Current is { } face ? GlyphOf(face, index) : null;
+
+    /// <summary>A glyph of the given face with its metrics at that face's size and no place in an atlas, or null with no
+    /// such glyph or when the face is gone.</summary>
+    internal static Glyph? GlyphOf(FaceHandle face, uint index)
     {
-        if (!HasFace) return null;
-        DisunityGlyphMetrics native;
-        if (NativeBindings.disunity_face_glyph_metrics(_faceWorld, _face, index, &native).code != 0) return null;
+        if (!face.TryMetrics(index, out var native)) return null;
         var metrics = new GlyphMetrics(native.width, native.height, native.bearing_x, native.bearing_y, native.advance);
         return new Glyph(index, metrics, GlyphRect.zero, 1, 0);
     }
@@ -191,18 +177,10 @@ public static unsafe partial class FontEngine
     public static GlyphPairAdjustmentRecord[] GetGlyphPairAdjustmentTable(uint[] glyphIndexes)
     {
         ArgumentNullException.ThrowIfNull(glyphIndexes);
-        if (!HasFace || glyphIndexes.Length == 0) return [];
-        uint count = 0;
-        fixed (uint* glyphs = glyphIndexes)
-        {
-            if (NativeBindings.disunity_face_pairs(_faceWorld, _face, glyphs, (uint)glyphIndexes.Length, null, &count).code != 0 || count == 0) return [];
-            var native = new DisunityGlyphPair[count];
-            fixed (DisunityGlyphPair* records = native)
-                if (NativeBindings.disunity_face_pairs(_faceWorld, _face, glyphs, (uint)glyphIndexes.Length, records, &count).code != 0) return [];
-            return Array.ConvertAll(native, pair => new GlyphPairAdjustmentRecord(
-                new GlyphAdjustmentRecord(pair.first, new GlyphValueRecord(0, 0, pair.x_advance, 0)),
-                new GlyphAdjustmentRecord(pair.second, default)));
-        }
+        if (Current is not { } face) return [];
+        return Array.ConvertAll(face.Pairs(glyphIndexes), pair => new GlyphPairAdjustmentRecord(
+            new GlyphAdjustmentRecord(pair.first, new GlyphValueRecord(0, 0, pair.x_advance, 0)),
+            new GlyphAdjustmentRecord(pair.second, default)));
     }
 
     /// <summary><see cref="GetGlyphPairAdjustmentTable"/> for a list of glyph indexes.</summary>

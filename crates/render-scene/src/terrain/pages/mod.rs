@@ -31,6 +31,8 @@ mod residency_edge_tests;
 #[cfg(test)]
 mod residency_gpu_tests;
 #[cfg(test)]
+mod residency_pacing_tests;
+#[cfg(test)]
 mod residency_tests;
 pub mod scene;
 pub mod selection;

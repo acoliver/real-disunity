@@ -26,7 +26,8 @@ fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
         ..DeviceRequest::default()
     }))
     .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     scene
         .set_dynamic_quads(
@@ -44,11 +45,12 @@ fn asymmetric_landmarks_render_with_both_lenses_conventions_and_resize() {
             for lens in lenses() {
                 let resolved = resolve_view(size, convention, lens);
                 let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
-                scene.set_frame(context.queue(), FrameUniform::unlit(&view));
+                let frame = FrameUniform::unlit(&view);
+                scene.set_frame(context.queue(), frame);
                 let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
                 let image = capture(
                     &context,
-                    &scene,
+                    (&mut scene, frame),
                     &pipelines,
                     &mut target,
                     Readiness::Ready,

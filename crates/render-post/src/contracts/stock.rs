@@ -33,6 +33,7 @@ fn import_views<'a>(
                             other.texture() == view.texture() && other.allocation_initialized()
                         })
                         .then_some(0),
+                    &[],
                 )
                 .map(|key| (view.resource(), (key, view.view())))
         })

@@ -4,8 +4,8 @@ use worldrunner_render_post::PassId;
 use worldrunner_render_post::PassSlot;
 use worldrunner_render_post::TimingMode;
 use worldrunner_render_scene::compositor::FrameRenderer;
-use worldrunner_render_scene::compositor::encode_resident;
 use worldrunner_render_scene::device::DeviceRequest;
+use worldrunner_render_scene::draw::PreparedScene;
 
 #[test]
 fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
@@ -16,18 +16,18 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     }))
     .unwrap();
     let view = page_view();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
+    let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &fixture::scene(false),
+        PreparedScene::new(&fixture::scene(false)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
-    gpu.set_frame(
-        context.queue(),
-        worldrunner_render_scene::frame::FrameUniform::unlit(&view),
-    );
+    let uniform = worldrunner_render_scene::frame::FrameUniform::unlit(&view);
+    gpu.set_frame(context.queue(), uniform);
     let mut renderer = FrameRenderer::new(context.device());
     renderer
         .configure_timing(context.device(), context.queue(), TimingMode::Required)
@@ -36,14 +36,16 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     for frame in 0..2 {
         let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer.begin_timing(frame).unwrap();
-        encode_resident(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (&gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (&mut gpu, &pipelines),
+                (&target.color_attachment(), &target.depth_attachment()),
+                uniform,
+            )
+            .unwrap();
         renderer.finish_timing(&mut encoder).unwrap();
         target.encode_readback(&mut encoder).unwrap();
         let submission = encoder.finish().submit().unwrap();

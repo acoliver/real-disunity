@@ -36,7 +36,7 @@ fn render(
         frame.sun_direction = glam::Vec3::new(0.0, 0.6, 0.8);
         frame.sun_irradiance = glam::Vec3::ONE;
     }
-    renderer.set_frame_time(2.0).unwrap();
+    renderer.set_frame_time(std::time::Duration::from_secs_f32(2.0));
     encode_fixture(context, &mut renderer, (&color, &depth), &frame, 0.5)
         .finish()
         .submit()

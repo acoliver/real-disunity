@@ -17,9 +17,10 @@ impl Execution {
         context: &GpuContext,
         size: [u32; 2],
         capacity: usize,
+        format: wgpu::TextureFormat,
     ) -> Result<Self, ViewerError> {
         Ok(Self::Offscreen {
-            texture: texture(context.device(), size),
+            texture: texture(context.device(), size, format),
             flight: FrameAdmission::new(capacity).map_err(|e| ViewerError::Gpu(e.to_string()))?,
         })
     }
@@ -30,7 +31,7 @@ impl Execution {
                 texture: target, ..
             } => {
                 if !size.contains(&0) {
-                    *target = texture(device, size);
+                    *target = texture(device, size, target.format());
                 }
                 Ok(())
             }
@@ -74,10 +75,13 @@ impl Execution {
             Self::Offscreen { flight, .. } => flight,
         }
     }
+    /// A capture's own output target, in `format`: the format the frame chain's output stages are
+    /// built for.
     pub fn acquire_capture(
         &self,
         context: &GpuContext,
         size: [u32; 2],
+        format: wgpu::TextureFormat,
     ) -> Result<Option<ReadyFrame>, ViewerError> {
         let admission = match self.flight().try_acquire() {
             Ok(admission) => admission,
@@ -87,7 +91,7 @@ impl Execution {
         Ok(Some(ReadyFrame {
             admission,
             frame: super::execution::OutputFrame {
-                texture: texture(context.device(), size),
+                texture: texture(context.device(), size, format),
                 surface: None,
             },
         }))
@@ -108,13 +112,8 @@ impl Execution {
         }
     }
 }
-fn texture(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
-    worldrunner_render_post::color_texture(
-        device,
-        "retained output",
-        size,
-        crate::presentation::COLOR,
-    )
+fn texture(device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) -> wgpu::Texture {
+    worldrunner_render_post::color_texture(device, "retained output", size, format)
 }
 
 #[cfg(all(test, target_os = "linux"))]

@@ -176,9 +176,11 @@ impl Renderer {
         let outputs = active.recipe.outputs().to_vec();
         self.presentation
             .resize_recipe(&self.context, size, active.recipe.native_rcas())?;
-        let Some(ready) = self
-            .execution
-            .acquire_capture(&self.context, [size.width, size.height])?
+        let Some(ready) = self.execution.acquire_capture(
+            &self.context,
+            [size.width, size.height],
+            self.presentation.output_format(),
+        )?
         else {
             return Ok(false);
         };
@@ -200,7 +202,7 @@ impl Renderer {
             .scheduler
             .select_frame_slot(ready.admission.slot());
         self.frame_time = time;
-        self.presentation.scheduler.set_frame_time_duration(time)?;
+        self.presentation.scheduler.set_frame_time(time);
         self.prepare_camera_history(host);
         self.encode_recipe_sample(host, &view, ready, (outputs.as_slice(), readiness.misses))
     }

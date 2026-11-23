@@ -1,13 +1,14 @@
 //! A game feature on the shadowed route reads the frame's streamed terrain like on the
 //! unshadowed one.
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn shadowed_frames_lend_their_streamed_terrain_to_game_features() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::streaming::multilevel_source();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let lent = crate::compositor::terrain_probe::install(&mut scheduler, &context);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -27,7 +28,7 @@ fn shadowed_frames_lend_their_streamed_terrain_to_game_features() {
 fn same_frame_capture_renderer(context: &GpuContext) -> ShadowedScene {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
     let source = super::streaming::multilevel_source();
-    let mut renderer = ShadowedScene::new(context, &source, settings()).unwrap();
+    let mut renderer = shadowed(context, &source, settings()).unwrap();
     renderer
         .set_depth_fitting(
             context,

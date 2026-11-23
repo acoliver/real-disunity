@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 
 fn texture(alphas: &[u8], width: u32) -> SceneTexture {
@@ -49,10 +50,10 @@ fn source(texture: SceneTexture, factor: u32, cutoff: u32, atlas: bool) -> Rende
 }
 
 fn depths(context: &GpuContext, scene: &RenderScene) -> Vec<Vec<u8>> {
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
-    let gpu = SceneGpu::upload(context.device(), &authority, scene, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), &authority, scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     geometry_sources()
         .iter()
@@ -159,14 +160,14 @@ fn explicit_unit_alpha_factor_keeps_default_render_bytes() {
 fn unlit_output_scales_only_alpha_before_blending() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let forward = &geometry_sources()[0];
     let mut reference = None;
     for (factor, alpha) in [(1_000_000, 201), (300_000, 60), (0, 0)] {
         let scene = source(texture(&[201], 1), factor, 1, false);
-        let gpu = SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap();
+        let gpu = upload_scene(context.device(), &authority, &scene, &pipelines).unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
         let pixels = super::foliage::pass_color(&context, &gpu, &pipelines, forward, "fs_unlit");
         let interior: Vec<_> = pixels

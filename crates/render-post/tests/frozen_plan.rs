@@ -48,6 +48,7 @@ impl Rig {
             FrameConfig::new(SIZE, FORMAT, 1),
             Resources::default(),
             CopyOutput::new(&gpu.device, FORMAT),
+            SceneDepth::Independent,
         )
         .unwrap();
         Self {
@@ -229,17 +230,12 @@ fn the_stock_role_orders_are_refused_before_any_feature_prepares() {
     use PassSlot::*;
     // (the listed roles, the role listed too early, the role it must follow)
     let cases = [
-        (
-            vec![OpaqueLighting, OpaqueGbuffer],
-            OpaqueLighting,
-            OpaqueGbuffer,
-        ),
-        (vec![Opaque, OpaqueLighting], Opaque, OpaqueLighting),
+        (vec![ContourIds, Opaque], ContourIds, Opaque),
         (vec![ReflectionTrace, Opaque], ReflectionTrace, Opaque),
         (
-            vec![ScreenSpaceAfterTransparent, OpaqueLighting, Opaque],
+            vec![ScreenSpaceAfterTransparent, Opaque],
             ScreenSpaceAfterTransparent,
-            OpaqueLighting,
+            Opaque,
         ),
     ];
     for (slots, early, needs) in cases {
@@ -305,7 +301,7 @@ fn opaque_depth_read_after_a_prepass_or_after_opaque_is_admitted() {
     // The depth is complete after the prepass, so a pass between the prepass and Opaque may read
     // it, and Opaque loads it. After Opaque it is complete too.
     let prepass = entry(PassSlot::DepthNormalPrepass);
-    let early = entry(PassSlot::OpaqueLighting);
+    let early = entry(PassSlot::Ssao);
     let opaque = entry(PassSlot::Opaque);
     let late = entry(PassSlot::AfterOpaqueDepth);
     let mut first = pass(prepass, &normals);
@@ -332,71 +328,6 @@ fn opaque_depth_read_after_a_prepass_or_after_opaque_is_admitted() {
     let outcome = rig.encode(&passes, &views, declaration);
     outcome.result.unwrap();
     assert_eq!(outcome.draws, [prepass, early, opaque, late]);
-}
-
-/// The passes a G-buffer producer needs: a prepass that completes the depth, then `OpaqueGbuffer`
-/// testing it read-only.
-fn gbuffer_plan(rig: &mut Rig, with_prepass: bool) -> (Vec<PassDeclaration>, Vec<AttachmentView>) {
-    let (depth, depth_view) = rig.depth("scene depth");
-    let (normals, normals_view) = rig.colour("normals");
-    let (material, material_view) = rig.colour("g0");
-    let mut passes = Vec::new();
-    let mut views = Vec::new();
-    if with_prepass {
-        let mut prepass = pass(entry(PassSlot::DepthNormalPrepass), &normals);
-        prepass.depth = Some(depth.clone());
-        passes.push(prepass);
-        views.extend([depth_view, normals_view]);
-    } else {
-        // Without a prepass the depth is only a view an earlier frame left behind.
-        views.extend([depth_view.with_retained_contents(), normals_view]);
-    }
-    let mut producer = pass(entry(PassSlot::OpaqueGbuffer), &material);
-    producer.depth = Some(AttachmentDeclaration {
-        load: AttachmentLoad::Load,
-        read_only: true,
-        ..depth
-    });
-    passes.push(producer);
-    views.push(material_view);
-    (passes, views)
-}
-
-fn producing() -> FeatureDeclaration {
-    let mut declaration = drawing(&[(entry(PassSlot::OpaqueGbuffer), &[])]);
-    declaration.passes[0].depth_format = Some(DEPTH);
-    declaration
-}
-
-#[test]
-fn a_gbuffer_producer_without_a_prepass_is_refused_before_any_feature_prepares() {
-    let mut rig = Rig::new();
-    let (passes, views) = gbuffer_plan(&mut rig, false);
-    let outcome = rig.encode(&passes, &views, producing());
-    refused(
-        &outcome,
-        FrameError::AttachmentContract(entry(PassSlot::OpaqueGbuffer)),
-    );
-}
-
-#[test]
-fn a_gbuffer_producer_after_a_prepass_is_admitted() {
-    let mut rig = Rig::new();
-    let (passes, views) = gbuffer_plan(&mut rig, true);
-    let mut declaration = producing();
-    declaration
-        .passes
-        .push(FeaturePass::new(PassSlot::DepthNormalPrepass));
-    let outcome = rig.encode(&passes, &views, declaration);
-    outcome.result.unwrap();
-    assert_eq!(outcome.prepared, 1);
-    assert_eq!(
-        outcome.draws,
-        [
-            entry(PassSlot::DepthNormalPrepass),
-            entry(PassSlot::OpaqueGbuffer)
-        ]
-    );
 }
 
 /// A registered feature builds its resources and prepares only for a plan that was admitted.
@@ -430,14 +361,14 @@ fn a_refusal_neither_builds_nor_prepares_a_registered_feature() {
             }),
         )
         .unwrap();
-    // Opaque is listed before the lighting pass it must follow.
-    let (passes, views) = ordered(&mut rig, &[PassSlot::Opaque, PassSlot::OpaqueLighting]);
+    // The reflection trace is listed before the Opaque pass it must follow.
+    let (passes, views) = ordered(&mut rig, &[PassSlot::ReflectionTrace, PassSlot::Opaque]);
     let outcome = rig.encode(&passes, &views, drawing(&[]));
     assert_eq!(
         outcome.result,
         Err(FrameError::StockOrder {
-            pass: entry(PassSlot::Opaque),
-            needs: entry(PassSlot::OpaqueLighting),
+            pass: entry(PassSlot::ReflectionTrace),
+            needs: entry(PassSlot::Opaque),
         })
     );
     assert_eq!((built.get(), prepared.get()), (0, 0));

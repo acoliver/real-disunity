@@ -97,6 +97,7 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
             ToneMap::Reinhard,
         )
         .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let output = color_texture(
@@ -123,7 +124,7 @@ fn nonfinite_output(device: &wgpu::Device, queue: &wgpu::Queue, samples: u32, ex
         &pipeline,
         &[&group],
     );
-    chain.targets().encode_resolve(&mut encoder);
+    chain.encode_resolve(&mut encoder);
     if samples == 4 {
         restore_nan(device, queue, &mut encoder, chain.targets().resolved());
     }
@@ -278,6 +279,7 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
             Resources::default(),
             ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 0.5, ToneMap::Reinhard)
                 .unwrap(),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         let output = color_texture(
@@ -303,7 +305,7 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
             &pipeline,
             &[],
         );
-        chain.targets().encode_resolve(&mut encoder);
+        chain.encode_resolve(&mut encoder);
         chain.encode(
             &mut encoder,
             &output.create_view(&wgpu::TextureViewDescriptor::default()),
@@ -316,6 +318,62 @@ fn hdr_edge_resolve_fixed_exposure_and_single_srgb_transfer() {
 }
 
 #[test]
+fn clamp_output_shows_radiance_below_one_unchanged() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let config = FrameConfig::new([17, 17], wgpu::TextureFormat::Rgba16Float, 1);
+    let chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Clamp).unwrap(),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
+    let output = color_texture(
+        &device,
+        "clamp",
+        config.size,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    );
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    fullscreen_pass(
+        &mut encoder,
+        None,
+        wgpu::RenderPassColorAttachment {
+            view: chain.targets().scene(),
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        },
+        &edge_pipeline(&device, 1),
+        &[],
+    );
+    chain.encode(
+        &mut encoder,
+        &output.create_view(&wgpu::TextureViewDescriptor::default()),
+    );
+    queue.submit([encoder.finish()]);
+    let raw = read_texture(&device, &queue, chain.targets().texture());
+    let displayed = read_texture(&device, &queue, &output);
+    let mut lit = 0;
+    for (radiance, pixel) in raw.chunks_exact(8).zip(displayed.chunks_exact(4)) {
+        lit += usize::from(half(&radiance[..2]) > 0.0);
+        for channel in 0..3 {
+            let value = half(&radiance[channel * 2..channel * 2 + 2]);
+            let expected = encode(ToneMap::Clamp.evaluate(value, 1.0)) * 255.0;
+            assert!(
+                (f64::from(pixel[channel]) - expected).abs() <= 0.6,
+                "actual={pixel:?}, expected={expected} from {value}"
+            );
+        }
+    }
+    assert!(lit > 100, "the edge triangle covers the frame");
+}
+
+#[test]
 fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
     let (device, queue) = crate::gpu_tests::gpu();
     let radiance = 0.75;
@@ -325,6 +383,7 @@ fn hdr_resize_failure_preserves_targets_depth_and_output_bindings() {
         config,
         Resources::default(),
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let old = chain.targets().texture().clone();

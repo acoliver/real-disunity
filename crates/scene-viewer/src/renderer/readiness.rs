@@ -194,7 +194,7 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &mut crate::retained::readiness::Preparation,
     ) -> Result<(), ViewerError> {
-        super::retained::preflight_preparation(context, presentation, front)?;
+        super::retained::preflight_preparation(presentation, front)?;
         if let crate::RetainedUpdate::Ui(overlay) = &front.update {
             self.ui.stage(context, (resident, presentation), overlay)?;
         } else if let crate::RetainedUpdate::World(frame) = &front.update {
@@ -220,7 +220,7 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &crate::retained::readiness::Preparation,
     ) -> Result<bool, ViewerError> {
-        super::retained::preflight_preparation(context, presentation, front)?;
+        super::retained::preflight_preparation(presentation, front)?;
         let scene = if self.preparing.is_some() {
             None
         } else if let Some(receive) = &front.scene {
@@ -389,6 +389,3 @@ mod tests;
 
 #[cfg(test)]
 mod preparation_tests;
-
-#[cfg(test)]
-mod opaque_admission_tests;

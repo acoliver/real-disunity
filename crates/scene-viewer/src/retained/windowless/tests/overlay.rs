@@ -24,7 +24,7 @@ fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
 #[test]
 fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 4,
             tone_map: crate::ToneMap::Reinhard,

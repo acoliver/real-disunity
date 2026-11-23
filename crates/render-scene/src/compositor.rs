@@ -1,8 +1,6 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
-mod adapters;
 mod capture;
 mod contours;
-pub mod opaque;
 #[cfg(test)]
 mod overlay_target_gpu_tests;
 #[cfg(test)]
@@ -12,7 +10,6 @@ pub use capture::FeatureCapture;
 pub use capture::FeatureTarget;
 mod clock;
 mod configuration;
-mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
@@ -44,7 +41,6 @@ mod timing;
 mod validation;
 mod water_draws;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-pub use adapters::encode_resident;
 pub use configuration::ConfiguredFrameRenderer;
 pub use configuration::FrameEncoding;
 pub use configuration::RendererConfiguration;
@@ -172,9 +168,6 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
-    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
-    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
-    producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
     /// The stock plans of this renderer and the ones it replaces on reconfiguration.
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
     /// What the game inventory installed on this generation.
@@ -240,8 +233,6 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
-            gbuffer: None,
-            producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
@@ -269,6 +260,7 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Copy(CopyOutput::new(device, output_format)),
+                worldrunner_render_post::SceneDepth::Independent,
             )?,
         })
     }
@@ -302,9 +294,8 @@ impl FrameRenderer {
     /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
-    /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
-    /// see [`Self::set_projection_jitter`]. It is off unless requested, except that a TAA
-    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]).
+    /// A TAA resolve turns on sub-pixel projection jitter and previous-frame view data
+    /// ([`PostResolve::effective_jitter`]); see [`Self::set_projection_jitter`].
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -419,7 +410,8 @@ impl FrameRenderer {
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
     /// statistics. Callers rebind after resize; no additional prepass is allocated.
-    pub fn depth_statistics_source(
+    #[cfg(test)]
+    pub(crate) fn depth_statistics_source(
         &self,
     ) -> Result<Option<(AttachmentView, AttachmentView)>, FrameError> {
         use crate::frame::metadata::FrameProduct;
@@ -501,14 +493,6 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
-            self.install_gbuffer_producer(device);
-        }
-        if let Some(gbuffer) = self
-            .gbuffer
-            .as_mut()
-            .filter(|gbuffer| gbuffer.size() != size)
-        {
-            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)
@@ -534,7 +518,7 @@ impl FrameRenderer {
             })
             .map_err(FrameError::from)?;
         }
-        self.chain.encode_resolve(encoder);
+        self.encode_resolve(encoder);
         self.chain.encode(encoder, output);
         self.overlay.encode(encoder, output);
         self.chain
@@ -547,6 +531,12 @@ impl FrameRenderer {
         })
         .map_err(FrameError::from)?;
         Ok(())
+    }
+    /// Resolves retained scene samples into the resolved scene target, timed with the frame's
+    /// passes. [`Self::encode_output`] does this first; a host that reads the resolved scene
+    /// without an output encodes it alone.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.chain.encode_resolve(encoder);
     }
     pub fn register(
         &mut self,
@@ -569,7 +559,7 @@ impl FrameRenderer {
         let feature = self
             .stock_water()
             .map(|water| {
-                water.feature_with_depth(
+                water.feature(
                     encoder,
                     frame,
                     (self.elapsed_seconds, self.frame_slot),
@@ -586,28 +576,17 @@ impl FrameRenderer {
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
-    /// declaration-requested snapshots. The optional binding supplies shared shadows.
-    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
-    /// take it and forward it through [`Self::encode_frame_with`] instead.
-    pub fn encode_frame(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        plan: (&[PassDeclaration], &[AttachmentView]),
-        features: &mut [BorrowedFeature<'_>],
-        input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
-    ) -> Result<(), FrameError> {
-        self.encode_frame_with(device, encoder, plan, None, features, &input)
-    }
-    /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
-    /// by the executor immediately before the first pass of the ordered frame.
-    /// A `None` head supplies no work; it does not discover operations retained by borrowed
-    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
+    /// declaration-requested snapshots. The optional binding in `input` supplies shared shadows.
+    ///
+    /// `head` is work that records commands of its own, encoded by the executor immediately
+    /// before the first pass of the ordered frame. A `None` head supplies no work; it does not
+    /// discover operations retained by borrowed features. Forward any
+    /// [`StockSceneFeature::take_offscreen_operations`] result here.
     ///
     /// # Errors
-    /// The validation and preparation errors of [`Self::encode_frame`], or an error returned
-    /// while recording `head`. Abandon the frame on failure.
-    pub fn encode_frame_with(
+    /// Validation and preparation errors, or an error returned while recording `head`. Abandon
+    /// the frame on failure.
+    pub fn encode_frame(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -649,7 +628,6 @@ impl FrameRenderer {
             ssao: self.ssao.as_ref(),
             ssr: self.ssr.as_ref(),
             water: self.game.replaces.stock_water(self.water.as_ref()),
-            gbuffer: self.gbuffer.as_ref(),
             velocity: self.chain.targets().velocity_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: self.overlay.needs_depth(),
@@ -719,11 +697,6 @@ impl FrameRenderer {
         if self.ssao.is_some() || self.stock_water().is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
-            ));
-        }
-        if self.gbuffer.is_some() {
-            return Err(FrameError::UnsupportedEffect(
-                "the opaque G-buffer requires stock geometry composition",
             ));
         }
         self.publish_game_inputs();

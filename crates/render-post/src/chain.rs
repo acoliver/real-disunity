@@ -169,23 +169,8 @@ impl TimingState {
 }
 
 impl<F: StageFactory> PostChain<F> {
+    /// Creates frame targets with the depth ownership representation `depth` selects.
     pub fn new(
-        device: &wgpu::Device,
-        config: FrameConfig,
-        persistent: Resources,
-        factory: F,
-    ) -> Result<Self, PostError> {
-        Self::with_scene_depth(
-            device,
-            config,
-            persistent,
-            factory,
-            crate::SceneDepth::Independent,
-        )
-    }
-
-    /// Creates frame targets with the stock planner's depth ownership representation.
-    pub fn with_scene_depth(
         device: &wgpu::Device,
         config: FrameConfig,
         persistent: Resources,
@@ -193,12 +178,7 @@ impl<F: StageFactory> PostChain<F> {
         depth: crate::SceneDepth,
     ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_scene_depth(
-            device,
-            config,
-            target_options(&factory, config),
-            depth,
-        )?;
+        let targets = FrameTargets::new(device, config, target_options(&factory, config), depth)?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -249,6 +229,7 @@ impl<F: StageFactory> PostChain<F> {
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
                     *initial,
+                    &[],
                 )?;
                 Ok(
                     worldrunner_render_gpu::submission::capture::WriteKey::Resource {
@@ -299,7 +280,7 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_scene_depth(
+        let targets = FrameTargets::new(
             device,
             config,
             target_options(&self.factory, config),
@@ -404,7 +385,7 @@ impl<F: StageFactory> PostChain<F> {
             .targets
             .resolve()
             .and_then(|_| self.stamp(crate::PassId::Resolve));
-        self.targets.encode_resolve_timed(encoder, stamp.as_ref());
+        self.targets.encode_resolve(encoder, stamp.as_ref());
     }
 
     pub const fn targets(&self) -> &FrameTargets {

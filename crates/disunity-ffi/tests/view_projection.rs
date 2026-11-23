@@ -1,9 +1,11 @@
 //! A command buffer's view and projection change through the ABI: the call forwards both matrices
-//! as one record, and a take hands it back with kind 15 and the bytes that carry it.
-use worldrunner_disunity_ffi::{
-    abi::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
-};
-use worldrunner_world_simulation::graphics::{OffscreenWork, snapshot_wire::decode_work};
+//! as one record, and the frame's work holds it.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
+use worldrunner_disunity_ffi::{abi::*, graphics_context::*};
+use worldrunner_world_simulation::graphics::OffscreenWork;
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -11,40 +13,8 @@ fn new_world() -> u64 {
     world
 }
 
-/// Takes the frame's work and the decoded detail of each record.
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let (mut length, mut bytes) = (0, [0_u8; 256]);
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        256,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
 #[test]
-fn both_matrices_reach_the_frame_as_one_record_of_kind_fifteen() {
+fn both_matrices_reach_the_frame_as_one_record() {
     let world = new_world();
     let view: [f32; 16] = std::array::from_fn(|i| 1.0 + i as f32);
     let projection: [f32; 16] = std::array::from_fn(|i| -0.5 * i as f32);
@@ -53,12 +23,10 @@ fn both_matrices_reach_the_frame_as_one_record_of_kind_fifteen() {
     }
     .code;
     assert_eq!(code, 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 1);
-    assert_eq!(taken[0].0.kind, KIND_SET_VIEW_PROJECTION);
-    assert_eq!(KIND_SET_VIEW_PROJECTION, 15);
     assert_eq!(
-        taken[0].1,
+        taken[0],
         OffscreenWork::SetViewProjection { view, projection }
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
@@ -88,6 +56,6 @@ fn a_missing_or_non_finite_matrix_is_refused_and_records_nothing() {
             "an unknown world"
         );
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

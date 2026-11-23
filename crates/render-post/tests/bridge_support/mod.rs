@@ -69,6 +69,7 @@ pub fn view(
                 Semantic::LinearColor
             },
             None,
+            &[],
         )
         .unwrap();
     registry

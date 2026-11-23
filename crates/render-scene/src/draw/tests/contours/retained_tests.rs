@@ -42,11 +42,10 @@ fn exact_quad_ids(id: u8) -> Vec<u8> {
 }
 
 #[test]
-fn gpu_contour_gbuffer_render_membership_transitions_match_fresh_and_reuse_plan() {
+fn gpu_contour_prepass_membership_transitions_match_fresh_and_reuse_plan() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let path = SceneOpaquePath::GBUFFER_RENDER;
-    let mut rig = Rig::new(&context, &source_with_path(0, path), 1);
+    let mut rig = Rig::new(&context, &source_with_ids(0, true), 1);
     rig.select_slot(0);
     let baseline = rig.draw(&context);
     assert!(baseline.mask.is_none());
@@ -59,7 +58,7 @@ fn gpu_contour_gbuffer_render_membership_transitions_match_fresh_and_reuse_plan(
         rig.set_contour_id(id);
         let before = rig.renderer.stock_plan_statistics();
         let image = rig.draw(&context);
-        let fresh = Rig::new(&context, &source_with_path(id, path), 1).draw(&context);
+        let fresh = Rig::new(&context, &source_with_ids(id, true), 1).draw(&context);
         assert_eq!(image.mask, fresh.mask);
         assert_eq!(image.mask, (id != 0).then(|| exact_quad_ids(id)));
         assert_eq!(image.color, fresh.color);
@@ -119,8 +118,8 @@ fn abandon_membership(context: &GpuContext, rig: &mut Rig, id: u8) {
     assert_eq!(rig.renderer.contour_target(), published);
 }
 
-fn exercise_slot_lifetime(context: &GpuContext, path: SceneOpaquePath) {
-    let mut rig = Rig::new(context, &source_with_path(255, path), 1);
+fn exercise_slot_lifetime(context: &GpuContext, prepass: bool) {
+    let mut rig = Rig::new(context, &source_with_ids(255, prepass), 1);
     let mut targets = [None, None, None];
     let mut ids = [1, 2, 255];
     for (slot, id) in ids.into_iter().enumerate() {
@@ -162,7 +161,7 @@ fn exercise_slot_lifetime(context: &GpuContext, path: SceneOpaquePath) {
 fn gpu_contour_three_active_slots_keep_submitted_targets_through_membership_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for path in [SceneOpaquePath::Forward, SceneOpaquePath::GBUFFER_RENDER] {
-        exercise_slot_lifetime(&context, path);
+    for prepass in [false, true] {
+        exercise_slot_lifetime(&context, prepass);
     }
 }

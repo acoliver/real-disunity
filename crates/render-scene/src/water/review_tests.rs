@@ -67,7 +67,9 @@ fn schedule_water(
             &FrameUniform::new(&fixture_view(), None).unwrap(),
             (0.0, 0),
             None,
+            crate::renderer::depth::DepthMode::Independent,
         )
+        .unwrap()
         .schedule(passes, views)
         .unwrap();
 }

@@ -44,13 +44,16 @@ fn folded_weights_preserve_normalization_and_discrete_convolution() {
 #[test]
 fn odd_extents_reach_one_exactly_and_excess_levels_fail() {
     assert_eq!(
-        gaussian_extents([37, 23], 6).unwrap(),
+        gaussian_extents([37, 23], 6, crate::BloomTerminal::Reject).unwrap(),
         [[19, 12], [10, 6], [5, 3], [3, 2], [2, 1], [1, 1]]
     );
-    assert!(gaussian_extents([37, 23], 7).is_err());
-    assert_eq!(gaussian_extents([1, 1], 1).unwrap(), [[1, 1]]);
-    assert!(gaussian_extents([1, 1], 2).is_err());
-    assert!(gaussian_extents([0, 4], 1).is_err());
+    assert!(gaussian_extents([37, 23], 7, crate::BloomTerminal::Reject).is_err());
+    assert_eq!(
+        gaussian_extents([1, 1], 1, crate::BloomTerminal::Reject).unwrap(),
+        [[1, 1]]
+    );
+    assert!(gaussian_extents([1, 1], 2, crate::BloomTerminal::Reject).is_err());
+    assert!(gaussian_extents([0, 4], 1, crate::BloomTerminal::Reject).is_err());
 }
 
 #[test]
@@ -118,7 +121,7 @@ fn repeat_terminal_extents_keep_six_ceiling_half_levels() {
         ([32, 32], [[16, 16], [8, 8], [4, 4], [2, 2], [1, 1], [1, 1]]),
     ] {
         assert_eq!(
-            gaussian_extents_with_terminal(size, 6, crate::BloomTerminal::Repeat).unwrap(),
+            gaussian_extents(size, 6, crate::BloomTerminal::Repeat).unwrap(),
             expected
         );
     }
@@ -132,11 +135,11 @@ fn terminal_policies_preserve_invalid_extent_and_level_count_errors() {
     );
     for terminal in [crate::BloomTerminal::Reject, crate::BloomTerminal::Repeat] {
         assert_eq!(
-            gaussian_extents_with_terminal([0, 1], 6, terminal),
+            gaussian_extents([0, 1], 6, terminal),
             Err(PostError::EmptyExtent)
         );
         for count in [0, 9, u32::MAX] {
-            assert!(gaussian_extents_with_terminal([1, 1], count, terminal).is_err());
+            assert!(gaussian_extents([1, 1], count, terminal).is_err());
         }
     }
 }

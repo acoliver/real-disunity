@@ -238,7 +238,7 @@ pub(super) fn configure_effects(
     presentation: &mut super::Presentation,
     effects: &SceneEffects,
 ) -> Result<(), ViewerError> {
-    let settings = preflight_effects(context, presentation, effects)?;
+    let settings = preflight_effects(presentation, effects)?;
     resident.set_retained_effects(effects)?;
     match resident {
         Resident::Shadowed(scene) => {
@@ -259,7 +259,6 @@ pub(super) fn configure_effects(
 
 /// Resolves the same candidate used for replacement, without touching resident or scheduler.
 pub(super) fn preflight_effects(
-    context: &super::GpuContext,
     presentation: &super::Presentation,
     effects: &SceneEffects,
 ) -> Result<worldrunner_render_scene::compositor::RendererConfiguration, ViewerError> {
@@ -271,20 +270,14 @@ pub(super) fn preflight_effects(
     settings.post.native_rcas = native_rcas;
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
-    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
-    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
+    settings.depth_fitting = effects.depth_fitting().copied();
     settings.water = effects.water_bodies().to_vec();
-    settings.opaque_path = effects.opaque_path();
-    if let Some((exposure, _)) = &mut settings.hdr {
-        *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
-    }
-    settings.validate_opaque(&context.device().limits())?;
+    settings.hdr.0 = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     Ok(settings)
 }
 
 /// Check before consuming preparation results or initializing object-handle bookkeeping.
 pub(super) fn preflight_preparation(
-    context: &super::GpuContext,
     presentation: &super::Presentation,
     front: &crate::retained::readiness::Preparation,
 ) -> Result<(), ViewerError> {
@@ -293,7 +286,7 @@ pub(super) fn preflight_preparation(
         _ => front.pick_scene.as_ref().and_then(|scene| scene.effects()),
     };
     if let Some(effects) = effects {
-        preflight_effects(context, presentation, effects)?;
+        preflight_effects(presentation, effects)?;
     }
     Ok(())
 }

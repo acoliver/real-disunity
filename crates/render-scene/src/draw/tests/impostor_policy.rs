@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_color, pass_depth};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAtlasSampling, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, TexelFormat,
 };
@@ -50,7 +51,7 @@ fn scene(atlas: SceneImpostor, textures: Vec<SceneTexture>, packed: bool) -> Ren
     .unwrap()
 }
 fn upload(context: &GpuContext, layouts: &ScenePipelines, scene: &RenderScene) -> SceneGpu {
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), scene, layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
         target_millimeters: [0, 0, 1000],
@@ -63,7 +64,7 @@ fn upload(context: &GpuContext, layouts: &ScenePipelines, scene: &RenderScene) -
 fn per_pass_cutoffs_produce_distinct_shadow_and_surface_silhouettes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = scene(
         atlas().with_pass_cutoffs(970_000, 960_000).unwrap(),
         vec![texel([255, 255, 255, 246])],
@@ -89,7 +90,7 @@ fn per_pass_cutoffs_produce_distinct_shadow_and_surface_silhouettes() {
 fn implicit_atlas_sampling_uses_minification_mips() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut bytes = Vec::new();
     for level in 0..7 {
         let size = 64_usize >> level;
@@ -136,7 +137,7 @@ fn implicit_atlas_sampling_uses_minification_mips() {
 fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = scene(
         atlas().with_channels(SceneImpostorChannels::RoughTranslucencyEmissionOcclusion),
         vec![
@@ -176,7 +177,7 @@ fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars(
 fn translated_capture_center_matches_equivalent_rigid_placement() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let shifted = scene(
         atlas().with_capture_center([500, 0, 0]),
         vec![texel([255; 4])],
@@ -266,7 +267,7 @@ fn mask_oracle(channel: u8, enabled: bool) -> String {
 fn lit_and_backlit_packed_translucency_pixels_apply_self_ao_once_at_threshold() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     // 12/255 < 0.05 < 13/255, plus a high-mask control with non-unit self AO.
     for channel in [12_u8, 13, 153] {
         let scene = scattering_scene(channel);

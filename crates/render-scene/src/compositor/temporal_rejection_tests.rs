@@ -46,12 +46,15 @@ fn below_half() -> RendererConfiguration {
 }
 
 /// Every combination the design lists as unsupported for reduced temporal reconstruction that a
-/// host can express in a `RendererConfiguration`. A standalone `SpatialUpscale` stage and the
-/// legacy profile are not expressible there; the stage-level tests cover the first.
+/// host can express in a `RendererConfiguration`. A standalone `SpatialUpscale` stage is not
+/// expressible there; the stage-level tests cover it.
 fn unsupported() -> Vec<RendererConfiguration> {
     vec![
         without_taa(PostResolve::None),
-        without_taa(PostResolve::fxaa(1.0)),
+        without_taa(PostResolve::fxaa(
+            1.0,
+            worldrunner_render_post::FxaaQuality::default(),
+        )),
         without_taa(PostResolve::Smaa(SmaaSettings::default())),
         without_taa(PostResolve::Cmaa2(Cmaa2Settings::default())),
         multisampled(4),

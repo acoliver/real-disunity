@@ -30,7 +30,7 @@ pub(super) fn source(source: &str) -> String {
     )
 }
 
-pub(crate) fn normal_inputs(source: &str) -> String {
+fn normal_inputs(source: &str) -> String {
     // Moving the evaluated frame across albedo changes Metal rounding; move only its operands.
     let mut preparation = super::super::output::PREPARATION
         .anchored("scene_metadata::receiver::cards::normal_inputs", 1, "basis: mat3x3<f32>,", "position_dx: vec3<f32>, position_dy: vec3<f32>, uv_dx: vec2<f32>, uv_dy: vec2<f32>,")

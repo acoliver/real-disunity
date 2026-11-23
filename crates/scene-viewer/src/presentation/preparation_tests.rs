@@ -89,7 +89,8 @@ pub(crate) fn fixed(
         width: 8,
         height: 8,
     };
-    let settings = RendererConfiguration::legacy([8, 8], COLOR);
+    let settings =
+        RendererConfiguration::new([8, 8], COLOR, worldrunner_render_post::ToneMap::Clamp);
     let mut peak = settings.allocations();
     peak.extend(settings.allocations());
     peak.extend(planning::additional(size, None));
@@ -108,7 +109,7 @@ pub(crate) fn fixed(
         context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),
@@ -170,12 +171,14 @@ fn resident(
         .prepare_scene(context, &prepared(scene))
         .unwrap();
     let pipelines =
-        worldrunner_render_scene::renderer::ScenePipelines::new(context.device(), COLOR);
+        worldrunner_render_scene::renderer::ScenePipelines::new(context.device(), COLOR, 1)
+            .unwrap();
     let mut gpu = worldrunner_render_scene::draw::SceneGpu::upload(
         context.device(),
         context.submission(),
-        scene,
+        prepared(scene),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.retain_resource_reservation(reservation.resident);

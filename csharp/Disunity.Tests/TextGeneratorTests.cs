@@ -128,7 +128,7 @@ internal static class TextGeneratorTests
         Expect.That(ReferenceEquals(material, font.material), "the font keeps its material");
         Expect.That(!ReferenceEquals(material, Canvas.GetDefaultCanvasMaterial()) && material!.shader == Canvas.GetDefaultCanvasMaterial().shader,
             "it is a copy on the default UI shader");
-        Expect.That(material.mainTexture == null, "the engine builds no font atlas, so it has no texture");
+        Expect.That(material.mainTexture == null, "a font has no atlas texture until a glyph is drawn");
         Expect.That(!ReferenceEquals(material, new Font("Serif", [1]).material), "each font has its own");
         var replaced = new Material(Canvas.GetDefaultCanvasMaterial());
         font.material = replaced;

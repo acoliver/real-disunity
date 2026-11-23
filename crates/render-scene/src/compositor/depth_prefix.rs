@@ -1,9 +1,14 @@
 use super::FrameRenderer;
 use std::borrow::Cow;
-use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, FramePlan, GamePlace,
-    PassDeclaration, PassEntry, PassSlot,
-};
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BorrowedFeature;
+use worldrunner_render_post::FeatureDeclaration;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::FramePlan;
+use worldrunner_render_post::GamePlace;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PassEntry;
+use worldrunner_render_post::PassSlot;
 
 /// A frame's pass list and the views it attaches.
 type ListedPlan = (Vec<PassDeclaration>, Vec<AttachmentView>);

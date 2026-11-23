@@ -2,8 +2,8 @@
 use crate::{DisunityHost, HostError, native};
 
 /// The shape a stored texture has, from the `dimension` of its record. The record's codes are the
-/// ones a shader declares for a property: 2 for a 2D texture (also written as 0 by a writer that
-/// states none), 3 for a 3D texture, 4 for a cube and 5 for a 2D array.
+/// ones a shader declares for a property: 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and
+/// 5 for a 2D array.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextureDimension {
     /// One 2D texture, whose `depth` is 0 or 1.
@@ -22,7 +22,7 @@ impl TextureDimension {
     #[must_use]
     pub fn from_code(code: u32) -> Option<Self> {
         match code {
-            0 | 2 => Some(Self::D2),
+            2 => Some(Self::D2),
             3 => Some(Self::D3),
             4 => Some(Self::Cube),
             5 => Some(Self::D2Array),

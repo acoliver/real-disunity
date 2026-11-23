@@ -8,9 +8,11 @@
 //! colour-space encodings between the blit and the captured frame. The window is the windowless
 //! viewer of the other retained tests and needs a GPU adapter (lavapipe in CI).
 
-use super::ui_tests::{fixture_config, fixture_turn};
+use super::ui_tests::fixture_config;
+use super::ui_tests::fixture_turn;
 use super::*;
-use std::{path::PathBuf, time::Instant};
+use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::GpuLaunch;
 use crate::PreparedPlayer;

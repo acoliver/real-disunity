@@ -1,12 +1,15 @@
 //! Vector and matrix array globals through the ABI: the shader setters validate their shape before
 //! they read, copy their input before they return and change nothing when they refuse. The world
 //! orders each write in front of the next offscreen record.
+#[path = "common/frame.rs"]
+mod frame;
+
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_properties::*,
-    graphics_snapshot::*, with_native_world,
+    with_native_world,
 };
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, OffscreenWork, PropertyValue, ShaderProperties, snapshot_wire,
+    GraphicsSnapshot, OffscreenWork, PropertyValue, ShaderProperties,
 };
 
 type Setter = unsafe extern "C" fn(u64, *const u8, u32, *const f32, u32) -> DisunityResult;
@@ -62,7 +65,7 @@ fn render_texture(world: u64) -> u64 {
 
 /// The snapshot of a world after it records one blit, which makes the snapshot carry the global
 /// state, and the ordered work the world holds.
-fn snapshot(world: u64) -> GraphicsSnapshot {
+fn snapshot_after_a_blit(world: u64) -> GraphicsSnapshot {
     let target = render_texture(world);
     let record = DisunityOffscreenWork {
         kind: 1,
@@ -71,18 +74,7 @@ fn snapshot(world: u64) -> GraphicsSnapshot {
         ..Default::default()
     };
     unsafe { assert_eq!(disunity_offscreen_record(world, &record).code, 0) };
-    let mut length = 0;
-    unsafe {
-        let result = disunity_graphics_snapshot(world, std::ptr::null_mut(), 0, &mut length);
-        assert_eq!(result.code, 0);
-    }
-    let mut bytes = vec![0_u8; length as usize];
-    let mut written = 0;
-    unsafe {
-        let result = disunity_graphics_snapshot(world, bytes.as_mut_ptr(), length, &mut written);
-        assert_eq!(result.code, 0);
-    }
-    snapshot_wire::decode(&bytes).unwrap()
+    frame::snapshot(world)
 }
 
 /// The values of the world's global state. A snapshot replays from the state before its first
@@ -138,7 +130,7 @@ fn array_writes_are_ordered_in_front_of_the_next_record_with_their_last_value() 
     let held = global_properties(world);
     assert_eq!(held.vector_array("_Arr"), Some(vectors(&third)));
     assert_eq!(held.matrix_array("_Arr"), Some(matrices(&second)));
-    let snapshot = snapshot(world);
+    let snapshot = snapshot_after_a_blit(world);
     // The replay starts from the state before the writes, which the ordered work carries.
     let start = snapshot.global.unwrap().properties;
     assert_eq!(start.vector_array("_Arr"), None);
@@ -154,46 +146,19 @@ fn array_writes_are_ordered_in_front_of_the_next_record_with_their_last_value() 
 }
 
 #[test]
-fn an_ordered_array_hands_out_its_detail_in_a_buffer_sized_by_a_query() {
+fn a_large_ordered_array_reaches_the_frame_in_front_of_the_record_that_follows_it() {
     let world = new_world();
     let values = floats_of(1023, 16);
     assert_eq!(call(SETTERS[1].0, world, "_Big", 1023, &values).code, 0);
     assert_eq!(disunity_offscreen_release_temporary(world, 3).code, 0);
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        let taken = disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count);
-        assert_eq!(taken.code, 0);
-    }
-    assert_eq!(count, 2, "the ordered array and the release it precedes");
-    assert_eq!(records[0].kind, 6);
-    let mut length = 0;
-    unsafe {
-        let sized = disunity_offscreen_detail(
-            world,
-            records[0].bindings,
-            std::ptr::null_mut(),
-            0,
-            &mut length,
-        );
-        assert_eq!(sized.code, 0);
-    }
-    assert!(length as usize > 1023 * 64);
-    let mut bytes = vec![0_u8; length as usize];
-    unsafe {
-        let read = disunity_offscreen_detail(
-            world,
-            records[0].bindings,
-            bytes.as_mut_ptr(),
-            length,
-            &mut length,
-        );
-        assert_eq!(read.code, 0);
-    }
-    let work = snapshot_wire::decode_work(&bytes[..length as usize]).unwrap();
+    let work = frame::snapshot(world).work;
     assert_eq!(
         work,
-        OffscreenWork::SetGlobal(PropertyValue::MatrixArray("_Big".into(), matrices(&values)))
+        [
+            OffscreenWork::SetGlobal(PropertyValue::MatrixArray("_Big".into(), matrices(&values))),
+            OffscreenWork::ReleaseTemporary { name_id: 3 },
+        ],
+        "the ordered array and the release it precedes"
     );
 }
 
@@ -244,7 +209,7 @@ fn a_bad_name_is_refused_and_nothing_is_recorded_or_stored() {
             assert_eq!(result.code, result_code::ERROR);
             assert_eq!(result.detail, DisunityErrorReason::InvalidArgument as u64);
         }
-        let state = snapshot(world);
+        let state = snapshot_after_a_blit(world);
         let global = state.global.unwrap().properties;
         assert!(global.vector_arrays.is_empty() && global.matrix_arrays.is_empty());
         assert_eq!(state.work.len(), 1, "only the blit that took the snapshot");
@@ -265,7 +230,7 @@ fn a_non_finite_component_anywhere_is_refused_and_nothing_changes() {
                 assert_eq!(result.detail, DisunityErrorReason::InvalidArgument as u64);
             }
         }
-        let state = snapshot(world);
+        let state = snapshot_after_a_blit(world);
         let global = state.global.unwrap().properties;
         assert!(global.vector_arrays.is_empty() && global.matrix_arrays.is_empty());
         assert_eq!(state.work.len(), 1);
@@ -300,7 +265,7 @@ fn the_input_is_copied_before_the_call_returns() {
     matrix_values.fill(-1.0);
     drop((vector_values, matrix_values));
 
-    let state = snapshot(world);
+    let state = snapshot_after_a_blit(world);
     let global = global_properties(world);
     assert_eq!(global.vector_array("_V"), Some(expected_vectors));
     // Both arrays are ordered ahead of the blit that took the snapshot.

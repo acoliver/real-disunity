@@ -65,10 +65,10 @@ pub(crate) fn booted_fixture_host() -> DisunityHost {
     DisunityHost::boot(&fixture_config()).unwrap()
 }
 
-fn fixture_host() -> DisunityHost {
+fn fixture_host(fixture: &str) -> DisunityHost {
     let mut host = booted_fixture_host();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    host.run_slice(&root.join("csharp/PortableFixture/retained-ui.fixture"))
+    host.run_slice(&root.join("csharp/PortableFixture").join(fixture))
         .unwrap();
     host
 }
@@ -86,9 +86,15 @@ fn every_host_booted_in_one_test_process_reaches_the_world_its_slice_loaded() {
     }
 }
 
-#[test]
-fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_updates() {
-    let _turn = fixture_turn();
+/// The frames a fixture's player captured and the UI updates it sent.
+pub(crate) struct FixtureRun {
+    pub(crate) captures: Vec<Capture>,
+    pub(crate) ui_updates: u64,
+}
+
+/// Plays a portable fixture (its `.fixture` file name) in a 64 by 64 windowless player for eight
+/// frames and returns what frames 0 and 1 captured. Take [`fixture_turn`] first.
+pub(crate) fn play_fixture(fixture: &str) -> FixtureRun {
     let data = tempfile::tempdir().unwrap();
     let (mut shared, options) = headless::shared([64, 64]);
     let gpu = crate::player::window_gpu(
@@ -110,7 +116,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
         keys: vec![],
     };
     let mut driver = PlayerRetainedDriver::new(
-        fixture_host(),
+        fixture_host(fixture),
         &window,
         crate::scene_light::SceneLighting::start(&[], viewer_options_camera())
             .unwrap()
@@ -136,13 +142,22 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
     }
     run.shutdown().unwrap();
     drop(run);
-    assert_eq!(driver.ui.updates, 1, "unchanged frames send no UI update");
-    let captures = driver.script.finish().unwrap();
-    assert_eq!(captures.len(), 2);
-    for image in &captures {
+    FixtureRun {
+        ui_updates: driver.ui.updates,
+        captures: driver.script.finish().unwrap(),
+    }
+}
+
+#[test]
+fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_updates() {
+    let _turn = fixture_turn();
+    let run = play_fixture("retained-ui.fixture");
+    assert_eq!(run.ui_updates, 1, "unchanged frames send no UI update");
+    assert_eq!(run.captures.len(), 2);
+    for image in &run.captures {
         assert_ui_pixels(image);
     }
-    assert_eq!(captures[0].pixels, captures[1].pixels);
+    assert_eq!(run.captures[0].pixels, run.captures[1].pixels);
 }
 
 fn viewer_options_camera() -> SceneCamera {
@@ -192,7 +207,8 @@ fn assert_ui_pixels(image: &Capture) {
     );
 }
 
-fn rgba(image: &Capture, x: u32, y: u32) -> &[u8] {
+/// The pixel of a capture, with y counted from the bottom row of the window.
+pub(crate) fn rgba(image: &Capture, x: u32, y: u32) -> &[u8] {
     let offset = ((image.height - 1 - y) * image.width + x) as usize * 4;
     &image.pixels[offset..offset + 4]
 }

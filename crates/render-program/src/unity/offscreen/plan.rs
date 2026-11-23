@@ -407,12 +407,12 @@ impl Services<'_> {
             &spec.layers,
             &target.buffer,
         );
-        let dots = spec
-            .dots
-            .map(|dots| dots.values(&target.buffer))
-            .transpose()?;
         let mut values = spec.layers.values();
         values.push(&texel_sizes);
+        let dots = spec
+            .dots
+            .map(|dots| dots.values(&target.buffer, &values))
+            .transpose()?;
         // The batch's own values come first: they are what the draw's variant is for.
         if let Some(set) = &dots {
             values.insert(0, set);

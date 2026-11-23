@@ -325,3 +325,84 @@ fn the_largest_blend_index_a_mesh_may_hold_is_kept_exactly() {
     let kept = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
     assert_eq!(kept.to_bits(), 65_535.0_f32.to_bits());
 }
+
+/// Three vertices in one stream: a 32-bit float position, then `weights` float blend weights per
+/// vertex when it is not zero, then `joints` 32-bit unsigned blend indices per vertex.
+fn partial_skin_mesh(weights: usize, joints: usize) -> MeshSpec {
+    let mut vertex_data = Vec::new();
+    for vertex in 0..3 {
+        vertex_data.extend(f32s(&POSITIONS[vertex]));
+        vertex_data.extend(f32s(&WEIGHTS[vertex][..weights]));
+        vertex_data.extend(u32s(&JOINTS[vertex][..joints]));
+    }
+    let mut channels = vec![[0, 0, 0, 0]; 14];
+    channels[0] = [0, 0, 0, 3];
+    let joint_at = 12 + 4 * weights;
+    if weights > 0 {
+        channels[12] = [0, 12, 0, u8::try_from(weights).unwrap()];
+    }
+    channels[13] = [
+        0,
+        u8::try_from(joint_at).unwrap(),
+        10,
+        u8::try_from(joints).unwrap(),
+    ];
+    MeshSpec {
+        channels,
+        vertex_data,
+        ..skinned_mesh(10)
+    }
+}
+
+/// The floats of the planned channel `name` of the mesh, read from its resource.
+fn planned_channel(dir: &Path, mesh: &Json, name: &str) -> Vec<f32> {
+    let bytes = std::fs::read(dir.join("out").join(mesh["resource"].as_str().unwrap())).unwrap();
+    let mut at = 0;
+    for channel in mesh["channels"].as_array().unwrap() {
+        let count = 3 * usize::try_from(channel["dimension"].as_u64().unwrap()).unwrap();
+        if channel["name"] == name {
+            return bytes[at..at + count * 4]
+                .chunks(4)
+                .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
+                .collect();
+        }
+        at += count * 4;
+    }
+    panic!("no channel {name} in {}", mesh["channels"]);
+}
+
+fn joint_floats() -> [[f32; 4]; 3] {
+    JOINTS.map(|row| row.map(|joint| f32::from(u16::try_from(joint).unwrap())))
+}
+
+fn padded(rows: &[[f32; 4]; 3], kept: usize) -> Vec<f32> {
+    rows.iter()
+        .flat_map(|row| (0..4).map(move |slot| if slot < kept { row[slot] } else { 0.0 }))
+        .collect()
+}
+
+#[test]
+fn a_mesh_with_blend_indices_and_no_blend_weights_is_rigid_to_each_vertexs_first_bone() {
+    for joints in [1, 2] {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = plan_prefab(dir.path(), mesh_bytes(&partial_skin_mesh(0, joints)));
+        let mesh = asset_json(&plan, mesh_index(&plan).expect("the mesh is planned"));
+        let indices: Vec<f32> = padded(&joint_floats(), joints);
+        assert_eq!(planned_channel(dir.path(), &mesh, "blend indices"), indices);
+        let rigid = [1.0, 0.0, 0.0, 0.0].repeat(3);
+        assert_eq!(planned_channel(dir.path(), &mesh, "blend weights"), rigid);
+        assert_eq!(plan.differences, Vec::<String>::new(), "{joints} indices");
+    }
+}
+
+#[test]
+fn blend_weights_and_indices_of_fewer_than_four_bones_are_padded_to_four() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan_prefab(dir.path(), mesh_bytes(&partial_skin_mesh(2, 2)));
+    let mesh = asset_json(&plan, mesh_index(&plan).expect("the mesh is planned"));
+    let weights = planned_channel(dir.path(), &mesh, "blend weights");
+    assert_eq!(weights, padded(&WEIGHTS, 2));
+    let joints = planned_channel(dir.path(), &mesh, "blend indices");
+    assert_eq!(joints, padded(&joint_floats(), 2));
+    assert_eq!(plan.differences, Vec::<String>::new());
+}

@@ -7,8 +7,10 @@
 //! Position and normal have dimension 3, tangent and color 4, and a texture coordinate 2 to 4;
 //! integer and normalized formats are converted to floats, so the managed side reads one format.
 //! Vertex data stored in a `.resS` file is read from it. A skinned mesh also plans the blend weights
-//! and blend indices as channels of dimension 4, and its bind poses, row-major 16 floats each,
-//! in the plan entry. A mesh the planner cannot decode (mesh compression, a vertex format it does
+//! and blend indices as channels of dimension 4, padded with 0 where the serialized channel has
+//! fewer components, and its bind poses, row-major 16 floats each, in the plan entry. A mesh that
+//! has blend indices and no blend weights binds each vertex to its first bone, so its weights are
+//! 1, 0, 0, 0. A mesh the planner cannot decode (mesh compression, a vertex format it does
 //! not convert, bone counts that vary per vertex, data that lies outside the object) is left out
 //! and listed; a reference to it plans as null.
 
@@ -96,6 +98,8 @@ const CHANNEL_NAMES: [&str; 14] = [
     "blend weights",
     "blend indices",
 ];
+const BLEND_WEIGHTS: usize = 12;
+const BLEND_INDICES: usize = 13;
 /// Vertex streams start at multiples of this many bytes.
 const STREAM_ALIGNMENT: usize = 16;
 const MAX_STREAMS: usize = 4;
@@ -281,7 +285,7 @@ fn sources(mesh: &Mesh) -> Result<Vec<Source>, String> {
 fn planned_dimension(attribute: usize, serialized: usize) -> u8 {
     let dimension = match attribute {
         0 | 1 => 3,
-        2 | 3 => 4,
+        2 | 3 | BLEND_WEIGHTS | BLEND_INDICES => 4,
         _ => serialized.clamp(2, 4),
     };
     u8::try_from(dimension).expect("at most four components")
@@ -409,6 +413,22 @@ pub(crate) fn decode_mesh(
     Ok(build(&mesh, &data, &object_bytes))
 }
 
+/// Appends the blend weights of vertices that only a blend index binds: the first bone has all
+/// the weight.
+fn append_rigid_weights(vertices: usize, out: &mut Vec<u8>) {
+    for _ in 0..vertices {
+        for weight in [1.0_f32, 0.0, 0.0, 0.0] {
+            out.extend(weight.to_le_bytes());
+        }
+    }
+}
+
+/// Whether the mesh binds its vertices to bones by blend indices alone, with no blend weights.
+fn rigid_skin(layout: &[Source]) -> bool {
+    let has = |attribute| layout.iter().any(|source| source.attribute == attribute);
+    has(BLEND_INDICES) && !has(BLEND_WEIGHTS)
+}
+
 fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String> {
     let vertices = mesh.vertex_data.vertex_count as usize;
     if !mesh.skin.variable_bone_count_weights.is_empty() {
@@ -432,13 +452,20 @@ fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String>
         append_attribute(source, data, vertices, &mut bytes)
             .map_err(|reason| flaw(mesh, reason))?;
     }
-    let channels = layout
+    let mut channels: Vec<PlanMeshChannel> = layout
         .iter()
         .map(|source| PlanMeshChannel {
             name: CHANNEL_NAMES[source.attribute].to_owned(),
             dimension: planned_dimension(source.attribute, source.dimension),
         })
         .collect();
+    if rigid_skin(&layout) {
+        channels.push(PlanMeshChannel {
+            name: CHANNEL_NAMES[BLEND_WEIGHTS].to_owned(),
+            dimension: planned_dimension(BLEND_WEIGHTS, 0),
+        });
+        append_rigid_weights(vertices, &mut bytes);
+    }
     let (list, sub_meshes) = indices(mesh, object)?;
     bytes.extend(list.iter().flat_map(|index| index.to_le_bytes()));
     let aabb = mesh.local_aabb;

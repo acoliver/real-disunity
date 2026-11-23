@@ -52,7 +52,7 @@ fn a_run_becomes_one_quad_at_the_sort_key_of_its_first_draw() {
         ],
         ..UiPresentation::default()
     };
-    let layers = plan.layers(VIEWPORT, VIEWPORT);
+    let layers = plan.layers(VIEWPORT, 4096);
     assert_eq!(layers.runs.len(), 1);
     let overlay = UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap();
     assert_eq!(overlay.quads.len(), 3);
@@ -88,7 +88,7 @@ fn a_plan_without_runs_has_no_layer_texture() {
         draws: vec![draw(None, [0., 0., 4., 4.], (0, 0))],
         ..UiPresentation::default()
     };
-    let layers = plan.layers(VIEWPORT, VIEWPORT);
+    let layers = plan.layers(VIEWPORT, 4096);
     let overlay = UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap();
     assert_eq!(overlay.quads.len(), 1);
     assert!(!overlay.shows_layers());
@@ -104,8 +104,51 @@ fn a_material_draw_outside_every_run_has_no_quad() {
         ],
         ..UiPresentation::default()
     };
-    let layers = plan.layers(VIEWPORT, VIEWPORT);
+    let layers = plan.layers(VIEWPORT, 4096);
     assert!(layers.runs.is_empty());
     let overlay = UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap();
     assert_eq!(overlay.quads.len(), 1);
+}
+
+#[test]
+fn runs_in_a_grown_atlas_sample_their_own_rectangles_of_it() {
+    let a = material(1);
+    let plan = UiPresentation {
+        draws: vec![
+            draw(Some(a), [0., 0., 64., 32.], (1, 0)),
+            draw(None, [0., 0., 4., 4.], (2, 0)),
+            draw(Some(a), [0., 0., 64., 32.], (3, 0)),
+        ],
+        ..UiPresentation::default()
+    };
+    let layers = plan.layers(VIEWPORT, 4096);
+    assert_eq!(layers.runs.len(), 2);
+    assert_ne!(
+        layers.atlas_size, VIEWPORT,
+        "two screens need a larger atlas"
+    );
+    let overlay = UiOverlay::from_presentation(&plan, &BTreeMap::new(), &layers).unwrap();
+    let atlas = [layers.atlas_size[0] as f32, layers.atlas_size[1] as f32];
+    let mut sampled: Vec<_> = overlay
+        .quads
+        .iter()
+        .filter(|quad| quad.sorting_order != 2)
+        .map(|quad| quad.uv_rect)
+        .collect();
+    sampled.sort_by(|left, right| left.partial_cmp(right).unwrap());
+    let mut expected: Vec<_> = layers
+        .runs
+        .iter()
+        .map(|run| {
+            let [x, y, width, height] = run.atlas.map(|value| value as f32);
+            [
+                x / atlas[0],
+                (y + height) / atlas[1],
+                (x + width) / atlas[0],
+                y / atlas[1],
+            ]
+        })
+        .collect();
+    expected.sort_by(|left, right| left.partial_cmp(right).unwrap());
+    assert_eq!(sampled, expected);
 }

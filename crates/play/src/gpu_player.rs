@@ -501,6 +501,9 @@ pub struct PlayerGpu {
     drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
+    /// The size of the layer atlas the last frame's UI work draws into, `None` for a frame with no
+    /// UI work.
+    ui_atlas: Cell<Option<[u32; 2]>>,
     /// The reads of a record's target the run was asked for, which the frames they name make.
     reads: RefCell<Vec<crate::TargetRead>>,
 }
@@ -678,6 +681,7 @@ impl PlayerGpu {
             device,
             drawn_screen: Cell::new(None),
             screen_size: Cell::new(None),
+            ui_atlas: Cell::new(None),
             reads: RefCell::new(Vec::new()),
         })
     }
@@ -734,10 +738,16 @@ impl PlayerGpu {
 
     /// The texture the UI frame's runs were drawn into, which the viewer's overlay shows. `None`
     /// until a frame with runs made it, after a frame without any, and while it is not the size
-    /// of the screen: a resize makes the next frame that has runs a new one.
+    /// of the atlas that frame planned: a resize or a plan that needs a larger atlas makes the
+    /// next frame that has runs a new texture.
     pub(crate) fn ui_layers(&self) -> Option<wgpu::Texture> {
         let texture = self.offscreen.borrow().ui_layers_texture()?;
-        (self.screen_size.get() == Some([texture.width(), texture.height()])).then_some(texture)
+        (self.ui_atlas.get() == Some([texture.width(), texture.height()])).then_some(texture)
+    }
+
+    /// The largest side of a texture the player's device can make.
+    pub(crate) fn max_texture_side(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
     }
 
     /// Numbers the screen `frame` when work drew into it since the last frame of the player's own.

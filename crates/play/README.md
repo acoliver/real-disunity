@@ -76,7 +76,7 @@ cargo run -p worldrunner-play -- --player OW_Data --frames 43 --size 1920x1080 -
 
 - `FRAME` counts from 0 like `--screen`; `RECORD` is the index into the frame's adapted records, the numbering of `[gpu] frame F record R ...` lines.
   The two numbers and `FILE` are split at the first two colons, so `FILE` may be `C:\out\a.png`; it must end in `.png`.
-- For every frame that has a `--read-target`, the run prints one `[gpu] frame F record R KIND ...` line for each record of the frame on standard error, before the frame is built, with the record's kind, its target texture, size and depth bits.
+- For every frame that has a `--read-target`, the run prints one `[gpu] frame F record R KIND ...` line for each record of the frame on standard error, before the frame is built, with the record's kind, its target texture, size and depth bits, and the id, size and depth bits of the depth attachment when that is another texture than the target. A depth read is the depth the record rendered with, so a record that draws into a colour texture with a depth texture of its own reads that depth texture.
   Run once with any record to find the numbers, then ask for the ones you want.
   The numbering follows the frame path only: a script's flushes build their own, smaller record lists, which are not numbered.
   The numbers stay the same between runs of one player, scene, flags and `--fixed-dt`, and may change with the game or the engine.

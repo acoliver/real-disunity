@@ -67,30 +67,40 @@ fn tap_record(
         );
         return refused(index, &why);
     };
-    let imported = match svc.tracker.imported(target) {
-        Some(imported) => Ok(imported),
-        None => svc.import(target).map(|(imported, _)| imported),
+    let colour = read_texture(svc, steps, (index, target), true);
+    let depth = match record.depth_target() {
+        Some(texture) => read_texture(svc, steps, (index, texture), false),
+        None => Err(format!(
+            "record {index} is a {} record with no depth attachment",
+            record.kind()
+        )),
     };
-    let imported = match imported {
-        Ok(imported) => imported,
-        Err(error) => return refused(index, &format!("record {index}: {error}")),
-    };
-    let mut read = |colour: bool| {
-        let source = source_of(target, imported, colour)?;
-        let id = raster_id("offscreen tap", index * 2 + usize::from(!colour));
-        let (operation, pending) =
-            readback_operation(svc.runtime.device(), &mut *svc.tracker, &source, id)
-                .map_err(|error| format!("record {index} target {target:?}: {error}"))?;
-        steps.push(Step::Ready(operation));
-        Ok::<PendingImage, String>(pending)
-    };
-    let colour = read(true);
-    let depth = read(false);
     TapRead {
         record: index,
         colour,
         depth,
     }
+}
+
+/// The copy of the colour or the depth of `texture` that the frame makes after record `index`.
+fn read_texture(
+    svc: &mut Services<'_>,
+    steps: &mut Vec<Step>,
+    (index, texture): (usize, TextureId),
+    colour: bool,
+) -> Result<PendingImage, String> {
+    let imported = match svc.tracker.imported(texture) {
+        Some(imported) => Ok(imported),
+        None => svc.import(texture).map(|(imported, _)| imported),
+    };
+    let imported = imported.map_err(|error| format!("record {index}: {error}"))?;
+    let source = source_of(texture, imported, colour)?;
+    let id = raster_id("offscreen tap", index * 2 + usize::from(!colour));
+    let (operation, pending) =
+        readback_operation(svc.runtime.device(), &mut *svc.tracker, &source, id)
+            .map_err(|error| format!("record {index} target {texture:?}: {error}"))?;
+    steps.push(Step::Ready(operation));
+    Ok(pending)
 }
 
 /// The first mip and layer of the colour or the depth of `imported`, which a target may lack.

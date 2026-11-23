@@ -405,6 +405,25 @@ impl Record {
             Self::Globals(_) => None,
         }
     }
+
+    /// The texture whose depth buffer the record rendered with: the depth attachment a clear, a
+    /// draw list or a procedural draw binds, which may be a texture of its own or the colour
+    /// target's, and the depth buffer of a camera's target. A blit, a copy, a mip generation and
+    /// a record of globals have none, and neither has a clear or a draw that binds no depth.
+    #[must_use]
+    pub fn depth_target(&self) -> Option<TextureId> {
+        let attached = |target: &Attachments| target.depth.as_ref().map(|depth| depth.texture);
+        match self {
+            Self::CameraRender { target, .. } => Some(*target),
+            Self::Clear { target, .. } => attached(target),
+            Self::Draws(list) => attached(&list.target),
+            Self::Procedural(draw) => attached(&draw.target),
+            Self::Blit { .. }
+            | Self::CopyTexture { .. }
+            | Self::GenerateMips { .. }
+            | Self::Globals(_) => None,
+        }
+    }
 }
 
 /// A range of a texture the scene samples after the offscreen work.

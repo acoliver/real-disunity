@@ -837,6 +837,7 @@ A readback copies into a buffer, which `Depth24Plus` does not allow, so `read_ba
 GraphicsFormat 0 with no depth bits is `OffscreenError::UnsupportedFormat { code: 0 }`.
 
 `OffscreenFrame::taps` lists indices into `records`; right after planning each such record the state copies the record's target (`Record::target`) into staging buffers, colour (`TextureAspect::All`) and depth (`DepthOnly`, from the depth allocation's own format), at mip 0 and layer 0, with the version the cell has at that point of the frame.
+The depth of a tap is the depth the record rendered with (`Record::depth_target`): the depth attachment a clear, a draw list or a procedural draw binds, which may be a render texture of its own, and a camera's target's own depth buffer. A blit, a copy, a mip generation and a clear or draw that binds no depth have none and refuse it by name.
 `OffscreenOperations::take_taps` gives one `TapRead` for each tap, whose `colour` and `depth` are a `PendingImage` or the reason there is none: a record that draws nothing (`Globals`), a target without colour or without a depth buffer, a depth format whose depth aspect cannot be copied (`Depth24Plus`, `Depth24PlusStencil8`) and an index past the last record.
 A refusal is data, not an `OffscreenError`, so a bad tap never drops the frame's draws.
 The copies sit in the frame's own submission, so the frame ends with the same image with or without taps.

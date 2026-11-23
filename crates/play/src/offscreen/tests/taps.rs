@@ -4,10 +4,15 @@
 
 use std::path::Path;
 
+use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::unity::offscreen::TapRead;
+use worldrunner_render_program::unity::offscreen::frame::{
+    Attachment, Attachments, Clear, Record, RenderDimension, RenderTextureSpec,
+};
 
 use super::super::adapter::Settling;
 use super::super::flush::OffscreenHost;
+use super::super::taps::listing;
 use super::blit_material_gpu::fill;
 use super::flush::host;
 use super::gpu::{Quad, SIDE};
@@ -146,4 +151,53 @@ fn finishing_writes_each_read_and_names_every_refusal() {
         "a colour-only target names its missing depth: {:?}",
         finished.refusals
     );
+}
+
+fn spec(id: u64, size: [u32; 2], graphics_format: u32, depth_bits: u8) -> RenderTextureSpec {
+    RenderTextureSpec {
+        id: TextureId(id),
+        size,
+        dimension: RenderDimension::D2,
+        graphics_format,
+        depth_bits,
+        mips: 1,
+        srgb: false,
+        generation: 0,
+    }
+}
+
+fn clear_of(color: u64, depth: Option<u64>) -> Record {
+    let attachment = |texture| Attachment {
+        texture: TextureId(texture),
+        mip: 0,
+    };
+    Record::Clear {
+        target: Attachments::single(Some(attachment(color)), depth.map(attachment)),
+        clear: Clear::default(),
+    }
+}
+
+#[test]
+fn a_listing_names_a_depth_attachment_that_is_another_texture_than_the_target() {
+    let textures = [
+        spec(0x10, [1280, 720], 48, 0),
+        spec(0x11, [1280, 720], 0, 32),
+    ];
+    let line = listing(119, 8, &clear_of(0x10, Some(0x11)), &textures);
+    assert_eq!(
+        line,
+        "[gpu] frame 119 record 8 Clear target #10 1280x720 format 48 depth 0 \
+         depth attachment #11 1280x720 format 0 depth 32"
+    );
+}
+
+#[test]
+fn a_listing_adds_nothing_when_the_depth_is_the_targets_own_or_absent() {
+    let textures = [spec(0x10, [1280, 720], 48, 32)];
+    let own = listing(119, 8, &clear_of(0x10, Some(0x10)), &textures);
+    assert_eq!(
+        own,
+        "[gpu] frame 119 record 8 Clear target #10 1280x720 format 48 depth 32"
+    );
+    assert_eq!(listing(119, 8, &clear_of(0x10, None), &textures), own);
 }

@@ -1,13 +1,13 @@
 //! When the stock frame plans and writes the post-water depth, and what the pass that writes it
 //! carries. The stock water, the stock reflections and a game pass that declares a read each ask
-//! for it; suppressed water, which no stock pass draws, asks for nothing, so a frame plans the
-//! pass only when something else reads it. The device depth companion is a second colour
+//! for it; water that a game draws, which no stock pass draws, asks for nothing, so a frame plans
+//! the pass only when something else reads it. The device depth companion is a second colour
 //! attachment of that pass, which only a game that reads it adds.
 use super::water_draws::{Frame, rig_configured};
 use super::*;
 use crate::compositor::{
     ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
-    PostWaterDepth, SnapshotReads, WaterDraws,
+    PostWaterDepth, SnapshotReads, StockReplacement, declaring_stock,
 };
 use std::sync::Arc;
 use worldrunner_render_post::{
@@ -22,7 +22,10 @@ const OPAQUE_DEPTHS: &str =
 
 /// A game whose one pass, after the transparent passes, reads the snapshots it is given and draws
 /// nothing.
-struct Reader(SnapshotReads);
+struct Reader {
+    reads: SnapshotReads,
+    replaces: StockReplacement,
+}
 
 struct ReaderFeature(SnapshotReads, GameTargets);
 
@@ -34,11 +37,15 @@ impl GameFeatureFactory for Reader {
     }
 
     fn snapshot_reads(&self) -> SnapshotReads {
-        self.0
+        self.reads
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.replaces
     }
 
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
-        Ok(Box::new(ReaderFeature(self.0, context.targets.clone())))
+        Ok(Box::new(ReaderFeature(self.reads, context.targets.clone())))
     }
 }
 
@@ -88,20 +95,22 @@ fn post_water(device: bool) -> SnapshotReads {
     }
 }
 
-/// The first frame of a scene with or without water and reflections, drawn with `draws` and a
-/// game that reads `reads` when it reads any.
+/// The first frame of a scene with or without water and reflections, drawn with a game that
+/// declares `replaces` and reads `reads`. A game that reads nothing is an inventory that only
+/// declares, and with neither there is no game.
 fn planned_frame(
     request: Option<SceneSsr>,
     water: bool,
-    draws: WaterDraws,
+    replaces: StockReplacement,
     reads: SnapshotReads,
 ) -> Frame {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut rig = rig_configured(&context, scene_with(request, water), |settings| {
-        settings.water_draws = draws;
         if reads.any() {
-            settings.game_passes = GamePasses::new().with(Arc::new(Reader(reads)));
+            settings.game_passes = GamePasses::new().with(Arc::new(Reader { reads, replaces }));
+        } else if replaces != StockReplacement::NONE {
+            settings.game_passes = declaring_stock(replaces);
         }
     });
     rig.frame(0, 0)
@@ -120,27 +129,21 @@ fn passes_after(frame: &Frame, slot: &str) -> Vec<String> {
 fn gpu_stock_water_and_stock_reflections_plan_the_post_water_depth_and_nothing_else_does() {
     let none = SnapshotReads::NONE;
     let cases = [
-        ("stock water", None, true, WaterDraws::Stock, true),
+        ("stock water", None, true, StockReplacement::NONE, true),
+        ("declared water", None, true, StockReplacement::WATER, false),
+        ("no water", None, false, StockReplacement::NONE, false),
         (
-            "suppressed water",
-            None,
-            true,
-            WaterDraws::Suppressed,
-            false,
-        ),
-        ("no water", None, false, WaterDraws::Stock, false),
-        (
-            "suppressed water with reflections",
+            "declared water with reflections",
             Some(reflections()),
             true,
-            WaterDraws::Suppressed,
+            StockReplacement::WATER,
             true,
         ),
         (
             "reflections without water",
             Some(reflections()),
             false,
-            WaterDraws::Stock,
+            StockReplacement::NONE,
             true,
         ),
     ];
@@ -160,8 +163,8 @@ fn gpu_stock_water_and_stock_reflections_plan_the_post_water_depth_and_nothing_e
 }
 
 #[test]
-fn gpu_a_game_that_declares_the_post_water_depth_gets_it_planned_under_suppressed_water() {
-    for draws in [WaterDraws::Suppressed, WaterDraws::Stock] {
+fn gpu_a_game_that_declares_the_post_water_depth_gets_it_planned_under_declared_water() {
+    for draws in [StockReplacement::WATER, StockReplacement::NONE] {
         let linear = planned_frame(None, true, draws, post_water(false));
         assert_eq!(
             passes_after(&linear, "AfterWaterDepth"),
@@ -176,7 +179,7 @@ fn gpu_a_game_that_declares_the_post_water_depth_gets_it_planned_under_suppresse
         );
         assert_eq!(
             passes_after(&both, "TransparentWater").len(),
-            usize::from(draws == WaterDraws::Stock),
+            usize::from(!draws.water),
             "{draws:?}: only the stock draws record a water pass"
         );
     }
@@ -189,7 +192,7 @@ fn gpu_a_game_that_reads_only_the_opaque_depths_leaves_the_post_water_depth_unpl
         device_depth: true,
         ..SnapshotReads::NONE
     };
-    let frame = planned_frame(None, true, WaterDraws::Suppressed, opaque);
+    let frame = planned_frame(None, true, StockReplacement::WATER, opaque);
     assert_eq!(
         passes_after(&frame, "AfterWaterDepth"),
         Vec::<String>::new()
@@ -199,8 +202,8 @@ fn gpu_a_game_that_reads_only_the_opaque_depths_leaves_the_post_water_depth_unpl
 
 #[test]
 fn gpu_a_game_that_reads_the_post_water_device_depth_leaves_the_stock_passes_alone() {
-    let stock = planned_frame(None, true, WaterDraws::Stock, SnapshotReads::NONE);
-    let reading = planned_frame(None, true, WaterDraws::Stock, post_water(true));
+    let stock = planned_frame(None, true, StockReplacement::NONE, SnapshotReads::NONE);
+    let reading = planned_frame(None, true, StockReplacement::NONE, post_water(true));
     let without_game: Vec<_> = stock.passes.clone();
     let with_game: Vec<_> = reading
         .passes

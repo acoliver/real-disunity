@@ -156,3 +156,26 @@ fn a_frame_asked_for_before_any_work_drew_into_the_screen_is_an_error_naming_the
         "{error}"
     );
 }
+
+#[test]
+fn a_frame_the_gpu_refuses_ends_the_run_and_no_screen_is_written_for_it_or_after() {
+    let _turn = fixture_turn();
+    let prepared = fixture_named("screen-refused.fixture");
+    let directory = tempfile::tempdir().unwrap();
+    let screen = output(directory.path(), &[0, 1, 2, 3]);
+
+    let error = run_player(&prepared, 4, Duration::from_millis(16), Some(&screen)).unwrap_err();
+
+    // Frame 0 drew the yellow; the clear of frame 1 needs 256 GiB, which no budget has.
+    let message = error.to_string();
+    assert!(message.contains("frame 1"), "{message}");
+    assert!(message.contains("refused by the GPU"), "{message}");
+    assert!(message.contains("over its budget"), "{message}");
+    let mut written: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    written.sort();
+    assert_eq!(written, ["screen-0.png"], "{message}");
+    std::fs::remove_dir_all(&prepared.data).unwrap();
+}

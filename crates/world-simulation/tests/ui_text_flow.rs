@@ -186,7 +186,13 @@ fn extracted_span_colours_scroll_clips_and_unrelated_updates_share_the_atlas() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut world, None, Vec2::ZERO);
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let view = rect(&mut world, Some(root), Vec2::new(40., 30.));
     let content = rect(&mut world, Some(view), Vec2::new(40., 80.));
@@ -238,7 +244,13 @@ fn text_is_clipped_to_its_own_rectangle_even_with_overflow_enabled() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut world, None, Vec2::ZERO);
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let text = rect(&mut world, Some(root), Vec2::new(30., 20.));
     world.add_component(text, ComponentDesc::Text(run)).unwrap();

@@ -137,11 +137,11 @@ pub(crate) struct Parsed {
 
 /// A stage ready to build pipelines from: parsed, validated, with its declarations.
 ///
-/// Cloning shares the parsed module.
+/// Cloning shares everything the stage holds.
 #[derive(Clone)]
 pub struct StageProgram {
-    module: StageModule,
-    declarations: StageDeclarations,
+    module: Arc<StageModule>,
+    declarations: Arc<StageDeclarations>,
     parsed: Arc<Parsed>,
     /// The resources the entry point uses.
     resources: Arc<[Reflected]>,
@@ -188,8 +188,8 @@ impl StageProgram {
         let module_key = source_key(&module.source);
         let key = stage_key(module_key, &module, &[]);
         Ok(Self {
-            module,
-            declarations,
+            module: Arc::new(module),
+            declarations: Arc::new(declarations),
             parsed: Arc::new(parsed),
             resources,
             overrides: Arc::from([]),
@@ -216,8 +216,8 @@ impl StageProgram {
         let resources = guarded(|| reflected(&self.parsed, entry_point, kind))?;
         let key = stage_key(self.module_key, &module, &[]);
         Ok(Self {
-            module,
-            declarations: StageDeclarations::default(),
+            module: Arc::new(module),
+            declarations: Arc::default(),
             parsed: self.parsed.clone(),
             resources,
             overrides: Arc::from([]),
@@ -267,7 +267,7 @@ impl StageProgram {
     #[must_use]
     pub fn with_declarations(&self, declarations: StageDeclarations) -> Self {
         Self {
-            declarations,
+            declarations: Arc::new(declarations),
             ..self.clone()
         }
     }

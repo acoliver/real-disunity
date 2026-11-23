@@ -1,4 +1,4 @@
-literal_scopes = ["crates/camera/src/profile.rs", "crates/world-runtime/src/profile_discovery.rs"]
+literal_scopes = ["crates/camera/src/profile.rs"]
 owners = []
 
 [[types]]
@@ -19,16 +19,6 @@ role = "runtime"
 [[types]]
 name = "ResolutionPolicy"
 file = "crates/catalog/src/lib.rs"
-role = "runtime"
-
-[[types]]
-name = "RuntimeProfileLimits"
-file = "crates/world-runtime/src/authored_profile.rs"
-role = "runtime"
-
-[[types]]
-name = "RuntimeProfileDiscoveryLimits"
-file = "crates/world-runtime/src/profile_discovery.rs"
 role = "runtime"
 
 [[coverage]]

@@ -1,4 +1,5 @@
-//! A script component of a player scene carries the execution order its script stores.
+//! A script component of a player scene always carries the execution order its script stores,
+//! 0 included, because a player's order replaces the class's attribute.
 
 use std::path::Path;
 
@@ -138,7 +139,7 @@ fn a_script_component_carries_the_order_its_script_stores() {
 }
 
 #[test]
-fn the_default_order_is_left_out_of_the_plan() {
+fn an_order_of_zero_is_carried_so_it_replaces_a_class_attribute() {
     let component = plan_with_order(0);
-    assert!(component.get("execution_order").is_none(), "{component}");
+    assert_eq!(component["execution_order"], 0, "{component}");
 }

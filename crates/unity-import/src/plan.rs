@@ -238,8 +238,10 @@ pub enum PlanComponent {
         class: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         assembly: Option<String>,
-        /// The class's execution order when it is not the default, 0. A player stores it with
-        /// the class's script.
+        /// The class's execution order. A player scene always carries the order the player
+        /// stores with the class's script, 0 included, and it replaces the class's
+        /// `DefaultExecutionOrder` attribute. A source-project scene carries none, and the
+        /// attribute applies.
         #[serde(skip_serializing_if = "Option::is_none")]
         execution_order: Option<i32>,
         enabled: bool,

@@ -105,6 +105,7 @@ impl Planner<'_> {
             script,
             class,
             assembly: None,
+            // A project stores no order here, so the class's attribute decides.
             execution_order: None,
             enabled,
             fields,

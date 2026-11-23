@@ -61,12 +61,19 @@ internal static class ScriptExecutionOrderTests
         private void Update() => Shader.SetGlobalVector(Fog, Vector4.zero);
     }
 
+    [DefaultExecutionOrder(-200)]
+    private sealed class PlanZeroClearsFog : MonoBehaviour
+    {
+        private void Update() => Shader.SetGlobalVector(Fog, Vector4.zero);
+    }
+
     public static void Run()
     {
         AttributeOrderDecidesTheSequence();
         EqualOrdersKeepAttachOrder();
         ALaterClearingScriptDoesNotOverrideAnEarlierSetter();
         APlanCarriesTheOrderOfItsClass();
+        AStoredOrderOfZeroReplacesTheAttribute();
         Console.WriteLine("PASS: scripts run in execution order, from the attribute or from the plan");
     }
 
@@ -139,6 +146,31 @@ internal static class ScriptExecutionOrderTests
             DisunityHost.AddComponent(new PlanClearsFog());
             DisunityHost.Step(0.05f);
             Expect.Equal(new Vector4(1, 0, 200, 0.5f), Shader.GetGlobalVector(Fog), "a script of the same class added later takes the class's order");
+        }
+        finally { DisunityHost.UnloadWorld(); }
+    }
+
+    private const string ZeroPlanText = """
+        {"scene":"zero","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"objects":[
+        {"name":"Setter","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
+        {"type":"Script","class":"ScriptExecutionOrderTests/PlanSetsFog","assembly":"ASSEMBLY","execution_order":0,"enabled":true,"fields":{}}]},
+        {"name":"Clearer","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[
+        {"type":"Script","class":"ScriptExecutionOrderTests/PlanZeroClearsFog","assembly":"ASSEMBLY","execution_order":0,"enabled":true,"fields":{}}]}]}
+        """;
+
+    /// <summary>The clearing class carries <c>DefaultExecutionOrder(-200)</c> in its assembly, but the player stored 0
+    /// for it, so it runs after the setter and clears the fog.</summary>
+    private static void AStoredOrderOfZeroReplacesTheAttribute()
+    {
+        var assembly = typeof(ScriptExecutionOrderTests).Assembly;
+        DisunityHost.LoadWorld();
+        try
+        {
+            DisunityHost.LoadScene(ZeroPlanText.Replace("ASSEMBLY", assembly.GetName().Name),
+                new SceneLoadOptions(assembly, _ => []) { Assemblies = _ => assembly });
+            Shader.SetGlobalVector(Fog, Vector4.one);
+            DisunityHost.Step(0.05f);
+            Expect.Equal(Vector4.zero, Shader.GetGlobalVector(Fog), "the stored order 0 puts the clearing script after the setter");
         }
         finally { DisunityHost.UnloadWorld(); }
     }

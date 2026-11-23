@@ -226,3 +226,97 @@ fn a_squared_distance_beyond_u128_still_panics() {
         [i64::MAX, i64::MAX, i64::MAX],
     );
 }
+
+/// Ceilings, squared, of the shapes a mesh can have: ascending, repeating, out of order,
+/// a lone level and a ceiling no distance exceeds.
+fn ceiling_sets() -> Vec<Vec<u128>> {
+    let squared = |distances: &[u128]| distances.iter().map(|d| d * d).collect();
+    vec![
+        squared(&[40, 100, 230]),
+        squared(&[40, 40, 230]),
+        squared(&[100, 40, 230]),
+        squared(&[0, 7, 8]),
+        squared(&[90]),
+        vec![],
+        vec![u128::MAX, u128::MAX],
+        vec![1_999, 2_000, 2_001, 90_000],
+    ]
+}
+
+#[test]
+fn a_margin_holds_the_level_for_every_eye_within_it_and_wastes_little() {
+    for ceilings in ceiling_sets() {
+        for distance in 0_i64..320 {
+            let squared = u128::try_from(distance * distance).unwrap();
+            let level = MeshSelection::level(squared, &ceilings);
+            let margin = MeshSelection::level_margin(squared, &ceilings, level);
+            // Eyes on the line through the placement are the farthest a move can change the
+            // distance, so the margin is the nearest of them to choose another level.
+            let nearest_other = (1_i64..400)
+                .find(|&moved| {
+                    [distance - moved, distance + moved].into_iter().any(|to| {
+                        let to = u128::try_from(to * to).unwrap();
+                        MeshSelection::level(to, &ceilings) != level
+                    })
+                })
+                .map(|moved| u64::try_from(moved - 1).unwrap());
+            match nearest_other {
+                Some(reach) => {
+                    assert!(margin <= reach, "{ceilings:?} at {distance}: {margin}");
+                    assert!(margin + 2 >= reach, "{ceilings:?} at {distance}: {margin}");
+                }
+                None => assert!(margin >= 397, "{ceilings:?} at {distance}: {margin}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn a_margin_holds_the_level_for_eyes_in_every_direction_and_for_wide_distances() {
+    let mut state = 7_u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let span = |value: u64, bound: u64| i64::try_from(value % bound).unwrap();
+    for ceilings in ceiling_sets() {
+        for _ in 0..4_000 {
+            let position = [0, 1, 2].map(|_| span(next(), 600) - 300);
+            let eye = [0, 1, 2].map(|_| span(next(), 600) - 300);
+            let squared = distance_squared(position, eye);
+            let level = MeshSelection::level(squared, &ceilings);
+            let margin = MeshSelection::level_margin(squared, &ceilings, level).min(300);
+            for _ in 0..8 {
+                // A move of at most `margin` millimetres whole.
+                let step = [0, 1, 2]
+                    .map(|_| span(next(), 2 * margin + 1) - i64::try_from(margin).unwrap());
+                let length = step
+                    .iter()
+                    .map(|d| u128::try_from(d * d).unwrap())
+                    .sum::<u128>();
+                if length > u128::from(margin) * u128::from(margin) {
+                    continue;
+                }
+                let moved = [0, 1, 2].map(|axis| eye[axis] + step[axis]);
+                assert_eq!(
+                    MeshSelection::level(distance_squared(position, moved), &ceilings),
+                    level,
+                    "{ceilings:?}: {position:?} from {eye:?} to {moved:?}"
+                );
+            }
+        }
+    }
+    // Distances beyond what f64 holds exactly keep the margin exact to the rounded roots.
+    let far = u128::from(u64::MAX);
+    let ceilings = [far * far, u128::MAX];
+    let squared = (far - 1_000).pow(2);
+    assert_eq!(MeshSelection::level(squared, &ceilings), 0);
+    let margin = MeshSelection::level_margin(squared, &ceilings, 0);
+    assert_eq!(margin, 999);
+    assert_eq!(
+        MeshSelection::level((far - 1_000 + u128::from(margin)).pow(2), &ceilings),
+        0
+    );
+}

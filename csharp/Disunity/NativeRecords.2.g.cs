@@ -737,6 +737,15 @@ namespace Disunity.Native
         /// </summary>
         public uint texture_kind;
         public uint padding;
+        /// <summary>
+        ///  The world material of a graphic the game draws with its own shader, from
+        ///  `MaterialId::to_bits`; zero for the engine's look and for text.
+        /// </summary>
+        public ulong material;
+        /// <summary>
+        ///  The generation of that material's state; zero when `material` is zero.
+        /// </summary>
+        public ulong material_generation;
     }
 
 }

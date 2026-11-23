@@ -79,6 +79,7 @@ fn draw(texture: UiTexture) -> UiDraw {
         corner_colors: None,
         distance_field: None,
         texture: Some(texture),
+        material: None,
         sorting_layer: 0,
         sorting_order: 0,
         hierarchy_order: 0,

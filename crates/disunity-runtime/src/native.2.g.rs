@@ -382,4 +382,9 @@ pub struct DisunityUiDraw {
     /// (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
     pub texture_kind: u32,
     pub padding: u32,
+    /// The world material of a graphic the game draws with its own shader, from
+    /// `MaterialId::to_bits`; zero for the engine's look and for text.
+    pub material: u64,
+    /// The generation of that material's state; zero when `material` is zero.
+    pub material_generation: u64,
 }

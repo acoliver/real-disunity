@@ -29,7 +29,8 @@ use codec::{Reader, Wire, Writer};
 /// (`RendererView::slot_blocks`). Version 17 added texture slot kind 5, a texture the world
 /// holds as null (main's null-slots census). Version 18 added the renderers of each camera render
 /// and culling record: `renderer_sets` and `record_sets` of the snapshot. Version 21 added work
-/// kind 23, a mesh draw of a batch of instances (versions 19 and 20 are other branches').
+/// kind 23, a mesh draw of a batch of instances. Version 19 added `skinned_not_drawn`, the count of
+/// skinned renderers the sets leave out (version 20 is another branch's).
 pub const WIRE_VERSION: u32 = 21;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;

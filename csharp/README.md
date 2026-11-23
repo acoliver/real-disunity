@@ -124,8 +124,10 @@ After an intentional ABI change:
    texture of a draw whose kind is 1 is the render texture id. Revision 28 adds
    `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
    draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
-   words by property name and the visible instance indexes; revisions 26 and 27 belong to other
-   branches. Native and managed hosts reject
+   words by property name and the visible instance indexes; revision 26 adds the
+   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
+   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
+   `DisunityUiDraw` (160 to 176 bytes); revision 27 belongs to another branch. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

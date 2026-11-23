@@ -1,4 +1,4 @@
-use super::super::live::Capture;
+use super::super::readback::Capture;
 use crate::{CaptureOutput, RetainedCaptureProducts, ViewerError};
 use worldrunner_render_post::{FrameConfig, Readback, contracts::AsyncReadback};
 use worldrunner_render_scene::{

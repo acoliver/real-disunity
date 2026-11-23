@@ -1,16 +1,18 @@
 //! The constants of one renderer generation that a game's passes use: neutral one-texel
 //! textures, the split-sum BRDF table and the full-screen triangle. The engine owns them, so a
 //! game declares none of them, and they are the same for every frame.
+mod fill;
 mod placeholders;
 mod scene_sources;
 mod terrain_arrays;
 
+use self::fill::Fill;
 use super::lent::Lent;
 use super::resources::GameResources;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use worldrunner_render_gpu::census::{ResourceClass, Tracked};
-use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
+use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_plan::SceneSpecularConvention;
 use worldrunner_render_post::PrepareContext;
 use worldrunner_render_program::binding::EngineSemantic;
@@ -82,15 +84,11 @@ impl EnginePlaceholder {
     }
 }
 
-/// The split-sum table of one convention, and whether the frame that integrates it has
-/// submitted.
+/// The split-sum table of one convention, and the frame that integrates it.
 struct BrdfTable {
     convention: SceneSpecularConvention,
     texture: Tracked<wgpu::Texture>,
-    /// Set when a submitted frame has written the table.
-    ready: Rc<Cell<bool>>,
-    /// The frame that stages the integration, while it has not submitted.
-    staged: Option<Publications>,
+    integration: Fill,
 }
 
 #[derive(Default)]
@@ -186,26 +184,19 @@ impl EngineConstants {
                         ResourceClass::Texture,
                         crate::sky::preparation::table_texture(&self.device, BRDF_TABLE_SIZE),
                     ),
-                    ready: Rc::default(),
-                    staged: None,
+                    integration: Fill::default(),
                 });
                 state.tables.len() - 1
             });
         let table = &mut state.tables[at];
         let frame = context.publications();
-        let staged_here = table
-            .staged
-            .as_ref()
-            .is_some_and(|staged| staged.same_frame(&frame));
-        if !table.ready.get() && !staged_here {
+        if table.integration.is_needed_in(&frame) {
             crate::sky::preparation::stage_table(
                 context,
                 &table.texture,
                 (convention, BRDF_TABLE_SAMPLES),
             );
-            let ready = table.ready.clone();
-            context.publish(move || ready.set(true));
-            table.staged = Some(frame);
+            table.integration.stage_in(frame);
         }
         Import::texture(
             semantic,

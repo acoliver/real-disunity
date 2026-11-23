@@ -1,8 +1,15 @@
 use worldrunner_render_scene::CameraPose;
-use worldrunner_scene_viewer::{MouseButton, RetainedInput, WheelDelta};
 
-use crate::navigation::Navigation;
-use crate::scene_transform::orbit_limits;
+use crate::{MouseButton, OrbitLimits, OrbitNavigation, RetainedInput, WheelDelta};
+
+fn orbit_limits() -> OrbitLimits {
+    OrbitLimits {
+        min_distance_millimeters: 100.0,
+        max_distance_millimeters: 1.0e9,
+        min_elevation_radians: -1.45,
+        max_elevation_radians: 1.45,
+    }
+}
 
 const SIZE: [u32; 2] = [960, 540];
 
@@ -13,13 +20,13 @@ fn pose() -> CameraPose {
     }
 }
 
-fn started() -> Navigation {
-    let mut navigation = Navigation::default();
+fn started() -> OrbitNavigation {
+    let mut navigation = OrbitNavigation::default();
     navigation.start(pose(), orbit_limits()).unwrap();
     navigation
 }
 
-fn press(navigation: &mut Navigation, pressed: bool) {
+fn press(navigation: &mut OrbitNavigation, pressed: bool) {
     navigation.accept(
         &RetainedInput::Button {
             button: MouseButton::Left,
@@ -32,10 +39,8 @@ fn press(navigation: &mut Navigation, pressed: bool) {
 fn key(name: &str) -> RetainedInput {
     RetainedInput::Key {
         key: name.to_owned(),
-        logical: worldrunner_scene_viewer::LogicalKey::Dead(None),
-        physical: worldrunner_scene_viewer::PhysicalKey::Unidentified(
-            worldrunner_scene_viewer::NativeKeyCode::Unidentified,
-        ),
+        logical: crate::LogicalKey::Dead(None),
+        physical: crate::PhysicalKey::Unidentified(crate::NativeKeyCode::Unidentified),
         pressed: true,
         repeat: false,
     }
@@ -104,7 +109,7 @@ fn other_keys_do_not_move_the_camera() {
 
 #[test]
 fn before_a_start_the_input_moves_nothing() {
-    let mut navigation = Navigation::default();
+    let mut navigation = OrbitNavigation::default();
     press(&mut navigation, true);
     navigation.accept(&RetainedInput::PointerMoved([1.0, 1.0]), SIZE);
     navigation.accept(&RetainedInput::PointerMoved([90.0, 40.0]), SIZE);

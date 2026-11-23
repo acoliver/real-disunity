@@ -137,6 +137,7 @@ fn large_bc_palette_admission_counts_source_once_for_eight_uploads() {
         images: vec![],
         arrays: vec![],
         resident: std::sync::Mutex::default(),
+        kernels: std::sync::Mutex::default(),
         bounds: [0.0; 4],
     };
     for _ in 0..12 {
@@ -202,6 +203,7 @@ fn heterogeneous_arrays_exceeding_the_stage_budget_fail_before_allocation() {
         images: vec![],
         arrays: vec![],
         resident: std::sync::Mutex::default(),
+        kernels: std::sync::Mutex::default(),
         bounds: [0.0; 4],
     };
     for size in (4..=28).step_by(4) {

@@ -224,8 +224,7 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.game_screen.offer(host.game_screen.as_ref());
         let offscreen = host.offscreen.take();
-        let prepared =
-            self.encode_frame(view, (None, offscreen), &output, Some(&mut image), misses)?;
+        let prepared = self.encode_frame(view, offscreen, &output, Some(&mut image), misses)?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
         self.game_screen.submitted();
         self.submitted_camera_history(host);
@@ -270,7 +269,7 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.game_screen.offer(host.game_screen.as_ref());
         let offscreen = host.offscreen.take();
-        let prepared = self.encode_frame(view, (None, offscreen), &output, None, misses)?;
+        let prepared = self.encode_frame(view, offscreen, &output, None, misses)?;
         self.execution.submit_capture(ready, prepared)?;
         self.game_screen.submitted();
         self.streaming.captures.advance_frame();

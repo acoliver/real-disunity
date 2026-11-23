@@ -7,6 +7,8 @@ use worldrunner_world_simulation::ui::presentation::{
 };
 
 const VIEWPORT: [u32; 2] = [200, 100];
+/// A device limit far above what the plans of most tests need.
+const LIMIT: u32 = 4096;
 
 fn material(bits: u64) -> UiMaterial {
     UiMaterial {
@@ -49,7 +51,7 @@ fn plan(draws: Vec<UiDraw>) -> UiPresentation {
 }
 
 fn layers(draws: Vec<UiDraw>) -> UiLayers {
-    plan(draws).layers(VIEWPORT, VIEWPORT)
+    plan(draws).layers(VIEWPORT, LIMIT)
 }
 
 #[test]
@@ -165,7 +167,7 @@ fn runs_pack_without_overlap_and_the_same_input_gives_the_same_plan() {
     assert!(first.too_large.is_empty());
     for (number, run) in first.runs.iter().enumerate() {
         assert_eq!(run.atlas[2..], run.bounds[2..]);
-        assert!(inside(run.atlas, VIEWPORT), "run {number}");
+        assert!(inside(run.atlas, first.atlas_size), "run {number}");
         for other in &first.runs[..number] {
             assert!(
                 apart(run.atlas, other.atlas),
@@ -186,19 +188,98 @@ fn apart([ax, ay, aw, ah]: [u32; 4], [bx, by, bw, bh]: [u32; 4]) -> bool {
     ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay
 }
 
-#[test]
-fn a_run_that_does_not_fit_the_atlas_is_named_once() {
+/// `count` runs that each cover the whole viewport, told apart by a default draw between them.
+fn full_screen_runs(count: usize) -> UiPresentation {
     let a = material(1);
-    let plan = plan(vec![
-        draw(Some(a), [0., 0., 150., 80.]),
-        draw(None, [0., 0., 1., 1.]),
-        draw(Some(a), [0., 0., 150., 80.]),
-        draw(None, [0., 0., 1., 1.]),
-        draw(Some(a), [0., 0., 20., 20.]),
-    ]);
-    let layers = plan.layers(VIEWPORT, [160, 100]);
-    let placed: Vec<_> = layers.runs.iter().map(|r| r.draws.clone()).collect();
-    assert_eq!(placed, [0..1, 4..5]);
+    let draws = (0..count)
+        .flat_map(|_| {
+            [
+                draw(Some(a), [0., 0., 200., 100.]),
+                draw(None, [0., 0., 1., 1.]),
+            ]
+        })
+        .collect();
+    plan(draws)
+}
+
+/// Asserts that every run lies inside the atlas and no two runs share a pixel.
+fn assert_packed(layers: &UiLayers) {
+    for (number, run) in layers.runs.iter().enumerate() {
+        assert_eq!(run.atlas[2..], run.bounds[2..]);
+        assert!(inside(run.atlas, layers.atlas_size), "run {number}");
+        for other in &layers.runs[..number] {
+            assert!(apart(run.atlas, other.atlas), "run {number} overlaps");
+        }
+    }
+}
+
+#[test]
+fn a_run_that_covers_the_whole_viewport_fits_the_atlas() {
+    let layers = full_screen_runs(1).layers(VIEWPORT, LIMIT);
+    assert_eq!(layers.runs.len(), 1);
+    assert_eq!(layers.runs[0].atlas, [0, 0, 200, 100]);
+    assert_eq!(layers.atlas_size, VIEWPORT);
+    assert!(layers.too_large.is_empty());
+}
+
+#[test]
+fn more_runs_than_one_page_holds_grow_the_atlas_and_every_run_gets_a_place() {
+    let layers = full_screen_runs(5).layers(VIEWPORT, LIMIT);
+    assert_eq!(layers.runs.len(), 5);
+    assert!(layers.too_large.is_empty(), "{:?}", layers.too_large);
+    assert!(layers.atlas_size[0] * layers.atlas_size[1] >= 5 * 200 * 100);
+    assert!(layers.atlas_size.iter().all(|side| *side <= LIMIT));
+    assert_packed(&layers);
+}
+
+#[test]
+fn the_atlas_stays_the_size_of_the_viewport_while_the_runs_fit_it() {
+    let layers = full_screen_runs(1).layers(VIEWPORT, LIMIT);
+    assert_eq!(layers.atlas_size, VIEWPORT);
+    let two = full_screen_runs(2).layers(VIEWPORT, LIMIT);
+    assert_eq!(two.runs.len(), 2);
+    assert_ne!(two.atlas_size, VIEWPORT, "two screens do not fit one page");
+}
+
+#[test]
+fn the_atlas_grows_to_the_limit_before_it_refuses_a_run() {
+    let layers = full_screen_runs(40).layers(VIEWPORT, 1000);
+    assert_eq!(layers.runs.len(), 40);
+    assert!(layers.too_large.is_empty());
+    assert_packed(&layers);
+}
+
+#[test]
+fn a_run_that_does_not_fit_the_atlas_at_its_limit_is_refused_by_its_size() {
+    let layers = full_screen_runs(3).layers(VIEWPORT, 200);
+    assert_eq!(layers.atlas_size, [200, 200]);
+    assert_eq!(layers.runs.len(), 2);
     assert_eq!(layers.too_large.len(), 1);
-    assert_eq!(layers.too_large[0], 2..3);
+    assert_eq!(layers.too_large[0].draws, 4..5);
+    assert_eq!(layers.too_large[0].size, [200, 100]);
+    assert_eq!(layers.max_side, 200);
+    assert_packed(&layers);
+}
+
+#[test]
+fn a_run_wider_than_the_limit_is_refused_by_its_size_and_the_others_are_placed() {
+    let a = material(1);
+    let layers = plan(vec![
+        draw(Some(a), [0., 0., 200., 80.]),
+        draw(None, [0., 0., 1., 1.]),
+        draw(Some(a), [0., 0., 100., 50.]),
+    ])
+    .layers(VIEWPORT, 150);
+    assert_eq!(layers.too_large.len(), 1);
+    assert_eq!(layers.too_large[0].draws, 0..1);
+    assert_eq!(layers.too_large[0].size, [200, 80]);
+    assert_eq!(layers.runs.len(), 1);
+    assert_eq!(layers.runs[0].draws, 2..3);
+    assert_packed(&layers);
+}
+
+#[test]
+fn a_plan_that_needed_growth_packs_the_same_way_every_time() {
+    let plan = full_screen_runs(7);
+    assert_eq!(plan.layers(VIEWPORT, LIMIT), plan.layers(VIEWPORT, LIMIT));
 }

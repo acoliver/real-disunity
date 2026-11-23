@@ -578,9 +578,10 @@ A renderer that already owns buffers, textures and samplers can have a program d
   `PreparedProgramDraw::external_sets()` and `GraphicsProgram::external_sets()` list the sets the pass owner must have bound before recording.
   The pipeline cache key includes each lent layout's identity, so programs with equal stages and different lent layouts never share a pipeline, while clones of one layout do.
   A `BoundResource` at a lent set, an import of an engine semantic that a lent binding names, and a set lent twice are `ProgramError::ExternalSetConflict { set }`. [The guide](../../docs/render-program-native.md#sets-the-pass-owner-binds) has a compiled example, and `tests/lent/external.rs` draws two programs over one pass-bound group.
-- **Stats.** `ProgramRuntime::stats()` returns `RuntimeStats { modules_built, pipelines_built, bind_groups_built, sets_prepared, draws_prepared, transfer_buffers_built }`.
+- **Stats.** `ProgramRuntime::stats()` returns `RuntimeStats { modules_built, pipelines_built, pipeline_keys_computed, bind_groups_built, sets_prepared, draws_prepared, transfer_buffers_built }`.
   Each count only rises and is incremented where the object is created: a shader module in the module cache, a pipeline in the render and compute pipeline caches, a bind group where a program's set is bound, and a draw where a prepared draw is made (`prepare_draw`, materials, admissions and `prepare_imported_draw`).
   `transfer_buffers_built` counts the staging buffers of block-image transfers.
+  `pipeline_keys_computed` counts render pipeline content keys: a `GraphicsProgram` (and its clones) holds the key of each request made for it, found again by state, target signature, vertex layouts and primitive, so a draw prepared again in a later frame computes none (`render-scene`'s `water::tests::key_cost_tests` counts them over frames of water bodies).
   A cache hit or a call refused before it creates the object counts nothing.
   `sets_prepared` counts `prepare_set` calls; each also counts its bind group, and a draw that binds a prepared set counts neither.
   A cost test takes a snapshot before a frame and compares it with one after; `tests/lent/external.rs` predicts the exact counts of a sequence of draws.

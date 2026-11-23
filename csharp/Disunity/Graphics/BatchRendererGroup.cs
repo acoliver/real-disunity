@@ -95,11 +95,16 @@ public sealed class BatchRendererGroup : IDisposable
         }
     }
 
+    /// <summary>
+    /// Removes a batch. Batch ID 0 is <see cref="BatchID.Null"/>, the ID the group never hands out, so removing it does nothing.
+    /// Any other ID the group does not hold throws <see cref="ArgumentException"/> naming it.
+    /// </summary>
     public void RemoveBatch(BatchID batchID)
     {
         lock (_lock)
         {
             ThrowIfDisposed();
+            if (batchID == BatchID.Null) return;
             if (!_batches.Remove(batchID.value)) throw new ArgumentException($"batch {batchID.value} is not a batch of this BatchRendererGroup", nameof(batchID));
         }
     }

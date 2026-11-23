@@ -3,42 +3,63 @@
 //! constants buffers, whose sizes depend on every draw of the frame; a [`DrawPlan`] holds the
 //! chunk and offset its constants will have.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use worldrunner_render_post::contracts::{
-    AllocationKey, BufferUse, BufferUseKind, BufferView, ResourceLifetime, ResourceUse,
-    SamplerBinding, TextureBinding,
-};
+use worldrunner_render_post::contracts::AllocationKey;
+use worldrunner_render_post::contracts::BufferUse;
+use worldrunner_render_post::contracts::BufferUseKind;
+use worldrunner_render_post::contracts::BufferView;
+use worldrunner_render_post::contracts::ResourceLifetime;
+use worldrunner_render_post::contracts::ResourceUse;
+use worldrunner_render_post::contracts::SamplerBinding;
+use worldrunner_render_post::contracts::TextureBinding;
 
 use crate::budget::Reservation;
 use crate::draw::VertexInput;
 use crate::error::ProgramError;
-use crate::ids::{MeshId, ShaderId, TextureId};
+use crate::ids::MeshId;
+use crate::ids::ShaderId;
+use crate::ids::TextureId;
 use crate::layers::Layers;
 use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::resources::BufferHandle;
 use crate::runtime::ProgramRuntime;
-use crate::sampler::{SamplerCache, SamplerState};
+use crate::sampler::SamplerCache;
+use crate::sampler::SamplerState;
 use crate::unity::constants::pack_layout;
-use crate::unity::shader::{PassSelector, ProgramShader, Variant};
-use crate::unity::state::{RenderState, resolve_state};
-use crate::unity::targets::{BufferTarget, ConstantBufferTarget, TextureTarget};
+use crate::unity::shader::PassSelector;
+use crate::unity::shader::ProgramShader;
+use crate::unity::shader::Variant;
+use crate::unity::state::RenderState;
+use crate::unity::state::resolve_state;
+use crate::unity::targets::BufferTarget;
+use crate::unity::targets::ConstantBufferTarget;
+use crate::unity::targets::TextureTarget;
 use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
 use super::constants_plan::ConstantsPlan;
 use super::counts::DrawCounts;
-use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
+use super::defaults::DeclaredInputs;
+use super::defaults::DefaultBuffers;
+use super::defaults::Fill;
+use super::defaults::declared_inputs;
+use super::defaults::default_for;
 use super::depth_range;
 use super::dots::DotsDraw;
 use super::error::OffscreenError;
 use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
-use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
+use super::probe::CONSTANT_ENTRY;
+use super::probe::CONSTANT_FRAGMENT;
+use super::probe::DrawFacts;
 use super::sampling::{self};
-use super::storage_buffers::{PendingStorage, check_stage_limits, require_buffers};
+use super::storage_buffers::PendingStorage;
+use super::storage_buffers::check_stage_limits;
+use super::storage_buffers::require_buffers;
 use super::texel_size;
 use super::textures::TextureTable;
 use super::tracker::Tracker;

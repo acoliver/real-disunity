@@ -211,7 +211,6 @@ fn present_retained(renderer: &mut Renderer, host: &mut crate::RetainedHost) {
 
 mod budget;
 mod capture;
-mod live;
 mod recovery;
 mod sdsm;
 mod shared;
@@ -277,8 +276,7 @@ fn view(renderer: &Renderer) -> SceneView {
 fn present(renderer: &mut Renderer) {
     let deadline = Instant::now() + Duration::from_secs(10);
     let view = view(renderer);
-    let mut update: crate::SceneUpdate = Box::new(|_| Ok(()));
-    while !renderer.render(&view, &mut update).unwrap() {
+    while !renderer.render(&view).unwrap() {
         assert!(
             Instant::now() < deadline,
             "surface failed to deliver a frame"
@@ -309,8 +307,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     let previous_view = view(renderer);
     renderer.resize([0, 480]).unwrap();
     assert_eq!(renderer.viewport, None);
-    let mut update: crate::SceneUpdate = Box::new(|_| panic!("suspended update"));
-    assert!(!renderer.render(&previous_view, &mut update).unwrap());
+    assert!(!renderer.render(&previous_view).unwrap());
     renderer.resize([640, 480]).unwrap();
     present(renderer);
     renderer.check_errors().unwrap();
@@ -341,7 +338,6 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     capture::retained_capture_present(&event_loop, &window);
     capture::retained_page_capture_present(&event_loop, &window);
     sdsm::retained_depth_fitting(&event_loop, &window);
-    live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(
         pollster::block_on(Renderer::new(
             event_loop.owned_display_handle(),

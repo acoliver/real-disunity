@@ -20,19 +20,28 @@
 //!
 //! The view buffers, the mirror and the run lists count as instance bytes in the scene's memory
 //! census, like the batch buffers they gather from.
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use glam::Mat4;
 use wgpu::Buffer;
-use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+use worldrunner_render_gpu::census::MemoryCensus;
+use worldrunner_render_gpu::census::ResourceClass;
+use worldrunner_render_gpu::census::Tracked;
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
-use super::selection_reuse::{self, Key as SelectionKey};
+use super::FrameUniform;
+use super::ObjectDraws;
+use super::ObjectRecording;
+use super::SceneGpu;
+use super::selection_reuse::Key as SelectionKey;
+use super::selection_reuse::{self};
 use super::visibility::SelectedRange;
-use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
-use crate::instances::{Ascending, BatchKey, Stamp};
+use crate::instances::Ascending;
+use crate::instances::BatchKey;
+use crate::instances::Stamp;
 use crate::skinning::SKIN_INSTANCE_BYTES;
 
 mod gather;

@@ -19,6 +19,7 @@ pub(super) fn encode(
         grid: Vec::new(),
         arrays: Vec::new(),
         resident: std::sync::Mutex::default(),
+        kernels: std::sync::Mutex::default(),
         images: Vec::new(),
         bounds: [
             terrain.origin_east_millimeters() as f64 * 0.001,

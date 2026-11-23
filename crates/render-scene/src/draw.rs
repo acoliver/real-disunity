@@ -1,29 +1,49 @@
 //! Retained scene uploads, pipeline-compatible batches, and draw submission.
 use std::array;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
+use std::cell::RefCell;
 
-use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture,
-    TextureView, TextureViewDescriptor,
-};
+use wgpu::BindGroup;
+use wgpu::BindGroupLayout;
+use wgpu::Buffer;
+use wgpu::BufferUsages;
+use wgpu::Device;
+use wgpu::Queue;
+use wgpu::RenderPass;
+use wgpu::Sampler;
+use wgpu::Texture;
+use wgpu::TextureView;
+use wgpu::TextureViewDescriptor;
 
-use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
+use worldrunner_render_plan::MaterialHandle;
+use worldrunner_render_plan::RenderScene;
+use worldrunner_render_plan::TextureHandle;
 
-use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
-use crate::geometry::{GeometryError, pack_indices, pack_vertices};
+use crate::frame::FRAME_UNIFORM_BYTES;
+use crate::frame::FrameUniform;
+use crate::geometry::GeometryError;
+use crate::geometry::pack_indices;
+use crate::geometry::pack_vertices;
 use crate::renderer::ScenePipelines;
-use crate::terrain::{TerrainError, build_terrain_mesh};
-use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
-use crate::texture::{PreparedTexture, TextureError, prepare_texture};
-use crate::upload::{
-    FRAME_GROUP, placeholder_with_view, upload_palette_array, upload_texture, upload_type_grid,
-};
+use crate::terrain::TerrainError;
+use crate::terrain::build_terrain_mesh;
+use crate::terrain_uniform::TerrainUniformError;
+use crate::terrain_uniform::TerrainUniformState;
+use crate::texture::PreparedTexture;
+use crate::texture::TextureError;
+use crate::texture::prepare_texture;
+use crate::upload::FRAME_GROUP;
+use crate::upload::placeholder_with_view;
+use crate::upload::upload_palette_array;
+use crate::upload::upload_texture;
+use crate::upload::upload_type_grid;
 use worldrunner_render_gpu::resource::upload_buffer;
 
 mod append;
-pub use append::{
-    PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
-};
+pub use append::PreparedAppend;
+pub use append::PreparedMeshReplacement;
+pub use append::PreparedTextureReplacement;
+pub use append::ResourceBase;
 mod caster_edits;
 mod celestial;
 mod compaction;
@@ -32,13 +52,15 @@ mod contours;
 pub(crate) mod decals;
 pub(crate) use contours::ContourDraw;
 pub use decals::validate_decal_materials;
-pub(crate) use lent_meshes::{LentLevel, LentMesh};
+pub(crate) use lent_meshes::LentLevel;
+pub(crate) use lent_meshes::LentMesh;
 mod descriptors;
 mod dynamic;
 mod lent_meshes;
 mod lod_material;
 mod mesh_arena;
-use mesh_arena::{GpuMesh, MeshArena};
+use mesh_arena::GpuMesh;
+use mesh_arena::MeshArena;
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
@@ -51,30 +73,46 @@ pub use retained::reflections_enabled;
 mod effect_statistics;
 pub(crate) mod geometry_statistics;
 mod statistics;
-pub use effect_statistics::{
-    EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
-    ReceiverBindings, ShadowStatistics, SsaoStatistics,
-};
-pub use geometry_statistics::{
-    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
-};
-pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
+pub use effect_statistics::EffectEnabled;
+pub use effect_statistics::EffectStatistics;
+pub use effect_statistics::PassExecution;
+pub use effect_statistics::PassInstallation;
+pub use effect_statistics::ReceiverBinding;
+pub use effect_statistics::ReceiverBindings;
+pub use effect_statistics::ShadowStatistics;
+pub use effect_statistics::SsaoStatistics;
+pub use geometry_statistics::TerrainGeometryStatistics;
+pub use geometry_statistics::TerrainLeafIdentity;
+pub use geometry_statistics::TerrainStreamingStatistics;
+pub use pass_statistics::ObjectDraws;
+pub use pass_statistics::ObjectRecording;
+pub use pass_statistics::PassDrawStatistics;
 mod streaming;
 mod terrain_runtime;
-pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
-pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
+pub(crate) use publication::ColorDraw;
+pub(crate) use publication::DrawPublications;
+pub(crate) use publication::DrawnObjects;
+pub(crate) use publication::SelectionPublication;
+pub use statistics::DrawCount;
+pub use statistics::ResourceStatistics;
+pub use statistics::SceneStatistics;
+pub use statistics::TerrainPageStatistics;
+pub use streaming::TerrainChunkBuffers;
+pub use streaming::TerrainChunkDraw;
+pub use streaming::TerrainChunkEdge;
+pub use streaming::TerrainChunkNeighbor;
+pub use streaming::TerrainChunkViewError;
+pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
-pub use streaming::{
-    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
-    TerrainChunkViewError, TerrainGeometryRequest,
-};
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
+pub use crate::instances::InstanceError;
+pub use crate::instances::InstanceHandle;
+pub use crate::instances::InstanceWrite;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
-pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
 

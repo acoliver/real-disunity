@@ -34,8 +34,11 @@ impl Content for TestContent {
     fn size(&self) -> [u32; 2] {
         self.host.size()
     }
-    fn source(&mut self) -> crate::renderer::SceneSource<'_> {
-        crate::renderer::SceneSource::Retained(&mut self.host)
+    fn cadence(&self) -> crate::PresentationCadence {
+        crate::PresentationCadence::default()
+    }
+    fn host(&mut self) -> &mut RetainedHost {
+        &mut self.host
     }
     fn event(
         &mut self,

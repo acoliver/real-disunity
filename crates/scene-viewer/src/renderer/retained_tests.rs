@@ -338,9 +338,10 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
                 .any(|pixel| pixel[..3] != [0, 0, 0])
         );
         let handle = resident.scene_mut().instance_handles().next().unwrap();
-        let mut update: crate::SceneUpdate =
-            Box::new(move |gpu| gpu.set_instance_visible(handle, false));
-        update(resident.scene_mut()).unwrap();
+        resident
+            .scene_mut()
+            .set_instance_visible(handle, false)
+            .unwrap();
         let hidden = frame(&mut resident, &context, &mut target);
         assert!(
             hidden

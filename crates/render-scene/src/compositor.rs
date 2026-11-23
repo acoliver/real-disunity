@@ -6,7 +6,8 @@ mod overlay_target_gpu_tests;
 #[cfg(test)]
 mod overlay_tests;
 pub mod terms;
-pub use capture::{FeatureCapture, FeatureTarget};
+pub use capture::FeatureCapture;
+pub use capture::FeatureTarget;
 mod clock;
 mod configuration;
 mod depth_prefix;
@@ -22,7 +23,8 @@ mod game_screen;
 mod game_screen_tests;
 pub use game_screen::GameScreenComposite;
 mod game_screen_frame;
-pub use game_screen_frame::{GameScreenFrame, GameScreenPass};
+pub use game_screen_frame::GameScreenFrame;
+pub use game_screen_frame::GameScreenPass;
 mod hdr;
 pub(crate) mod offscreen;
 mod output;
@@ -39,35 +41,101 @@ mod timing;
 mod validation;
 mod water_draws;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
-pub use game::{
-    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
-    EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
-    FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
-    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
-    FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
-    FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
-    GameBufferDeclaration, GameBufferUsage, GameBuild, GameComputeSpec, GameFeatureFactory,
-    GameLevel, GamePassSpec, GamePasses, GameReadback, GameResourceError, GameResources,
-    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
-    LevelAccess, OcclusionDepth, PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade,
-    SnapshotImage, SnapshotReads, SnapshotStatistics, StockReplacement, TargetDeclaration,
-    TargetExtent, TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
-    prepass_writes_frame_depth,
-};
+pub use configuration::ConfiguredFrameRenderer;
+pub use configuration::FrameEncoding;
+pub use configuration::RendererConfiguration;
+pub use game::BRDF_TABLE_SAMPLES;
+pub use game::BRDF_TABLE_SIZE;
+pub use game::CascadeSelection;
+pub use game::ColorOutput;
+pub use game::DepthAccess;
+pub use game::EngineConstants;
+pub use game::EnginePlaceholder;
+pub use game::EnvironmentConsumer;
+pub use game::FULLSCREEN_TRIANGLE_WGSL;
+pub use game::FrameCamera;
+pub use game::FrameCameraHandle;
+pub use game::FrameEnvironment;
+pub use game::FrameEnvironmentHandle;
+pub use game::FrameInputError;
+pub use game::FrameOcclusion;
+pub use game::FrameOcclusionHandle;
+pub use game::FrameSceneMeshError;
+pub use game::FrameSceneMeshes;
+pub use game::FrameSceneMeshesHandle;
+pub use game::FrameSceneTextureError;
+pub use game::FrameSceneTextures;
+pub use game::FrameSceneTexturesHandle;
+pub use game::FrameShadowHandle;
+pub use game::FrameShadows;
+pub use game::FrameSnapshotError;
+pub use game::FrameSnapshotHandle;
+pub use game::FrameSnapshots;
+pub use game::FrameTerrainError;
+pub use game::FrameTerrainHandle;
+pub use game::FrameWaterNormalError;
+pub use game::GameBlockDestination;
+pub use game::GameBuffer;
+pub use game::GameBufferDeclaration;
+pub use game::GameBufferUsage;
+pub use game::GameBuild;
+pub use game::GameComputeSpec;
+pub use game::GameFeatureFactory;
+pub use game::GameLevel;
+pub use game::GamePassSpec;
+pub use game::GamePasses;
+pub use game::GameReadback;
+pub use game::GameResourceError;
+pub use game::GameResources;
+pub use game::GameSampler;
+pub use game::GameTargets;
+pub use game::GameTexture;
+pub use game::GameTextureDeclaration;
+pub use game::GameTextureLevel;
+pub use game::LayerShape;
+pub use game::LevelAccess;
+pub use game::OcclusionDepth;
+pub use game::PassTarget;
+pub use game::PostWaterDepth;
+pub use game::SceneMeshSlot;
+pub use game::ShadowCascade;
+pub use game::SnapshotImage;
+pub use game::SnapshotReads;
+pub use game::SnapshotStatistics;
+pub use game::StockReplacement;
+pub use game::TargetDeclaration;
+pub use game::TargetExtent;
+pub use game::TargetLifetime;
+pub use game::TerrainMaterialArrayError;
+pub use game::TerrainMaterialChannel;
 #[cfg(test)]
-pub(crate) use game::{declaring_stock, terrain_probe};
+pub(crate) use game::declaring_stock;
+pub use game::join_pass;
+pub use game::prepass_writes_frame_depth;
+#[cfg(test)]
+pub(crate) use game::terrain_probe;
 use output::FrameOutput;
 pub use output::FrameProfile;
+pub(crate) use stock_plan::SceneInputs;
+pub(crate) use stock_plan::ShadowSchedule;
 pub use stock_plan::StockPlanStatistics;
-pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
-use validation::{validate_clear, validate_reflection_extent};
-use worldrunner_render_post::{
-    AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
-    CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
-    PostResolve, Resources,
-};
+pub(crate) use stock_plan::unshadowed;
+use validation::validate_clear;
+use validation::validate_reflection_extent;
+use worldrunner_render_post::AntiAliasing;
+use worldrunner_render_post::AttachmentDeclaration;
+use worldrunner_render_post::AttachmentLoad;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BorrowedFeature;
+use worldrunner_render_post::CopyOutput;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::MsaaSamples;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PostChain;
+use worldrunner_render_post::PostError;
+use worldrunner_render_post::PostResolve;
+use worldrunner_render_post::Resources;
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
 /// Select an admitted slot before preparation and reuse it only after completion.
@@ -679,8 +747,11 @@ pub(crate) fn attachment(
 }
 
 pub use depth_prefix::StockDepthPrefix;
-pub(crate) use scene::{ColorDepth, SceneFeature, declare_velocity};
-pub use scene::{StockSceneFeature, prepare_stock_scene};
+pub(crate) use scene::ColorDepth;
+pub(crate) use scene::SceneFeature;
+pub use scene::StockSceneFeature;
+pub(crate) use scene::declare_velocity;
+pub use scene::prepare_stock_scene;
 mod scene;
 
 #[cfg(test)]

@@ -168,7 +168,10 @@ fn a_take_record_that_names_a_material_copy_resolves_to_the_state_the_blit_saw()
     };
     assert_eq!(count, 1);
     let copy = records[0].material;
-    assert_ne!(copy, material_bits, "the edit froze the blit's state into a copy");
+    assert_ne!(
+        copy, material_bits,
+        "the edit froze the blit's state into a copy"
+    );
 
     let name = b"_PrimaryTex";
     let mut read = DisunityPropertyRead::default();

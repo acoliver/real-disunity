@@ -23,7 +23,7 @@ pub enum PageCacheError {
     Submission(#[from] SubmitError),
     #[error(transparent)]
     Transaction(#[from] TransactionError),
-    #[error("the per-frame material upload limit is exhausted")]
+    #[error("the frame's share of the material upload allowance is exhausted")]
     UploadLimit,
     #[error("material upload scratch is still reserved or in flight")]
     ScratchFull,
@@ -150,11 +150,32 @@ impl ResidentPages {
         self.configuration.collect();
     }
 
+    /// Counts the frame `encoder` records as one of this cache's frames, once per frame. It is
+    /// in flight from its submission until its completion is seen, whether or not it admits a
+    /// page, and a cancelled frame never counts.
+    pub fn begin_frame(&self, encoder: &wgpu::CommandEncoder) -> Result<(), PageCacheError> {
+        let mut transaction = Publications::for_encoder(encoder)?;
+        let storage = self.storage();
+        let new = storage.state.borrow_mut().frame_began(&transaction);
+        if new {
+            let state = storage.state.clone();
+            let key = state.borrow().capture_write_key();
+            transaction.stage_write(key, move || state.borrow_mut().frame_submitted())?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn frames_in_flight(&self) -> usize {
+        self.storage().state.borrow().frames_in_flight()
+    }
+
     pub fn reserve(
         &self,
         encoder: &wgpu::CommandEncoder,
         key: PageKey,
     ) -> Result<PendingPage, PageCacheError> {
+        self.begin_frame(encoder)?;
         let transaction = Publications::for_encoder(encoder)?;
         let storage = self.storage();
         Publications::retain_lease(encoder, &storage.owner.lease())?;
@@ -163,15 +184,14 @@ impl ResidentPages {
         if key.depth() > self.settings.parts().maximum_depth || state.contains(key) {
             return Err(PageCacheError::Address);
         }
-        let bytes = self.page_bytes();
-        if state.uploaded + bytes > self.settings.parts().upload_bytes_per_frame {
+        if !state.frame_has_room() {
             return Err(PageCacheError::UploadLimit);
         }
         if !state.scratch_available() {
             return Err(PageCacheError::ScratchFull);
         }
         let slot = state.reserve(key).ok_or(PageCacheError::Full)?;
-        state.uploaded += bytes;
+        state.admit();
         Ok(PendingPage::new(storage.state.clone(), transaction, slot))
     }
 

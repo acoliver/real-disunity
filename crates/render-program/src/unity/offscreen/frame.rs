@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::ids::{CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId};
 use crate::layers::PropertyLayer;
+use crate::resources::BufferHandle;
 use crate::sampler::SamplerState;
 use crate::unity::shader::PassSelector;
 
@@ -239,6 +240,33 @@ pub struct Clear {
     pub stencil: Option<u32>,
 }
 
+/// The instances a list draw makes.
+#[derive(Clone, Debug)]
+pub enum Instances {
+    /// The sub-mesh repeated this many times with the renderer's own values: 1 draws it once and
+    /// 0 draws nothing. What differs between instances is read from the instance index.
+    Count(u32),
+    /// Instances whose data is in a raw buffer, drawn through the shader's DOTS instancing variant.
+    Dots(DotsBatch),
+}
+
+/// A batch of instances a game shader reads from a raw buffer, as the game's own code laid it out.
+/// The host copies the words and indexes below and binds the buffer; it does not read the buffer.
+#[derive(Clone, Debug)]
+pub struct DotsBatch {
+    /// The raw buffer the shader reads as `unity_DOTSInstanceData`.
+    pub buffer: BufferHandle,
+    /// The bytes of `buffer` the shader reads: the metadata offsets count from the window's
+    /// start, which a device binds only at its storage offset alignment.
+    pub window: Range<u64>,
+    /// The metadata word of each per-instance property the game set, by the property's name
+    /// (`unity_ObjectToWorld`, `_Color`). The word is the value the game gave the property's
+    /// metadata, copied as it is.
+    pub metadata: Vec<(String, u32)>,
+    /// The index of each instance to draw, in the order they draw.
+    pub visible: Vec<u32>,
+}
+
 /// One draw of a list: a sub-mesh slot of a renderer.
 #[derive(Clone, Debug)]
 pub struct ListDraw {
@@ -248,8 +276,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
-    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
-    pub instances: u32,
+    /// The instances of the sub-mesh the draw makes.
+    pub instances: Instances,
     /// The values the list gives this draw alone, such as a light factor that depends on the
     /// culling result the draw came from. They win over the renderer's own `per_draw` values.
     pub per_draw: PropertyLayer,

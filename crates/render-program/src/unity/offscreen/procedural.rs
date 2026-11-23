@@ -60,6 +60,7 @@ pub(super) fn procedural_step(
             keywords: keywords(material, globals),
             selector: selector.clone(),
             layers: Layers::new(&layers),
+            dots: None,
         };
         let mark = svc.constants.mark();
         let planned = generated(svc, &spec, draw, signature)

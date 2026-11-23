@@ -1,8 +1,8 @@
 //! The encodings of the work a scriptable render context records.
 use super::WireError;
-use super::codec::{Reader, Wire, Writer};
+use super::codec::{Reader, Wire, Writer, wire_struct};
 use super::raster_parts::{read_raster, write_raster};
-use crate::graphics::{DrawTopology, MAX_CULL_PLANES, OffscreenWork};
+use crate::graphics::{DrawBatch, DrawTopology, MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
 const WORK_SETUP_CAMERA: u8 = 11;
@@ -11,6 +11,7 @@ const WORK_DRAW_MESH: u8 = 16;
 const WORK_DRAW_PROCEDURAL: u8 = 17;
 const WORK_SET_VIEWPORT: u8 = 18;
 const WORK_GENERATE_MIPS: u8 = 19;
+const WORK_DRAW_MESH_BATCH: u8 = 23;
 
 const TOPOLOGY_TRIANGLE_LIST: u8 = 0;
 const TOPOLOGY_LINE_LIST: u8 = 1;
@@ -32,6 +33,15 @@ impl Wire for DrawTopology {
         }
     }
 }
+
+wire_struct!(DrawBatch {
+    buffer,
+    offset,
+    size,
+    metadata,
+    visible,
+    pass_tags
+});
 
 /// The most planes a decoder accepts for one culling result.
 fn plane_limit() -> u32 {
@@ -99,6 +109,20 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             instances.write(out)?;
             block.write(out)
         }
+        OffscreenWork::DrawMeshBatch {
+            mesh,
+            material,
+            submesh,
+            pass,
+            batch,
+        } => {
+            WORK_DRAW_MESH_BATCH.write(out)?;
+            mesh.write(out)?;
+            material.write(out)?;
+            submesh.write(out)?;
+            pass.write(out)?;
+            batch.write(out)
+        }
         OffscreenWork::DrawProcedural {
             matrix,
             material,
@@ -165,6 +189,13 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             pass: Wire::read(input)?,
             instances: Wire::read(input)?,
             block: Wire::read(input)?,
+        }),
+        WORK_DRAW_MESH_BATCH => Ok(OffscreenWork::DrawMeshBatch {
+            mesh: Wire::read(input)?,
+            material: Wire::read(input)?,
+            submesh: Wire::read(input)?,
+            pass: Wire::read(input)?,
+            batch: Wire::read(input)?,
         }),
         WORK_DRAW_PROCEDURAL => Ok(OffscreenWork::DrawProcedural {
             matrix: Wire::read(input)?,

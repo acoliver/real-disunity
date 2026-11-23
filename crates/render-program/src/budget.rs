@@ -49,9 +49,8 @@ impl Note {
     }
 }
 
-/// One live allocation set: what it is, the descriptor bytes it alone accounts for and its note.
+/// One live allocation set: the descriptor bytes it alone accounts for and its note.
 struct Live {
-    set: AllocationSet,
     own: u64,
     note: Note,
 }
@@ -92,7 +91,7 @@ impl Ledger {
         &self,
         limits: &wgpu::Limits,
         budget: AllocationBudget,
-        set: AllocationSet,
+        set: &AllocationSet,
         note: Note,
     ) -> Result<Reservation, ProgramError> {
         let mut held = lock(&self.0);
@@ -101,18 +100,23 @@ impl Ledger {
             Arena::Open { backing, .. } => Some(backing.clone()),
             Arena::Closed => return Err(LeaseError::Expired.into()),
         };
-        let mut peak = AllocationSet::default();
-        for live in held.sets.values() {
-            peak.extend(live.set.clone());
+        // The runtime's sets share no storage with one another, so their bytes add.
+        let own = set
+            .validate(limits)
+            .map_err(|reason| refusal(ConfigurationError::Invalid(reason)))?;
+        let total = held
+            .bytes
+            .checked_add(own)
+            .ok_or(ProgramError::InvalidAllocation("allocation byte overflow"))?;
+        if total > budget.0 {
+            return Err(refusal(ConfigurationError::Budget {
+                required: total,
+                budget: budget.0,
+            }));
         }
-        peak.extend(set.clone());
-        let total = peak
-            .validate_budget::<Infallible>(limits, budget)
-            .map_err(refusal)?;
         held.next += 1;
         let id = held.next;
-        let own = total.saturating_sub(held.bytes);
-        held.sets.insert(id, Live { set, own, note });
+        held.sets.insert(id, Live { own, note });
         held.bytes = total;
         held.peak = held.peak.max(total);
         Ok(Reservation {

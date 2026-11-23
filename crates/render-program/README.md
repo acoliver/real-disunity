@@ -474,7 +474,7 @@ Several runtimes and other renderer crates can record into the same frame; `test
   `read_lent_texture(encoder, &texture, TextureLevel { layer, mip })` copies one level of one layer (one slice of a 3D level) of a texture another owner holds; a block-compressed level comes back as rows of whole blocks, any other copyable format as rows of texels.
   `TextureLevel::readback_bytes` gives the staging it admits; a level outside the texture, a format without a block copy size (`Depth24Plus`, multi-planar formats) or a texture without `COPY_SRC` is `ProgramError::Readback`, naming the cause, before anything records.
   `PendingTargetRead::begin` starts the map without waiting through render-post's `AsyncReadback`, and `MappingTargetRead::try_finish` returns the image once the host has polled the device after the GPU completed the frame, `None` before; the blocking `resolve` and the non-blocking map share the copy, the staging and the unpadding.
-- **Budget.** Buffers, textures, render targets and their depth attachments, readback staging buffers and the staging of a recorded write are preflighted with `AllocationSet::validate_budget` on top of everything live.
+- **Budget.** Buffers, textures, render targets and their depth attachments, readback staging buffers and the staging of a recorded write are preflighted with `AllocationSet::validate` and added to the bytes already live.
   Over the budget is `ProgramError::OverBudget`, and nothing is created.
   Pipelines, shader modules, bind groups and the sampler are not counted, because an `AllocationSet` describes buffer, texture and readback storage only.
   `live_bytes` reports the total.

@@ -65,7 +65,7 @@ impl ProgramRuntime {
         if !contents.is_empty() {
             allocations.buffer("render-program buffer", contents.len() as u64, 1);
         }
-        let reservation = self.admit(allocations, Note::new(label, ""))?;
+        let reservation = self.admit(&allocations, Note::new(label, ""))?;
         let usage = wgpu::BufferUsages::UNIFORM
             | wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::VERTEX
@@ -121,7 +121,7 @@ impl ProgramRuntime {
         // admitted now and held by the frame.
         let mut allocations = AllocationSet::default();
         allocations.buffer("render-program write", len, 1);
-        let staged = Arc::new(self.admit(allocations, Note::new("write staging", ""))?);
+        let staged = Arc::new(self.admit(&allocations, Note::new("write staging", ""))?);
         let staging = self.guarded(|| {
             upload_buffer(
                 &self.device,
@@ -252,7 +252,7 @@ impl ProgramRuntime {
             label,
             format!("{}x{}x{} {format:?}", size[0], size[1], size[2]),
         );
-        let reservation = self.admit(allocations, note)?;
+        let reservation = self.admit(&allocations, note)?;
         let texture = self.guarded(|| {
             upload.upload(
                 &self.device,
@@ -324,7 +324,7 @@ impl ProgramRuntime {
             1,
         );
         let note = Note::new(label, format!("{}x{} {format:?}", size[0], size[1]));
-        let reservation = self.admit(allocations, note)?;
+        let reservation = self.admit(&allocations, note)?;
         let texture = self.guarded(|| {
             upload.upload(
                 &self.device,
@@ -380,7 +380,7 @@ impl ProgramRuntime {
             label,
             format!("{}x{} {color:?} with depth {depth:?}", size[0], size[1]),
         );
-        let reservation = self.admit(allocations, note)?;
+        let reservation = self.admit(&allocations, note)?;
         let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
         let color = self.new_texture(
             label,
@@ -423,7 +423,7 @@ impl ProgramRuntime {
                 shape.size[0], shape.size[1], shape.layers, shape.format, shape.mips
             ),
         );
-        let reservation = self.admit(allocations, note)?;
+        let reservation = self.admit(&allocations, note)?;
         let texture = self.guarded(|| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -485,7 +485,7 @@ impl ProgramRuntime {
                 size[0], size[1], size[2]
             ),
         );
-        let reservation = self.admit(allocations, note)?;
+        let reservation = self.admit(&allocations, note)?;
         let texture = self.guarded(|| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),

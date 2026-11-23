@@ -32,7 +32,7 @@ impl ProgramRuntime {
     pub fn hold_external(&self, label: &str, bytes: u64) -> Result<ExternalHold, ProgramError> {
         let mut allocations = AllocationSet::default();
         allocations.external("render-program external resource", bytes);
-        let reservation = self.admit(allocations, Note::new(label, "external"))?;
+        let reservation = self.admit(&allocations, Note::new(label, "external"))?;
         Ok(ExternalHold {
             _reservation: reservation,
         })

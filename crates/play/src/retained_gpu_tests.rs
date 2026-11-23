@@ -8,9 +8,11 @@
 //! colour-space encodings between the blit and the captured frame. The window is the windowless
 //! viewer of the other retained tests and needs a GPU adapter (lavapipe in CI).
 
-use super::ui_tests::{fixture_config, fixture_turn};
+use super::ui_tests::fixture_config;
+use super::ui_tests::fixture_turn;
 use super::*;
-use std::{path::PathBuf, time::Instant};
+use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::GpuLaunch;
 use crate::PreparedPlayer;
@@ -59,7 +61,7 @@ fn play() -> Played {
     let mut source = HeadlessViewer::new([SIZE, SIZE]);
     let gpu = window_gpu(&prepared.data, &prepared.gpu, &mut source)
         .expect("the test needs a GPU adapter");
-    let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
+    let (viewer, mut driver) = start_window(&prepared, &window, gpu).unwrap();
     let mut run = viewer.windowless(&mut driver, Some(source.gpu)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
     for _ in 0..UPDATES {
@@ -77,7 +79,7 @@ fn play() -> Played {
         frames: report.frames,
         pixel_reads: report.pixel_reads,
         errors: report.errors.keys().cloned().collect(),
-        captures: std::mem::take(&mut driver.captures),
+        captures: driver.script.take_captures(),
     }
 }
 

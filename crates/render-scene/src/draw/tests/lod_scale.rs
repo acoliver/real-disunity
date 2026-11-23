@@ -24,7 +24,7 @@ fn depth_outputs(context: &GpuContext, gpu: &SceneGpu, pipelines: &ScenePipeline
 fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -39,7 +39,7 @@ fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
     )
     .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));
-    let default = target.render(&context, &gpu, &pipelines).unwrap();
+    let default = target.render(&context, &mut gpu, &pipelines).unwrap();
     let generation = gpu.caster_generation();
     gpu.set_instance_object(
         handle,
@@ -49,7 +49,7 @@ fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
     assert_ne!(gpu.caster_generation(), generation);
     gpu.flush_instances(context.device(), context.submission())
         .unwrap();
-    let scaled = target.render(&context, &gpu, &pipelines).unwrap();
+    let scaled = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_ne!(scaled, default);
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     let outputs = depth_outputs(&context, &gpu, &pipelines);
@@ -62,14 +62,17 @@ fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
     gpu.set_instance_object(handle, object).unwrap();
     gpu.flush_instances(context.device(), context.submission())
         .unwrap();
-    assert_eq!(target.render(&context, &gpu, &pipelines).unwrap(), default);
+    assert_eq!(
+        target.render(&context, &mut gpu, &pipelines).unwrap(),
+        default
+    );
 }
 
 #[test]
 fn lod_scale_preserves_explicit_world_distance_fade_endpoints() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for terminal in [false, true] {
         let band = SceneFadeBand::new(1_000, 2_000).unwrap();
         let band = if terminal {

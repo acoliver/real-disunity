@@ -11,7 +11,7 @@ use crate::{device::GpuContext, frame::FrameUniform, renderer::ScenePipelines};
 fn pipelines_built(context: &GpuContext, case: &Case) -> u64 {
     let device = context.device();
     let source = scene(case);
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     let frame = FrameUniform::new(&view(false), source.effects()).unwrap();
     drop(render(

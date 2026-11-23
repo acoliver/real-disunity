@@ -14,18 +14,25 @@ mod prefix_participant_tests;
 mod prepare;
 mod prepared;
 mod registered;
+pub use compute::ComputeDeclaration;
 pub(crate) use compute::ComputeStaging;
-pub use compute::{ComputeDeclaration, StorageWrite};
+pub use compute::StorageWrite;
 pub use error::FrameError;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
-pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
-pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+pub use operations::FrameOperations;
+pub(crate) use operations::GroupOutputs;
+pub use operations::OperationsGroup;
+pub use operations::OperationsOutput;
+pub(crate) use operations::OperationsSchedule;
+pub(crate) use operations::validate_operations;
 pub use prepare::PrepareContext;
 use prepare::Staged;
-pub use prepared::{
-    PreparedAccess, PreparedCommands, PreparedCompute, PreparedRefusal, PreparedWrite,
-};
+pub use prepared::PreparedAccess;
+pub use prepared::PreparedCommands;
+pub use prepared::PreparedCompute;
+pub use prepared::PreparedRefusal;
+pub use prepared::PreparedWrite;
 pub(crate) use registered::RegisteredFeature;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -38,14 +45,6 @@ pub enum PassSlot {
     SsaoBlurHorizontal,
     SsaoBlur,
     Celestial,
-    /// The deferred G-buffer: four material targets that opaque producers write before
-    /// Opaque. Present only when the scene selects the G-buffer opaque path.
-    OpaqueGbuffer,
-    /// Deferred lighting of the G-buffer: one full-screen pass after the G-buffer and before
-    /// Opaque, reading the scene depth the depth prepass completed. Present only when the scene
-    /// selects a G-buffer opaque path; when it renders from the G-buffer, this pass writes the
-    /// scene colour and Opaque draws only the surfaces without a G-buffer producer.
-    OpaqueLighting,
     Opaque,
     /// Visible object IDs, tested against completed opaque depth without writing it.
     ContourIds,

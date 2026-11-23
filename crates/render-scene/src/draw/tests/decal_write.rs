@@ -190,7 +190,7 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false).with_decals(vec![decal()]).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), super::super::COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), super::super::COLOR_FORMAT, 1).unwrap();
     let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let actual = gpu.decals.prepare(&frame_from(pose()), &gpu.frame_buffer);
     let mut values = vec![f32::from_bits(1), 0.0, 0.0, 0.0];

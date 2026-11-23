@@ -15,13 +15,7 @@ fn shadowed(context: &GpuContext, source: &RenderScene) -> ShadowedScene {
             depth_half_extent_meters: 4.0,
             resolution: 64,
             depth_bias: 0.001,
-            normal_bias_meters: if source.effects().unwrap().opaque_path()
-                == SceneOpaquePath::GBUFFER_RENDER
-            {
-                0.0
-            } else {
-                0.01
-            },
+            normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
         ShadowedTarget::new(TextureFormat::Rgba16Float, 1),
@@ -57,8 +51,8 @@ struct CaptureRig {
 }
 
 impl CaptureRig {
-    fn new(context: &GpuContext, path: SceneOpaquePath) -> Self {
-        let source = source_with_path(255, path);
+    fn new(context: &GpuContext) -> Self {
+        let source = source_with_ids(255, false);
         let frame = Rig::new(context, &source, 1).renderer;
         let scene = shadowed(context, &source);
         let view = SceneView::new(
@@ -153,13 +147,11 @@ impl CaptureRig {
 fn gpu_contour_shadowed_same_frame_capture_declares_active_and_empty_slots() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for path in [SceneOpaquePath::Forward, SceneOpaquePath::GBUFFER_RENDER] {
-        let mut rig = CaptureRig::new(&context, path);
-        for (index, (slot, active)) in [(1, true), (1, true), (2, false), (0, true), (0, false)]
-            .into_iter()
-            .enumerate()
-        {
-            rig.check(&context, index, slot, active);
-        }
+    let mut rig = CaptureRig::new(&context);
+    for (index, (slot, active)) in [(1, true), (1, true), (2, false), (0, true), (0, false)]
+        .into_iter()
+        .enumerate()
+    {
+        rig.check(&context, index, slot, active);
     }
 }

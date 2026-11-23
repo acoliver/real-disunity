@@ -362,7 +362,7 @@ pub(super) fn render(
 fn compare(context: &GpuContext, case: &Case) -> Image {
     let device = context.device();
     let source = scene(case);
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     assert_eq!(
         gpu.celestial_meshes()

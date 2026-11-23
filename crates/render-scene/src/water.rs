@@ -35,34 +35,20 @@ use worldrunner_render_post::{
     PassSlot, PreparedFeature, ResourceRef,
 };
 
-/// What the registered water feature draws in the current frame. `feature` is the frame's prepared
-/// water when the stock passes draw it; with the draws suppressed there is none and the feature
-/// plans no pass.
+/// What the registered water feature draws in the current frame: the frame's prepared water. A
+/// renderer whose game draws the water registers no feature, so this is read only while the
+/// stock passes draw it.
 #[derive(Default)]
 pub(crate) struct WaterState {
     pub feature: Option<WaterFeature>,
-    pub draws: crate::draw::WaterDraws,
 }
 
 pub(crate) struct WaterRegistration {
     pub state: std::rc::Rc<std::cell::RefCell<WaterState>>,
     pub samples: u32,
 }
-impl WaterRegistration {
-    /// What the registration declares while the stock passes draw no water: no pass, no read and
-    /// no effect, so a frame validates as it does without water.
-    fn no_draws() -> FeatureDeclaration {
-        FeatureDeclaration {
-            passes: Vec::new(),
-            effects: Vec::new(),
-        }
-    }
-}
 impl worldrunner_render_post::FrameFeature for WaterRegistration {
     fn declare(&self) -> FeatureDeclaration {
-        if self.state.borrow().draws == crate::draw::WaterDraws::Suppressed {
-            return Self::no_draws();
-        }
         let mut declaration = FeatureDeclaration::new(PassSlot::TransparentWater);
         declaration.passes[0].samples = self.samples;
         declaration.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
@@ -79,11 +65,8 @@ impl worldrunner_render_post::FrameFeature for WaterRegistration {
         passes: &mut Vec<PassDeclaration>,
         views: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
-        let state = self.state.borrow();
-        if state.draws == crate::draw::WaterDraws::Suppressed {
-            return Ok(Self::no_draws());
-        }
-        state
+        self.state
+            .borrow()
             .feature
             .as_ref()
             .ok_or(FrameError::WaterSettings("missing frame input"))?
@@ -102,22 +85,16 @@ impl PreparedFeature for WaterPrepared {
         &mut self,
         context: &mut worldrunner_render_post::PrepareContext<'_>,
     ) -> Result<(), FrameError> {
-        let mut state = self.0.borrow_mut();
-        if state.draws == crate::draw::WaterDraws::Suppressed {
-            return Ok(());
-        }
-        state
+        self.0
+            .borrow_mut()
             .feature
             .as_mut()
             .expect("validated water input")
             .prepare(context)
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        let mut state = self.0.borrow_mut();
-        if state.draws == crate::draw::WaterDraws::Suppressed {
-            return;
-        }
-        state
+        self.0
+            .borrow_mut()
             .feature
             .as_mut()
             .expect("validated water input")

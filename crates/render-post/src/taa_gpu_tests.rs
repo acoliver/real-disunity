@@ -388,6 +388,7 @@ fn run_with_depth(case: &Case) -> (Vec<[f64; 4]>, Vec<[f64; 4]>, Vec<f32>) {
             depth_output: targets.depth_output.clone(),
             velocity,
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let sink = color_texture(&device, "TAA test sink", size, taa_gpu::FORMAT);

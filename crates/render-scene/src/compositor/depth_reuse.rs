@@ -77,12 +77,7 @@ pub(crate) fn mode(samples: u32, paired: bool, relief: bool) -> DepthMode {
 
 impl FrameRenderer {
     pub(crate) fn share_metadata_depth(&mut self, device: &wgpu::Device) {
-        if self.targets().scene_depth() == SceneDepth::Ownership
-            || self
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders)
-        {
+        if self.targets().scene_depth() == SceneDepth::Ownership {
             let depth = self.targets().depth().texture().clone();
             if let Some(screen) = &mut self.ssao {
                 screen.share_depth(device, &depth);
@@ -91,14 +86,6 @@ impl FrameRenderer {
     }
 
     pub(crate) fn prepare_metadata_depth(&mut self, device: &wgpu::Device, gpu: &SceneGpu) {
-        if self
-            .gbuffer
-            .as_ref()
-            .is_some_and(crate::gbuffer::Gbuffer::renders)
-        {
-            self.share_metadata_depth(device);
-            return;
-        }
         if self.targets().scene_depth() != SceneDepth::Ownership {
             return;
         }
@@ -132,13 +119,6 @@ impl FrameRenderer {
             .as_ref()
             .is_some_and(|screen| screen.depth == *depth.texture());
         if paired {
-            if self
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders)
-            {
-                return DepthMode::Reuse;
-            }
             let local_receivers = self
                 .ssao
                 .as_ref()
@@ -173,6 +153,7 @@ impl FrameRenderer {
             config,
             worldrunner_render_post::Resources::default(),
             self.chain.factory().clone(),
+            worldrunner_render_post::SceneDepth::Independent,
         )
         .unwrap();
         self.ssao = self
@@ -180,17 +161,8 @@ impl FrameRenderer {
             .as_ref()
             .map(|screen| screen.rebuilt(device, config.size).unwrap());
         self.install_reflections(device).unwrap();
-        self.install_gbuffer_producer(device);
         if self.water.is_some() {
-            self.chain
-                .register(
-                    device,
-                    Box::new(crate::water::WaterRegistration {
-                        state: self.water_state.clone(),
-                        samples: config.samples,
-                    }),
-                )
-                .unwrap();
+            self.register_water(device).unwrap();
         }
     }
 
@@ -203,7 +175,6 @@ impl FrameRenderer {
         assert!(!screen.passes.computes_occlusion());
         self.ssao =
             Some(SceneMetadata::new(device, screen.size, crate::ssr::neutral_ao()).unwrap());
-        self.install_gbuffer_producer(device);
         self.share_metadata_depth(device);
     }
 

@@ -67,6 +67,7 @@ mod stand_ins;
 mod storage;
 mod supplied_gpu;
 mod support;
+mod taps;
 mod temporary_gpu;
 mod temporary_textures;
 mod texture_cache;

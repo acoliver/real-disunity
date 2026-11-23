@@ -212,7 +212,7 @@ fn velocity_after(
     let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer
             .encoding()
@@ -384,7 +384,7 @@ fn a_renderer_without_taa_allocates_no_velocity_target_and_refuses_velocity_pipe
     .unwrap();
     assert!(plain.targets().velocity_texture().is_none());
     assert!(
-        !ScenePipelines::with_samples(context.device(), HDR, 1)
+        !ScenePipelines::new(context.device(), HDR, 1)
             .unwrap()
             .writes_velocity()
     );
@@ -394,12 +394,16 @@ fn taa_configuration(resolve: PostResolve) -> RendererConfiguration {
     RendererConfiguration {
         frame: FrameConfig::new([TARGET, TARGET], HDR, 1),
         output_format: COLOR_FORMAT,
-        hdr: Some((1.0, ToneMap::Reinhard)),
+        hdr: (1.0, ToneMap::Reinhard),
         post: HdrPostSettings {
             resolve,
             ..HdrPostSettings::default()
         },
-        ..RendererConfiguration::legacy([TARGET, TARGET], COLOR_FORMAT)
+        ..RendererConfiguration::new(
+            [TARGET, TARGET],
+            COLOR_FORMAT,
+            worldrunner_render_post::ToneMap::Clamp,
+        )
     }
 }
 
@@ -463,7 +467,7 @@ fn output_after(
     let pipelines = if taa == Some(true) {
         ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap()
     } else {
-        ScenePipelines::with_samples(device, HDR, samples.count()).unwrap()
+        ScenePipelines::new(device, HDR, samples.count()).unwrap()
     };
     let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let mut renderer = FrameRenderer::hdr_antialiased(
@@ -489,7 +493,7 @@ fn output_after(
     .unwrap();
     for (index, &seconds) in clocks.iter().enumerate() {
         renderer.select_frame_slot(index % 3);
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(device).unwrap();
         renderer
             .encoding()

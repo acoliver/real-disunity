@@ -68,7 +68,7 @@ fn cropped_scene(shaped: bool) -> RenderScene {
 fn asymmetric_border_map_crops_instead_of_rescaling_source_image() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut images = Vec::new();
     for shaped in [false, true] {
         let gpu = upload_scene(
@@ -102,7 +102,7 @@ fn asymmetric_border_map_crops_instead_of_rescaling_source_image() {
 fn pitched_relief_instance_normals_match_inverse_capture_rotation() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = pitched_scene();
     let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     gpu.set_frame(

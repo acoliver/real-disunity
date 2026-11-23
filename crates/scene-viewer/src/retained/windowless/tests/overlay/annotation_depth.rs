@@ -88,13 +88,18 @@ fn submit(run: &mut WindowlessRetained<'_>, annotation: Annotation) {
     assert!(plan.draws.iter().all(|draw| draw.depth_test));
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-            UiOverlay::from_presentation(&plan, &std::collections::BTreeMap::new()).unwrap(),
+            UiOverlay::from_presentation(
+                &plan,
+                &std::collections::BTreeMap::new(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+            )
+            .unwrap(),
         )))
         .unwrap();
 }
 fn profiles() -> [crate::FrameProfile; 4] {
     [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,
@@ -138,7 +143,12 @@ fn depth_tested_annotation_line_is_partially_occluded_by_box() {
         .unwrap();
         run.host_mut()
             .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-                UiOverlay::from_presentation(&always, &std::collections::BTreeMap::new()).unwrap(),
+                UiOverlay::from_presentation(
+                    &always,
+                    &std::collections::BTreeMap::new(),
+                    &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+                )
+                .unwrap(),
             )))
             .unwrap();
         assert_eq!(
@@ -233,6 +243,7 @@ fn depth_tested_annotation_tracks_presented_camera_and_resized_depth() {
             let empty = UiOverlay::from_presentation(
                 &worldrunner_world_simulation::ui::presentation::UiPresentation::default(),
                 &std::collections::BTreeMap::new(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
             )
             .unwrap();
             run.host_mut()
@@ -316,7 +327,12 @@ fn depth_tested_and_always_visible_annotations_share_painter_order() {
         .unwrap();
         run.host_mut()
             .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-                UiOverlay::from_presentation(&plan, &std::collections::BTreeMap::new()).unwrap(),
+                UiOverlay::from_presentation(
+                    &plan,
+                    &std::collections::BTreeMap::new(),
+                    &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+                )
+                .unwrap(),
             )))
             .unwrap();
         assert_eq!(pixel(&capture(&mut run, &events).1, 32, 32), expected);

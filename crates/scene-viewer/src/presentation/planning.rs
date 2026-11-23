@@ -7,7 +7,7 @@ use worldrunner_render_scene::{Viewport, compositor::RendererConfiguration};
 /// Capture storage and raster footprint to include in a descriptor-only plan.
 #[derive(Clone, Copy, Debug)]
 pub enum PresentationCapture<'a> {
-    /// Ordinary desktop or live presentation, without a retained recipe pool.
+    /// Ordinary desktop presentation, without a retained recipe pool.
     Ordinary,
     /// Retained presentation, including the configured shared recipe pool.
     Retained,
@@ -57,8 +57,6 @@ pub fn plan_presentation(
     };
     settings.receiver_gradients = policy.receiver_gradients;
     settings.game_passes = policy.game.passes.clone();
-    settings.terrain_draws = policy.game.terrain_draws;
-    settings.water_draws = policy.game.water_draws;
     let pool = policy.pool_bytes(&settings)?;
     let capture_size = recipe_settings(
         size,

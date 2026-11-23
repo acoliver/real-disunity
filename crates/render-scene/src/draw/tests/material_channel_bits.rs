@@ -84,7 +84,7 @@ fn probe(packed: bool, negative_zero: bool) -> String {
 
 fn assert_bits(negative_zero: bool) {
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for packed in [false, true] {
         let scene = auxiliary_scene(packed, false);
         let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();

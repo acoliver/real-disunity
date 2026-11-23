@@ -13,7 +13,7 @@ use worldrunner_render_plan::{SceneDecalNormalFrame, SceneRotation};
 fn correction_frame_reaches_forward_and_metadata_on_rotated_planes_and_slopes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for slope in [false, true] {
         for rotation in [
             Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),

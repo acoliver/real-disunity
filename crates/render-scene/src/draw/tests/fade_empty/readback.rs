@@ -32,7 +32,7 @@ impl Setup {
     fn new(device: &Device, kind: Kind) -> Self {
         let hdr = TextureFormat::Rgba16Float;
         let mut setup = Self {
-            pipelines: ScenePipelines::new(device, hdr),
+            pipelines: ScenePipelines::new(device, hdr, 1).unwrap(),
             group: None,
             formats: vec![hdr],
             shadow: None,

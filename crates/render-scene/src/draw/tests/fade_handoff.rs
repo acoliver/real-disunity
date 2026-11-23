@@ -112,7 +112,7 @@ pub(super) fn mask(
 fn separate_objects_partition_forward_and_shadow_without_holes_or_overlap() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (hashed, impostor) in [(true, false), (false, false), (false, true)] {
         let lower = handoff_scene(hashed, impostor, &[SceneFadeDirection::Keep]);
         let upper = handoff_scene(hashed, impostor, &[SceneFadeDirection::Complement]);
@@ -198,7 +198,7 @@ fn default_direction_keeps_uniform_storage_instance_and_render_bytes() {
 fn local_reference_rotates_scales_and_clamps_eye_at_literal_fade_boundaries() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (scale, height, north) in [(500_000, 500, 1000), (1_500_000, 1500, 3000)] {
         for rotated in [false, true] {
             let placement = SceneTransform {

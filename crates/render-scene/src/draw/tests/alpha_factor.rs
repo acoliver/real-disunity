@@ -50,7 +50,7 @@ fn source(texture: SceneTexture, factor: u32, cutoff: u32, atlas: bool) -> Rende
 }
 
 fn depths(context: &GpuContext, scene: &RenderScene) -> Vec<Vec<u8>> {
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let gpu = upload_scene(context.device(), &authority, scene, &pipelines).unwrap();
@@ -160,7 +160,7 @@ fn explicit_unit_alpha_factor_keeps_default_render_bytes() {
 fn unlit_output_scales_only_alpha_before_blending() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let forward = &geometry_sources()[0];

@@ -1,4 +1,4 @@
-use super::{FrameOutput, FrameRenderer, depth_reuse, opaque, overlay};
+use super::{FrameOutput, FrameRenderer, depth_reuse, overlay};
 use crate::device::GpuContext;
 use worldrunner_render_post::{
     AntiAliasing, FrameConfig, HdrPostSettings, PostError, ToneMapOutput,
@@ -19,7 +19,6 @@ struct HdrSetup {
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
     metadata: Option<depth_reuse::Prepass>,
-    gbuffer: Option<crate::gbuffer::Gbuffer>,
     factory: ToneMapOutput,
 }
 
@@ -62,22 +61,12 @@ fn allocate_hdr(request: &HdrRequest<'_>) -> Result<HdrSetup, PostError> {
             .effects
             .is_some_and(|effects| effects.depth_fitting().is_some()),
     );
-    let gbuffer = opaque::allocate_path(
-        request.context.device(),
-        request.effects.map_or_else(
-            Default::default,
-            worldrunner_render_plan::SceneEffects::opaque_path,
-        ),
-        config,
-        ssr_requested.is_some_and(|ssr| ssr.enabled),
-    )?;
     Ok(HdrSetup {
         config,
         post,
         ssao_requested,
         ssr_requested,
         metadata,
-        gbuffer,
         factory,
     })
 }
@@ -95,8 +84,7 @@ fn validate_hdr(request: &HdrRequest<'_>) -> Result<HdrPostSettings, PostError> 
         config,
         request.effects.and_then(|effects| effects.ssr()),
     )?;
-    post.validate_frame_with_jitter(config, request.antialiasing.jitter)?;
-    opaque::validate_hdr_admission(request.context.device(), config, &post, request.effects)?;
+    post.validate_frame(config)?;
     Ok(post)
 }
 
@@ -116,15 +104,11 @@ fn construct_renderer(
         environment_conventions: [None; 2],
         ssao_requested: setup.ssao_requested,
         ssr_requested: setup.ssr_requested,
-        gbuffer: setup.gbuffer,
-        producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
         game: super::game::Installed::default(),
         game_camera: super::FrameCameraHandle::default(),
         game_terrain: super::FrameTerrainHandle::default(),
         game_textures: super::game::FrameSceneTexturesHandle::default(),
-        terrain_draws: super::TerrainDraws::Stock,
-        water_draws: super::WaterDraws::Stock,
         ssr: None,
         water: None,
         water_state: std::rc::Rc::default(),
@@ -147,7 +131,7 @@ fn construct_renderer(
             .metadata
             .map(|prepass| prepass.metadata(device, request.context.queue(), request.size))
             .transpose()?,
-        chain: worldrunner_render_post::PostChain::with_scene_depth(
+        chain: worldrunner_render_post::PostChain::new(
             device,
             setup.config,
             worldrunner_render_post::Resources::default(),
@@ -166,13 +150,8 @@ fn finish_renderer(
     config: FrameConfig,
 ) -> Result<(), PostError> {
     renderer.install_reflections(request.context.device())?;
-    renderer.install_gbuffer_producer(request.context.device());
     renderer.share_metadata_depth(request.context.device());
-    renderer.set_projection_jitter(crate::post::jitter(
-        post,
-        config,
-        request.antialiasing.jitter,
-    )?)?;
+    renderer.set_projection_jitter(crate::post::jitter(post, config)?)?;
     if let Some(effects) = request.effects {
         renderer.install_water_bodies(
             request.context.device(),

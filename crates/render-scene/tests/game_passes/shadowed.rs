@@ -3,7 +3,7 @@
 //! persistent one, has to be part of the capture's write contract in every frame, including the
 //! ones that read persistent contents an earlier frame left.
 use super::common::{self, texture_binding};
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene, view};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene, view};
 use super::prepared;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -418,7 +418,7 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });
-    let scene = fitted(&rig, &lit_scene(), FORMAT);
+    let scene = fitted(&rig, &lit_scene(), SCENE_FORMAT);
     (rig, scene)
 }
 
@@ -464,17 +464,11 @@ pub(super) fn fitted(
     scene
 }
 
-/// Captures one frame with the rig's renderer and returns its colour.
+/// Captures one frame with the rig's renderer and returns its output, which shows the scene
+/// colour unchanged.
 pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
     capture_fit(rig, scene, frame);
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
+    rig.output()
 }
 
 /// Captures one frame with the rig's renderer and returns the fit it adopted.

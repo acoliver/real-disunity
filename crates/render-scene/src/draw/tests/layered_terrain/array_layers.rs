@@ -61,7 +61,7 @@ pub(super) fn scene_with_slots(slots: u32) -> RenderScene {
 fn policy_pixels(context: &GpuContext, scene: &RenderScene) -> Vec<u8> {
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let gpu = upload_scene(device, &authority, scene, &pipelines).unwrap();
     let frame = matching_frame();
     gpu.set_frame(context.queue(), frame);
@@ -91,7 +91,7 @@ fn layered_policy_above_device_array_limit_fails_before_upload_with_both_counts(
     let available = context.device().limits().max_texture_array_layers;
     let slots = available / 3 + 1;
     let scene = scene_with_slots(slots);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority = SubmissionAuthority::new(context.queue().clone());
     let error = PreparedScene::new(&scene)
         .and_then(|prepared| {

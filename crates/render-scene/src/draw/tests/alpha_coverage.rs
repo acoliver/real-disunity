@@ -275,7 +275,7 @@ fn single_sample_alpha_coverage_keeps_hard_cutoff_bytes() {
 fn metadata_prepass_and_shadow_keep_hard_cutoff_bytes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let capture = |enabled| {
         let gpu = upload_scene(
             context.device(),

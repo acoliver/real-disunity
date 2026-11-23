@@ -97,7 +97,7 @@ impl Rig {
 
     pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
         let context = context();
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
         let gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
         gpu.views[0]
             .compaction

@@ -41,11 +41,6 @@ impl HdrPostSettings {
     ///
     /// `UpscaleMode::Temporal` has its own rows, see the Temporal rows in `upscale_temporal.rs`.
     pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
-        self.validate_frame_inner(config)?;
-        self.validate_temporal(config, None)
-    }
-
-    fn validate_frame_inner(self, config: crate::FrameConfig) -> Result<(), PostError> {
         self.validate()?;
         if config.size != config.output_extent() && self.upscale.is_none() {
             return Err(PostError::UnsupportedProfile(
@@ -56,25 +51,13 @@ impl HdrPostSettings {
         if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
             (self.bloom, self.bloom_kernel)
         {
-            crate::gaussian_extents_with_terminal(
+            crate::gaussian_extents(
                 self.post_extent(config),
                 bloom.levels,
                 bloom.policies.terminal,
             )?;
         }
-        Ok(())
-    }
-
-    /// [`Self::validate_frame`] for a renderer whose scene passes use `explicit` jitter.
-    ///
-    /// `None` means the sequence the renderer derives itself, which is long enough.
-    pub fn validate_frame_with_jitter(
-        self,
-        config: crate::FrameConfig,
-        explicit: Option<crate::ProjectionJitter>,
-    ) -> Result<(), PostError> {
-        self.validate_frame_inner(config)?;
-        self.validate_temporal(config, explicit)
+        self.validate_temporal(config)
     }
 
     pub fn validate(self) -> Result<(), PostError> {

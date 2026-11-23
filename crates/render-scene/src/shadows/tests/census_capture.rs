@@ -72,7 +72,11 @@ pub(super) fn capture_scheduler(
 ) -> ConfiguredFrameRenderer {
     let viewport = camera.viewport();
     let size = [viewport.width, viewport.height];
-    let mut config = RendererConfiguration::legacy(size, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut config = RendererConfiguration::new(
+        size,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     config.additional = RendererConfiguration::capture_term_allocations(size);
     ConfiguredFrameRenderer::new(context, config, AllocationBudget(16 * 1024 * 1024)).unwrap()
 }

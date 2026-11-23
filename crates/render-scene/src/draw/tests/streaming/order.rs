@@ -67,11 +67,11 @@ fn keys(gpu: &SceneGpu) -> Vec<TerrainChunk> {
 fn terrain_pixels_are_identical_after_different_completion_schedules() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
-    let immediate =
+    let mut immediate =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
-    let delayed =
+    let mut delayed =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let first = settle(&context, &immediate, 0);
     let second = settle(&context, &delayed, 4);
@@ -88,9 +88,9 @@ fn terrain_pixels_are_identical_after_different_completion_schedules() {
     )
     .unwrap();
     immediate.set_frame(context.queue(), frame());
-    let first = target.render(&context, &immediate, &pipelines).unwrap();
+    let first = target.render(&context, &mut immediate, &pipelines).unwrap();
     delayed.set_frame(context.queue(), frame());
-    let second = target.render(&context, &delayed, &pipelines).unwrap();
+    let second = target.render(&context, &mut delayed, &pipelines).unwrap();
     assert!(
         lit_pixels(&first.pixels) > 0,
         "terrain must reach the target"
@@ -128,7 +128,7 @@ fn lender_reports_camera_order_and_keeps_offscreen_geometric_neighbors() {
 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
     let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     settle(&context, &gpu, 0);

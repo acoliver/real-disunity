@@ -48,7 +48,7 @@ fn render(reflections: Option<bool>, velocity: bool, capture: bool) -> Vec<u8> {
     let pipelines = if velocity {
         ScenePipelines::with_taa_velocity(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap()
     } else {
-        ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float)
+        ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap()
     };
     let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let color = AttachmentView::new(

@@ -60,7 +60,7 @@ fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>
 fn folded_directions_match_forward_and_both_metadata_passes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (height, weight) in [(0, 0.0), (500, 0.25), (2000, 1.0)] {
         let scene = folded_scene(height);
         let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
@@ -129,7 +129,7 @@ fn mask_settings() -> SceneTranslucency {
 fn metalness_mask_is_removed_from_forward_and_reflection_materials() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let base = scene(SceneAlphaMode::Opaque, true, 1);
     let mut materials = base.resources().materials().to_vec();
     materials[0] = SceneMaterial::new(SceneMaterialParts {
@@ -200,7 +200,7 @@ fn scaled_instances_keep_unscaled_authored_fold_weights() {
 
 fn transformed_fold_weights(position: [i64; 3], scale: u32) {
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (height, weight) in [(0, 0.25), (500, 0.5), (2000, 1.0)] {
         let scene = folded_placement(
             height,
@@ -243,7 +243,7 @@ fn transformed_fold_weights(position: [i64; 3], scale: u32) {
 fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for vertex_ao in [300_000, 700_000] {
         let scene = mapped_ao_scene(vertex_ao);
         let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
@@ -268,7 +268,7 @@ fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
 fn rendered_backlight_has_parallel_orthographic_and_diverging_perspective_rays() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = backlight_scene();
     let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     let [source, ..] = geometry_sources();

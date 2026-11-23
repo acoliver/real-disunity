@@ -29,6 +29,7 @@ pub struct OffscreenOperations {
     pub(super) counts: DrawCounts,
     pub(super) constants_use: ConstantsUse,
     pub(super) planned_draws: usize,
+    pub(super) taps: Vec<super::readback::TapRead>,
 }
 
 /// What a frame's constants took: the buffers they were uploaded into, their bytes, the largest

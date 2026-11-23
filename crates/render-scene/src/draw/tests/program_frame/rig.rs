@@ -308,7 +308,7 @@ impl Fixture {
     /// Resolves the scene, runs the stock output stage and records a copy of the output into a
     /// mappable buffer, all in the frame being recorded.
     pub fn output_copy(&self, encoder: &mut wgpu::CommandEncoder) -> Buffer {
-        self.renderer.targets().encode_resolve(encoder);
+        self.renderer.encode_resolve(encoder);
         let view = self.output.create_view(&TextureViewDescriptor::default());
         self.renderer.encode_output(encoder, &view).unwrap();
         self.copy_output(encoder)

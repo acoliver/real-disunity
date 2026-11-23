@@ -180,7 +180,8 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut shadowed = shadowed(&context, &source, settings()).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

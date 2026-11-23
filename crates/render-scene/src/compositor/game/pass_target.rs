@@ -22,7 +22,7 @@ struct PassDepth {
 ///
 /// The depth rules come from the same source as the stock draws': the entry's depth attachment
 /// decides the mode. A pass that completes the depth for a later Opaque entry to reuse marks the
-/// stencil as the stock prepass does, an Opaque or G-buffer entry that loads such depth tests it
+/// stencil as the stock prepass does, an Opaque entry that loads such depth tests it
 /// for equality and writes none, and every other pass tests `LessEqual` and writes depth unless
 /// it attaches it read-only. A pass that attaches no depth tests none.
 #[derive(Clone, Debug, PartialEq)]
@@ -230,7 +230,7 @@ fn depth_mode(passes: &[PassDeclaration], index: usize) -> DepthMode {
                 .is_some_and(|written| written.resource == depth.resource && !written.read_only)
     };
     let reused = |later: &PassDeclaration| {
-        matches!(later.slot, PassSlot::Opaque | PassSlot::OpaqueGbuffer)
+        later.slot == PassSlot::Opaque
             && later.depth.as_ref().is_some_and(|loaded| {
                 loaded.resource == depth.resource && loaded.load == AttachmentLoad::Load
             })
@@ -239,7 +239,7 @@ fn depth_mode(passes: &[PassDeclaration], index: usize) -> DepthMode {
         PassSlot::DepthNormalPrepass if passes[index + 1..].iter().any(reused) => {
             DepthMode::Prepass
         }
-        PassSlot::Opaque | PassSlot::OpaqueGbuffer
+        PassSlot::Opaque
             if depth.load == AttachmentLoad::Load && passes[..index].iter().any(completes) =>
         {
             DepthMode::Reuse

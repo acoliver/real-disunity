@@ -44,25 +44,6 @@ fn rust_and_csharp_worlds_produce_equivalent_sprite_contributions() {
     )
     .unwrap();
     assert!(prepared.quads.len() >= 5);
-    #[cfg(feature = "scene-viewer")]
-    {
-        let live = worldrunner::scene::viewer::LiveFrame::from_world(
-            worldrunner::scene::gpu::simulation::WorldSceneContribution::new(
-                native,
-                &textures.textures,
-            )
-            .unwrap(),
-        );
-        assert_eq!(
-            prepared.clear.map(f64::to_bits),
-            live.clear.map(f64::to_bits)
-        );
-        assert_eq!(prepared.quads.len(), live.quads.len());
-        for (headless, live) in prepared.quads.iter().zip(live.quads) {
-            assert_eq!(headless.corners, live.corners);
-            assert_eq!(headless.texture, live.texture);
-        }
-    }
 
     host.unload_slice().unwrap();
     assert!(host.export_sprites().is_err());
@@ -177,7 +158,7 @@ fn add_camera(world: &mut World) {
 fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
     use worldrunner::simulation::{
         ParentSpace,
-        ui::{Canvas, FontBook, RectTransform, TextRun},
+        ui::{Canvas, CanvasMode, FontBook, RectTransform, TextRun},
     };
     let canvas = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -187,7 +168,13 @@ fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let label = world.create_object(ObjectDesc::default()).unwrap();
     world

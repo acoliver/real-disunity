@@ -1,9 +1,9 @@
 //! Plays the original Unity games from their scenes in a window.
 //!
 //! [`prepare`] fetches a game, plans its scene, decodes the scene's textures and builds its
-//! scripts and the managed bridge. [`PlayDriver`] then runs the loaded world in the desktop
-//! host: window keys reach the game's `Input`, each frame advances the world and renders its
-//! presentation, and requested frames are captured.
+//! scripts and the managed bridge. [`play_game_window`] then runs the loaded world in the
+//! retained host's window: window keys reach the game's `Input`, each frame advances the world and
+//! shows its presentation, and requested frames are captured.
 //!
 //! [`prepare_player`] plans a built Unity player's scene and [`run_player`] starts it in the
 //! same host without a window, naming the first step that fails.
@@ -24,7 +24,6 @@ mod gpu_player;
 mod keys;
 #[cfg(test)]
 mod managed_array_tests;
-mod navigation;
 pub mod offscreen;
 mod plan_differences;
 mod player;
@@ -40,12 +39,14 @@ mod scene_light;
 mod scene_tables;
 mod scene_transform;
 pub mod storage_budget;
+mod target_read;
 mod textures;
 #[cfg(test)]
 mod textures_tests;
 mod unresolved;
+mod window_script;
 
-pub use driver::{Capture, PlayDriver};
+pub use driver::{Capture, play_game_window};
 pub use gpu_device::compute_census;
 pub use gpu_player::{GpuLaunch, GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
@@ -56,6 +57,7 @@ pub use player_meshes::{
 };
 pub use prepare::{Prepared, prepare};
 pub use retained_driver::{PlayerWindow, ScheduledKey, play_player_window};
+pub use target_read::TargetRead;
 pub use worldrunner_original_games::Game;
 
 use std::path::PathBuf;

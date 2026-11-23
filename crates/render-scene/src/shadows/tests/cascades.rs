@@ -45,18 +45,22 @@ fn resident_statistics_clear_shadows_only_after_submission() {
             .iter()
             .any(|count| count.calls > 0)
     );
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     for submit in [false, true] {
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_resident(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (shadowed.scene_mut(), &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
-        )
-        .unwrap();
+        let frame = shadowed.scene_mut().resident_frame();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (shadowed.scene_mut(), &pipelines),
+                (&target.color_attachment(), &target.depth_attachment()),
+                frame,
+            )
+            .unwrap();
         assert_eq!(shadowed.scene_mut().statistics(), previous);
         if submit {
             encoder.finish().submit().unwrap();

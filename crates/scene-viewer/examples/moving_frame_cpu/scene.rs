@@ -36,8 +36,11 @@ pub fn lens() -> SceneCamera {
 }
 
 /// Deterministic pseudo-random stream, so every run draws the same scene.
-struct Stream(u64);
+pub struct Stream(u64);
 impl Stream {
+    pub fn new(seed: u64) -> Self {
+        Self(seed)
+    }
     fn next(&mut self) -> u64 {
         self.0 = self
             .0
@@ -45,11 +48,11 @@ impl Stream {
             .wrapping_add(1_442_695_040_888_963_407);
         self.0 >> 33
     }
-    fn below(&mut self, count: usize) -> u32 {
+    pub fn below(&mut self, count: usize) -> u32 {
         let count = u64::try_from(count).expect("small count");
         u32::try_from(self.next() % count).expect("below a small count")
     }
-    fn range(&mut self, low: i64, high: i64) -> i64 {
+    pub fn range(&mut self, low: i64, high: i64) -> i64 {
         let span = u64::try_from(high - low).expect("ordered bounds");
         low + i64::try_from(self.next() % span).expect("below the span")
     }
@@ -238,32 +241,76 @@ fn terrain() -> Result<SceneTerrain, SceneValidationError> {
     })
 }
 
-fn objects(count: usize) -> Vec<SceneObject> {
-    let mut stream = Stream(0x5eed);
-    let half = i64::from(TERRAIN_SAMPLES / 2 - 4) * TERRAIN_SPACING_MM;
-    (0..count)
-        .map(|_| {
-            let (east, north) = (stream.range(-half, half), stream.range(-half, half));
-            let (w, z) = CIRCLE[usize::try_from(stream.range(0, 8)).expect("small")];
-            let transform = SceneTransform {
-                position_millimeters: [east, north, ground_height(east, north)],
-                rotation: SceneRotation { x: 0, y: 0, z, w },
-                scale_millionths: u64::try_from(stream.range(700_000, 1_400_000))
-                    .expect("positive"),
-            };
-            let mesh = stream.below(MESH_COUNT);
-            let material = stream.below(PROP_MATERIALS);
-            SceneObject::new(
-                transform,
-                MeshHandle::from_raw(mesh),
-                MaterialHandle::from_raw(material),
-            )
+/// A prop standing on the ground at `east`, `north` with a random heading and size, whose mesh
+/// and material `choose` picks.
+fn prop(
+    stream: &mut Stream,
+    (east, north): (i64, i64),
+    choose: impl FnOnce(&mut Stream) -> (u32, u32),
+) -> SceneObject {
+    let (w, z) = CIRCLE[usize::try_from(stream.range(0, 8)).expect("small")];
+    let transform = SceneTransform {
+        position_millimeters: [east, north, ground_height(east, north)],
+        rotation: SceneRotation { x: 0, y: 0, z, w },
+        scale_millionths: u64::try_from(stream.range(700_000, 1_400_000)).expect("positive"),
+    };
+    let (mesh, material) = choose(stream);
+    SceneObject::new(
+        transform,
+        MeshHandle::from_raw(mesh),
+        MaterialHandle::from_raw(material),
+    )
+}
+
+/// Half the side of the square of terrain the props stand on, in millimetres.
+fn half_extent() -> i64 {
+    i64::from(TERRAIN_SAMPLES / 2 - 4) * TERRAIN_SPACING_MM
+}
+
+fn objects(count: usize, clutter: usize) -> Vec<SceneObject> {
+    let mut stream = Stream::new(0x5eed);
+    let half = half_extent();
+    let props = (0..count).map(|_| {
+        let at = (stream.range(-half, half), stream.range(-half, half));
+        prop(&mut stream, at, |stream| {
+            (stream.below(MESH_COUNT), stream.below(PROP_MATERIALS))
         })
-        .collect()
+    });
+    let mut clutter_stream = Stream::new(0xc1u64);
+    let pieces = (0..clutter).map(|_| {
+        let at = (
+            clutter_stream.range(-half, half),
+            clutter_stream.range(-half, half),
+        );
+        self::clutter(&mut clutter_stream, at)
+    });
+    props.chain(pieces).collect()
+}
+
+/// How many kinds of clutter there are. Each kind is one mesh with one material, so clutter
+/// fills a few large instance batches, as streamed grass and debris do.
+const CLUTTER_KINDS: usize = 8;
+
+/// A piece of clutter of a random kind at `at`.
+pub fn clutter(stream: &mut Stream, at: (i64, i64)) -> SceneObject {
+    prop(stream, at, |stream| {
+        let kind = stream.below(CLUTTER_KINDS);
+        (kind, kind * 5)
+    })
+}
+
+/// Clutter `radius` millimetres around `center` at most, clamped to the terrain.
+pub fn clutter_near(stream: &mut Stream, center: (i64, i64), radius: i64) -> SceneObject {
+    let half = half_extent();
+    let at = (
+        (center.0 + stream.range(-radius, radius)).clamp(-half, half),
+        (center.1 + stream.range(-radius, radius)).clamp(-half, half),
+    );
+    clutter(stream, at)
 }
 
 /// Sun, even ambient light, three camera-split cascades, and an HDR bloom plus FXAA chain.
-pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
+pub fn effects() -> Result<SceneEffects, SceneValidationError> {
     let white = SceneColor {
         red: 255,
         green: 255,
@@ -294,9 +341,6 @@ pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
         post: Vec::new(),
         anti_alias: SceneAntiAlias::Disabled,
     })?;
-    if !hdr {
-        return Ok(effects);
-    }
     effects.with_hdr_post(SceneHdrPost {
         tone_map: None,
         grading: None,
@@ -313,12 +357,12 @@ pub fn effects(hdr: bool) -> Result<SceneEffects, SceneValidationError> {
     })
 }
 
-pub fn scene(object_count: usize, hdr: bool) -> Result<RenderScene, SceneValidationError> {
+pub fn scene(object_count: usize, clutter: usize) -> Result<RenderScene, SceneValidationError> {
     let meshes = (0..MESH_COUNT).map(mesh).collect::<Result<Vec<_>, _>>()?;
     RenderScene::new(SceneParts {
         resources: resources()?,
-        geometry: SceneGeometry::new(meshes, objects(object_count))?,
+        geometry: SceneGeometry::new(meshes, objects(object_count, clutter))?,
         terrain: Some(terrain()?),
-        effects: Some(effects(hdr)?),
+        effects: Some(effects()?),
     })
 }

@@ -48,7 +48,7 @@ fn normal_source() -> String {
 }
 
 fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [u8; 3] {
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = atlas_scene_with_normal(SceneAtlasSampling::Implicit, Some(relief_texture()));
     let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {

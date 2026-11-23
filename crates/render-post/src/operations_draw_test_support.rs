@@ -53,6 +53,7 @@ impl Rig {
                 ResourceLifetime::FrameLocal,
                 Semantic::Unspecified,
                 None,
+                &[],
             )
             .unwrap();
         let target_view = registry

@@ -80,6 +80,7 @@ fn compile(
         ResourceLifetime::FrameLocal,
         Semantic::Unspecified,
         initial,
+        &[],
     )?;
     let views = views(device, prepared);
     crate::contracts::stock::compile(device, &[pass], &views, &[feature], &mut registry)

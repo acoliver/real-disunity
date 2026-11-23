@@ -76,8 +76,6 @@ impl PresentationPolicy {
     ) -> Result<(RendererConfiguration, Option<u64>), ViewerError> {
         settings.receiver_gradients = self.receiver_gradients;
         settings.game_passes = self.game.passes.clone();
-        settings.terrain_draws = self.game.terrain_draws;
-        settings.water_draws = self.game.water_draws;
         let pool = self.pool_bytes(&settings)?;
         settings.additional = planning::additional(capture_size, pool);
         let required = settings
@@ -129,11 +127,8 @@ impl Presentation {
         let (settings, capture_pool) =
             policy.inventory(settings, capture_size, &context.device().limits())?;
         let native_rcas = settings.post.native_rcas;
-        let scheduler = ConfiguredFrameRenderer::new_with_policy(
-            context,
-            settings,
-            policy.budget.allocation_policy(),
-        )?;
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, policy.budget.allocation_policy())?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,

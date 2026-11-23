@@ -165,7 +165,7 @@ fn draw_frame_with_view(
     if index == 3 {
         renderer.resize(device, SIZE).unwrap();
     }
-    renderer.set_frame_time(time).unwrap();
+    renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
     renderer.select_frame_slot(index % 3);
     if let Some(shadowed) = &mut shadowed {
         shadowed.select_frame_slot(index % 3);
@@ -309,7 +309,7 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
     if independent {
         scheduler.independent_depth_for_test(device);
     }
-    scheduler.set_frame_time(0.125).unwrap();
+    scheduler.set_frame_time(std::time::Duration::from_secs_f32(0.125));
     let mut shadowed = crate::shadows::ShadowedScene::new(
         context,
         PreparedScene::new(&source).unwrap(),

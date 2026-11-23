@@ -25,17 +25,19 @@ fn two_resident_updates_and_caller_stage_obey_capture_policy() {
     .unwrap();
     let resolved = planar([65, 47], ViewHandedness::RightHanded);
     let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
-    scene.set_frame(context.queue(), FrameUniform::unlit(&view));
+    let frame = FrameUniform::unlit(&view);
+    scene.set_frame(context.queue(), frame);
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let stage_calls = Cell::new(0);
     let marker = stage::marker_pipeline(context.device(), OffscreenTarget::COLOR_FORMAT);
-    assert_blocked(&context, &scene, &pipelines, &mut target);
+    assert_blocked(&context, (&mut scene, frame), &pipelines, &mut target);
     update_texture(&context, &mut scene, &pipelines, 0);
     let first = capture(
         &context,
-        &scene,
+        (&mut scene, frame),
         &pipelines,
         &mut target,
         Readiness::Ready,
@@ -48,7 +50,7 @@ fn two_resident_updates_and_caller_stage_obey_capture_policy() {
     update_texture(&context, &mut scene, &pipelines, 2);
     let final_image = capture(
         &context,
-        &scene,
+        (&mut scene, frame),
         &pipelines,
         &mut target,
         Readiness::Ready,
@@ -136,9 +138,11 @@ fn canonical_generation_output_drives_visible_consumer_state() {
         planar([65, 47], ViewHandedness::RightHanded),
         [0, -10_000, 0],
     );
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
-    scene.set_frame(context.queue(), FrameUniform::unlit(&view));
+    let frame = FrameUniform::unlit(&view);
+    scene.set_frame(context.queue(), frame);
     scene
         .set_dynamic_textures(
             context.device(),
@@ -167,7 +171,7 @@ fn canonical_generation_output_drives_visible_consumer_state() {
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let image = capture(
         &context,
-        &scene,
+        (&mut scene, frame),
         &pipelines,
         &mut target,
         Readiness::Ready,
@@ -183,16 +187,23 @@ fn canonical_generation_output_drives_visible_consumer_state() {
 
 fn assert_blocked(
     context: &GpuContext,
-    scene: &SceneGpu,
+    (scene, frame): (&mut SceneGpu, FrameUniform),
     pipelines: &ScenePipelines,
     target: &mut OffscreenTarget,
 ) {
     let stage_calls = Cell::new(0);
     for readiness in [Readiness::Streaming, Readiness::Settling] {
         assert!(
-            capture(context, scene, pipelines, target, readiness, |_, _| {
-                stage_calls.set(stage_calls.get() + 1);
-            })
+            capture(
+                context,
+                (&mut *scene, frame),
+                pipelines,
+                target,
+                readiness,
+                |_, _| {
+                    stage_calls.set(stage_calls.get() + 1);
+                }
+            )
             .is_err()
         );
     }

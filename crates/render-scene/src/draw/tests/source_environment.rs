@@ -59,7 +59,7 @@ fn environment_source_scene_matches_direct_preparation_for_float_and_bc6h() {
         .unwrap();
         let direct = direct(&context, &source_texture);
         let scene = source(cube.with_preparation(request()).unwrap());
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
         let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
         let resident = gpu.retained.textures.last().unwrap();
         assert_eq!(resident.format(), wgpu::TextureFormat::Rgba16Float);
@@ -134,7 +134,7 @@ fn environment_prefiltered_default_is_byte_identical_and_has_no_job_inventory() 
             .unwrap(),
         0
     );
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     for mip in 0..3 {
         let bytes = read(&context, gpu.retained.textures.last().unwrap(), mip);

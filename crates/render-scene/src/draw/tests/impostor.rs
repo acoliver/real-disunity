@@ -20,7 +20,7 @@ fn octahedral_card_blends_three_independently_colored_cells() {
     })
     .unwrap();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 2000],
@@ -51,7 +51,7 @@ fn octahedral_card_blends_three_independently_colored_cells() {
 fn atlas_blending_interpolates_linear_color_on_a_card() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = half_color_scene();
     let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let mut frame = frame_from(CameraPose {
@@ -153,7 +153,7 @@ fn scene(masked: bool, rotation: SceneRotation) -> RenderScene {
 fn atlas_material_draws_selected_color_and_instance_orientation() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (rotation, expected) in [
         (SceneRotation::IDENTITY, [255, 255, 255]),
         (
@@ -197,7 +197,7 @@ fn atlas_cutout_depth_matches_forward_metadata() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let forward = ScenePipelines::new(device, COLOR_FORMAT);
+    let forward = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let source = relief_scene();
     let gpu = upload_scene(device, context.submission(), &source, &forward).unwrap();
     gpu.set_frame(
@@ -364,7 +364,7 @@ fn half_color_scene() -> RenderScene {
 fn instance_fade_bands_share_forward_and_shadow_silhouettes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let shadow = crate::shadows::wind_test_pipelines(context.device(), &layouts);
     let base = relief_scene();
     for (band, visible) in [([5000, 6000], false), ([1000, 2000], true)] {
@@ -443,7 +443,7 @@ fn contact_relief_scene() -> RenderScene {
 fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = contact_relief_scene();
     let gpu = upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
     let frame = frame_from(CameraPose {
@@ -494,7 +494,7 @@ fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
 fn relief_raster_bias_keeps_surface_when_card_is_beyond_far_plane() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let base = relief_scene();
     let mut materials = base.resources().materials().to_vec();
     materials[0] = materials[0].with_impostor(

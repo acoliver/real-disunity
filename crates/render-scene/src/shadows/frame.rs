@@ -67,7 +67,6 @@ struct ShadowScheduleWork<'a> {
     shadow: ShadowWork,
     groups: crate::scene_metadata::receiver::SetTwo,
     schedule: crate::compositor::ShadowSchedule,
-    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
     contour: Option<crate::draw::ContourDraw>,
     map: &'a ShadowMap,
 }
@@ -84,8 +83,6 @@ impl ShadowedScene {
         self.refuse_programs()?;
         let FitInput { scheduler, fitting } = input;
         let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
-        scheduler.validate_opaque_depth(attachments.depth)?;
-        scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
@@ -161,7 +158,6 @@ impl ShadowFrameResources<'_> {
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
         scheduler.publish_game_terrain(self.gpu, &frame, color.size());
-        scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         self.gpu
             .track_previous_transforms(selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
@@ -230,7 +226,6 @@ impl ShadowFrameResources<'_> {
             shadow,
             groups,
             schedule,
-            deferred,
             contour,
             map,
         } = work;
@@ -243,11 +238,7 @@ impl ShadowFrameResources<'_> {
             )
         });
         let mut feature = ShadowFeature {
-            publications: scheduler.draw_publications(),
-            renders: scheduler
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders),
+            publications: crate::draw::DrawPublications::default(),
             screen: scene.screen,
             contour,
             gpu: self.gpu,
@@ -262,9 +253,8 @@ impl ShadowFrameResources<'_> {
             shadow_uniform: &map.uniform,
             settings: self.settings,
             sampling: self.effects.shadows().sampling(),
-            deferred,
         };
-        scheduler.encode_frame_with(
+        scheduler.encode_frame(
             context.device(),
             encoder,
             (&schedule.passes, &schedule.views),
@@ -302,12 +292,11 @@ impl ShadowWork {
             &scene.selected,
             self.refresh,
         )?;
-        let deferred = schedule.complete(
+        schedule.complete(
             scheduler,
             (gpu, &scene.selected),
             (context.device(), color.size()),
             (scene.depth_mode, card_depth.is_some()),
-            (depth.texture(), &scene.frame),
         )?;
         let contour = scheduler.plan_contours(
             (context.device(), encoder),
@@ -323,7 +312,6 @@ impl ShadowWork {
             shadow: self,
             groups,
             schedule,
-            deferred,
             contour,
             map,
         })
@@ -332,7 +320,6 @@ impl ShadowWork {
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
-    renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
     contour: Option<crate::draw::ContourDraw>,
     gpu: &'a mut SceneGpu,
@@ -347,7 +334,6 @@ struct ShadowFeature<'a> {
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
@@ -407,33 +393,16 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         match context.slot {
-            worldrunner_render_post::PassSlot::OpaqueGbuffer => self.draw_gbuffer(pass),
-            worldrunner_render_post::PassSlot::DepthNormalPrepass if self.renders => {
-                self.draw_gbuffer(pass);
-            }
             worldrunner_render_post::PassSlot::DepthNormalPrepass => self.draw_prepass(pass),
             worldrunner_render_post::PassSlot::ShadowCasters(index) => {
                 self.draw_casters(pass, index);
             }
-            slot => self.draw_color(pass, slot),
+            _ => self.draw_color(pass),
         }
     }
 }
 
 impl ShadowFeature<'_> {
-    fn draw_gbuffer(&self, pass: &mut wgpu::RenderPass<'_>) {
-        if self.renders {
-            self.publications.prepass();
-        }
-        let screen = self.screen.as_ref().expect("declared G-buffer producer");
-        let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-        let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
-        if self.renders {
-            self.publications
-                .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
-        }
-    }
-
     fn draw_prepass(&self, pass: &mut wgpu::RenderPass<'_>) {
         self.publications.prepass();
         let screen = self.screen.as_ref().expect("declared prepass");
@@ -466,7 +435,7 @@ impl ShadowFeature<'_> {
         self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
     }
 
-    fn draw_color(&self, pass: &mut wgpu::RenderPass<'_>, slot: worldrunner_render_post::PassSlot) {
+    fn draw_color(&self, pass: &mut wgpu::RenderPass<'_>) {
         if let Some(screen) = &self.screen {
             pass.set_bind_group(
                 3,
@@ -478,21 +447,10 @@ impl ShadowFeature<'_> {
             );
         }
         pass.set_bind_group(2, &self.shadow_groups.object, &[]);
-        if slot == worldrunner_render_post::PassSlot::OpaqueLighting {
-            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+        self.publications.record_color(
+            self.gpu,
             self.gpu
-                .draw_deferred_lighting(pass, self.pipelines, inputs);
-        } else if self.renders {
-            self.publications.record_remainder(
-                self.gpu,
-                self.gpu.draw_forward_remainder(pass, self.pipelines),
-            );
-        } else {
-            self.publications.record_color(
-                self.gpu,
-                self.gpu
-                    .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
-            );
-        }
+                .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
+        );
     }
 }

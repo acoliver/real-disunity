@@ -83,10 +83,9 @@ fn settings(mode: Mode, output: [u32; 2], scale_micro: u32) -> (RendererConfigur
         Mode::M3 => (reduced(), PostResolve::taa(0.9)).into_post(upscale(UpscaleMode::Easu)),
         Mode::M4 => (reduced(), PostResolve::taa(0.9)).into_post(upscale(UpscaleMode::Temporal)),
     };
-    let mut configuration = RendererConfiguration::legacy(output, OUTPUT);
+    let mut configuration = RendererConfiguration::new(output, OUTPUT, ToneMap::Reinhard);
     configuration.frame =
         FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
-    configuration.hdr = Some((1.0, ToneMap::Reinhard));
     configuration.post = post;
     (configuration, render)
 }
@@ -234,7 +233,14 @@ impl<'a> Harness<'a> {
                     (targets.scene(), targets.depth()),
                     prepared.view_projection,
                 );
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 if let Some(e) = envelope {
                     e.end(encoder);

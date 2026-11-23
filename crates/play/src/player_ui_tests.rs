@@ -1,5 +1,5 @@
 use super::*;
-use crate::player_ui::PlayerUi;
+use crate::player_ui::{PlayerUi, Screen};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 use worldrunner_scene_viewer::RetainedUpdate;
 use worldrunner_world_simulation::ui::UiTexture;
@@ -41,6 +41,14 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
     (plan, textures)
 }
 
+/// A square screen of 64 pixels on a device that takes large textures.
+fn square() -> Screen {
+    Screen {
+        size: [64, 64],
+        max_texture: 4096,
+    }
+}
+
 fn changes(
     ui: &mut PlayerUi,
     plan: &UiPresentation,
@@ -48,9 +56,18 @@ fn changes(
     textures: &SpriteTextures,
     player: &PlayerTextures,
 ) -> bool {
-    ui.update(plan.clone(), [width, 64], textures, player, |_| {})
-        .unwrap()
-        .is_some()
+    ui.update(
+        plan.clone(),
+        Screen {
+            size: [width, 64],
+            max_texture: 4096,
+        },
+        textures,
+        player,
+        |_| {},
+    )
+    .unwrap()
+    .is_some()
 }
 
 #[test]
@@ -89,7 +106,7 @@ fn unavailable_images_leave_other_ui_draws_in_the_frame() {
     let mut reports = vec![];
     for frame in 0..3 {
         let update = ui
-            .update(plan.clone(), [64, 64], &textures, &player, |line| {
+            .update(plan.clone(), square(), &textures, &player, |line| {
                 reports.push(line);
             })
             .unwrap();
@@ -147,7 +164,7 @@ fn conversion_failure_removes_the_image_and_later_storage_restores_it() {
     let mut reports = vec![];
     for frame in 0..3 {
         let update = ui
-            .update(plan.clone(), [64, 64], &textures, &player, |line| {
+            .update(plan.clone(), square(), &textures, &player, |line| {
                 reports.push(line);
             })
             .unwrap();
@@ -173,7 +190,7 @@ fn unavailable_text_coverage_is_still_an_error() {
     let error = PlayerUi::default()
         .update(
             plan,
-            [64, 64],
+            square(),
             &textures,
             &PlayerTextures::default(),
             |_| {},
@@ -185,9 +202,12 @@ fn unavailable_text_coverage_is_still_an_error() {
 #[test]
 fn generic_overlay_still_rejects_unresolved_graphics() {
     let (plan, _) = fixture();
-    let error =
-        worldrunner_render_scene::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new())
-            .unwrap_err();
+    let error = worldrunner_render_scene::simulation::UiOverlay::from_presentation(
+        &plan,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("unresolved UI texture identity"));
 }
 
@@ -284,7 +304,7 @@ mod targets {
         let update = ui
             .update(
                 plan,
-                [64, 64],
+                square(),
                 &textures,
                 &PlayerTextures::default(),
                 |_| {},

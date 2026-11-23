@@ -6,7 +6,8 @@ mod census_capture_errors;
 mod census_tests;
 mod compaction;
 mod culling;
-mod deferred;
+mod declared_terrain_routes;
+mod declared_water;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -32,8 +33,6 @@ mod slice;
 mod ssao;
 mod streaming;
 mod subresources;
-mod suppressed_routes;
-mod suppressed_water;
 mod terms;
 mod terrain;
 mod terrain_receiver_images;
@@ -621,7 +620,7 @@ fn render_views(
 }
 
 mod refresh;
-mod render_path;
+mod shadowed_capture;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

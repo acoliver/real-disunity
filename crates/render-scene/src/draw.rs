@@ -1,29 +1,49 @@
 //! Retained scene uploads, pipeline-compatible batches, and draw submission.
 use std::array;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
+use std::cell::RefCell;
 
-use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture,
-    TextureView, TextureViewDescriptor,
-};
+use wgpu::BindGroup;
+use wgpu::BindGroupLayout;
+use wgpu::Buffer;
+use wgpu::BufferUsages;
+use wgpu::Device;
+use wgpu::Queue;
+use wgpu::RenderPass;
+use wgpu::Sampler;
+use wgpu::Texture;
+use wgpu::TextureView;
+use wgpu::TextureViewDescriptor;
 
-use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
+use worldrunner_render_plan::MaterialHandle;
+use worldrunner_render_plan::RenderScene;
+use worldrunner_render_plan::TextureHandle;
 
-use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
-use crate::geometry::{GeometryError, pack_indices, pack_vertices};
+use crate::frame::FRAME_UNIFORM_BYTES;
+use crate::frame::FrameUniform;
+use crate::geometry::GeometryError;
+use crate::geometry::pack_indices;
+use crate::geometry::pack_vertices;
 use crate::renderer::ScenePipelines;
-use crate::terrain::{TerrainError, build_terrain_mesh};
-use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
-use crate::texture::{PreparedTexture, TextureError, prepare_texture};
-use crate::upload::{
-    FRAME_GROUP, placeholder_with_view, upload_palette_array, upload_texture, upload_type_grid,
-};
+use crate::terrain::TerrainError;
+use crate::terrain::build_terrain_mesh;
+use crate::terrain_uniform::TerrainUniformError;
+use crate::terrain_uniform::TerrainUniformState;
+use crate::texture::PreparedTexture;
+use crate::texture::TextureError;
+use crate::texture::prepare_texture;
+use crate::upload::FRAME_GROUP;
+use crate::upload::placeholder_with_view;
+use crate::upload::upload_palette_array;
+use crate::upload::upload_texture;
+use crate::upload::upload_type_grid;
 use worldrunner_render_gpu::resource::upload_buffer;
 
 mod append;
-pub use append::{
-    PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
-};
+pub use append::PreparedAppend;
+pub use append::PreparedMeshReplacement;
+pub use append::PreparedTextureReplacement;
+pub use append::ResourceBase;
 mod caster_edits;
 mod celestial;
 mod compaction;
@@ -31,15 +51,16 @@ mod contact;
 mod contours;
 pub(crate) mod decals;
 pub(crate) use contours::ContourDraw;
-pub(crate) use lent_meshes::{LentLevel, LentMesh};
-mod deferred;
 pub use decals::validate_decal_materials;
+pub(crate) use lent_meshes::LentLevel;
+pub(crate) use lent_meshes::LentMesh;
 mod descriptors;
 mod dynamic;
 mod lent_meshes;
 mod lod_material;
 mod mesh_arena;
-use mesh_arena::{GpuMesh, MeshArena};
+use mesh_arena::GpuMesh;
+use mesh_arena::MeshArena;
 mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
@@ -52,34 +73,46 @@ pub use retained::reflections_enabled;
 mod effect_statistics;
 pub(crate) mod geometry_statistics;
 mod statistics;
-pub use effect_statistics::{
-    EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
-    ReceiverBindings, ShadowStatistics, SsaoStatistics,
-};
-pub use geometry_statistics::{
-    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
-};
-pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
+pub use effect_statistics::EffectEnabled;
+pub use effect_statistics::EffectStatistics;
+pub use effect_statistics::PassExecution;
+pub use effect_statistics::PassInstallation;
+pub use effect_statistics::ReceiverBinding;
+pub use effect_statistics::ReceiverBindings;
+pub use effect_statistics::ShadowStatistics;
+pub use effect_statistics::SsaoStatistics;
+pub use geometry_statistics::TerrainGeometryStatistics;
+pub use geometry_statistics::TerrainLeafIdentity;
+pub use geometry_statistics::TerrainStreamingStatistics;
+pub use pass_statistics::ObjectDraws;
+pub use pass_statistics::ObjectRecording;
+pub use pass_statistics::PassDrawStatistics;
 mod streaming;
-mod terrain_draws;
 mod terrain_runtime;
-mod water_draws;
-pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
-pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
+pub(crate) use publication::ColorDraw;
+pub(crate) use publication::DrawPublications;
+pub(crate) use publication::DrawnObjects;
+pub(crate) use publication::SelectionPublication;
+pub use statistics::DrawCount;
+pub use statistics::ResourceStatistics;
+pub use statistics::SceneStatistics;
+pub use statistics::TerrainPageStatistics;
+pub use streaming::TerrainChunkBuffers;
+pub use streaming::TerrainChunkDraw;
+pub use streaming::TerrainChunkEdge;
+pub use streaming::TerrainChunkNeighbor;
+pub use streaming::TerrainChunkViewError;
+pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
-pub use streaming::{
-    TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
-    TerrainChunkViewError, TerrainGeometryRequest,
-};
-pub use terrain_draws::TerrainDraws;
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
-pub use water_draws::WaterDraws;
 mod visibility;
+pub use crate::instances::InstanceError;
+pub use crate::instances::InstanceHandle;
+pub use crate::instances::InstanceWrite;
 use crate::instances::Instances;
 pub use crate::instances::skin::SkinMeshError;
-pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
 
@@ -93,8 +126,6 @@ enum Route {
     Prepass,
     /// The capture terms: objects and terrain only.
     Capture,
-    /// The G-buffer slot: objects and terrain only.
-    Gbuffer,
 }
 
 #[cfg(test)]
@@ -303,8 +334,6 @@ pub struct SceneGpu {
     frame_slots: Vec<(Buffer, BindGroup)>,
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
-    /// The lighting records the material uniforms index, for deferred lighting.
-    lighting_records: crate::gbuffer::lighting::SceneRecords,
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
@@ -333,8 +362,8 @@ pub struct SceneGpu {
     /// The instance mirror and pipelines every view's compaction gathers with.
     gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
-    /// Whether the stock passes draw the terrain; selected by the renderer each frame.
-    terrain_draws: Cell<TerrainDraws>,
+    /// Whether a game feature draws the terrain surface; set by the renderer each frame.
+    terrain_surface_replaced: Cell<bool>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
     player: programs::PlayerWork,
@@ -390,7 +419,7 @@ impl SceneGpu {
         let sampler = device.create_sampler(&crate::upload::material_sampler_descriptor(
             worldrunner_render_plan::TextureAnisotropy::default(),
         ));
-        let (material_uniforms, material_imports, lighting_records) = resources::upload_materials(
+        let (material_uniforms, material_imports) = resources::upload_materials(
             device,
             queue,
             scene,
@@ -445,7 +474,6 @@ impl SceneGpu {
             frame_buffer: frame_slots[0].0.clone(),
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
             arena,
             meshes,
@@ -463,7 +491,7 @@ impl SceneGpu {
             selection_threads: visibility::selection_threads(),
             gather: compaction::Shared::default(),
             terrain,
-            terrain_draws: Cell::new(TerrainDraws::Stock),
+            terrain_surface_replaced: Cell::new(false),
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
             player: programs::PlayerWork::default(),
@@ -509,39 +537,6 @@ impl SceneGpu {
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
             .drawn
-    }
-
-    /// Records the terrain and objects the camera selected into the G-buffer slot with
-    /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
-    /// the one the prepass and the colour pass draw. In observation the caller publishes
-    /// nothing for it; when the frame renders from the G-buffer it stands in for the colour
-    /// pass's draw of the same surfaces.
-    pub(crate) fn draw_gbuffer(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        group: &BindGroup,
-    ) -> ColorDraw {
-        pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer)
-    }
-
-    /// Records what Opaque still draws when the frame renders from the G-buffer: the sky, the
-    /// celestial meshes and the dynamic meshes, which have no G-buffer producer, over the lit
-    /// colour with `pipelines`, the colour pass's pipelines. Terrain and objects were stored
-    /// in the G-buffer and lit before this pass. Returns the sky's draw count.
-    pub(crate) fn draw_forward_remainder(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-    ) -> DrawCount {
-        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
-            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
-        }
-        let frame = self.drawing_uniform();
-        let selected = self.selected_pipelines(pipelines, &frame);
-        let frame_group = self.drawing_frame_group();
-        self.draw_forward_tail(pass, &frame_group, &selected)
     }
 
     /// The forward pass's draws after terrain and objects.
@@ -650,7 +645,6 @@ impl SceneGpu {
         ColorDraw {
             drawn,
             terrain,
-            terrain_bound,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),
             ssao: ReceiverBindings::new(

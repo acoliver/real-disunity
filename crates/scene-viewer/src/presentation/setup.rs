@@ -1,4 +1,4 @@
-use super::{COLOR, FrameConfig, RendererConfiguration, ViewerError, Viewport};
+use super::{FrameConfig, RendererConfiguration, ViewerError, Viewport};
 
 pub(super) fn configuration(
     features: wgpu::Features,
@@ -13,8 +13,11 @@ pub(super) fn configuration(
     ),
     ViewerError,
 > {
-    let mut settings = RendererConfiguration::legacy([size.width, size.height], format);
-    settings.frame.format = COLOR;
+    let mut settings = RendererConfiguration::new(
+        [size.width, size.height],
+        format,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     if features.contains(crate::renderer::timing::features()) {
         settings.timing = worldrunner_render_post::TimingMode::Required;
     }
@@ -45,38 +48,29 @@ fn configure_hdr(
     profile: crate::FrameProfile,
     effects: Option<&worldrunner_render_plan::SceneEffects>,
 ) -> Result<(), ViewerError> {
-    let hdr = match profile {
-        crate::FrameProfile::Legacy => None,
-        crate::FrameProfile::Hdr { samples, tone_map }
-        | crate::FrameProfile::HdrNativeRcas {
-            samples, tone_map, ..
-        }
-        | crate::FrameProfile::HdrUpscaled {
-            samples, tone_map, ..
-        } => Some((samples, tone_map)),
-    };
-    if let Some((samples, tone_map)) = hdr {
-        settings.frame = FrameConfig::new(
-            [size.width, size.height],
-            wgpu::TextureFormat::Rgba16Float,
-            samples,
-        );
-        let exposure = effects.map_or(1.0, |effects| {
-            f64::from(effects.grading().exposure_micro) / 1_000_000.0
-        });
-        settings.hdr = Some((exposure, tone_map));
-        settings.post = effects
-            .map(worldrunner_render_scene::post_settings)
-            .transpose()?
-            .unwrap_or_default();
-        settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
-        settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
-        settings.depth_fitting = effects.and_then(|effects| effects.depth_fitting()).copied();
-        settings.water = effects.map_or_else(Vec::new, |effects| effects.water_bodies().to_vec());
-        settings.opaque_path = effects.map_or_else(
-            Default::default,
-            worldrunner_render_plan::SceneEffects::opaque_path,
-        );
+    let (crate::FrameProfile::Hdr { samples, tone_map }
+    | crate::FrameProfile::HdrNativeRcas {
+        samples, tone_map, ..
     }
+    | crate::FrameProfile::HdrUpscaled {
+        samples, tone_map, ..
+    }) = profile;
+    settings.frame = FrameConfig::new(
+        [size.width, size.height],
+        wgpu::TextureFormat::Rgba16Float,
+        samples,
+    );
+    let exposure = effects.map_or(1.0, |effects| {
+        f64::from(effects.grading().exposure_micro) / 1_000_000.0
+    });
+    settings.hdr = (exposure, tone_map);
+    settings.post = effects
+        .map(worldrunner_render_scene::post_settings)
+        .transpose()?
+        .unwrap_or_default();
+    settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
+    settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
+    settings.depth_fitting = effects.and_then(|effects| effects.depth_fitting()).copied();
+    settings.water = effects.map_or_else(Vec::new, |effects| effects.water_bodies().to_vec());
     Ok(())
 }

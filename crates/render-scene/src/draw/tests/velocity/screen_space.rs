@@ -110,14 +110,10 @@ fn shadowed_velocity_with(
     (scene, effects): (RenderScene, SceneEffects),
     frames: &[(f32, CameraPose)],
 ) -> Vec<[f32; 2]> {
-    let mut settings = shadow_settings();
-    if effects.opaque_path() == worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER {
-        settings.normal_bias_meters = 0.0;
-    }
     let mut shadowed = ShadowedScene::new(
         context,
         PreparedScene::new(&scene).unwrap(),
-        settings,
+        shadow_settings(),
         ShadowedTarget {
             velocity: true,
             ..ShadowedTarget::new(HDR, 1)
@@ -126,7 +122,7 @@ fn shadowed_velocity_with(
     .unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         shadowed
             .encode_with(
@@ -149,11 +145,11 @@ fn reflective_velocity_after(
     frames: &[(f32, CameraPose)],
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_reflections(scene);
-    let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer
             .encoding()
@@ -182,7 +178,7 @@ fn occluded_velocity_after(
     let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
-        renderer.set_frame_time(seconds).unwrap();
+        renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
         let mut encoder = context.submission().begin(context.device()).unwrap();
         renderer
             .encoding()
@@ -287,44 +283,4 @@ fn reflections_and_sky_under_taa_draw_without_validation_errors_and_keep_sky_vel
     assert!(pollster::block_on(scope.pop()).is_none());
     assert_matches_cpu_residual(&reflective, (125.0, 250.0));
     assert_sky_texels_are_zero_and_quad_moves(&reflective);
-}
-
-/// `scene`, authored as `effects` selects, rendered from the G-buffer.
-fn rendered_from_gbuffer(
-    (scene, effects): (RenderScene, SceneEffects),
-) -> (RenderScene, SceneEffects) {
-    let effects = effects
-        .with_opaque_path(worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER)
-        .unwrap();
-    let scene = RenderScene::new(SceneParts {
-        resources: scene.resources().clone(),
-        geometry: scene.geometry().clone(),
-        terrain: None,
-        effects: Some(effects.clone()),
-    })
-    .unwrap();
-    (scene, effects)
-}
-
-/// Rendered from the G-buffer, Opaque no longer draws the quad, so the G-buffer producers write
-/// its residual: shadows, reflections (whose depth prepass the G-buffer path needs) and sky
-/// under TAA give the plain scene's residual, and the sky stays zero.
-#[test]
-fn a_shadowed_reflective_scene_rendered_from_the_gbuffer_writes_the_residual_of_the_plain_scene() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let scope = context
-        .device()
-        .push_error_scope(wgpu::ErrorFilter::Validation);
-    let frames = [(0.125, pose()), (0.25, pose())];
-    let plain = velocity_after(&context, &windy_under_sky(false), &frames);
-    let rendered = shadowed_velocity_with(
-        &context,
-        rendered_from_gbuffer(with_reflections(&windy_under_sky(false))),
-        &frames,
-    );
-    assert!(pollster::block_on(scope.pop()).is_none());
-    assert_matches_plain(&rendered, &plain);
-    assert_matches_cpu_residual(&rendered, (125.0, 250.0));
-    assert_sky_texels_are_zero_and_quad_moves(&rendered);
 }

@@ -358,14 +358,12 @@ have no surface.
 
 ## Game rendering
 
-`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene`, a `TerrainDraws` choice and a `WaterDraws` choice. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. The viewer does not know what the game draws.
+`ViewerOptions::game` carries a `GameRendering` into every renderer the viewer builds: the `GamePasses` inventory from `worldrunner-render-scene`. The viewer registers the inventoried factories when it allocates the renderer and again after every reconfiguration, so a game's persistent targets survive replacement while their declarations are unchanged. The targets belong to the viewer's renderer: a replacement the factory refuses leaves them as they were. The default adds nothing and frames are the stock frames. A factory that draws the scene's terrain surface or water itself declares it with `GameFeatureFactory::replaces_stock`, and the renderers the viewer builds then skip the stock draws of it. The viewer does not know what the game draws.
 
 ```rust,ignore
 let mut options = ViewerOptions::default();
 options.game = GameRendering {
     passes: GamePasses::new().with(Arc::new(MyGame::new())),
-    terrain_draws: TerrainDraws::Suppressed, // the game's own passes draw the terrain
-    water_draws: WaterDraws::Stock,
 };
 ```
 
@@ -421,7 +419,7 @@ when no capture is requested. This host-wide pool is counted once across rendere
 generations. Admitting a recipe reserves storage without replacing targets.
 Executing accumulated recipes can replace targets for their raster footprint or
 RCAS selection; restoring ordinary presentation uses the same admission policy.
-Ordinary desktop and live presentation do not reserve that pool. Attachment
+Ordinary desktop presentation does not reserve that pool. Attachment
 replacement creates targets while previous generations remain alive, so the full
 replacement peak must fit.
 
@@ -709,9 +707,21 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
   --frames 300 --warmup 60 --objects 3000 --in-flight 1 --size 1280x720
 ```
 
-`--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
+`--in-flight 1`, the default, admits a frame only
 after the previous one has finished, so the software rasterizer does not compete with the timed
 thread. The example uses no game assets.
+
+`--clutter N` adds N pieces of clutter to the scene, spread over eight large instance batches.
+With `--edits E` the driver also edits E of them every frame, rounded up to a multiple of three,
+as a game that streams clutter around the camera does: a third are removed, a third are added
+near the camera and a third are recycled to a new spot near it. The edits go through one
+`RetainedUpdate::Objects` in the driver's update, so the timed span includes publishing them to
+the host's tables, the pick snapshot and the renderer's instance batches:
+
+```text
+cargo run --locked --release -p worldrunner-scene-viewer --example moving_frame_cpu -- \
+  --frames 300 --warmup 100 --clutter 20000 --edits 300
+```
 
 ## GPU pass timing
 
@@ -734,8 +744,8 @@ submission statistics. Capture recipe timings identify each rendered subframe; l
 subframes have distinct IDs, while the capture result retains its initial source ID.
 Each pass retains its existing `PassId`: geometry uses `PassSlot` (shadows,
 metadata/prepass, AO, opaque, SSR and water), output stages use `StageId`, and
-multisample resolve uses `Resolve`. Only executed passes appear. Legacy presentation
-is the `post copy output` stage. HDR output retains its authored post stage names.
+multisample resolve uses `Resolve`. Only executed passes appear. Output retains its
+authored post stage names.
 Depth fitting adds `sdsm receiver initialize` and `sdsm receiver reduce` stages at
 level zero to the same geometry/output sample, including same-frame captures.
 Durations are nanoseconds using the queue timestamp period. All-zero or reversed

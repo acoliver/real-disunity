@@ -578,9 +578,10 @@ A renderer that already owns buffers, textures and samplers can have a program d
   `PreparedProgramDraw::external_sets()` and `GraphicsProgram::external_sets()` list the sets the pass owner must have bound before recording.
   The pipeline cache key includes each lent layout's identity, so programs with equal stages and different lent layouts never share a pipeline, while clones of one layout do.
   A `BoundResource` at a lent set, an import of an engine semantic that a lent binding names, and a set lent twice are `ProgramError::ExternalSetConflict { set }`. [The guide](../../docs/render-program-native.md#sets-the-pass-owner-binds) has a compiled example, and `tests/lent/external.rs` draws two programs over one pass-bound group.
-- **Stats.** `ProgramRuntime::stats()` returns `RuntimeStats { modules_built, pipelines_built, bind_groups_built, sets_prepared, draws_prepared, transfer_buffers_built }`.
+- **Stats.** `ProgramRuntime::stats()` returns `RuntimeStats { modules_built, pipelines_built, pipeline_keys_computed, bind_groups_built, sets_prepared, draws_prepared, transfer_buffers_built }`.
   Each count only rises and is incremented where the object is created: a shader module in the module cache, a pipeline in the render and compute pipeline caches, a bind group where a program's set is bound, and a draw where a prepared draw is made (`prepare_draw`, materials, admissions and `prepare_imported_draw`).
   `transfer_buffers_built` counts the staging buffers of block-image transfers.
+  `pipeline_keys_computed` counts render pipeline content keys: a `GraphicsProgram` (and its clones) holds the key of each request made for it, found again by state, target signature, vertex layouts and primitive, so a draw prepared again in a later frame computes none (`render-scene`'s `water::tests::key_cost_tests` counts them over frames of water bodies).
   A cache hit or a call refused before it creates the object counts nothing.
   `sets_prepared` counts `prepare_set` calls; each also counts its bind group, and a draw that binds a prepared set counts neither.
   A cost test takes a snapshot before a frame and compares it with one after; `tests/lent/external.rs` predicts the exact counts of a sequence of draws.
@@ -835,6 +836,14 @@ A blit with a material needs a color attachment to draw over and refuses a depth
 `CopyTexture` between two depth-only textures of the same format is a texture copy, and a blit with a material samples the depth as a non-filterable float through a point sampler (the rule for textures the device cannot filter).
 A readback copies into a buffer, which `Depth24Plus` does not allow, so `read_back` of it is `OffscreenError::UnreadableFormat`; `Depth32Float` reads back.
 GraphicsFormat 0 with no depth bits is `OffscreenError::UnsupportedFormat { code: 0 }`.
+
+`OffscreenFrame::taps` lists indices into `records`; right after planning each such record the state copies the record's target (`Record::target`) into staging buffers, colour (`TextureAspect::All`) and depth (`DepthOnly`, from the depth allocation's own format), at mip 0 and layer 0, with the version the cell has at that point of the frame.
+The depth of a tap is the depth the record rendered with (`Record::depth_target`): the depth attachment a clear, a draw list or a procedural draw binds, which may be a render texture of its own, and a camera's target's own depth buffer. A blit, a copy, a mip generation and a clear or draw that binds no depth have none and refuse it by name.
+`OffscreenOperations::take_taps` gives one `TapRead` for each tap, whose `colour` and `depth` are a `PendingImage` or the reason there is none: a record that draws nothing (`Globals`), a target without colour or without a depth buffer, a depth format whose depth aspect cannot be copied (`Depth24Plus`, `Depth24PlusStencil8`) and an index past the last record.
+A refusal is data, not an `OffscreenError`, so a bad tap never drops the frame's draws.
+The copies sit in the frame's own submission, so the frame ends with the same image with or without taps.
+`PendingImage::resolve` waits for the submission and reads a tap without panicking.
+`read_back` and the taps share one copy recorder, `readback_operation`.
 
 A pass declares its textures as filterable floats.
 A texture whose format the device cannot filter, such as `Rgba32Float` without `FLOAT32_FILTERABLE`, is bound as a non-filterable float and read through a point sampler that keeps the texture's wrap modes (clamp to the edge when it has no sampler state), so such a read returns the nearest texel instead of failing the contract's sample type check.

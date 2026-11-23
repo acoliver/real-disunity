@@ -28,12 +28,12 @@ use crate::renderer::ScenePipelines;
 use crate::renderer::depth::DepthMode;
 
 pub(in crate::terrain) mod caster;
+mod declared;
 mod pixel_normal;
 pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
 mod shadow;
 pub(super) mod streaming;
-mod suppressed;
 mod terms;
 mod variants;
 

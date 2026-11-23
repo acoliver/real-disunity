@@ -1,16 +1,25 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
 //! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
-use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player,
-};
-use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
+use worldrunner_play::Capture;
+use worldrunner_play::Game;
+use worldrunner_play::PlayerLaunch;
+use worldrunner_play::PlayerWindow;
+use worldrunner_play::ScheduledKey;
+use worldrunner_play::ScreenOutput;
+use worldrunner_play::StandInLook;
+use worldrunner_play::SuppliedGlobal;
+use worldrunner_play::TargetRead;
+use worldrunner_play::key_code;
+use worldrunner_play::play_game_window;
+use worldrunner_play::play_player_window;
+use worldrunner_play::prepare;
+use worldrunner_play::prepare_player;
+use worldrunner_play::run_player;
 
 /// The window a player opens in when `--size` is not given.
 const WINDOW_SIZE: [u32; 2] = [1920, 1080];
@@ -21,9 +30,9 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta] [--gpu-storage-mb N]
+            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta]
             [--report-each-frame] [--global NAME=v0,v1,v2,v3]...
-            [--plugins DIRECTORY]...";
+            [--read-target FRAME:RECORD:FILE.png]... [--plugins DIRECTORY]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -31,10 +40,12 @@ struct Arguments {
     size: Option<[u32; 2]>,
     frames: Option<u64>,
     fixed_dt: Option<Duration>,
-    keys: Vec<ScheduledInput>,
+    keys: Vec<ScheduledKey>,
     captures: Vec<(u64, PathBuf)>,
     /// The frames of a headless player run whose composed frame is written, and the files.
     screens: Vec<(u64, PathBuf)>,
+    /// The reads of a record's target that `--read-target` asks for, in the order given.
+    reads: Vec<TargetRead>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
     plugins: Vec<PathBuf>,
@@ -45,8 +56,6 @@ struct Arguments {
     globals: Vec<SuppliedGlobal>,
     /// How the stand-in textures look: `--stand-ins`.
     stand_ins: StandInLook,
-    /// The storage budget in MiB that `--gpu-storage-mb` asks for.
-    gpu_storage_mb: Option<NonZeroU64>,
     /// Whether `--report-each-frame` was given.
     report_each_frame: bool,
     /// The player's command line after its executable path, in the order given.
@@ -59,26 +68,22 @@ fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
 }
 
 /// `FRAME:KEY:down|up`, with KEY a key name such as `w`, `space` or `arrowup`.
-fn key(text: &str) -> Result<ScheduledInput, String> {
+fn key(text: &str) -> Result<ScheduledKey, String> {
     let [frame, key, state] = text.split(':').collect::<Vec<_>>()[..] else {
         return Err(format!("--key `{text}` is not FRAME:KEY:down|up"));
     };
-    if key_code(key).is_none() {
+    let Some(code) = key_code(key) else {
         return Err(format!("--key `{text}`: the engine has no key `{key}`"));
-    }
+    };
     let pressed = match state {
         "down" => true,
         "up" => false,
         _ => return Err(format!("--key `{text}`: the state is down or up")),
     };
-    let event = LiveInputEvent::Key {
-        key: key.to_owned(),
-        pressed,
-        repeat: false,
-    };
-    Ok(ScheduledInput {
+    Ok(ScheduledKey {
         frame: number(frame, "--key frame")?,
-        event,
+        code,
+        pressed,
     })
 }
 
@@ -116,6 +121,12 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .screens
                 .push((number(frame, "--screen frame")?, file.into()));
         }
+        "--read-target" => {
+            let read = TargetRead::parse(value)
+                .and_then(|read| read.check_new(&arguments.reads).map(|()| read))
+                .map_err(|reason| format!("--read-target `{value}`: {reason}"))?;
+            arguments.reads.push(read);
+        }
         "--font" => arguments.font = Some(value.into()),
         "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
@@ -125,7 +136,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
             arguments.stand_ins = StandInLook::from_name(value)
                 .ok_or_else(|| format!("--stand-ins `{value}` is declared or magenta"))?;
         }
-        "--gpu-storage-mb" => arguments.gpu_storage_mb = Some(storage_mb(value)?),
         "--global" => {
             let global = SuppliedGlobal::parse(value)
                 .map_err(|reason| format!("--global `{value}`: {reason}"))?;
@@ -145,14 +155,6 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         _ => return Err(format!("unknown option {name}")),
     }
     Ok(())
-}
-
-/// `--gpu-storage-mb`: a positive number of MiB whose byte count fits in 64 bits.
-fn storage_mb(text: &str) -> Result<NonZeroU64, String> {
-    text.parse::<NonZeroU64>()
-        .ok()
-        .filter(|mebibytes| mebibytes.get().checked_mul(1 << 20).is_some())
-        .ok_or_else(|| format!("--gpu-storage-mb `{text}` is not a positive number of MiB"))
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
@@ -185,21 +187,23 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let screens = !arguments.screens.is_empty();
+    let reading = !arguments.reads.is_empty();
     let windowed = !screens
+        && !reading
         && (arguments.size.is_some()
             || !arguments.keys.is_empty()
             || !arguments.captures.is_empty());
-    // The window opens at `--size`, else at the size the live loop defaults to; a headless run
+    // The window opens at `--size`, else at `WINDOW_SIZE`; a headless run
     // that writes the screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
-        screen: (windowed || screens).then_some(size),
+        screen: (windowed || screens || reading).then_some(size),
         plugins: &arguments.plugins,
         globals: &arguments.globals,
         stand_ins: arguments.stand_ins,
-        gpu_storage_mb: arguments.gpu_storage_mb,
         report_each_frame: arguments.report_each_frame,
+        read_targets: &arguments.reads,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -209,15 +213,15 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
             fixed_dt: arguments.fixed_dt,
             max_frames: arguments.frames,
             capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
-            keys: scheduled_keys(&arguments.keys),
+            keys: arguments.keys.clone(),
         };
-        let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
+        let captured = play_player_window(&prepared, &window).map_err(|error| error.to_string())?;
         return write_captures(&captured, &arguments.captures);
     }
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    let output = screens.then(|| ScreenOutput {
+    let output = (screens || reading).then(|| ScreenOutput {
         size,
         files: arguments.screens.clone(),
     });
@@ -230,33 +234,23 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-/// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
-fn live(
-    mut driver: PlayDriver,
+/// Plays `prepared` in a window of `--size` (else `size`) and writes the requested captures.
+fn play_game(
+    prepared: worldrunner_play::Prepared,
     title: String,
     size: [u32; 2],
     arguments: Arguments,
 ) -> Result<(), String> {
-    let mut options = LiveOptions::new(title, arguments.size.unwrap_or(size));
-    options.fixed_dt = arguments.fixed_dt;
-    options.max_frames = arguments.frames;
-    options.scheduled_input = arguments.keys;
-    run_live(&mut driver, options).map_err(|error| error.to_string())?;
-    write_captures(driver.captures(), &arguments.captures)
-}
-
-/// The keys the command line schedules, as the game's key codes.
-fn scheduled_keys(keys: &[ScheduledInput]) -> Vec<ScheduledKey> {
-    keys.iter()
-        .filter_map(|input| match &input.event {
-            LiveInputEvent::Key { key, pressed, .. } => Some(ScheduledKey {
-                frame: input.frame,
-                code: key_code(key)?,
-                pressed: *pressed,
-            }),
-            _ => None,
-        })
-        .collect()
+    let window = PlayerWindow {
+        title,
+        size: arguments.size.unwrap_or(size),
+        fixed_dt: arguments.fixed_dt,
+        max_frames: arguments.frames,
+        capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
+        keys: arguments.keys,
+    };
+    let captured = play_game_window(prepared, &window).map_err(|error| error.to_string())?;
+    write_captures(&captured, &arguments.captures)
 }
 
 /// Writes each captured frame to the file requested for it, and fails when a requested frame
@@ -310,9 +304,26 @@ fn check_globals(arguments: &Arguments) -> Result<(), String> {
     Ok(())
 }
 
+/// A read of a record's target comes from a headless player run that plays its frame.
+fn check_reads(arguments: &Arguments) -> Result<(), String> {
+    if arguments.reads.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--read-target applies only to --player".into());
+    }
+    if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
+        return Err(
+            "--read-target reads from a headless run, which takes no --key or --capture".into(),
+        );
+    }
+    TargetRead::check_frames(&arguments.reads, arguments.frames.unwrap_or(1))
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
     check_screens(&arguments)?;
+    check_reads(&arguments)?;
     check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
@@ -320,10 +331,8 @@ fn play(arguments: Arguments) -> Result<(), String> {
     let game = arguments.game.ok_or("name a game")?;
     let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
         .map_err(|error| error.to_string())?;
-    let driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
-        .map_err(|error| error.to_string())?;
-    live(
-        driver,
+    play_game(
+        prepared,
         format!("Disunity: {}", game.name()),
         [960, 540],
         arguments,
@@ -445,28 +454,14 @@ mod tests {
     }
 
     #[test]
-    fn the_gpu_storage_budget_is_a_positive_number_of_mebibytes() {
-        let budget = |value: &str| {
-            parsed(&["--player", "Game_Data", "--gpu-storage-mb", value]).map(|a| a.gpu_storage_mb)
-        };
-        assert_eq!(
-            budget("1536").unwrap().map(std::num::NonZero::get),
-            Some(1536)
-        );
-        for bad in [
-            "0",
-            "-4",
-            "1.5",
-            "lots",
-            "",
-            "99999999999999999999",
-            "18446744073709551615",
-        ] {
-            let error = budget(bad).unwrap_err();
-            assert!(error.starts_with("--gpu-storage-mb"), "{bad:?}: {error}");
+    fn the_gpu_storage_budget_has_no_option_because_the_adapter_sets_it() {
+        for value in ["1536", "0", "lots"] {
+            let error = parsed(&["--player", "Game_Data", "--gpu-storage-mb", value])
+                .map(|_| ())
+                .unwrap_err();
+            assert_eq!(error, "unknown option --gpu-storage-mb", "{value}");
         }
-        let none = parsed(&["--player", "Game_Data"]).expect("parses");
-        assert_eq!(none.gpu_storage_mb, None);
+        assert!(!super::USAGE.contains("gpu-storage"));
     }
 
     #[test]
@@ -670,3 +665,7 @@ mod tests {
         assert!(parsed(&["--player", "Game_Data", "--arg"]).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "main_read_target_tests.rs"]
+mod read_target_tests;

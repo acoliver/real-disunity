@@ -21,8 +21,8 @@ use worldrunner_render_plan::SceneFadeReference;
 /// Visibility selection fills every live slot's boxes and inputs before it selects, and every
 /// write to a slot clears them. The batch's relief scales and input shape depend only on its
 /// mesh and materials, so a change of either discards every entry. The tree groups the live
-/// slots by position and is rebuilt after any slot's boxes change or a slot is added or
-/// removed.
+/// slots by position and follows the slots whose boxes change and those added or removed,
+/// until its grouping has worn enough to build it afresh.
 #[derive(Debug, Default)]
 pub(crate) struct SlotBounds {
     /// Distinct relief scales by bit pattern; each slot stores one box per scale.
@@ -42,6 +42,7 @@ impl SlotBounds {
             *valid = false;
         }
         self.levels.forget(position);
+        self.tree.remove(position);
         self.stale = true;
     }
 
@@ -63,10 +64,11 @@ impl SlotBounds {
             && is_distinct_of(references, &shape.references)
     }
 
-    /// Fills the boxes and level inputs of every live slot that has none and regroups the
-    /// slots when they changed. `live` lists the batch's allocated slots in order with their
-    /// placements; `fill` computes one placement's boxes, one per relief scale, and its inputs
-    /// laid out by `shape`.
+    /// Fills the boxes and level inputs of every live slot that has none and brings the grouping
+    /// of the slots up to date: slots that changed rejoin it, and a grouping that its changes
+    /// have worn, or that a new layout invalidates, is built afresh. `live` lists the batch's
+    /// allocated slots in order with their placements; `fill` computes one placement's boxes,
+    /// one per relief scale, and its inputs laid out by `shape`.
     pub fn refresh<'a, P: 'a>(
         &mut self,
         (reliefs, shape): (&[u32], &Shape),
@@ -77,14 +79,16 @@ impl SlotBounds {
             return;
         }
         let stride = reliefs.len();
-        if reliefs != self.reliefs || shape != self.inputs.shape() {
+        let new_layout = reliefs != self.reliefs || shape != self.inputs.shape();
+        if new_layout {
             self.reliefs = reliefs.to_vec();
             self.inputs.reset(shape);
             self.boxes.clear();
             self.valid.clear();
             self.levels.clear();
-            self.stale = true;
         }
+        let rebuild = new_layout || self.tree.is_degraded();
+        // The slots to group afresh, or those that changed and are not in the grouping.
         let mut slots = Vec::new();
         for (position, placement) in live {
             if position >= self.valid.len() {
@@ -92,28 +96,28 @@ impl SlotBounds {
                 self.boxes.resize((position + 1) * stride, [Vec3::ZERO; 2]);
                 self.inputs.grow(position + 1);
             }
-            if !self.valid[position] {
+            let changed = !self.valid[position];
+            if changed {
                 fill(
                     placement,
                     &mut self.boxes[position * stride..(position + 1) * stride],
                     self.inputs.slot_mut(position),
                 );
                 self.valid[position] = true;
-                self.stale = true;
             }
-            slots.push(position);
+            if rebuild || changed {
+                slots.push(position);
+            }
         }
         self.levels.grow(self.valid.len());
-        if self.stale {
-            self.tree = Tree::build(
-                slots
-                    .into_iter()
-                    .map(|position| (position, self.union(position)))
-                    .collect(),
-                (&self.boxes, stride),
-            );
-            self.stale = false;
+        if rebuild {
+            self.tree = Tree::build(slots, &self.boxes, stride);
+        } else {
+            for position in slots {
+                self.tree.insert(position, &self.boxes);
+            }
         }
+        self.stale = false;
     }
 
     /// The boxes of a live slot, one per relief scale; call after `refresh`.
@@ -121,14 +125,6 @@ impl SlotBounds {
         debug_assert!(self.valid[position], "refreshed slot bounds");
         let stride = self.reliefs.len();
         &self.boxes[position * stride..(position + 1) * stride]
-    }
-
-    fn union(&self, position: usize) -> [Vec3; 2] {
-        self.boxes(position)
-            .iter()
-            .copied()
-            .reduce(|[min, max], [low, high]| [min.min(low), max.max(high)])
-            .expect("a batch has at least one material")
     }
 
     /// Relief scales by bit pattern, in the order of each slot's boxes.

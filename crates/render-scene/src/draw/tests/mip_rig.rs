@@ -21,9 +21,8 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 const BOUND: f32 = 0.005;
 
 pub(super) fn plain(context: &GpuContext) -> ConfiguredFrameRenderer {
-    let mut settings = RendererConfiguration::legacy([RENDER; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([RENDER; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([RENDER; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap()
 }
 
@@ -32,9 +31,8 @@ const FORCED_BIAS: f32 = -2.0;
 
 pub(super) fn temporal(context: &GpuContext) -> ConfiguredFrameRenderer {
     let output = [2 * RENDER; 2];
-    let mut settings = RendererConfiguration::legacy(output, COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(output, COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new(output, HDR, 1).with_render_extent([RENDER; 2]);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve: PostResolve::taa(0.9),
         upscale: Some(UpscaleSettings {
@@ -56,7 +54,7 @@ pub(super) fn center(
     scene: &RenderScene,
     frame: &FrameUniform,
 ) -> [f32; 3] {
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
     // The resident scene has no post effects of its own; it adopts the renderer's requested ones.
     gpu.post = renderer.configuration().post;
@@ -81,7 +79,7 @@ pub(super) fn center(
             *frame,
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     let image = Readback::new(
         context.device(),

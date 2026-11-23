@@ -214,6 +214,10 @@ pub enum Skip {
     NoSuchPass,
     /// A mesh draw of a mesh with nothing to draw, or of a sub-mesh with no indices.
     EmptyMesh,
+    /// A batch draw over a compute buffer the host does not hold.
+    BufferUnavailable,
+    /// A batch draw whose pass tags name no pass of the material's shader.
+    NoTaggedPass,
 }
 
 /// Why a renderer was left out of the frame.
@@ -228,8 +232,8 @@ pub enum RendererSkip {
     /// The slots name materials, but the first of them left out is not in the snapshot.
     StaleMaterial,
     EmptySlot,
-    /// A skinned mesh renderer, which the snapshot leaves out because skinned meshes are not
-    /// drawn yet.
+    /// A skinned mesh renderer the snapshot leaves out because its skin names no root bone that is
+    /// in the world, so nothing says where its mesh goes. It is counted once for the frame.
     SkinnedNotDrawn,
 }
 

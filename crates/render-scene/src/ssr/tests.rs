@@ -501,8 +501,9 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
                 context.device(),
                 &mut encoder,
                 (&[opaque.clone()], &[color.clone(), depth.clone()]),
+                None,
                 &mut [],
-                (frame(), None),
+                &(frame(), None),
             )
             .unwrap();
         encoder.finish().submit().unwrap();
@@ -532,8 +533,9 @@ fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
             context.device(),
             &mut encoder,
             (&[opaque], &[color]),
+            None,
             &mut [],
-            (frame(), None)
+            &(frame(), None)
         ),
         Err(FrameError::AttachmentContract(entry)) if entry == PassEntry::new(PassSlot::Opaque)
     ));

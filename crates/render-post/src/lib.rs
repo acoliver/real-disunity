@@ -76,7 +76,7 @@ pub use exposure_policy::{
 pub(crate) use exposure_policy::{luminance_key, metering_bin};
 pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS, gaussian_extents,
-    gaussian_extents_with_terminal, gaussian_weights,
+    gaussian_weights,
 };
 mod aces;
 mod display_grading;

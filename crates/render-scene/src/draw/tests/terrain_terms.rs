@@ -20,7 +20,7 @@ fn terrain_albedo_capture_matches_two_layer_cpu_blend() {
         },
     )
     .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let frame = FrameUniform::new(&view, source.effects()).unwrap();
     gpu.set_frame(context.queue(), frame);

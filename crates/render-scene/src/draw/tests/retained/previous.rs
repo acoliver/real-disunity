@@ -284,7 +284,7 @@ fn scene_textures_and_mesh_buffers_count_in_the_authority_census_until_the_scene
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let source = super::super::decals::source(false, true);
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let gpu = upload_scene(context.device(), &authority, &source, &pipelines).unwrap();
     let textures: u64 = gpu
         .retained

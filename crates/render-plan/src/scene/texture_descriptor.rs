@@ -136,8 +136,8 @@ pub struct SceneDdsDescriptor {
 
 /// Layout, preparation request and accounting of one specular cube.
 ///
-/// The released payload was six faces in [`Self::face_order`], each holding its mips from
-/// largest to smallest.
+/// The released payload was six faces in the order +X, -X, +Y, -Y, +Z, -Z, each holding its mips
+/// from largest to smallest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneCubeDescriptor {
     /// Texel format of every face level.

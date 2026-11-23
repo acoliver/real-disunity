@@ -637,7 +637,7 @@ pub struct DisunityMeshRange {
     pub topology: u32,
 }
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 26;
+pub const DISUNITY_ABI_VERSION: u32 = 30;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

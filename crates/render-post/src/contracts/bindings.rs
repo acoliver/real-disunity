@@ -43,6 +43,11 @@ impl CheckedBindings {
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.layout
     }
+    /// The entries the layout was created from. Equal entries make one layout object, so a
+    /// pipeline built against these accepts every group whose layout has the same entries.
+    pub fn layout_entries(&self) -> &[wgpu::BindGroupLayoutEntry] {
+        &self.layout_entries
+    }
     pub fn group(&self) -> &wgpu::BindGroup {
         &self.group
     }

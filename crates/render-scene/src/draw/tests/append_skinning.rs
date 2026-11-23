@@ -80,7 +80,7 @@ fn a_skeleton_outside_the_table_is_an_error_where_a_placement_is_admitted() {
 fn an_append_naming_skins_the_scene_lacks_is_refused_and_changes_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu = upload_scene(context.device(), context.submission(), &scene(), &pipelines)
         .expect("the scene uploads");
     let base = gpu.resource_base();
@@ -119,7 +119,7 @@ fn an_append_naming_skins_the_scene_lacks_is_refused_and_changes_nothing() {
 fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_use_it() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene();
     let mut gpu =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
@@ -148,7 +148,7 @@ fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_
 fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene();
     let mut gpu =
         upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();

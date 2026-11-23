@@ -380,7 +380,7 @@ fn draw_water_with(
     let water = renderer.water.as_ref().unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let feature = water
-        .feature_with_depth(
+        .feature(
             &encoder,
             &FrameUniform::new(&fixture_view(), None).unwrap(),
             (2.0, slot),

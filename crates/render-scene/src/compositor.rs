@@ -508,7 +508,7 @@ impl FrameRenderer {
         let feature = self
             .stock_water()
             .map(|water| {
-                water.feature_with_depth(
+                water.feature(
                     encoder,
                     frame,
                     (self.elapsed_seconds, self.frame_slot),

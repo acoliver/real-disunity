@@ -267,18 +267,6 @@ impl Water {
             depth: DepthMode::Independent,
         })
     }
-    #[cfg(test)]
-    pub fn feature(
-        &self,
-        encoder: &wgpu::CommandEncoder,
-        frame: &FrameUniform,
-        timing: (f32, usize),
-        shadow: Option<&wgpu::BindGroup>,
-    ) -> WaterFeature {
-        self.feature_with_depth(encoder, frame, timing, shadow, DepthMode::Independent)
-            .expect("the test frame belongs to water's authority")
-    }
-
     /// The feature of frame slot `timing.1`, its body draws prepared for passes with `depth`
     /// and retained by `encoder`'s frame.
     ///
@@ -286,7 +274,7 @@ impl Water {
     /// Fails when a body's program cannot be built or its draw prepared, and with
     /// `ForeignAuthority` when `encoder` is a frame of another authority than the one water was
     /// installed with.
-    pub fn feature_with_depth(
+    pub fn feature(
         &self,
         encoder: &wgpu::CommandEncoder,
         frame: &FrameUniform,

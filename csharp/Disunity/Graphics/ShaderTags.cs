@@ -36,7 +36,11 @@ public sealed partial class Shader
         known.Count == other.Count && known.All(tag => other.TryGetValue(tag.Key, out var value) && value == tag.Value);
 
     /// <summary>The tags as declared, for reporting a disagreement.</summary>
-    internal string DescribeTags() => _tags is null ? "unknown" : string.Join(", ", _tags.Select(tag => $"{tag.Key}={tag.Value}"));
+    internal string DescribeTags() => FormatTags(_tags);
+
+    /// <summary>Tags as <c>name=value</c> pairs in order, or <c>unknown</c> for tags nothing declared.</summary>
+    internal static string FormatTags(IEnumerable<KeyValuePair<string, string>>? tags) =>
+        tags is null ? "unknown" : string.Join(", ", tags.Select(tag => $"{tag.Key}={tag.Value}"));
 
     /// <summary>The value of <paramref name="tag"/> among the shader's tags, or among those of its fallback shader and that
     /// shader's fallback in turn when <paramref name="searchFallbacks"/> is set, or null when none declares it. A shader whose

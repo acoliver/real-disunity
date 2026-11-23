@@ -94,16 +94,15 @@ public sealed class GraphicsBuffer : IDisposable
     /// <summary>The buffer's resource in the loaded world, made on first use. Throws once the buffer is released.</summary>
     internal WorldGraphics.Link WorldLink => Storage().WorldLink;
 
-    /// <summary>The world buffer of the live buffer the handle names. A handle that names no live buffer throws
-    /// <see cref="ArgumentException"/>.</summary>
-    internal static WorldGraphics.Link WorldLinkOf(GraphicsBufferHandle handle) =>
-        Live.TryGetValue(handle.value, out var buffer) && buffer.TryGetTarget(out var target) && target._compute != null
-            ? target.WorldLink
-            : throw new ArgumentException($"buffer handle {handle.value} does not belong to a live GraphicsBuffer", nameof(handle));
+    /// <summary>The live buffer the handle names, or null when the handle names none.</summary>
+    internal static GraphicsBuffer? Find(GraphicsBufferHandle handle) =>
+        Live.TryGetValue(handle.value, out var buffer) && buffer.TryGetTarget(out var target) && target._compute != null ? target : null;
+
+    /// <summary>The size of the buffer in bytes: count times stride.</summary>
+    internal int ByteSize => _count * _stride;
 
     /// <summary>True when the handle belongs to a buffer that has not been released.</summary>
-    internal static bool IsLive(GraphicsBufferHandle handle) =>
-        Live.TryGetValue(handle.value, out var buffer) && buffer.TryGetTarget(out var target) && target._compute != null;
+    internal static bool IsLive(GraphicsBufferHandle handle) => Find(handle) is not null;
 
     /// <summary>
     /// Copies <paramref name="count"/> elements of <paramref name="data"/> into the buffer. The element size must
@@ -187,8 +186,6 @@ public sealed class GraphicsBuffer : IDisposable
     }
 
     public void Dispose() => Release();
-
-    private int ByteSize => _count * _stride;
 
     private ComputeBuffer Storage() => _compute ?? throw new ObjectDisposedException(nameof(GraphicsBuffer), "the GraphicsBuffer has been released");
 

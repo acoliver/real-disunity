@@ -482,6 +482,7 @@ NativeMemoryTests.Run();
 GraphicsBufferTests.Run();
 BatchRendererGroupTests.Run();
 BatchCullingTests.Run();
+BatchRendererGroupDrawTests.Run();
 RenderSettingsTests.Run();
 RenderSettingsEnvironmentTests.Run();
 SceneRenderSettingsTests.Run();

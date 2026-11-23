@@ -60,8 +60,8 @@ internal static class GraphicsBufferTests
         Expect.Sequence(new[] { 0, 6, 7, 0 }, MemoryMarshal.Cast<byte, int>(bytes).ToArray(), "the world buffer holds what SetData wrote, at the element offset");
         Expect.That(buffer.WorldLink.Id == link.Id, "the world buffer is made once");
         var untouched = new GraphicsBuffer(Raw, 4, 4);
-        Expect.That(GraphicsBuffer.WorldLinkOf(untouched.bufferHandle).Id != link.Id, "each buffer has its own world buffer");
-        Expect.That(GraphicsBuffer.WorldLinkOf(buffer.bufferHandle).Id == link.Id, "a handle resolves to the buffer's world buffer");
+        Expect.That(GraphicsBuffer.Find(untouched.bufferHandle)!.WorldLink.Id != link.Id, "each buffer has its own world buffer");
+        Expect.That(GraphicsBuffer.Find(buffer.bufferHandle)!.WorldLink.Id == link.Id, "a handle resolves to the buffer and so to its world buffer");
         untouched.Release();
         buffer.Release();
         Expect.Throws<DisunityException>(() => WorldCompute.ReadBuffer(link, 0, new byte[4]), "a released buffer's world buffer is destroyed when it was made");

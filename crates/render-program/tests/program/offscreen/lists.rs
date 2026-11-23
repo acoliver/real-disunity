@@ -6,8 +6,8 @@ use std::sync::Arc;
 use worldrunner_render_program::ids::{MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, DrawList, DrawRaster, GlobalState, ListDraw, OffscreenFrame,
-    Record,
+    Attachment, Attachments, Clear, DrawList, DrawRaster, GlobalState, Instances, ListDraw,
+    OffscreenFrame, Record,
 };
 use worldrunner_render_program::unity::offscreen::{FeedbackLoopDraws, ListDraws};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -36,7 +36,7 @@ pub fn item(renderer: u64, material: Option<u64>) -> ListDraw {
         slot: 0,
         material: material.map(MaterialId),
         pass: alpha(),
-        instances: 1,
+        instances: Instances::Count(1),
         per_draw: PropertyLayer::default(),
     }
 }
@@ -98,7 +98,7 @@ fn a_list_draws_its_items_over_what_the_target_holds() {
 fn a_list_item_of_no_instances_draws_nothing_and_its_neighbours_still_draw() {
     let mut rig = Rig::new();
     let none = ListDraw {
-        instances: 0,
+        instances: Instances::Count(0),
         ..item(1, None)
     };
     let records = vec![list(whole(TARGET), vec![none, item(2, None)])];

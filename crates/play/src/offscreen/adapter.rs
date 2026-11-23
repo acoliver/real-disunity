@@ -309,7 +309,9 @@ impl OffscreenAdapter {
 /// The identities of the meshes the snapshot's renderers and mesh draws name.
 fn named_meshes(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
     let drawn = snapshot.work.iter().filter_map(|work| match work {
-        OffscreenWork::DrawMesh { mesh, .. } => Some(*mesh),
+        OffscreenWork::DrawMesh { mesh, .. } | OffscreenWork::DrawMeshBatch { mesh, .. } => {
+            Some(*mesh)
+        }
         _ => None,
     });
     snapshot

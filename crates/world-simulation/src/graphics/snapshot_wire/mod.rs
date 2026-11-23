@@ -4,7 +4,8 @@
 //! and has the same values, floats included bit for bit. The bytes start with a four byte marker,
 //! the version of the encoding and the length of the body, so a reader can refuse input of a
 //! version it does not know before it reads anything else. The body holds the snapshot's fields
-//! in declaration order.
+//! in the order the encoding lists them: the frame's work first, so a reader that only needs the
+//! work list stops after it.
 //!
 //! A decoder refuses truncated or corrupt input with a named [`WireError`]; it never panics and
 //! never allocates more than the input it was given can fill.
@@ -30,8 +31,8 @@ use codec::{Reader, Wire, Writer};
 /// holds as null (main's null-slots census). Version 18 added the renderers of each camera render
 /// and culling record: `renderer_sets` and `record_sets` of the snapshot. Version 19 added
 /// `skinned_not_drawn`, the count of skinned renderers the sets leave out. Version 20 added work kind 23,
-/// a mesh draw of a batch of instances.
-pub const WIRE_VERSION: u32 = 20;
+/// a mesh draw of a batch of instances. Version 21 moved `work` to the front of the body.
+pub const WIRE_VERSION: u32 = 21;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 

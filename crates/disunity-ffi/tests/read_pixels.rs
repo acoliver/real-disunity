@@ -1,11 +1,11 @@
 //! Reading pixels back from a render texture through the ABI: the script records a request, the
 //! host writes the texels and the script takes them once.
-use worldrunner_disunity_ffi::{
-    abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_readback::*,
-};
-use worldrunner_world_simulation::graphics::{
-    OffscreenWork, RenderTextureId, snapshot_wire::decode_work,
-};
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
+use worldrunner_disunity_ffi::{abi::*, graphics::*, graphics_readback::*};
+use worldrunner_world_simulation::graphics::{OffscreenWork, RenderTextureId};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -96,41 +96,27 @@ fn a_request_returns_an_id_and_is_taken_with_its_detail() {
     let second = request(world, texture, [0, 0, 8, 4]).unwrap();
     assert!(first > 0 && second > first);
 
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    assert_eq!(count, 2);
-    assert_eq!(records[0].kind, KIND_READ_PIXELS);
-    let mut length = 0;
-    let mut bytes = [0_u8; 128];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_detail(
-                world,
-                records[0].bindings,
-                bytes.as_mut_ptr(),
-                128,
-                &mut length
-            )
-            .code,
-            0
-        );
-    }
+    let texture_id = RenderTextureId::from_bits(texture);
     assert_eq!(
-        decode_work(&bytes[..length as usize]).unwrap(),
-        OffscreenWork::ReadPixels {
-            request: first,
-            texture: RenderTextureId::from_bits(texture),
-            x: 1,
-            y: 2,
-            width: 3,
-            height: 1,
-        }
+        snapshot(world).work,
+        [
+            OffscreenWork::ReadPixels {
+                request: first,
+                texture: texture_id,
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 1,
+            },
+            OffscreenWork::ReadPixels {
+                request: second,
+                texture: texture_id,
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 4,
+            },
+        ]
     );
 }
 
@@ -157,14 +143,7 @@ fn a_rejected_request_leaves_the_id_alone_and_records_nothing() {
         disunity_render_texture_read_pixels(world, texture, 0, 0, 1, 1, std::ptr::null_mut())
     };
     assert_ne!(result.code, 0);
-    let mut count = 0;
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, std::ptr::null_mut(), 0, &mut count).code,
-            0
-        );
-    }
-    assert_eq!(count, 0);
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]

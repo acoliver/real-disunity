@@ -9,6 +9,9 @@
 //! the next snapshot. A snapshot nobody copied is dropped when the world advances, as the
 //! world's own pending work is.
 //!
+//! This is the one reader of the frame's offscreen work: the records, the material copies they
+//! name, the global state they replay from and the values each dispatch ran with.
+//!
 //! The snapshot also copies the materials, shaders and buffers of the UI draws the session's last
 //! presentation holds, which a host draws with in a frame of their own.
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError};

@@ -1,12 +1,13 @@
 //! Renderer lists through the ABI: pointer checks, the decoding of the pass tags, and the round
-//! trip of the records through the taken work list.
+//! trip of the records through the frame's work.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::{
-    abi::*, graphics::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
-    graphics_renderer_lists::*, sprites::*,
+    abi::*, graphics::*, graphics_context::*, graphics_renderer_lists::*, sprites::*,
 };
-use worldrunner_world_simulation::graphics::{
-    MaterialId, OffscreenWork, RendererListDesc, snapshot_wire::decode_work,
-};
+use worldrunner_world_simulation::graphics::{MaterialId, OffscreenWork, RendererListDesc};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -108,45 +109,6 @@ fn create_shadow(
     }
 }
 
-/// Takes the frame's work and the decoded detail of each record.
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 16];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 16, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let mut length = 0;
-            let mut bytes = [0_u8; 1024];
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        1024,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
-#[test]
-fn the_kinds_follow_the_pixel_read_kind() {
-    assert_eq!(KIND_CREATE_RENDERER_LIST, 13);
-    assert_eq!(KIND_DRAW_RENDERER_LIST, 14);
-}
-
 #[test]
 fn a_draw_list_round_trips_with_its_tags_and_fields() {
     let world = new_world();
@@ -162,12 +124,10 @@ fn a_draw_list_round_trips_with_its_tags_and_fields() {
     )
     .unwrap();
     assert_ne!(list, 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 2);
-    assert_eq!(taken[1].0.kind, KIND_CREATE_RENDERER_LIST);
-    assert_ne!(taken[1].0.bindings, 0);
     assert_eq!(
-        taken[1].1,
+        taken[1],
         OffscreenWork::CreateRendererList {
             id: list,
             desc: RendererListDesc::Draw {
@@ -210,10 +170,9 @@ fn a_shadow_list_round_trips_with_its_planes_and_sphere() {
         create_shadow(world, &not_a_flag, &[]).is_err(),
         "the layer test is 0 or 1"
     );
-    let taken = take(world);
-    assert_eq!(taken[1].0.kind, KIND_CREATE_RENDERER_LIST);
+    let taken = snapshot(world).work;
     assert_eq!(
-        taken[1].1,
+        taken[1],
         OffscreenWork::CreateRendererList {
             id: list,
             desc: RendererListDesc::Shadow {
@@ -235,9 +194,9 @@ fn a_shadow_list_round_trips_with_its_planes_and_sphere() {
                 ..
             },
         ..
-    } = &taken[2].1
+    } = &taken[2]
     else {
-        panic!("expected a shadow list, got {:?}", taken[2].1);
+        panic!("expected a shadow list, got {:?}", taken[2]);
     };
     assert!(planes.is_empty() && !use_rendering_layer_mask_test);
     assert_eq!(taken.len(), 3, "the refused list recorded nothing");
@@ -254,10 +213,9 @@ fn drawing_a_list_is_recorded_after_it_and_refuses_unknown_lists() {
     );
     assert_ne!(disunity_offscreen_draw_renderer_list(world, 0).code, 0);
     assert_eq!(disunity_offscreen_draw_renderer_list(world, list).code, 0);
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 3);
-    assert_eq!(taken[2].0.kind, KIND_DRAW_RENDERER_LIST);
-    assert_eq!(taken[2].1, OffscreenWork::DrawRendererList { list });
+    assert_eq!(taken[2], OffscreenWork::DrawRendererList { list });
     assert_ne!(disunity_offscreen_draw_renderer_list(world, list).code, 0);
 }
 
@@ -296,7 +254,7 @@ fn null_pointers_and_oversized_inputs_are_refused_without_recording() {
     assert!(create_shadow(world, &shadow_desc(11), &planes).is_err());
     // Ten planes are the most a list holds.
     assert!(create_shadow(world, &shadow_desc(10), &planes[..40]).is_ok());
-    assert_eq!(take(world).len(), 2);
+    assert_eq!(snapshot(world).work.len(), 2);
 }
 
 #[test]
@@ -333,7 +291,7 @@ fn the_worlds_validation_rejects_bad_tags_and_arguments() {
     shadow = shadow_desc(0);
     shadow.sphere_radius = f32::INFINITY;
     assert!(create_shadow(world, &shadow, &[]).is_err());
-    assert_eq!(take(world).len(), 1);
+    assert_eq!(snapshot(world).work.len(), 1);
 }
 
 #[test]

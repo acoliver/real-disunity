@@ -1,13 +1,14 @@
 //! A command buffer's batch draw through the ABI: one call forwards the stored mesh's identity,
 //! the material, the sub-mesh, the pass, the buffer window, the metadata names with their words
-//! and the visible indexes as one record of kind 23. Pointers, names and counts that do not agree
-//! and everything the world or the mesh store refuses are refused by the call and record nothing.
-use worldrunner_disunity_ffi::{
-    abi::*, compute::*, graphics::*, graphics_batch::*, graphics_commands::*,
-    graphics_offscreen::*, meshes::*,
-};
+//! and the visible indexes as one record. Pointers, names and counts that do not agree and
+//! everything the world or the mesh store refuses are refused by the call and record nothing.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
+use worldrunner_disunity_ffi::{abi::*, compute::*, graphics::*, graphics_batch::*, meshes::*};
 use worldrunner_world_simulation::graphics::{
-    ComputeBufferId, DrawBatch, MaterialId, OffscreenWork, snapshot_wire::decode_work,
+    ComputeBufferId, DrawBatch, MaterialId, OffscreenWork,
 };
 
 fn new_world() -> u64 {
@@ -102,34 +103,6 @@ fn call(desc: &DisunityDrawBatch, world: u64) -> i32 {
     call_lists(world, desc, &lists())
 }
 
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let (mut length, mut bytes) = (0, [0_u8; 512]);
-            unsafe {
-                let read = disunity_offscreen_detail(
-                    world,
-                    record.bindings,
-                    bytes.as_mut_ptr(),
-                    512,
-                    &mut length,
-                );
-                assert_eq!(read.code, 0);
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
 /// The four list pointers of a call.
 struct Lists {
     names: *const u8,
@@ -164,7 +137,7 @@ fn call_lists(world: u64, desc: *const DisunityDrawBatch, lists: &Lists) -> i32 
 }
 
 #[test]
-fn every_field_reaches_the_frame_as_one_record_of_kind_twenty_three() {
+fn every_field_reaches_the_frame_as_one_batch_draw() {
     let world = new_world();
     let material = material(world);
     let buffer = buffer(world);
@@ -172,12 +145,10 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_twenty_three() {
 
     assert_eq!(call(&description(buffer, material), world), 0);
 
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 1);
-    assert_eq!(taken[0].0.kind, KIND_DRAW_MESH_BATCH);
-    assert_eq!(KIND_DRAW_MESH_BATCH, 23);
     assert_eq!(
-        taken[0].1,
+        taken[0],
         OffscreenWork::DrawMeshBatch {
             mesh: FIRST_PLAYER_MESH,
             material: MaterialId::from_bits(material),
@@ -223,9 +194,9 @@ fn a_batch_with_no_metadata_and_no_visible_instance_is_recorded() {
     }
     .code;
     assert_eq!(code, 0);
-    let taken = take(world);
-    let OffscreenWork::DrawMeshBatch { batch, .. } = &taken[0].1 else {
-        panic!("expected a batch draw, got {:?}", taken[0].1);
+    let taken = snapshot(world).work;
+    let OffscreenWork::DrawMeshBatch { batch, .. } = &taken[0] else {
+        panic!("expected a batch draw, got {:?}", taken[0]);
     };
     assert!(batch.metadata.is_empty() && batch.visible.is_empty() && batch.pass_tags.is_empty());
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
@@ -309,7 +280,7 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
     for (index, code) in refused.iter().enumerate() {
         assert_ne!(*code, 0, "case {index}");
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
     assert_eq!(call(&good, world), 0, "the good call still records");
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

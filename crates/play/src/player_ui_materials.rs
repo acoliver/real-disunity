@@ -56,11 +56,19 @@ impl GameMaterials {
         layers: &UiLayers,
         mut report: impl FnMut(String),
     ) {
-        for range in &layers.too_large {
-            for material in plan.draws[range.clone()].iter().filter_map(|d| d.material) {
+        for refused in &layers.too_large {
+            let [width, height] = refused.size;
+            let reason = format!(
+                "its run of {width}x{height} pixels does not fit the layer atlas, which grows to at most {} pixels a side",
+                layers.max_side
+            );
+            for material in plan.draws[refused.draws.clone()]
+                .iter()
+                .filter_map(|d| d.material)
+            {
                 if self.named.insert(material.id) {
                     let shader = self.shaders.get(&material).map_or(UNNAMED, String::as_str);
-                    report(material.refusal(shader, "its run does not fit the layer atlas"));
+                    report(material.refusal(shader, &reason));
                 }
             }
         }

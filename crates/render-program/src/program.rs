@@ -6,7 +6,7 @@ use crate::binding::{BindingSource, ResourceLayout};
 use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
-use crate::pipeline_key::Key;
+use crate::pipeline_key::{Key, RequestKeys};
 use crate::runtime::ProgramRuntime;
 
 /// A program's bind group layouts and pipeline layout.
@@ -64,6 +64,8 @@ pub struct GraphicsProgram {
     pub(crate) vertex: StageProgram,
     pub(crate) fragment: Option<StageProgram>,
     pub(crate) gpu: Arc<GpuLayout>,
+    /// The keys of the pipelines requested for this program.
+    pub(crate) pipeline_keys: Arc<RequestKeys>,
 }
 
 impl ComputeProgram {
@@ -180,6 +182,7 @@ impl ProgramRuntime {
             vertex: vertex.clone(),
             fragment: None,
             gpu: Arc::new(gpu),
+            pipeline_keys: Arc::default(),
         })
     }
 
@@ -225,6 +228,7 @@ impl ProgramRuntime {
             vertex: vertex.clone(),
             fragment: Some(fragment.clone()),
             gpu: Arc::new(gpu),
+            pipeline_keys: Arc::default(),
         })
     }
 

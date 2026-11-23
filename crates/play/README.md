@@ -478,11 +478,13 @@ A texture stored
 later becomes visible without changing the UI draw.
 A UI draw whose material has a shader of the game's own (a shader with a source
 other than `UI/Default`) is drawn by that shader: the player records the runs of such draws
-as offscreen work after the game's own work, into a layer texture the size of the screen, and
+as offscreen work after the game's own work, into a layer texture that is the size of the screen while the runs fit it and grows (up to
+the device's texture limit) when they do not, and
 the overlay shows that texture where each run sorts. The run report counts the draws by shader
-name in one line, `UI draws with a game material by shader (last frame)`. A run that does not
-fit the layer texture is named once as
-`UI material <id> (shader <name>) is left out: its run does not fit the layer atlas`.
+name in one line, `UI draws with a game material by shader (last frame)`. A run is left out only
+when its size cannot be had on the device (a side beyond the texture limit, or a texture
+already full at that limit) and is named once as
+`UI material <id> (shader <name>) is left out: its run of <w>x<h> pixels does not fit the layer atlas, which grows to at most <n> pixels a side`.
 Draws on the engine's own look (a material with no shader source, or `UI/Default`) are
 unchanged.
 Other images, text and 3D

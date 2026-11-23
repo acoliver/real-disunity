@@ -18,14 +18,20 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::GpuFlush;
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::Configuration;
 use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
@@ -38,14 +44,28 @@ mod ui_offer;
 pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
-use crate::counts_line::{names_line, top_counts_line};
+use crate::counts_line::names_line;
+use crate::counts_line::top_counts_line;
 use crate::global_listing::GlobalListing;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
-use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, Settings, StandInCounts, StandInLook, SuppliedGlobal,
-    WorkTrace, supplied_line,
-};
+use crate::gpu_device::DeviceSource;
+use crate::gpu_device::PlayerStartupInputs;
+use crate::gpu_device::headless_gpu_instance;
+use crate::gpu_device::player_device;
+use crate::offscreen::ComputeAdapter;
+use crate::offscreen::DispatchTrace;
+use crate::offscreen::GlobalReads;
+use crate::offscreen::OffscreenAdapter;
+use crate::offscreen::OffscreenHost;
+use crate::offscreen::Phases;
+use crate::offscreen::PlayerKernels;
+use crate::offscreen::Reclaimed;
+use crate::offscreen::Report;
+use crate::offscreen::Settings;
+use crate::offscreen::StandInCounts;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
+use crate::offscreen::WorkTrace;
+use crate::offscreen::supplied_line;
 use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.
@@ -501,6 +521,9 @@ pub struct PlayerGpu {
     drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
+    /// The size of the layer atlas the last frame's UI work draws into, `None` for a frame with no
+    /// UI work.
+    ui_atlas: Cell<Option<[u32; 2]>>,
     /// The reads of a record's target the run was asked for, which the frames they name make.
     reads: RefCell<Vec<crate::TargetRead>>,
 }
@@ -678,6 +701,7 @@ impl PlayerGpu {
             device,
             drawn_screen: Cell::new(None),
             screen_size: Cell::new(None),
+            ui_atlas: Cell::new(None),
             reads: RefCell::new(Vec::new()),
         })
     }
@@ -732,10 +756,16 @@ impl PlayerGpu {
 
     /// The texture the UI frame's runs were drawn into, which the viewer's overlay shows. `None`
     /// until a frame with runs made it, after a frame without any, and while it is not the size
-    /// of the screen: a resize makes the next frame that has runs a new one.
+    /// of the atlas that frame planned: a resize or a plan that needs a larger atlas makes the
+    /// next frame that has runs a new texture.
     pub(crate) fn ui_layers(&self) -> Option<wgpu::Texture> {
         let texture = self.offscreen.borrow().ui_layers_texture()?;
-        (self.screen_size.get() == Some([texture.width(), texture.height()])).then_some(texture)
+        (self.ui_atlas.get() == Some([texture.width(), texture.height()])).then_some(texture)
+    }
+
+    /// The largest side of a texture the player's device can make.
+    pub(crate) fn max_texture_side(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
     }
 
     /// Numbers the screen `frame` when work drew into it since the last frame.

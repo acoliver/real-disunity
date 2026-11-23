@@ -1,31 +1,38 @@
 //! Runs a built Unity player's scene headless in the managed host.
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::ManagedHostConfig;
 use worldrunner_original_games::workspace_root;
-use worldrunner_unity_import::{
-    player_identity::{
-        PlayerIdentity, player_identity, player_project_graphics, player_quality,
-        player_scene_paths,
-    },
-    player_plan::plan_player_scene,
-    player_resources::plan_player_resources,
-    script_layouts::parse_script_layouts,
-};
+use worldrunner_unity_import::player_identity::PlayerIdentity;
+use worldrunner_unity_import::player_identity::player_identity;
+use worldrunner_unity_import::player_identity::player_project_graphics;
+use worldrunner_unity_import::player_identity::player_quality;
+use worldrunner_unity_import::player_identity::player_scene_paths;
+use worldrunner_unity_import::player_plan::plan_player_scene;
+use worldrunner_unity_import::player_resources::plan_player_resources;
+use worldrunner_unity_import::script_layouts::parse_script_layouts;
 use worldrunner_unity_serialized::script_data::ScriptLayouts;
 
 use crate::PlayError;
-use crate::offscreen::{StandInLook, SuppliedGlobal};
+use crate::driver::FIRST_COVERAGE_TEXTURE;
+use crate::gpu_player::GpuLaunch;
+use crate::gpu_player::PlayerGpu;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
 use crate::plan_differences::shader_difference_lines;
-use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
+use crate::player_meshes::PlayerMeshes;
+use crate::prepare::FIRST_TEXTURE;
+use crate::prepare::bridge_config;
+use crate::prepare::dotnet;
+use crate::prepare::run;
+use crate::prepare::target;
+use crate::prepare::write;
 use crate::target_read::TargetRead;
-use crate::{
-    driver::FIRST_COVERAGE_TEXTURE,
-    gpu_player::{GpuLaunch, PlayerGpu},
-    player_meshes::PlayerMeshes,
-};
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {

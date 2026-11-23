@@ -4,15 +4,20 @@
 //! offset its metadata word gives, and the matrix of element `e` moves the quad of clip space
 //! into the column the test chose for it, so each test predicts every column from the data.
 
+use glam::{Mat4, Quat, Vec3, Vec4};
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
 use worldrunner_render_program::unity::synthetic::dots::{
-    HEADER, METADATA, dots_passes, matrix, word,
+    HEADER, METADATA, dots_passes, lit_dots_passes, matrix, word,
 };
-use worldrunner_world_simulation::graphics::{ComputeBufferId, DrawBatch};
+use worldrunner_world_simulation::ComponentDesc;
+use worldrunner_world_simulation::graphics::{ComputeBufferId, DrawBatch, RenderTextureId};
+use worldrunner_world_simulation::presentation::{Camera, Light, LightKind, LightSettings};
 
+use super::super::gpu::target;
+use super::super::support::{camera, object, world};
 use super::{
-    GREEN, MESH, MaterialId, OffscreenWork, Rectangle, World, flush, identity_view, mesh_of,
-    record, scene, shader, stored,
+    ARGB32, GREEN, MESH, MaterialId, OffscreenWork, Rectangle, World, bind_and_clear, draw_mesh,
+    flush, identity_view, mesh_of, record, scene, shader, stored,
 };
 
 const COLUMNS: usize = 4;
@@ -20,6 +25,11 @@ const COLUMNS: usize = 4;
 /// The shader of the file `dots`: a visible block of four entries.
 pub(super) fn passes() -> SyntheticShader {
     dots_passes(COLUMNS, false)
+}
+
+/// The shader of the file `lit_dots`: the same block, drawing `unity_LightData.z` in red.
+pub(super) fn lit_passes() -> SyntheticShader {
+    lit_dots_passes(COLUMNS)
 }
 
 /// The colour the shader gives element `e`.
@@ -199,4 +209,62 @@ fn a_batch_over_a_buffer_the_host_does_not_hold_is_skipped_and_the_draws_around_
         run.outcome.report.skipped[&super::Skip::BufferUnavailable],
         1
     );
+}
+
+/// The red the lit shader draws where `unity_LightData.z` is 1.
+const LIT: [u8; 4] = [255, 0, 0, 255];
+
+/// A world whose frame has a directional light, with a render target bound and cleared to green.
+/// A snapshot holds lights only for a frame some camera renders, so a camera renders into a second
+/// target first.
+fn lit_scene() -> (World, RenderTextureId) {
+    let mut world = world();
+    let (drawn, aside) = (target(&mut world, ARGB32), target(&mut world, ARGB32));
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    let holder = object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
+    let light = Light {
+        enabled: true,
+        settings: LightSettings {
+            kind: LightKind::Directional,
+            ..LightSettings::default()
+        },
+    };
+    world
+        .add_component(holder, ComponentDesc::Light(light))
+        .unwrap();
+    record(
+        &mut world,
+        OffscreenWork::CameraRender {
+            camera,
+            target: aside,
+        },
+    );
+    bind_and_clear(&mut world, drawn);
+    (world, drawn)
+}
+
+/// The matrix of `matrix(column, COLUMNS)` as a 4x4: the object-to-world a plain draw gives the
+/// quad that a batch draw reads from its buffer.
+fn placed_in(column: usize) -> Mat4 {
+    let columns: Vec<Vec4> = matrix(column, COLUMNS)
+        .chunks_exact(3)
+        .map(|axis| Vec4::new(axis[0], axis[1], axis[2], 0.0))
+        .collect();
+    Mat4::from_cols(columns[0], columns[1], columns[2], columns[3].with_w(1.0))
+}
+
+#[test]
+fn a_batch_draw_gets_the_light_factor_a_mesh_draw_gets() {
+    let (mut world, drawn) = lit_scene();
+    identity_view(&mut world);
+    let lit = shader(&mut world, "lit_dots");
+    let material = world.create_material(lit).unwrap();
+    // The mesh draw fills column 1 and the batch draws element 0 into column 2.
+    draw_mesh(&mut world, (MESH, placed_in(1)), material, (0, -1));
+    let data = instances(&mut world, &[2], 0);
+    draw_batch(&mut world, material, batch(data, vec![0]));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
+
+    assert_eq!(run.columns(), [GREEN, LIT, LIT, GREEN]);
 }

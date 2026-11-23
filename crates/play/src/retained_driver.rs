@@ -47,7 +47,7 @@ use crate::{
     player::{report_times, window_gpu},
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
-    player_ui::{PlayerUi, graphic_textures},
+    player_ui::{PlayerUi, Screen, graphic_textures},
     scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
@@ -464,9 +464,10 @@ impl PlayerRetainedDriver {
         let objects = self.host.mesh_objects()?;
         let mut ui = self.host.ui_presentation()?;
         self.refresh(&objects, &ui)?;
+        let screen = self.ui_screen();
         self.ui.prepare(
             &mut ui,
-            self.size,
+            screen,
             &self.sprites,
             &self.player_textures,
             |message| {
@@ -491,7 +492,7 @@ impl PlayerRetainedDriver {
         self.offer_ui_textures(viewer, &mut ui);
         if let Some(update) = self.ui.update(
             ui,
-            self.size,
+            screen,
             &self.sprites,
             &self.player_textures,
             |message| {
@@ -504,6 +505,14 @@ impl PlayerRetainedDriver {
         }
         self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())
+    }
+
+    /// The screen the UI is drawn over, on the player's device.
+    fn ui_screen(&self) -> Screen {
+        Screen {
+            size: self.size,
+            max_texture: self.gpu.max_texture_side(),
+        }
     }
 
     fn resize_screen(&mut self, size: [u32; 2]) {

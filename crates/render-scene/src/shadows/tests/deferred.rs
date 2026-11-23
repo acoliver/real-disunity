@@ -2,17 +2,29 @@
 //! producers store the ground and the caster, the lighting pass draws with the shadow
 //! receivers' sets and lights exactly the stored pixels, and the visible frame stays the forward
 //! frame. Without the prepass the lighting pass, which runs before Opaque, lights nothing.
-use super::render_path::{
-    EDGE_SHARE, MEAN, RELATIVE, front_settings, share_and_mean, stored_errors,
-};
+use super::render_path::EDGE_SHARE;
+use super::render_path::MEAN;
+use super::render_path::RELATIVE;
+use super::render_path::front_settings;
+use super::render_path::share_and_mean;
+use super::render_path::stored_errors;
 use super::*;
-use crate::compositor::{FeatureTarget, FrameRenderer, StockReplacement, declaring_stock};
+use crate::compositor::FeatureTarget;
+use crate::compositor::FrameRenderer;
+use crate::compositor::StockReplacement;
+use crate::compositor::declaring_stock;
 use crate::gbuffer::GbufferTarget;
 use crate::gbuffer::lighting::LightingTarget;
 use crate::gbuffer::reference::Surface;
-use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
-use crate::terrain::deferred_tests::{BLOCK, COLUMNS, Producer, halves};
-use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
+use crate::shadows::sdsm::AdoptionPolicy;
+use crate::shadows::sdsm::SdsmSettings;
+use crate::terrain::deferred_tests::BLOCK;
+use crate::terrain::deferred_tests::COLUMNS;
+use crate::terrain::deferred_tests::Producer;
+use crate::terrain::deferred_tests::halves;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::Readback;
+use worldrunner_render_post::ToneMap;
 
 /// Columns of blocks the producer writes, from the left edge.
 const COVERED: u32 = 20;

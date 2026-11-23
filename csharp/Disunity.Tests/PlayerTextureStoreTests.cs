@@ -46,6 +46,7 @@ internal static class PlayerTextureStoreTests
         Expect.That(info.present == 1 && info.generation == 1, "taking an identity stores the texture once");
         Expect.That(info.width == 2 && info.height == 1 && info.mips == 1 && info.format == (uint)TextureFormat.RGBA32 && info.linear == 1,
             $"the stored description carries the size, mips, format and linear flag, got {info.width}x{info.height} format {info.format}");
+        Expect.That(info.dimension == (uint)UnityEngine.Rendering.TextureDimension.Tex2D, $"a 2D texture states dimension 2, got {info.dimension}");
         Expect.Sequence(texture.GetRawTextureData(), bytes, "the stored bytes are the texture's raw data");
         Expect.Sequence(new byte[] { 10, 20, 30, 40, 50, 60, 70, 80 }, bytes, "the raw data holds the pixels set");
         Expect.That(texture.RendererIdentity == identity && Read(identity).Info.generation == 1, "reading the identity again stores nothing");

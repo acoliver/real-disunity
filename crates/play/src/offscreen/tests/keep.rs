@@ -2,10 +2,15 @@
 //! the world texture's generation, which the frame's spec carries, and the sampler the draws
 //! read comes from the texture's description in each frame's snapshot.
 
-use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef};
+use worldrunner_world_simulation::graphics::OffscreenWork;
+use worldrunner_world_simulation::graphics::TargetRef;
+use worldrunner_world_simulation::graphics::TextureRef;
 
-use super::gpu::{Rig, SIDE, camera_render};
-use super::support::{render_texture, world};
+use super::gpu::Rig;
+use super::gpu::SIDE;
+use super::gpu::camera_render;
+use super::support::render_texture;
+use super::support::world;
 
 const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];

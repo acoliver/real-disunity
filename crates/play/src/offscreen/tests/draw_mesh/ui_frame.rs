@@ -26,8 +26,10 @@ use super::{
     left_half, scene, stored,
 };
 
-/// The atlas and the viewport the runs are planned in: eight texels square.
+/// The viewport the runs are planned in: eight texels square.
 const SIDE: u32 = 8;
+/// The largest side the atlas may grow to.
+const LIMIT: u32 = 64;
 const ZERO: [u8; 4] = [0; 4];
 const READ: u64 = 7;
 
@@ -69,19 +71,20 @@ fn plan(draws: Vec<UiDraw>) -> (UiPresentation, UiLayers) {
         draws,
         ..UiPresentation::default()
     };
-    let layers = plan.layers([SIDE, SIDE], [SIDE, SIDE]);
+    let layers = plan.layers([SIDE, SIDE], LIMIT);
     (plan, layers)
 }
 
 /// What a flush of the frame's work and then the UI frame left in the atlas, rows bottom first.
 struct Atlas {
     texels: Vec<[u8; 4]>,
+    width: u32,
     outcome: FlushOutcome,
 }
 
 impl Atlas {
     fn at(&self, column: u32, row: u32) -> [u8; 4] {
-        self.texels[(row * SIDE + column) as usize]
+        self.texels[(row * self.width + column) as usize]
     }
 
     /// Whether the texel at column `x` and row `y` is `expected` for every texel of the rectangle.
@@ -110,13 +113,14 @@ fn joined(
 
 /// Flushes a joined snapshot with the meshes the game stores and reads the atlas back.
 fn flush_atlas(frame: &UiFrame, mut joined: GraphicsSnapshot, meshes: &Meshes) -> Atlas {
+    let [width, height] = frame.atlas_size();
     joined.work.push(OffscreenWork::ReadPixels {
         request: READ,
         texture: atlas_id(),
         x: 0,
         y: 0,
-        width: SIDE,
-        height: SIDE,
+        width,
+        height,
     });
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(PlayerKernels::new(directory.path()));
@@ -131,7 +135,11 @@ fn flush_atlas(frame: &UiFrame, mut joined: GraphicsSnapshot, meshes: &Meshes) -
         .chunks_exact(4)
         .map(|texel| std::array::from_fn(|channel| byte(texel[channel])))
         .collect();
-    Atlas { texels, outcome }
+    Atlas {
+        texels,
+        width,
+        outcome,
+    }
 }
 
 fn draw(world: &mut World, plan: &UiPresentation, layers: &UiLayers, meshes: &Meshes) -> Atlas {
@@ -160,6 +168,76 @@ fn a_material_draw_fills_its_run_with_the_programs_colour() {
         "{:?}",
         atlas.outcome.report.failures
     );
+}
+
+/// `count` runs that each cover the whole viewport, in the colours of `materials` in turn, with a
+/// default draw between them.
+fn full_screen_runs(materials: &[UiMaterial], count: usize) -> (UiPresentation, UiLayers) {
+    plan(
+        (0..count)
+            .flat_map(|number| {
+                [
+                    quad(
+                        Some(materials[number % materials.len()]),
+                        None,
+                        [0., 0., 8., 8.],
+                    ),
+                    quad(None, None, [0., 0., 1., 1.]),
+                ]
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn more_runs_than_one_page_holds_are_all_drawn_in_their_own_places() {
+    let mut world = world();
+    let colours = [
+        (flat(&mut world, [1.0, 0.0, 0.0, 1.0]), RED),
+        (flat(&mut world, [0.0, 1.0, 0.0, 1.0]), GREEN),
+        (flat(&mut world, [0.0, 0.0, 1.0, 1.0]), BLUE),
+    ];
+    let materials: Vec<_> = colours
+        .iter()
+        .map(|(id, _)| material(&world, *id))
+        .collect();
+    let (plan, layers) = full_screen_runs(&materials, 7);
+    assert_eq!(layers.runs.len(), 7, "{:?}", layers.too_large);
+    assert!(layers.too_large.is_empty());
+    assert_ne!(
+        layers.atlas_size,
+        [SIDE, SIDE],
+        "seven screens need more than one page"
+    );
+
+    let atlas = draw(&mut world, &plan, &layers, &stored([]));
+
+    for (number, run) in layers.runs.iter().enumerate() {
+        let (_, colour) = colours[number % colours.len()];
+        assert!(
+            atlas.is(run.atlas, colour),
+            "run {number} at {:?}",
+            run.atlas
+        );
+    }
+    assert!(atlas.outcome.report.failures.is_empty());
+}
+
+#[test]
+fn a_run_that_covers_the_whole_screen_is_drawn_whole() {
+    let mut world = world();
+    let red = flat(&mut world, [1.0, 0.0, 0.0, 1.0]);
+    let (plan, layers) = plan(vec![quad(
+        Some(material(&world, red)),
+        None,
+        [-4., -4., 20., 20.],
+    )]);
+    assert_eq!(layers.runs[0].atlas, [0, 0, SIDE, SIDE]);
+    assert_eq!(layers.atlas_size, [SIDE, SIDE]);
+
+    let atlas = draw(&mut world, &plan, &layers, &stored([]));
+
+    assert!(atlas.is([0, 0, SIDE, SIDE], RED));
 }
 
 #[test]
@@ -374,7 +452,7 @@ fn an_old_world_style_silhouette_widget_draws_through_its_material() {
         [false, true, false],
         "sorted by the nested canvas order"
     );
-    let layers = plan.layers([SIDE, SIDE], [SIDE, SIDE]);
+    let layers = plan.layers([SIDE, SIDE], LIMIT);
     assert_eq!(layers.runs.len(), 1);
     assert_eq!(layers.runs[0].bounds, [2, 2, 4, 4]);
 

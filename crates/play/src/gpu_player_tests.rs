@@ -618,7 +618,10 @@ fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the
     let mut ui = crate::player_ui::PlayerUi::default();
     ui.update(
         plan_with_a_run(),
-        [8, 4],
+        crate::player_ui::Screen {
+            size: [8, 4],
+            max_texture: 4096,
+        },
         &worldrunner_render_plan::simulation::SpriteTextures::default(),
         &crate::player_textures::PlayerTextures::default(),
         |_| {},
@@ -634,11 +637,60 @@ fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the
 
     let layers = gpu.ui_layers().expect("the layer texture is offered");
     assert_eq!([layers.width(), layers.height()], [8, 4]);
-    gpu.set_screen(Some([16, 8]));
+    gpu.frame_for_viewer(&mut host, None).unwrap();
     assert!(
         gpu.ui_layers().is_none(),
-        "a texture of the old screen size is not offered"
+        "a frame with no runs offers no layer texture"
     );
+}
+
+#[test]
+fn the_layer_texture_is_the_size_of_the_atlas_the_runs_grew() {
+    let _turn = fixture_turn();
+    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let mut host = started_screen_fixture(&gpu);
+    let mut ui = crate::player_ui::PlayerUi::default();
+    let mut plan = plan_with_a_run();
+    let run = plan.draws[0].clone();
+    let whole_screen = [[0., 0., 0.], [8., 0., 0.], [8., 4., 0.], [0., 4., 0.]];
+    plan.draws.extend([
+        worldrunner_world_simulation::ui::presentation::UiDraw {
+            corners: whole_screen,
+            clip_rect: [0, 0, 7, 4],
+            ..run.clone()
+        },
+        worldrunner_world_simulation::ui::presentation::UiDraw {
+            corners: whole_screen,
+            clip_rect: [0, 0, 6, 4],
+            ..run
+        },
+    ]);
+    ui.update(
+        plan,
+        crate::player_ui::Screen {
+            size: [8, 4],
+            max_texture: 4096,
+        },
+        &worldrunner_render_plan::simulation::SpriteTextures::default(),
+        &crate::player_textures::PlayerTextures::default(),
+        |_| {},
+    )
+    .unwrap();
+    let planned = ui.frame().expect("three runs").atlas_size();
+    assert_ne!(
+        planned,
+        [8, 4],
+        "three runs of different clips need more than one page"
+    );
+
+    let operations = gpu
+        .frame_for_viewer(&mut host, ui.frame())
+        .unwrap()
+        .expect("the runs are work");
+    submit_like_the_viewer(&gpu, operations);
+
+    let layers = gpu.ui_layers().expect("the layer texture is offered");
+    assert_eq!([layers.width(), layers.height()], planned);
 }
 
 #[test]

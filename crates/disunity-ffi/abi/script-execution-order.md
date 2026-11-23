@@ -1,0 +1,3 @@
+# Script execution order
+
+disunity_script_execution_order sets the execution order of a script (a 32-bit signed integer, 0 by default), so a phase or a batch of lifecycle messages delivers Awake, OnEnable, Start, FixedUpdate, Update, LateUpdate, OnDisable and OnDestroy to the scripts with the lowest order first and to scripts of equal order in the order they were registered, whatever handle each has, and a clone takes its source's order and registers after the scripts that exist. Coroutine resumption is not ordered by it. The host reports the order a scene plan stores for a script class, 0 included, and for a class the plan does not name its DefaultExecutionOrder attribute, else 0.

@@ -1,5 +1,7 @@
 use glam::Vec3;
-use worldrunner_render_plan::simulation::mesh_instances::{ResolvedMesh, extract_mesh_instances};
+use worldrunner_render_plan::simulation::mesh_instances::{
+    MeshExtractOptions, ResolvedMesh, extract_mesh_instances,
+};
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, RenderScene, SceneGeometry, SceneObject, SceneParts,
 };
@@ -63,7 +65,7 @@ fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<SceneObjectEdit> {
 
 /// A host whose initial scene is the full extraction of `world`, plus its id map.
 fn host_for(world: &mut World) -> (RetainedHost, ObjectIdMap) {
-    let objects: Vec<_> = extract_mesh_instances(world, &resolver)
+    let objects: Vec<_> = extract_mesh_instances(world, &resolver, MeshExtractOptions::default())
         .unwrap()
         .into_iter()
         .collect();
@@ -89,7 +91,7 @@ fn host_for(world: &mut World) -> (RetainedHost, ObjectIdMap) {
 
 /// The host shows exactly what a fresh full extraction of the world would.
 fn assert_matches_full_extraction(host: &RetainedHost, world: &World, ids: &ObjectIdMap) {
-    let full = extract_mesh_instances(world, &resolver).unwrap();
+    let full = extract_mesh_instances(world, &resolver, MeshExtractOptions::default()).unwrap();
     assert_eq!(host.objects().count(), full.len());
     assert_eq!(ids.len(), full.len());
     for extracted in full {

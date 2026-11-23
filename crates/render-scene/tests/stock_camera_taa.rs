@@ -8,6 +8,7 @@ use worldrunner_render_plan::{RenderScene, SceneAntiAlias, SceneEffects};
 use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FramePlan, ResourceRef, ToneMap, color_texture,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FrameRenderer, prepare_stock_scene},
@@ -45,8 +46,14 @@ impl CameraTaaFrame {
         let pipelines =
             ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
                 .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(&source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let output = color_texture(
             context.device(),
             "camera-only TAA output",

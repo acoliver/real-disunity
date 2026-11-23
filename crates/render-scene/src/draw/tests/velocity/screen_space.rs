@@ -3,7 +3,10 @@
 //! The shadow receivers and the reflection forward pipelines are rewritten variants of the plain
 //! object pipelines, so their residual is compared against the same CPU model.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowedScene};
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr,
 };
@@ -107,8 +110,16 @@ fn shadowed_velocity_with(
     (scene, effects): (RenderScene, SceneEffects),
     frames: &[(f32, CameraPose)],
 ) -> Vec<[f32; 2]> {
-    let mut shadowed =
-        ShadowedScene::with_taa_velocity(context, &scene, shadow_settings(), HDR, 1).unwrap();
+    let mut shadowed = ShadowedScene::new(
+        context,
+        PreparedScene::new(&scene).unwrap(),
+        shadow_settings(),
+        ShadowedTarget {
+            velocity: true,
+            ..ShadowedTarget::new(HDR, 1)
+        },
+    )
+    .unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
@@ -135,8 +146,7 @@ fn reflective_velocity_after(
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_reflections(scene);
     let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));
@@ -165,8 +175,7 @@ fn occluded_velocity_after(
 ) -> Vec<[f32; 2]> {
     let (scene, effects) = with_occlusion(scene);
     let pipelines = ScenePipelines::with_ssao_taa_velocity(context.device(), HDR, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(std::time::Duration::from_secs_f32(seconds));

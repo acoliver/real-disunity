@@ -1,12 +1,14 @@
 //! Same-frame shadow fitting must declare the exact contour allocation before its prefix.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowedScene, sdsm};
 use worldrunner_render_shadow::{MinimumSpanPolicy, RangeFit, SplitPolicy};
 
 fn shadowed(context: &GpuContext, source: &RenderScene) -> ShadowedScene {
-    let mut scene = ShadowedScene::with_target(
+    let mut scene = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -16,8 +18,7 @@ fn shadowed(context: &GpuContext, source: &RenderScene) -> ShadowedScene {
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
-        TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     scene

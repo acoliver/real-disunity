@@ -24,7 +24,9 @@
 //!
 //! // Retain these for subsequent views/lighting changes, with no reupload. The host owns the
 //! // frame renderer the scene encodes through.
-//! let mut renderer = ShadowedScene::new(context, scene, settings)?;
+//! let upload = worldrunner_render_scene::draw::PreparedScene::new(scene)?;
+//! let receivers = ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1);
+//! let mut renderer = ShadowedScene::new(context, upload, settings, receivers)?;
 //! let mut scheduler = worldrunner_render_scene::compositor::FrameRenderer::new(context.device());
 //! let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
 //! let prepared = context.submission().prepare(context.device(), |encoder, _| {
@@ -129,12 +131,41 @@ pub enum ShadowError {
     Offscreen(#[from] OffscreenError),
 }
 
+/// The colour attachments a [`ShadowedScene`]'s receivers draw into, and the retained
+/// generation whose unchanged streamed chunk buffers it shares.
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowedTarget<'a> {
+    /// Colour attachment format of the receivers.
+    pub format: wgpu::TextureFormat,
+    /// Sample count of the colour and depth attachments.
+    pub samples: u32,
+    /// Whether the receivers also write the object-motion residual for a frame renderer with
+    /// TAA resident, as [`ScenePipelines::with_taa_velocity`] does.
+    pub velocity: bool,
+    /// The preceding retained generation, or `None` for a scene uploaded whole.
+    pub previous: Option<&'a SceneGpu>,
+}
+
+impl ShadowedTarget<'_> {
+    /// Receivers drawing into `format` with `samples` samples, writing no velocity and sharing
+    /// nothing with an earlier generation.
+    #[must_use]
+    pub const fn new(format: wgpu::TextureFormat, samples: u32) -> Self {
+        Self {
+            format,
+            samples,
+            velocity: false,
+            previous: None,
+        }
+    }
+}
+
 /// Reusable resident scene, pipelines and a bounded directional depth array.
 ///
 /// Attachment views must belong to the supplied context, match the view's
-/// viewport and the receiver pipelines' colour/sample contract, with `Depth32Float` depth.
-/// `new` selects single-sample `Rgba8UnormSrgb`; `with_target` selects an explicit target.
-/// This is also usable without an offscreen target by a compatible viewer.
+/// viewport and the receiver pipelines' colour/sample contract (its [`ShadowedTarget`]),
+/// with `Depth32Float` depth. This is also usable without an offscreen target by a compatible
+/// viewer.
 #[derive(Debug)]
 pub struct ShadowedScene {
     gpu: SceneGpu,
@@ -163,77 +194,20 @@ impl ShadowedScene {
         self.depth_frames = self.depth_slots[slot].clone();
         self.map.select_frame_slot(slot);
     }
-    /// Validates the opt-in contract before allocating or uploading scene resources.
+    /// Validates the opt-in contract, then builds receiver pipelines for `target` and uploads
+    /// `prepared`, sharing unchanged streamed chunk buffers with `target.previous`.
     pub fn new(
         context: &GpuContext,
-        scene: &RenderScene,
+        prepared: crate::draw::PreparedScene,
         settings: DirectionalShadowSettings,
+        target: ShadowedTarget<'_>,
     ) -> Result<Self, ShadowError> {
-        Self::with_target(context, scene, settings, OffscreenTarget::COLOR_FORMAT, 1)
-    }
-
-    /// Builds receiver pipelines that also write the object-motion residual for a frame renderer
-    /// with TAA resident, like [`ScenePipelines::with_taa_velocity`].
-    pub fn with_taa_velocity(
-        context: &GpuContext,
-        scene: &RenderScene,
-        settings: DirectionalShadowSettings,
-        format: wgpu::TextureFormat,
-        samples: u32,
-    ) -> Result<Self, ShadowError> {
-        Self::build(
-            context,
-            crate::draw::PreparedScene::new(scene)?,
-            settings,
-            (format, samples, true),
-            None,
-        )
-    }
-
-    /// Builds receiver pipelines for a validated frame attachment profile.
-    pub fn with_target(
-        context: &GpuContext,
-        scene: &RenderScene,
-        settings: DirectionalShadowSettings,
-        format: wgpu::TextureFormat,
-        samples: u32,
-    ) -> Result<Self, ShadowError> {
-        Self::with_prepared_target_reusing(
-            context,
-            crate::draw::PreparedScene::new(scene)?,
-            settings,
+        let ShadowedTarget {
             format,
             samples,
-            None,
-        )
-    }
-
-    /// Builds a retained generation sharing unchanged streamed chunk buffers.
-    pub fn with_prepared_target_reusing(
-        context: &GpuContext,
-        prepared: crate::draw::PreparedScene,
-        settings: DirectionalShadowSettings,
-        format: wgpu::TextureFormat,
-        samples: u32,
-        previous: Option<&SceneGpu>,
-    ) -> Result<Self, ShadowError> {
-        Self::build(
-            context,
-            prepared,
-            settings,
-            (format, samples, false),
+            velocity,
             previous,
-        )
-    }
-
-    fn build(
-        context: &GpuContext,
-        prepared: crate::draw::PreparedScene,
-        settings: DirectionalShadowSettings,
-        target: (wgpu::TextureFormat, u32, bool),
-        previous: Option<&SceneGpu>,
-    ) -> Result<Self, ShadowError> {
-        let (format, samples, velocity) = target;
+        } = target;
         let scene = prepared.scene().clone();
         let scene = &scene;
         worldrunner_render_post::FrameConfig::new([1, 1], format, samples)
@@ -254,7 +228,7 @@ impl ShadowedScene {
         )?;
         let object_caster = resources::object_caster(&pipelines, settings, sampling);
         let terrain_caster = resources::terrain_caster(context, &pipelines, settings, sampling);
-        let gpu = SceneGpu::upload_prepared_reusing(
+        let gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
             prepared,
@@ -518,7 +492,12 @@ pub fn capture_scene_shadowed(
         "shadows require an environmental profile",
     ))?)?;
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
-    let mut renderer = ShadowedScene::new(context, scene, settings)?;
+    let mut renderer = ShadowedScene::new(
+        context,
+        crate::draw::PreparedScene::new(scene)?,
+        settings,
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )?;
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let prepared = context
         .submission()

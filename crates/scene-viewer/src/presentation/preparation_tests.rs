@@ -176,8 +176,9 @@ fn resident(
     let mut gpu = worldrunner_render_scene::draw::SceneGpu::upload(
         context.device(),
         context.submission(),
-        scene,
+        prepared(scene),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.retain_resource_reservation(reservation.resident);

@@ -2,6 +2,8 @@
 //! eye-independent inputs of each placement's level, and the level it draws at, kept while the
 //! eye stays near where it was computed.
 
+#[cfg(test)]
+mod test_hooks;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use glam::Vec3;
@@ -149,11 +151,6 @@ impl SlotBounds {
     /// The level memo, sized for the refreshed slots by `refresh`.
     pub fn levels(&self) -> &Levels {
         &self.levels
-    }
-
-    #[cfg(test)]
-    pub fn is_cached(&self, position: usize) -> bool {
-        self.valid.get(position).copied().unwrap_or(false)
     }
 }
 

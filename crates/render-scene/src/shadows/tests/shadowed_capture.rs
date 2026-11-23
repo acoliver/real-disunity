@@ -72,12 +72,11 @@ pub(super) fn capture_drawing(
     replaces: StockReplacement,
 ) -> Result<Captured, ShadowError> {
     let mut frame = frame_declaring(context, source, view, replaces);
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let color = AttachmentView::new(

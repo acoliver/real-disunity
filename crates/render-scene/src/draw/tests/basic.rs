@@ -1,4 +1,6 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 
 #[test]
 fn an_uploaded_scene_groups_its_objects_into_one_batch_per_mesh_and_material() {
@@ -6,7 +8,7 @@ fn an_uploaded_scene_groups_its_objects_into_one_batch_per_mesh_and_material() {
     let context = context();
     let scene = scene(SceneAlphaMode::Opaque, false, 4);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines)
         .expect("the fixture scene uploads");
     assert_eq!(gpu.batch_counts(), [1, 0, 0, 0]);
 }
@@ -26,7 +28,7 @@ fn a_masked_material_lands_in_its_own_pipeline_bucket() {
         1,
     );
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines)
         .expect("the fixture scene uploads");
     assert_eq!(gpu.batch_counts(), [0, 0, 0, 1]);
 }
@@ -44,7 +46,7 @@ fn terrain_no_longer_enters_the_material_batches_however_many_surfaces_it_names(
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for surfaces in 1..=3 {
         let scene = terrain_scene(surfaces);
-        let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines)
             .expect("the fixture scene uploads");
         assert_eq!(
             gpu.batch_counts(),
@@ -190,7 +192,16 @@ fn an_unreadable_texture_names_the_offending_table_entry() {
         quad(),
         1,
     );
-    let error = SceneGpu::upload(context.device(), context.submission(), &broken, &pipelines)
+    let error = PreparedScene::new(&broken)
+        .and_then(|prepared| {
+            SceneGpu::upload(
+                context.device(),
+                context.submission(),
+                prepared,
+                &pipelines,
+                None,
+            )
+        })
         .expect_err("a truncated container cannot be prepared");
     assert!(matches!(error, DrawError::Texture { index: 0, .. }));
 }

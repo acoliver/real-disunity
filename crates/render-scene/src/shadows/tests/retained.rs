@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn resident_edits_reach_both_shadow_and_color_passes() {
@@ -6,7 +7,7 @@ fn resident_edits_reach_both_shadow_and_color_passes() {
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let baseline = capture_scene(&context, &source, &view()).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();

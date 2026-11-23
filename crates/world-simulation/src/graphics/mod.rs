@@ -16,6 +16,7 @@ mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
+mod draw_batch;
 pub mod environment;
 mod material;
 mod material_versions;
@@ -38,6 +39,7 @@ pub use compute::{
     WorldComputeBuffer, WorldComputeShader,
 };
 pub use context::MAX_CULL_PLANES;
+pub use draw_batch::{DrawBatch, MAX_BATCH_PASS_TAGS, MAX_BATCH_VISIBLE};
 pub use environment::Environment;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};

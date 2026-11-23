@@ -235,6 +235,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DisableScissor => "DisableScissor",
         OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawMeshBatch { .. } => "DrawMeshBatch",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
@@ -286,6 +287,13 @@ impl Mapper<'_> {
                 (*material, *pass),
                 (block.as_deref(), *instances),
             ),
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                submesh,
+                pass,
+                batch,
+            } => self.draw_mesh_batch((*mesh, *submesh), (*material, *pass), batch),
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,

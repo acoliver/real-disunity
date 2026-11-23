@@ -206,6 +206,7 @@ impl GraphicsSnapshot {
             .filter_map(|work| match work {
                 OffscreenWork::Blit { material, .. } => *material,
                 OffscreenWork::DrawMesh { material, .. }
+                | OffscreenWork::DrawMeshBatch { material, .. }
                 | OffscreenWork::DrawProcedural { material, .. } => Some(*material),
                 _ => None,
             })
@@ -233,6 +234,10 @@ impl GraphicsSnapshot {
     /// buffer is left out, and the record that names it stays in `work`.
     fn copy_compute(&mut self, world: &World) {
         for record in &self.work {
+            if let OffscreenWork::DrawMeshBatch { batch, .. } = record {
+                copy_buffer(&mut self.compute_buffers, world, batch.buffer);
+                continue;
+            }
             let OffscreenWork::Dispatch {
                 shader, bindings, ..
             } = record

@@ -1,6 +1,7 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
 use std::collections::BTreeMap;
 
+use super::draw_batch::DrawBatch;
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
@@ -172,6 +173,19 @@ pub enum OffscreenWork {
         pass: i32,
         block: Option<Box<ShaderProperties>>,
         instances: u32,
+    },
+    /// Draws instances of one sub-mesh of the mesh the identity `mesh` names, with the material's
+    /// pass (-1 for every pass), into the bound targets with the current view and projection. The
+    /// shader reads each instance's data from `batch`: the world checks that the buffer is live,
+    /// that the window lies inside it and that the lists are within their limits, and leaves the
+    /// meaning of the bytes to the shader. A record with no visible instance keeps its place among
+    /// the records and draws nothing.
+    DrawMeshBatch {
+        mesh: u64,
+        material: MaterialId,
+        submesh: u32,
+        pass: i32,
+        batch: DrawBatch,
     },
     /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
     /// (column-major) and the material's pass into the bound targets, with the current view and

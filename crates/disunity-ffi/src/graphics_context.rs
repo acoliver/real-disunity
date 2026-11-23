@@ -6,8 +6,8 @@
 //! kind from [`KIND_CULL`] up and a token that `disunity_offscreen_detail` reads the record's
 //! encoded bytes by (see [`crate::graphics_commands`]).
 use crate::{
-    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef,
-    graphics_readback::readback_kind, physics::component,
+    DisunityResult, callbacks::mutate, graphics_batch::KIND_DRAW_MESH_BATCH,
+    graphics_commands::DisunityTargetRef, graphics_readback::readback_kind, physics::component,
 };
 use worldrunner_world_simulation::{
     WorldError,
@@ -355,6 +355,7 @@ pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
         OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
         OffscreenWork::SetViewport { .. } => Some(KIND_SET_VIEWPORT),
         OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
+        OffscreenWork::DrawMeshBatch { .. } => Some(KIND_DRAW_MESH_BATCH),
         OffscreenWork::DrawProcedural { .. } => Some(KIND_DRAW_PROCEDURAL),
         OffscreenWork::GenerateMips { .. } => Some(KIND_GENERATE_MIPS),
         OffscreenWork::EnableScissor { .. } => Some(KIND_ENABLE_SCISSOR),

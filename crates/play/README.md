@@ -435,12 +435,14 @@ managed host has not stored, or a texture conversion failure.
 A texture stored
 later becomes visible without changing the UI draw.
 A UI draw whose material has a shader of the game's own (a shader with a source
-other than `UI/Default`) is also left out, because no path draws a game shader in
-the UI yet. The driver names each such material once as
-`UI material <id> (shader <name>) is left out: UI draws with a game shader are not drawn yet`,
-and the run report counts the left-out draws by shader name in one line,
-`UI draws with a game material by shader (last frame)`. Draws on the engine's own
-look (a material with no shader source, or `UI/Default`) are unchanged.
+other than `UI/Default`) is drawn by that shader: the player records the runs of such draws
+as offscreen work after the game's own work, into a layer texture the size of the screen, and
+the overlay shows that texture where each run sorts. The run report counts the draws by shader
+name in one line, `UI draws with a game material by shader (last frame)`. A run that does not
+fit the layer texture is named once as
+`UI material <id> (shader <name>) is left out: its run does not fit the layer atlas`.
+Draws on the engine's own look (a material with no shader source, or `UI/Default`) are
+unchanged.
 Other images, text and 3D
 objects continue to draw; missing text coverage remains an error.
 The renderer's

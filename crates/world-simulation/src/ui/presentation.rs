@@ -2,6 +2,7 @@
 use super::UiTexture;
 use super::contribution::UiRenderPlan;
 pub use super::distance::{UiDistanceMode, UiDistanceStyle, validate_distance_mapping};
+pub use super::layers::{UiLayers, UiRun, UiSpan};
 pub use super::material::UiMaterial;
 use crate::presentation::CoverageTexture;
 use std::collections::BTreeMap;

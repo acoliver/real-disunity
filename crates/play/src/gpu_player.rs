@@ -718,6 +718,14 @@ impl PlayerGpu {
             .ok()
     }
 
+    /// The texture the UI frame's runs were drawn into, which the viewer's overlay shows. `None`
+    /// until a frame with runs made it, after a frame without any, and while it is not the size
+    /// of the screen: a resize makes the next frame that has runs a new one.
+    pub(crate) fn ui_layers(&self) -> Option<wgpu::Texture> {
+        let texture = self.offscreen.borrow().ui_layers_texture()?;
+        (self.screen_size.get() == Some([texture.width(), texture.height()])).then_some(texture)
+    }
+
     /// Numbers the screen `frame` when work drew into it since the last frame of the player's own.
     fn note_drawn_screen(&self, frame: u64) {
         if self.offscreen.borrow_mut().take_screen_written() {

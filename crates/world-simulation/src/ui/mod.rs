@@ -18,6 +18,7 @@ mod geometry;
 mod graphics;
 mod group;
 mod interaction;
+mod layers;
 mod layout;
 mod layout_groups;
 mod material;

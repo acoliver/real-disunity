@@ -640,12 +640,24 @@ names no material. `DisunityUiDraw` carries `material` and `material_generation`
 existing material and shader reads into `UiPresentation::shaders`, because the draw
 record carries identities only.
 
-UI draws with a game shader are not drawn yet. The overlay path
-(`PlayerUi::filter_unavailable`) and the live 2D path (`append_graphics`) leave a
-draw that names a material out, so a graphic such as a silhouette image no longer
-shows as a plain white quad. The player names each material once through
-`UiMaterial::refusal` and counts the left-out draws by shader name in the run report.
-The 2D-only driver reads no UI plan and leaves the draws out without the line.
+UI draws with a game shader are drawn by that shader. `UiPresentation::layers(viewport,
+atlas)` groups the consecutive draws that name a material and share a clip rectangle into
+runs, each with the bounding rectangle that shows (viewport and clip applied) and a place in
+the layer atlas by next-fit shelf packing. A run that has no visible pixel is dropped, and a
+run that does not fit the atlas is listed in `too_large`. A run holds spans of consecutive
+draws of one material and one image. The player (`offscreen::UiFrame`) turns the runs into
+offscreen work after the game's own records: the atlas is cleared to transparent, and for each
+run one view maps the run's rectangle of the viewport to its rectangle of the atlas and each
+span is a `DrawMesh` of the run's mesh (position, colour and first coordinate set of the draws)
+with the span's material, whose `_MainTex` is the span's image. The materials and shaders come
+from the graphics snapshot, which also copies those of the session's last UI draws
+(`GraphicsSnapshot::include_materials`). `UiOverlay::from_presentation` replaces the draws of
+a run by one quad at the sort key of the run's first draw that samples the atlas. The atlas
+holds colour multiplied by alpha, because a pass that blends by source alpha writes its alpha
+as coverage (`DrawRaster::coverage_alpha`); the overlay divides the colour by the alpha before
+its own alpha blend. The live 2D path (`append_graphics`) still leaves a draw that names a
+material out, because a 2D frame has no offscreen frame. The player names a run that does not
+fit through `UiMaterial::refusal` and counts the draws by shader name in the run report.
 
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes

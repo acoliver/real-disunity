@@ -56,6 +56,8 @@ struct QuadBindings<'a> {
     sampler: &'a Sampler,
     indices: &'a Buffer,
     overlay_layout: Option<&'a BindGroupLayout>,
+    /// The entry of `textures` that holds the host's layer atlas, whose colour is premultiplied.
+    layer: Option<usize>,
 }
 
 /// One instanced draw of adjacent compatible quads: what it draws with, and how many instances.
@@ -96,6 +98,8 @@ pub(crate) struct DynamicGpu {
     indices: Option<Buffer>,
     frames: Vec<Buffer>,
     prepared: Vec<Prepared>,
+    /// The entry of `textures` that is a host's layer atlas.
+    layer: Option<usize>,
 }
 
 impl DynamicGpu {
@@ -127,9 +131,20 @@ impl DynamicGpu {
             .map(|t| super::sampling::create_sampler(device, t.sampler()))
             .collect();
         self.textures = uploaded;
+        self.layer = None;
         self.draws.clear();
         self.prepared.clear();
         Ok(())
+    }
+
+    /// Puts the layer atlas a host owns in the place of entry `index` of the table, which an upload
+    /// made as its stand-in. The atlas holds colour multiplied by its alpha, which the overlay
+    /// composites as such. The quads are staged again afterwards, as after `set_textures`.
+    pub(crate) fn replace_texture(&mut self, index: usize, texture: Texture) {
+        self.textures[index] = texture;
+        self.layer = Some(index);
+        self.draws.clear();
+        self.prepared.clear();
     }
 
     /// Sets the textures the quads sample beyond the ones the caller made with `set_textures`,
@@ -183,6 +198,7 @@ impl DynamicGpu {
             sampler: bindings.sampler,
             indices: &indices,
             overlay_layout,
+            layer: self.layer,
         };
         let draws: Vec<_> = ordered
             .chunk_by(|a, b| compatible(a, b))
@@ -541,9 +557,10 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             clip_rect: quad.clip_rect,
             material,
-            distance: bindings
-                .overlay_layout
-                .map(|_| super::distance::upload(device, queue, quad.distance_field)),
+            distance: bindings.overlay_layout.map(|_| {
+                let premultiplied = quad.texture.is_some() && quad.texture == bindings.layer;
+                super::distance::upload(device, queue, quad.distance_field, premultiplied)
+            }),
             depth_test: quad.depth_test,
         }
     }

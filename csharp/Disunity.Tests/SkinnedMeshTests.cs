@@ -95,8 +95,12 @@ internal static class SkinnedMeshTests
         Expect.Equal(2, mesh.bindposes.Length, "the planned bind poses");
         Expect.That(mesh.bindposes[1].GetColumn(3) == new Vector4(5, 6, 7, 1), "a plan's bind pose is row-major");
         var lone = plan.Replace("{\"name\":\"blend indices\",\"dimension\":4}", "{\"name\":\"uv0\",\"dimension\":2}");
-        Expect.Throws<InvalidDataException>(() => Build(lone, positions.Concat(weights).Concat(new float[6]).ToArray()), "weights without indices");
-        Console.WriteLine("PASS: a planned skinned mesh builds its bone weights and row-major bind poses");
+        var without = Build(lone, positions.Concat(weights).Concat(new float[6]).ToArray());
+        Expect.That(without.vertexCount == 3 && without.boneWeights.Length == 0 && without.bindposes.Length == 0, "weights without indices leave the mesh without a skin");
+        var narrow = plan.Replace("{\"name\":\"blend indices\",\"dimension\":4}", "{\"name\":\"blend indices\",\"dimension\":2}");
+        var narrowed = Build(narrow, positions.Concat(weights).Concat(new float[6]).ToArray());
+        Expect.That(narrowed.vertexCount == 3 && narrowed.boneWeights.Length == 0 && narrowed.bindposes.Length == 0, "a skin channel of two values per vertex leaves the mesh without a skin");
+        Console.WriteLine("PASS: a planned skinned mesh builds its bone weights and row-major bind poses, and one with an unusable skin builds without it");
     }
 
     private static Mesh Build(string plan, float[] floats)

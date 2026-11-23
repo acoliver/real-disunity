@@ -218,12 +218,17 @@ pub enum PlanComponent {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
     },
-    /// A skinned mesh renderer of a player scene. It has no mesh.
+    /// A skinned mesh renderer of a player scene or prefab: the asset index of its mesh, and
+    /// the object index of each bone and of the root bone. A mesh or a bone the plan does not
+    /// hold, and a bone slot left empty, is `None`.
     SkinnedMeshRenderer {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
         quality: i32,
         update_when_offscreen: bool,
+        mesh: Option<usize>,
+        bones: Vec<Option<usize>>,
+        root_bone: Option<usize>,
     },
     /// A 3D light of a player scene.
     Light {

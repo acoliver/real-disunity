@@ -384,6 +384,19 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
         /// <summary>
+        ///  Names the mesh a skinned renderer draws and the root bone that places it. `drawn_mesh` is 0 for
+        ///  none or a player mesh identity. `root_bone` is the object id of the root bone, a live object of
+        ///  this world, with `root_bind_pose` the root bone's bind pose as 16 finite column-major floats.
+        ///  A renderer whose skeleton is not in the world passes 0 and a null pose and is left out of
+        ///  frames. A bone without a pose, or a pose without a bone, is refused. The renderer must be a
+        ///  skinned one. A rejected call changes nothing.
+        ///
+        ///  # Safety
+        ///  `root_bind_pose` is null or readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_skinned_renderer_write(ulong world, ulong handle, ulong drawn_mesh, ulong root_bone, float* root_bind_pose);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.
         /// </summary>
@@ -725,24 +738,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_set_enabled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_set_enabled(ulong world, ulong identity, uint enabled, DisunityAdvance* output);
-        /// <summary>
-        ///  Writes the identities of the children of `object` to `buffer`, in no particular order.
-        ///  `written` receives the number of children. When `capacity` is smaller the call returns
-        ///  BUDGET and writes no identities, so the caller can retry with a buffer of that size.
-        ///  Children without an ABI identity (objects still being constructed) are not listed.
-        ///
-        ///  # Safety
-        ///  `buffer` is writable for `capacity` identities and `written` for one count.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_transform_children", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_transform_children(ulong world, ulong @object, ulong* buffer, uint capacity, uint* written);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one callback record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_callback_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
-        [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
     }
 }

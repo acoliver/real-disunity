@@ -10,7 +10,8 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, MaterialId, OffscreenWork, TargetRef, TextureRef,
 };
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiTexture, UiVertex,
+    Canvas, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiTexture,
+    UiVertex,
     contribution::extract_ui,
     presentation::{UiDraw, UiDrawKind, UiLayers, UiMaterial, UiPresentation},
 };
@@ -329,7 +330,13 @@ fn an_old_world_style_silhouette_widget_draws_through_its_material() {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     ui_element(&mut world, root, vec![canvas_renderer(square(4.), None)]);
     let widget = vec![

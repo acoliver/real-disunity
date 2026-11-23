@@ -319,7 +319,7 @@ impl ProgramRuntime {
         if size > 0 {
             allocations.buffer("render-program readback", size, 1);
         }
-        let staged = self.staging(size, allocations)?;
+        let staged = self.staging(size, &allocations)?;
         self.hold_for_frame(
             encoder,
             vec![
@@ -406,7 +406,7 @@ impl ProgramRuntime {
         let copy = LevelCopy::of(texture, level)?;
         let mut allocations = AllocationSet::default();
         allocations.readback("render-program readback", copy.blocks, copy.block_bytes, 1);
-        let staged = self.staging(copy.staging_bytes(), allocations)?;
+        let staged = self.staging(copy.staging_bytes(), &allocations)?;
         shares.push(staged.reservation.clone());
         self.hold_for_frame(encoder, shares)?;
         encoder.copy_texture_to_buffer(
@@ -436,7 +436,7 @@ impl ProgramRuntime {
         })
     }
 
-    fn staging(&self, size: u64, allocations: AllocationSet) -> Result<Staged, ProgramError> {
+    fn staging(&self, size: u64, allocations: &AllocationSet) -> Result<Staged, ProgramError> {
         let reservation = self.admit(allocations, Note::new("readback staging", ""))?;
         let buffer = self.guarded(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {

@@ -303,14 +303,15 @@ impl OffscreenHost {
         std::mem::take(&mut self.screen_written)
     }
 
-    /// Tells the host that the operations the last [`frame`](Self::frame) gave were submitted, so
-    /// the screen holds what they drew.
+    /// Tells the host that the operations the last [`frame`](Self::frame) gave were submitted, or
+    /// handed to the viewer, which runs them before anything reads the screen, so the screen
+    /// holds what they drew.
     pub fn frame_submitted(&mut self) {
         self.screen_written |= std::mem::take(&mut self.frame_writes_screen);
     }
 
     /// Reads the screen back: the image the screen holds now, which `frame` numbers. Tests read
-    /// what draws left in the screen with it; a run writes its screens from the GPU texture. The copy is
+    /// what draws left in the screen with it; a run shows the screen from its texture. The copy is
     /// submitted and waited for on its own, after every submission before it. A refusal is the
     /// reason, for the caller to count (see the `screen` module), and leaves the screen marked as
     /// written.

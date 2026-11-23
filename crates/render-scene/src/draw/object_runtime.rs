@@ -34,7 +34,7 @@ use super::{DrawnObjects, SceneGpu, SelectionPublication};
 use crate::object::layout::{GeometryLayout, vertex_layout};
 use crate::object::prepared::PreparedObjects;
 use crate::object::program::Context;
-use grouping::{BufferTable, GroupKey, grouped};
+use grouping::{BufferTable, GroupKey, Grouping, grouped};
 
 mod grouping;
 
@@ -158,9 +158,32 @@ impl<P: PassCommands + ?Sized> PassCommands for Elided<'_, P> {
 /// by pipeline, material and buffers.
 pub(super) struct PreparedSink<'a, P: ?Sized> {
     recorder: Recorder<'a, P>,
+    scratch: &'a mut SinkScratch,
+}
+
+/// What a sink fills while it holds a pass's draws, which the scene keeps between passes so that
+/// a pass reuses the storage the one before grew.
+#[derive(Default)]
+pub(super) struct SinkScratch {
     names: Names,
     /// The draws the pass holds until it finishes.
     held: Vec<Held>,
+    keys: Vec<GroupKey>,
+    grouping: Grouping,
+}
+
+impl std::fmt::Debug for SinkScratch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SinkScratch").finish_non_exhaustive()
+    }
+}
+
+impl SinkScratch {
+    /// Forgets the pass's draws and the buffers it named, which end their hold on them.
+    fn clear(&mut self) {
+        self.names.clear();
+        self.held.clear();
+    }
 }
 
 /// What the walk has named for the draws that follow, as positions in the tables the sink
@@ -181,6 +204,18 @@ struct Names {
     indices: Option<u32>,
 }
 
+impl Names {
+    fn clear(&mut self) {
+        self.vertex_buffers.clear();
+        self.index_buffers.clear();
+        self.current_buffers.clear();
+        self.instances.clear();
+        self.current_instances = None;
+        self.vertices = None;
+        self.indices = None;
+    }
+}
+
 /// A draw a pass holds, with the buffers the walk named for it.
 struct Held {
     draw: Draw,
@@ -195,7 +230,7 @@ struct Recorder<'a, P: ?Sized> {
     pass: Elided<'a, P>,
     objects: &'a PreparedObjects,
     context: &'a Context,
-    layouts: [VertexLayoutSpec; 2],
+    layouts: [&'static VertexLayoutSpec; 2],
     state: BoundState,
     current: Option<Rc<PreparedPipeline>>,
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`, as the capture tests do for
@@ -205,7 +240,13 @@ struct Recorder<'a, P: ?Sized> {
 }
 
 impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
-    pub(super) fn new(pass: &'a mut P, objects: &'a PreparedObjects, context: &'a Context) -> Self {
+    pub(super) fn new(
+        pass: &'a mut P,
+        objects: &'a PreparedObjects,
+        context: &'a Context,
+        scratch: &'a mut SinkScratch,
+    ) -> Self {
+        scratch.clear();
         Self {
             recorder: Recorder {
                 pass: Elided {
@@ -228,8 +269,7 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
                 #[cfg(test)]
                 mask: 0,
             },
-            names: Names::default(),
-            held: Vec::new(),
+            scratch,
         }
     }
 
@@ -237,29 +277,31 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
     /// buffers together and those that tie in the order the walk named them. Call it after the
     /// walk.
     pub(super) fn finish(mut self) {
-        let held = std::mem::take(&mut self.held);
-        let names = &self.names;
+        let SinkScratch {
+            names,
+            held,
+            keys,
+            grouping,
+        } = &mut *self.scratch;
         let (vertex_ranks, index_ranks, current_ranks) = (
             names.vertex_buffers.ranks(),
             names.index_buffers.ranks(),
             names.current_buffers.ranks(),
         );
-        let keys: Vec<GroupKey> = held
-            .iter()
-            .map(|held| GroupKey {
-                pipeline: held.draw.pipeline,
-                geometry: held.draw.geometry,
-                material: held.draw.material,
-                vertices: vertex_ranks[held.vertices as usize],
-                base_vertex: held.draw.base_vertex,
-                indices: index_ranks[held.indices as usize],
-                instances: current_ranks[names.instances[held.instances as usize].1 as usize],
-                first_index: held.draw.indices.start,
-                index_count: held.draw.indices.end - held.draw.indices.start,
-                first_instance: held.draw.instances.start,
-            })
-            .collect();
-        let mut order = grouped(&keys).into_iter();
+        keys.clear();
+        keys.extend(held.iter().map(|held| GroupKey {
+            pipeline: held.draw.pipeline,
+            geometry: held.draw.geometry,
+            material: held.draw.material,
+            vertices: vertex_ranks[held.vertices as usize],
+            base_vertex: held.draw.base_vertex,
+            indices: index_ranks[held.indices as usize],
+            instances: current_ranks[names.instances[held.instances as usize].1 as usize],
+            first_index: held.draw.indices.start,
+            index_count: held.draw.indices.end - held.draw.indices.start,
+            first_instance: held.draw.instances.start,
+        }));
+        let mut order = grouped(keys, grouping).iter().copied();
         let mut next = order.next();
         while let Some(first) = next {
             let held_first = &held[first as usize];
@@ -287,6 +329,7 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
                 instances,
             );
         }
+        self.scratch.clear();
     }
 
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`.
@@ -300,7 +343,7 @@ impl<'a, P: PassCommands + ?Sized> PreparedSink<'a, P> {
 impl<P: ?Sized> Drop for PreparedSink<'_, P> {
     fn drop(&mut self) {
         debug_assert!(
-            self.held.is_empty() || std::thread::panicking(),
+            self.scratch.held.is_empty() || std::thread::panicking(),
             "a sink was dropped holding draws it never recorded"
         );
     }
@@ -358,7 +401,7 @@ impl<P: PassCommands + ?Sized> Recorder<'_, P> {
         pipeline
             .draw_borrowed(
                 &mut self.pass,
-                &self.layouts[usize::from(skinned)],
+                self.layouts[usize::from(skinned)],
                 buffers,
                 indices,
                 draw.instances,
@@ -370,7 +413,7 @@ impl<P: PassCommands + ?Sized> Recorder<'_, P> {
 
 impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
     fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>) {
-        let names = &mut self.names;
+        let names = &mut self.scratch.names;
         let current_buffer = names.current_buffers.number(current);
         names.instances.push((
             Instances {
@@ -386,12 +429,12 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
     }
 
     fn vertices(&mut self, vertices: &Buffer) {
-        self.names.vertices = Some(self.names.vertex_buffers.number(vertices));
+        self.scratch.names.vertices = Some(self.scratch.names.vertex_buffers.number(vertices));
         self.recorder.pass.named.vertices = true;
     }
 
     fn indices(&mut self, indices: &Buffer) {
-        self.names.indices = Some(self.names.index_buffers.number(indices));
+        self.scratch.names.indices = Some(self.scratch.names.index_buffers.number(indices));
         self.recorder.pass.named.indices = true;
     }
 
@@ -401,11 +444,11 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
                 .objects
                 .recorded_as(self.recorder.context, draw.pipeline, draw.material);
         (draw.pipeline, draw.material) = recorded;
-        let names = &self.names;
+        let names = &self.scratch.names;
         let instances = names.current_instances.expect("a draw names its instances");
         let vertices = names.vertices.expect("a draw names its vertices");
         let indices = names.indices.expect("a draw names its indices");
-        self.held.push(Held {
+        self.scratch.held.push(Held {
             draw,
             vertices,
             indices,
@@ -444,7 +487,8 @@ impl SceneGpu {
         context: &Context,
     ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
-        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let mut scratch = self.sink_scratch.borrow_mut();
+        let mut sink = PreparedSink::new(pass, &self.objects, context, &mut scratch);
         let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
         sink.finish();
         self.end_objects(view, None, objects)
@@ -461,7 +505,8 @@ impl SceneGpu {
     ) -> SelectionPublication {
         let shadow = Some(cascade);
         let view = self.begin_objects(pass, frame_group, shadow);
-        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let mut scratch = self.sink_scratch.borrow_mut();
+        let mut sink = PreparedSink::new(pass, &self.objects, context, &mut scratch);
         let objects =
             self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
         sink.finish();

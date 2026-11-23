@@ -14,6 +14,7 @@ use worldrunner_render_gpu::device::{
 };
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
 
 use crate::storage_budget::{self, Choice, host_available_bytes};
 
@@ -69,6 +70,28 @@ pub(crate) trait DeviceSource {
     ) -> Result<(wgpu::Device, SubmissionAuthority), String>;
 }
 
+/// The one source of a window's device: the viewer's [`SharedGpu`], which a window's start and a
+/// windowless run both hold, under the options the viewer runs with.
+pub(crate) struct SharedDevice<'a> {
+    pub(crate) gpu: &'a mut SharedGpu,
+    pub(crate) options: &'a ViewerOptions,
+}
+
+impl DeviceSource for SharedDevice<'_> {
+    fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
+        self.gpu.adapter().map_err(|error| error.to_string())
+    }
+
+    fn device(
+        &mut self,
+        requirements: &DeviceRequirements,
+    ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
+        self.gpu
+            .device(self.options, requirements)
+            .map_err(|error| error.to_string())
+    }
+}
+
 /// The storage budget for `adapter`: see [`storage_budget`].
 fn storage_choice(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> Choice {
     let device_local = AdapterMemory::probe(&adapter.get_info()).map(|memory| memory.device_local);
@@ -114,6 +137,18 @@ pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
     worldrunner_render_gpu::test_support::test_instance()
 }
 
+/// The shared device of a run with no window: the headless instance, and render-gpu's test
+/// instance in play's tests, as for the headless player's device (see `headless_gpu_instance`).
+#[cfg(not(test))]
+pub(crate) fn headless_shared_gpu() -> SharedGpu {
+    SharedGpu::headless()
+}
+
+#[cfg(test)]
+pub(crate) fn headless_shared_gpu() -> SharedGpu {
+    SharedGpu::headless_for_test()
+}
+
 /// Builds every compute kernel variant of the player in `data` as a compute program on the
 /// device the headless player asks for with its default storage budget, and counts what the device cannot hold by cause.
 ///
@@ -149,58 +184,27 @@ pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeC
 pub(crate) mod headless {
     use std::collections::BTreeSet;
 
-    use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
-
     use super::*;
     use crate::retained_driver::{PlayerWindow, viewer_options};
 
-    pub(crate) struct HeadlessViewer {
-        pub gpu: SharedGpu,
-        pub options: ViewerOptions,
-        /// What the player asked of the device, in order.
-        pub asked: Vec<DeviceRequirements>,
+    /// A `SharedGpu` on the test instance and the options a window of `size` runs under.
+    pub(crate) fn shared(size: [u32; 2]) -> (SharedGpu, ViewerOptions) {
+        let window = PlayerWindow {
+            title: "windowless".into(),
+            size,
+            fixed_dt: None,
+            max_frames: None,
+            capture_frames: BTreeSet::new(),
+            capture_files: Vec::new(),
+            keys: Vec::new(),
+        };
+        (headless_shared_gpu(), viewer_options(&window))
     }
 
-    impl HeadlessViewer {
-        pub(crate) fn new(size: [u32; 2]) -> Self {
-            let window = PlayerWindow {
-                title: "windowless".into(),
-                size,
-                fixed_dt: None,
-                max_frames: None,
-                capture_frames: BTreeSet::new(),
-                keys: Vec::new(),
-            };
-            Self {
-                gpu: SharedGpu::headless_for_test(),
-                options: viewer_options(&window),
-                asked: Vec::new(),
-            }
-        }
-
-        /// The authority of the device, which the window's frames and the player both submit
-        /// through.
-        pub(crate) fn authority(&mut self) -> SubmissionAuthority {
-            self.gpu
-                .device(&self.options, &DeviceRequirements::default())
-                .expect("the viewer's device")
-                .1
-        }
-    }
-
-    impl DeviceSource for HeadlessViewer {
-        fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
-            self.gpu.adapter().map_err(|error| error.to_string())
-        }
-
-        fn device(
-            &mut self,
-            requirements: &DeviceRequirements,
-        ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
-            self.asked.push(requirements.clone());
-            self.gpu
-                .device(&self.options, requirements)
-                .map_err(|error| error.to_string())
-        }
+    /// The authority of the device, which the window's frames and the player both submit through.
+    pub(crate) fn authority(gpu: &mut SharedGpu, options: &ViewerOptions) -> SubmissionAuthority {
+        gpu.device(options, &DeviceRequirements::default())
+            .expect("the viewer's device")
+            .1
     }
 }

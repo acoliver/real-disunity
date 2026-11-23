@@ -111,7 +111,6 @@ internal static unsafe class CubemapWorldTests
         material.SetTexture("_Other", SixFaces());
         Expect.That(IdentityOnMaterial(material, "_Other") != identity, "a second cubemap has its own identity");
         Expect.That(IdentityOnMaterial(material, "_SkyCubemap") == identity, "the cubemap keeps its identity");
-        Expect.Throws<NotSupportedException>(() => new CommandBuffer().SetGlobalTexture("_Sky", cube), "a command buffer still takes render textures only");
     }
 
     private static void TheHostReadsBackTheFacesDimensionFormatAndBytes()

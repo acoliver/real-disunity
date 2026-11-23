@@ -10,13 +10,13 @@
 use crate::error::ProgramError;
 
 /// What one colour target does with a fragment's colour.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub struct ColorState {
     pub blend: Option<wgpu::BlendState>,
     pub write_mask: wgpu::ColorWrites,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RasterState {
     pub cull: Option<wgpu::Face>,
     /// The winding that counts as a front face, in framebuffer space.
@@ -27,7 +27,7 @@ pub struct RasterState {
     pub alpha_to_coverage: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub struct DepthState {
     pub test: wgpu::CompareFunction,
     pub write: bool,
@@ -39,7 +39,7 @@ pub struct DepthState {
 /// `ops` is the pipeline's. `reference` is not: it belongs to the pass, which the owner sets with
 /// `set_stencil_reference` once for the pass, as the runtime binds no state the owner holds. It is
 /// carried so that a state says what its test compares against.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct StencilState {
     pub ops: wgpu::StencilState,
     pub reference: u32,
@@ -47,7 +47,7 @@ pub struct StencilState {
 
 /// The state of a draw. `colors` has one entry per colour target, `None` for a slot the draw
 /// does not write.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct RenderState {
     pub raster: RasterState,
     /// `None` tests nothing and writes no depth.

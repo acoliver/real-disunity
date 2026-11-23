@@ -618,7 +618,7 @@ impl RetainedHost {
     /// it on its own recording and runs it before its first pass, in the same submission, so its
     /// render textures are written before the scene samples them. A later call replaces work no
     /// frame took. The operations must come from a runtime on the device the window draws on,
-    /// such as one [`crate::ViewerStart::device`] made.
+    /// such as one [`crate::SharedGpu::device`] made.
     pub fn admit_offscreen(&mut self, operations: PendingOffscreen) {
         self.offscreen = Some(operations);
     }

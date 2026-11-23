@@ -26,9 +26,6 @@ use crate::offscreen::StandInLook;
 use crate::offscreen::SuppliedGlobal;
 use crate::plan_differences::shader_difference_lines;
 use crate::player_meshes::PlayerMeshes;
-use crate::player_screen_ui::CaptureSink;
-use crate::player_screen_ui::ScreenComposer;
-use crate::player_screen_ui::ScreenDevice;
 use crate::prepare::FIRST_TEXTURE;
 use crate::prepare::bridge_config;
 use crate::prepare::dotnet;
@@ -43,14 +40,17 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
     /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
     pub data: PathBuf,
-    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, the storage
-    /// budget and whether it reports after every frame.
+    /// The size the player reads as its screen, which a headless run presents its frames at and
+    /// draws its screen texture in; `None` when the launch gave none.
+    pub screen: Option<[u32; 2]>,
+    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, whether it
+    /// reports after every frame and the target reads.
     pub gpu: GpuLaunch,
 }
 
 /// How a player is started besides its files: the command line after its executable path,
 /// the size of the window the frame is drawn into, which is the size the player's `Screen`
-/// reports (a headless run gives none), and extra native plugin directories the player
+/// reports (a run with no viewer gives none unless it reads targets), and extra native plugin directories the player
 /// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
 /// values `--global` supplies; they reach the GPU work only, not the request, and so do
 /// `stand_ins` (how the stand-in textures look), `report_each_frame` and `read_targets` (the
@@ -119,6 +119,7 @@ pub fn prepare_player(
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
+        screen: launch.screen,
         gpu: GpuLaunch {
             globals: launch.globals.to_vec(),
             stand_ins: launch.stand_ins,
@@ -346,58 +347,31 @@ fn gpu_unavailable(reason: &str) -> PlayError {
     PlayError::Invalid(format!("the player's offscreen work needs a GPU: {reason}"))
 }
 
-/// What a headless run writes of the screen: the screen's size, and a file for the composed frame
-/// after each listed frame's GPU work. The composed frame is the screen the player's offscreen work
-/// drew into with the game's UI over it, the frame a window captures at that size.
-#[derive(Clone, Debug)]
-pub struct ScreenOutput {
-    pub size: [u32; 2],
-    /// A frame, counting from zero, and the PNG its composed frame is written to.
-    pub files: Vec<(u64, PathBuf)>,
-}
-
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device. With `screen`, the offscreen work draws a
-/// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
-/// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
-/// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
-/// that draws the UI share one device (see [`crate::player_screen_ui`]), and the frame is
-/// presented at the screen's size, which the game's UI lays itself out for. Without `screen` the
-/// run has none.
+/// player's offscreen work on a device and no viewer: the run measures the game and its GPU work
+/// and shows nothing. It presents its frames at the screen size `prepared` carries, else at a small
+/// window's, and writes each `--read-target` read its frame names. The error names the step that
+/// failed: the missing GPU, starting the scene or the frame that failed. A run that writes frames
+/// is a windowless run ([`play_player_windowless`](crate::play_player_windowless)).
 ///
 /// # Errors
 /// Fails naming the reason when the machine has no GPU adapter or device, when the scene cannot
-/// start, and at a frame that fails, including a frame or flush the GPU refuses (the error names
-/// the refusal, and no screen is written for that frame or after it). A run with a screen also
-/// fails before the scene starts when a listed frame is not among the `frames` run, and at a
-/// listed frame that has no image yet because no work has drawn into the screen, or whose UI
-/// cannot be drawn.
-pub fn run_player(
-    prepared: &PreparedPlayer,
-    frames: u64,
-    dt: Duration,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
+/// start, when a read names a frame the run does not play, and at a frame that fails, including a
+/// frame or flush the GPU refuses (the error names the refusal).
+pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
-    let mut sink = CaptureSink::default();
-    let mut device = screen.map(|screen| ScreenDevice::new(screen.size));
-    let gpu = match device.as_mut() {
-        Some(device) => device.player_gpu(prepared)?,
-        None => player_gpu(prepared)?,
-    };
-    check_screen(frames, screen)?;
+    let gpu = player_gpu(prepared)?;
     TargetRead::check_frames(&prepared.gpu.reads, frames).map_err(PlayError::Invalid)?;
     gpu.set_reads(prepared.gpu.reads.clone());
-    let mut composer = device.map(|device| device.compose(&mut sink)).transpose()?;
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     gpu.install(&mut host)?;
-    gpu.set_screen(screen.map(|screen| screen.size));
+    gpu.set_screen(prepared.screen);
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
-    let viewport = screen.map_or(PRESENTED_SIZE, |screen| screen.size);
+    let viewport = prepared.screen.unwrap_or(PRESENTED_SIZE);
     let mut times = Vec::new();
     for frame in 0..frames {
         let stand_ins_before = gpu.report().stand_ins.clone();
@@ -410,8 +384,7 @@ pub fn run_player(
             .and_then(|()| match gpu.take_refusal() {
                 Some(refusal) => Err(PlayError::Invalid(refusal)),
                 None => Ok(()),
-            })
-            .and_then(|()| write_screens(&gpu, composer.as_mut(), &host, frame, screen));
+            });
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it. The
         // counts are the run's so far, except the stand-in census, which is the frame's own.
@@ -440,85 +413,31 @@ pub fn run_player(
     result.and(unloaded.map_err(PlayError::from))
 }
 
-/// Checks that a run with a screen can give the images asked for: every listed frame is one of the
-/// `frames` run.
-fn check_screen(frames: u64, screen: Option<&ScreenOutput>) -> Result<(), PlayError> {
-    let Some(screen) = screen else {
-        return Ok(());
-    };
-    match screen.files.iter().find(|(frame, _)| *frame >= frames) {
-        Some((frame, _)) => Err(PlayError::Invalid(format!(
-            "screen frame {frame} is not among the {frames} frames the run plays"
-        ))),
-        None => Ok(()),
-    }
-}
-
-/// The files `screen` lists for `frame`, and the number of the frame whose work drew the image
-/// they will hold: the newest image of the screen, which is this frame's when its work drew into
-/// it.
-fn screens_due<'a>(
-    gpu: &PlayerGpu,
-    frame: u64,
-    screen: Option<&'a ScreenOutput>,
-) -> Result<(u64, Vec<&'a Path>), PlayError> {
-    let Some(screen) = screen else {
-        return Ok((frame, Vec::new()));
-    };
-    let files: Vec<&Path> = screen
-        .files
-        .iter()
-        .filter(|(listed, _)| *listed == frame)
-        .map(|(_, file)| file.as_path())
-        .collect();
-    if files.is_empty() {
-        return Ok((frame, files));
-    }
-    let drawn = gpu.drawn_screen().ok_or_else(|| {
-        PlayError::Invalid(format!(
-            "no screen image after frame {frame}: no work has drawn into the screen yet"
-        ))
-    })?;
-    Ok((drawn, files))
-}
-
-/// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest
-/// screen image with the UI the world holds now over it.
-fn write_screens(
-    gpu: &PlayerGpu,
-    composer: Option<&mut ScreenComposer<'_>>,
-    host: &DisunityHost,
-    frame: u64,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
-    let (drawn, files) = screens_due(gpu, frame, screen)?;
-    match composer {
-        Some(composer) if !files.is_empty() => composer.write(host, gpu, drawn, &files),
-        _ => Ok(()),
-    }
-}
-
-/// Writes the first, mean and slowest frame time to standard error.
-fn report_times(times: &[Duration]) {
-    let Some(first) = times.first() else {
-        return;
-    };
+/// The line that gives the first, mean and slowest frame time, which the run's scripts read.
+fn frame_time_line(times: &[Duration]) -> Option<String> {
+    let first = times.first()?;
     let total: Duration = times.iter().sum();
     let slowest = times.iter().max().copied().unwrap_or_default();
     let count = u32::try_from(times.len()).unwrap_or(u32::MAX);
-    eprintln!(
+    Some(format!(
         "[player] frame time: first {first:?}, mean {:?}, slowest {slowest:?}, {} frames",
         total / count,
         times.len()
-    );
+    ))
 }
 
-/// The size a headless run presents its frames at when it has no screen: a small window's.
+/// Writes the first, mean and slowest frame time to standard error.
+pub(crate) fn report_times(times: &[Duration]) {
+    if let Some(line) = frame_time_line(times) {
+        eprintln!("{line}");
+    }
+}
+
+/// The size a headless run presents its frames at: a small window's.
 const PRESENTED_SIZE: [u32; 2] = [960, 540];
 
-/// Prepares the frame's presentation at `viewport`, the screen's size for a run with a screen
-/// (which is the size the game's UI is laid out for) and a small window's otherwise, and brings
-/// its meshes in, so a headless run reports what the player shows in 3D.
+/// Prepares the frame's presentation at `viewport` and brings its meshes in, so a headless run
+/// reports what the player shows in 3D.
 fn present_meshes(
     host: &mut DisunityHost,
     meshes: &mut PlayerMeshes,
@@ -528,10 +447,6 @@ fn present_meshes(
     let objects = host.mesh_objects()?;
     meshes.refresh(host, &objects)
 }
-
-#[cfg(test)]
-#[path = "player_screen_tests.rs"]
-mod screen_tests;
 
 #[cfg(test)]
 mod tests {
@@ -568,6 +483,16 @@ mod tests {
             },
             Path::new("/out/callback-cache"),
         )
+    }
+
+    #[test]
+    fn the_frame_time_line_gives_the_first_mean_and_slowest_frame_and_their_count() {
+        let times = [30, 10, 20].map(Duration::from_millis);
+        assert_eq!(
+            frame_time_line(&times).as_deref(),
+            Some("[player] frame time: first 30ms, mean 20ms, slowest 30ms, 3 frames")
+        );
+        assert_eq!(frame_time_line(&[]), None);
     }
 
     #[test]

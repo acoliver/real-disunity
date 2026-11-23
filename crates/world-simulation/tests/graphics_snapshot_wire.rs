@@ -395,7 +395,7 @@ fn a_body_longer_than_the_snapshot_it_holds_is_refused() {
     assert_eq!(decode(&bytes), Err(WireError::TrailingBytes));
 }
 
-/// The bytes of a snapshot whose only content is `work`, so a test can corrupt one field.
+/// The bytes of a snapshot with `body`, the work list first, so a test can corrupt one field.
 fn with_header(body: &[u8]) -> Vec<u8> {
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
@@ -404,23 +404,13 @@ fn with_header(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global and no
-/// environment.
-fn empty_until_work(tail: &[u8]) -> Vec<u8> {
-    let mut body = vec![0; 4 * 3];
-    body.push(0);
-    body.extend_from_slice(&[0; 2]);
-    body.extend_from_slice(tail);
-    with_header(&body)
-}
-
 #[test]
 fn a_count_over_the_cap_or_longer_than_the_input_is_refused() {
     let huge = u32::MAX.to_le_bytes();
-    assert_eq!(decode(&empty_until_work(&huge)), Err(WireError::TooLong));
+    assert_eq!(decode(&with_header(&huge)), Err(WireError::TooLong));
     let beyond_input = 1_000_u32.to_le_bytes();
     assert_eq!(
-        decode(&empty_until_work(&beyond_input)),
+        decode(&with_header(&beyond_input)),
         Err(WireError::Truncated)
     );
 }
@@ -429,10 +419,7 @@ fn a_count_over_the_cap_or_longer_than_the_input_is_refused() {
 fn an_unknown_work_kind_is_refused_by_name() {
     let mut tail = 1_u32.to_le_bytes().to_vec();
     tail.push(200);
-    assert_eq!(
-        decode(&empty_until_work(&tail)),
-        Err(WireError::UnknownTag(200))
-    );
+    assert_eq!(decode(&with_header(&tail)), Err(WireError::UnknownTag(200)));
 }
 
 #[test]
@@ -447,8 +434,10 @@ fn text_that_is_not_utf8_is_refused() {
 
 #[test]
 fn a_map_that_holds_a_key_twice_is_refused() {
-    // The first map holds shaders: a key, a name and no source, twice with the same key.
-    let mut shaders = 2_u32.to_le_bytes().to_vec();
+    // After an empty work list, the first map holds shaders: a key, a name and no source, twice
+    // with the same key.
+    let mut shaders = 0_u32.to_le_bytes().to_vec();
+    shaders.extend_from_slice(&2_u32.to_le_bytes());
     for name in ["A", "B"] {
         shaders.extend_from_slice(&(1_u64 << 32 | 1).to_le_bytes());
         shaders.extend_from_slice(&1_u32.to_le_bytes());

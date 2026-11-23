@@ -87,7 +87,7 @@ pub(super) fn distance_for(level: u32) -> i64 {
 }
 
 fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [u8; 3] {
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),

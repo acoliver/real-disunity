@@ -303,7 +303,7 @@ fn submit(
             .encode_with(context, view, (&color, &depth), &mut encoder, frame)
             .unwrap();
     }
-    frame.targets().encode_resolve(&mut encoder);
+    frame.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
 }
 
@@ -347,8 +347,9 @@ fn submit_binary(
             context.device(),
             encoder,
             (&[pass], &[color, depth]),
+            None,
             &mut [],
-            (uniform, Some(shadow)),
+            &(uniform, Some(shadow)),
         )
         .unwrap();
 }

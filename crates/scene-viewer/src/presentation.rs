@@ -127,11 +127,8 @@ impl Presentation {
         let (settings, capture_pool) =
             policy.inventory(settings, capture_size, &context.device().limits())?;
         let native_rcas = settings.post.native_rcas;
-        let scheduler = ConfiguredFrameRenderer::new_with_policy(
-            context,
-            settings,
-            policy.budget.allocation_policy(),
-        )?;
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, policy.budget.allocation_policy())?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,

@@ -68,7 +68,10 @@ fn options() -> ViewerOptions {
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
         window_mode: worldrunner_scene_viewer::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-        frame_profile: FrameProfile::Legacy,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: worldrunner_scene_viewer::ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,

@@ -202,9 +202,12 @@ fn allocation_plan_accounts_for_new_kernel_targets() {
     use crate::compositor::RendererConfiguration;
     use worldrunner_render_post::FrameConfig;
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut base = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut base = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Reinhard,
+    );
     base.frame = FrameConfig::new([5, 3], wgpu::TextureFormat::Rgba16Float, 1);
-    base.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
     base.ssao = Some(settings());
     let limits = wgpu::Limits::default();
     let old = base.allocations().validate(&limits).unwrap();
@@ -224,9 +227,12 @@ fn gpu_kernel_reconfiguration_is_transactional_and_can_disable_metadata() {
     use worldrunner_render_post::FrameConfig;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let mut config = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut config = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Reinhard,
+    );
     config.frame = FrameConfig::new([5, 3], wgpu::TextureFormat::Rgba16Float, 1);
-    config.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
     config.ssao = Some(settings());
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, config.clone(), AllocationBudget(u64::MAX)).unwrap();

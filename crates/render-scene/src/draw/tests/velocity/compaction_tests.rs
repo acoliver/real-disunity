@@ -41,7 +41,7 @@ impl Rig {
             SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
         let (renderer, color, depth) = taa_target(&context, &effects, MsaaSamples::X1);
         Self {
-            colour_only: ScenePipelines::new(context.device(), HDR),
+            colour_only: ScenePipelines::new(context.device(), HDR, 1).unwrap(),
             context,
             gpu,
             pipelines,

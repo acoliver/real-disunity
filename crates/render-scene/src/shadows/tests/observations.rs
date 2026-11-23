@@ -60,7 +60,8 @@ fn unshadowed(
     source: &RenderScene,
     frame: &mut FrameRenderer,
 ) -> crate::draw::SsaoStatistics {
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(
@@ -185,7 +186,8 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
     } else {
         crate::renderer::depth::DepthMode::Independent
     };
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float)
+    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
+        .unwrap()
         .for_depth(depth_mode);
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(frame.color_attachment(color.resource(), &color));
@@ -202,8 +204,6 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         pipelines: std::borrow::Cow::Borrowed(&pipelines),
         screen: None,
         programs: None,
-        deferred: None,
-        renders: false,
         opaque_drawn: std::cell::Cell::new(false),
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();

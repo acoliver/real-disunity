@@ -22,7 +22,14 @@ fn render(
         .unwrap()
         .with_effects(device, *settings)
         .unwrap();
-    let chain = PostChain::new(device, config, Resources::default(), factory).unwrap();
+    let chain = PostChain::new(
+        device,
+        config,
+        Resources::default(),
+        factory,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     let target = output(device, config.size);
     crate::submit_frame(device, queue, |encoder| {
         // Paint the post-resolve input directly, independent of implementation-defined MSAA
@@ -71,7 +78,7 @@ fn filmic_post_resolve_hdr_ramp_transfer_alpha_and_feature_off_ids() {
             config,
             (ToneMap::Filmic, 1.0),
             &HdrPostSettings {
-                resolve: crate::PostResolve::fxaa(0.0),
+                resolve: crate::PostResolve::fxaa(0.0, crate::FxaaQuality::default()),
                 ..Default::default()
             },
             body,
@@ -125,7 +132,7 @@ fn filmic_gpu_special_values_and_zero_exposure() {
         for settings in [
             HdrPostSettings::default(),
             HdrPostSettings {
-                resolve: crate::PostResolve::fxaa(0.0),
+                resolve: crate::PostResolve::fxaa(0.0, crate::FxaaQuality::default()),
                 ..Default::default()
             },
         ] {
@@ -158,7 +165,7 @@ fn hdr_chain_propagates_fxaa_quality_and_keeps_stage_ids() {
     );
     assert_eq!(plain_ids, [StageId::new("tone", 0)]);
     let settings = HdrPostSettings {
-        resolve: crate::PostResolve::fxaa(0.75),
+        resolve: crate::PostResolve::fxaa(0.75, crate::FxaaQuality::default()),
         ..Default::default()
     };
     let (filtered, ids) = render((&device, &queue), config, display, &settings, body);
@@ -187,7 +194,7 @@ fn hdr_chain_propagates_fxaa_quality_and_keeps_stage_ids() {
             config,
             display,
             &HdrPostSettings {
-                resolve: crate::PostResolve::fxaa_with(0.75, quality),
+                resolve: crate::PostResolve::fxaa(0.75, quality),
                 ..settings
             },
             body,
@@ -241,7 +248,7 @@ fn quality_kernel_specializes_the_existing_fxaa_stage() {
             config,
             (ToneMap::Reinhard, 1.0),
             &HdrPostSettings {
-                resolve: crate::PostResolve::fxaa_with(0.75, quality),
+                resolve: crate::PostResolve::fxaa(0.75, quality),
                 ..Default::default()
             },
             body,

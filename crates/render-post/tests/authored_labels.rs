@@ -17,6 +17,8 @@ fn targets(device: &wgpu::Device) -> FrameTargets {
             format: wgpu::TextureFormat::Rgba16Float,
             samples: 1,
         },
+        worldrunner_render_post::TargetOptions::default(),
+        worldrunner_render_post::SceneDepth::Independent,
     )
     .unwrap()
 }

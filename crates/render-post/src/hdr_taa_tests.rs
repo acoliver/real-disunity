@@ -37,6 +37,8 @@ fn targets(device: &wgpu::Device, size: [u32; 2], samples: u32) -> FrameTargets 
     FrameTargets::new(
         device,
         FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples),
+        crate::TargetOptions::default(),
+        crate::SceneDepth::Independent,
     )
     .unwrap()
 }
@@ -170,6 +172,7 @@ fn tone_row(device: &wgpu::Device, queue: &wgpu::Queue, settings: &HdrPostSettin
         FrameConfig::new([8, 4], wgpu::TextureFormat::Rgba16Float, 1),
         Resources::default(),
         factory(device, settings),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let out = output(device, [8, 4]);
@@ -285,7 +288,14 @@ fn a_failed_replacement_keeps_the_committed_history_bank() {
         fail: std::cell::Cell::new(false),
     };
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba16Float, 1);
-    let mut chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
+    let mut chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        factory,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     assert_eq!(chain.factory().inner.taa_history_size(), Some([8, 8]));
 
     chain.factory().fail.set(true);
@@ -309,7 +319,14 @@ fn a_rejected_settings_change_that_turns_taa_off_keeps_the_committed_bank() {
         inner: factory(&device, &settings(true, false)),
         fail: std::cell::Cell::new(false),
     };
-    let mut chain = PostChain::new(&device, config, Resources::default(), live).unwrap();
+    let mut chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        live,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     let off = ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard)
         .unwrap()
         .with_retained_effects(&device, settings(false, true), Some(&chain.factory().inner))

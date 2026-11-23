@@ -75,7 +75,7 @@ pub use exposure_policy::{
 };
 pub use gaussian::{
     BloomKernel, GaussianLevel, GaussianTap, GaussianWeights, MAX_BLOOM_LEVELS, gaussian_extents,
-    gaussian_extents_with_terminal, gaussian_weights,
+    gaussian_weights,
 };
 mod aces;
 mod display_grading;

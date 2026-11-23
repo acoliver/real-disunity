@@ -31,7 +31,11 @@ fn receiver_layout_is_lossless_and_checks_both_colour_limits() {
 #[test]
 fn receiver_reservations_charge_exact_layouts_only_in_the_paired_sample_domain() {
     use crate::compositor::{ReceiverGradientReservation as Reservation, RendererConfiguration};
-    let mut settings = RendererConfiguration::legacy([65, 49], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [65, 49],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     settings.ssao = Some(crate::ssr::neutral_ao());
     settings.receiver_gradients = Reservation::None;
     let limits = wgpu::Limits::default();

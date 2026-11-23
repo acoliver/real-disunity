@@ -31,6 +31,7 @@ fn texture(
             ResourceLifetime::PersistentMutable,
             Semantic::Unspecified,
             initial,
+            &[],
         )
         .unwrap()
 }

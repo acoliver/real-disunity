@@ -3,6 +3,7 @@ use worldrunner::scene::gpu::{
     self,
     device::GpuContext,
     draw::SceneGpu,
+    frame::FrameUniform,
     offscreen::{OffscreenTarget, RgbaImage},
     renderer::ScenePipelines,
     wgpu,
@@ -12,7 +13,7 @@ use super::super::policy::{Readiness, admit};
 
 pub fn capture(
     context: &GpuContext,
-    scene: &SceneGpu,
+    (scene, frame): (&mut SceneGpu, FrameUniform),
     pipelines: &ScenePipelines,
     target: &mut OffscreenTarget,
     readiness: Readiness,
@@ -27,6 +28,7 @@ pub fn capture(
                 encoder,
                 (scene, pipelines),
                 (target.color_view(), target.depth_view()),
+                &frame,
             )
             .unwrap();
             stage(encoder, target.color_view());

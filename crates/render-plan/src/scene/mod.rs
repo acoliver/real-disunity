@@ -41,11 +41,6 @@ pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod contours;
 mod effects;
 pub use contours::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
-mod opaque;
-pub use opaque::{
-    SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
-    SceneOpaqueVisibility,
-};
 mod environment;
 pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
 mod smaa;

@@ -25,6 +25,7 @@ fn imported(registry: &mut ResourceRegistry, texture: &wgpu::Texture) -> Allocat
             ResourceLifetime::ImportedReadOnly,
             Semantic::LinearColor,
             Some(0),
+            &[],
         )
         .unwrap()
 }

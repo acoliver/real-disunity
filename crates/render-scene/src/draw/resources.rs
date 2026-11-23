@@ -164,13 +164,11 @@ pub(super) fn upload_materials(
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::new();
     let mut tables = Vec::new();
-    let mut records = crate::gbuffer::records::LightingRecordTable::default();
     for material in scene.resources().materials() {
-        let mut bytes: [u8; crate::pipeline::MATERIAL_UNIFORM_BYTES] =
+        let bytes: [u8; crate::pipeline::MATERIAL_UNIFORM_BYTES] =
             super::fade::uniform(scene, material)
                 .try_into()
                 .expect("one material uniform");
-        records.assign(&mut bytes);
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
         tables.push(LentMaterial {
@@ -179,16 +177,11 @@ pub(super) fn upload_materials(
         });
         uniforms.push(uniform);
     }
-    (uniforms, tables, records)
+    (uniforms, tables)
 }
 
-/// Each material's uniform buffer and program imports, and the lighting records their uniforms
-/// index.
-pub(super) type MaterialUpload = (
-    Vec<Buffer>,
-    Vec<LentMaterial>,
-    crate::gbuffer::records::LightingRecordTable,
-);
+/// Each material's uniform buffer and program imports.
+pub(super) type MaterialUpload = (Vec<Buffer>, Vec<LentMaterial>);
 
 /// Builds the single terrain draw: its mesh, its uniform and its bind group.
 ///

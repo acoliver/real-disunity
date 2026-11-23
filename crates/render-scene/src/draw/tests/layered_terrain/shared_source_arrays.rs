@@ -50,7 +50,7 @@ fn shared_source_array_limit_is_typed_before_scene_upload() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, authority) = limited_device(&context);
-    let pipelines = ScenePipelines::new(&device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(&device, COLOR_FORMAT, 1).unwrap();
     let error =
         SceneGpu::upload(&device, &authority, &shared_array_scene(), &pipelines).unwrap_err();
     let DrawError::TerrainPages(error) = error else {

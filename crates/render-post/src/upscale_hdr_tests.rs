@@ -29,6 +29,7 @@ fn gpu_hdr_upscale_runs_after_tone_mapping_before_transfer() {
             config,
             Resources::default(),
             factory(&device, sharpness),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         paint(&device, &queue, chain.targets().texture(), 2);
@@ -92,12 +93,20 @@ fn gpu_native_extent_omits_reconstruction_and_sharpening() {
     let config = FrameConfig::new([33, 17], wgpu::TextureFormat::Rgba16Float, 1);
     let plain =
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap();
-    let control = PostChain::new(&device, config, Resources::default(), plain).unwrap();
+    let control = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        plain,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     let candidate = PostChain::new(
         &device,
         config,
         Resources::default(),
         factory(&device, Some(0.0)),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     paint(&device, &queue, control.targets().texture(), 3);
@@ -132,6 +141,7 @@ fn gpu_post_chain_scale_timings_are_informational() {
             config,
             Resources::default(),
             factory(&device, Some(0.0)),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         chain
@@ -183,7 +193,13 @@ fn gpu_hdr_reduced_extent_requires_explicit_reconstruction() {
     let plain =
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap();
     assert!(matches!(
-        PostChain::new(&device, config, Resources::default(), plain),
+        PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            plain,
+            crate::SceneDepth::Independent
+        ),
         Err(PostError::UnsupportedProfile(_))
     ));
 }

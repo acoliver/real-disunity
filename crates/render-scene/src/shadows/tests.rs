@@ -8,7 +8,6 @@ mod compaction;
 mod culling;
 mod declared_terrain_routes;
 mod declared_water;
-mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
@@ -604,7 +603,7 @@ fn render_views(
 }
 
 mod refresh;
-mod render_path;
+mod shadowed_capture;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

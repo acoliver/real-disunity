@@ -41,6 +41,7 @@ impl Rig {
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
                     initial,
+                    &[],
                 )
                 .unwrap()
         };

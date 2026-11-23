@@ -382,6 +382,7 @@ fn run(items: Vec<Item>) -> (Result<(), FrameError>, Vec<String>) {
         FrameConfig::new(SIZE, output, 1),
         Resources::default(),
         CopyOutput::new(&rig.device, output),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let (passes, features) = frame();
@@ -544,6 +545,7 @@ fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey,
         FrameConfig::new(SIZE, output, 1),
         Resources::default(),
         CopyOutput::new(&rig.device, output),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let mut key = |texture: &wgpu::Texture| chain.capture_write_keys(&[texture]).unwrap()[0];

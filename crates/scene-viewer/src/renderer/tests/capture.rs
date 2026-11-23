@@ -5,7 +5,7 @@ pub(super) fn retained_page_capture_present(event_loop: &EventLoop<()>, window: 
         window.clone(),
         &scene,
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         2.into(),
     ))
     .unwrap();
@@ -127,7 +127,7 @@ pub(super) fn retained_capture_present(event_loop: &EventLoop<()>, window: &Arc<
         window.clone(),
         &scene,
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         2.into(),
     ))
     .unwrap();

@@ -7,7 +7,7 @@
 use glam::{Mat4, Quat, Vec3, Vec4};
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
 use worldrunner_render_program::unity::synthetic::dots::{
-    HEADER, METADATA, dots_passes, lit_dots_passes, matrix, word,
+    HEADER, METADATA, ambient_dots_passes, dots_passes, lit_dots_passes, matrix, word,
 };
 use worldrunner_world_simulation::ComponentDesc;
 use worldrunner_world_simulation::graphics::{ComputeBufferId, DrawBatch, RenderTextureId};
@@ -30,6 +30,12 @@ pub(super) fn passes() -> SyntheticShader {
 /// The shader of the file `lit_dots`: the same block, drawing `unity_LightData.z` in red.
 pub(super) fn lit_passes() -> SyntheticShader {
     lit_dots_passes(COLUMNS)
+}
+
+/// The shader of the file `ambient_dots`: the same block, drawing the fourth component of
+/// `unity_SHAr` in blue.
+pub(super) fn ambient_passes() -> SyntheticShader {
+    ambient_dots_passes(COLUMNS)
 }
 
 /// The colour the shader gives element `e`.
@@ -267,4 +273,36 @@ fn a_batch_draw_gets_the_light_factor_a_mesh_draw_gets() {
     let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
 
     assert_eq!(run.columns(), [GREEN, LIT, LIT, GREEN]);
+}
+
+#[test]
+fn a_batch_draw_reads_the_ambient_a_mesh_draw_reads() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let ambient = shader(&mut world, "ambient_dots");
+    let material = world.create_material(ambient).unwrap();
+    // The mesh draw fills column 1 and the batch draws element 0 into column 2.
+    draw_mesh(&mut world, (MESH, placed_in(1)), material, (0, -1));
+    let data = instances(&mut world, &[2], 0);
+    draw_batch(&mut world, material, batch(data, vec![0]));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
+
+    let columns = run.columns();
+    assert!(columns[1][2] > 0, "the mesh draw reads the default ambient");
+    assert_eq!(columns[2], columns[1]);
+}
+
+#[test]
+fn a_batch_draw_is_counted_by_its_shader_pass_tags_and_properties() {
+    let (mut world, drawn) = scene();
+    identity_view(&mut world);
+    let material = material(&mut world);
+    let data = instances(&mut world, &[1], 0);
+    draw_batch(&mut world, material, tagged(data, &["Alpha", "Other"]));
+
+    let run = flush(&mut world, drawn, &stored([(MESH, whole())]));
+
+    let note = format!("batch draw: dots [Alpha+Other] properties {METADATA}");
+    assert_eq!(run.outcome.report.notes.get(&note), Some(&1));
 }

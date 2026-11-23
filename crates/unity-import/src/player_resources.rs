@@ -339,6 +339,19 @@ impl Registry {
             .map(|index| json!({ "$asset": index }))
     }
 
+    /// The properties the shader `pptr` of a material in `owner` declares as vectors, which the
+    /// registry holds once the material's plan has admitted the shader; none for no shader or
+    /// one that did not decode.
+    pub(crate) fn declared_vectors(&mut self, owner: &Path, pptr: PPtr) -> BTreeSet<String> {
+        let Ok(file) = self.files.referenced_file(owner, pptr) else {
+            return BTreeSet::new();
+        };
+        match self.shaders.get(&(file, pptr.path_id)) {
+            Some(Ok(decl)) => decl.vectors.clone(),
+            _ => BTreeSet::new(),
+        }
+    }
+
     /// The asset index of the object a reference from `owner` names. A texture, sprite or
     /// atlas or prefab root is planned by being referenced; objects of other classes must be
     /// planned already. A game object that is not a root has no asset.
@@ -522,11 +535,12 @@ impl ResourcePlanner {
         match decoded {
             Ok(material) => {
                 let registry = &mut self.registry;
-                let planned = plan_material(
+                let mut planned = plan_material(
                     &material,
                     |pptr| registry.asset_index(file, pptr),
                     &mut self.differences,
                 );
+                planned.separate_vectors(&registry.declared_vectors(file, material.shader));
                 ResourceAsset::Material { material: planned }
             }
             Err(error) => {

@@ -435,7 +435,7 @@ pub fn build(
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
     let started = Instant::now();
-    let operations = match state.build_naming_record(runtime, arena, &adapted.frame) {
+    let operations = match state.build(runtime, arena, &adapted.frame) {
         Ok(operations) => operations,
         Err(first) => {
             let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, first);
@@ -529,13 +529,13 @@ fn rebuild_without_unusable_parts(
     if over_budget {
         match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
-            Err(error) if is_over_budget(&error) => return Err(error),
+            Err(refusal) if is_over_budget(&refusal.error) => return Err(refusal.error),
             Err(_) => {}
         }
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
 }
 
 /// Leaves out the record the state refused and builds the frame again, for as long as the state
@@ -550,7 +550,7 @@ fn rebuild_without_named_records(
 ) -> Result<OffscreenOperations, OffscreenError> {
     let mut index = named;
     while drop_record_refused_alone(state, runtime, arena, adapted, index) {
-        match state.build_naming_record(runtime, arena, &adapted.frame) {
+        match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
             Err(refusal) if refusal.error.is_frame_wide() => return Err(refusal.error),
             Err(Refusal {
@@ -561,7 +561,19 @@ fn rebuild_without_named_records(
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
+}
+
+/// Builds what is left of the frame once its unusable parts are out.
+fn build_rest(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &Adapted,
+) -> Result<OffscreenOperations, OffscreenError> {
+    state
+        .build(runtime, arena, &adapted.frame)
+        .map_err(|refusal| refusal.error)
 }
 
 /// Builds the record at `index` alone, with the globals in force for it. When the state refuses

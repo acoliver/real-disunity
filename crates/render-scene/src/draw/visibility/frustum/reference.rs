@@ -1,15 +1,15 @@
 //! The view-volume tests as plain per-plane loops, the oracles the prepared tests and the group
 //! regions are checked against.
-use glam::Vec4;
+use glam::{Vec3, Vec4};
 
 use super::{Bounds, Frustum, GROUP_MARGIN};
 
 fn planes(frustum: &Frustum) -> impl Iterator<Item = Vec4> + '_ {
-    frustum
-        .normals
-        .iter()
-        .zip(&frustum.offsets)
-        .map(|(normal, &offset)| normal.extend(offset))
+    (0..frustum.offsets.len()).map(|plane| {
+        let normals = &frustum.normals;
+        Vec3::new(normals.x[plane], normals.y[plane], normals.z[plane])
+            .extend(frustum.offsets[plane])
+    })
 }
 
 /// The distance in front of `plane` of the corner of `bounds` that lies furthest in front.

@@ -45,6 +45,7 @@ pub(super) fn contributions(
                     sorting_layer: rect.sorting_layer,
                     sorting_order: rect.sorting_order,
                     texture: None,
+                    material: None,
                     quads: vec![quad],
                     triangles: Vec::new(),
                 },

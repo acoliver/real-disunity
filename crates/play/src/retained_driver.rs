@@ -47,7 +47,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::{PlayerUi, graphic_textures},
-    scene_census::WhiteReason,
+    scene_census::{SubstitutionCensus, WhiteReason},
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::orbit_limits,
@@ -293,7 +293,11 @@ impl PlayerRetainedDriver {
     /// Prints the GPU report of the run, as a headless run does when it ends, with the census of
     /// the renderers drawn white.
     fn report_gpu(&self) {
-        self.gpu.note_retained(self.tables.census().clone());
+        let census = SubstitutionCensus {
+            ui_game_materials: self.ui.game_material_draws().clone(),
+            ..self.tables.census().clone()
+        };
+        self.gpu.note_retained(census);
         self.gpu.report().print(None);
     }
 

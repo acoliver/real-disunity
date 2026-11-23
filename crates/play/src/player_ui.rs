@@ -3,7 +3,10 @@
 #[path = "player_ui_order_tests.rs"]
 mod tests;
 
-use crate::{PlayError, gpu_player::UiOffer, player_textures::PlayerTextures};
+use crate::{
+    PlayError, gpu_player::UiOffer, player_textures::PlayerTextures,
+    player_ui_materials::GameMaterials,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -31,6 +34,7 @@ pub(crate) struct PlayerUi {
     generations: BTreeMap<u64, u64>,
     viewport: [u32; 2],
     reported: BTreeSet<(UiTexture, &'static str)>,
+    materials: GameMaterials,
     #[cfg(test)]
     pub(crate) updates: u64,
 }
@@ -67,18 +71,34 @@ impl PlayerUi {
         Ok(Some(RetainedUpdate::Ui(Arc::new(overlay))))
     }
 
-    /// Keeps the draws of the render textures `offers` answer for, leaves out the others and names
-    /// each of those once, and returns the textures the viewer binds. A texture no frame has
-    /// written yet stays in: the viewer draws it as transparent until one does.
+    /// The draws the last offer left out because their material is a game's own, by shader.
+    pub(crate) fn game_material_draws(&self) -> &BTreeMap<String, usize> {
+        self.materials.by_shader()
+    }
+
+    /// Leaves out the draws that use a game's shader, whatever they sample, and names each such
+    /// material once. Then keeps the draws of the render textures `offers` answer for, leaves out
+    /// the others and names each of those once, and returns the textures the remaining draws read
+    /// for the viewer to bind. A texture no frame has written yet stays in: the viewer draws it as
+    /// transparent until one does.
     pub(crate) fn offer_targets(
         &mut self,
         plan: &mut UiPresentation,
         offers: Vec<(RenderTextureId, UiOffer)>,
         mut report: impl FnMut(String),
     ) -> Vec<UiTarget> {
+        self.materials.leave_out(plan, &mut report);
+        let read: BTreeSet<_> = plan
+            .draws
+            .iter()
+            .filter_map(|draw| match draw.texture {
+                Some(UiTexture::Target(id)) => Some(id),
+                _ => None,
+            })
+            .collect();
         let mut shown = Vec::new();
         let mut gone = BTreeMap::new();
-        for (id, offer) in offers {
+        for (id, offer) in offers.into_iter().filter(|(id, _)| read.contains(id)) {
             match offer {
                 UiOffer::Written(target) => shown.push(target),
                 UiOffer::Unwritten(target) => {

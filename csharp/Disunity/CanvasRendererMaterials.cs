@@ -55,7 +55,8 @@ public sealed partial class CanvasRenderer
         if (index < 0 || index >= count)
             throw new ArgumentOutOfRangeException(nameof(index), index, $"the material index must be below the count, {count}");
         var id = IdOf(material, nameof(material));
-        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_material_write(DisunityHost.WorldHandle, Handle, pop, (uint)index, id));
+        var world = pop == 0 && index == 0 && material is { } own && own ? own.WorldLink.Id : 0UL;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_material_write(DisunityHost.WorldHandle, Handle, pop, (uint)index, id, world));
         if (pop == 0 && index == 0) SendTexture(MainTexture ?? material?.mainTexture);
     }
 

@@ -3,10 +3,10 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneAmbient,
     SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneDirection, SceneEffects,
     SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod,
-    SceneObject, SceneOpaquePath, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
-    SceneSky, SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel,
-    SceneSsaoReceiver, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
-    TextureColorSpace, TextureHandle,
+    SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades, SceneSky,
+    SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
+    SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
+    TextureHandle,
 };
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
@@ -16,7 +16,7 @@ pub fn effects() -> SceneEffects {
     effects_with(SceneAntiAlias::Disabled)
 }
 
-fn effects_with(anti_alias: SceneAntiAlias) -> SceneEffects {
+pub fn effects_with(anti_alias: SceneAntiAlias) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -65,21 +65,6 @@ fn effects_with(anti_alias: SceneAntiAlias) -> SceneEffects {
         anti_alias,
     })
     .unwrap()
-}
-
-/// The scene rendered from the G-buffer under temporal anti-aliasing, whose frames draw the
-/// object-motion residual.
-pub fn gbuffer_taa_scene() -> RenderScene {
-    let effects = effects_with(SceneAntiAlias::Taa {
-        history_micro: 900_000,
-        clip_scale_micro: 1_000_000,
-    })
-    .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
-    .unwrap();
-    let source = scene();
-    source
-        .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects))
-        .unwrap()
 }
 
 /// One lit quad facing the camera.

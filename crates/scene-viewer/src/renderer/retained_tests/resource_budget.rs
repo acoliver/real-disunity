@@ -19,8 +19,7 @@ struct Budgeted {
 }
 
 fn scene_bytes_of(context: &GpuContext) -> u64 {
-    let mut resident =
-        Resident::new(context, &source(), None, crate::FrameProfile::Legacy).unwrap();
+    let mut resident = Resident::new(context, &source(), None, crate::tests::CLAMP).unwrap();
     resident_payload(&mut resident)
 }
 
@@ -41,7 +40,7 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
             context,
             COLOR,
             [size, size],
-            crate::FrameProfile::Legacy,
+            crate::tests::CLAMP,
             source().effects(),
             &crate::presentation::PresentationPolicy {
                 game: crate::GameRendering::default(),
@@ -78,14 +77,14 @@ impl Budgeted {
             &context,
             &source(),
             None,
-            crate::FrameProfile::Legacy,
+            crate::tests::CLAMP,
             &mut presentation,
             &mut crate::renderer::texture_tiers::TextureTiers::default(),
         )
         .unwrap();
         Self {
             host: RetainedHost::new(source(), crate::tests::options()).unwrap(),
-            streaming: Streaming::new(None, crate::FrameProfile::Legacy),
+            streaming: Streaming::new(None, crate::tests::CLAMP),
             context,
             resident,
             presentation,

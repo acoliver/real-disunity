@@ -34,18 +34,26 @@ fn exported_ui_replaces_retained_contributions_when_only_order_or_clip_changes()
     };
     for revision in 0..3 {
         let update = player
-            .update(plan.clone(), [64, 64], &textures, &images, |message| {
-                panic!("{message}")
-            })
+            .update(
+                plan.clone(),
+                screen(64, 4096),
+                &textures,
+                &images,
+                |message| panic!("{message}"),
+            )
             .unwrap();
         assert!(matches!(update, Some(RetainedUpdate::Ui(_))));
         assert_eq!(player.plan.as_ref(), Some(&plan));
         assert_eq!(player.updates, revision + 1);
         assert!(
             player
-                .update(plan.clone(), [64, 64], &textures, &images, |message| {
-                    panic!("{message}")
-                })
+                .update(
+                    plan.clone(),
+                    screen(64, 4096),
+                    &textures,
+                    &images,
+                    |message| { panic!("{message}") }
+                )
                 .unwrap()
                 .is_none()
         );
@@ -65,12 +73,24 @@ fn game_material() -> UiMaterial {
     }
 }
 
-fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>, Vec<RetainedUpdate>) {
+fn screen(side: u32, max_texture: u32) -> Screen {
+    Screen {
+        size: [side, side],
+        max_texture,
+    }
+}
+
+/// The updates of `plan` three frames in a row on a square screen of 64 pixels whose device
+/// takes textures up to `max_texture` pixels a side.
+fn update_three_times(
+    plan: &UiPresentation,
+    max_texture: u32,
+) -> (PlayerUi, Vec<String>, Vec<RetainedUpdate>) {
     let mut player = PlayerUi::default();
     let (textures, images) = (SpriteTextures::default(), PlayerTextures::default());
     let (mut lines, mut updates) = (Vec::new(), Vec::new());
     for _ in 0..3 {
-        let viewport = [64, 64];
+        let viewport = screen(64, max_texture);
         let mut plan = plan.clone();
         player.prepare(&mut plan, viewport, &textures, &images, |line| {
             lines.push(line);
@@ -109,7 +129,7 @@ fn a_draw_with_a_game_material_becomes_one_overlay_quad_and_the_work_that_draws_
         shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
         ..Default::default()
     };
-    let (player, lines, updates) = update_three_times(&plan);
+    let (player, lines, updates) = update_three_times(&plan, 4096);
     assert!(lines.is_empty(), "{lines:?}");
     let [RetainedUpdate::Ui(overlay)] = updates.as_slice() else {
         panic!("one overlay for three identical frames");
@@ -123,10 +143,10 @@ fn a_draw_with_a_game_material_becomes_one_overlay_quad_and_the_work_that_draws_
     );
 }
 
-#[test]
-fn a_run_that_does_not_fit_the_layer_atlas_is_left_out_and_named_once() {
+/// Three runs of 40 pixels square, apart by default draws, over a screen of 64 pixels square.
+fn three_runs() -> UiPresentation {
     let material = game_material();
-    let plan = UiPresentation {
+    UiPresentation {
         draws: vec![
             material_draw(material, [0., 0., 40., 40.]),
             draw(-3, 1, [0, 0, 64, 64]),
@@ -136,12 +156,27 @@ fn a_run_that_does_not_fit_the_layer_atlas_is_left_out_and_named_once() {
         ],
         shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
         ..Default::default()
+    }
+}
+
+#[test]
+fn runs_that_do_not_fit_one_screen_of_atlas_are_all_drawn_by_a_larger_atlas() {
+    let (player, lines, updates) = update_three_times(&three_runs(), 4096);
+    assert!(lines.is_empty(), "{lines:?}");
+    let [RetainedUpdate::Ui(overlay)] = updates.as_slice() else {
+        panic!("one overlay");
     };
-    let (player, lines, updates) = update_three_times(&plan);
+    assert_eq!(overlay.quad_count(), 5, "two default draws and three runs");
+    assert!(player.frame().is_some());
+}
+
+#[test]
+fn a_run_that_does_not_fit_the_atlas_at_the_device_limit_is_left_out_and_named_once() {
+    let (player, lines, updates) = update_three_times(&three_runs(), 64);
     assert_eq!(
         lines,
         [
-            "UI material 4294967299 (shader Game/Silhouette) is left out: its run does not fit the layer atlas"
+            "UI material 4294967299 (shader Game/Silhouette) is left out: its run of 40x40 pixels does not fit the layer atlas, which grows to at most 64 pixels a side"
         ],
         "one line for one material across three frames"
     );
@@ -162,7 +197,7 @@ fn a_default_draw_is_unchanged() {
         draws: vec![draw(-3, 1, [0, 0, 64, 64]), draw(7, 2, [4, 4, 8, 8])],
         ..Default::default()
     };
-    let (player, lines, _) = update_three_times(&plan);
+    let (player, lines, _) = update_three_times(&plan, 4096);
     assert_eq!(player.plan.as_ref(), Some(&plan));
     assert!(player.frame().is_none());
     assert!(lines.is_empty());

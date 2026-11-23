@@ -18,7 +18,11 @@ use rig::{BLACK, BLUE, CARD_EDGE, FAR_DEPTH, Fixture, GREEN, NEAR_DEPTH, RED, en
 const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 fn settings() -> RendererConfiguration {
-    RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT)
+    RendererConfiguration::new(
+        [TARGET; 2],
+        COLOR_FORMAT,
+        worldrunner_render_post::ToneMap::Clamp,
+    )
 }
 
 #[test]
@@ -32,7 +36,7 @@ fn player_program_and_scene_gpu_draw_composite_in_one_submitted_frame() {
     assert!((f64::from(TARGET) / 2.0 * CARD_EDGE - 18.47).abs() < 0.01);
 
     let mut fixture = Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     });
     let authority = fixture.context.submission().clone();
     let before = authority.submitted_serial();

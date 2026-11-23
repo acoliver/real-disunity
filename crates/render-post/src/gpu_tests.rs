@@ -95,6 +95,7 @@ fn copy_only_is_exact_with_msaa_hdr_resolve_and_unaligned_readback() {
                 config,
                 Resources::default(),
                 CopyOutput::new(&device, wgpu::TextureFormat::Rgba8Unorm),
+                crate::SceneDepth::Independent,
             )
             .unwrap();
             assert_eq!(chain.targets().resolve().is_some(), samples > 1);
@@ -274,6 +275,7 @@ fn configured_optional_effect_changes_pixels_and_resize_preserves_fixed_history(
         FrameConfig::new([17, 9], wgpu::TextureFormat::Rgba16Float, 1),
         resources,
         effect.clone(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let disabled = render(&device, &queue, &chain);
@@ -312,7 +314,13 @@ fn invalid_resources_and_missing_output_fail_before_encoding() {
     let (device, _) = gpu();
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1);
     assert!(matches!(
-        PostChain::new(&device, config, Resources::default(), InvalidStages),
+        PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            InvalidStages,
+            crate::SceneDepth::Independent
+        ),
         Err(PostError::OutputStage)
     ));
     assert!(matches!(

@@ -41,8 +41,7 @@ fn capture_celestial_target(
     occupancy: bool,
 ) -> Capture {
     let device = context.device();
-    let pipelines =
-        ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
     let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
     let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float, samples);
     let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float, samples);

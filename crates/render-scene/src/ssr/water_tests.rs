@@ -51,8 +51,9 @@ fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
                 context.device(),
                 &mut encoder,
                 (&[opaque], &[color, depth]),
+                None,
                 &mut [],
-                (frame(), None),
+                &(frame(), None),
             )
             .unwrap();
         encoder.finish().submit().unwrap();

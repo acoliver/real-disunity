@@ -283,7 +283,7 @@ fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
     let context = context();
     let source = layered_scene(TerrainSplatFilter::Bilinear);
     let config = page_source();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let authority = SubmissionAuthority::new(context.queue().clone());
     for budget in [config.budget.0, config.settings.page_bytes()] {
         let policy =

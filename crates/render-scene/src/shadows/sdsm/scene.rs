@@ -189,8 +189,6 @@ impl ShadowedScene {
             }
             .into());
         }
-        scheduler.validate_opaque_depth(depth)?;
-        scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
         state.select_time(scheduler.selected_time);
         scheduler.prepare_receiver_gradients(
             context.device(),
@@ -201,7 +199,6 @@ impl ShadowedScene {
         let depth = scheduler.forward_depth(&self.gpu, depth);
         let selected = scheduler.receiver_pipelines(&self.pipelines, depth);
         let velocity = selected.writes_velocity();
-        scheduler.match_producer_velocity(context.device(), velocity);
         self.gpu.track_previous_transforms(velocity);
         Ok(())
     }
@@ -248,15 +245,6 @@ impl ShadowedScene {
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
         let mut prefix = keys;
         prefix.extend(scheduler.capture_prefix_game_keys()?);
-        if scheduler
-            .gbuffer
-            .as_ref()
-            .is_some_and(crate::gbuffer::Gbuffer::renders)
-        {
-            let velocity = scheduler.targets().velocity_texture().cloned();
-            let textures: Vec<_> = velocity.as_ref().into_iter().collect();
-            prefix.extend(scheduler.capture_texture_keys(&textures)?);
-        }
         Ok(prefix)
     }
 
@@ -275,14 +263,6 @@ impl ShadowedScene {
             input.metadata.passes.depth_levels()[0],
         ];
         written.extend(material.as_ref());
-        let gbuffer_textures: Vec<_> = scheduler
-            .gbuffer
-            .as_ref()
-            .filter(|gbuffer| gbuffer.renders())
-            .into_iter()
-            .flat_map(|gbuffer| gbuffer.written_textures().cloned())
-            .collect();
-        written.extend(gbuffer_textures.iter());
         if let Some(receiver) = &input.metadata.receiver {
             written.extend(receiver.textures.iter());
         }

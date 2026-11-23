@@ -196,6 +196,7 @@ fn transfer_view(device: &wgpu::Device, registry: &mut ResourceRegistry) -> Chec
             ResourceLifetime::FrameLocal,
             Semantic::Unspecified,
             None,
+            &[],
         )
         .unwrap();
     registry

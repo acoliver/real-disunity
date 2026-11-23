@@ -286,6 +286,7 @@ fn gpu_timing_covers_executor_order_and_unread_ring_never_blocks_rendering() {
         FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 4),
         Resources::default(),
         Factory,
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let support = chain
@@ -333,6 +334,7 @@ fn gpu_timing_names_a_repeated_role_by_occurrence_and_keeps_the_first_name() {
         FrameConfig::new([8, 8], format, 1),
         Resources::default(),
         Factory,
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let support = chain

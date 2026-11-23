@@ -31,6 +31,7 @@ fn tone_map(radiance: f32) -> f32 {
         return 1.0;
     }
     if CURVE == 1u { return aces_display(exposed); }
+    if CURVE == 3u { return min(exposed, 1.0); }
     return exposed / (1.0 + exposed);
 }
 @fragment

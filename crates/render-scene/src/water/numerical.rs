@@ -108,6 +108,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
             context.device(),
             &mut encoder,
             (&[source, output], &[color, depth]),
+            None,
             &mut [
                 BorrowedFeature {
                     declaration: geometry_declaration,
@@ -118,7 +119,7 @@ fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
                     prepared: &mut probe,
                 },
             ],
-            (frame, None),
+            &(frame, None),
         )
         .unwrap();
     encoder.finish().submit().unwrap();
@@ -274,7 +275,7 @@ fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
         let mut outputs = Vec::new();
         for time in [0.0, 2.0] {
             renderer.select_frame_slot(0);
-            renderer.set_frame_time(time).unwrap();
+            renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, 0.5);
             encoder.finish().submit().unwrap();
             let snapshot = &renderer.snapshots.as_ref().unwrap()[0];

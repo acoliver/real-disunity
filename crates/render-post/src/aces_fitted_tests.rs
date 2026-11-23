@@ -76,7 +76,12 @@ fn composition_and_display_stages_have_explicit_order() {
     let curve = ToneMap::AcesFitted.evaluate_rgb([0.75; 3], 1.0);
     assert_rgb(actual, [curve[0].powi(2), curve[1], curve[2].sqrt()]);
     let neutral = ColorGrading::default();
-    for curve in [ToneMap::Reinhard, ToneMap::Filmic, ToneMap::AcesFitted] {
+    for curve in [
+        ToneMap::Reinhard,
+        ToneMap::Filmic,
+        ToneMap::AcesFitted,
+        ToneMap::Clamp,
+    ] {
         let rgb = curve.evaluate_rgb([0.125, 0.5, 4.0], 1.0);
         assert_eq!(
             neutral.apply(rgb, [0.1, 0.9]).map(f64::to_bits),
@@ -89,7 +94,7 @@ fn composition_and_display_stages_have_explicit_order() {
 #[test]
 fn legacy_reference_preserves_composition_and_special_values() {
     let grading = ColorGrading::default();
-    for curve in [ToneMap::Reinhard, ToneMap::Filmic] {
+    for curve in [ToneMap::Reinhard, ToneMap::Filmic, ToneMap::Clamp] {
         for exposure in [0.0, 0.5, 2.0] {
             for value in [0.5, -0.5, f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
                 let expected = if value.is_finite() {

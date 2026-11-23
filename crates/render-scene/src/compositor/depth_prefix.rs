@@ -29,11 +29,9 @@ fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<Borrowe
 /// [`plan`](Self::plan) is exactly what the prefix completes: the prepass entry
 /// (`PassEntry::new(PassSlot::DepthNormalPrepass)`) and the first depth level
 /// (`PassEntry::new(PassSlot::DepthPyramid(0))`), both occurrence 0, with the views they attach.
-/// The prepass depth attachment holds the device depth the frame's opaque pass reuses. A renderer
-/// with a G-buffer path that renders from it fuses the G-buffer producer into the prepass: the
-/// same entry then also attaches the G-buffer targets and any velocity target, and the plan lists
-/// their views. A caller feature that reads one of these declares that resource in a later entry
-/// and finds the view through `PrepareContext::resource`.
+/// The prepass depth attachment holds the device depth the frame's opaque pass reuses. A caller
+/// feature that reads one of the prefix's products declares that resource in a later entry and
+/// finds the view through `PrepareContext::resource`.
 ///
 /// The suffix frame decides which prefix entries count as completed. Each prefix entry the
 /// suffix also lists counts as completed when it has the same colour, extra colour and depth
@@ -42,8 +40,8 @@ fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<Borrowe
 /// the suffix does not list is skipped, not refused, so a suffix that reads only the depth need
 /// not repeat the metadata entries.
 ///
-/// The prefix keeps no borrow of the renderer or the scene. It holds the metadata, the G-buffer
-/// path, the target views and the velocity choice the renderer had when it was made, and is for
+/// The prefix keeps no borrow of the renderer or the scene. It holds the metadata, the target
+/// views and the velocity choice the renderer had when it was made, and is for
 /// one frame: after a change of effects, targets or size, make a new one with
 /// [`FrameRenderer::stock_depth_prefix`].
 #[derive(Debug)]
@@ -53,7 +51,6 @@ pub struct StockDepthPrefix {
     schedule: super::stock_plan::LogicalPrefix,
     views: Vec<AttachmentView>,
     depth_mode: crate::renderer::depth::DepthMode,
-    renders: bool,
 }
 /// The schedule of a prefix and the views its attachments select.
 struct PrefixParts {
@@ -84,17 +81,12 @@ impl StockDepthPrefix {
             .ssr
             .as_ref()
             .map(|ssr| ssr.material_target().clone());
-        let renders = renderer
-            .gbuffer
-            .as_ref()
-            .is_some_and(crate::gbuffer::Gbuffer::renders);
         Self {
             source,
             material,
             schedule,
             views,
             depth_mode,
-            renders,
         }
     }
 
@@ -165,15 +157,10 @@ impl FrameRenderer {
         self.chain.clear_capture_resources();
     }
 
-    pub(crate) fn draw_publications(&self) -> crate::draw::DrawPublications {
-        crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
-    }
-
     /// The stock depth prefix of the frame `scene` is drawn in. It prepares the renderer's inputs
     /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, takes
     /// the same decision on whether the colour draws write velocity, then plans the prefix from
-    /// the screen-space metadata and the G-buffer path the renderer holds and from whether the
-    /// scene draws relief. `pipelines` are the ones the suffix draws with.
+    /// the screen-space metadata the renderer holds and from whether the scene draws relief. `pipelines` are the ones the suffix draws with.
     ///
     /// # Errors
     /// `FrameError::UnsupportedEffect("stock depth prefix needs screen-space metadata")` when the
@@ -190,7 +177,7 @@ impl FrameRenderer {
             ));
         }
         self.prepare_scene_inputs(device, gpu);
-        self.adopt_scene_velocity(device, gpu, pipelines);
+        self.adopt_scene_velocity(gpu, pipelines);
         let source = self.ssao.as_ref().expect("metadata checked").clone();
         StockDepthPrefix::new(self, source, gpu.has_relief())
     }
@@ -252,7 +239,7 @@ impl FrameRenderer {
             operations.extend_from_slice(plan.operations);
             extra = Some(features);
         }
-        let mut geometry = match self.prefix_geometry(gpu, pipelines, frame, prefix) {
+        let mut geometry = match Self::prefix_geometry(gpu, pipelines, frame, prefix) {
             Ok(geometry) => geometry,
             Err(error) => {
                 self.chain.discard_prefix_plan();
@@ -394,7 +381,6 @@ impl FrameRenderer {
     }
 
     fn prefix_geometry<'a>(
-        &self,
         gpu: &'a mut crate::draw::SceneGpu,
         pipelines: &'a crate::renderer::ScenePipelines,
         frame: &crate::frame::FrameUniform,
@@ -403,15 +389,13 @@ impl FrameRenderer {
         let screen = prefix.source.geometry_for_depth(prefix.depth_mode);
         super::scene::prepare_terrain(gpu, frame, pipelines, Some(&screen))?;
         Ok(super::SceneFeature {
-            publications: self.draw_publications(),
+            publications: crate::draw::DrawPublications::default(),
             gpu,
             pipelines: Cow::Borrowed(pipelines),
             frame: *frame,
             screen: Some(screen),
             programs: None,
             contour: None,
-            deferred: None,
-            renders: prefix.renders,
             opaque_drawn: std::cell::Cell::new(false),
         })
     }
@@ -449,9 +433,6 @@ impl FrameRenderer {
         }
         if let Some(ssr) = &self.ssr {
             textures.extend(ssr.textures());
-        }
-        if let Some(gbuffer) = &self.gbuffer {
-            textures.extend(gbuffer.written_textures());
         }
         if let Some(snapshots) = self.snapshots.as_ref().filter(|_| self.snapshots_written()) {
             let snapshot = &snapshots[self.frame_slot];

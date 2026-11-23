@@ -27,7 +27,7 @@ fn shadowed(fixture: &Fixture) -> ShadowedScene {
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
-        COLOR_FORMAT,
+        SCENE_FORMAT,
         1,
     )
     .unwrap()

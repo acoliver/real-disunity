@@ -125,7 +125,7 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(device, context.submission(), &fragmented(), &pipelines).unwrap();
     hide_every_fifth(&mut gpu);

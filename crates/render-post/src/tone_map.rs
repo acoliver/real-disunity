@@ -12,6 +12,9 @@ pub enum ToneMap {
     /// Stephen Hill's matrix RRT/ODT fit, published in `BakingLab` under MIT:
     /// <https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl>.
     AcesFitted,
+    /// No curve: exposed radiance clamped to [0, 1]. For frames that already hold display
+    /// values, such as a game that draws its own finished screen.
+    Clamp,
 }
 
 impl ToneMap {
@@ -20,6 +23,7 @@ impl ToneMap {
             Self::Reinhard => 0.0,
             Self::Filmic => 1.0,
             Self::AcesFitted => 2.0,
+            Self::Clamp => 3.0,
         }
     }
     /// Display-linear reference. Exposure must satisfy the output constructor's range.
@@ -34,6 +38,9 @@ impl ToneMap {
             return 0.0;
         }
         let x = radiance * exposure;
+        if self == Self::Clamp {
+            return x.min(1.0);
+        }
         // The fitted curve exceeds one by x=16; saturation avoids quadratic overflow.
         if x >= 16.0 {
             return 1.0;
@@ -408,5 +415,25 @@ mod tests {
         assert!(
             ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Filmic).is_ok()
         );
+    }
+
+    #[test]
+    fn clamp_shows_exposed_radiance_unchanged_up_to_one() {
+        for (radiance, exposure, expected) in [
+            (0.25, 1.0, 0.25),
+            (0.75, 1.0, 0.75),
+            (0.75, 2.0, 1.0),
+            (4.0, 0.5, 1.0),
+            (-1.0, 1.0, 0.0),
+            (f64::INFINITY, 1.0, 1.0),
+            (f64::NAN, 1.0, 0.0),
+            (0.5, 0.0, 0.0),
+        ] {
+            assert_eq!(
+                ToneMap::Clamp.evaluate(radiance, exposure).to_bits(),
+                f64::to_bits(expected),
+                "{radiance} at {exposure}"
+            );
+        }
     }
 }

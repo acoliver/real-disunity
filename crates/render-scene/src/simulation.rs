@@ -12,6 +12,9 @@ use std::collections::BTreeMap;
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 use worldrunner_world_simulation::presentation::extraction::WorldRenderPlan;
 
+/// One frame of a native 2D world: its view, the textures its quads sample, the quads in
+/// plan order and the colour the frame clears to.
+#[derive(Clone, Debug)]
 pub struct WorldSceneContribution {
     pub view: SceneView,
     pub textures: Vec<SceneTexture>,

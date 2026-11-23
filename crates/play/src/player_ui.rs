@@ -28,11 +28,26 @@ pub(crate) fn graphic_textures(plan: &UiPresentation) -> impl Iterator<Item = u6
     })
 }
 
+/// The screen the UI is drawn over.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Screen {
+    /// The size of the screen in pixels.
+    pub size: [u32; 2],
+    /// The largest side a texture of the device may have, which the layer atlas grows up to.
+    pub max_texture: u32,
+}
+
+impl Screen {
+    fn layers(self, plan: &UiPresentation) -> UiLayers {
+        plan.layers(self.size, self.max_texture)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct PlayerUi {
     plan: Option<UiPresentation>,
     generations: BTreeMap<u64, u64>,
-    viewport: [u32; 2],
+    screen: Screen,
     reported: BTreeSet<(UiTexture, &'static str)>,
     materials: GameMaterials,
     /// The plan the UI frame was built from, and the frame.
@@ -54,7 +69,7 @@ impl PlayerUi {
     pub(crate) fn prepare(
         &mut self,
         plan: &mut UiPresentation,
-        viewport: [u32; 2],
+        screen: Screen,
         textures: &SpriteTextures,
         player: &PlayerTextures,
         mut report: impl FnMut(String),
@@ -64,7 +79,7 @@ impl PlayerUi {
             _ => true,
         });
         self.available(plan, textures, player, &mut report);
-        let layers = plan.layers(viewport, viewport);
+        let layers = screen.layers(plan);
         self.stage_frame(plan, &layers, report);
     }
 
@@ -74,13 +89,13 @@ impl PlayerUi {
     pub(crate) fn update(
         &mut self,
         mut plan: UiPresentation,
-        viewport: [u32; 2],
+        screen: Screen,
         textures: &SpriteTextures,
         player: &PlayerTextures,
         mut report: impl FnMut(String),
     ) -> Result<Option<RetainedUpdate>, PlayError> {
         self.available(&mut plan, textures, player, &mut report);
-        let layers = plan.layers(viewport, viewport);
+        let layers = screen.layers(&plan);
         if self.prepared.as_ref() != Some(&plan) {
             self.stage_frame(&plan, &layers, report);
         }
@@ -89,7 +104,7 @@ impl PlayerUi {
             .collect();
         if self.plan.as_ref() == Some(&plan)
             && self.generations == generations
-            && self.viewport == viewport
+            && self.screen == screen
         {
             return Ok(None);
         }
@@ -99,7 +114,7 @@ impl PlayerUi {
             })?;
         self.plan = Some(plan);
         self.generations = generations;
-        self.viewport = viewport;
+        self.screen = screen;
         #[cfg(test)]
         {
             self.updates += 1;

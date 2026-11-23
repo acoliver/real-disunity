@@ -105,6 +105,12 @@ impl UiFrame {
         })
     }
 
+    /// The size of the atlas the work draws into, in pixels.
+    #[must_use]
+    pub fn atlas_size(&self) -> [u32; 2] {
+        [self.atlas.width, self.atlas.height]
+    }
+
     /// Adds the atlas and the work to `snapshot`, after the work the game recorded.
     pub fn join(&self, snapshot: &mut GraphicsSnapshot) {
         snapshot.render_textures.insert(atlas_id(), self.atlas);

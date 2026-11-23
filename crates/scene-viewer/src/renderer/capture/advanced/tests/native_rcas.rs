@@ -99,6 +99,34 @@ fn native_rcas_profile_is_available_to_interactive_presentation() {
     assert_eq!(first.srgb8.unwrap(), restored);
 }
 
+/// A window's surface can be `Bgra8UnormSrgb` (macOS) while the scene renders `Rgba8UnormSrgb`.
+/// The recipe's RCAS is built for the surface's format, so each sample must draw into a target of
+/// that format, and its image must equal the one an `Rgba8UnormSrgb` output gives.
+#[test]
+fn native_rcas_recipe_on_a_bgra_surface_matches_an_rgba_output() {
+    let settings = crate::NativeRcasSettings {
+        stops: 0.75,
+        domain: crate::RcasDomain::EncodedOutput,
+    };
+    let sharpened = |format| {
+        let mut host = edge_host();
+        let mut renderer =
+            pollster::block_on(Renderer::windowless_with_format(&mut host, None, format)).unwrap();
+        assert_eq!(renderer.presentation.output_format(), format);
+        completed(
+            &mut host,
+            &mut renderer,
+            recipe(1, 1, CaptureJitter::None)
+                .with_native_rcas(settings)
+                .unwrap(),
+        )
+    };
+    let rgba = sharpened(wgpu::TextureFormat::Rgba8UnormSrgb);
+    let bgra = sharpened(wgpu::TextureFormat::Bgra8UnormSrgb);
+    assert!(bgra.srgb8.is_some());
+    assert_eq!(bgra.srgb8, rgba.srgb8);
+}
+
 fn edge_host() -> RetainedHost {
     RetainedHost::new(
         edge_scene(),

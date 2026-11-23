@@ -7,6 +7,16 @@ impl Renderer {
         host: &mut crate::RetainedHost,
         shared: Option<super::Shared>,
     ) -> Result<Self, ViewerError> {
+        Self::windowless_with_format(host, shared, crate::presentation::COLOR).await
+    }
+
+    /// A windowless renderer whose output stands in for a surface of `format`: the frame chain
+    /// is built for `format` and every frame it draws targets a texture of that format.
+    pub(crate) async fn windowless_with_format(
+        host: &mut crate::RetainedHost,
+        shared: Option<super::Shared>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, ViewerError> {
         let (instance, context) = windowless_context(host, shared).await?;
         let scene = host.initial_scene();
         let options = &host.options;
@@ -19,7 +29,7 @@ impl Renderer {
         .expect("validated nonzero extent");
         let mut presentation = super::assembly::configured_presentation(
             &context,
-            crate::presentation::COLOR,
+            format,
             [extents.render, extents.surface],
             options.frame_profile,
             scene.effects(),
@@ -49,8 +59,12 @@ impl Renderer {
             &mut presentation,
             &mut streaming.tiers,
         )?;
-        let execution =
-            target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;
+        let execution = target::Execution::offscreen(
+            &context,
+            options.size,
+            options.frames_in_flight,
+            presentation.output_format(),
+        )?;
         let renderer = Self::assemble(super::assembly::RendererParts {
             execution,
             #[cfg(all(test, target_os = "linux"))]

@@ -121,7 +121,10 @@ After an intentional ABI change:
    `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
    render texture the world holds) and adds `texture_kind` and a padding word to
    `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
-   texture of a draw whose kind is 1 is the render texture id. Revision 27 adds `disunity_skinned_renderer_write`, which names the mesh
+   texture of a draw whose kind is 1 is the render texture id. Revision 26 adds the
+   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
+   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
+   `DisunityUiDraw` (160 to 176 bytes). Revision 27 adds `disunity_skinned_renderer_write`, which names the mesh
    identity and the root bone of a skinned mesh renderer with the root bone's bind pose (16
    column-major floats); the renderer is drawn where the root bone's matrix times that pose
    puts it, and one with no root bone is left out. The graphics snapshot, at wire version 19,

@@ -671,9 +671,7 @@ impl<'a> Mapper<'a> {
             clear_depth,
             pass: self.settings.pass_selector(),
             values,
-            // Unity winds front faces clockwise as seen with up up. The image is the other way up
-            // (see `camera::clip_from_gl`), which reverses a winding.
-            front_face: wgpu::FrontFace::Ccw,
+            front_face: super::lists::IMAGE_FRONT_FACE,
             renderers,
         }
     }

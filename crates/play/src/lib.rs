@@ -32,6 +32,7 @@ mod player_meshes;
 mod player_screen_ui;
 mod player_textures;
 mod player_ui;
+mod player_ui_materials;
 mod prepare;
 mod retained_driver;
 mod scene_census;
@@ -49,9 +50,7 @@ pub use gpu_device::compute_census;
 pub use gpu_player::{GpuLaunch, GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
 pub use offscreen::{StandInLook, SuppliedGlobal};
-pub use player::{
-    PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player, run_player_screens,
-};
+pub use player::{PlayerLaunch, PreparedPlayer, ScreenOutput, prepare_player, run_player};
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
 };

@@ -121,7 +121,7 @@ The game's overlay UI is drawn by `render-scene`'s `UiOverlay` in the viewer's r
   The player's frames keep the headless submit-and-wait path, so the screen image, the report and the errors are the headless run's own.
 * `ScreenDevice::compose` starts a windowless `RetainedHost` session on that device with an empty scene, sized to the screen.
 * At a listed frame the composer sends `PlayerUi::update` the frame's `UiPresentation`, with the textures its graphics name converted by `PlayerTextures::refresh`, as `PlayerRetainedDriver::step` does.
-  It offers the screen texture to the viewer with `PlayerGpu::written_screen`, the screen as submitted work wrote it, takes one capture of the session and writes it as an RGB PNG.
+  It offers the screen texture to the viewer with `PlayerGpu::game_screen`, which counts it written once one of the player's own frames drew into it, takes one capture of the session and writes it as an RGB PNG.
   The viewer samples the screen in its opaque pass and draws the UI over it in the same submission as a window frame, and nothing is copied through the CPU between them.
 * A run with a screen exports the presentation at the screen's size (a run without one keeps 960x540), because the UI snapshot is laid out for the size of the last export.
 
@@ -146,7 +146,7 @@ It is in `play` because it needs the world's types (`world-simulation`), the imp
   A blit, mesh draw or procedural draw reads its material as it stood when the script recorded it: the snapshot holds a copy of each earlier state of a material the script edited after drawing with it, under an id of its own, and the adapter maps it as a material (`tests/blit_material_gpu.rs` draws two blits of one material with a texture changed between them and reads each target).
   A blit with a material has no renderer and no camera, so the adapter gives it the identity as `unity_ObjectToWorld`, `unity_WorldToObject` and `unity_MatrixVP` (`blit_layer`, the frame's `blit_values`): its quad is in clip space, and a pass that places the quad by those matrices drew nothing before.
   A record that names a destroyed texture, camera or material, or something the host cannot supply, is skipped and counted by reason in the `Report`.
-  A renderer the cameras can see that the frame leaves out is counted in `Report::renderers_skipped` (the `[gpu] skipped renderers:` line of `play`) by cause: `MeshUnavailable`, `EmptySlot` (a slot with no usable material before one that has), `NoMaterial` (no slot names a material), and, when the slots name materials but none of them can be drawn, the cause of the first one left out, `ShaderUnavailable` (the material's shader has no source or failed to load) or `StaleMaterial` A skinned renderer with no root bone in the world has no placement and is counted as `SkinnedNotDrawn`.
+  A renderer the cameras can see that the frame leaves out is counted in `Report::renderers_skipped` (the `[gpu] skipped renderers:` line of `play`) by cause: `MeshUnavailable`, `EmptySlot` (a slot with no usable material before one that has), `NoMaterial` (no slot names a material), and, when the slots name materials but none of them can be drawn, the cause of the first one left out, `ShaderUnavailable` (the material's shader has no source or failed to load) or `StaleMaterial`. A skinned renderer with no root bone in the world has no placement and is counted as `SkinnedNotDrawn`.
   A dispatch is not a frame record: `Adapted::dispatches` says how many records come before it, and the render textures its properties name are in the frame.
 - Renderer sets (`GraphicsSnapshot::record_sets`): A camera render becomes a render-program `Camera` whose `renderers` holds its set (a renderer's id is its index in the snapshot's `renderers`), so the camera draws those renderers that its mask also admits.
   A camera render with no set, which the world leaves for a camera it cannot read, is skipped as a stale camera.
@@ -170,7 +170,7 @@ It is in `play` because it needs the world's types (`world-simulation`), the imp
   A clear ignores the scissor, and `Blit` and `CopyTexture` do too.
   The depth bias is the pair (constant, slope) of the last `SetDepthBias`, held across target changes until the next one; the pipelines of the triangle draws take them as the constant and slope-scale terms of their depth bias as given (negated when depth is reversed), and a line draw has none.
   The units of the constant are the pipeline's and may not match the units a script means.
-- `build`: `OffscreenState::build_naming_record` for the adapted frame.
+- `build`: `OffscreenState::build` for the adapted frame.
   When the state refuses the frame for a record (the refusal's `record` is the index of the record it was planning), that record is built alone with the globals in force for it through `OffscreenState::check`, left out and counted by the error's name if it is refused alone too, and the frame is built again, so a frame with k refused records costs k builds alone and k+1 builds of the frame.
   A record that builds alone was refused for what the records do together, and a refusal that names no record (a render texture, the frame's reads after its records) builds each render texture and then each record alone; the ones refused are left out and counted by the error's name, and the rest are built together.
   `check` plans a frame as `build` does and counts nothing as written, so a build that is never run does not make a render texture look written to a later frame, which would bind it with no stand-in and read zeros.
@@ -382,12 +382,13 @@ It persists from frame to frame like a render texture of the world, so a draw wi
 A target that names the camera target with no screen set is left out as `UnboundTarget`, as it was before.
 A `CameraRender` record always names a render texture, so it never draws into the screen; a camera with no texture draws through its command buffers.
 
-`OffscreenHost::screen_written` says whether work (a frame or a flush) has drawn into the screen's colour since the last read, and `OffscreenHost::read_screen` copies it back with the copy and read a `ReadPixels` uses, in a submission of its own that it waits for.
+`OffscreenHost::screen_written` says whether work (a frame or a flush) has drawn into the screen's colour since the last `OffscreenHost::take_screen_written`, which also starts the count again.
+`PlayerGpu::set_screen` sets the size, and each of the player's own frames numbers the screen when its work (or a flush before it) drew into it.
+`PlayerGpu::drawn_screen` is that frame's number, and a `--screen` run composes the frame it writes from the screen texture on the GPU (`player_screen_ui.rs`), with nothing copied to the CPU.
+Tests read the screen back with `OffscreenHost::read_screen`, the copy and read a `ReadPixels` uses, in a submission of its own that it waits for.
 The result is a `ScreenImage { width, height, rgba, frame }`: 8-bit RGBA as the sRGB texture stores it, rows top first (the GPU copy is bottom first, so its rows are turned over).
-A refusal (no screen, no room in the budget for the staging, a copy that cannot be read, a format that is not four 8-bit channels) is counted by its reason.
+A refusal (no screen, no room in the budget for the staging, a copy that cannot be read, a format that is not four 8-bit channels) is its reason.
 Unlike a `ReadPixels`, a read of the screen gives no meshes or textures back to make room for its staging.
-`PlayerGpu::set_screen` sets the size, and `PlayerGpu::frame` reads the screen back when it was written, keeps the newest image for `PlayerGpu::screen`, and counts the readbacks and their refusals in `GpuWorkReport::screen_reads` and `screen_reads_refused` (one `[gpu] screen images read back ...` line in the report).
-`ScreenImage::write_png` writes an image as an RGB PNG.
 
 The window sets the screen size before the scene loads and applies a resize before advancing the managed update, so a synchronous flush in that update writes the current screen allocation.
 The player offers the screen texture to the viewer as `GAME_SCREEN` in the same submission as the admitted operations that write it.
@@ -433,6 +434,13 @@ The driver names each unavailable identity once on stderr as
 managed host has not stored, or a texture conversion failure.
 A texture stored
 later becomes visible without changing the UI draw.
+A UI draw whose material has a shader of the game's own (a shader with a source
+other than `UI/Default`) is also left out, because no path draws a game shader in
+the UI yet. The driver names each such material once as
+`UI material <id> (shader <name>) is left out: UI draws with a game shader are not drawn yet`,
+and the run report counts the left-out draws by shader name in one line,
+`UI draws with a game material by shader (last frame)`. Draws on the engine's own
+look (a material with no shader source, or `UI/Default`) are unchanged.
 Other images, text and 3D
 objects continue to draw; missing text coverage remains an error.
 The renderer's
@@ -516,11 +524,11 @@ text, clipping and unchanged-frame UI update counts without opening a window.
 `retained_gpu_tests.rs` plays the portable readback fixture the same way with the offscreen work on a device: a script blits a colour with no material, reads it back into a `Texture2D` and shows it in a UI image, and the captured frames show the first colour and, after a later `Update`, the second.
 
 `retained_screen_tests.rs` runs a script that clears `CameraTarget` to yellow.
-It checks every pixel of the first and fourth window captures, the player's screen readback count.
+It checks every pixel of the first and fourth window captures.
 A separate managed readback fixture checks that the first update after a resize flushes into the new screen allocation before any viewer submission.
 `offscreen/tests/reclaim/pending_completion.rs` holds completion bookkeeping after GPU execution and checks that an evicted texture remains charged until completion is recorded, then releases exactly its bytes and admits the next upload.
 Viewer and compositor tests cover row order, UI ordering, dropped writers and resize.
-`player_screen_tests.rs` runs the same fixture headless with `run_player_screens` and decodes the PNGs it writes; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of the written frame, the rectangle in the upper left and yellow elsewhere.
+`player_screen_tests.rs` runs the same fixture headless with `run_player` and decodes the PNGs it writes; a second fixture (`screen-ui.fixture`) puts an overlay canvas with one green rectangle over the yellow screen, and the test checks every pixel of the written frame, the rectangle in the upper left and yellow elsewhere.
 `offscreen/tests/draw_mesh/screen.rs` draws a mesh over the top half of the screen on a real adapter and reads the top rows back first, then draws again with no clear (what the first left stays), and resizes the screen.
 `offscreen/tests/screen.rs` pins the mapping without a device: the camera target binds the screen's colour and depth when a screen is set, the textures are described as held targets of its size, and without a screen the same records are still left out as `UnboundTarget`.
 

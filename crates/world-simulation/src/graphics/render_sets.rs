@@ -26,19 +26,34 @@ use crate::{
     WorldError,
 };
 
+/// What a component contributes to a renderer being drawable. A component that contributes
+/// nothing is not any set's concern, whether it is absent or only present.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DrawInput {
+    /// A mesh renderer of the mesh kind that is enabled and not forced off.
+    ShownRenderer,
+    /// A skinned mesh renderer that is enabled, not forced off and names a drawn mesh.
+    ShownSkinned,
+    /// A mesh filter that has a drawn mesh. Which mesh it is does not matter to a set: the mesh
+    /// is read when the snapshot is taken.
+    MeshedFilter,
+}
+
 impl ComponentDesc {
-    /// Whether this component takes part in deciding which renderers draw: a mesh renderer that is
-    /// enabled and not forced off, a skinned one only when it names a drawn mesh, or a mesh filter
-    /// that has a drawn mesh. A component that does not is no set's concern, whether it is absent
-    /// or only present.
-    pub(crate) fn decides_drawing(&self) -> bool {
+    /// What this component contributes to deciding which renderers draw, or `None` when it
+    /// contributes nothing: a mesh renderer that is enabled and not forced off, a skinned one
+    /// only when it names a drawn mesh, or a mesh filter that has a drawn mesh. A component that
+    /// contributes nothing is no set's concern, whether it is absent or only present.
+    pub(crate) fn draw_input(&self) -> Option<DrawInput> {
         match self {
-            Self::MeshRenderer(renderer) => {
-                renderer.shows()
-                    && (renderer.kind == RendererKind::Mesh || renderer.own_mesh().is_some())
-            }
-            Self::MeshFilter(filter) => filter_draws(filter).is_some(),
-            _ => false,
+            Self::MeshRenderer(renderer) if !renderer.shows() => None,
+            Self::MeshRenderer(renderer) => match renderer.kind {
+                RendererKind::Mesh => Some(DrawInput::ShownRenderer),
+                RendererKind::Skinned => renderer.own_mesh().map(|_| DrawInput::ShownSkinned),
+                RendererKind::Particle => None,
+            },
+            Self::MeshFilter(filter) => filter_draws(filter).map(|_| DrawInput::MeshedFilter),
+            _ => None,
         }
     }
 }
@@ -96,16 +111,20 @@ impl RenderSets {
 impl World {
     /// Notes that a change may have altered which renderers are drawable: an object's activity,
     /// parent or layer, or a component that decides drawing (see
-    /// [`ComponentDesc::decides_drawing`]).
+    /// [`ComponentDesc::draw_input`]).
     pub(crate) fn note_drawables_changed(&mut self) {
         self.graphics.drawable_epoch += 1;
     }
 
-    /// Notes a component going from deciding drawing or not (see
-    /// [`ComponentDesc::decides_drawing`]) to `after`, where a component that was not there or is
-    /// not there now does not decide it. Only a change in whether it decides drawing alters the
-    /// drawable renderers.
-    pub(crate) fn note_drawable_edit(&mut self, before: bool, after: bool) {
+    /// Notes a component going from the draw input `before` to `after` (see
+    /// [`ComponentDesc::draw_input`]), where a component that was not there or is not there now
+    /// contributes none. Only a change of draw input alters the drawable renderers, and that
+    /// includes a renderer replaced by one of another kind, which a flag could not tell apart.
+    pub(crate) fn note_drawable_edit(
+        &mut self,
+        before: Option<DrawInput>,
+        after: Option<DrawInput>,
+    ) {
         if before != after {
             self.note_drawables_changed();
         }
@@ -168,16 +187,21 @@ impl World {
                 let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
                     return None;
                 };
-                let layer = self.object_layer(component.object).ok()?;
-                let admitted = mask
-                    .checked_shr(u32::from(layer))
-                    .is_some_and(|bits| bits & 1 == 1);
-                (admitted
-                    && self.drawn_mesh(component.object, renderer).is_some()
-                    && self.active_in_hierarchy(component.object).ok()?)
+                (self.admits(mask, component.object)
+                    && self.drawn_mesh(component.object, renderer).is_some())
                 .then_some(component.handle)
             })
             .collect()
+    }
+
+    /// Whether `object` is active in the hierarchy on a layer `mask` admits.
+    fn admits(&self, mask: u32, object: ObjectHandle) -> bool {
+        let Ok(layer) = self.object_layer(object) else {
+            return false;
+        };
+        mask.checked_shr(u32::from(layer))
+            .is_some_and(|bits| bits & 1 == 1)
+            && self.active_in_hierarchy(object).unwrap_or(false)
     }
 
     /// The identity of the mesh `renderer` draws when it is switched on, or `None` when it is not

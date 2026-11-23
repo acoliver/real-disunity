@@ -235,7 +235,11 @@ fn direct(renderer: &mut Renderer, view: &SceneView, time: Duration) -> Retained
     let size = view.viewport();
     let ready = renderer
         .execution
-        .acquire_capture(&renderer.context, [size.width, size.height])
+        .acquire_capture(
+            &renderer.context,
+            [size.width, size.height],
+            renderer.presentation.output_format(),
+        )
         .unwrap()
         .unwrap();
     renderer

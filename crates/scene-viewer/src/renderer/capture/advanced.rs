@@ -176,9 +176,11 @@ impl Renderer {
         let outputs = active.recipe.outputs().to_vec();
         self.presentation
             .resize_recipe(&self.context, size, active.recipe.native_rcas())?;
-        let Some(ready) = self
-            .execution
-            .acquire_capture(&self.context, [size.width, size.height])?
+        let Some(ready) = self.execution.acquire_capture(
+            &self.context,
+            [size.width, size.height],
+            self.presentation.output_format(),
+        )?
         else {
             return Ok(false);
         };

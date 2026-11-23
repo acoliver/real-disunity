@@ -99,17 +99,7 @@ fn description(buffer: u64, material: u64) -> DisunityDrawBatch {
 }
 
 fn call(desc: &DisunityDrawBatch, world: u64) -> i32 {
-    unsafe {
-        disunity_offscreen_draw_mesh_batch(
-            world,
-            desc,
-            NAMES.as_ptr(),
-            WORDS.as_ptr(),
-            VISIBLE.as_ptr(),
-            TAGS.as_ptr(),
-        )
-    }
-    .code
+    call_lists(world, desc, &lists())
 }
 
 fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
@@ -138,6 +128,39 @@ fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
             (*record, decode_work(&bytes[..length as usize]).unwrap())
         })
         .collect()
+}
+
+/// The four list pointers of a call.
+struct Lists {
+    names: *const u8,
+    words: *const u32,
+    visible: *const u32,
+    tags: *const u8,
+}
+
+/// The lists that match `description`.
+fn lists() -> Lists {
+    Lists {
+        names: NAMES.as_ptr(),
+        words: WORDS.as_ptr(),
+        visible: VISIBLE.as_ptr(),
+        tags: TAGS.as_ptr(),
+    }
+}
+
+/// The call with the record pointer and the list pointers it is given, which a test may make null or wrong.
+fn call_lists(world: u64, desc: *const DisunityDrawBatch, lists: &Lists) -> i32 {
+    unsafe {
+        disunity_offscreen_draw_mesh_batch(
+            world,
+            desc,
+            lists.names,
+            lists.words,
+            lists.visible,
+            lists.tags,
+        )
+    }
+    .code
 }
 
 #[test]
@@ -233,83 +256,55 @@ fn a_call_the_pointers_the_names_or_the_world_refuse_records_nothing() {
         with(&|d| d.metadata_count = 3),
         with(&|d| d.names_len = 3),
         call(&good, world + 999),
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                std::ptr::null(),
-                NAMES.as_ptr(),
-                WORDS.as_ptr(),
-                VISIBLE.as_ptr(),
-                TAGS.as_ptr(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                std::ptr::null(),
-                WORDS.as_ptr(),
-                VISIBLE.as_ptr(),
-                TAGS.as_ptr(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                NAMES.as_ptr(),
-                std::ptr::null(),
-                VISIBLE.as_ptr(),
-                TAGS.as_ptr(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                NAMES.as_ptr(),
-                WORDS.as_ptr(),
-                std::ptr::null(),
-                TAGS.as_ptr(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                NAMES.as_ptr(),
-                WORDS.as_ptr(),
-                VISIBLE.as_ptr(),
-                std::ptr::null(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                NAMES.as_ptr(),
-                WORDS.as_ptr(),
-                VISIBLE.as_ptr(),
-                bad_utf8.as_ptr(),
-            )
-        }
-        .code,
-        unsafe {
-            disunity_offscreen_draw_mesh_batch(
-                world,
-                &good,
-                bad_utf8.as_ptr(),
-                WORDS.as_ptr(),
-                VISIBLE.as_ptr(),
-                TAGS.as_ptr(),
-            )
-        }
-        .code,
+        call_lists(world, std::ptr::null(), &lists()),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                names: std::ptr::null(),
+                ..lists()
+            },
+        ),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                words: std::ptr::null(),
+                ..lists()
+            },
+        ),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                visible: std::ptr::null(),
+                ..lists()
+            },
+        ),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                tags: std::ptr::null(),
+                ..lists()
+            },
+        ),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                tags: bad_utf8.as_ptr(),
+                ..lists()
+            },
+        ),
+        call_lists(
+            world,
+            &good,
+            &Lists {
+                names: bad_utf8.as_ptr(),
+                ..lists()
+            },
+        ),
     ];
     for (index, code) in refused.iter().enumerate() {
         assert_ne!(*code, 0, "case {index}");

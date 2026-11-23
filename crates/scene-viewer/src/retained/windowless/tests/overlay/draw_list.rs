@@ -24,6 +24,7 @@ fn draw(depth_test: bool) -> UiDraw {
         corner_colors: Some(COLORS),
         distance_field: None,
         texture: Some(UiTexture::Image(7)),
+        material: None,
         sorting_layer: 0,
         sorting_order: 0,
         hierarchy_order: 0,
@@ -47,7 +48,12 @@ fn submit(run: &mut WindowlessRetained<'_>, draws: Vec<UiDraw>) {
             bytes: vec![255; 4].into(),
         },
     )]);
-    let overlay = UiOverlay::from_presentation(&presentation, &textures).unwrap();
+    let overlay = UiOverlay::from_presentation(
+        &presentation,
+        &textures,
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap();
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(overlay)))
         .unwrap();

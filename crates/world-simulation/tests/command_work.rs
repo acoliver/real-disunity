@@ -425,8 +425,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_eighteen_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 18);
+fn the_wire_version_is_nineteen_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 19);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);

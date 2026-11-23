@@ -98,12 +98,33 @@ pub fn mesh_renderer_bytes(owner: i64, s: &Settings, materials: &[PPtr]) -> Vec<
     w.finish()
 }
 
-pub fn skinned_bytes(owner: i64, s: &Settings, mesh: PPtr, materials: &[PPtr]) -> Vec<u8> {
+/// The bones a skinned renderer names: its bone transforms and its root bone, null for none.
+pub struct Rig<'a> {
+    pub bones: &'a [PPtr],
+    pub root_bone: PPtr,
+}
+
+impl Default for Rig<'_> {
+    fn default() -> Self {
+        Self {
+            bones: &[],
+            root_bone: ptr(0, 0),
+        }
+    }
+}
+
+pub fn skinned_bytes(
+    owner: i64,
+    s: &Settings,
+    mesh: PPtr,
+    materials: &[PPtr],
+    rig: &Rig,
+) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     write_renderer(&mut w, owner, s, materials);
     w.i32(4).u8(1).u8(0).align().pptr(mesh);
-    w.pptrs(&[]).unwrap();
-    w.i32(0).pptr(ptr(0, 0));
+    w.pptrs(rig.bones).unwrap();
+    w.i32(0).pptr(rig.root_bone);
     w.floats(&[0.0; 6]).u8(0).align();
     w.finish()
 }

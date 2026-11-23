@@ -8,8 +8,9 @@
 //! The rule:
 //! - Only the optional attribute channels are defaulted: normal (1), tangent (2), colour (3) and
 //!   the texture coordinate sets (4 to 11). A mesh without positions (0) is not a mesh, and the
-//!   blend weights and indices (12 and 13) are not stored by this renderer, so a pass that reads
-//!   them is left out rather than drawn with weights that were never there.
+//!   blend weights and indices (12 and 13) are the mesh's own skin data, so a pass that reads them
+//!   over a mesh that has none is left out rather than drawn with weights that were never there;
+//!   over a skinned mesh it reads the stored weights.
 //! - Colour defaults to (1, 1, 1, 1), the identity of the multiplication the input takes part in.
 //!   Every other channel defaults to zeros.
 //! - The components and type are the ones the vertex stage declares for the input. A colour input

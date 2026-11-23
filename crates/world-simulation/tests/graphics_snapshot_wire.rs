@@ -12,7 +12,7 @@ use worldrunner_world_simulation::graphics::{
     WorldComputeShader, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{MeshRenderer, RendererKind, SkinRoot, World};
 
 mod graphics_world;
 use graphics_world::{
@@ -127,6 +127,17 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     };
     renderer_with(world, (0, true), (1 << 41) + 1, block);
     renderer(world, 4, (1 << 41) + 2, vec![Some(blit)]);
+    let bone = renderer(world, 4, (1 << 41) + 3, vec![]);
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin.drawn_mesh = (1 << 41) + 4;
+    skinned.skin.root = Some(SkinRoot {
+        bone,
+        bind_pose: std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap())),
+    });
+    renderer_with(world, (0, true), 0, skinned);
+    let mut unrooted = MeshRenderer::of_kind(RendererKind::Skinned);
+    unrooted.skin.drawn_mesh = (1 << 41) + 5;
+    renderer_with(world, (0, true), 0, unrooted);
 }
 
 /// A compute shader with a sized and an unsized kernel, a buffer bound to the first and every
@@ -233,6 +244,19 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
             .is_none()
     );
     assert!(decoded.renderers[1].slot_blocks.is_empty());
+}
+
+#[test]
+fn the_count_of_skinned_renderers_left_out_round_trips() {
+    let full = full_snapshot();
+    assert_eq!(full.skinned_not_drawn, 1);
+    let decoded = decode(&encode(&full).unwrap()).unwrap();
+    assert_eq!(decoded.skinned_not_drawn, 1);
+    assert_eq!(
+        decoded.renderers.len(),
+        4,
+        "the rooted skinned renderer is listed"
+    );
 }
 
 #[test]

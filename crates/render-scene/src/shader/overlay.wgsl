@@ -10,7 +10,8 @@ struct UiDistanceStyle {
     spread: f32,
     radius: f32,
     mode: u32,
-    reserved: u32,
+    // Nonzero when the texture holds colour multiplied by its alpha, as a layer atlas does.
+    premultiplied: u32,
     effect: vec4<f32>,
 }
 @group(2) @binding(0) var<uniform> ui_distance: UiDistanceStyle;
@@ -46,7 +47,10 @@ fn distance_colour(alpha: f32, tint: vec4<f32>, gx: vec2<f32>, gy: vec2<f32>) ->
 }
 @fragment
 fn fs_ui_overlay(input: UiOverlayVertex) -> @location(0) vec4<f32> {
-    let sample = textureSample(albedo_texture, material_sampler, input.uv);
+    var sample = textureSample(albedo_texture, material_sampler, input.uv);
+    if ui_distance.premultiplied != 0u {
+        sample = vec4<f32>(sample.rgb / max(sample.a, 1.0e-6), sample.a);
+    }
     let texel = input.uv * vec2<f32>(textureDimensions(albedo_texture));
     let gx = dpdx(texel);
     let gy = dpdy(texel);

@@ -316,8 +316,7 @@ impl Registry {
     /// else it leaves out, and rejected.
     fn admit_mesh(&mut self, key: &ObjectKey) -> Result<bool, PlayerError> {
         match decode_mesh(&mut self.files, key)? {
-            Ok(mut decoded) => {
-                self.notes.append(&mut decoded.notes);
+            Ok(decoded) => {
                 self.meshes.insert(key.clone(), decoded);
                 Ok(true)
             }

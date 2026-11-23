@@ -377,7 +377,12 @@ impl Services<'_> {
                 what: "a uniform buffer no parameter describes",
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
-        let texel_sizes = texel_size::texel_sizes(self.textures, &spec.layers, &target.buffer);
+        let texel_sizes = texel_size::texel_sizes(
+            self.textures,
+            self.undeclared_textures,
+            &spec.layers,
+            &target.buffer,
+        );
         let mut values = spec.layers.values();
         values.push(&texel_sizes);
         let packed = pack_layout(&target.buffer, &[], &values, min_len)?;

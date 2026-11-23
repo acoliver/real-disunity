@@ -7,9 +7,10 @@ namespace Disunity.Hosting;
 
 /// <summary>Building a mesh of a resource plan: <c>{"type": "Mesh", "name", "vertex_count", "channels" [{"name", "dimension"}],
 /// "sub_meshes" [{"first_index", "index_count", "topology", "base_vertex", ...}], "index_count", "index_format" (1 for 32-bit),
-/// "bounds" {"center", "extent"}, "resource"}</c>. The resource file holds, in channel order, <c>vertex_count</c> vertices of
-/// <c>dimension</c> little-endian floats per channel (<c>position</c>, <c>normal</c>, <c>tangent</c>, <c>color</c>, <c>uv0</c> to
-/// <c>uv7</c>), then <c>index_count</c> 32-bit indices. The mesh stays readable (the engine's choice: the player keeps every
+/// "bounds" {"center", "extent"}, "resource", "bind_poses" (optional, one array of 16 row-major floats per bone)}</c>. The
+/// resource file holds, in channel order, <c>vertex_count</c> vertices of <c>dimension</c> little-endian floats per channel
+/// (<c>position</c>, <c>normal</c>, <c>tangent</c>, <c>color</c>, <c>uv0</c> to <c>uv7</c>, <c>blend weights</c> and
+/// <c>blend indices</c>, which make the bone weights together), then <c>index_count</c> 32-bit indices. The mesh stays readable (the engine's choice: the player keeps every
 /// mesh readable), and every filter that names it shares the one object.</summary>
 internal static class PlayerMeshes
 {
@@ -24,17 +25,45 @@ internal static class PlayerMeshes
         var indexCount = plan.Int("index_count");
         var offset = 0;
         var mesh = new Mesh { name = name };
+        var skin = new Dictionary<string, float[]>();
         foreach (var channel in plan.GetProperty("channels").EnumerateArray())
         {
             var dimension = channel.Int("dimension");
             var values = Read(data, ref offset, (long)vertexCount * dimension, name);
-            SetChannel(mesh, channel.Str("name"), values, dimension, name);
+            if (channel.Str("name") is "blend weights" or "blend indices" && dimension == 4) skin[channel.Str("name")] = values;
+            else SetChannel(mesh, channel.Str("name"), values, dimension, name);
         }
+        SetSkin(mesh, plan, skin);
         var indices = ReadIndices(data, ref offset, indexCount, name);
         if (offset != data.Length) throw new InvalidDataException($"mesh {name}: {data.Length - offset} bytes follow its data");
         SetSubMeshes(mesh, plan, indices);
         mesh.bounds = ReadBounds(plan.GetProperty("bounds"));
         return mesh;
+    }
+
+    /// <summary>Sets the bone weights from the blend weight and blend index channels, which come together, and the bind poses.</summary>
+    private static void SetSkin(Mesh mesh, JsonElement plan, Dictionary<string, float[]> channels)
+    {
+        if (channels.Count == 1) throw new InvalidDataException($"mesh {mesh.name}: blend weights and blend indices come together");
+        if (channels.Count == 2)
+        {
+            var (weights, joints) = (channels["blend weights"], channels["blend indices"]);
+            mesh.boneWeights = Enumerable.Range(0, weights.Length / 4).Select(i => new BoneWeight
+            {
+                weight0 = weights[i * 4], weight1 = weights[i * 4 + 1], weight2 = weights[i * 4 + 2], weight3 = weights[i * 4 + 3],
+                boneIndex0 = (int)joints[i * 4], boneIndex1 = (int)joints[i * 4 + 1], boneIndex2 = (int)joints[i * 4 + 2], boneIndex3 = (int)joints[i * 4 + 3],
+            }).ToArray();
+        }
+        if (plan.TryGetProperty("bind_poses", out var poses)) mesh.bindposes = poses.EnumerateArray().Select(BindPose).ToArray();
+    }
+
+    /// <summary>A bind pose from its 16 row-major floats.</summary>
+    private static Matrix4x4 BindPose(JsonElement values)
+    {
+        var pose = new Matrix4x4();
+        for (var row = 0; row < 4; row++)
+            for (var column = 0; column < 4; column++) pose[row, column] = values[row * 4 + column].GetSingle();
+        return pose;
     }
 
     private static float[] Read(byte[] data, ref int offset, long count, string mesh)

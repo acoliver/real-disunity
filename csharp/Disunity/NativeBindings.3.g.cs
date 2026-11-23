@@ -11,6 +11,24 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
+        /// <summary>
+        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
+        /// <summary>
         ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
         ///  caller checks the pass against the shader's pass count; the world holds none.
         /// </summary>
@@ -449,6 +467,16 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_messages(ulong world, ulong identity, uint messages);
+        /// <summary>
+        ///  Sets the execution order of the script bound to `identity`. A phase, a batch of lifecycle
+        ///  messages and a batch of cleanup deliver `Awake`, `OnEnable`, `Start`, `FixedUpdate`, `Update`,
+        ///  `LateUpdate`, `OnDisable` and `OnDestroy` to the scripts with the lowest order first, and to
+        ///  scripts of equal order in the order they were registered, whatever handle slot each took.
+        ///  Coroutine resumption is not ordered by it. A script never reported has order 0 and a clone
+        ///  starts with its source's order.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_script_execution_order", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_execution_order(ulong world, ulong identity, int order);
         /// <summary>
         ///  Answers a shadow query; see [`DisunityShadowRequest`].
         ///

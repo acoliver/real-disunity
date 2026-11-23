@@ -23,7 +23,7 @@ internal static class RectDimensionDeliveryTests
         {
             DisunityHost.SetViewport(800, 600);
             var canvas = NewRect(null);
-            canvas.gameObject.AddComponent<Canvas>();
+            canvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
             var holder = Stretched(canvas);
             ScriptsDestroyedInTheFrameAreNotTold(holder);
             DisabledScriptsAreNotTold(holder);

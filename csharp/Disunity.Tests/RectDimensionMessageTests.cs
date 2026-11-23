@@ -19,7 +19,7 @@ internal static class RectDimensionMessageTests
         {
             DisunityHost.SetViewport(800, 600);
             var canvas = NewRect(null);
-            canvas.gameObject.AddComponent<Canvas>();
+            canvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
             var holder = Stretched(canvas);
             var panel = Stretched(holder);
             var watcher = panel.gameObject.AddComponent<Watcher>();

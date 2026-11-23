@@ -6,6 +6,7 @@ use crate::{
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
+    SkinBinding, SkinRoot,
 };
 
 /// A renderer's settings; booleans are 0 or 1. `kind` is 0 for a mesh renderer, 1 for a
@@ -98,6 +99,7 @@ impl DisunityMeshRenderer {
             property_block: current.property_block,
             slot_blocks: current.slot_blocks,
             render_queue: current.render_queue,
+            skin: current.skin,
         })
     }
 }
@@ -319,6 +321,51 @@ pub unsafe extern "C" fn disunity_mesh_filter_drawn_read(
         let (_, value) = filter(s, handle)?;
         unsafe { *output = value.drawn_mesh };
         Ok(())
+    })
+}
+
+/// Names the mesh a skinned renderer draws and the root bone that places it. `drawn_mesh` is 0 for
+/// none or a player mesh identity. `root_bone` is the object id of the root bone, a live object of
+/// this world, with `root_bind_pose` the root bone's bind pose as 16 finite column-major floats.
+/// A renderer whose skeleton is not in the world passes 0 and a null pose and is left out of
+/// frames. A bone without a pose, or a pose without a bone, is refused. The renderer must be a
+/// skinned one. A rejected call changes nothing.
+///
+/// # Safety
+/// `root_bind_pose` is null or readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_skinned_renderer_write(
+    world: u64,
+    handle: u64,
+    drawn_mesh: u64,
+    root_bone: u64,
+    root_bind_pose: *const f32,
+) -> DisunityResult {
+    if (root_bone == 0) != root_bind_pose.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let pose = (!root_bind_pose.is_null()).then(|| {
+        let mut values = [0.0; 16];
+        unsafe { std::ptr::copy_nonoverlapping(root_bind_pose, values.as_mut_ptr(), 16) };
+        values
+    });
+    mutate(world, |s| {
+        let (id, mut current) = renderer(s, handle)?;
+        if current.kind != RendererKind::Skinned {
+            return Err("only a skinned mesh renderer has a skin".into());
+        }
+        if drawn_mesh != 0 && drawn_mesh < FIRST_PLAYER_MESH {
+            return Err("a skinned renderer draws a player mesh identity or none".into());
+        }
+        let root = match pose {
+            Some(bind_pose) => Some(SkinRoot {
+                bone: s.object(root_bone)?,
+                bind_pose,
+            }),
+            None => None,
+        };
+        current.skin = SkinBinding { drawn_mesh, root };
+        set_renderer(s, id, current)
     })
 }
 

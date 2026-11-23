@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
@@ -7,7 +8,7 @@ fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let receiver = Vec3::new(-0.75, 0.0, 0.0);
@@ -79,7 +80,7 @@ fn gpu_resident_shadow_toggle_disables_and_restores_cached_shadow() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
     assert!(renderer.shadows_enabled());
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
@@ -140,7 +141,7 @@ fn gpu_shadow_toggle_before_first_frame_skips_maps_until_enabled() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let receiver = Vec3::new(-0.75, 0.0, 0.0);
     take_shadow_execution();
@@ -188,7 +189,7 @@ fn gpu_shadow_toggle_refreshes_a_caster_moved_while_disabled() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let old_shadow = Vec3::new(-0.75, 0.0, 0.0);
     let new_shadow = Vec3::new(0.75, 0.0, 0.0);

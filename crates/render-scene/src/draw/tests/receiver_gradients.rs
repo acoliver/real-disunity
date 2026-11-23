@@ -3,6 +3,7 @@ use super::*;
 use crate::compositor::FrameRenderer;
 use crate::draw::PreparedScene;
 use crate::scene_metadata::receiver::{ReceiverLayout, ReceiverReference};
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 use worldrunner_render_post::ToneMap;
 
@@ -230,21 +231,18 @@ impl ReceiverFrame {
             source.effects(),
         )
         .unwrap();
-        let build: fn(&GpuContext, &RenderScene, _, _, _) -> _ = if reflection {
-            crate::shadows::ShadowedScene::with_taa_velocity
-        } else {
-            crate::shadows::ShadowedScene::with_target
-        };
-        let shadowed = build(
+        let shadowed = crate::shadows::ShadowedScene::new(
             context,
-            source,
+            PreparedScene::new(source).unwrap(),
             crate::shadows::DirectionalShadowSettings {
                 resolution: 256,
                 normal_bias_meters: bias,
                 ..super::shadow_settings()
             },
-            TextureFormat::Rgba16Float,
-            1,
+            ShadowedTarget {
+                velocity: reflection,
+                ..ShadowedTarget::new(TextureFormat::Rgba16Float, 1)
+            },
         )
         .unwrap();
         let pipelines = if reflection {

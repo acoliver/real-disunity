@@ -1,5 +1,6 @@
 use super::scene_tests::*;
 use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_post::{AttachmentView, ResourceRef};
 
@@ -145,9 +146,9 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let source = scene(0, false, false);
-    let mut gpu = crate::shadows::ShadowedScene::with_target(
+    let mut gpu = crate::shadows::ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         crate::shadows::DirectionalShadowSettings {
             focus_meters: glam::Vec3::ZERO,
             half_extent_meters: 10.0,
@@ -157,8 +158,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
             normal_bias_meters: 0.0,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

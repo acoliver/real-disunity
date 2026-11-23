@@ -7,6 +7,7 @@ use super::deferred::{capture_drawing, with_prepass};
 use super::render_path::front_settings;
 use super::*;
 use crate::compositor::TerrainDraws;
+use crate::offscreen::OffscreenTarget;
 
 /// `source` with its terrain taken out and everything else as it was.
 fn without_terrain(source: &RenderScene) -> RenderScene {
@@ -110,7 +111,7 @@ fn gpu_casters_only_terrain_leaves_the_render_camera_result_as_a_terrain_free_sc
 /// The depth texels of the four shadow cascades after one frame of `source` with `draws`.
 fn cascade_depths(source: &RenderScene, draws: TerrainDraws) -> Vec<Vec<f32>> {
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, source, settings()).unwrap();
+    let mut renderer = shadowed(&context, source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     scheduler.force_terrain_draws(draws);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();

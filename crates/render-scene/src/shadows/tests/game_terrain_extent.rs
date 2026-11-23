@@ -5,6 +5,7 @@ use super::*;
 use crate::compositor::{FrameTerrainError, terrain_probe};
 use crate::draw::TerrainChunkViewError;
 use crate::frame::FrameUniform;
+use crate::offscreen::OffscreenTarget;
 use crate::scene_metadata::SceneMetadata;
 use worldrunner_render_post::FrameError;
 
@@ -13,7 +14,7 @@ const HALF: [u32; 2] = [128, 120];
 
 fn streamed_renderer(context: &GpuContext) -> ShadowedScene {
     let source = super::streaming::multilevel_source();
-    ShadowedScene::new(context, &source, settings()).unwrap()
+    shadowed(context, &source, settings()).unwrap()
 }
 
 /// One transaction: the stock depth prefix planned from caller metadata of `extent`, then the

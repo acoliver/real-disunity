@@ -5,6 +5,8 @@
 //! refracts the lit opaque snapshot as it refracts the forward one.
 use super::deferred::{Captured, ssao};
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 
 /// The settings every path in this file draws with. The fused Render path admits only the Front
 /// receiver reservation, which needs no normal bias, and Forward must draw with the same settings
@@ -430,12 +432,11 @@ fn fitted_capture(
 ) -> Captured {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
     let mut frame = super::deferred::frame(context, source, view, path);
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         front_settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer

@@ -1,7 +1,9 @@
 //! Shadow receivers must agree across independent and prepass-owned depth.
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::scene_metadata::receiver::ReceiverReference;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{Readback, ToneMap};
 
 fn source(terrain: bool, offset: i64) -> RenderScene {
@@ -201,9 +203,9 @@ fn capture(
     if independent {
         frame.independent_depth_for_test(context.device());
     }
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             focus_meters: view.eye_meters()
                 + view
@@ -217,8 +219,7 @@ fn capture(
             normal_bias_meters: 0.012,
             ..settings()
         },
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     if reference {

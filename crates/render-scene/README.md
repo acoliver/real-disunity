@@ -862,7 +862,7 @@ bias remains in world metres.
 `FrameRenderer::hdr` compiles a fixed scene-exposure profile into the retained
 post executor. Its scene target is `Rgba16Float`; choose one or four samples.
 Object, masked and terrain receiver pipelines must use the same colour attachment
-and sample count (`ScenePipelines::with_samples` or `ShadowedScene::with_target`).
+and sample count (`ScenePipelines::with_samples` or `ShadowedScene::new` with a `ShadowedTarget`).
 Shadow depth arrays stay single-sample. `FrameTargets::depth` supplies the matching
 camera depth attachment. Resizing builds colour, depth and output bindings before
 replacing the live generation; a rejected extent leaves the old generation usable.
@@ -965,7 +965,7 @@ with an empty write mask (`velocity::masked_targets`), which covers the unlit dy
 and the celestial composition. The policy table is in `src/velocity.rs`. Wind on objects is produced;
 per-instance transforms and billboards do not write velocity yet.
 
-Shadow receivers and SSR. `ShadowedScene::with_taa_velocity` applies the same rewrite to the shadow
+Shadow receivers and SSR. A `ShadowedScene` whose `ShadowedTarget` sets `velocity` applies the same rewrite to the shadow
 receiver object and terrain pipelines; the caster depth pipelines need none. With SSR on, the
 reflection forward pipelines (`ssr::forward`) write the residual at `@location(3)` after the three
 reflection targets, which costs 3 x 8 + 4 = 28 bytes per sample on an HDR target. `velocity::reflection_velocity`

@@ -4,6 +4,7 @@
 //! object pipelines, so their residual is compared against the same CPU model.
 use super::*;
 use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowedScene};
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr,
@@ -112,7 +113,16 @@ fn shadowed_velocity_with(
     if effects.opaque_path() == worldrunner_render_plan::SceneOpaquePath::GBUFFER_RENDER {
         settings.normal_bias_meters = 0.0;
     }
-    let mut shadowed = ShadowedScene::with_taa_velocity(context, &scene, settings, HDR, 1).unwrap();
+    let mut shadowed = ShadowedScene::new(
+        context,
+        PreparedScene::new(&scene).unwrap(),
+        settings,
+        ShadowedTarget {
+            velocity: true,
+            ..ShadowedTarget::new(HDR, 1)
+        },
+    )
+    .unwrap();
     let (mut renderer, color, depth) = taa_target(context, &effects, MsaaSamples::X1);
     for &(seconds, pose) in frames {
         renderer.set_frame_time(seconds).unwrap();

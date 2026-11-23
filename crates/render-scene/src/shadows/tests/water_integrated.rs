@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 const TOLERANCE: f64 = 0.012;
 
@@ -9,11 +12,12 @@ fn gpu_water_pcf5_receiver_matches_oracle_and_rejects_bilinear_in_both_paths() {
     let source = scene(&[], 600_000, None);
     let fixture = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             resolution: 256,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let pipeline = super::water_pcf5::binary_pipeline(context.device(), false);

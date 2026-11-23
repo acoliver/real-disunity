@@ -1,6 +1,8 @@
 use super::*;
 use crate::compositor::terms::{CaptureTerm, TermCapture};
+use crate::draw::PreparedScene;
 use crate::offscreen::LinearRgbaImage;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameConfig, Readback};
 
 #[test]
@@ -23,12 +25,11 @@ fn check_scene(context: &GpuContext, terrain: bool) {
         CaptureTerm::SunSpecular,
     ]
     .map(|term| TermCapture::new(context.device(), size, term));
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

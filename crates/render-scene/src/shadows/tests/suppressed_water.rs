@@ -8,6 +8,8 @@ use super::deferred::{Captured, captured, frame};
 use super::render_path::source;
 use super::*;
 use crate::compositor::WaterDraws;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 
 /// Encodes one frame of `source` through `path` for each choice in turn on one renderer and one
 /// shadow scene, and returns what the last frame left.
@@ -19,12 +21,11 @@ fn run(
 ) -> Captured {
     let view = view();
     let mut renderer = frame(context, source, &view, path);
-    let mut shadowed = ShadowedScene::with_target(
+    let mut shadowed = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         super::render_path::front_settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     for choice in draws {

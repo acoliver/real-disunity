@@ -3,6 +3,8 @@ use super::{
     context,
     fixture::{scene, settings, view},
 };
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::{SceneView, offscreen::OffscreenTarget, test_support::SceneTestSession};
 use worldrunner_render_gpu::{census::ResourceClass, submission::PreparedFrame};
 
@@ -46,7 +48,13 @@ fn replaced_shadow_map_stays_counted_until_prepared_frame_is_cancelled() {
     let context = context();
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = super::super::ShadowedScene::new(
+        &context,
+        PreparedScene::new(&source).unwrap(),
+        settings(),
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let camera = view();
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
@@ -79,7 +87,13 @@ fn replaced_shadow_map_stays_counted_through_submission_completion() {
     let context = context();
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = super::super::ShadowedScene::new(
+        &context,
+        PreparedScene::new(&source).unwrap(),
+        settings(),
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let camera = view();
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
@@ -116,7 +130,13 @@ fn shadow_map_replaced_during_encode_retains_the_recorded_generation() {
     let context = context();
     let census = context.submission().census().clone();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = super::super::ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = super::super::ShadowedScene::new(
+        &context,
+        PreparedScene::new(&source).unwrap(),
+        settings(),
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let old_bytes = census.snapshot().get(ResourceClass::ShadowMap);
     let camera = view();

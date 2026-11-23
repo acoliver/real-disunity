@@ -9,6 +9,8 @@ mod pins;
 
 use super::*;
 use crate::compositor::plan_trace::{self, SubmittedPlan, assert_pinned};
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_gpu::submission::PrepareError;
 
 fn unfitted_frame(
@@ -95,12 +97,11 @@ fn renderers(context: &GpuContext, source: &RenderScene) -> (FrameRenderer, Shad
     .unwrap();
     let mut shadows = settings();
     shadows.normal_bias_meters = 0.0;
-    let renderer = ShadowedScene::with_target(
+    let renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         shadows,
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     (frame, renderer)

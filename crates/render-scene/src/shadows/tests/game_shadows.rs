@@ -8,6 +8,7 @@ use crate::compositor::{
     CascadeSelection, ColorOutput, FrameInputError, FrameShadowHandle, FrameShadows, GameBuild,
     GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
 };
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -220,7 +221,7 @@ fn cascaded() -> RenderScene {
 }
 
 fn shadowed(context: &GpuContext) -> (ShadowedScene, OffscreenTarget) {
-    let renderer = ShadowedScene::new(context, &cascaded(), settings()).unwrap();
+    let renderer = super::shadowed(context, &cascaded(), settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     (renderer, target)
 }
@@ -339,7 +340,7 @@ fn gpu_a_game_feature_reads_the_weakened_shadow_strength_the_stock_receivers_app
         })
         .unwrap();
     let source = source_with(&scene(&[[0, 0, 1_000]], 600_000, None), cascades);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = super::shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let (seen, _) = Probe::install(&mut scheduler, &context, false);
@@ -362,7 +363,7 @@ fn gpu_a_game_feature_reads_the_weakened_shadow_strength_the_stock_receivers_app
 fn gpu_a_same_frame_fitted_capture_lends_the_fitted_cascades() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, &cascaded(), settings()).unwrap();
+    let mut renderer = super::shadowed(&context, &cascaded(), settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,

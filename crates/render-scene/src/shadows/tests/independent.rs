@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn independent_shadow_default_matches_explicit_direct_sun_byte_for_byte() {
@@ -34,7 +35,7 @@ fn independent_shadow_depth_fitting_uses_shadow_light_in_both_paths() {
             contraction_frames: 1,
         },
     ] {
-        let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+        let mut renderer = shadowed(&context, &source, settings()).unwrap();
         let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
         let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
         renderer
@@ -147,7 +148,7 @@ fn independent_shadow_moves_and_resizes_without_relighting_or_reupload() {
         capture_scene(&context, &changed, &view()).unwrap(),
         baseline
     );
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();

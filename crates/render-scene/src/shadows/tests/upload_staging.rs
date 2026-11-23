@@ -2,7 +2,10 @@
 //! frame with walking units does. The ignored probes are informational: run them serially
 //! with `--ignored --nocapture`.
 use super::*;
+use crate::draw::PreparedScene;
 use crate::instances::InstanceHandle;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::{CameraPose, Viewport};
 use std::collections::VecDeque;
 
@@ -115,12 +118,13 @@ impl Flight {
     fn new(context: &GpuContext, count: usize, viewport: Viewport) -> Self {
         let mut renderer = ShadowedScene::new(
             context,
-            &source(count),
+            PreparedScene::new(&source(count)).unwrap(),
             DirectionalShadowSettings {
                 half_extent_meters: 6.0,
                 depth_half_extent_meters: 6.0,
                 ..settings()
             },
+            ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
         )
         .unwrap();
         let handles = renderer.scene_mut().instance_handles().collect();

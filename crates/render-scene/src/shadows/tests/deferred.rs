@@ -7,9 +7,11 @@ use super::render_path::{
 };
 use super::*;
 use crate::compositor::{FeatureTarget, FrameRenderer};
+use crate::draw::PreparedScene;
 use crate::gbuffer::GbufferTarget;
 use crate::gbuffer::lighting::LightingTarget;
 use crate::gbuffer::reference::Surface;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use crate::terrain::deferred_tests::{BLOCK, COLUMNS, Producer, halves};
 use worldrunner_render_post::{FrameConfig, Readback, ToneMap};
@@ -134,12 +136,11 @@ fn capture_frame(
     shadows: DirectionalShadowSettings,
     frame: &mut FrameRenderer,
 ) -> Result<Captured, ShadowError> {
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         shadows,
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let color = AttachmentView::new(
@@ -332,12 +333,11 @@ fn depth_fitted_frame(
             Box::new(producer(view, &effects, with_depth.then_some(depth))),
         )
         .unwrap();
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer

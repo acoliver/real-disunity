@@ -18,7 +18,7 @@ fn single_box_bias_preserves_authored_world_offset_after_caster_extension() {
 }
 
 fn fits(context: &GpuContext, source: &RenderScene) -> CascadeViews {
-    let renderer = ShadowedScene::new(context, source, settings()).unwrap();
+    let renderer = shadowed(context, source, settings()).unwrap();
     CascadeViews::new(
         &renderer.gpu,
         &view(),

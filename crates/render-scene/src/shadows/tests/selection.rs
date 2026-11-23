@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 pub(super) const PROBE: &str = r"
 @vertex fn vs_probe(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -20,7 +21,7 @@ fn gpu_receiver_selects_split_boundaries_and_blends_continuously() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::camera_splits(vec![2_000, 4_000, 6_000, 8_000], 250_000).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     for camera_splits in [true, false] {
         upload_probe(&context, &renderer, camera_splits, 4, 0.25);
         let image = render_probe(
@@ -216,7 +217,7 @@ fn gpu_multi_cascade_sample_counts_match_main_exactly() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::new(vec![2_000, 4_000, 6_000, 8_000], 250_000).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     // Count entry to the production PCF helper. All selected projections in this
     // fixture have valid UV/depth, so each entry evaluates one nine-tap grid.
     let instrumented = resources::SHADOWED_WGSL.replace(

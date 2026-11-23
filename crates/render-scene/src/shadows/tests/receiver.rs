@@ -13,7 +13,7 @@ fn gpu_receiver_gradient_matches_a_plane_despite_large_projection_translation() 
         &scene(&[], 600_000, None),
         SceneShadowCascades::new(vec![2_000, 4_000, 6_000, 8_000], 0).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let cascades = super::super::cascades::CascadeViews {
         recurrence: None,
         multiplier: 0.0,
@@ -70,6 +70,7 @@ fn gpu_receiver_gradient_matches_a_plane_despite_large_projection_translation() 
 }
 
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
@@ -92,7 +93,7 @@ fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
                 &source,
                 SceneShadowCascades::new(extents.clone(), 100_000).unwrap(),
             );
-            let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+            let mut renderer = shadowed(&context, &source, settings()).unwrap();
             let current = include_str!("../../shader/shadows.wgsl");
             let reference = super::depth_reuse::reference_receiver();
             let mut pipelines = ScenePipelines::with_screen_space(
@@ -251,7 +252,7 @@ fn gpu_single_map_receiver_matches_scalar_reference_except_at_shadow_edges() {
         normal_bias_meters: 0.012,
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, fit).unwrap();
+    let mut renderer = shadowed(&context, &source, fit).unwrap();
     let mut reference = scalar_pipelines(&context, &renderer);
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut edge_pixels = 0;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use worldrunner_render_plan::SceneDirection;
 
 #[test]
@@ -6,7 +7,7 @@ fn gpu_unsupported_effect_update_preserves_the_active_profile() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = with_effects(sun_z());
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
@@ -89,7 +90,7 @@ fn gpu_construction_rejects_invalid_active_light_fit() {
     let context = context();
     let source = with_effects(sun_x());
     assert!(matches!(
-        ShadowedScene::new(&context, &source, translated_fit()),
+        shadowed(&context, &source, translated_fit()),
         Err(ShadowError::InvalidSettings)
     ));
     assert!(matches!(
@@ -114,7 +115,7 @@ fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &with_effects(sun_x()), settings()).unwrap();
+    let mut renderer = shadowed(&context, &with_effects(sun_x()), settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
     assert!(matches!(
@@ -133,8 +134,7 @@ fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
         retained_image(&context, &mut renderer, &mut scheduler, &mut target)
     );
 
-    let mut renderer =
-        ShadowedScene::new(&context, &with_effects(sun_z()), translated_fit()).unwrap();
+    let mut renderer = shadowed(&context, &with_effects(sun_z()), translated_fit()).unwrap();
     let before = retained_image(&context, &mut renderer, &mut scheduler, &mut target);
     assert!(matches!(
         renderer.set_effects(&sun_x()),

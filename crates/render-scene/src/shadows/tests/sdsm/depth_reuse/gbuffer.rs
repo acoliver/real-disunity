@@ -6,7 +6,9 @@ mod velocity;
 
 use super::*;
 use crate::compositor::FeatureTarget;
+use crate::draw::PreparedScene;
 use crate::gbuffer::GbufferTarget;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::tests::deferred::read;
 use worldrunner_render_plan::SceneOpaquePath;
 
@@ -54,12 +56,11 @@ fn fitted_frame(context: &GpuContext, source: &RenderScene) -> (FrameRenderer, S
     .unwrap();
     let mut shadows = settings();
     shadows.normal_bias_meters = 0.0;
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         shadows,
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer

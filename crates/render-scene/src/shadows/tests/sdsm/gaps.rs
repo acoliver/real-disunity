@@ -1,5 +1,6 @@
 mod fixes;
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 
 #[test]
@@ -7,7 +8,7 @@ fn gpu_sdsm_capture_rejects_changed_layer_count_before_encoding() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     renderer
         .set_depth_fitting(
@@ -67,7 +68,7 @@ fn gpu_sdsm_capture_includes_cold_and_invalidated_terrain_pages() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     enable_pages(&context, &mut renderer, 5);
     renderer
@@ -118,7 +119,7 @@ fn gpu_sdsm_capture_reuses_page_uploads_across_segments() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     enable_pages(&context, &mut renderer, 1);
     renderer

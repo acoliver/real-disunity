@@ -1,6 +1,7 @@
 //! Relief frames keep independent metadata, then restore sharing on a later ordinary frame.
 use super::*;
 use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 
 fn scenes() -> [RenderScene; 3] {
     let ordinary = source();
@@ -48,12 +49,14 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
             stage_quad(context, &mut gpu, &pipelines);
             assert_eq!(gpu.has_relief(), index == 1);
             let mut shadowed = shadows.then(|| {
-                crate::shadows::ShadowedScene::with_taa_velocity(
+                crate::shadows::ShadowedScene::new(
                     context,
-                    source,
+                    PreparedScene::new(source).unwrap(),
                     shadow_settings(),
-                    TextureFormat::Rgba16Float,
-                    1,
+                    ShadowedTarget {
+                        velocity: true,
+                        ..ShadowedTarget::new(TextureFormat::Rgba16Float, 1)
+                    },
                 )
                 .unwrap()
             });

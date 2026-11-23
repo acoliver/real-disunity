@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 fn with_objects(source: &RenderScene, objects: Vec<SceneObject>) -> RenderScene {
     RenderScene::new(SceneParts {
@@ -18,7 +19,7 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
     let mut objects = base.geometry().objects().to_vec();
     objects[0] = objects[0].with_casts_shadow(false);
     let source = with_objects(&base, objects.clone());
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let shadowed = render(&context, &mut renderer, &mut scheduler, &mut target);
@@ -62,7 +63,7 @@ fn gpu_shadow_only_caster_shadows_receivers_without_being_drawn() {
     let mut objects = base.geometry().objects().to_vec();
     objects[0] = objects[0].with_casts_shadow(false);
     let source = with_objects(&base, objects.clone());
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let shadowed = render(&context, &mut renderer, &mut scheduler, &mut target);
@@ -147,7 +148,7 @@ fn gpu_strength_and_receiver_bias_have_independent_visibility_oracles() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::new(vec![2_000, 4_000, 6_000, 8_000], 0).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let probe = format!("{}{}", resources::SHADOWED_WGSL, super::selection::PROBE);
     for (reduction, expected) in [(0.0_f32, 0_u8), (0.2, 124), (0.5, 188), (1.0, 255)] {
         super::selection::upload_probe(&context, &renderer, false, 4, 0.0);
@@ -191,7 +192,7 @@ fn gpu_explicit_defaults_preserve_image_and_uniform_bytes() {
         baseline,
         capture_scene_shadowed(&context, &explicit, &view(), settings()).unwrap()
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let cascades = super::super::cascades::CascadeViews::new(
         &renderer.gpu,
         &view(),
@@ -244,7 +245,7 @@ fn gpu_retained_sampling_update_rekeys_caster_slope() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let original = capture_scene_shadowed(&context, &source, &view(), settings()).unwrap();
     let mut parts = fixture::effects_parts(600_000);
     parts.shadows = parts

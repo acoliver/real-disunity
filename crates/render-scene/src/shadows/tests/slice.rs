@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use fixture::{caster_scene, object, quad};
 
 /// Ground tiles and a dense caster grid much wider than the view, so each cascade's stable
@@ -72,9 +73,9 @@ fn gpu_slice_culling_keeps_cascade_images_and_drops_casters_outside_the_slice() 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = wide_scene();
-    let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut culled = shadowed(&context, &source, settings()).unwrap();
     let mut culled_scheduler = crate::compositor::FrameRenderer::new(context.device());
-    let mut unculled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut unculled = shadowed(&context, &source, settings()).unwrap();
     let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for target in TARGETS {
         let view = turned_view(target);
@@ -111,9 +112,9 @@ fn gpu_retained_cascades_refresh_when_the_camera_turns_out_of_their_slice() {
         },
         ..settings()
     };
-    let mut retained = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut retained = shadowed(&context, &source, settings).unwrap();
     let mut retained_scheduler = crate::compositor::FrameRenderer::new(context.device());
-    let mut unculled = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut unculled = shadowed(&context, &source, settings).unwrap();
     let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut kept = 0;
     for north in [0, 40, 400, 1_500, 4_000] {
@@ -200,9 +201,9 @@ fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_source();
-    let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut culled = shadowed(&context, &source, settings()).unwrap();
     let mut culled_scheduler = crate::compositor::FrameRenderer::new(context.device());
-    let mut unculled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut unculled = shadowed(&context, &source, settings()).unwrap();
     let mut unculled_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for target in TARGETS {
         let view = turned_view(target);
@@ -266,9 +267,9 @@ fn gpu_far_cascades_cast_fewer_terrain_chunks_than_the_camera_draws() {
         resolution: 32,
         ..settings()
     };
-    let mut own = ShadowedScene::new(&context, &source, small).unwrap();
+    let mut own = shadowed(&context, &source, small).unwrap();
     let mut own_scheduler = crate::compositor::FrameRenderer::new(context.device());
-    let mut camera = ShadowedScene::new(&context, &source, small).unwrap();
+    let mut camera = shadowed(&context, &source, small).unwrap();
     let mut camera_scheduler = crate::compositor::FrameRenderer::new(context.device());
     let view = turned_view(TARGETS[0]);
     for _ in 0..4 {

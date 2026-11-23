@@ -1,4 +1,6 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::terrain::deferred_tests::halves;
 use worldrunner_render_plan::{SceneAmbientOcclusion, SceneMaterialFeatures, SceneTint, SceneWind};
 
@@ -63,12 +65,14 @@ pub(super) fn temporal_fixture(
     .unwrap();
     let mut shadows = settings();
     shadows.normal_bias_meters = 0.0;
-    let renderer = ShadowedScene::with_taa_velocity(
+    let renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         shadows,
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget {
+            velocity: true,
+            ..ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1)
+        },
     )
     .unwrap();
     (frame, renderer)

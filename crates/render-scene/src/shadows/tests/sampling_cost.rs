@@ -1,6 +1,7 @@
 //! Deterministic sampling-cost regression plus informational ordinary-scene GPU times.
 use super::*;
 use crate::device::DeviceRequest;
+use crate::offscreen::OffscreenTarget;
 use worldrunner_render_post::{PassId, TimingMode, TimingSupport};
 
 #[test]
@@ -27,7 +28,7 @@ fn ordinary_material_gpu_sampling_cost() {
 }
 
 fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
-    let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
+    let mut renderer = shadowed(context, source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let support = scheduler
         .configure_timing(context.device(), context.queue(), TimingMode::Optional)
